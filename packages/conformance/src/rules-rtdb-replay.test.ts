@@ -175,22 +175,40 @@ type DeployVerdict = 'ACCEPTED' | 'REJECTED';
 const KNOWN_DEPLOY_DIVERGENCES: Record<string, { production: DeployVerdict; local: DeployVerdict; reason: string }> = {
 };
 
-test('every corpus deploy scenario agrees with production (including r44 9/9), except pinned divergences', () => {
-  const seenPins = new Set<string>();
-  for (const scenario of ALL_RULES_RTDB_DEPLOY_SCENARIOS) {
-    const results = replayRtdbDeployScenario(scenario);
-    for (const result of results) {
-      const key = `${scenario.id} :: ${result.caseKey}`;
-      const known = KNOWN_DEPLOY_DIVERGENCES[key];
-      if (known) {
-        seenPins.add(key);
-        expect(result.production, `${key} (recorded production verdict)`).toBe(known.production);
-        expect(result.local, `${key} (local load-time verdict)`).toBe(known.local);
-        continue;
-      }
-      expect(result.local, key).toBe(result.production);
+/**
+ * Each deploy scenario is synchronous parse-and-check work with nothing to wait
+ * on, so its time follows the CPU the runner gives it. The slowest, r51 (`||`
+ * chains of 500, 501 and 2000 terms), takes about 2 s alone, 44 to 48 s on two
+ * cores shared with 48 busy loops, and up to 110 s when the rest of the machine
+ * was busy too. The bound leaves about 1.6 times the slowest of those.
+ */
+const DEPLOY_SCENARIO_TIMEOUT_MS = 180_000;
+
+function assertDeployScenarioAgrees(scenario: (typeof ALL_RULES_RTDB_DEPLOY_SCENARIOS)[number]): void {
+  for (const result of replayRtdbDeployScenario(scenario)) {
+    const key = `${scenario.id} :: ${result.caseKey}`;
+    const known = KNOWN_DEPLOY_DIVERGENCES[key];
+    if (known) {
+      expect(result.production, `${key} (recorded production verdict)`).toBe(known.production);
+      expect(result.local, `${key} (local load-time verdict)`).toBe(known.local);
+      continue;
     }
+    expect(result.local, key).toBe(result.production);
   }
-  const stalePins = Object.keys(KNOWN_DEPLOY_DIVERGENCES).filter((key) => !seenPins.has(key));
+}
+
+test.each(ALL_RULES_RTDB_DEPLOY_SCENARIOS)(
+  'corpus deploy scenario $id agrees with production, except pinned divergences',
+  (scenario) => assertDeployScenarioAgrees(scenario),
+  DEPLOY_SCENARIO_TIMEOUT_MS,
+);
+
+test('every deploy divergence pin names a corpus case', () => {
+  const corpusKeys = new Set(
+    ALL_RULES_RTDB_DEPLOY_SCENARIOS.flatMap((scenario) =>
+      scenario.deployCases.map((deployCase) => `${scenario.id} :: ${deployCase.description}`),
+    ),
+  );
+  const stalePins = Object.keys(KNOWN_DEPLOY_DIVERGENCES).filter((key) => !corpusKeys.has(key));
   expect(stalePins, 'deploy divergence pins that name no corpus case').toEqual([]);
 });
