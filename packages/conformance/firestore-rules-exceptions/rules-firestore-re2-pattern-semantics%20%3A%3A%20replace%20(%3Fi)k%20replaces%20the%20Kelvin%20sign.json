@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#199","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"RE2 (?i)k matches the Kelvin sign U+212A in replace(); pyric does not","issue":"ST-H1-3"}

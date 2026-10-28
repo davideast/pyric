@@ -135,8 +135,10 @@ describe('Storage simulator hunt regressions (ST-SIM-1 .. ST-SIM-9)', () => {
     expect(evalCondition('"a]b".split("[]a]") == ["", "", "b"]').allowed).toBe(true);
     expect(evalCondition('"bAb".replace("\\\\A.", "X") == "XAb"').allowed).toBe(true);
     expect(evalCondition('"bAb".replace("\\\\AA", "X") == "bAb"').allowed).toBe(true);
-    expect(evalCondition('"\\\\1".split("\\\\\\\\1") == ["", ""]').allowed).toBe(true);
-    expect(evalCondition('"(?=".split("[(?=]+") == ["", ""]').allowed).toBe(true);
+    // Each split leaves two empty pieces; production drops the trailing one
+    // (FS2-SIM-7, rules-firestore-split-and-trim-edges).
+    expect(evalCondition('"\\\\1".split("\\\\\\\\1") == [""]').allowed).toBe(true);
+    expect(evalCondition('"(?=".split("[(?=]+") == [""]').allowed).toBe(true);
     expect(evalCondition('"[(?=]".split("[(?=]+") == ["[", "]"]').allowed).toBe(true);
   });
 

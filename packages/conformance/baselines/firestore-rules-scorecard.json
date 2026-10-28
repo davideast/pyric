@@ -1323,10 +1323,11 @@
         "re2-pattern-semantics",
         "split-and-trim-edges"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
-        "firestore-rules#199",
+      "verifiedByRows": [
         "firestore-rules#202"
+      ],
+      "divergedByRows": [
+        "firestore-rules#199"
       ]
     },
     "firestore.method.string.replace": {

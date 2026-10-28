@@ -2,7 +2,8 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { MapDiff } from './mapdiff.js';
 import { FirestoreSet, SET_ALGEBRA_NAMES, SetMethodFailure, setMethod } from './firestore-set.js';
 import { MAP_METHOD_NAMES, MapMethodFailure, mapList } from './map-keys.js';
-import { compileRe2Regex, describeRulesType, isRulesMap, re2FullMatch, replaceRe2 } from './rules-type.js';
+import { describeRulesType, isRulesMap, re2FullMatch, replaceRe2 } from './rules-type.js';
+import { splitRe2 } from './string-split.js';
 import { trimRulesString } from './string-trim.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
@@ -415,7 +416,7 @@ export function evaluateMethodCall(
         }
         try {
           if (method === 'matches') return re2FullMatch(pattern, obj);
-          return obj.split(compileRe2Regex('split', pattern, pattern, 'g'));
+          return splitRe2(obj, pattern);
         } catch (e) {
           throw new EvalError((e as Error).message);
         }
