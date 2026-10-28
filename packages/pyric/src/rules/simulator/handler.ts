@@ -29,7 +29,7 @@ import { DOCUMENT_LOOKUP_LIMIT, LookupBudget } from './lookup-budget.js';
 import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from './expression-budget.js';
 import { ExpressionLimitError, ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
-import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
+import { documentRelativePath } from './request-path.js';
 import { normalizeDocumentPath } from './document-lookups.js';
 import {
   requestQuery,
@@ -37,7 +37,7 @@ import {
   reviveFirestoreNumbers,
 } from './firestore-values.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
-import { collectRootMatches, resolveRootMatch, rootMismatchNote } from './root-match.js';
+import { collectRootMatches, noMatchNotes } from './root-match.js';
 import {
   indexRulesetScopes,
   renderMatchBlockPath,
@@ -724,12 +724,7 @@ export class SimulateFirestoreRulesHandler {
           decision: 'DENY',
           evaluatedExpressions: 0,
           trace: [],
-          notes: resolveRootMatch(evalAst, requestPath)
-            ? [
-              `No match block found for path '${requestPath}', so the request is denied by default.`,
-              DOCUMENT_PATH_FORM,
-            ]
-            : [rootMismatchNote(evalAst, requestPath)],
+          notes: noMatchNotes(evalAst, requestPath),
           pathResolution,
           ...(queryProof ? { queryProof } : {}),
         });

@@ -1,6 +1,7 @@
 import type { FirestoreRules, FunctionDef, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
 import type { PathResolutionEntry } from '../test/spec.js';
 import { collectMatches, renderMatchBlockPath, type MatchResult } from './match-resolution.js';
+import { DOCUMENT_PATH_FORM } from './request-path.js';
 
 /**
  * The service's root `match` is a path like any other. Production compares
@@ -62,6 +63,10 @@ function resolveRootSegments(pattern: readonly PathSegment[], request: readonly 
   return { bindings, remaining: request.slice(consumed) };
 }
 
+/** A recursive wildcard inside the root, followed by more segments, takes the
+ *  shortest span after which the rest of the root matches. Whether the
+ *  children then resolve does not change the span. No deployed root has this
+ *  shape, and no capture records production's choice. */
 function resolveInnerRecursive(
   name: string,
   rest: readonly PathSegment[],
@@ -94,8 +99,9 @@ export function collectRootMatches(
 ): MatchResult[] {
   const root = resolveRootMatch(ast, documentPath);
   if (!root) return [];
-  const results = root.recursiveTail
-    ? collectBelowRootRecursive(ast.service.match, root, functions, recorder)
+  const tail = root.recursiveTail;
+  const results = tail
+    ? collectBelowRootRecursive(ast.service.match, tail.name, root.remaining, functions, recorder)
     : ast.service.match.children.flatMap((child) => collectMatches(child, root.remaining, functions, recorder));
   for (const result of results) {
     result.pathVariables = { ...root.bindings, ...result.pathVariables };
@@ -105,20 +111,31 @@ export function collectRootMatches(
 
 /** Children of a root that ends in a recursive wildcard resolve through a
  *  stand-in block with that wildcard alone and no rules of its own, so they
- *  follow the same depth search as any block under a final recursive one. */
+ *  follow the same depth search as any block under a final recursive one.
+ *  The stand-in is not a block the author wrote, so its own resolution
+ *  attempt is left out of the trace. Allow rules on the root block itself
+ *  are not evaluated, for this root or any other. */
 function collectBelowRootRecursive(
   rootBlock: MatchBlock,
-  root: RootMatch,
+  name: string,
+  remaining: string[],
   functions: FunctionDef[],
   recorder?: { push(entry: PathResolutionEntry): void },
 ): MatchResult[] {
+  const standInPath = `/{${name}=**}`;
   const standIn: MatchBlock = {
-    path: { raw: `/{${root.recursiveTail!.name}=**}`, segments: [{ type: 'recursive', name: root.recursiveTail!.name }] },
+    path: { raw: standInPath, segments: [{ type: 'recursive', name }] },
     functions: [],
     allows: [],
     children: rootBlock.children,
   };
-  return collectMatches(standIn, root.remaining, functions, recorder).filter((result) => result.block !== standIn);
+  const authoredOnly = recorder && {
+    push(entry: PathResolutionEntry) {
+      const isStandIn = entry.blockPath === standInPath && entry.line === undefined;
+      if (!isStandIn) recorder.push(entry);
+    },
+  };
+  return collectMatches(standIn, remaining, functions, authoredOnly).filter((result) => result.block !== standIn);
 }
 
 /**
@@ -135,10 +152,15 @@ export function rootGovernsEveryDocument(ast: FirestoreRules): boolean {
   return coversEverything || root.recursiveTail !== undefined;
 }
 
-/** The note for a request the root match does not apply to. */
-export function rootMismatchNote(ast: FirestoreRules, documentPath: string): string {
+/** The notes for a request no match block resolves: the root names the
+ *  request it does not apply to, and otherwise no block under it matched. */
+export function noMatchNotes(ast: FirestoreRules, documentPath: string): string[] {
+  const rootApplies = resolveRootMatch(ast, documentPath) !== null;
+  if (rootApplies) {
+    return [`No match block found for path '${documentPath}', so the request is denied by default.`, DOCUMENT_PATH_FORM];
+  }
   const rootPath = renderMatchBlockPath(ast.service.match);
-  return `The root match '${rootPath}' does not match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`;
+  return [`The root match '${rootPath}' does not match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`];
 }
 
 function splitPath(path: string): string[] {

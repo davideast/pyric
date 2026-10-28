@@ -148,6 +148,13 @@ describe('controls that keep granting', () => {
     expect(decide(rules, 'get', 'c/2').decision).toBe('DENY');
   });
 
+  test('the trace under a recursive root names only blocks the author wrote', () => {
+    const rules = rulesUnder('/databases/{db}/documents/{rest=**}', "match /c/{id} { allow read: if id == '1'; }");
+    const blockPaths = decide(rules, 'get', 'c/1').pathResolution?.attempts.map((attempt) => attempt.blockPath);
+    expect(blockPaths).toContain('/c/{id}');
+    expect(blockPaths).not.toContain('/{rest=**}');
+  });
+
   test('a root binding is visible to an exists() path in a nested rule', async () => {
     const rules = rulesUnder(
       '/databases/{dbId}/documents',
