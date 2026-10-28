@@ -261,6 +261,7 @@ function registerListener(
           path?: string;
           exists: boolean | (() => boolean);
           data(): Record<string, unknown>;
+          metadata?: { hasPendingWrites?: boolean };
         }>;
       };
 
@@ -268,10 +269,12 @@ function registerListener(
       // offline cache, so `fromCache` is always false and is not sent.
       const hasPendingWrites = snapAny.metadata?.hasPendingWrites === true;
       if (Array.isArray(snapAny.docs)) {
-        // Query snapshot
-        const docs = snapAny.docs.map((d) =>
-          serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
-        );
+        // Query snapshot. Each document sends its own pending state, which
+        // production reports per document (FP-5, #1358).
+        const docs = snapAny.docs.map((d) => ({
+          ...serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
+          hasPendingWrites: d.metadata?.hasPendingWrites === true,
+        }));
         post(port, { t: 'snap', subId: msg.subId, value: { docs, hasPendingWrites, usage } });
       } else if (snapAny.id !== undefined) {
         // Doc snapshot

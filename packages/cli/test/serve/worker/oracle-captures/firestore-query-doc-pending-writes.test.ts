@@ -12,7 +12,9 @@ it('firestore-query-doc-pending-writes, served', async () => {
     pins: [
       {
         key: 'events',
-        finding: `FP-5: only the written doc reports hasPendingWrites, not every doc in the snapshot; ${CACHED_INITIAL_SNAPSHOT}`,
+        // FP-5 is fixed (#1358): each doc carries its own value. What is left
+        // is the in-page engine's, which this plane forwards.
+        finding: `FL-20: only the written doc reports hasPendingWrites; ${CACHED_INITIAL_SNAPSHOT}`,
         production: [
           { pw: false, docs: [['a', false]] },
           { pw: false, docs: [['a', false]] },
@@ -21,7 +23,7 @@ it('firestore-query-doc-pending-writes, served', async () => {
         ],
         pyric: [
           { pw: false, docs: [['a', false]] },
-          { pw: true, docs: [['a', true], ['z', true]] },
+          { pw: true, docs: [['a', false], ['z', false]] },
           { pw: false, docs: [['a', false], ['z', false]] },
         ],
       },
