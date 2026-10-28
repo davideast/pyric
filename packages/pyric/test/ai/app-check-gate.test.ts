@@ -196,6 +196,15 @@ describe('ai#sandbox-app-check-stream-and-count-tokens', () => {
     expectCapturedRefusal(await rejection(model.generateContentStream('ping')), 'streamGenerateContent');
   });
 
+  it('a malformed request with a valid token still rejects at the call on the in-process plane', async () => {
+    const app = newApp();
+    withAppCheck(app);
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    const error = await rejection(model.generateContentStream({ contents: [] }));
+    expect(error).toBeInstanceOf(AIError);
+    expect(error.customErrorData?.status).not.toBe(gateWire.noHeader.httpStatus);
+  });
+
   it('countTokens rejects the same way', async () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     expectCapturedRefusal(await rejection(model.countTokens('ping')), 'countTokens');
