@@ -57,12 +57,20 @@ async function surfacePlaneContext(): Promise<FirestoreScenarioContext> {
   };
 }
 
+/** Which plane's implementation a surface export is. */
+function planeOf(exported: unknown, inPage: unknown, worker: unknown): 'in-page' | 'worker' | 'neither' {
+  if (exported === inPage) return 'in-page';
+  if (exported === worker) return 'worker';
+  return 'neither';
+}
+
 const AGGREGATE_PRODUCTION = () => withoutMessages(load('firestore-aggregate-field-semantics'));
 
 describe('served firestore surface', () => {
   it('getAggregateFromServer is the data-path pick, as getCountFromServer is', () => {
-    const picks = [ip.getAggregateFromServer, client.getAggregateFromServer] as unknown[];
-    expect(picks).toContain(surface.getAggregateFromServer);
+    const aggregate = planeOf(surface.getAggregateFromServer, ip.getAggregateFromServer, client.getAggregateFromServer);
+    const countOnly = planeOf(surface.getCountFromServer, ip.getCountFromServer, client.getCountFromServer);
+    expect(aggregate).toBe(countOnly);
   });
 
   it('the served getAggregateFromServer aggregates as production does, apart from the aggregate findings', async () => {

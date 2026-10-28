@@ -15,5 +15,6 @@ const firestore = getFirestore(app);
 window.readBack = async () => ({
   database: (await get(ref(db, "server/client"))).val(),
   firestore: (await getDoc(doc(firestore, "server/client"))).data() ?? null,
+  // server/late, server/fromAdmin, server/client and server/cjs (from client.cjs) exist by now.
   aggregate: (await getAggregateFromServer(collection(firestore, "server"), { n: count() })).data(),
 });
