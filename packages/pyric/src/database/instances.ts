@@ -79,8 +79,10 @@ export function getDatabase(
     const parsed = finalUrl ? parseDatabaseUrl(finalUrl) : undefined;
     const instance = projectDefaultAsUndefined(parsed, projectId);
     const instanceKey = databaseInstanceKey(instance);
-    if (optionsRead) {
-      const rootUrl = parsed?.url ?? `https://${defaultDatabaseInstanceName(projectId!)}.firebaseio.com/`;
+    const rootUrl = optionsRead
+      ? parsed?.url ?? `https://${defaultDatabaseInstanceName(projectId!)}.firebaseio.com/`
+      : undefined;
+    if (rootUrl !== undefined) {
       assertOpenedOnce(appRuntime, effectiveUrl, rootUrl);
     }
 
@@ -101,6 +103,7 @@ export function getDatabase(
         activityScope: instanceKey,
         backend,
         connection,
+        instanceUrl: rootUrl,
         sandbox,
         currentUser: () => session.currentUser,
         onCurrentUserChanged: (callback) => session.onCurrentUserChanged(callback),
@@ -119,7 +122,15 @@ export function getDatabase(
     const instance = resolveDatabaseInstance(effectiveUrl);
     const backend = getOrCreateBackend(target.sandbox, instance);
     const connection = new RtdbConnectionLifecycle(backend, () => target.auth, false);
-    const t: SandboxTarget = { kind: 'sandbox', activityApp: target, activityScope: databaseInstanceKey(instance), backend, auth: target.auth, connection };
+    const t: SandboxTarget = {
+      kind: 'sandbox',
+      activityApp: target,
+      activityScope: databaseInstanceKey(instance),
+      backend,
+      auth: target.auth,
+      connection,
+      instanceUrl: instance?.url,
+    };
     return new Database(t);
   }
 
@@ -137,6 +148,7 @@ export function getDatabase(
       activityScope: databaseInstanceKey(instance),
       backend,
       connection,
+      instanceUrl: instance?.url,
       sandbox: target,
       onCurrentUserChanged: (callback) => target.onCurrentUserChanged(callback),
     };
@@ -172,9 +184,10 @@ export function getAdminDatabase(
       ? target
       : undefined;
   if (sandbox === undefined) throw packageResolutionError();
-  const backend = getOrCreateBackend(sandbox, resolveDatabaseInstance(url));
+  const instance = resolveDatabaseInstance(url);
+  const backend = getOrCreateBackend(sandbox, instance);
   const connection = new RtdbConnectionLifecycle(backend, () => null, true);
-  const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection };
+  const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection, instanceUrl: instance?.url };
   return new Database(t);
 }
 

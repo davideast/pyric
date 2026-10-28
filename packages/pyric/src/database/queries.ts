@@ -57,7 +57,7 @@ export function query(
   for (const c of constraints) {
     spec = applyConstraint(spec, c[CONSTRAINT_SYMBOL]);
   }
-  validateQuerySpec(spec);
+  validateQuerySpec(spec, baseRef._path);
   const q: Query = {
     ref: baseRef,
     _spec: spec,

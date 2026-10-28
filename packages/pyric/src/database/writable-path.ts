@@ -76,11 +76,13 @@ export function validateUpdatePaths(
  * or `]` outside a leading `/.info`, or, unless `allowEmpty`, is empty.
  */
 export function validateReferencePath(path: string, allowEmpty: boolean): void {
-  const normalized = path.replace(/^\/*\.info(\/|$)/, '/');
-  const isInvalidLength = !allowEmpty && path.length === 0;
+  // A caller without types can pass any value; the SDK refuses one that is not a string.
+  const isString = typeof path === 'string';
+  const normalized = isString ? path.replace(/^\/*\.info(\/|$)/, '/') : '';
+  const isInvalidLength = !allowEmpty && isString && path.length === 0;
   // The SDK's path regex also refuses the control characters U+0000 to U+001F and U+007F.
   const containsForbiddenChars = /[.#$[\]\u0000-\u001F\u007F]/.test(normalized);
-  if (isInvalidLength || containsForbiddenChars) {
+  if (!isString || isInvalidLength || containsForbiddenChars) {
     throw new Error(
       `child failed: path argument was an invalid path = "${path}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
     );
