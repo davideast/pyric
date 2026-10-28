@@ -169,6 +169,8 @@ In production mode, Pyric stops intercepting `getAI()` and `getGenerativeModel()
 ✔ [pyric] ai: production passthrough; firebase/ai is the Firebase SDK, calling Google AI or Vertex AI with the app's initializeApp config
 ```
 
+Production mode works the same way on `pyric sandbox`, on the Vite plugin, and in a Node process started with `node --import @pyric/cli/register`. On `pyric sandbox` without Vite, Pyric builds `firebase/app`, `firebase/ai`, and `firebase/app-check` from your project's own `firebase` package, so install `firebase` in the project first. Without it, `pyric sandbox` stops at startup and says to install it. Upgrading `firebase` rebuilds that bundle on the next start.
+
 The model id you request goes to the backend unchanged. A model the backend does not serve fails with the backend's own error, as it would in production, and `modelVersion` is the value the backend reports. Other Firebase modules, such as `firebase/firestore` and `firebase/auth`, still run against the local sandbox.
 
 ### Project configuration requirements

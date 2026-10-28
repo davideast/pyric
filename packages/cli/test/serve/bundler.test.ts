@@ -10,6 +10,7 @@ import {
   cacheKey,
   pyricPackageRoot,
   pyricVersion,
+  resolveProjectFirebase,
   resolveSiteUiDir,
   sourceTreeHash,
   workerEntryPath,
@@ -84,6 +85,20 @@ describe('cache key', () => {
     writeFileSync(a.auth!, 'export const x = 2;');
     expect(cacheKey({ entries: a }, '1.2.3')).not.toBe(k1);
     expect(cacheKey({ entries: a }, '9.9.9')).not.toBe(k1); // version-sensitive
+  });
+
+  it("covers the project's resolved firebase version in production AI mode only", () => {
+    const a = entryFixture('export const x = 1;');
+    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-key-firebase-'));
+    const manifest = join(project, 'node_modules', 'firebase', 'package.json');
+    mkdirSync(join(project, 'node_modules', 'firebase'), { recursive: true });
+    writeFileSync(manifest, JSON.stringify({ name: 'firebase', version: '12.13.0' }));
+    const sandbox = cacheKey({ entries: a }, '1.2.3');
+    const production = cacheKey({ entries: a, projectFirebase: { projectDir: project } }, '1.2.3');
+    expect(production).not.toBe(sandbox);
+    writeFileSync(manifest, JSON.stringify({ name: 'firebase', version: '12.14.0' }));
+    expect(cacheKey({ entries: a, projectFirebase: { projectDir: project } }, '1.2.3')).not.toBe(production);
+    expect(cacheKey({ entries: a }, '1.2.3')).toBe(sandbox);
   });
 
   it('changes when an imported worker client outside the entries directory changes', () => {
@@ -350,26 +365,60 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     // The in-page runtime's verify capture records every RTDB instance.
     const sources = result.files.map((f) => readFileSync(f, 'utf8'));
     expect(sources.some((src) => src.includes('captureRtdbInstances'))).toBe(true);
-    // The production AI pass-through entries wrap the Firebase SDK by design,
-    // and so does the shadow-app chunk they share (register/app-bridge-shadow).
-    // No other entry may reach a file that imports the Firebase SDK.
-    const PASSTHROUGH_ENTRIES = ['app-ai-passthrough.js', 'app-ai-passthrough-app-check.js'];
-    const baseName = (f: string) => f.split('/').pop()!;
-    const importsSdk = (src: string) => /from\s*["']firebase\//.test(src);
-    const sdkChunks = result.files.filter((f) => !PASSTHROUGH_ENTRIES.includes(baseName(f)) && importsSdk(readFileSync(f, 'utf8')));
-    for (const chunk of sdkChunks) {
-      expect(baseName(chunk)).toStartWith('pyric-sandbox-');
-      expect(readFileSync(chunk, 'utf8')).toContain('src/register/app-bridge-shadow.ts');
-      const importers = result.files.filter((f) => readFileSync(f, 'utf8').includes(`./${baseName(chunk)}`));
-      expect(importers.map(baseName).filter((name) => !PASSTHROUGH_ENTRIES.includes(name))).toEqual([]);
-    }
     for (const f of result.files) {
       const src = readFileSync(f, 'utf8');
       // provenance banner on every served bundle
       expect(src).toContain('not the real Firebase SDK');
+      // No bare firebase/* import survives, not even the production AI
+      // pass-through wrappers': the import map would send their firebase/app
+      // and firebase/app-check back to the wrappers themselves (#1290).
+      expect(src).not.toMatch(/from\s*["']firebase\//);
       expect(src).not.toMatch(/from\s*["']node:/);
     }
+    // The wrappers reach the Firebase SDK that production AI mode builds, by URL.
+    const all = sources.join('\n');
+    expect(all).toMatch(/from\s*["']\/__pyric\/sdk\/firebase-sdk-app\.js["']/);
+    expect(all).toMatch(/from\s*["']\/__pyric\/sdk\/firebase-sdk-app-check\.js["']/);
+    // Sandbox AI mode does not build the Firebase SDK.
+    expect(names.filter((n) => n.startsWith('firebase-sdk-'))).toEqual([]);
   }, 30_000);
+
+  it("production AI mode builds the project's Firebase SDK with one shared @firebase/app", async () => {
+    const { bundleSdk, defaultSdkEntries } = await import('../../src/serve/bundler.js');
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-firebase-sdk-'));
+    const projectDir = join(import.meta.dir, '..', '..');
+    const firebase = resolveProjectFirebase(projectDir);
+    const result = await bundleSdk({
+      entries: defaultSdkEntries(),
+      cacheRoot: join(dir, 'cache'),
+      minify: false,
+      projectFirebase: { projectDir },
+    });
+    const names = result.files.map((f) => f.split('/').pop()!);
+    expect(names).toContain('firebase-sdk-app.js');
+    expect(names).toContain('firebase-sdk-ai.js');
+    expect(names).toContain('firebase-sdk-app-check.js');
+    expect(names).toContain('app-ai-passthrough.js');
+    const read = (name: string): string => readFileSync(join(result.outDir, name), 'utf8');
+    for (const name of names.filter((n) => n.startsWith('firebase-sdk-'))) {
+      const src = read(name);
+      expect(src).toContain(`firebase@${firebase.version} from this project`);
+      expect(src).not.toMatch(/from\s*["'](?:@?firebase\/|node:)/);
+    }
+    // One build: the three entries share chunks, so @firebase/app's component
+    // registry exists once and firebase/ai finds App Check on the same app.
+    const sharedChunk = /from\s*["']\.\/(firebase-sdk-[A-Z0-9]+\.js)["']/i;
+    const chunkOf = (name: string): string | undefined => sharedChunk.exec(read(name))?.[1];
+    expect(chunkOf('firebase-sdk-ai.js')).toBeDefined();
+    expect(chunkOf('firebase-sdk-app-check.js')).toBeDefined();
+    const registries = names.filter((n) => /_components\s*=\s*(?:\/\*[^*]*\*\/\s*)?new Map/.test(read(n)));
+    expect(registries.length).toBe(1);
+  }, 60_000);
+
+  it('a project without firebase fails with a message that says to install it', () => {
+    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-no-firebase-'));
+    expect(() => resolveProjectFirebase(project)).toThrow(/npm install firebase/);
+  });
 
   it('built bundles export the section 3c tier-2 surface (import-time failure class)', async () => {
     const { bundleSdk, defaultSdkEntries } = await import('../../src/serve/bundler.js');

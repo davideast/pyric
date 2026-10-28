@@ -336,6 +336,10 @@ async function startServeRuntime(opts: {
   // stale, not auto-replaced; the user closes all tabs to load the new worker.
   let workerVersion: string;
   const usesEmbeddedAssets = isStandalone();
+  const aiMode = resolveAiMode(undefined, process.env);
+  // Production AI mode serves the project's own Firebase SDK for firebase/ai,
+  // firebase/app and firebase/app-check (#1290).
+  const projectFirebase = aiMode === 'production' ? { projectDir: opts.cwd } : undefined;
   if (usesEmbeddedAssets) {
     bundle = await materializeServeAssets();
     workerVersion = embeddedWorkerVersion();
@@ -344,6 +348,7 @@ async function startServeRuntime(opts: {
       entries: defaultSdkEntries(),
       noCache: opts.noCache,
       cacheRoot: opts.cacheRoot,
+      projectFirebase,
     });
     // The SharedWorker host (Phase 3c): bundled into the SAME sdk dir so the
     // existing /__pyric/sdk/worker.js route serves it. The page's entry
@@ -407,7 +412,6 @@ async function startServeRuntime(opts: {
   const usesPersistence = Boolean(opts.persist || opts.hosted);
   const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
   const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
-  const aiMode = resolveAiMode(undefined, process.env);
   const usesHostedSandbox = opts.hosted === true;
   let session: SandboxSession;
   try {
