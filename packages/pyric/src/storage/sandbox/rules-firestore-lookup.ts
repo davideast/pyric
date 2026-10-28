@@ -96,35 +96,52 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     throw new RuleEvalError(`firestore.${expr.method}() expects a single path argument`);
   }
   const arg = expr.args[0];
-  let docPath: string;
+  let docSegments: string[];
   if (arg.kind === 'path') {
     // An authored path literal is an evaluated node plus one unit per literal
     // segment; its interpolations charge themselves as they evaluate.
     ctx.expressionBudget?.node(arg);
     for (const seg of arg.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment(arg);
-    docPath = buildFirestoreDocPath(arg, ctx);
+    docSegments = buildFirestoreDocPath(arg, ctx);
   } else {
     const val = evalExpr(arg, ctx);
     if (isErr(val)) return val;
-    if (val instanceof StoragePath || (val instanceof RulesValue && val.typeName === 'path')) {
-      const pathString = val instanceof StoragePath ? val.path : String(val);
-      const segments = pathString.split('/').filter(Boolean).map((value) => ({ kind: 'literal' as const, value }));
-      docPath = buildFirestoreDocPath({ kind: 'path', segments }, ctx);
+    if (isPathValue(val)) {
+      const segments = pathValueSegments(val).map((value) => ({ kind: 'literal' as const, value }));
+      docSegments = buildFirestoreDocPath({ kind: 'path', segments }, ctx);
     } else {
       return new RuleError(
         `Function not found error: Name: [${expr.method}].`,
       );
     }
   }
-  if (!ctx.firestoreAccesses.has(docPath)) {
+  // A slashed lookup counts toward the two-document cap like any other:
+  // production lists the errored call among the request's function calls.
+  // Its key is encoded so it never counts as the deeper document.
+  const accessKey = docSegments.map(accessKeySegment).join('/');
+  if (!ctx.firestoreAccesses.has(accessKey)) {
     if (ctx.firestoreAccesses.size >= 2) {
       // Resource-limit class, the same posture as the Firestore lookup
       // budget: production fails the whole evaluation closed, so a
       // determining &&/|| operand must NOT absorb this into an allow.
       throw new RuleResourceLimitError('firestore access limit exceeded: at most two distinct documents');
     }
-    ctx.firestoreAccesses.add(docPath);
+    ctx.firestoreAccesses.add(accessKey);
   }
+  const slashed = docSegments.find((segment) => segment.includes('/'));
+  if (slashed !== undefined) {
+    // No document ID holds a `/`. The capture
+    // `rules-storage-h1-lookup-interpolated-slash` shows the call erroring
+    // for `get` and `exists` alike, but under the Rules Test API, where an
+    // unmocked call also errors. That `exists` errors rather than answering
+    // false against a real database is inferred, and erroring is the
+    // fail-closed reading: `!exists(...)` denies.
+    return new RuleError(
+      `Service call error. Function: [firestore.${expr.method}]: the path segment "${slashed}" holds a "/", ` +
+        'and an interpolated string is one segment, so no document has this path',
+    );
+  }
+  const docPath = docSegments.join('/');
   if (expr.method === 'exists') {
     return ctx.firestoreLookup.exists(docPath);
   }
@@ -139,30 +156,60 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   return { data: wrapFirestoreValue(fields) as Record<string, unknown> };
 }
 
+/** Whether a rules value has the rules type `path`. */
+function isPathValue(value: unknown): value is RulesValue {
+  return value instanceof StoragePath || (value instanceof RulesValue && value.typeName === 'path');
+}
+
+function pathValueSegments(value: RulesValue): string[] {
+  if (value instanceof StoragePath) return value.segments;
+  return String(value).split('/').filter(Boolean);
+}
+
 /**
- * Assemble a {@link PathArgSegment} list into the document path the
- * {@link FirestoreLookup} expects, then validate + strip the required
+ * One segment of the key that counts distinct documents. A segment holding a
+ * `/` is percent-encoded, as production's own argument rendering shows
+ * (`users/alice%2Fprivate%2Fx`), so it never counts as the deeper document.
+ */
+function accessKeySegment(segment: string): string {
+  return segment.replaceAll('%', '%25').replaceAll('/', '%2F');
+}
+
+/**
+ * The segments one interpolation contributes. Production decides by the
+ * value's rules type, not its contents: a string or number is exactly one
+ * segment, even when it holds a `/`, and a `path` value (a `{rest=**}`
+ * capture or `path()`) splices in as its segments
+ * (capture `rules-storage-storage-lookup-path-interpolation`).
+ */
+function interpolatedSegments(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (typeof value === 'number') return [String(value)];
+  if (isPathValue(value)) return pathValueSegments(value);
+  throw new RuleEvalError(
+    `Firestore path interpolation resolved to ${describeType(value)} (expected a string or a path)`,
+  );
+}
+
+/**
+ * Assemble a {@link PathArgSegment} list into the document path segments the
+ * {@link FirestoreLookup} expects, then validate and strip the required
  * `/databases/<db>/documents/` prefix. Interpolations must resolve to a
- * string or number; anything else (e.g. `request.auth.uid` when auth is
- * null → undefined) throws → deny.
+ * string, number or path; anything else (e.g. `request.auth.uid` when auth is
+ * null, which is undefined) throws, which denies.
  */
 function buildFirestoreDocPath(
   pathExpr: Extract<Expr, { kind: 'path' }>,
   ctx: EvalCtx,
-): string {
+): string[] {
   // Every interpolation evaluates when an earlier one errors; the first
   // error denies.
   const interpolated = evalOperands(pathExpr.segments.flatMap((seg) => (seg.kind === 'literal' ? [] : [seg.expr])), ctx);
   if (isErr(interpolated)) throw new RuleEvalError(interpolated.message);
   let next = 0;
-  const parts = pathExpr.segments.map((seg) => {
-    if (seg.kind === 'literal') return seg.value;
-    const v = interpolated[next++];
-    if (typeof v === 'string') return v;
-    if (typeof v === 'number') return String(v);
-    throw new RuleEvalError(
-      `Firestore path interpolation resolved to ${describeType(v)} (expected a string)`,
-    );
+  const parts = pathExpr.segments.flatMap((seg) => {
+    if (seg.kind === 'literal') return [seg.value];
+    return interpolatedSegments(interpolated[next++]);
   });
   // Required production shape: databases / <db> / documents / <doc path…>.
   if (parts.length < 4 || parts[0] !== 'databases' || parts[2] !== 'documents') {
@@ -182,5 +229,5 @@ function buildFirestoreDocPath(
       `Firestore path does not point at a document (needs an even segment count): ${docSegments.join('/')}`,
     );
   }
-  return docSegments.join('/');
+  return docSegments;
 }

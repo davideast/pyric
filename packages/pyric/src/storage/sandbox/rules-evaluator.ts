@@ -19,7 +19,7 @@ import {
   isValueTypeOperand,
   typeMatches,
 } from './rules-operators.js';
-import { formatPath, matchSegments, splitPath, type PathParamValue } from './rules-path-match.js';
+import { formatPath, matchSegments, recursiveWildcardMinimum, splitPath, type PathParamValue } from './rules-path-match.js';
 import {
   RuleEvalError,
   RuleExpressionLimitError,
@@ -84,7 +84,7 @@ export function evaluateStorageRules(
   ): boolean {
     if (stopped) return false;
     // Match this block's segments against the start of `remaining`.
-    const match = matchSegments(block.segments, remaining, params);
+    const match = matchSegments(block.segments, remaining, params, rules._version);
     if (!match) return false;
     const newParams = match.params;
     const left = match.left;
@@ -195,10 +195,11 @@ export function evaluateStorageRules(
     const lastSeg = block.segments[block.segments.length - 1];
     if (block.children.length > 0 && lastSeg !== undefined && lastSeg.kind === 'wildcard') {
       const prefixSegments = block.segments.slice(0, -1);
-      const prefixMatch = matchSegments(prefixSegments, remaining, params);
+      const prefixMatch = matchSegments(prefixSegments, remaining, params, rules._version);
       if (prefixMatch) {
         const tail = prefixMatch.left;
-        for (let splitLen = tail.length; splitLen >= 0; splitLen--) {
+        const fewest = recursiveWildcardMinimum(rules._version);
+        for (let splitLen = tail.length; splitLen >= fewest; splitLen--) {
           const captured = tail.slice(0, splitLen);
           const childLeft = tail.slice(splitLen);
           const childParams: Record<string, PathParamValue> = {
