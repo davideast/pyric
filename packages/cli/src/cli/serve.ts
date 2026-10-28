@@ -16,7 +16,7 @@ import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
   materializeServeAssets,
@@ -214,6 +214,8 @@ async function startServeRuntime(opts: {
   /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
   permissive?: boolean;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
+  /** A child command runs beside the server and resolves `firebase` itself. */
+  hasChildCommand?: boolean;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
 
@@ -336,6 +338,15 @@ async function startServeRuntime(opts: {
   // stale, not auto-replaced; the user closes all tabs to load the new worker.
   let workerVersion: string;
   const usesEmbeddedAssets = isStandalone();
+  const aiMode = resolveAiMode(undefined, process.env);
+  // Production AI mode serves the project's own Firebase SDK for firebase/ai,
+  // firebase/app and firebase/app-check (#1290).
+  let projectFirebase: { projectDir: string } | undefined;
+  if (aiMode === 'production') {
+    const firebasePlan = planProjectFirebase(opts.cwd, Boolean(opts.hasChildCommand));
+    projectFirebase = firebasePlan.projectFirebase;
+    if (firebasePlan.warning) logger.note(firebasePlan.warning);
+  }
   if (usesEmbeddedAssets) {
     bundle = await materializeServeAssets();
     workerVersion = embeddedWorkerVersion();
@@ -344,6 +355,7 @@ async function startServeRuntime(opts: {
       entries: defaultSdkEntries(),
       noCache: opts.noCache,
       cacheRoot: opts.cacheRoot,
+      projectFirebase,
     });
     // The SharedWorker host (Phase 3c): bundled into the SAME sdk dir so the
     // existing /__pyric/sdk/worker.js route serves it. The page's entry
@@ -407,7 +419,6 @@ async function startServeRuntime(opts: {
   const usesPersistence = Boolean(opts.persist || opts.hosted);
   const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
   const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
-  const aiMode = resolveAiMode(undefined, process.env);
   const usesHostedSandbox = opts.hosted === true;
   let session: SandboxSession;
   try {
@@ -996,6 +1007,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       allowedHosts,
       project: firebaseProject.projectId,
       firebaseProject,
+      hasChildCommand: plan !== null,
     });
   } catch (e) {
     const message = serveErrorMessage(e);

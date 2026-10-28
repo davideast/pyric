@@ -37,6 +37,8 @@ const result = await model.generateContent('Summarise this report.');
 
 Setting `FIREBASE_APPCHECK_DEBUG_TOKEN` in development switches App Check to its debug provider, so local runs need no reCAPTCHA. In the sandbox, Pyric answers App Check locally. In [production AI mode](#pass-through-to-production-ai-models) the Firebase SDK prints a debug token to the browser console; register it in the Firebase console under App Check, Apps, Manage debug tokens, and AI Logic accepts the requests. Get the reCAPTCHA v3 site key for production builds from the same App Check page.
 
+The sandbox refuses these requests too. If an app never calls `initializeAppCheck`, or calls it after `getAI`, `generateContent`, `generateContentStream`, `countTokens` and chat messages fail with the same 403 error production returns. Pyric prints how to fix it in the browser console and in the dev server terminal. Sandbox tokens from `initializeAppCheck` are accepted, with or without the debug provider.
+
 ## Start with deterministic responses
 
 With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
@@ -168,6 +170,8 @@ In production mode, Pyric stops intercepting `getAI()` and `getGenerativeModel()
 ```text
 ✔ [pyric] ai: production passthrough; firebase/ai is the Firebase SDK, calling Google AI or Vertex AI with the app's initializeApp config
 ```
+
+Production mode works the same way on `pyric sandbox`, on the Vite plugin, and in a Node process started with `node --import @pyric/cli/register`. On `pyric sandbox` without Vite, Pyric builds `firebase/app`, `firebase/ai`, and `firebase/app-check` from your project's own `firebase` package, so install `firebase` in the project first. Without it, `pyric sandbox` stops at startup and says to install it. Upgrading `firebase` rebuilds that bundle on the next start.
 
 The model id you request goes to the backend unchanged. A model the backend does not serve fails with the backend's own error, as it would in production, and `modelVersion` is the value the backend reports. Other Firebase modules, such as `firebase/firestore` and `firebase/auth`, still run against the local sandbox.
 

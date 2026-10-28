@@ -242,7 +242,10 @@ console.log('CLIENT_OK');
     `import assert from 'node:assert';
 import { initializeApp } from 'firebase/app';
 import { getAI, getGenerativeModel } from 'firebase/ai';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-ai-project' });
+// AI Logic requires App Check before getAI, and so does the sandbox.
+initializeAppCheck(app, { provider: new ReCaptchaV3Provider('site-key') });
 const ai = getAI(app);
 assert.strictEqual(getAI(), ai, 'bare getAI() must use the registered default sandbox app');
 const model = getGenerativeModel(ai, { model: 'gemini-flash-lite-latest' });

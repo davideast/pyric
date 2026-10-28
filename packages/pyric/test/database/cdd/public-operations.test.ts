@@ -189,6 +189,6 @@ describe('rtdb-modular CDD: public operation rows', () => {
   row('171', () => expect(api.forceLongPolling()).toBeUndefined());
   row('172', () => expect(api.forceWebSockets()).toBeUndefined());
   row('173', () => expect(api.enableLogging(() => {}, true)).toBeUndefined());
-  row('174', () => { const { db } = setup(); expect(referenceObservation.mismatchedHost.timing).toBe('synchronous-throw'); const parsed = api.refFromURL(db, 'ftp://other.example/a/b?ignored=1'); expect([parsed.key, parsed.toString()]).toEqual(['b', 'sandbox://rtdb/a/b']); expect(() => api.refFromURL(db, 'https://other.example/a#fragment')).toThrow(); });
+  row('174', () => { const { db, sandbox } = setup(); expect(referenceObservation.mismatchedHost.timing).toBe('synchronous-throw'); const hosted = api.getDatabase(sandbox, 'https://digame-mas-default-rtdb.firebaseio.com'); expect(() => api.refFromURL(hosted, 'https://other-digame-mas-default-rtdb.firebaseio.com/a')).toThrow(referenceObservation.mismatchedHost.message); const parsed = api.refFromURL(db, 'ftp://other.example.com/a/b?ignored=1'); expect([parsed.key, parsed.toString()]).toEqual(['b', 'sandbox://rtdb/a/b']); expect(() => api.refFromURL(db, 'https://other.example.com/a#fragment')).toThrow(); });
   row('M95', assertM95InfoWrites);
 });

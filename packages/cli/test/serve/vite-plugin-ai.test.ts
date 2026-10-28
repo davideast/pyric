@@ -29,9 +29,12 @@ describe('canonical AI operation through Vite', () => {
       join(fixtureRoot, 'ai-smoke.ts'),
       `import { initializeApp } from 'firebase/app';
 import { getAI, getGenerativeModel } from 'firebase/ai';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 
 export async function run() {
   const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-smoke' });
+  // AI Logic requires App Check before getAI, and so does the sandbox.
+  initializeAppCheck(app, { provider: new ReCaptchaV3Provider('site-key') });
   const explicit = getAI(app);
   const bare = getAI();
   const result = await getGenerativeModel(explicit, {
@@ -102,9 +105,12 @@ export async function run() {
       join(fixtureRoot, 'ai-engine.ts'),
       `import { initializeApp } from 'firebase/app';
 import { getAI, getGenerativeModel } from 'firebase/ai';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 
 export async function run() {
   const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-engine' });
+  // AI Logic requires App Check before getAI, and so does the sandbox.
+  initializeAppCheck(app, { provider: new ReCaptchaV3Provider('site-key') });
   // App code passes NO engine — the plugin-level engine must apply anyway.
   const result = await getGenerativeModel(getAI(app), {
     model: 'gemini-flash-lite-latest',
