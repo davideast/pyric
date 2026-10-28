@@ -29,6 +29,33 @@ describe('Vite rules source convention', () => {
     });
   });
 
+  it('puts firestore.modules.rules on the (default) entry of a firestore array and keeps the others', () => {
+    const root = project();
+    writeFileSync(path.join(root, 'firestore.modules.rules'), 'modules');
+    expect(resolveViteRulesConfig(root, undefined, {
+      firestore: [
+        { database: '(default)', rules: 'firestore.default.rules', indexes: 'i.json' },
+        { database: 'reports', rules: 'reports.rules' },
+      ],
+    })).toEqual({
+      firestore: [
+        { database: '(default)', rules: 'firestore.modules.rules', indexes: 'i.json' },
+        { database: 'reports', rules: 'reports.rules' },
+      ],
+    });
+  });
+
+  it('adds a (default) entry for an explicit rules path when a firestore array has none', () => {
+    expect(resolveViteRulesConfig(project(), 'custom.rules', {
+      firestore: [{ database: 'reports', rules: 'reports.rules' }],
+    })).toEqual({
+      firestore: [
+        { database: 'reports', rules: 'reports.rules' },
+        { database: '(default)', rules: 'custom.rules' },
+      ],
+    });
+  });
+
   it('prefers storage.modules.rules for Vite while preserving the deployment target', () => {
     const root = project();
     writeFileSync(path.join(root, 'storage.modules.rules'), 'modules');
