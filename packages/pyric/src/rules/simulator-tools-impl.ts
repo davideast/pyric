@@ -32,6 +32,7 @@ import {
   ExpressionParseError,
 } from './simulator/expression/types.js';
 import { EvalError } from './simulator/expression/eval-errors.js';
+import { rulesSourceRejection } from './grammar/source-compile-limits.js';
 
 export interface FirestoreSimulatorToolDeps {
   /**
@@ -80,7 +81,7 @@ export function createFirestoreSimulatorTools(
     {
       name: 'firestore_simulator_create',
       description:
-        'Seed the session\'s local Firestore environment with rules and optional initial documents. Resets any prior state. Supports `rules_version = "2+modules"` — modules resolve in-process before seeding. Returns the lint result + document count for verification.',
+        'Seed the session\'s local Firestore environment with rules and optional initial documents. Resets any prior state. Refuses rules production would not load (a parse error, a service other than cloud.firestore, a compile limit) and keeps the rules and documents in force. Supports `rules_version = "2+modules"` — modules resolve in-process before seeding. Returns the lint result + document count for verification.',
       parameters: {
         type: 'object',
         properties: {
@@ -120,6 +121,18 @@ export function createFirestoreSimulatorTools(
             };
           }
           rules = resolved.data.resolved;
+        }
+        // Production won't load a source that does not parse, names a
+        // service other than cloud.firestore, or is past a compile limit.
+        // `rules.set` refuses one and keeps the rules in force; so does
+        // this tool, before it resets anything.
+        const rejection = rulesSourceRejection(rules);
+        if (rejection !== null) {
+          return {
+            ok: false,
+            summary: `Firestore ${rejection.message}`,
+            data: { code: 'RULES_REFUSED', rejection },
+          };
         }
         const env = await resolveSandbox();
         const lint = env.seed({ rules, documents: documents ?? {} });
