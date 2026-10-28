@@ -1,7 +1,9 @@
 // In the default sandbox AI mode, firebase/app-check is Pyric's mirror: an app
 // that calls initializeAppCheck on its first run gets a working handle and
 // tokens shaped like production's, with no reCAPTCHA or App Check request
-// leaving the browser.
+// leaving the browser. A server that initializes firebase-admin the usual
+// way, with only `cert(serviceAccount)`, finds its project in the service
+// account's project_id and verifies the page's token (#1294).
 import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
 
@@ -44,5 +46,21 @@ export default scenario(async (app) => {
 
   await app.step('no request left the browser for reCAPTCHA or App Check', () => {
     assert.deepEqual(external, []);
+  });
+
+  await app.step('a server initialized with only cert(serviceAccount) verifies the page token', async () => {
+    const token = await page.evaluate(() => (window as unknown as { appCheckToken: string }).appCheckToken);
+    const { output } = await app.serverScript('admin-server.mjs', [token], {
+      env: { PYRIC_SANDBOX: `remote:${host.url}` },
+      timeoutMs: 30_000,
+    });
+    const line = output.match(/^verify (.*)$/m);
+    assert.ok(line, `no verify line in:\n${output}`);
+    assert.deepEqual(JSON.parse(line[1]), {
+      ok: true,
+      appId: '1:123456789012:web:abcdef0123456789',
+      aud: ['projects/123456789012', 'projects/my-real-project'],
+      options: {},
+    });
   });
 });
