@@ -24,8 +24,9 @@ const PRESETS = {
   gomoku: { cols: 9, rows: 9, winLength: 5, hasGravity: false },
 } as const;
 
-/** The generator's flat-layout optimization is validated up to 11x11. */
-const MAX_CELLS = 121;
+/** The documented board range: rows and columns each 1 to 11. */
+const MIN_SIDE = 1;
+const MAX_SIDE = 11;
 
 export interface BuildGameRulesArgs {
   game: keyof typeof PRESETS | 'custom';
@@ -54,7 +55,7 @@ export const buildGameRulesHandler: ToolHandler<BuildGameRulesArgs, BuildGameRul
   name: 'build_game_rules',
   parallelSafe: true, // pure function of its args
   description:
-    'Generate a COMPLETE Firestore ruleset for a grid-based turn-based game (host/guest convention: host/guest UIDs, currentTurn, status waiting|playing|won|draw, moveCount, flat cell fields). Presets: game="tic-tac-toe" (3x3, 3-in-a-row), "connect-four" (7x6, 4-in-a-row, gravity), "gomoku" (9x9, 5-in-a-row); or game="custom" with cols/rows/winLength/hasGravity (max 121 cells). Win-line enumeration, gravity, board integrity, turn enforcement, and split-allow state transitions (move / host win / guest win / draw) are all generated — NEVER hand-write these. Returns { rules, docShape, ... }: REVIEW the rules, then write them to /workspace/firestore.rules yourself (lint runs on deploy) and create game docs matching docShape. Use `collection` to match your data model (default "games").',
+    'Generate a COMPLETE Firestore ruleset for a grid-based turn-based game (host/guest convention: host/guest UIDs, currentTurn, status waiting|playing|won|draw, moveCount, flat cell fields). Presets: game="tic-tac-toe" (3x3, 3-in-a-row), "connect-four" (7x6, 4-in-a-row, gravity), "gomoku" (9x9, 5-in-a-row); or game="custom" with cols/rows/winLength/hasGravity (cols and rows each 1-11). Win-line enumeration, gravity, board integrity, turn enforcement, and split-allow state transitions (move / host win / guest win / draw) are all generated — NEVER hand-write these. Returns { rules, docShape, ... }: REVIEW the rules, then write them to /workspace/firestore.rules yourself (lint runs on deploy) and create game docs matching docShape. Use `collection` to match your data model (default "games").',
   parameters: {
     type: 'object',
     properties: {
@@ -106,21 +107,14 @@ export const buildGameRulesHandler: ToolHandler<BuildGameRulesArgs, BuildGameRul
       };
     }
 
-    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+    if (!isBoardSide(cols) || !isBoardSide(rows)) {
       return {
         ok: false,
-        summary: 'build_game_rules: custom games need integer cols/rows ≥ 1',
+        summary: `build_game_rules: a ${cols}x${rows} board is outside the supported range: cols and rows must each be integers from ${MIN_SIDE} to ${MAX_SIDE}`,
         data: { reason: 'invalid grid' },
       };
     }
     const cellCount = cols * rows;
-    if (cellCount > MAX_CELLS) {
-      return {
-        ok: false,
-        summary: `build_game_rules: ${cols}x${rows} = ${cellCount} cells exceeds the validated maximum (${MAX_CELLS}; the rules complexity ceiling binds above 11x11)`,
-        data: { reason: 'board too large' },
-      };
-    }
     if (!Number.isInteger(winLength) || winLength < 2 || winLength > Math.max(cols, rows)) {
       return {
         ok: false,
@@ -129,13 +123,23 @@ export const buildGameRulesHandler: ToolHandler<BuildGameRulesArgs, BuildGameRul
       };
     }
 
-    const rules = assembleGameRules({
-      collection,
-      grid: { cols, rows, cellName: defaultCellName },
-      winLineCount: winLength,
-      hasGravity,
-      hasLobby: true,
-    });
+    let rules: string;
+    try {
+      rules = assembleGameRules({
+        collection,
+        grid: { cols, rows, cellName: defaultCellName },
+        winLineCount: winLength,
+        hasGravity,
+        hasLobby: true,
+      });
+    } catch (error) {
+      // The generator refuses rules production would not compile.
+      return {
+        ok: false,
+        summary: `build_game_rules: ${error instanceof Error ? error.message : String(error)}`,
+        data: { reason: 'rules exceed production compile limits' },
+      };
+    }
     const optimization = cellCount > 42 ? 'flat-mapdiff' : 'classic-nested';
     const cellFields = `${defaultCellName(0, 0)}..${defaultCellName(cols - 1, rows - 1)} (each '' | 'host' | 'guest')`;
     const docShape =
@@ -161,3 +165,7 @@ export const buildGameRulesHandler: ToolHandler<BuildGameRulesArgs, BuildGameRul
     };
   },
 };
+
+function isBoardSide(n: number): boolean {
+  return Number.isInteger(n) && n >= MIN_SIDE && n <= MAX_SIDE;
+}
