@@ -21,8 +21,8 @@
  * observation version guard enforces); the @firebase/ai request shape these
  * probes replicate is that umbrella's pinned ai subpackage.
  *
- * rowIds are empty: the ai surface is pre-admission (climbing under CDD,
- * map #92); registry rows land at admission (#100) and cite these captures.
+ * rowIds come from the registry rows that cite each capture, so a re-capture
+ * keeps the links those rows hold.
  *
  * App Check: AI Logic on the oracle project answers 403 to any request without
  * a valid App Check token (#1199), so every request carries one minted with
@@ -41,6 +41,7 @@ import { getAppCheck } from 'firebase-admin/app-check';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import { resolveServiceAccount } from './storage-stdlib-real-api.ts';
 import { mintWithRetry } from './capture/app-check/mint.ts';
+import { citingRowIds } from './capture/app-check/observation-writer.ts';
 import { aiLogicHeaders, tokenNeedsRemint, type MintedToken } from './capture/ai/request-headers.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -109,8 +110,8 @@ function writeObservation(name: string, description: string, behavior: Record<st
   const obs = {
     name,
     matrixRow: '',
-    rowIds: [],
-    description: `${description} rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.`,
+    rowIds: citingRowIds(name),
+    description,
     observedAt: new Date().toISOString(),
     fbSdkVersion,
     projectId,
