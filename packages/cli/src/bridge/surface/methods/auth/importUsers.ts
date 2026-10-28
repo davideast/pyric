@@ -6,8 +6,8 @@
  * seeding function that carries a tenant onto a stored record.
  */
 import { z } from 'zod';
-import { checkUserFields, userSeed } from '../../arguments/sandbox.js';
-import { operationFailure } from '../../context.js';
+import { checkUserFields, userSeed } from '../../arguments/seed.js';
+import { operationFailure } from '../../sandbox-context.js';
 import { applyUsers, type SeedUserEntry } from '../../seed-apply.js';
 import { RENAMES } from '../../arguments/auth.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -15,6 +15,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'importUsers',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-admin',
   effect: 'write',
   signature: 'importUsers(users[])',

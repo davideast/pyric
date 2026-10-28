@@ -37,6 +37,7 @@ function countsByService(divergences: readonly BranchDivergence[]): Record<strin
 export default {
   tool: 'sandbox',
   method: 'listBranches',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'listBranches()',

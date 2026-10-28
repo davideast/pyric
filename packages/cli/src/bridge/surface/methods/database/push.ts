@@ -20,6 +20,7 @@ function childPathOf(path: string, key: string): string {
 export default {
   tool: 'database',
   method: 'push',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'push(path, value?, instance?)',

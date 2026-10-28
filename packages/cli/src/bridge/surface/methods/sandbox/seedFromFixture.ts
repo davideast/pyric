@@ -9,6 +9,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'sandbox',
   method: 'seedFromFixture',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'seedFromFixture(path)',

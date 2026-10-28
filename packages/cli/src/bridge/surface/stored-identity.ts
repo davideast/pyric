@@ -18,7 +18,7 @@
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 
 import type { IdentityInput } from './identity.js';
-import type { SurfaceContext } from './types.js';
+import type { SandboxSurfaceContext } from './types.js';
 
 /** The tenant and claims one user record holds, as a caller may override them. */
 export interface NamedIdentity {
@@ -31,7 +31,7 @@ export interface NamedIdentity {
  * session has no remembered projection, and without this lookup it would act
  * untenanted and unclaimed, and the verdict would explain the wrong denial.
  */
-export function storedIdentity(ctx: SurfaceContext, uid: string): NamedIdentity {
+export function storedIdentity(ctx: SandboxSurfaceContext, uid: string): NamedIdentity {
   const stored = authSandbox.exportUsers(getAuth(ctx.sandbox)).find((user) => user.uid === uid);
   const identity: NamedIdentity = {};
   if (stored?.tenantId !== undefined) identity.tenant = stored.tenantId;
@@ -44,7 +44,7 @@ export function storedIdentity(ctx: SurfaceContext, uid: string): NamedIdentity 
  * the call named written over it field by field.
  */
 export function impersonatedIdentity(
-  ctx: SurfaceContext,
+  ctx: SandboxSurfaceContext,
   uid: string,
   named: NamedIdentity,
 ): IdentityInput {

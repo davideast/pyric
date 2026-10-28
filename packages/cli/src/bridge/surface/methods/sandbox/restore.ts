@@ -7,6 +7,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'sandbox',
   method: 'restore',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'restore(name, confirm)',

@@ -14,6 +14,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'assurance',
   method: 'propose',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature:

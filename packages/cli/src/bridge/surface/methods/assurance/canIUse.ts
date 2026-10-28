@@ -30,6 +30,7 @@ function summaryFor(result: ReturnType<typeof canIUse>, feature: string): string
 export default {
   tool: 'assurance',
   method: 'canIUse',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'canIUse(feature)',

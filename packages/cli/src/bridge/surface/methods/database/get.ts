@@ -9,6 +9,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'database',
   method: 'get',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
   signature: 'get(path, instance?)',

@@ -36,6 +36,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'sandbox',
   method: 'promote',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'promote(branch, confirm)',

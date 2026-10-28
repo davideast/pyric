@@ -27,6 +27,7 @@ import type { OperationResult } from '../../types.js';
 export default {
   tool: 'sandbox',
   method: 'diff',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'diff(branch, against?: live|<checkpoint name>)',

@@ -10,7 +10,7 @@
  * the evaluation variants serve, and the `pyric <tool> <method>` command line.
  */
 import type { z } from 'zod';
-import type { OperationResult, SurfaceContext } from './types.js';
+import type { OperationResult, SandboxSurfaceContext, SurfaceContext } from './types.js';
 
 /** Arguments as they arrive from a client. */
 export type Args = Record<string, unknown>;
@@ -95,10 +95,19 @@ export type CanonicalOperation =
     };
 
 /**
- * One authored method record. The tool and the method are also the record's
- * path, and the loader refuses a record whose fields disagree with it.
+ * Where a record's handler runs.
+ *
+ * - `sandbox`: wherever the sandbox lives, including a host that keeps it in a
+ *   browser. The handler is given only a `SandboxSurfaceContext`, and its
+ *   module graph imports nothing Node-only and dispatches no in-process tool
+ *   family (`test/bridge/surface/methods/sandbox-registry.test.ts`).
+ * - `bridge`: in the bridge process only, because it reads the project
+ *   directory, imports a Node-only module, or dispatches an in-process family.
  */
-export interface MethodRecord {
+export type RunsIn = 'sandbox' | 'bridge';
+
+/** The fields every record carries, whichever side its handler runs on. */
+interface MethodRecordFields {
   /** The service tool this method belongs to, which is its directory. */
   tool: string;
   /** The method name, which is its filename. */
@@ -119,15 +128,36 @@ export interface MethodRecord {
   example: Args;
   /** Rules a schema cannot state. Returns a rejection or null. */
   validate?(args: Args, ctx: MethodValidationContext): InvalidArguments | null;
+}
+
+/** A record whose handler runs wherever the sandbox lives. */
+export interface SandboxMethodRecord extends MethodRecordFields {
+  runsIn: 'sandbox';
+  /** The one implementation. */
+  handler(args: Args, ctx: SandboxSurfaceContext): Promise<OperationResult>;
+}
+
+/** A record whose handler runs only in the bridge process. */
+export interface BridgeMethodRecord extends MethodRecordFields {
+  runsIn: 'bridge';
   /** The one implementation. */
   handler(args: Args, ctx: SurfaceContext): Promise<OperationResult>;
 }
 
+/**
+ * One authored method record. The tool and the method are also the record's
+ * path, and the loader refuses a record whose fields disagree with it.
+ */
+export type MethodRecord = SandboxMethodRecord | BridgeMethodRecord;
+
 /** A loaded record: the authored fields plus the key read from the path. */
-export interface Method extends MethodRecord {
+export type Method = MethodRecord & {
   /** `<tool>.<method>`, the key every derived surface joins on. */
   readonly key: string;
-}
+};
+
+/** A loaded record that runs wherever the sandbox lives. */
+export type SandboxMethod = SandboxMethodRecord & { readonly key: string };
 
 /** One service tool, authored as `tools/<tool>.ts`. */
 export interface ToolRecord {
@@ -141,6 +171,26 @@ export interface ToolRecord {
 export interface Tool extends ToolRecord {
   readonly name: string;
   readonly methods: readonly Method[];
+}
+
+/**
+ * Stamp one record with the key its path carries. Throws when the record's own
+ * `tool` or `method` disagrees with where it lives, because a record that says
+ * one thing and is filed under another would be reachable under two names and
+ * auditable under neither.
+ */
+export function stampRecord<R extends MethodRecord>(
+  owner: string,
+  name: string,
+  record: R,
+): R & { readonly key: string } {
+  if (record.tool !== owner) {
+    throw new Error(`method record methods/${owner}/${name}.ts declares tool '${record.tool}'`);
+  }
+  if (record.method !== name) {
+    throw new Error(`method record methods/${owner}/${name}.ts declares method '${record.method}'`);
+  }
+  return { ...record, key: `${owner}.${name}` };
 }
 
 /** Every canonical id one record can reach. */

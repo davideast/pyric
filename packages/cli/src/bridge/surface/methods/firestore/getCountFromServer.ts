@@ -8,6 +8,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'firestore',
   method: 'getCountFromServer',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
   signature: 'getCountFromServer(path, constraints?[asc|desc])',

@@ -32,6 +32,7 @@ runs:
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
           packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
           packages/cli/src/bridge/surface/descriptions.generated.ts
         key: dist-packages-${{ runner.os }}-${{ steps.key.outputs.packages-key }}
 
@@ -47,6 +48,7 @@ runs:
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
           packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
           packages/cli/src/bridge/surface/descriptions.generated.ts
           dist/site
         key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
@@ -72,6 +74,7 @@ runs:
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
           packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
           packages/cli/src/bridge/surface/descriptions.generated.ts
         key: dist-packages-${{ runner.os }}-${{ steps.key.outputs.packages-key }}
 
@@ -86,6 +89,7 @@ runs:
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
           packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
           packages/cli/src/bridge/surface/descriptions.generated.ts
           dist/site
         key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
