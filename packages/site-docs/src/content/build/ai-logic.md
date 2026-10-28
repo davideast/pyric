@@ -9,10 +9,24 @@ description: "Keep Firebase AI Logic application code unchanged while model resp
 
 # Run Firebase AI Logic locally
 
-Keep using the Firebase AI Logic Web API:
+Keep using the Firebase AI Logic Web API, with App Check initialized first. During development, Pyric answers through a local engine instead of a Google AI endpoint. A normal production build runs the same application code through Firebase. Use the [Firebase AI Logic Web guide](https://firebase.google.com/docs/ai-logic/get-started?platform=web) for the application API.
+
+## Initialize App Check before getAI
+
+From November 2, 2026, Firebase AI Logic requires App Check: a request without an App Check token gets a 403. `getAI` reads App Check when it starts, so call `initializeAppCheck` before `getAI`, synchronously, with a static import. A model created before App Check sends no token.
 
 ```ts
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAI, getGenerativeModel } from 'firebase/ai';
+
+if (import.meta.env.DEV) {
+  const scope = self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string };
+  scope.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
+initializeAppCheck(app, {
+  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
+  isTokenAutoRefreshEnabled: true,
+});
 
 const ai = getAI(app);
 const model = getGenerativeModel(ai, {
@@ -21,16 +35,21 @@ const model = getGenerativeModel(ai, {
 const result = await model.generateContent('Summarise this report.');
 ```
 
-During development, Pyric answers through a local engine instead of a Google AI endpoint. A normal production build runs the same application code through Firebase. Use the [Firebase AI Logic Web guide](https://firebase.google.com/docs/ai-logic/get-started?platform=web) for the application API.
+Setting `FIREBASE_APPCHECK_DEBUG_TOKEN` in development switches App Check to its debug provider, so local runs need no reCAPTCHA. In the sandbox, Pyric answers App Check locally. In [production AI mode](#pass-through-to-production-ai-models) the Firebase SDK prints a debug token to the browser console; register it in the Firebase console under App Check, Apps, Manage debug tokens, and AI Logic accepts the requests. Get the reCAPTCHA v3 site key for production builds from the same App Check page.
 
 ## Start with deterministic responses
 
 With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
 
 ```ts
+import { initializeAppCheck, ReCaptchaV3Provider } from 'pyric/app-check';
 import { getAI } from 'pyric/ai';
 import { script } from 'pyric/ai/scripting';
 
+initializeAppCheck(app, {
+  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
+  isTokenAutoRefreshEnabled: true,
+});
 const ai = getAI(app);
 script(ai, [
   {

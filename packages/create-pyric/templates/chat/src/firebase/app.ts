@@ -1,4 +1,5 @@
 import { getAI } from 'firebase/ai';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 import { getFirestore } from 'firebase/firestore';
@@ -8,28 +9,22 @@ import { firebaseApp, firebaseConfig } from './config';
 
 export { firebaseApp, firebaseConfig };
 
-const appWithContainer = firebaseApp as { container?: unknown };
-const hasContainer = appWithContainer.container !== undefined;
-if (hasContainer) {
-  const isWindowDefined = typeof window !== 'undefined';
-  if (isWindowDefined) {
-    const win = window as unknown as Record<string, unknown>;
-    win.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-  }
-  import('firebase/app-check')
-    .then(({ initializeAppCheck, ReCaptchaV3Provider }) => {
-      const isAvailable = typeof initializeAppCheck === 'function';
-      if (isAvailable) {
-        initializeAppCheck(firebaseApp, {
-          provider: new ReCaptchaV3Provider('6Ld_unused_test_key_for_debug'),
-          isTokenAutoRefreshEnabled: true,
-        });
-      }
-    })
-    .catch((err) => {
-      console.warn('App Check initialization failed:', err);
-    });
+// AI Logic requires App Check from November 2, 2026, and getAI reads App
+// Check when it starts, so App Check is initialized first.
+// In development the debug provider stands in for reCAPTCHA: in production AI
+// mode the SDK prints a debug token to the console, which you register under
+// App Check > Apps > Manage debug tokens in the Firebase console.
+const isDevelopment = import.meta.env.DEV;
+if (isDevelopment) {
+  const scope = self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string };
+  scope.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
+// Replace with your reCAPTCHA v3 site key: Firebase console > App Check > Apps.
+const RECAPTCHA_SITE_KEY = 'your-recaptcha-v3-site-key';
+initializeAppCheck(firebaseApp, {
+  provider: new ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),
+  isTokenAutoRefreshEnabled: true,
+});
 
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
