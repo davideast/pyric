@@ -27,6 +27,7 @@
  */
 import * as ipAi from 'pyric/ai';
 import { aiErrorFromEnvelope, unpackAiEvidence, getAiEvidence, setAiEvidence } from 'pyric/ai/internal';
+import type { AppCheckClaim } from 'pyric/ai/internal';
 import { getAI as pyricGetAI } from 'pyric/ai';
 import { createTransportAI } from 'pyric/ai/internal';
 import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
@@ -191,22 +192,27 @@ function aiErrorFromWire(err: unknown, modelResource: string, op: string): unkno
 
 // ── The port-forwarding AnswerEngine (worker path) ─────────────────────────
 
+/**
+ * The handle's App Check claim rides every request to the worker broker,
+ * which plays AI Logic's gate (`pyric/ai`'s `app-check-gate.ts`).
+ */
 function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEngineConfigWire | undefined): AnswerTransport {
-  const params = (model: string, request: Record<string, unknown>) => ({
+  const params = (model: string, request: Record<string, unknown>, appCheck: AppCheckClaim | undefined) => ({
     model,
     request,
     ...(engineWire !== undefined ? { engine: engineWire } : {}),
+    ...(appCheck !== undefined ? { appCheck } : {}),
   });
   const engine = {
-    async generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>> {
+    async generateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): Promise<Record<string, unknown>> {
       try {
-        return unpackAiEvidence(await aiGenerateContent(db, params(model, req)));
+        return unpackAiEvidence(await aiGenerateContent(db, params(model, req, appCheck)));
       } catch (err) {
         throw aiErrorFromWire(err, model, 'generateContent');
       }
     },
-    streamGenerateContent(req: Record<string, unknown>, model: string): AsyncIterable<Record<string, unknown>> {
-      const inner = aiStreamGenerateContent(db, params(model, req));
+    streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): AsyncIterable<Record<string, unknown>> {
+      const inner = aiStreamGenerateContent(db, params(model, req, appCheck));
       return (async function* mapped(): AsyncGenerator<Record<string, unknown>> {
         try {
           for await (const chunk of inner) yield unpackAiEvidence(chunk);
@@ -215,9 +221,9 @@ function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEng
         }
       })();
     },
-    async countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>> {
+    async countTokens(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): Promise<Record<string, unknown>> {
       try {
-        return unpackAiEvidence(await aiCountTokens(db, params(model, req)));
+        return unpackAiEvidence(await aiCountTokens(db, params(model, req, appCheck)));
       } catch (err) {
         throw aiErrorFromWire(err, model, 'countTokens');
       }
