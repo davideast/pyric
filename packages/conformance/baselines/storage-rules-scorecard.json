@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 110,
+    "numerator": 111,
     "denominator": 140,
-    "ratio": 0.7857142857142857,
-    "percent": 78.6
+    "ratio": 0.7928571428571428,
+    "percent": 79.3
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 11
     },
     "productionEvidence": {
-      "verified": 110,
-      "diverged": 26,
+      "verified": 111,
+      "diverged": 25,
       "unverified": 4
     }
   },
   "counts": {
-    "conformant": 110,
-    "diverged": 26,
+    "conformant": 111,
+    "diverged": 25,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1722,16 +1722,14 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "stdlib-string-bytes-hashing",
         "xref-shared-language-semantics"
       ],
       "verifiedByRows": [],
-      "divergedByRows": [
-        "storage-rules#219"
-      ]
+      "divergedByRows": []
     },
     "storage.method.string.replace": {
       "productionAcceptance": "accepted",

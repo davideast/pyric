@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#199","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"split() and replace() ignore (?i) and read \\s as Unicode white space in pyric","issue":"FS2-SIM-6"}

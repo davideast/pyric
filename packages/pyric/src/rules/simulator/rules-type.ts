@@ -1,4 +1,9 @@
-import { normalizeRe2ForJsRegExp } from '../grammar/re2-pattern.js';
+import {
+  normalizeRe2ForJsRegExp,
+  scanRe2Pattern,
+  spellRe2PropertyShorthand,
+  spellRe2SpaceClasses,
+} from '../grammar/re2-pattern.js';
 import { FirestoreSet } from './firestore-set.js';
 import { MapDiff } from './mapdiff.js';
 import { matchesRegexNode, type RegexNode } from './regex-nfa.js';
@@ -54,8 +59,11 @@ export function compileRe2Regex(method: string, pattern: string, source: string,
       `${method}() pattern uses an RE2-unsupported construct (${kind}) that production would reject`,
     );
   }
+  // `(?i)` and the other inline flags reach the RegExp as flags, and `\s`
+  // is RE2's ASCII class (FS2-SIM-6).
+  const mergedFlags = [...new Set(`${flags ?? ''}${scanRe2Pattern(pattern).inlineFlags}`)].join('');
   try {
-    return new RegExp(normalizeRe2ForJsRegExp(source), flags);
+    return new RegExp(spellRe2SpaceClasses(normalizeRe2ForJsRegExp(source), false), mergedFlags);
   } catch (err) {
     throw new Error(`Invalid regex '${pattern}' in ${method}(): ${(err as Error).message}`);
   }
@@ -76,11 +84,11 @@ function compileCharMatcher(rawPattern: string, ignoreCase: boolean): (ch: strin
   let flags = 'u';
   if (ignoreCase) flags = 'iu';
   try {
-    const re = new RegExp(`^${rawPattern}$`, flags);
+    const re = new RegExp(`^${spellRe2SpaceClasses(spellRe2PropertyShorthand(rawPattern), true)}$`, flags);
     return (c) => re.test(c);
   } catch {
     const fallbackFlags = ignoreCase ? 'i' : '';
-    const re = new RegExp(`^${rawPattern}$`, fallbackFlags);
+    const re = new RegExp(`^${spellRe2SpaceClasses(rawPattern, false)}$`, fallbackFlags);
     return (c) => re.test(c);
   }
 }
@@ -229,7 +237,8 @@ function parseRe2Ast(pattern: string): RegexNode {
     if (ch === '.') {
       pos++;
       const allowNl = dotAll;
-      return { kind: 'char', test: (c) => allowNl || (c !== '\n' && c !== '\r') };
+      // RE2's `.` matches every character but `\n`, so it matches `\r` (FS2-SIM-5a2).
+      return { kind: 'char', test: (c) => allowNl || c !== '\n' };
     }
     if (ch === '\\') {
       const start = pos;
@@ -256,6 +265,11 @@ function parseRe2Ast(pattern: string): RegexNode {
         const hex = pattern.slice(pos + 2, closeBrace);
         pos = closeBrace + 1;
         return matchLiteralChar(String.fromCodePoint(parseInt(hex, 16)), ignoreCase);
+      }
+      if ((esc === 'p' || esc === 'P') && /[A-Za-z]/.test(pattern[pos + 1] ?? '')) {
+        // A one-letter Unicode class, `\pL` for `\p{L}` (FS2-SIM-5b).
+        pos += 2;
+        return { kind: 'char', test: compileCharMatcher(`\\${esc}{${pattern[pos - 1]}}`, ignoreCase) };
       }
       if ((esc === 'p' || esc === 'P') && pattern[pos + 1] === '{') {
         const closeBrace = pattern.indexOf('}', pos + 2);
