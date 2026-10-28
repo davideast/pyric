@@ -14,6 +14,7 @@ import type {
   ResolvedIdentity,
   OpMessage,
 } from '../protocol.js';
+import { FirebaseError } from 'pyric/app';
 import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
@@ -251,6 +252,46 @@ export async function acceptProviderCredential(
     tenantId: auth.tenantId,
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
+}
+
+/** The parts of a staged `UserCredential` the host needs: who signs in, and through which provider. */
+export interface StagedSignInResult {
+  readonly user: {
+    readonly uid: string;
+    readonly email?: string | null;
+    readonly displayName?: string | null;
+    readonly photoURL?: string | null;
+  };
+  readonly providerId: string | null;
+}
+
+/**
+ * Stage the user this port's next `signInWithCredential` for
+ * `result.providerId` signs in as (served `sandbox.mockSignInResult`, #1466).
+ * Sent without waiting, as the `tenantId` setter is: the port delivers in
+ * order, so the host has it before the next sign-in. The checks the host would
+ * make run here first, so a malformed result throws at the call.
+ */
+export function stageSignInResult(auth: ClientAuth, result: StagedSignInResult): void {
+  const providerId = result.providerId;
+  const uid = result.user?.uid;
+  const hasProvider = typeof providerId === 'string' && providerId !== '';
+  const hasUid = typeof uid === 'string' && uid !== '';
+  if (!hasProvider || !hasUid) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'sandbox.mockSignInResult: result.providerId and result.user.uid must be non-empty strings.',
+    );
+  }
+  const identity: ResolvedIdentity = {
+    uid,
+    providerId,
+    email: result.user.email ?? null,
+    displayName: result.user.displayName ?? null,
+    photoURL: result.user.photoURL ?? null,
+    customClaims: {},
+  };
+  void rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.mockSignInResult', identity });
 }
 
 /**
