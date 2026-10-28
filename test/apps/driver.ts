@@ -8,11 +8,23 @@
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
-import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
+import {
+  debugLogTail,
+  NESTED_INSTALL_ATTEMPT_MS,
+  npmInstall,
+  pinPyricPackages,
+  retryOnceOnTimeout,
+  type Tarballs,
+  type TimedResult,
+} from './install.ts';
+
+/** How much of npm's debug log a timed-out install's output keeps. */
+const NPM_LOG_TAIL_LINES = 40;
 import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
 
 export interface LogWaitOptions {
@@ -533,6 +545,17 @@ export class AppRun implements App {
     args: string[],
     options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number } = {},
   ): Promise<ScriptResult> {
+    const result = await this.timedCommand(command, args, options);
+    if (result.timedOut) throw new Error(`${[command, ...args].join(' ')} did not exit within ${result.timeoutMs / 1000}s:\n${result.output}`);
+    return { code: result.code, output: result.output };
+  }
+
+  /** Runs a command to exit, or stops it at `timeoutMs` and says so instead of throwing. */
+  private async timedCommand(
+    command: string,
+    args: string[],
+    options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
+  ): Promise<TimedResult & { timeoutMs: number }> {
     this.scriptCount += 1;
     const label = [command, ...args].join(' ');
     const child = new AppProcess(
@@ -547,17 +570,35 @@ export class AppRun implements App {
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
       await child.stop();
-      throw new Error(`${label} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+      return { code: null, output: child.output, timedOut: true, timeoutMs };
     }
-    return { code: await child.exited, output: child.output };
+    return { code: await child.exited, output: child.output, timedOut: false, timeoutMs };
   }
 
+  /**
+   * `npm install` in `path`, under a limit per attempt. An attempt that hangs
+   * is stopped, its node_modules removed, and tried once more (#1476); npm's
+   * debug log goes to the app's home, and its end joins the output of an
+   * attempt that timed out, so the hang can be read from the app's log.
+   */
   async installProject(path: string): Promise<ScriptResult> {
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
-    pinPyricPackages(join(this.dir, path), this.packages.tarballs);
-    const result = await npmInstall(this.packages.npmCache, (args) => this.command('npm', args, { cwd: path, timeoutMs: 240_000 }));
+    const { npmCache, tarballs } = this.packages;
+    pinPyricPackages(join(this.dir, path), tarballs);
+    const logsDir = join(this.home, 'npm-logs', path);
+    const attempt = async (args: string[]): Promise<TimedResult> => {
+      const result = await this.timedCommand('npm', args, { cwd: path, timeoutMs: NESTED_INSTALL_ATTEMPT_MS });
+      const note = result.timedOut ? `\n[runner] stopped after ${result.timeoutMs / 1000} s\n${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}` : '';
+      return { code: result.code, output: `${result.output}${note}`, timedOut: result.timedOut };
+    };
+    const result = await retryOnceOnTimeout(() => npmInstall(npmCache, attempt, logsDir), {
+      what: `${this.name}: npm install in ${path}`,
+      reset: () => rm(join(this.dir, path, 'node_modules'), { recursive: true, force: true }),
+      report: (line) => console.log(line),
+    });
+    if (result.timedOut) throw new Error(`npm install in ${path} timed out on both attempts:\n${result.output}`);
     if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
-    return result;
+    return { code: result.code, output: result.output };
   }
 
   async serverScript(
