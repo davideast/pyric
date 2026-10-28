@@ -40,8 +40,8 @@ import {
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
-  type OAuthCredentialPayload,
 } from './host/auth-session-seeder.js';
+import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
 import { withoutJwtClaims } from 'pyric/sandbox/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
@@ -533,24 +533,19 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const rawMsg: Record<string, unknown> = msg;
         const hasProvider = typeof rawMsg.providerId === 'string';
         const cred = (msg.credential ?? (hasProvider ? rawMsg : undefined)) as
-          | OAuthCredentialPayload
+          | CredentialPayload
           | undefined;
         const hasNoCredential = cred === undefined || !cred.providerId;
         if (hasNoCredential) {
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
-        const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);
-        const session = authSandboxOps.mintSession(auth, {
-          kind: 'provider',
-          uid,
-          providerId: cred.providerId,
-          tenantId,
-          ...portOriginScope(port),
+        const { session, providerId, isNewUser } = signInWithCredentialPayload(auth, cred, {
+          tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, credReply(session, cred.providerId, isNewUser));
+        ok(port, msg.id, credReply(session, providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

@@ -424,38 +424,57 @@ export async function updateCurrentUser(
   auth.currentUser = toClientUser(auth.port, raw);
 }
 
+/** The fields of an `AuthCredential` the served client reads. */
+type SignInCredential = {
+  providerId: string;
+  signInMethod?: string;
+  idToken?: string | null;
+  accessToken?: string | null;
+  rawNonce?: string | null;
+  email?: string | null;
+  displayName?: string | null;
+  photoURL?: string | null;
+  uid?: string | null;
+  toJSON?: () => Record<string, unknown>;
+};
+
 /**
- * OAuth Credential Sign-In (`auth.signInWithCredential`) over the SharedWorker.
+ * Credential sign-in (`auth.signInWithCredential`) over the SharedWorker.
+ * An email credential crosses as `toJSON()`, which carries its password or
+ * link, so the host can check it; an OAuth credential sends its identity fields.
  */
 export async function signInWithCredential(
   auth: ClientAuth,
-  credential: {
-    providerId: string;
-    idToken?: string | null;
-    accessToken?: string | null;
-    rawNonce?: string | null;
-    email?: string | null;
-    displayName?: string | null;
-    photoURL?: string | null;
-    uid?: string | null;
-  },
+  credential: SignInCredential,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
     t: 'op',
     id: nextId(),
     method: 'auth.signInWithCredential',
-    credential: {
-      providerId: credential.providerId,
-      idToken: credential.idToken ?? null,
-      accessToken: credential.accessToken ?? null,
-      rawNonce: credential.rawNonce ?? null,
-      email: credential.email ?? null,
-      displayName: credential.displayName ?? null,
-      photoURL: credential.photoURL ?? null,
-      uid: credential.uid ?? null,
-    },
+    credential: credentialWire(credential),
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
+}
+
+type CredentialWire = NonNullable<Extract<OpMessage, { method: 'auth.signInWithCredential' }>['credential']>;
+
+/** A credential with no sign-in method sends an empty one, which the host refuses. */
+function credentialWire(credential: SignInCredential): CredentialWire {
+  const isEmailCredential = credential.providerId === 'password';
+  if (isEmailCredential) {
+    const serialized = credential.toJSON?.() ?? {};
+    return { ...serialized, providerId: credential.providerId, signInMethod: credential.signInMethod ?? '' };
+  }
+  return {
+    providerId: credential.providerId,
+    idToken: credential.idToken ?? null,
+    accessToken: credential.accessToken ?? null,
+    rawNonce: credential.rawNonce ?? null,
+    email: credential.email ?? null,
+    displayName: credential.displayName ?? null,
+    photoURL: credential.photoURL ?? null,
+    uid: credential.uid ?? null,
+  };
 }
 
 export function beforeAuthStateChanged(): never {

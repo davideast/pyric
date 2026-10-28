@@ -193,7 +193,8 @@ export type OpMessage = (
       t: 'op';
       id: string;
       method: 'auth.signInWithCredential';
-      credential?: {
+      /** An email credential carries its secret (`toJSON()`), which the host verifies with the engine. */
+      credential?: SerializedAuthCredential | {
         providerId: string;
         idToken?: string | null;
         accessToken?: string | null;
@@ -204,6 +205,8 @@ export type OpMessage = (
         uid?: string | null;
       };
       providerId?: string;
+      signInMethod?: string;
+      password?: string;
       idToken?: string | null;
       accessToken?: string | null;
       rawNonce?: string | null;

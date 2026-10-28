@@ -376,6 +376,12 @@ export function assertOperationArguments(message: Record<string, unknown>): void
         const isNullableString = value === undefined || value === null || typeof value === 'string';
         requireShape(isNullableString, `credential.${field}`);
       }
+      // An email credential's method and secret; the engine decides a missing one.
+      for (const field of ['signInMethod', 'password']) {
+        const value = credential[field];
+        const isOptionalString = value === undefined || typeof value === 'string';
+        requireShape(isOptionalString, `credential.${field}`);
+      }
       return;
     }
     case 'auth.acceptIdentity': {
