@@ -86,7 +86,9 @@ USAGE
   pyric --version
 
 COMMANDS
-  bridge                     Start the HTTP+WebSocket bridge external MCP clients point at.
+  bridge                     Start an HTTP MCP server with the rules, conformance, identity
+                             and capture tools. It has no browser socket: for an agent
+                             that drives the sandbox in a page, run \`pyric sandbox --bridge\`.
   sandbox [command...]       Run an application command or script inside the local Firebase sandbox
                              with unmodified firebase/* and firebase-admin/* imports routed to the
                              in-memory mirror. When [command...] is omitted, runs the command
@@ -361,11 +363,12 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
       `  project: ${handle.bridge.project}\n` +
       `  health:  ${handle.url}/health\n` +
       `  mcp:     ${handle.url}/mcp\n` +
-      `  sandbox: ${handle.url.replace('http://', 'ws://')}/sandbox\n` +
       (handle.auditLogPath ? `  audit:   ${handle.auditLogPath}\n` : '') +
       `\nRegister with Claude Code:\n` +
       `  claude mcp add --transport http pyric ${handle.url}/mcp --scope project\n` +
-      `\nBridge will log peer connect/disconnect to stderr. Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
+      `\nThis bridge serves the tools that run in this process. A browser page cannot attach to it;\n` +
+      `for an agent that drives the sandbox in a page, run \`pyric sandbox --bridge\`.\n` +
+      `Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
       `Press Ctrl-C to stop.\n`,
   );
 

@@ -1,6 +1,10 @@
 import { DEFAULT_BRIDGE_PORT, DEFAULT_SANDBOX_PATH } from '../protocol.js';
 
-/** Explicit URL, Vite injection, then the sidecar on the page's hostname. */
+/**
+ * Explicit URL, then `window.__PYRIC_BRIDGE_URL__` when the page sets it (no
+ * pyric integration does), then the standalone `pyric bridge` port on the
+ * page's hostname, which refuses a browser page with a reason (#1468).
+ */
 export function resolveBridgeUrl(explicit?: string): string {
   const hasExplicitUrl = explicit !== undefined && explicit.length > 0;
   if (hasExplicitUrl) return explicit;
