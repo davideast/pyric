@@ -1,6 +1,6 @@
 # Workspace-wide build + test gate.
 #
-# Runs on every PR. Delegates to scripts/build.sh
+# Runs on every PR and on every merge queue group. Delegates to scripts/build.sh
 # (the same orchestrator developers use locally) so CI and local
 # build behavior can't drift.
 #
@@ -11,6 +11,16 @@ name: Build & Test
 
 on:
   pull_request:
+  # The merge queue tests a group of pull requests together on a
+  # gh-readonly-queue/main/pr-<n>-<sha> branch and merges them when
+  # `CI / required` passes there. A group has no pull request payload (no
+  # labels, no body, no base and head), so the plan selects every proof for it:
+  # the full check set, packaging, the install matrix, the standalone smoke,
+  # the release contract, the RTDB differential, and the app scenarios. That
+  # is at least what any pull request in the group selected. The removal guard
+  # reads a pull request body, so it runs on each pull request, not the group.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   schedule:
@@ -26,7 +36,9 @@ env:
 
 concurrency:
   # A new push to the same branch/PR cancels the in-flight run instead of
-  # billing both.
+  # billing both. Each merge group has its own ref
+  # (refs/heads/gh-readonly-queue/main/pr-<n>-<sha>), so a group never cancels,
+  # and is never cancelled by, a pull request run, a main run, or another group.
   group: build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -39,6 +51,7 @@ jobs:
       check-set: ${{ steps.plan.outputs.check-set }}
       predicted-check-set: ${{ steps.plan.outputs.predicted-check-set }}
       packaging: ${{ steps.plan.outputs.packaging }}
+      release-proof: ${{ steps.plan.outputs.release-proof }}
       rtdb-differential: ${{ steps.plan.outputs.rtdb-differential }}
       app-scenarios: ${{ steps.plan.outputs.app-scenarios }}
     steps:
@@ -74,7 +87,7 @@ jobs:
         with:
           bun-version: '1.3.11'
       - name: Test fail-closed selection policy
-        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts
+        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts
       - name: Select proof
         id: plan
         env:
@@ -583,7 +596,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: plan
-    if: needs.plan.outputs.predicted-check-set == 'release-only' || contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    # release-proof is the `ci-packaging` label on a pull request and always
+    # true on a merge group, which has no labels to read.
+    if: needs.plan.outputs.predicted-check-set == 'release-only' || needs.plan.outputs.release-proof == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -716,7 +731,7 @@ jobs:
     timeout-minutes: 60
     needs: [plan, packaging]
     # Cost: same as `packaging`, and gated on the same signal.
-    if: needs.plan.outputs.check-set == 'full' && (contains(github.event.pull_request.labels.*.name, 'ci-packaging') || (needs.plan.outputs.packaging == 'true' && github.event_name == 'pull_request'))
+    if: needs.plan.outputs.check-set == 'full' && (needs.plan.outputs.release-proof == 'true' || (needs.plan.outputs.packaging == 'true' && github.event_name == 'pull_request'))
     # Package managers resolve exports / scoped names / local tarballs differently;
     # a lib that installs under npm can fail under pnpm or bun. Each leg installs
     # the REAL tarballs, imports every advertised subpath, and executes a small
@@ -786,7 +801,8 @@ jobs:
     # this runs under the same `ci-packaging` label policy as `packaging` —
     # apply the label on release PRs or ones touching the standalone/vendor
     # pipeline (scripts/compile.ts, the smokes, the workspace-dep rewrite).
-    if: needs.plan.outputs.check-set == 'full' && contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    # A merge group always runs it (release-proof).
+    if: needs.plan.outputs.check-set == 'full' && needs.plan.outputs.release-proof == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -936,7 +952,7 @@ jobs:
       - name: Verify every selected proof passed
         env:
           CI_CHECK_SET: ${{ needs.plan.outputs.check-set }}
-          CI_REQUIRE_PACKAGING: ${{ contains(github.event.pull_request.labels.*.name, 'ci-packaging') }}
+          CI_REQUIRE_PACKAGING: ${{ needs.plan.outputs.release-proof }}
           CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}
           CI_REQUIRE_APP_SCENARIOS: ${{ needs.plan.outputs.app-scenarios }}
           CI_REQUIRE_DELETION_GUARD: ${{ github.event_name == 'pull_request' }}

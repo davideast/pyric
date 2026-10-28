@@ -53,6 +53,12 @@ describe('PR check-set selection', () => {
     expect(selectPrCheckSet({ event: 'push', labels: [], paths })).toBe('full');
   });
 
+  test('a merge group selects full CI even when every path would take a fast path', () => {
+    for (const path of ['scripts/publish-alpha.sh', 'PRIORITIES.md']) {
+      expect(selectPrCheckSet({ event: 'merge_group', labels: [], paths: [changed(path)] })).toBe('full');
+    }
+  });
+
   test('adding any non-exempt path revokes an exemption', () => {
     const exemptSets: ChangedPath[][] = [
       [changed('scripts/publish-alpha.sh')],
