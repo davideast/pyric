@@ -1,8 +1,11 @@
 # 0020: `pyric mcp` serves one tool list and routes each call
 
-Status: Proposed. Blocked on the SharedWorker host decision below.
+Status: Accepted
 
 Date: 2026-10-07
+
+Accepted: 2026-10-28, with option A for the SharedWorker host. Implementation:
+[#1469](https://github.com/davideast/pyric/issues/1469).
 
 ## Context
 
@@ -68,7 +71,7 @@ There are two kinds of host, and they differ in what they can execute:
      says that calls now run under the host's identity.
    - The transport surface's per-call `as` argument accepts
      `{ uid, tenant?, claims? }`. `actorDb` in `bridge/client/dispatch.ts`
-     builds its auth state with `projectIdentity` from
+     (since #884) builds its auth state with `projectIdentity` from
      `bridge/surface/identity.ts`, the function `SurfaceIdentity.projectionFor`
      delegates to, so the tenant reaches `request.auth.token.firebase.tenant`
      through the shared `normalizeAuthState` exactly as it does for a held
@@ -114,10 +117,21 @@ Options:
   page, that calls run in-process, and that `--hosted` makes the host
   reachable. Cost: the regression above, for the default mode.
 
-Recommendation: A. The page already runs the sandbox and the forwarded
-families; a method frame reuses the bridge's routing, ordering, identity and
-timeout handling, and keeps one execution path per method. B touches every
-handler. C trades one startup-order surprise for another.
+### Decision (2026-10-28): A
+
+A SharedWorker host runs method records through a `method-call` bridge frame.
+The bridge process forwards `{ key, args, allowProduction, identity }` to the
+page, and a page-side runner executes the record with `callMethod`. The page
+already runs the sandbox and the forwarded families, so a method frame reuses
+the bridge's routing, ordering, identity and timeout handling, and keeps one
+execution path per method. #1469 implements it.
+
+B was not chosen because it touches every handler: each service's handlers
+would move from `LocalSandbox` to a narrower interface that the remote handle
+can serve.
+
+C was not chosen because it keeps the regression for the default host mode,
+and trades one startup-order surprise for another.
 
 ## Consequences
 

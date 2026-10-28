@@ -670,13 +670,15 @@ are the other workflows.
   mirrored surface, one file per API family, sandbox code under `X/sandbox/`,
   tests mirroring the source path.
 - Ratified and proposed decisions live in `docs/decisions/` (ADR-0001 to
-  ADR-0016, plus ADR-0018 and ADR-0019). Key architectural records include ADR-0009
+  ADR-0016, plus ADR-0018 to ADR-0020). Key architectural records include ADR-0009
   (Firestore engine deepening), ADR-0010 (unified Astro site), ADR-0011 (worker
   transport as public API), ADR-0014 (ten service tools carrying SDK method
   names), ADR-0015 (chunked Storage transfer), ADR-0016 (`pyric mcp` following
   the Node host), ADR-0018 (Storage object bytes by reference and HTTP byte
-  route), and ADR-0019 (native bridge clients reconnect and restore their
-  listeners).
+  route), ADR-0019 (native bridge clients reconnect and restore their
+  listeners), and ADR-0020 (`pyric mcp` serves one tool list and routes each
+  call to a live host, with SharedWorker hosts running method records over a
+  `method-call` bridge frame).
 - Preserve unrelated work in a dirty tree.
 - Use public subpaths between packages.
 - Keep browser/Node/platform-specific imports at explicit boundary modules.
