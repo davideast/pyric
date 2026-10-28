@@ -82,6 +82,16 @@ describe('sandbox.mockSignInResult with a served hook', () => {
     );
   });
 
+  it('ignores a hook inherited from a prototype', () => {
+    const hook = recordingHook();
+    const inherited = Object.create(attachHook({}, hook)) as Auth;
+
+    expect(() => authSandbox.mockSignInResult(inherited, googleResult('x'))).toThrow(
+      'unrecognized Auth handle',
+    );
+    expect(hook.calls).toHaveLength(0);
+  });
+
   it('refuses a result without a providerId before the hook runs', () => {
     const hook = recordingHook();
     const served = attachHook({}, hook);

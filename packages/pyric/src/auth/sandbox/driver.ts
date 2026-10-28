@@ -37,7 +37,10 @@ function requireSandbox(auth: Auth): SandboxTarget {
   return targetOf(auth);
 }
 
+/** The hook attached to the handle itself; one inherited from a prototype is ignored. */
 function servedHookOf(auth: Auth): ServedSandboxHook | undefined {
+  const isAttached = Object.hasOwn(auth, SERVED_SANDBOX_HOOK);
+  if (!isAttached) return undefined;
   return (auth as { [SERVED_SANDBOX_HOOK]?: ServedSandboxHook })[SERVED_SANDBOX_HOOK];
 }
 
