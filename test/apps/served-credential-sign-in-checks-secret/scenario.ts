@@ -8,25 +8,42 @@
 // with a null providerId and reads it. In-page is the control; the SharedWorker
 // page, a `node --import @pyric/cli/register` process and a page on the Node
 // host must give the same answers.
+//
+// Hand-built credentials whose provider id is not exactly `password` and not
+// federated (`Password`, `password `, `emailLink`, `phone` with the owner's
+// uid, and a made-up id) are refused with auth/no-mock-configured, as in-page
+// refuses them (#1466). The served host used to sign each one in as the owner
+// and write its provider id onto the owner's account, so the owner's
+// providerData must still be only `password` at the end.
 import assert from 'node:assert/strict';
 import type { Page } from '@playwright/test';
 import { scenario, type App } from '../driver.ts';
 
 type Check = { ok: boolean; code?: string; providerId?: string | null; signedIn: string | null; read: string };
 type Checks = Record<string, Check>;
-declare function runChecks(): Promise<Checks>;
+type Run = { checks: Checks; ownerProviderIds: string[] };
+declare function runChecks(): Promise<Run>;
 
 type Runtime = 'shared-worker' | 'in-page' | 'hosted';
 
 const BANNER = '[pyric sandbox] firebase/* on this page is served by the Pyric sandbox';
 
 const REFUSED = { ok: false, signedIn: null, read: 'permission-denied' };
-const EXPECTED: Checks = {
-  wrongPassword: { ...REFUSED, code: 'auth/wrong-password' },
-  emptyPassword: { ...REFUSED, code: 'auth/missing-password' },
-  unknownEmail: { ...REFUSED, code: 'auth/user-not-found' },
-  madeUpLink: { ...REFUSED, code: 'auth/invalid-action-code' },
-  rightPassword: { ok: true, providerId: null, signedIn: 'owner', read: 'allowed' },
+const NO_MOCK = { ...REFUSED, code: 'auth/no-mock-configured' };
+const EXPECTED: Run = {
+  checks: {
+    wrongPassword: { ...REFUSED, code: 'auth/wrong-password' },
+    emptyPassword: { ...REFUSED, code: 'auth/missing-password' },
+    unknownEmail: { ...REFUSED, code: 'auth/user-not-found' },
+    madeUpLink: { ...REFUSED, code: 'auth/invalid-action-code' },
+    capitalPassword: NO_MOCK,
+    trailingSpacePassword: NO_MOCK,
+    emailLinkProvider: NO_MOCK,
+    phoneWithOwnerUid: NO_MOCK,
+    madeUpProvider: NO_MOCK,
+    rightPassword: { ok: true, providerId: null, signedIn: 'owner', read: 'allowed' },
+  },
+  ownerProviderIds: ['password'],
 };
 
 /** Opens the page in `runtime` and checks the sandbox banner says so. */
@@ -50,7 +67,7 @@ async function openPage(app: App, url: string, runtime: Runtime): Promise<Page> 
   return page;
 }
 
-async function pageChecks(app: App, url: string, runtime: Runtime): Promise<Checks> {
+async function pageChecks(app: App, url: string, runtime: Runtime): Promise<Run> {
   const page = await openPage(app, url, runtime);
   const checks = await page.evaluate(() => runChecks());
   await page.close();
@@ -60,7 +77,7 @@ async function pageChecks(app: App, url: string, runtime: Runtime): Promise<Chec
 export default scenario(async (app) => {
   const local = await app.step('start the dev server', () => app.devServer());
 
-  const control = await app.step('in-page, each wrong secret is refused and the right password signs in', async () => {
+  const control = await app.step('in-page, each wrong secret and look-alike provider is refused and the right password signs in', async () => {
     const checks = await pageChecks(app, local.url, 'in-page');
     assert.deepEqual(checks, EXPECTED, `in-page: ${JSON.stringify(checks)}`);
     return checks;
