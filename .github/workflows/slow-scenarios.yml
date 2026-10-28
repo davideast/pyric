@@ -2,6 +2,10 @@
 # scenario.ts exports `slow = true`. Build & Test skips them on every run
 # (`--skip-slow`); this workflow runs only them, on the same packed packages.
 #
+# It also runs the slow script tests (`bun run test:slow`, files named
+# `*.slow.test.ts`), which wait on real timers and so are left out of the
+# test:ci:libraries lists that gate pull requests.
+#
 # Runs on pushes to main, nightly, on demand, and on a pull request when the
 # `ci-slow-scenarios` label is added (by someone with triage access). A push
 # after the label does not run it again: remove and re-add the label, or
@@ -34,6 +38,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  slow-script-tests:
+    name: Slow script tests (real processes and timers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ci-slow-scenarios'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Slow script tests
+        run: bun run test:slow
+
   slow-scenarios:
     name: Slow app scenarios (real apps on the packed packages)
     runs-on: ubuntu-latest
