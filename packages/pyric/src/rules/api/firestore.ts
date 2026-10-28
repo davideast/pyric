@@ -108,8 +108,12 @@ class FirestoreRulesetImpl implements FirestoreRuleset {
   }
 
   simulate(cases: FirestoreCase[]): SimulationSummary {
+    // The cases are a caller's: intake checks each one's shape and refuses,
+    // as UNSUPPORTED with the reason, one either engine would read as a
+    // different request.
     const result = this.handler.simulateParsed(this.ast, this.source, cases as TestCase[], {
       sourceMap: this.sourceMap,
+      publicCases: true,
     });
     if (!result.success) {
       // The source compiled in the constructor and the parsed AST is

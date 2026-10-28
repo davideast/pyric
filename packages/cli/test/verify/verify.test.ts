@@ -381,6 +381,35 @@ describe('verifyFixture', () => {
     expect(result.services.firestore?.engines?.rulesTestApi?.testCases).toBe(1);
   });
 
+  it('sends a create of an existing document to the hosted engine without the existing resource (#1338)', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    db.setRules(ALICE_RULES);
+    await db.doc('notes/n1').set({ title: 'first' });
+    await db.doc('notes/n1').create({ title: 'again' }).catch(() => undefined);
+    const fixture = buildVerifyFixture({ sandbox, firestoreRules: ALICE_RULES });
+
+    const derived = deriveRulesTestCases(fixture);
+    const creates = derived.testCases.filter((tc) => tc.method === 'create');
+    expect(creates.length).toBeGreaterThan(0);
+    for (const tc of creates) expect(tc.resource).toBeUndefined();
+
+    let sentCases = 0;
+    (global as any).fetch = async (_url: string, init: { body: string }) => {
+      const cases = (JSON.parse(init.body) as { testSuite: { testCases: unknown[] } }).testSuite.testCases;
+      sentCases = cases.length;
+      return new Response(JSON.stringify({ testResults: cases.map(() => ({ state: 'SUCCESS' })) }), { status: 200 });
+    };
+    const result = await verifyFixture(fixture, {
+      engines: ['rulesTestApi'],
+      rules: { firestore: ALICE_RULES },
+      rulesTestApi: { scope: MOCK_SCOPE },
+    });
+
+    expect(sentCases).toBe(derived.testCases.length);
+    expect(result.services.firestore?.engines?.rulesTestApi?.checkedEvents).toBe(derived.testCases.length);
+  });
+
   it('reports now-denied when hosted Rules Test API fails an allowed captured request', async () => {
     const fixture = await captureFirestoreJourney();
     (global as any).fetch = async () =>

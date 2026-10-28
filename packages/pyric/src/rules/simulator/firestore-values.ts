@@ -157,6 +157,22 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
   return value;
 }
 
+/**
+ * A public case's values as the simulator reads them. A value helper's value
+ * (`timestamp()`, `latlng()`, ...) is already a typed value and stays one; a
+ * plain map stays the map it is, even one with a `__type` key, because the
+ * Rules Test API and a real document read it as a map (FS2-CON-5). Only a
+ * fractional number becomes a float, as JSON erases nothing else here.
+ */
+export function reviveCaseLiterals(value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isInteger(value)) return new RulesFloat(value);
+  if (Array.isArray(value)) return value.map(reviveCaseLiterals);
+  if (!isPlainObject(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, reviveCaseLiterals(child)]),
+  );
+}
+
 /** Model the nullable query fields exposed only by Firestore list requests. */
 export function requestQuery(tc: TestCase): Record<string, unknown> | undefined {
   if (tc.method !== 'list') return undefined;

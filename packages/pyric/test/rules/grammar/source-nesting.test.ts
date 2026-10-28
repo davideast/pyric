@@ -187,7 +187,7 @@ describe('parser: keyword-named fields, path segments, and syntax inside elided 
         method: 'get',
         path: 'p/d1',
         auth: { uid: 'intruder' },
-        existingData: { in: [false] },
+        resource: { in: [false] },
       },
     ]);
     expect(out.cases[0]?.decision).toBe('DENY');
