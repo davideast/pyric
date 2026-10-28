@@ -123,14 +123,14 @@ export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): 
     observation.identity(identity);
     switch (aiMsg.method) {
       case 'ai.generateContent': {
-        const response = await broker.generateContent(aiMsg.request, aiMsg.model);
+        const response = await broker.generateContent(aiMsg.request, aiMsg.model, aiMsg.appCheck);
         observation.response(response);
         observation.finish('completed');
         ok(port, aiMsg.id, packAiEvidence(response));
         break;
       }
       case 'ai.countTokens': {
-        const response = await broker.countTokens(aiMsg.request, aiMsg.model);
+        const response = await broker.countTokens(aiMsg.request, aiMsg.model, aiMsg.appCheck);
         observation.response(response);
         observation.finish('completed');
         ok(port, aiMsg.id, packAiEvidence(response));
@@ -156,9 +156,9 @@ export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): 
  * (sub handling is synchronous, like the other sub handlers); a client
  * `unsub` mid-stream flips the registered cancel and delivery stops.
  *
- * Broker validation runs eagerly inside `streamGenerateContent` (before
- * iteration) — either way a throw lands as the shared `{ __error }` snap
- * convention, terminal for this sub.
+ * The App Check gate runs first, then broker validation runs eagerly inside
+ * `streamGenerateContent` (before iteration) — either way a throw lands as
+ * the shared `{ __error }` snap convention, terminal for this sub.
  */
 export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessage): void {
   let portSubs = ctx.subs.get(port);
@@ -182,7 +182,9 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
       const broker = ensureAiBroker(ctx, msg.engine);
       identity = broker.observationIdentity?.(msg.model);
       observation.identity(identity);
-      for await (const chunk of broker.streamGenerateContent(msg.request, msg.model)) {
+      // The App Check gate answers before any chunk, as AI Logic answers 403 before a stream.
+      await broker.admitAppCheck(msg.model, msg.appCheck);
+      for await (const chunk of broker.streamGenerateContent(msg.request, msg.model, msg.appCheck)) {
         if (cancelled) return;
         observation.response(chunk, true);
         post(port, { t: 'snap', subId: msg.subId, value: { chunk: packAiEvidence(chunk) } });

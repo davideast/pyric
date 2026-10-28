@@ -24,6 +24,7 @@ import {
   type OutboundMessage,
   type AuthPersistenceMode,
   type AiEngineConfigWire,
+  type AiAppCheckWire,
   type AppConfigMessage,
 } from './protocol.js';
 
@@ -40,9 +41,11 @@ import {
  */
 export interface AiBrokerLike {
   observationIdentity?(model: string): import('pyric/ai/internal').AiEvidence;
-  generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
-  streamGenerateContent(req: Record<string, unknown>, model: string): AsyncIterable<Record<string, unknown>>;
-  countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
+  /** AI Logic's App Check gate; a request with no claim passes. */
+  admitAppCheck(model: string, appCheck: AiAppCheckWire | undefined): Promise<void>;
+  generateContent(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): Promise<Record<string, unknown>>;
+  streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): AsyncIterable<Record<string, unknown>>;
+  countTokens(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): Promise<Record<string, unknown>>;
 }
 
 // ─── Port interface ───────────────────────────────────────────────────────

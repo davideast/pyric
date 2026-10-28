@@ -43,6 +43,7 @@ export {
 } from './synthesizer.js';
 export type {
   AnswerEngine,
+  AppCheckClaim,
   CountTokensRequest,
   CountTokensResponse,
   EngineConfig,

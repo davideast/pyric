@@ -22,6 +22,14 @@ import {
   getGenerativeModel,
 } from '../../src/ai/index.js';
 import { encodeSse, script } from '../../src/ai/scripting.js';
+import { initializeAppCheck, ReCaptchaV3Provider } from '../../src/app-check/index.js';
+import type { FirebaseApp } from '../../src/app/types.js';
+
+/** AI Logic requires App Check before getAI(app), and so does the sandbox (app-check-gate.test.ts). */
+function withAppCheck(app: FirebaseApp): FirebaseApp {
+  initializeAppCheck(app, { provider: new ReCaptchaV3Provider('site-key') });
+  return app;
+}
 
 const MODEL = 'gemini-flash-lite-latest';
 
@@ -66,8 +74,8 @@ describe('getAI instance identity', () => {
     const appA = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-a');
     const appB = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-b');
     try {
-      const aiA = getAI(appA);
-      const aiB = getAI(appB);
+      const aiA = getAI(withAppCheck(appA));
+      const aiB = getAI(withAppCheck(appB));
       expect(aiA).not.toBe(aiB);
       script(aiA, [{ respond: { text: 'shared backend response' } }]);
       const result = await getGenerativeModel(aiB, { model: MODEL }).generateContent('hello');
@@ -332,7 +340,7 @@ describe('sandbox app target', () => {
       { projectId: 'ai-test' },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
-    const ai = getAI(app);
+    const ai = getAI(withAppCheck(app));
     script(ai, [{ respond: { text: 'sandbox says hi' } }]);
     const realFetch = globalThis.fetch;
     (globalThis as any).fetch = (input: unknown) => {
@@ -374,7 +382,7 @@ describe('pyric/ai/scripting', () => {
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     try {
-      const ai = getAI(app);
+      const ai = getAI(withAppCheck(app));
       script(ai, [{ respond: { text: 'x' } }]);
       const model = getGenerativeModel(ai, { model: MODEL });
       expect((await model.generateContent('hello')).response.text()).toBe('x');

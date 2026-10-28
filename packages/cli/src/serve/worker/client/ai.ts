@@ -3,7 +3,7 @@
  * as the mirror AnswerEngine on the worker path (see entries/ai.ts).
  */
 
-import type { AiEngineConfigWire, InboundMessage } from '../protocol.js';
+import type { AiAppCheckWire, AiEngineConfigWire, InboundMessage } from '../protocol.js';
 import { closeSubscription, nextId, nextSubId, openSnapshotSubscription, rpc } from './core.js';
 import type { ClientDb } from './handles.js';
 
@@ -26,6 +26,8 @@ export interface AiOpParams {
   request: Record<string, unknown>;
   /** First-op engine config — see {@link AiEngineConfigWire}. */
   engine?: AiEngineConfigWire;
+  /** The App Check claim an app-backed handle attaches — see {@link AiAppCheckWire}. */
+  appCheck?: AiAppCheckWire;
 }
 
 /** Unary `generateContent` against the worker's broker. Resolves with the
@@ -42,6 +44,7 @@ export async function aiGenerateContent(
     model: params.model,
     request: params.request,
     ...(params.engine !== undefined ? { engine: params.engine } : {}),
+    ...(params.appCheck !== undefined ? { appCheck: params.appCheck } : {}),
   })) as Record<string, unknown>;
 }
 
@@ -57,6 +60,7 @@ export async function aiCountTokens(
     model: params.model,
     request: params.request,
     ...(params.engine !== undefined ? { engine: params.engine } : {}),
+    ...(params.appCheck !== undefined ? { appCheck: params.appCheck } : {}),
   })) as Record<string, unknown>;
 }
 
@@ -100,6 +104,7 @@ export async function* aiStreamGenerateContent(
     model: params.model,
     request: params.request,
     ...(params.engine !== undefined ? { engine: params.engine } : {}),
+    ...(params.appCheck !== undefined ? { appCheck: params.appCheck } : {}),
   } satisfies InboundMessage);
   if (!opened) push({
     kind: 'error',

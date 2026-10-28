@@ -3,9 +3,12 @@ import type { FirebaseApp } from '../app/types.js';
 import { BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
 import type { AnswerEngine } from './broker/types.js';
 import { TARGET_SYMBOL } from './target.js';
+import { appCheckAttachmentFor } from './app-check-gate.js';
 import type { AI, AIOptions, TransportTarget } from './types.js';
 
 export { aiErrorFromEnvelope } from './errors.js';
+/** The App Check claim a transport forwards with each request. */
+export type { AppCheckClaim } from './broker/types.js';
 /** Host-only seam for the dev server's terminal diagnostics: the credential
  *  masking every printed upstream URL goes through, and the gemini endpoint
  *  the startup banner names when no `baseUrl` overrides it. Published here so
@@ -55,6 +58,9 @@ export function createTransportAI(
     kind: 'transport',
     transport,
     ...(assertAlive !== undefined ? { assertAlive } : {}),
+    // Read App Check now, as the SDK's AI service does when it is built; the
+    // claim crosses to the remote broker with every request.
+    appCheck: appCheckAttachmentFor(app, options?.useLimitedUseAppCheckTokens === true),
   };
   Object.defineProperty(handle, TARGET_SYMBOL, { value: target, enumerable: false });
   handles.set(key, handle);

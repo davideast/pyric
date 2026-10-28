@@ -4,6 +4,7 @@
  */
 import type { FirebaseApp } from '../app/types.js';
 import { mintAppCheckToken, type MintedAppCheckToken as MintedToken } from '../sandbox/internal/app-check-token.js';
+import { appCheckActivationOf, recordAppCheckActivation } from '../sandbox/internal/app-check-activation.js';
 
 /** Web App Check tokens live one hour (capture `app-check-client-debug-get-token`). */
 const TTL_SECONDS = 3600;
@@ -30,10 +31,17 @@ export interface AppCheckState {
   observers: Set<TokenObserver>;
 }
 
-const states = new WeakMap<FirebaseApp, AppCheckState>();
-
+/** The activation lookup is shared with `pyric/ai`, which reads it when `getAI(app)` builds a handle. */
 export function stateOf(app: FirebaseApp): AppCheckState | undefined {
-  return states.get(app);
+  return appCheckActivationOf<AppCheckState>(app)?.state;
+}
+
+function record(app: FirebaseApp, state: AppCheckState): void {
+  recordAppCheckActivation(app, {
+    state,
+    token: async () => (await cachedOrMint(app, state, false)).token,
+    limitedUseToken: async () => (await mintLimitedUse(app)).token,
+  });
 }
 
 const BLOCKED_REFRESH_WARNING =
@@ -56,7 +64,7 @@ export function activate(app: FirebaseApp, provider: AppCheckProvider, isTokenAu
     inFlight: null,
     observers: new Set(),
   };
-  states.set(app, state);
+  record(app, state);
   return state;
 }
 
