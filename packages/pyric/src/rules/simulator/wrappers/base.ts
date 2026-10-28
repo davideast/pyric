@@ -18,6 +18,8 @@
  * a "fill in the blanks" exercise instead of a structural change.
  */
 
+import { EvalError } from '../eval-error.js';
+
 /**
  * Sentinel returned by `binaryOp` / `callMethod` when the wrapper does
  * not handle the requested operation/method. The evaluator interprets
@@ -29,6 +31,14 @@
  * stay reliable even if `base.ts` is loaded under two different module
  * specifiers.
  */
+/**
+ * A timestamp or duration outside the range production can hold, such as
+ * `timestamp + duration` past year 9999. It is an evaluation error value:
+ * the Firestore simulator absorbs it in `||` and `&&` like any other, and
+ * the Storage evaluator turns it into its own error value.
+ */
+export class ValueRangeError extends EvalError {}
+
 export const NO_OP: unique symbol = Symbol.for('pyric.RulesValue.NO_OP') as never;
 export type NoOp = typeof NO_OP;
 
