@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -39,6 +39,17 @@ function onDisk(outDir: string): { epoch: string; worker: string } {
     worker: readFileSync(join(outDir, 'worker.js'), 'utf8'),
   };
 }
+
+function readPidNamespace(): string | undefined {
+  try {
+    return readlinkSync('/proc/self/ns/pid');
+  } catch {
+    return undefined;
+  }
+}
+
+/** Where an owner's pid can be checked from this process: this host, this pid namespace. */
+const thisPidNamespace = { host: hostname(), pidNamespace: readPidNamespace() };
 
 /** The pid of a process that has already exited. */
 function exitedPid(): number {
@@ -88,24 +99,76 @@ describe('a SharedWorker cache directory shared by concurrent builders', () => {
     const leftLock = join(fixture.outDir, '.worker-build.lock.abandoned-killed');
     mkdirSync(leftStaging, { recursive: true });
     mkdirSync(leftLock, { recursive: true });
+    const twoMinutesAgo = new Date(Date.now() - 120_000);
+    utimesSync(leftStaging, twoMinutesAgo, twoMinutesAgo);
 
     await bundleWorker({ outDir: fixture.outDir, entryPath: fixture.entry() });
 
     expect(existsSync(leftStaging)).toBe(false);
     expect(existsSync(leftLock)).toBe(false);
   }, 30_000);
+
+  it('leaves a staging directory a live builder may still be writing to', async () => {
+    const fixture = workerFixture();
+    const liveStaging = join(dirname(fixture.outDir), '.cache.worker-live');
+    mkdirSync(liveStaging, { recursive: true });
+
+    await bundleWorker({ outDir: fixture.outDir, entryPath: fixture.entry() });
+
+    expect(existsSync(liveStaging)).toBe(true);
+  }, 30_000);
 });
 
 describe('the SharedWorker build lock', () => {
+  it('a builder whose lock is taken over mid-build, and whose staging directory is removed, still resolves', async () => {
+    // A builder in another pid namespace looks exited, so its lock can be taken
+    // while it builds. The new holder may remove its staging directory.
+    const fixture = workerFixture();
+    const lockDir = join(fixture.outDir, '.worker-build.lock');
+    let builds = 0;
+
+    const built = await bundleWorker({
+      outDir: fixture.outDir,
+      entryPath: fixture.entry(),
+      async buildInto(stagingDir, build) {
+        builds += 1;
+        const isFirstBuild = builds === 1;
+        if (!isFirstBuild) return build();
+        renameSync(lockDir, `${lockDir}.abandoned-taken`);
+        writeLock(fixture.outDir, { pid: process.pid, ...thisPidNamespace, token: 'other-builder' });
+        rmSync(stagingDir, { recursive: true, force: true });
+        // The other builder finishes without publishing and releases its lock.
+        setTimeout(() => rmSync(lockDir, { recursive: true, force: true }), 200);
+        // Reading its own output now fails, as the first build's did in the report.
+        return readFileSync(join(stagingDir, 'worker.js'), 'utf8');
+      },
+    });
+
+    expect(builds).toBe(2);
+    expect(onDisk(fixture.outDir).worker).toContain(built.epoch);
+  }, 30_000);
+
   it('takes over a lock whose holder has exited', async () => {
     const fixture = workerFixture();
-    const lockDir = writeLock(fixture.outDir, { pid: exitedPid(), host: hostname(), token: 'gone' });
+    const lockDir = writeLock(fixture.outDir, { pid: exitedPid(), ...thisPidNamespace, token: 'gone' });
 
     const built = await bundleWorker({ outDir: fixture.outDir, entryPath: fixture.entry() });
 
     expect(onDisk(fixture.outDir).worker).toContain(built.epoch);
     expect(existsSync(lockDir)).toBe(false);
   }, 30_000);
+
+  it('does not take over a lock from another pid namespace until it goes stale', async () => {
+    // A builder in a container sharing the home directory has a pid this process
+    // cannot see. It looks exited, but it may still be building.
+    const { outDir } = workerFixture();
+    writeLock(outDir, { pid: exitedPid(), host: hostname(), pidNamespace: 'pid:[elsewhere]', token: 'theirs' });
+    const started = Date.now();
+
+    await withWorkerBuildLock(outDir, async () => 'ran', { staleMs: 400, pollMs: 10 });
+
+    expect(Date.now() - started).toBeGreaterThanOrEqual(350);
+  });
 
   it('takes over a lock whose holder died before writing its owner', async () => {
     const fixture = workerFixture();
@@ -175,7 +238,7 @@ describe('the SharedWorker build lock', () => {
 
   it('fails at once, naming the lock, when an abandoned lock cannot be moved (EPERM)', async () => {
     const { outDir } = workerFixture();
-    const lockDir = writeLock(outDir, { pid: exitedPid(), host: hostname(), token: 'gone' });
+    const lockDir = writeLock(outDir, { pid: exitedPid(), ...thisPidNamespace, token: 'gone' });
     const refuse = () => {
       throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
     };
@@ -189,7 +252,7 @@ describe('the SharedWorker build lock', () => {
 
   it('keeps waiting, with timers running, when an abandoned lock vanishes before it moves', async () => {
     const { outDir } = workerFixture();
-    writeLock(outDir, { pid: exitedPid(), host: hostname(), token: 'gone' });
+    writeLock(outDir, { pid: exitedPid(), ...thisPidNamespace, token: 'gone' });
     const vanished = () => {
       throw Object.assign(new Error('no such file or directory'), { code: 'ENOENT' });
     };

@@ -12,17 +12,19 @@
  *
  * The pid check is a fast path, not a guarantee. A reused pid looks alive, so
  * that lock waits for `staleMs`. A process in another pid namespace (a
- * container sharing the home directory) or on the Windows side of a WSL
- * share reports the same host name but a pid this process cannot see; it
- * looks exited, so its lock is taken early. That costs a duplicate build,
- * and a builder that lost its lock does not publish (`isHeld()`).
+ * container sharing the home directory) reports the same host name but a pid
+ * this process cannot see, so the owner also records its pid namespace, and
+ * the pid check runs only for an owner in this one. A lock from another pid
+ * namespace, or from the Windows side of a WSL share, which records none, is
+ * taken over only once it goes stale. Should a lock still be taken from a
+ * live builder, that builder does not publish (`isHeld()`) and retries.
  *
  * `waitMs` is longer than `staleMs` on purpose: a waiter outlasts any lock
  * whose holder stopped refreshing it, so the wait limit fires only when a
  * live holder keeps its lock for longer than `waitMs`.
  */
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -51,10 +53,14 @@ export interface WorkerBuildLock {
 interface LockOwner {
   pid: number;
   host: string;
+  /** `/proc/self/ns/pid` where there is one; the pid means nothing outside it. */
+  pidNamespace?: string;
   token: string;
 }
 
-const DEFAULT_STALE_MS = 60_000;
+/** A lock, or a staging directory, untouched for this long belongs to a builder that is gone. */
+export const WORKER_BUILD_STALE_MS = 60_000;
+const DEFAULT_STALE_MS = WORKER_BUILD_STALE_MS;
 const DEFAULT_HEARTBEAT_MS = 10_000;
 const DEFAULT_WAIT_MS = 150_000;
 const DEFAULT_POLL_MS = 50;
@@ -81,7 +87,7 @@ async function acquire(lockDir: string, options: WorkerBuildLockOptions): Promis
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
   const waitMs = options.waitMs ?? DEFAULT_WAIT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
-  const owner: LockOwner = { pid: process.pid, host: hostname(), token: randomBytes(8).toString('hex') };
+  const owner: LockOwner = { pid: process.pid, host: hostname(), pidNamespace: PID_NAMESPACE, token: randomBytes(8).toString('hex') };
   const deadline = Date.now() + waitMs;
   for (;;) {
     if (tryCreate(lockDir, owner)) return owner;
@@ -126,6 +132,17 @@ function isOwnedBy(lockDir: string, token: string): boolean {
   return readOwner(lockDir)?.token === token;
 }
 
+/** This process's pid namespace on Linux; undefined where there is no `/proc`, as on macOS. */
+function readPidNamespace(): string | undefined {
+  try {
+    return readlinkSync('/proc/self/ns/pid');
+  } catch {
+    return undefined;
+  }
+}
+
+const PID_NAMESPACE = readPidNamespace();
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -137,8 +154,8 @@ function isProcessAlive(pid: number): boolean {
 
 function isAbandoned(lockDir: string, staleMs: number): boolean {
   const owner = readOwner(lockDir);
-  const isOwnerOnThisHost = owner !== null && owner.host === hostname();
-  if (isOwnerOnThisHost && !isProcessAlive(owner.pid)) return true;
+  const seesOwnerPid = owner !== null && owner.host === hostname() && owner.pidNamespace === PID_NAMESPACE;
+  if (seesOwnerPid && !isProcessAlive(owner.pid)) return true;
   try {
     return Date.now() - statSync(lockDir).mtimeMs > staleMs;
   } catch {

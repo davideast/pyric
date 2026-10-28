@@ -372,6 +372,8 @@ export interface WorkerBundleOptions {
   entryPath?: string;
   /** Restart-required boot identity mixed into the baked worker epoch. */
   epochSalt?: string;
+  /** Test seam around the build into the staging directory; `build` is the real one. */
+  buildInto?: (stagingDir: string, build: () => Promise<string>) => Promise<string>;
 }
 
 const WORKER_EPOCH_PLACEHOLDER = 'PYRIC_EPOCH_HERE';
@@ -480,13 +482,32 @@ async function buildUnderLock(opts: WorkerBundleOptions, hash: string, lock: Wor
   removeBuildLeftovers(opts.outDir);
   const stagingDir = mkdtempSync(stagingPathPrefix(opts.outDir));
   try {
-    await buildWorkerInto(stagingDir, opts);
+    const built = await buildWhileHeld(stagingDir, opts, lock);
+    if (!built) return null;
     // A builder whose lock was taken over as abandoned leaves the directory to the new holder.
     if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash);
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
   }
   return readCompletedWorkerBundle(opts.outDir, hash);
+}
+
+/**
+ * Build into `stagingDir`, or report false when the build failed after another
+ * process took the lock over. A builder in another pid namespace looks exited,
+ * so its lock can be taken while it still builds, and the new holder may remove
+ * its staging directory. That build's failure is not this caller's error: it
+ * retries under the lock and reads what the new holder published.
+ */
+async function buildWhileHeld(stagingDir: string, opts: WorkerBundleOptions, lock: WorkerBuildLock): Promise<boolean> {
+  const build = () => buildWorkerInto(stagingDir, opts);
+  try {
+    await (opts.buildInto ? opts.buildInto(stagingDir, build) : build());
+    return true;
+  } catch (error) {
+    if (lock.isHeld()) throw error;
+    return false;
+  }
 }
 
 /** The marker hash: the worker source graph, plus the boot salt when one is given. */

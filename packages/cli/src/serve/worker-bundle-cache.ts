@@ -20,10 +20,10 @@
  * and writing it last narrows the window in which it names a half-published
  * bundle, but a reader does not rely on that.
  */
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
-import { ABANDONED_LOCK_PREFIX } from './worker-build-lock.js';
+import { ABANDONED_LOCK_PREFIX, WORKER_BUILD_STALE_MS } from './worker-build-lock.js';
 
 export const WORKER_FILE = 'worker.js';
 export const WORKER_EPOCH_FILE = '.worker-epoch';
@@ -59,14 +59,24 @@ export function stagingPathPrefix(outDir: string): string {
 /**
  * Remove what earlier builders left when they were killed: staging
  * directories beside `outDir` and abandoned locks inside it. Only the lock
- * holder calls this, so no live build owns them.
+ * holder calls this. A staging directory is removed only once it is older
+ * than the stale time: a builder whose lock was taken while it still runs (a
+ * process in another pid namespace looks exited) may still be writing to one.
  */
 export function removeBuildLeftovers(outDir: string): void {
   const parent = dirname(outDir);
   const staged = readdirSync(parent).filter((name) => name.startsWith(stagingPrefix(outDir)));
-  for (const name of staged) rmSync(join(parent, name), { recursive: true, force: true });
+  for (const name of staged) {
+    const path = join(parent, name);
+    if (isOlderThan(path, WORKER_BUILD_STALE_MS)) rmSync(path, { recursive: true, force: true });
+  }
   const abandoned = readdirSync(outDir).filter((name) => name.startsWith(ABANDONED_LOCK_PREFIX));
   for (const name of abandoned) rmSync(join(outDir, name), { recursive: true, force: true });
+}
+
+function isOlderThan(path: string, ms: number): boolean {
+  const stats = statSync(path, { throwIfNoEntry: false });
+  return stats !== undefined && Date.now() - stats.mtimeMs > ms;
 }
 
 /** Move a finished build into `outDir`. Each rename replaces one file whole. */
