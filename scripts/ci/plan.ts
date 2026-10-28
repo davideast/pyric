@@ -46,12 +46,33 @@ function labels(): string[] {
   return parsed;
 }
 
+/** A merge group carries no labels and holds several pull requests, any of
+ *  which may have asked for packaging proof, so it runs every packaging
+ *  consumer rather than guess. */
+function isMergeGroup(event: CheckSetInput['event']): boolean {
+  return event === 'merge_group';
+}
+
 export function determinePackaging(input: {
   event: CheckSetInput['event'];
   labels: string[];
   paths: ChangedPath[];
 }): boolean {
-  return input.event === 'push' || input.labels.includes('ci-packaging') || requiresPackagingProof(input.paths);
+  const isPushToMain = input.event === 'push';
+  return isPushToMain
+    || isMergeGroup(input.event)
+    || input.labels.includes('ci-packaging')
+    || requiresPackagingProof(input.paths);
+}
+
+/** The release-shaped packaging consumers: the install matrix (beyond the
+ *  diff-selected pull request case) and the standalone smoke. A pull request
+ *  opts in with the `ci-packaging` label; a merge group always runs them. */
+export function determineReleaseProof(input: {
+  event: CheckSetInput['event'];
+  labels: string[];
+}): boolean {
+  return isMergeGroup(input.event) || input.labels.includes('ci-packaging');
 }
 
 /** The code the RTDB differential gate compares: the served hosts, the RTDB
@@ -119,10 +140,11 @@ function main(): void {
   // orthogonal to how much of the suite runs. It is forced by a push to main,
   // by the ci-packaging label, or by a diff that invalidates what it proves.
   const packaging = determinePackaging({ event, labels: prLabels, paths });
+  const releaseProof = determineReleaseProof({ event, labels: prLabels });
   const rtdbDifferential = effectiveCheckSet === 'full' && determineRtdbDifferential({ event, paths });
   const appScenarios = effectiveCheckSet === 'full' && determineAppScenarios({ event, paths });
   const summary = JSON.stringify(
-    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, rtdbDifferential, appScenarios, paths },
+    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, releaseProof, rtdbDifferential, appScenarios, paths },
     null,
     2,
   );
@@ -132,6 +154,7 @@ function main(): void {
     appendFileSync(output, `check-set=${effectiveCheckSet}\n`);
     appendFileSync(output, `predicted-check-set=${checkSet}\n`);
     appendFileSync(output, `packaging=${String(packaging)}\n`);
+    appendFileSync(output, `release-proof=${String(releaseProof)}\n`);
     appendFileSync(output, `rtdb-differential=${String(rtdbDifferential)}\n`);
     appendFileSync(output, `app-scenarios=${String(appScenarios)}\n`);
     appendFileSync(output, `paths-json=${JSON.stringify(paths)}\n`);
