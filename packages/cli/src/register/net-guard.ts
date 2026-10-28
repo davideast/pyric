@@ -123,6 +123,12 @@ import {
   type GoogleEndpoint,
 } from '../google-endpoints.js';
 import {
+  describeCatalogHosts,
+  describeGoogleHostSuffixes,
+  describeMetadataServerHosts,
+  lookupGoogleHost,
+} from '../google-hosts.js';
+import {
   nodeAgentPrototypes,
   nodeClientRequestPrototypes,
   nodeSocketPrototypes,
@@ -156,6 +162,20 @@ const REASSERT_INTERVAL_MS = 5_000;
 
 export type GuardMode = 'warn' | 'block' | 'off';
 
+/**
+ * Which hosts the guard checks. `catalog` is the endpoint catalog, for every
+ * mode. `google` is every Google host (`../google-hosts.ts`), which the
+ * real-admin tripwire switches a guard to, together with `block` (#1475).
+ */
+export type GuardScope = 'catalog' | 'google';
+
+/** What `evaluateEgress` decides by. `scope` defaults to `catalog`. */
+export interface GuardPolicy {
+  readonly mode: GuardMode;
+  readonly allow: readonly string[];
+  readonly scope?: GuardScope;
+}
+
 /** What the guard decided about one outbound connection. */
 export interface EgressVerdict {
   /** `warn` reported-and-permitted, `block` refused, `allow` allowlisted. */
@@ -174,6 +194,8 @@ export interface EgressVerdict {
   readonly service: string;
   /** Present only for catalog entries that can never be a false positive. */
   readonly alwaysBlock?: true;
+  /** Present only when the guard checks every Google host, after the tripwire. */
+  readonly scope?: 'google';
 }
 
 /** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean `warn`;
@@ -229,15 +251,21 @@ function hostnameOf(value: string): string {
  * allowlist, then the mode. `null` means nothing to say: either not a
  * production endpoint, or the guard is off.
  */
-export function evaluateEgress(
-  hostname: string,
-  policy: { mode: GuardMode; allow: readonly string[] },
-): EgressVerdict | null {
+export function evaluateEgress(hostname: string, policy: GuardPolicy): EgressVerdict | null {
   if (policy.mode === 'off') return null;
   const host = hostnameOf(hostname);
   if (host.length === 0) return null;
-  const entry: GoogleEndpoint | undefined = lookupGoogleEndpoint(host);
+  const checksEveryGoogleHost = policy.scope === 'google';
+  const lookup = checksEveryGoogleHost ? lookupGoogleHost : lookupGoogleEndpoint;
+  const entry: GoogleEndpoint | undefined = lookup(host);
   if (entry === undefined) return null;
+  const verdict = matchedVerdict(host, entry, policy);
+  if (!checksEveryGoogleHost) return verdict;
+  return { ...verdict, scope: 'google' };
+}
+
+/** The verdict for a host the policy's scope matched to `entry`. */
+function matchedVerdict(host: string, entry: GoogleEndpoint, policy: GuardPolicy): EgressVerdict {
 
   // Under `block`, `alwaysBlock` outranks the allowlist: the metadata server
   // is refused whatever PYRIC_GUARD_ALLOW says. Under `warn` it is reported
@@ -311,9 +339,13 @@ export function formatGuardLine(
   return `${head} ${why}; ${surfaces}.${remedy} ${tail}\n`;
 }
 
-/** The two ways to let a refused catalog host through, for the log line and
- *  the error alike. The metadata server has neither. */
+/** The ways to let a refused host through, for the log line and the error
+ *  alike: two for a catalog host, only the allowlist after the tripwire, whose
+ *  escalation an explicit `PYRIC_GUARD=warn` does not undo. The metadata
+ *  server has none. */
 function guardRemedy(verdict: EgressVerdict): string {
+  const isAfterTripwire = verdict.scope === 'google';
+  if (isAfterTripwire) return `set PYRIC_GUARD_ALLOW=${verdict.host} to permit this host`;
   return (
     `set PYRIC_GUARD_ALLOW=${verdict.host} to permit this host, ` +
     `or PYRIC_GUARD=warn to report live egress without refusing it`
@@ -338,9 +370,7 @@ function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Er
 
 // ─── the reporter: evaluate, log once, permit or refuse ───────────────────────
 
-export interface ReporterOptions {
-  readonly mode: GuardMode;
-  readonly allow: readonly string[];
+export interface ReporterOptions extends GuardPolicy {
   readonly write?: (line: string) => void;
   /** Initiating command, for attribution. Usually `basename(argv[1])`. */
   readonly context?: string;
@@ -366,8 +396,8 @@ function createReporter(options: ReporterOptions): Reporter {
   return {
     check(hostname, transport) {
       if (hostname === undefined) return;
-      // Read per check: an escalated guard (`NetGuard.escalate`) changes the mode.
-      const verdict = evaluateEgress(hostname, { mode: options.mode, allow: options.allow });
+      // Read per check: an escalated guard (`NetGuard.escalate`) changes the mode and scope.
+      const verdict = evaluateEgress(hostname, { mode: options.mode, allow: options.allow, scope: options.scope });
       if (verdict === null) return;
       // A dev server retries relentlessly; one line per host is the signal,
       // and it also collapses the undici-over-net.connect double report.
@@ -469,14 +499,20 @@ export interface NetGuard {
   /** The mode in force now; `escalate` can move it from `warn` to `block`. */
   readonly mode: GuardMode;
   readonly allow: readonly string[];
+  /** The hosts the guard checks now; `escalate` can widen it to `google`. */
+  readonly scope: GuardScope;
   /**
-   * Move a `warn` guard to `block` for the rest of this process, and write one
-   * line naming `reason`. A `block` guard is left as it is. Returns whether
-   * the mode changed. Used when the process shows it is about to reach
-   * production by mistake, such as the real `firebase-admin` loading under
-   * the register (#1443), and by `withPyric` in the Next dev server.
+   * Move the guard to `block` for the rest of this process, checking `scope`'s
+   * hosts, and write one line naming `reason` and what is now refused. It sets
+   * `PYRIC_GUARD=block` in the environment, so processes started afterward
+   * inherit `block`. Returns whether the mode or the scope changed; a guard
+   * already there is left as it is, and says nothing.
+   *
+   * `withPyric` escalates to `catalog` in the Next dev server. The real-admin
+   * tripwire escalates to `google` (#1443, #1475): a real `firebase-admin`
+   * holding this machine's credentials reaches Google APIs no catalog lists.
    */
-  escalate(reason: string): boolean;
+  escalate(reason: string, scope?: GuardScope): boolean;
   /** Permit one more host, given bare or as a URL, for the rest of this
    *  process. A launcher that learns a destination after install, such as the
    *  Vite plugin's configured AI upstream, names it here. */
@@ -553,11 +589,14 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 
   const allow = parseAllowHosts(env.PYRIC_GUARD_ALLOW);
   const context = contextFrom(hooks.argv ?? process.argv);
-  // One mode for every seam, read on each check, so `escalate` reaches them all.
-  const state = { mode };
+  // One mode and scope for every seam, read on each check, so `escalate` reaches them all.
+  const state: { mode: GuardMode; scope: GuardScope } = { mode, scope: 'catalog' };
   const reporterOptions: ReporterOptions = {
     get mode() {
       return state.mode;
+    },
+    get scope() {
+      return state.scope;
     },
     allow,
     write,
@@ -641,15 +680,19 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
     get mode() {
       return state.mode;
     },
+    get scope() {
+      return state.scope;
+    },
     allow,
-    escalate(reason: string): boolean {
-      const isWarn = state.mode === 'warn';
-      if (!isWarn) return false;
+    escalate(reason: string, scope: GuardScope = 'catalog'): boolean {
+      env.PYRIC_GUARD = 'block';
+      const blocks = state.mode !== 'block';
+      const widens = scope === 'google' && state.scope !== 'google';
+      const changes = blocks || widens;
+      if (!changes) return false;
       state.mode = 'block';
-      write(
-        `${LOG_PREFIX} escalated to block: ${reason}. Egress from this process to live ` +
-          `Google/Firebase endpoints now fails with ${GUARD_BLOCKED_CODE}; PYRIC_GUARD_ALLOW still permits its hosts.\n`,
-      );
+      if (widens) state.scope = 'google';
+      write(escalationLine(reason, state.scope));
       return true;
     },
     permit(hostOrUrl: string): void {
@@ -662,6 +705,23 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
       if (timer !== undefined) clearInterval(timer);
     },
   };
+}
+
+/** The line `escalate` writes: why, and exactly which hosts are now refused. */
+function escalationLine(reason: string, scope: GuardScope): string {
+  let refused: string;
+  if (scope === 'google') {
+    refused =
+      `every connection to ${describeGoogleHostSuffixes()}, ` +
+      `and to the GCE metadata server (${describeMetadataServerHosts()})`;
+  } else {
+    refused = `every connection to the hosts in its endpoint catalog (${describeCatalogHosts()})`;
+  }
+  return (
+    `${LOG_PREFIX} escalated to block: ${reason}. This process now refuses ${refused}, ` +
+    `with ${GUARD_BLOCKED_CODE}. PYRIC_GUARD_ALLOW permits a host on purpose, but never the metadata server. ` +
+    `Processes started from now on inherit PYRIC_GUARD=block.\n`
+  );
 }
 
 /**

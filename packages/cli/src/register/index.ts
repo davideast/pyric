@@ -150,13 +150,15 @@ const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
 
 const REAL_ADMIN_ISSUE_URL = 'https://github.com/davideast/pyric/issues/1443';
 
-/** A path segment that can hold `firebase-admin`, under its own name or Turbopack's rename. */
-const ADMIN_SEGMENT = /\/firebase-admin(-[0-9a-f]{16})?\//;
-
-/** Whether a resolved URL is a file of the real `firebase-admin` package. */
+/**
+ * Whether a resolved URL is a file of the real `firebase-admin` package, by
+ * its manifest name rather than its folder, so an npm alias
+ * (`"admin": "npm:firebase-admin@13"`) and a link under another name count
+ * too (#1475). `packageNameOf` caches per directory, so after a directory's
+ * first lookup this is a `dirname` and a map read.
+ */
 function isRealAdminFile(url: string): boolean {
-  const mayBeAdmin = ADMIN_SEGMENT.test(url);
-  return mayBeAdmin && packageNameOf(url) === 'firebase-admin';
+  return packageNameOf(url) === 'firebase-admin';
 }
 
 /**
@@ -164,9 +166,11 @@ function isRealAdminFile(url: string): boolean {
  * `firebase-admin`, and the hook maps every form of the import it recognizes,
  * so a real `firebase-admin` file in a registered process is a missed import
  * holding this machine's credentials. The first one escalates the guard to
- * `block`, even under an explicit `PYRIC_GUARD=warn`, so the metadata server
- * and every catalog host refuse with `PYRIC_GUARD_BLOCKED` instead of reaching
- * production. `PYRIC_GUARD=off` installs no guard and so no tripwire.
+ * `block` over every Google host (#1475), even under an explicit
+ * `PYRIC_GUARD=warn`, so `*.googleapis.com` and the rest refuse with
+ * `PYRIC_GUARD_BLOCKED` instead of reaching production, and only
+ * `PYRIC_GUARD_ALLOW` lets a host through. `PYRIC_GUARD=off` installs no guard
+ * and so no tripwire.
  *
  * Only the sync hook gets one: the async fallback runs on Node's loader
  * thread, which cannot reach this process's guard.
@@ -184,7 +188,7 @@ function withRealAdminTripwire(resolve: SyncResolve, guard: NetGuard | null): Sy
         `(import '${specifier}' from ${context.parentURL ?? 'the entry point'}), which the register ` +
         `did not route to the sandbox. Please report it: ${REAL_ADMIN_ISSUE_URL}\n`,
     );
-    guard.escalate('the real firebase-admin loaded in a process pyric registered');
+    guard.escalate('the real firebase-admin loaded in a process pyric registered', 'google');
     return result;
   };
 }
