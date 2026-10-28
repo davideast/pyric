@@ -34,8 +34,11 @@ import { normalizeDocumentPath } from './document-lookups.js';
 import {
   requestQuery,
   resolveServerTimestamps,
+  reviveCaseLiterals,
   reviveFirestoreNumbers,
 } from './firestore-values.js';
+import { caseShapeRefusal } from '../test/case-shape.js';
+import { requestTimeRefusal } from '../test/case-refusals.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import { collectRootMatches, noMatchNotes } from './root-match.js';
 import {
@@ -290,6 +293,9 @@ function newEntry(rule: AllowRule, index: number, sourceMap?: AuthoredSourceMap)
 
 // ═══ Build simulation context from TestCase ═══
 
+/** Reads a case's values into the simulator's value model. */
+type CaseReviver = (value: unknown) => unknown;
+
 function buildContext(
   tc: TestCase,
   functions: FunctionDef[],
@@ -298,6 +304,7 @@ function buildContext(
   batchProjection?: Map<string, Record<string, unknown> | null>,
   lookupBudget?: LookupBudget,
   expressionBudget?: ExpressionBudget,
+  revive: CaseReviver = reviveFirestoreNumbers,
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -313,7 +320,7 @@ function buildContext(
   for (const mock of tc.functionMocks ?? []) {
     const mockPath = normalizeDocumentPath(mock.path);
     if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
-      mockDocs.set(mockPath, reviveFirestoreNumbers(mock.result) as Record<string, unknown>);
+      mockDocs.set(mockPath, revive(mock.result) as Record<string, unknown>);
       identitylessFunctionMocks.add(mockPath);
     } else if (mock.function === 'exists') {
       existsMocks.set(mockPath, mock.result === true);
@@ -324,16 +331,17 @@ function buildContext(
   // tests pin a deterministic value for date-gated rules. Item 1.3
   // flipped the in-evaluator type from ISO string to Timestamp wrapper
   // (REBUILD_PLAN Risk 1) — `tc.requestTime` stays an ISO string for
-  // backwards-compat with the prod Test API, parsed here.
+  // backwards-compat with the prod Test API, parsed here. Intake has
+  // already refused one that is not an ISO-8601 instant with an offset.
   const serverTime = tc.requestTime
     ? Timestamp.fromIsoString(tc.requestTime)
     : Timestamp.fromMillis(Date.now());
 
   // Item 6: build the full document path for request.path / __name__.
-  // tc.path arrives as a relative path like "users/alice"; the spec form
-  // is /databases/(default)/documents/<rel>. Strip a leading slash so we
-  // don't end up with a double slash.
-  const relPath = tc.path.startsWith('/') ? tc.path.slice(1) : tc.path;
+  // tc.path arrives as a relative path like "users/alice" or as the full
+  // resource name; both name one document, so both give the single spec
+  // form /databases/(default)/documents/<rel> (FS2-CON-1).
+  const relPath = documentRelativePath(tc.path);
   const fullPathSegs = ['databases', '(default)', 'documents', ...relPath.split('/').filter(Boolean)];
   // Pass pathVariables as bindings so `request.path.<name>` (where <name> is
   // a wildcard from the matched rule, e.g. {uid}) returns the bound segment
@@ -352,10 +360,10 @@ function buildContext(
   // tc.resource for read methods, and null for delete. The legacy fallback
   // keeps every existing test passing while letting new tests opt into
   // proper merge semantics.
-  const payload = reviveFirestoreNumbers(tc.data ?? {}) as Record<string, unknown>;
+  const payload = revive(tc.data ?? {}) as Record<string, unknown>;
   const existing = tc.resource === undefined || tc.resource === null
     ? null
-    : reviveFirestoreNumbers(tc.resource) as Record<string, unknown>;
+    : revive(tc.resource) as Record<string, unknown>;
   let afterState: Record<string, unknown> | null;
   let existsAfter: boolean;
   if (tc.writeMode) {
@@ -391,7 +399,7 @@ function buildContext(
     }
   }
   const projectedAfter = afterState !== null
-    ? reviveFirestoreNumbers(resolveServerTimestamps(afterState, serverTime)) as Record<string, unknown>
+    ? revive(resolveServerTimestamps(afterState, serverTime)) as Record<string, unknown>
     : null;
 
   // request.resource is populated on create/update (from projectedAfter ?? {})
@@ -403,7 +411,7 @@ function buildContext(
   if (tc.method === 'create' || tc.method === 'update') {
     reqResource = { data: projectedAfter ?? {} };
   } else if (tc.data !== undefined) {
-    const revivedTcData = reviveFirestoreNumbers(
+    const revivedTcData = revive(
       resolveServerTimestamps(tc.data, serverTime),
     ) as Record<string, unknown>;
     reqResource = { data: revivedTcData };
@@ -442,7 +450,7 @@ function buildContext(
     // and is likewise `{ data }` only — `request.resource.id` errors in prod too.
     resource: tc.method === 'create' || existing === null
       ? null
-      : { data: reviveFirestoreNumbers(existing) as Record<string, unknown> },  // NOT resolved — resource is pre-write, no sentinels
+      : { data: revive(existing) as Record<string, unknown> },  // NOT resolved — resource is pre-write, no sentinels
     mockDocuments: mockDocs,
     identitylessFunctionMocks,
     existsMocks,
@@ -486,6 +494,35 @@ export interface SimulateOptions {
    * in one shared tree. Omit for single-op evaluation.
    */
   batchProjection?: Map<string, Record<string, unknown> | null>;
+  /**
+   * The cases come from a caller of the public API (`simulate()`, the MCP
+   * `firestore_simulate_rules` tool), not from pyric's own data plane. Each
+   * case's shape is checked first, and one the Rules Test API would read as a
+   * different request is UNSUPPORTED with the reason (`caseShapeRefusal`). A
+   * plain map with a `__type` key reads as the map it is, as production reads
+   * it; only a value helper's value is a typed value (FS2-CON-5).
+   */
+  publicCases?: boolean;
+}
+
+/** Why the simulator can't run `tc` as it stands, or `undefined`. */
+function intakeRefusal(tc: TestCase, publicCases: boolean): string | undefined {
+  if (publicCases) return caseShapeRefusal(tc);
+  return requestTimeRefusal(tc.requestTime);
+}
+
+/** The result for a case intake refused: UNSUPPORTED, with the reason. */
+function refusedResult(tc: TestCase, reason: string): TestResult {
+  const shape = (typeof tc === 'object' && tc !== null ? tc : {}) as Partial<TestCase>;
+  return {
+    description: typeof shape.description === 'string' ? shape.description : '',
+    expectation: shape.expectation === 'ALLOW' ? 'ALLOW' : 'DENY',
+    state: 'UNSUPPORTED',
+    decision: 'UNSUPPORTED',
+    evaluatedExpressions: 0,
+    trace: [],
+    notes: [reason],
+  };
 }
 
 export class SimulateFirestoreRulesHandler {
@@ -564,7 +601,18 @@ export class SimulateFirestoreRulesHandler {
     // its wildcard `db` or `dbId`.
     const rootBindings: Record<string, string> = { database: '(default)' };
 
+    const publicCases = opts?.publicCases === true;
+    const revive: CaseReviver = publicCases ? reviveCaseLiterals : reviveFirestoreNumbers;
     for (const tc of testCases) {
+      // A case either engine would read as a different request, or one with
+      // an instant that is not ISO-8601 with an offset, is refused here
+      // rather than answered (FS2-CON-2, FS2-CON-3, FS2-CON-12).
+      const refusal = intakeRefusal(tc, publicCases);
+      if (refusal !== undefined) {
+        unsupported++;
+        results.push(refusedResult(tc, refusal));
+        continue;
+      }
       // Resolve the match blocks for this path. The root match is compared
       // with the request's full resource name first, and its children match
       // what it leaves (FS2-ENF-1).
@@ -695,8 +743,14 @@ export class SimulateFirestoreRulesHandler {
       // form `list menuItems/<id>` resolves, which production ORs (corpus
       // `simcase-mock-and-path-fidelity`). When the widened path matches
       // nothing, the direct matches stand.
+      //
+      // A document-style path (even segment count) is never widened: it
+      // already names a document of the queried collection, and one segment
+      // deeper reaches only blocks no document of that collection matches,
+      // such as a version 1 `{document=**}` under `/cities/{city}` for the
+      // sandbox's `cities/__listPlaceholder__` (#1428).
       let syntheticListDoc = false;
-      const shouldWiden = isListMethod && (isCollectionPath || matches.length === 0);
+      const shouldWiden = isListMethod && isCollectionPath;
       if (shouldWiden) {
         const widened = [...pathSegments, '__hypothetical_doc__'];
         const widenedMatches = collectRootMatches(evalAst, widened.join('/'), rootFunctions, pathRecorder);
@@ -769,7 +823,7 @@ export class SimulateFirestoreRulesHandler {
       const expressionBudget = new ExpressionBudget((message, position) => new ExpressionLimitError(message, position));
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget);
+        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
