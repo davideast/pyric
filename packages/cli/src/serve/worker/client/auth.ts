@@ -286,12 +286,28 @@ export function stageSignInResult(auth: ClientAuth, result: StagedSignInResult):
   const identity: ResolvedIdentity = {
     uid,
     providerId,
-    email: result.user.email ?? null,
-    displayName: result.user.displayName ?? null,
-    photoURL: result.user.photoURL ?? null,
+    email: profileField(result.user.email),
+    displayName: profileField(result.user.displayName),
+    photoURL: profileField(result.user.photoURL),
     customClaims: {},
   };
-  void rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.mockSignInResult', identity });
+  // The signature is void, so an error reply (a deleted app, a refused send)
+  // has nowhere to go; the next sign-in reports auth/no-mock-configured.
+  rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.mockSignInResult', identity }).catch(() => {});
+}
+
+/** A staged profile field the host accepts: a string, or null when absent. Anything else throws at the call. */
+function profileField(value: unknown): string | null {
+  const isAbsent = value === undefined || value === null;
+  if (isAbsent) return null;
+  const isString = typeof value === 'string';
+  if (!isString) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'sandbox.mockSignInResult: result.user.email, displayName and photoURL must be strings or null.',
+    );
+  }
+  return value;
 }
 
 /**

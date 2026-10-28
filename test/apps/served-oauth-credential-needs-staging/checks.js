@@ -58,7 +58,8 @@ async function present(credential, accounts) {
   let outcome;
   try {
     const result = await signInWithCredential(auth, credential);
-    outcome = { ok: true, providerId: result.providerId };
+    const providers = result.user.providerData.map((entry) => entry.providerId).sort();
+    outcome = { ok: true, providerId: result.providerId, providers };
   } catch (error) {
     outcome = { ok: false, code: error?.code ?? String(error) };
   }

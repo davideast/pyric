@@ -292,6 +292,49 @@ describe('served signInWithCredential with a federated credential needs a staged
     expect(await refusal(signInWithCredential(h.clientAuth, google))).toBe('auth/no-mock-configured');
   });
 
+  it('refuses a profile field the host would refuse at the call, not as an unhandled rejection', async () => {
+    const h = harness();
+    const unhandled: unknown[] = [];
+    const record = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', record);
+    try {
+      for (const user of [{ uid: 'u1', email: 42 }, { uid: 'u1', displayName: {} }, { uid: 'u1', photoURL: 7 }]) {
+        const result = { user, providerId: 'google.com' } as unknown as Parameters<typeof stageSignInResult>[1];
+        expect(() => stageSignInResult(h.clientAuth, result)).toThrow('strings or null');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off('unhandledRejection', record);
+    }
+    expect(unhandled).toEqual([]);
+  });
+
+  it('drops an error reply to a staged result instead of leaving an unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const record = (reason: unknown) => unhandled.push(reason);
+    let port!: ClientPort;
+    port = {
+      onmessage: null,
+      postMessage(message: InboundMessage) {
+        const isOp = message.t === 'op';
+        if (!isOp) return;
+        const refusal = { t: 'res', id: message.id, ok: false, error: { code: 'invalid-argument', message: 'refused' } };
+        queueMicrotask(() => port.onmessage?.({ data: refusal } as MessageEvent<OutboundMessage>));
+      },
+      start() {},
+    };
+    wirePort(port);
+    const refusingAuth = getClientAuth({ __kind: 'client-db', port } as ClientDb);
+    process.on('unhandledRejection', record);
+    try {
+      stageSignInResult(refusingAuth, { user: { uid: 'u1' }, providerId: 'google.com' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off('unhandledRejection', record);
+    }
+    expect(unhandled).toEqual([]);
+  });
+
   it('refuses to stage a result with an empty uid or provider at the call', () => {
     const h = harness();
     expect(() => stageSignInResult(h.clientAuth, { user: { uid: '' }, providerId: 'google.com' })).toThrow('non-empty');

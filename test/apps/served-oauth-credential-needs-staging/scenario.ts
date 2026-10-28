@@ -20,6 +20,7 @@ type Check = {
   ok: boolean;
   code?: string;
   providerId?: string | null;
+  providers?: string[];
   signedIn: string | null;
   read: string;
   stagedRead: string;
@@ -76,6 +77,27 @@ async function openPage(app: App, url: string, runtime: Runtime): Promise<Page> 
   return page;
 }
 
+/**
+ * The checks without the providers a successful sign-in reports. In-page
+ * returns the staged User as passed, so its providerData lacks the provider
+ * (#1511); until that lands, each served leg checks providers on its own.
+ */
+function withoutProviders(checks: Checks): Checks {
+  return Object.fromEntries(Object.entries(checks).map(([name, check]) => {
+    const isSignIn = !Array.isArray(check) && check.providers !== undefined;
+    if (!isSignIn) return [name, check];
+    const { providers: _providers, ...rest } = check as Check;
+    return [name, rest];
+  }));
+}
+
+/** A served leg: the staged sign-in links google.com, and every other answer equals in-page's. */
+function assertServedLeg(checks: Checks, control: Checks, leg: string, detail: string): void {
+  const staged = checks.googleStaged as Check;
+  assert.ok(staged.providers?.includes('google.com'), `${leg}: staged providerData ${JSON.stringify(staged.providers)}`);
+  assert.deepEqual(withoutProviders(checks), control, `${leg}: ${detail}`);
+}
+
 async function pageChecks(app: App, url: string, runtime: Runtime): Promise<Checks> {
   const page = await openPage(app, url, runtime);
   const checks = await page.evaluate(() => runChecks());
@@ -87,14 +109,14 @@ export default scenario(async (app) => {
   const local = await app.step('start the dev server', () => app.devServer());
 
   const control = await app.step('in-page, a federated credential signs in only as a staged result', async () => {
-    const checks = await pageChecks(app, local.url, 'in-page');
+    const checks = withoutProviders(await pageChecks(app, local.url, 'in-page'));
     assert.deepEqual(checks, EXPECTED, `in-page: ${JSON.stringify(checks)}`);
     return checks;
   });
 
   await app.step('in a SharedWorker, signInWithCredential gives the in-page answers', async () => {
     const checks = await pageChecks(app, local.url, 'shared-worker');
-    assert.deepEqual(checks, control, `shared-worker: ${JSON.stringify(checks)}`);
+    assertServedLeg(checks, control, 'shared-worker', JSON.stringify(checks));
   });
 
   const hosted = await app.step('restart the dev server as the Node host', async () => {
@@ -107,11 +129,11 @@ export default scenario(async (app) => {
     const { output } = await app.serverScript('client.mjs', [], { env: { PYRIC_SANDBOX: `remote:${hosted.url}` }, timeoutMs: 30_000 });
     const line = output.match(/^checks (.*)$/m);
     assert.ok(line, `no checks line in:\n${output}`);
-    assert.deepEqual(JSON.parse(line[1]), control, `register process:\n${output}`);
+    assertServedLeg(JSON.parse(line[1]), control, 'register process', `\n${output}`);
   });
 
   await app.step('on the Node host, signInWithCredential gives the in-page answers', async () => {
     const checks = await pageChecks(app, hosted.url, 'hosted');
-    assert.deepEqual(checks, control, `hosted: ${JSON.stringify(checks)}`);
+    assertServedLeg(checks, control, 'hosted', JSON.stringify(checks));
   });
 });
