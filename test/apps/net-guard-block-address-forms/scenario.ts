@@ -52,6 +52,7 @@ export default scenario(async (app) => {
       'net.connect 0251.0376.0251.0376',
       'net.connect ::ffff:169.254.169.254',
       'net.connect ::ffff:a9fe:a9fe',
+      'net.connect ::ffff:a9fe:a9fe%lo',
       'http.request 2852039166',
       'fetch http://[::ffff:169.254.169.254]/',
     ]) {

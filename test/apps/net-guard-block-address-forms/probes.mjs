@@ -71,7 +71,7 @@ record('loopback control', await requestOutcome({ host: '127.0.0.1', port: proxy
 for (const host of ['2852039166', '0xa9fea9fe', '169.254.43518', '0251.0376.0251.0376']) {
   record(`net.connect ${host}`, connectOutcome(() => net.connect({ host, port: 80, lookup: localLookup })));
 }
-for (const host of ['::ffff:169.254.169.254', '::ffff:a9fe:a9fe']) {
+for (const host of ['::ffff:169.254.169.254', '::ffff:a9fe:a9fe', '::ffff:a9fe:a9fe%lo']) {
   record(`net.connect ${host}`, connectOutcome(() => net.connect({ host, port: 80 })));
 }
 record('http.request 2852039166', await requestOutcome({

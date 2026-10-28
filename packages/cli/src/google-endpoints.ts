@@ -165,13 +165,26 @@ const MAPPED_IPV4 = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
  * not an IP address, which stays as text.
  */
 function canonicalIpAddress(text: string): string | undefined {
+  if (text.includes(':')) return canonicalIpv6Text(text);
   if (text.length === 0 || URL_DELIMITERS.test(text)) return undefined;
-  const bare = text.replace(/^\[(.*)\]$/, '$1');
-  if (bare.includes(':')) return canonicalIpv6(bare);
-  if (!IPV4_CANDIDATE.test(bare)) return undefined;
-  const hostname = parsedHostname(bare);
+  if (!IPV4_CANDIDATE.test(text)) return undefined;
+  const hostname = parsedHostname(text);
   if (hostname !== undefined && DOTTED_QUAD.test(hostname)) return hostname;
   return undefined;
+}
+
+/** A trailing IPv6 zone id, `%lo`, or `%25lo` as a URL writes it. */
+const ZONE_ID = /%(?:25)?[^%]*$/;
+
+/**
+ * IPv6 text without its brackets and zone id. Node and the kernel accept
+ * `::ffff:a9fe:a9fe%lo` and reach the IPv4 address, but the URL parser rejects
+ * a zone id, so it comes off before parsing.
+ */
+function canonicalIpv6Text(text: string): string | undefined {
+  const bare = text.replace(/^\[(.*)\]$/, '$1').replace(ZONE_ID, '');
+  if (bare.length === 0 || URL_DELIMITERS.test(bare)) return undefined;
+  return canonicalIpv6(bare);
 }
 
 function canonicalIpv6(bare: string): string | undefined {

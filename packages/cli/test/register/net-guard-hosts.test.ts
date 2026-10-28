@@ -81,6 +81,8 @@ describe('metadata IP spellings through the socket backstop', () => {
     '0251.0376.0251.0376',
     '::ffff:169.254.169.254',
     '::ffff:a9fe:a9fe',
+    '::ffff:a9fe:a9fe%lo',
+    '::ffff:169.254.169.254%25eth0',
   ];
 
   for (const host of spellings) {
@@ -124,6 +126,7 @@ describe('hosts a tunnelled connection names', () => {
   it('fails a CONNECT request whose target is a respelled metadata IP', () => {
     expect(requestOutcome({ method: 'CONNECT', path: '[::ffff:a9fe:a9fe]:80' })).toBe(GUARD_BLOCKED_CODE);
     expect(requestOutcome({ method: 'connect', path: '2852039166:80' })).toBe(GUARD_BLOCKED_CODE);
+    expect(requestOutcome({ method: 'CONNECT', path: '[::ffff:a9fe:a9fe%25lo]:80' })).toBe(GUARD_BLOCKED_CODE);
   });
 
   it('fails an absolute-form request to a catalog host sent to a forward proxy', () => {

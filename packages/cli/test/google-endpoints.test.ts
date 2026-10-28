@@ -134,6 +134,11 @@ describe('normalizeHostname on IP literals', () => {
     '[::ffff:a9fe:a9fe]',
     '0:0:0:0:0:ffff:a9fe:a9fe',
     '::FFFF:A9FE:A9FE',
+    // An IPv6 zone id, which Node and the kernel accept and ignore here.
+    '::ffff:a9fe:a9fe%lo',
+    '::ffff:169.254.169.254%eth0',
+    '[::ffff:a9fe:a9fe%25lo]',
+    '[::ffff:a9fe:a9fe%lo]',
   ];
 
   it('writes every IPv4 spelling of the metadata IP as its dotted quad', () => {
@@ -155,6 +160,7 @@ describe('normalizeHostname on IP literals', () => {
     expect(normalizeHostname('[::1]')).toBe('::1');
     expect(normalizeHostname('0:0:0:0:0:0:0:1')).toBe('::1');
     expect(normalizeHostname('2001:DB8::1')).toBe('2001:db8::1');
+    expect(normalizeHostname('fe80::1%eth0')).toBe('fe80::1');
   });
 
   it('leaves hostnames, including ones made of hex digits, as text', () => {
