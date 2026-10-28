@@ -1,4 +1,5 @@
 import { defineRows } from './define-rows.ts';
+import { appCheckHuntBlock } from './app-check-hunt-captures.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, ConformanceDisposition } from './types.ts';
 
 /**
@@ -386,5 +387,6 @@ export const appCheckRegistry: CompatibilitySurfaceRegistry = {
     { kind: 'table', prefix: `## ${SEC_LISTEN}\n`, rows: listenRows },
     { kind: 'table', prefix: `## ${SEC_WIRE}\n`, rows: wireRows },
     { kind: 'table', prefix: `## ${SEC_ADMIN}\n`, rows: adminRows },
+    appCheckHuntBlock,
   ],
 };
