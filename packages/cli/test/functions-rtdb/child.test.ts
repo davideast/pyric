@@ -86,5 +86,26 @@ describe('functions child metadata and environment resolution', () => {
       expect(config.databaseURL).toBe('https://sandbox-app-default-rtdb.firebasedatabase.app');
       expect(config.storageBucket).toBe('sandbox-app.appspot.com');
     });
+
+    test('replaces the host Google project variables and drops its credentials file', () => {
+      const childEnv = buildFunctionsChildEnv({
+        baseEnv: {
+          GOOGLE_CLOUD_PROJECT: 'corp-production-gcp-project',
+          GCP_PROJECT: 'corp-production-gcp-project',
+          GOOGLE_APPLICATION_CREDENTIALS: '/home/dev/.config/gcloud/prod-sa.json',
+          PATH: '/usr/bin',
+        },
+        entry: '/app/functions/index.js',
+        instance: 'sandbox-app-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+        projectId: 'sandbox-app',
+      });
+
+      expect(childEnv.GOOGLE_CLOUD_PROJECT).toBe('sandbox-app');
+      expect(childEnv.GCP_PROJECT).toBe('sandbox-app');
+      expect('GOOGLE_APPLICATION_CREDENTIALS' in childEnv).toBe(false);
+      expect(childEnv.PATH).toBe('/usr/bin');
+    });
   });
 });
