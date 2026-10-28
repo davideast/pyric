@@ -35,7 +35,8 @@ import Module from 'node:module';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { mapFirebaseSpecifier } from './mapping.js';
+import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
+import { resolvesIntoPackage } from './package-identity.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
@@ -106,6 +107,47 @@ function resolveEsmOnlyForRequire(mapped: string): string | null {
   }
 }
 
+type NextSyncResolve = Parameters<SyncResolve>[2];
+
+/** Resolve a mapped pyric target from this installed CLI. */
+function resolveMapped(mapped: string, context: SyncResolveContext, nextResolve: NextSyncResolve): SyncResolveResult {
+  try {
+    return nextResolve(mapped, { ...context, parentURL: import.meta.url });
+  } catch (err) {
+    // CJS `require('firebase-admin/app')` resolves under the `require`
+    // condition, but the pyric mirrors are ESM-only. Resolve the file
+    // under import conditions ourselves — require(esm) (Node ≥ 22.12)
+    // loads it fine once given the URL.
+    const code = (err as { code?: string }).code;
+    if (code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || code === 'MODULE_NOT_FOUND') {
+      const url = resolveEsmOnlyForRequire(mapped);
+      if (url) return { url, shortCircuit: true };
+    }
+    throw err;
+  }
+}
+
+/**
+ * The sync resolve hook. A canonical Firebase specifier maps directly. A
+ * Turbopack-renamed one (`firebase-admin-<hash>/app`, #1443) resolves as
+ * given first, and maps by its canonical name only when that landed in the
+ * real package, so an unrelated package with such a name stays itself.
+ */
+const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
+  const canonical = canonicalFirebaseSpecifier(specifier);
+  if (canonical === null) {
+    const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
+    if (mapped === null) return nextResolve(specifier, context);
+    return resolveMapped(mapped, context, nextResolve);
+  }
+  const renamed = nextResolve(specifier, context);
+  const isRealFirebasePackage = resolvesIntoPackage(renamed.url, canonical);
+  if (!isRealFirebasePackage) return renamed;
+  const mapped = mapFirebaseSpecifier(canonical, context.parentURL);
+  if (mapped === null) return renamed;
+  return resolveMapped(mapped, context, nextResolve);
+};
+
 function activate(): void {
   // FIRST, before any hook or global: the network guard.
   //
@@ -139,24 +181,7 @@ function activate(): void {
   if (typeof moduleApi.registerHooks === 'function') {
     hooksInstalled = true;
     moduleApi.registerHooks({
-      resolve(specifier, context, nextResolve) {
-        const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
-        if (mapped === null) return nextResolve(specifier, context);
-        try {
-          return nextResolve(mapped, { ...context, parentURL: import.meta.url });
-        } catch (err) {
-          // CJS `require('firebase-admin/app')` resolves under the `require`
-          // condition, but the pyric mirrors are ESM-only. Resolve the file
-          // under import conditions ourselves — require(esm) (Node ≥ 22.12)
-          // loads it fine once given the URL.
-          const code = (err as { code?: string }).code;
-          if (code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || code === 'MODULE_NOT_FOUND') {
-            const url = resolveEsmOnlyForRequire(mapped);
-            if (url) return { url, shortCircuit: true };
-          }
-          throw err;
-        }
-      },
+      resolve: resolveFirebase,
     });
   } else {
     process.stderr.write(
