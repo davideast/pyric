@@ -71,8 +71,11 @@ import type {
  * SDK sends lowercase `user`/`model`). Function responses ride under `user`.
  * Role `function`, which the installed SDK's `ChatSession` sends, is refused
  * with its own captured text (`ai-error-function-role-refused`, #1410).
+ * Role `assistant` is accepted too, although that text leaves it out
+ * (`ai-contents-role-assistant`). Role `system` is refused with the
+ * unknown-role text (`ai-contents-role-system`).
  */
-const ACCEPTED_ROLES = new Set(['MODEL', 'USER']);
+const ACCEPTED_ROLES = new Set(['MODEL', 'USER', 'ASSISTANT']);
 
 /** The refusal production sends for a content role the broker does not accept. */
 function roleRefusal(role: string): AiBrokerError['envelope'] {

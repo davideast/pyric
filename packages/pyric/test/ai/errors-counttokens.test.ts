@@ -135,6 +135,23 @@ describe('ai: error envelopes', () => {
     expect(message).toContain(facts.messageText);
   });
 
+  rowTest('ai#contents-role-system a contents turn under role system fails 400 with the unknown-role text', async () => {
+    const facts = observedBehavior('ai-contents-role-system');
+    expect(facts.httpStatus).toBe(400);
+    expect(facts.messageText).toBe("Role 'system' is not supported. Please use a valid role: MODEL, USER.");
+    const model = seam.ai.getGenerativeModel(freshAi(), { model: PROBE_MODEL });
+    const error = await rejectionFrom(
+      model.generateContent({
+        contents: [
+          { role: 'system', parts: [{ text: 'You only ever reply with the word: pyric' }] },
+          { role: 'user', parts: [{ text: 'Say anything.' }] },
+        ],
+      }),
+    );
+    expect(error.customErrorData?.status).toBe(facts.httpStatus);
+    expect(String(error.message)).toContain(facts.messageText);
+  });
+
   rowTest('ai#error-aierror-shape HTTP failures surface as AIError with customErrorData', async () => {
     const facts = observedBehavior('ai-error-bad-api-key');
     const model = seam.ai.getGenerativeModel(freshAi(), { model: 'not-a-real-model' });
