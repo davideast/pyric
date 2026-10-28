@@ -1,0 +1,261 @@
+{
+  "name": "firestore-named-database-rules-api",
+  "matrixRow": "firestore MD4",
+  "rowIds": [
+    "firestore#MD4"
+  ],
+  "description": "Rules Test API (projects.test) evaluating Firestore rulesets against request paths in the named database `probes` and in `(default)`: what `database` and `request.path` bind to, whether a literal database segment matches, and whether a mocked get() of either database evaluates. The Test API deploys nothing.",
+  "observedAt": "2026-10-28T03:11:02.933Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "method": "One projects.test call per probe in RULES_PROBES, packages/conformance/src/capture-firestore-named-databases.ts; each runs a get of p/d1 as uid a under /databases/probes/documents and /databases/(default)/documents, expecting ALLOW (SUCCESS means granted).",
+  "behavior": {
+    "database-binds-named-id:get probes/p/d1": "ALLOW",
+    "database-binds-named-id:get (default)/p/d1": "DENY",
+    "database-binds-default-id:get probes/p/d1": "DENY",
+    "database-binds-default-id:get (default)/p/d1": "ALLOW",
+    "request-path-database-segment-is-named-id:get probes/p/d1": "ALLOW",
+    "request-path-database-segment-is-named-id:get (default)/p/d1": "DENY",
+    "request-path-equals-interpolated-path:get probes/p/d1": "ALLOW",
+    "request-path-equals-interpolated-path:get (default)/p/d1": "ALLOW",
+    "literal-named-database-match:get probes/p/d1": "ALLOW",
+    "literal-named-database-match:get (default)/p/d1": "DENY",
+    "literal-default-database-match:get probes/p/d1": "DENY",
+    "literal-default-database-match:get (default)/p/d1": "ALLOW",
+    "mocked-get-of-default-database-path:get probes/p/d1": "ALLOW",
+    "mocked-get-of-default-database-path:get (default)/p/d1": "ALLOW",
+    "mocked-get-of-named-database-path:get probes/p/d1": "ALLOW",
+    "mocked-get-of-named-database-path:get (default)/p/d1": "ALLOW",
+    "two-literal-root-blocks:get probes/p/d1": "ALLOW",
+    "two-literal-root-blocks:get (default)/p/d1": "DENY",
+    "two-literal-root-blocks-swapped:get probes/p/d1": "DENY",
+    "two-literal-root-blocks-swapped:get (default)/p/d1": "ALLOW",
+    "database-under-literal-root:get probes/p/d1": "DENY",
+    "database-under-literal-root:get (default)/p/d1": "DENY"
+  },
+  "diagnostics": {
+    "database-binds-named-id": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if database == 'probes';\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        }
+      }
+    },
+    "database-binds-default-id": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if database == '(default)';\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        }
+      }
+    },
+    "request-path-database-segment-is-named-id": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if request.path[1] == 'probes';\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        }
+      }
+    },
+    "request-path-equals-interpolated-path": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if request.path == /databases/$(database)/documents/p/$(d);\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        }
+      }
+    },
+    "literal-named-database-match": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/probes/documents {\n    match /p/{d} {\n      allow read: if true;\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        }
+      }
+    },
+    "literal-default-database-match": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/(default)/documents {\n    match /p/{d} {\n      allow read: if true;\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        }
+      }
+    },
+    "mocked-get-of-default-database-path": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if get(/databases/(default)/documents/c/x).data.v == 1;\n    }\n  }\n}\n",
+      "functionMocks": [
+        {
+          "function": "get",
+          "args": [
+            {
+              "exactValue": "/databases/(default)/documents/c/x"
+            }
+          ],
+          "result": {
+            "value": {
+              "data": {
+                "v": 1
+              }
+            }
+          }
+        }
+      ],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        }
+      }
+    },
+    "mocked-get-of-named-database-path": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /p/{d} {\n      allow read: if get(/databases/probes/documents/c/x).data.v == 1;\n    }\n  }\n}\n",
+      "functionMocks": [
+        {
+          "function": "get",
+          "args": [
+            {
+              "exactValue": "/databases/probes/documents/c/x"
+            }
+          ],
+          "result": {
+            "value": {
+              "data": {
+                "v": 1
+              }
+            }
+          }
+        }
+      ],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        }
+      }
+    },
+    "two-literal-root-blocks": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/probes/documents {\n    match /p/{d} {\n      allow read: if true;\n    }\n  }\n  match /databases/(default)/documents {\n    match /p/{d} {\n      allow read: if false;\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        }
+      }
+    },
+    "two-literal-root-blocks-swapped": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/probes/documents {\n    match /p/{d} {\n      allow read: if false;\n    }\n  }\n  match /databases/(default)/documents {\n    match /p/{d} {\n      allow read: if true;\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        },
+        "get (default)/p/d1": {
+          "decision": "ALLOW",
+          "state": "SUCCESS",
+          "debugMessages": []
+        }
+      }
+    },
+    "database-under-literal-root": {
+      "ruleset": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/probes/documents {\n    match /p/{d} {\n      allow read: if database == 'probes';\n    }\n  }\n}\n",
+      "functionMocks": [],
+      "issues": [
+        "WARNING Invalid variable name: database."
+      ],
+      "cases": {
+        "get probes/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": [
+            "Error: firestore.rules line [5], column [22]. Null value error."
+          ]
+        },
+        "get (default)/p/d1": {
+          "decision": "DENY",
+          "state": "FAILURE",
+          "debugMessages": []
+        }
+      }
+    }
+  }
+}
