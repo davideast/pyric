@@ -63,6 +63,10 @@ describe('create', () => {
     expect(resource?.metadata).toBeNull();
   });
 
+  it('gives an empty contentType the upload default, as a live upload does', () => {
+    expect(built('create', { contentType: '' })?.contentType).toBe('application/octet-stream');
+  });
+
   it('treats the write umbrella as an upload', () => {
     expect(built('write', { size: 3 })?.generation).toBeNull();
   });
@@ -80,6 +84,11 @@ describe('update', () => {
     expect(resource?.metadata).toEqual({ owner: 'alice' });
     expect(resource?.generation).toBe(7);
     expect(resource?.metageneration).toBe(2);
+  });
+
+  it('builds none when no object is stored, as the live metadata update does', () => {
+    expect(built('update', undefined)).toBeUndefined();
+    expect(built('update', { size: 5 })).toBeUndefined();
   });
 
   it('patches the stored object with the fields the case names', () => {
@@ -110,6 +119,9 @@ describe('field checks', () => {
 
   it('refuses a wrong-typed field by name', () => {
     expect(refusal('create', { size: '12kb' })).toBe('data.size must be a number or a numeric string, and it is a string.');
+    expect(refusal('create', { size: -1 })).toBe('data.size must be a whole number of 0 or more, and it is -1.');
+    expect(refusal('create', { size: 1.5 })).toBe('data.size must be a whole number of 0 or more, and it is 1.5.');
+    expect(refusal('create', { generation: -2 })).toBe('data.generation must be a whole number of 0 or more, and it is -2.');
     expect(refusal('create', { contentType: 5 })).toBe('data.contentType must be a string, and it is a number.');
     expect(refusal('create', { metadata: ['a'] })).toBe('data.metadata must be a map of strings, and it is an array.');
     expect(refusal('create', { metadata: { owner: 5 } })).toBe('data.metadata.owner must be a string, and it is a number.');

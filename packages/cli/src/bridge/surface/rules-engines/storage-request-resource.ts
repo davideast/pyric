@@ -8,7 +8,8 @@
  *   `resource`, never a source of `request.resource` fields.
  * - `update` is a metadata update: the stored object patched with the case's
  *   fields. Production builds it whether or not the call changes anything, so
- *   it is present when the case passes no `data`.
+ *   it is present when the case passes no `data`. With no stored object there
+ *   is nothing to update, and the live request carries none.
  * - `get`, `list`, `delete` and the `read` umbrella carry none, so a case that
  *   passes `data` with one is refused rather than evaluated against a binding
  *   the live request would not have.
@@ -83,11 +84,18 @@ function typeName(value: unknown): string {
   return `a ${typeof value}`;
 }
 
-/** A count field: a number, or a numeric string as the Rules Test API tolerates. */
+/**
+ * A count field: a whole number, or a numeric string as the Rules Test API
+ * tolerates. No object has a negative or fractional size or version.
+ */
 function countOf(field: string, value: unknown): Checked<number> {
-  if (typeof value === 'number' && Number.isFinite(value)) return { ok: true, value };
   if (typeof value === 'string' && NUMERIC.test(value)) return { ok: true, value: Number(value) };
-  return refuse(`data.${field} must be a number or a numeric string, and it is ${typeName(value)}.`);
+  if (typeof value !== 'number') {
+    return refuse(`data.${field} must be a number or a numeric string, and it is ${typeName(value)}.`);
+  }
+  const whole = Number.isSafeInteger(value) && value >= 0;
+  if (!whole) return refuse(`data.${field} must be a whole number of 0 or more, and it is ${value}.`);
+  return { ok: true, value };
 }
 
 function stringOf(field: string, value: unknown): Checked<string> {
@@ -183,14 +191,17 @@ function presentOrUndefined<T>(value: T | null | undefined): T | undefined {
   return value === null ? undefined : value;
 }
 
-/** The binding an upload builds from the case alone, with an upload's defaults. */
+/**
+ * The binding an upload builds from the case alone, with an upload's defaults.
+ * An empty `contentType` takes the default too, as a live upload's does.
+ */
 function uploadResource(object: StorageReference, fields: CaseFields): RequestResource {
   return requestResourceFor(
     {
       fullPath: fields.name ?? object.fullPath,
       bucket: fields.bucket ?? object.bucket,
       size: fields.size ?? 0,
-      contentType: fields.contentType ?? 'application/octet-stream',
+      contentType: fields.contentType || 'application/octet-stream',
       customMetadata: presentOrUndefined(fields.metadata),
       cacheControl: presentOrUndefined(fields.cacheControl),
       contentDisposition: presentOrUndefined(fields.contentDisposition),
@@ -208,24 +219,20 @@ function patched<T>(set: T | null | undefined, stored: T | undefined): T | undef
 }
 
 /** The binding a metadata update builds: the stored object patched with the case. */
-function updateResource(
-  object: StorageReference,
-  fields: CaseFields,
-  existing: StoredMetadata | undefined,
-): RequestResource {
+function updateResource(fields: CaseFields, existing: StoredMetadata): RequestResource {
   return requestResourceFor(
     {
-      fullPath: fields.name ?? existing?.fullPath ?? object.fullPath,
-      bucket: fields.bucket ?? existing?.bucket ?? object.bucket,
-      size: fields.size ?? existing?.size ?? 0,
-      contentType: fields.contentType ?? existing?.contentType,
-      customMetadata: patched(fields.metadata, existing?.customMetadata),
-      cacheControl: patched(fields.cacheControl, existing?.cacheControl),
-      contentDisposition: patched(fields.contentDisposition, existing?.contentDisposition),
-      contentEncoding: patched(fields.contentEncoding, existing?.contentEncoding),
-      contentLanguage: patched(fields.contentLanguage, existing?.contentLanguage),
-      generation: existing?.generation,
-      metageneration: existing?.metageneration,
+      fullPath: fields.name ?? existing.fullPath,
+      bucket: fields.bucket ?? existing.bucket,
+      size: fields.size ?? existing.size,
+      contentType: fields.contentType ?? existing.contentType,
+      customMetadata: patched(fields.metadata, existing.customMetadata),
+      cacheControl: patched(fields.cacheControl, existing.cacheControl),
+      contentDisposition: patched(fields.contentDisposition, existing.contentDisposition),
+      contentEncoding: patched(fields.contentEncoding, existing.contentEncoding),
+      contentLanguage: patched(fields.contentLanguage, existing.contentLanguage),
+      generation: existing.generation,
+      metageneration: existing.metageneration,
     },
     'metadataUpdate',
   );
@@ -260,7 +267,9 @@ export function simulatedRequestResource(
   }
   const fields = caseFieldsOf(data);
   if (!fields.ok) return fields;
-  const built =
-    write === 'upload' ? uploadResource(object, fields.value) : updateResource(object, fields.value, existing);
-  return { ok: true, resource: applyNulls(built, fields.value) };
+  if (write === 'upload') return { ok: true, resource: applyNulls(uploadResource(object, fields.value), fields.value) };
+  // An update of an object that is not stored carries none, as the live
+  // metadata update builds none before it reports the object missing.
+  if (existing === undefined) return { ok: true, resource: undefined };
+  return { ok: true, resource: applyNulls(updateResource(fields.value, existing), fields.value) };
 }

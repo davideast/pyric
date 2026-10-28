@@ -450,6 +450,20 @@ service firebase.storage {
     expect(allowedOf(simulated)).toBe(live);
   });
 
+  it('denies an update of an object that is not stored, as the live update does', async () => {
+    const { ctx, alice } = await seeded();
+    const rules = OWNER_RULES.replace('request.resource.size == 11', 'request.auth != null && request.resource.size < 1024');
+    await STORAGE_RULES.install(ctx, rules);
+    const live = await liveAllows(() => updateMetadata(ref(alice, 'docs/missing.txt'), {}));
+    expect(live).toBe(false);
+    const simulated = await STORAGE_RULES.simulate(ctx, {
+      operation: 'update',
+      path: 'docs/missing.txt',
+      uid: 'alice',
+    });
+    expect(allowedOf(simulated)).toBe(live);
+  });
+
   it('patches the stored object with the case data on an update', async () => {
     const { ctx } = await seeded();
     const rules = OPEN_RULES.replace(
