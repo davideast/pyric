@@ -1,5 +1,6 @@
 import type { FirestoreRules, FunctionDef, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
 import type { PathResolutionEntry } from '../test/spec.js';
+import { recursiveWildcardMinimum } from '../grammar/recursive-wildcard-minimum.js';
 import { collectMatches, renderMatchBlockPath, type MatchResult } from './match-resolution.js';
 import { DOCUMENT_PATH_FORM } from './request-path.js';
 
@@ -33,15 +34,21 @@ export interface RootMatch {
  * Resolve the root match against one document-relative request path. A
  * literal must equal its segment, a single wildcard binds its segment, and a
  * recursive wildcard binds the rest: in the last position it leaves its
- * children to resolve below it, and anywhere else it binds the fewest segments
- * that let the segments after it match. Returns null when the root does not
+ * children to resolve below it, and anywhere else it binds the fewest
+ * segments that let the segments after it match, and at least one under
+ * version 1. Returns null when the root does not
  * apply to the request.
  */
 export function resolveRootMatch(ast: FirestoreRules, documentPath: string): RootMatch | null {
-  return resolveRootSegments(ast.service.match.path.segments, [...REQUEST_PREFIX, ...splitPath(documentPath)]);
+  const request = [...REQUEST_PREFIX, ...splitPath(documentPath)];
+  return resolveRootSegments(ast.service.match.path.segments, request, recursiveWildcardMinimum(ast.version));
 }
 
-function resolveRootSegments(pattern: readonly PathSegment[], request: readonly string[]): RootMatch | null {
+function resolveRootSegments(
+  pattern: readonly PathSegment[],
+  request: readonly string[],
+  minimum: number,
+): RootMatch | null {
   const bindings: Record<string, string> = {};
   let consumed = 0;
   for (let index = 0; index < pattern.length; index++) {
@@ -51,7 +58,7 @@ function resolveRootSegments(pattern: readonly PathSegment[], request: readonly 
       if (isLast) {
         return { bindings, remaining: request.slice(consumed), recursiveTail: { name: segment.name } };
       }
-      return resolveInnerRecursive(segment.name, pattern.slice(index + 1), request, consumed, bindings);
+      return resolveInnerRecursive(segment.name, pattern.slice(index + 1), request, consumed, bindings, minimum);
     }
     const hasSegment = consumed < request.length;
     if (!hasSegment) return null;
@@ -73,9 +80,10 @@ function resolveInnerRecursive(
   request: readonly string[],
   start: number,
   bindings: Record<string, string>,
+  minimum: number,
 ): RootMatch | null {
-  for (let end = start; end <= request.length; end++) {
-    const tail = resolveRootSegments(rest, request.slice(end));
+  for (let end = start + minimum; end <= request.length; end++) {
+    const tail = resolveRootSegments(rest, request.slice(end), minimum);
     if (tail) {
       return {
         ...tail,
@@ -101,8 +109,8 @@ export function collectRootMatches(
   if (!root) return [];
   const tail = root.recursiveTail;
   const results = tail
-    ? collectBelowRootRecursive(ast.service.match, tail.name, root.remaining, functions, recorder)
-    : ast.service.match.children.flatMap((child) => collectMatches(child, root.remaining, functions, recorder));
+    ? collectBelowRootRecursive(ast.service.match, tail.name, root.remaining, functions, ast.version, recorder)
+    : ast.service.match.children.flatMap((child) => collectMatches(child, root.remaining, functions, ast.version, recorder));
   for (const result of results) {
     result.pathVariables = { ...root.bindings, ...result.pathVariables };
   }
@@ -120,6 +128,7 @@ function collectBelowRootRecursive(
   name: string,
   remaining: string[],
   functions: FunctionDef[],
+  rulesVersion: string,
   recorder?: { push(entry: PathResolutionEntry): void },
 ): MatchResult[] {
   const standInPath = `/{${name}=**}`;
@@ -135,7 +144,7 @@ function collectBelowRootRecursive(
       if (!isStandIn) recorder.push(entry);
     },
   };
-  return collectMatches(standIn, remaining, functions, authoredOnly).filter((result) => result.block !== standIn);
+  return collectMatches(standIn, remaining, functions, rulesVersion, authoredOnly).filter((result) => result.block !== standIn);
 }
 
 /**
@@ -143,13 +152,20 @@ function collectBelowRootRecursive(
  * collection-group query needs: its path is the database's documents path
  * with nothing after it, or it reaches every document through a recursive
  * wildcard. A root with literals after `documents` governs only the documents
- * under them, and a group query spans every collection with its id.
+ * under them, and a group query spans every collection with its id. Under
+ * version 1 a recursive wildcard needs a segment, so one right after
+ * `documents` misses the top-level documents and does not govern them all.
  */
 export function rootGovernsEveryDocument(ast: FirestoreRules): boolean {
   const root = resolveRootMatch(ast, '');
   if (!root) return false;
-  const coversEverything = root.remaining.length === 0;
-  return coversEverything || root.recursiveTail !== undefined;
+  const endsAtDocuments = root.recursiveTail === undefined && root.remaining.length === 0;
+  // `remaining` is what the empty document path leaves the tail: under
+  // `/databases/{db}/{rest=**}` it is `documents`, under
+  // `/databases/{db}/documents/{rest=**}` nothing.
+  const tailHasItsSegments = root.remaining.length >= recursiveWildcardMinimum(ast.version);
+  const tailReachesEveryDocument = root.recursiveTail !== undefined && tailHasItsSegments;
+  return endsAtDocuments || tailReachesEveryDocument;
 }
 
 /** The notes for a request no match block resolves: the root names the

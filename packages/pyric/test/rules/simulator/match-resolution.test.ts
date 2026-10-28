@@ -28,7 +28,7 @@ function resolve(children: string, path: string) {
     ...ast.service.match.functions,
   ];
   return ast.service.match.children.flatMap((block) =>
-    collectMatches(block, path.split('/'), functions));
+    collectMatches(block, path.split('/'), functions, ast.version));
 }
 
 describe('collectMatches', () => {
@@ -138,6 +138,7 @@ describe('collectMatches', () => {
       ast.service.match.children[0]!,
       ['users', 'alice', 'other', 'a'],
       [],
+      ast.version,
       recorder,
     )).toEqual([]);
     expect(attempts).toEqual(expect.arrayContaining([
