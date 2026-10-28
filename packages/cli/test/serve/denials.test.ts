@@ -371,9 +371,45 @@ describe('formatDenialBlock', () => {
     });
     expect(block.split('\n').slice(2)).toEqual([
       '      Add the matching where(...) constraint:',
-      "      .where('owner', '==', request.auth.uid)",
-      '      [2Jforged',
+      "        .where('owner', '==', request.auth.uid)",
+      '       [2Jforged',
     ]);
+  });
+
+  it('prints a query-proof remediation whole, so its command and fixture can be pasted', () => {
+    const uid = 'Xq3ZbT9kLmN2pR7sV4wY8aC1dE6f';
+    const token = {
+      name: 'Ada Lovelace', email: 'ada@example.com', email_verified: true,
+      auth_time: 1761600000, iat: 1761600000, exp: 1761603600,
+      firebase: { identities: { email: ['ada@example.com'], 'google.com': ['104857600000000000000'] }, sign_in_provider: 'google.com' },
+    };
+    const query = {
+      where: [['status', '==', 'open'], ['team', '==', 'core   platform'], ['archived', '==', false]],
+      orderBy: [['createdAt', 'desc']],
+      limit: 20,
+    };
+    const fixture = { description: 'list projects/p1/tasks', expectation: 'ALLOW', method: 'list', path: 'projects/p1/tasks', auth: { uid, token }, query };
+    const missing = ['owner', 'org', 'region', 'tier', 'stage', 'lane'].map(
+      (field) => `  .where('${field}', '==', request.auth.uid)   // request.auth.uid is "${uid}"`,
+    );
+    const remediation = [
+      'The list rule requires per-document equalities the query does not guarantee. Add the matching where(...) constraint(s) so every returned document satisfies the rule:',
+      ...missing,
+      '',
+      'Reproduce with:',
+      `  pyric rules test --method list --path projects/p1/tasks --uid ${uid} --query '${JSON.stringify(query)}'`,
+      `  Fixture case: ${JSON.stringify(fixture)}`,
+    ];
+    expect(remediation.at(-1)!.length).toBeGreaterThan(512);
+    const block = formatDenialBlock({
+      message: 'list projects/p1/tasks denied: unprovable query',
+      remediation: remediation.join('\n'),
+      denialContext: { request: { method: 'list', path: 'projects/p1/tasks' }, auth: { uid } },
+    });
+    const printed = block.split('\n').slice(3);
+    expect(printed).toEqual(remediation.map((line) => (line.length > 0 ? `      ${line}` : '')));
+    const fixtureLine = printed.at(-1)!.trim();
+    expect(JSON.parse(fixtureLine.slice('Fixture case: '.length))).toEqual(fixture);
   });
 
   it('prefers payload-root remediation (the sandbox error sibling) over the nested fallback', () => {

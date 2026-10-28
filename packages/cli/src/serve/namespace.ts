@@ -34,7 +34,7 @@ import type { AppPorts } from './app-ports.js';
 import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
 import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
-import { sanitizeForTerminal } from './ai-terminal-text.js';
+import { sanitizeForTerminal, stripTerminalControls } from './ai-terminal-text.js';
 import { createSiteTreeHandler } from './site-tree.js';
 import { handleAvatar } from './assets/avatar-route.js';
 import { ASSETS_ROUTE_PREFIX } from './assets/avatar-url.js';
@@ -417,15 +417,18 @@ function pageText(value: string): string {
   return sanitizeForTerminal(value);
 }
 
-/** Most remediation lines one denial prints. A query-proof remediation is a
- *  header and one `where()` line per missing constraint. */
-const REMEDIATION_MAX_LINES = 8;
-
 /** A multi-line page-supplied string (a query-proof remediation) as indented
- *  terminal-safe lines, each sanitized on its own so the structure survives. */
+ *  terminal lines. Each line keeps its spacing and its whole length, because a
+ *  reader pastes the `pyric rules test` command and the `Fixture case:` JSON
+ *  out of it; only control and bidi characters are replaced. The denial body
+ *  limit bounds the total, so no line or line count is cut here. */
 function pageLines(value: string): string[] {
-  const lines = value.split(/\r?\n/).map(pageText).filter((line) => line.length > 0);
-  return lines.slice(0, REMEDIATION_MAX_LINES).map((line) => `      ${line}`);
+  const lines = value.split(/\r?\n/).map((line) => stripTerminalControls(line).trimEnd());
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first === -1) return [];
+  let last = lines.length - 1;
+  while (lines[last]!.length === 0) last -= 1;
+  return lines.slice(first, last + 1).map((line) => (line.length > 0 ? `      ${line}` : ''));
 }
 
 /** Format a relayed denial into the compact terminal block: the message,
