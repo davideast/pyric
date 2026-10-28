@@ -212,7 +212,21 @@ describe('parseAcceptance', () => {
 
   test('a file name that is not <row-id>.md is refused', () => {
     expect(() => parseAcceptance(`${ACCEPTANCES_DIR}/notes.txt`, 'Retired. #1417')).toThrow(
-      `${ACCEPTANCES_DIR}/notes.txt is not named <row-id>.md`,
+      `${ACCEPTANCES_DIR}/notes.txt is not named <row-id>.md or <row-id>.<pr-or-issue>.md`,
+    );
+  });
+
+  test('<row-id>.<pr-or-issue>.md names the row, so a later demotion of the same row gets its own file', () => {
+    const later = `${ACCEPTANCES_DIR}/auth#2.1520.md`;
+    expect(parseAcceptance(later, 'Demoted again after the SDK changed it. #1520\n').rowId).toBe('auth#2');
+    const dotted = `${ACCEPTANCES_DIR}/storage-rules#storage.stdlib.sets.1520.md`;
+    expect(parseAcceptance(dotted, 'Demoted. #1520\n').rowId).toBe('storage-rules#storage.stdlib.sets');
+  });
+
+  test('a file in a subdirectory is refused', () => {
+    const nested = `${ACCEPTANCES_DIR}/again/auth#2.md`;
+    expect(() => parseAcceptance(nested, 'Demoted again. #1520\n')).toThrow(
+      `${nested} is in a subdirectory: put it directly in ${ACCEPTANCES_DIR}/`,
     );
   });
 });
@@ -270,6 +284,20 @@ describe('loadAddedAcceptances: only files the change adds', () => {
     const accepted = loadAddedAcceptances(base, repo);
     expect(accepted.map((a) => a.rowId)).toEqual(['auth#3']);
     expect(findRegressions(reportOf({ 'auth#3': 'conforms' }), reportOf({ 'auth#3': 'bug' }), accepted)).toEqual([]);
+  });
+
+  test('a second demotion of a row already accepted once is accepted by <row-id>.<pr-or-issue>.md', () => {
+    const { repo, base } = repoWithBase();
+    commitFile(repo, `${ACCEPTANCES_DIR}/auth#2.1520.md`, 'Upstream changed it again. #1520\n');
+    const accepted = loadAddedAcceptances(base, repo);
+    expect(accepted.map((a) => a.rowId)).toEqual(['auth#2']);
+    expect(findRegressions(reportOf({ 'auth#2': 'conforms' }), reportOf({ 'auth#2': 'bug' }), accepted)).toEqual([]);
+  });
+
+  test('an acceptance file added in a subdirectory fails loudly', () => {
+    const { repo, base } = repoWithBase();
+    commitFile(repo, `${ACCEPTANCES_DIR}/again/auth#2.md`, 'Upstream changed it again. #1520\n');
+    expect(() => loadAddedAcceptances(base, repo)).toThrow('is in a subdirectory');
   });
 
   test('editing an acceptance file already on the base does not renew it', () => {
