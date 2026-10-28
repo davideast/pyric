@@ -23,7 +23,7 @@ const mirror = new ClockReading();
 
 /** Adopt the state the host just sent. */
 export function receiveClockState(state: SandboxClockState): void {
-  mirror.adopt(state);
+  mirror.follow(state);
 }
 
 /** The state the page currently believes the sandbox clock holds. */

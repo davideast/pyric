@@ -39,10 +39,12 @@
  * catches up. Without this, `request.time > resource.data.updatedAt` could deny
  * a valid write and sequential push ids could sort out of order (#1255).
  *
- * The floor guards against the host, not the caller. Every explicit move
- * (`set`, `advance`, `reset`, `restore`) drops it, so a negative `advance` still
- * moves the clock back, and a caller who pins an instant in the past with
- * `set` gets an instant in the past. That is the caller's decision to make.
+ * The floor guards against the host, not the caller. `advance` on a flowing
+ * clock moves the floor by the same delta, so a forward advance lands `ms`
+ * past the last reading even while the host is behind, and a negative advance
+ * lands exactly that far below it. `set`, `reset`, and `restore` drop the
+ * floor: a caller who pins an instant in the past with `set` gets an instant in
+ * the past. That is the caller's decision to make.
  *
  * {@link ClockReading} holds this rule, and every plane that derives an
  * instant from a clock state reads through it: the clock itself, and the
@@ -116,6 +118,18 @@ function assertFiniteMilliseconds(value: number, label: string): void {
   }
 }
 
+function isFlowing(state: SandboxClockState): boolean {
+  return state.mode !== 'fixed';
+}
+
+/** The offset a flowing state adds to the host clock. A wall state adds none. */
+function flowingOffset(state: SandboxClockState): number {
+  if (state.mode === 'offset') {
+    return state.offsetMs;
+  }
+  return 0;
+}
+
 /**
  * Derives `now()` from a clock state, holding the last wall or offset reading
  * when the host clock steps back. See the module header for why.
@@ -138,13 +152,36 @@ export class ClockReading {
     this.floor = Number.NEGATIVE_INFINITY;
   }
 
+  /**
+   * Adopt a flowing state that is `ms` later than the current one, carrying
+   * the held reading forward by the same amount. Without the carry, an advance
+   * made while the host is behind would land below the last reading.
+   */
+  shift(state: SandboxClockState, ms: number): void {
+    this.current = { ...state };
+    this.floor += ms;
+  }
+
+  /**
+   * Adopt a state sent by the plane that owns the clock. A mirror cannot tell
+   * an advance from a restore, so between two flowing states it carries the
+   * held reading by the change in offset, and otherwise drops it.
+   */
+  follow(state: SandboxClockState): void {
+    const bothFlowing = isFlowing(this.current) && isFlowing(state);
+    if (bothFlowing) {
+      this.shift(state, flowingOffset(state) - flowingOffset(this.current));
+      return;
+    }
+    this.adopt(state);
+  }
+
   /** The current instant, in epoch milliseconds. */
   now(): number {
     if (this.current.mode === 'fixed') {
       return this.current.fixedAt;
     }
-    const offsetMs = this.current.mode === 'offset' ? this.current.offsetMs : 0;
-    this.floor = Math.max(this.floor, Date.now() + offsetMs);
+    this.floor = Math.max(this.floor, Date.now() + flowingOffset(this.current));
     return this.floor;
   }
 }
@@ -172,6 +209,10 @@ export class SandboxClock {
 
   private move(state: SandboxClockState): void {
     this.reading.adopt(state);
+    this.announce();
+  }
+
+  private announce(): void {
     const announced = this.capture();
     for (const listener of [...this.listeners]) {
       listener(announced);
@@ -214,7 +255,8 @@ export class SandboxClock {
       this.move({ ...current, fixedAt: current.fixedAt + ms });
       return;
     }
-    this.move({ mode: 'offset', fixedAt: 0, offsetMs: current.offsetMs + ms });
+    this.reading.shift({ mode: 'offset', fixedAt: 0, offsetMs: flowingOffset(current) + ms }, ms);
+    this.announce();
   }
 
   /** Return to the wall clock, discarding any pin or offset. */

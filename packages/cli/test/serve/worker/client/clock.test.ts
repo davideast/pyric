@@ -9,8 +9,12 @@ import {
 // The real wall clock can step back (WSL2 does, by about 1.5 s), so the
 // wall-clock cases hold it with `setSystemTime` and compare exactly.
 const WALL_MS = Date.UTC(2031, 0, 1);
+// The mirror is module state, and it carries its held reading between two
+// flowing states, so each test passes through a fixed state to drop it.
 afterEach(() => {
   setSystemTime();
+  receiveClockState({ mode: 'fixed', fixedAt: 0, offsetMs: 0 });
+  receiveClockState({ mode: 'wall', fixedAt: 0, offsetMs: 0 });
 });
 
 describe('the page mirror of the sandbox clock', () => {
@@ -53,6 +57,19 @@ describe('the page mirror of the sandbox clock', () => {
 
     setSystemTime(WALL_MS + 10);
     expect(sandboxNow()).toBe(WALL_MS + 10);
+  });
+
+  it('carries its held reading through an advance the host announces', () => {
+    receiveClockState({ mode: 'wall', fixedAt: 0, offsetMs: 0 });
+    setSystemTime(WALL_MS);
+    expect(sandboxNow()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS - 1500);
+    receiveClockState({ mode: 'offset', fixedAt: 0, offsetMs: 1000 });
+    expect(sandboxNow()).toBe(WALL_MS + 1000);
+
+    receiveClockState({ mode: 'fixed', fixedAt: 0, offsetMs: 0 });
+    receiveClockState({ mode: 'wall', fixedAt: 0, offsetMs: 0 });
   });
 
   it('holds an offset reading when the host clock steps backward', () => {

@@ -141,6 +141,30 @@ describe('when the host clock steps backward', () => {
     expect(clock.now()).toBe(WALL_MS - HOUR_MS);
   });
 
+  it('advances forward from the held reading, not from the host clock', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    expect(clock.now()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS - STEP_BACK_MS);
+    clock.advance(1000);
+    expect(clock.now()).toBe(WALL_MS + 1000);
+
+    setSystemTime(WALL_MS + 10);
+    expect(clock.now()).toBe(WALL_MS + 1010);
+  });
+
+  it('advances back exactly that far below the held reading', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    clock.advance(HOUR_MS);
+    expect(clock.now()).toBe(WALL_MS + HOUR_MS);
+
+    setSystemTime(WALL_MS - STEP_BACK_MS);
+    clock.advance(-1000);
+    expect(clock.now()).toBe(WALL_MS + HOUR_MS - 1000);
+  });
+
   it('drops the held reading on reset', () => {
     setSystemTime(WALL_MS);
     const clock = new SandboxClock();
