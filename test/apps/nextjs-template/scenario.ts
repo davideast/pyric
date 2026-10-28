@@ -120,9 +120,24 @@ async function refusesOtherPort(app: App, testCase: Case, urls: { next: string; 
     await app.step(`${testCase.name}: a page on another port gets 403 on a guarded route`, async () => {
       const page = await app.page(`http://127.0.0.1:${otherPort}/`);
       // First try to teach the host this port, naming it the way a proxy would.
+      // The custom header makes the cross-origin GET need a preflight. The
+      // sandbox answers that OPTIONS with 405 and no CORS headers, so the
+      // browser refuses the GET, straight or through the rewrite, and the
+      // header never reaches the host. A GET that
+      // got through would show up as a response here.
       const forwardedHost = `127.0.0.1:${otherPort}`;
-      await page.evaluate(tryNamingOwnPort, { url: `${urls.sandbox}/__pyric/not-a-route`, forwardedHost });
-      await page.evaluate(tryNamingOwnPort, { url: `${urls.next}/__pyric/not-a-route`, forwardedHost });
+      const reachedHost: string[] = [];
+      const noteTeachResponse = (response: { url(): string }) => {
+        if (response.url().includes('/__pyric/not-a-route')) reachedHost.push(response.url());
+      };
+      page.on('response', noteTeachResponse);
+      const straightTeach = await page.evaluate(tryNamingOwnPort, { url: `${urls.sandbox}/__pyric/not-a-route`, forwardedHost });
+      const rewriteTeach = await page.evaluate(tryNamingOwnPort, { url: `${urls.next}/__pyric/not-a-route`, forwardedHost });
+      page.off('response', noteTeachResponse);
+      const refusedAtPreflight = (result: string) => result.startsWith('threw TypeError');
+      assert.ok(refusedAtPreflight(straightTeach), `the teach request straight to the host was not refused at the preflight: ${straightTeach}`);
+      assert.ok(refusedAtPreflight(rewriteTeach), `the teach request through the rewrite was not refused at the preflight: ${rewriteTeach}`);
+      assert.deepEqual(reachedHost, [], 'a teach request reached the host past its preflight');
       const throughRewrite = await postStatus(page, `${urls.next}/__pyric/diagnostics?${OTHER_PORT_PROBE}`);
       const straightToHost = await postStatus(page, `${urls.sandbox}/__pyric/diagnostics?${OTHER_PORT_PROBE}`);
       assert.deepEqual({ throughRewrite, straightToHost }, { throughRewrite: 403, straightToHost: 403 });
@@ -227,9 +242,8 @@ async function runCase(app: App, testCase: Case): Promise<void> {
 }
 
 export default scenario(async (app) => {
-  // Only the other page is refused: its probes, and the requests that name its port.
+  // Only the other page's probes are refused. Its teach requests stop at the preflight, so the host answers none.
   app.expectHostError(new RegExp(`^403 POST /__pyric/diagnostics\\?${OTHER_PORT_PROBE}$`));
-  app.expectHostError(/^\d+ GET \/__pyric\/not-a-route$/);
   const scaffolded = await app.step('create-pyric scaffolds the nextjs template', () => scaffold(app));
   for (const testCase of CASES) await runCase(app, testCase);
   // Next rewrites a tsconfig.json it disagrees with on the first `next dev`,
