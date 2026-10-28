@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T03:10:49.817Z",
+  "generatedAt": "2026-10-28T05:03:12.945Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -768,6 +768,7 @@
     "rtdb-modular#113": "conforms",
     "rtdb-modular#114": "conforms",
     "rtdb-modular#115": "conforms",
+    "rtdb-modular#SW1": "conforms",
     "rtdb-modular#116": "conforms",
     "rtdb-modular#117": "conforms",
     "rtdb-modular#118": "conforms",
@@ -1095,7 +1096,7 @@
     "firestore-rules#197": "conforms",
     "firestore-rules#198": "diverged-documented",
     "firestore-rules#199": "diverged-documented",
-    "firestore-rules#200": "diverged-documented",
+    "firestore-rules#200": "conforms",
     "firestore-rules#201": "conforms",
     "firestore-rules#202": "diverged-documented",
     "firestore-rules#203": "conforms",
@@ -1142,16 +1143,16 @@
     "storage-rules#storage.stdlib.map-diff": "conforms",
     "storage-rules#204": "diverged-documented",
     "storage-rules#205": "diverged-documented",
-    "storage-rules#206": "diverged-documented",
+    "storage-rules#206": "conforms",
     "storage-rules#207": "diverged-documented",
     "storage-rules#208": "diverged-documented",
     "storage-rules#209": "conforms",
     "storage-rules#210": "diverged-documented",
     "storage-rules#211": "diverged-documented",
-    "storage-rules#212": "diverged-documented",
+    "storage-rules#212": "conforms",
     "storage-rules#213": "conforms",
     "storage-rules#214": "diverged-documented",
-    "storage-rules#215": "diverged-documented",
+    "storage-rules#215": "conforms",
     "storage-rules#216": "conforms",
     "storage-rules#217": "diverged-documented",
     "storage-rules#218": "conforms",
