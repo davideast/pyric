@@ -10,8 +10,11 @@
 // preloaded into that dev server, stands in for the network beneath the guard
 // and refuses what it permits. SSR's config holds the host: a page whose
 // config only adds measurementId is accepted, a page with another storage
-// bucket is refused, and SSR keeps working after both load.
+// bucket is refused, and SSR keeps working after both load. A dev server
+// that serves HTTPS with a self-signed certificate is reached the same way,
+// over https and wss, and .pyric/serve.json names it with https.
 import assert from 'node:assert/strict';
+import { get as httpsGet } from 'node:https';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
 type Outcome = { ok: true; value: unknown } | { ok: false; code: string | null; message: string };
@@ -39,10 +42,30 @@ const PRODUCTION_ANSWERS = [
 /** The refusal text a client service with no path to the host carries. */
 const NO_PATH = /does not reach the sandbox host from a server process/;
 
-async function get(url: string): Promise<Run> {
+/** A GET to the HTTPS dev server. Its certificate is self-signed, so this test's own request skips verifying it. */
+function getOverHttps(url: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = httpsGet(url, { rejectUnauthorized: false }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => { body += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+      response.on('error', reject);
+    });
+    request.on('error', reject);
+  });
+}
+
+async function getText(url: string): Promise<{ status: number; body: string }> {
+  const isHttps = url.startsWith('https:');
+  if (isHttps) return getOverHttps(url);
   const response = await fetch(url);
-  const body = await response.text();
-  assert.equal(response.status, 200, `${url}: ${body}`);
+  return { status: response.status, body: await response.text() };
+}
+
+async function get(url: string): Promise<Run> {
+  const { status, body } = await getText(url);
+  assert.equal(status, 200, `${url}: ${body}`);
   return JSON.parse(body) as Run;
 }
 
@@ -184,6 +207,24 @@ export default scenario(async (app) => {
 
   await externalizationShape(app, 'firebase', 'environment');
   await externalizationShape(app, 'all', 'legacy');
+
+  const secure = await app.step('start the hosted dev server over HTTPS, with a generated self-signed certificate', () =>
+    app.devServer({ name: 'https-dev-server', https: true, env: { PYRIC_TEST_HTTPS: '1' } }));
+  const secureSince = secure.process.mark();
+  const secureUid = await app.step('HTTPS: SSR reaches the host as its signed-in user, under the rules', async () =>
+    assertRunsAsUser(await runSsr(secure, 'legacy', 'https'), 'https'));
+  await app.step('HTTPS: SSR firebase-admin reads the user\'s writes', async () => {
+    const { outcomes } = await runAdmin(secure, 'environment', secureUid, 'https');
+    expectOk(outcomes, 'admin.database', { from: 'ssr' });
+    expectOk(outcomes, 'admin.firestore', { from: 'ssr' });
+  });
+  await app.step('HTTPS: .pyric/serve.json names the dev server with https', () => {
+    const pointer = JSON.parse(app.readFile('.pyric/serve.json')) as { url: string; port: number };
+    assert.equal(pointer.port, secure.port, JSON.stringify(pointer));
+    assert.match(pointer.url, /^https:\/\//, JSON.stringify(pointer));
+  });
+  await app.step('HTTPS: nothing reached production', () => assertNoProductionTraffic(secure, secureSince));
+  await app.step('stop the HTTPS dev server', () => secure.process.stop());
 
   const worker = await app.step('start the SharedWorker dev server', () =>
     app.devServer({ name: 'shared-worker-dev-server', env: { PYRIC_TEST_HOSTED: '0' } }));

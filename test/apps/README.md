@@ -70,7 +70,7 @@ The dev server port comes from the command line, which overrides any `server.por
 
 | Helper | What it does |
 |---|---|
-| `app.devServer({ env, port, cwd })` | Starts `vite` from the app's `node_modules` on a free port, or on `port`, and waits until `/` and `/__pyric/init.json` answer. Returns `{ url, port, process }`. Pass the port of a stopped server to bring a host back on the same URL. Pass `cwd` to run a project the scenario created inside the app directory, from its own `node_modules`. |
+| `app.devServer({ env, port, cwd, https })` | Starts `vite` from the app's `node_modules` on a free port, or on `port`, and waits until `/` and `/__pyric/init.json` answer. Returns `{ url, port, process }`. Pass the port of a stopped server to bring a host back on the same URL. Pass `cwd` to run a project the scenario created inside the app directory, from its own `node_modules`. Pass `https: true` when the app's config serves HTTPS in this run. |
 | `app.serverScript(script, args, { env })` | Runs the script under `node --import @pyric/cli/register` until it exits. Throws on a non-zero exit. |
 | `app.pyric(args, { env })` | Runs the installed `pyric` command to exit and returns its exit code and output. |
 | `app.pyricProcess(args, { env })` | Starts the installed `pyric` command and returns at once, for a command that runs until stopped, such as `pyric sandbox -- next dev`. |
