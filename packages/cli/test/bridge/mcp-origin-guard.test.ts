@@ -94,6 +94,27 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
       }
     });
 
+    it('rejects POST /mcp from a page on another local port with 403 Forbidden', async () => {
+      const server = await startBridgeServer({ port: 0, silent: true });
+
+      try {
+        // Both origins are loopback, so only the port tells them apart.
+        const res = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
+            'Origin': `http://127.0.0.1:${server.port + 1}`,
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'other-port', version: '1.0' } } }),
+        });
+
+        expect(res.status).toBe(403);
+      } finally {
+        await server.stop();
+      }
+    });
+
     it('allows loopback HTTP POST /mcp without Origin or with loopback Origin', async () => {
       const server = await startBridgeServer({
         port: 0,
@@ -170,6 +191,53 @@ describe('MCP Bridge HTTP Origin and Host Verification Guard', () => {
         });
 
         expect(res.status).toBe(403);
+      } finally {
+        await serverHandle.stop();
+        await mount.close();
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects /__pyric/mcp and /__pyric/hosted/method from a page on another local port with 403 Forbidden', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'pyric-mount-origin-test-'));
+      mkdirSync(join(tempDir, 'public'));
+      writeFileSync(join(tempDir, 'public', 'index.html'), '<html></html>');
+
+      const mount = createBridgeMount({
+        project: 'test-proj',
+        disableAuditLog: true,
+        upgradeGuard: { boundHost: 'localhost' },
+      });
+
+      const serverHandle = await startStaticServer({
+        publicDir: join(tempDir, 'public'),
+        port: 0,
+        host: '127.0.0.1',
+        logger: silentServeLogger(),
+        namespaceHandler: mount.handler,
+      });
+
+      try {
+        // Both origins are loopback, so only the port tells them apart.
+        const otherPortOrigin = `http://localhost:${serverHandle.port + 1}`;
+        const mcp = await fetch(`${serverHandle.url}/__pyric/mcp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
+            'Origin': otherPortOrigin,
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'other-port', version: '1.0' } } }),
+        });
+        expect(mcp.status).toBe(403);
+
+        // The no-cors text/plain POST a browser page can send without a preflight.
+        const method = await fetch(`${serverHandle.url}/__pyric/hosted/method`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain', 'Origin': otherPortOrigin },
+          body: JSON.stringify({ tool: 'firestore', method: 'get', args: [] }),
+        });
+        expect(method.status).toBe(403);
       } finally {
         await serverHandle.stop();
         await mount.close();
