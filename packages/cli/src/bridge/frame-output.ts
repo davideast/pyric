@@ -93,8 +93,52 @@ export function failBridgeResponse(frame: BridgeMessage, error: FrameError): Bri
   }
 }
 
+const RTDB_WRITE_FIELDS = ['value', 'values', 'priority'] as const;
+
+function childPath(path: string, key: string): string {
+  return path.endsWith('/') ? `${path}${key}` : `${path}/${key}`;
+}
+
+/** Where `value` holds something JSON drops or turns into null, and what it is. */
+function findJsonLoss(value: unknown, path: string): { path: string; found: string } | undefined {
+  const isLost = value === undefined || (typeof value === 'number' && !Number.isFinite(value));
+  if (isLost) return { path, found: String(value) };
+  const isLeaf = typeof value !== 'object' || value === null;
+  if (isLeaf) return;
+  for (const [key, child] of Object.entries(value)) {
+    const loss = findJsonLoss(child, childPath(path, key));
+    if (loss !== undefined) return loss;
+  }
+}
+
+/**
+ * Refuse an RTDB write whose value JSON cannot carry. NaN and Infinity encode
+ * as null and an undefined member vanishes, so the host would store a delete
+ * (RP-1, #1362). The served client refuses these first with the SDK's text;
+ * this is the second line.
+ */
+function assertJsonSafeRtdbWrite(frame: BridgeMessage): void {
+  const isOtherFrame = frame.type !== 'worker-message';
+  if (isOtherFrame) return;
+  const message = frame.message as unknown as Record<string, unknown>;
+  const isRtdbOperation = message.t === 'op' && typeof message.method === 'string' && message.method.startsWith('rtdb.');
+  if (!isRtdbOperation) return;
+  const path = typeof message.path === 'string' ? message.path : '/';
+  for (const field of RTDB_WRITE_FIELDS) {
+    const isAbsent = !Object.hasOwn(message, field);
+    if (isAbsent) continue;
+    const loss = findJsonLoss(message[field], path);
+    const isJsonSafe = loss === undefined;
+    if (isJsonSafe) continue;
+    throw new Error(
+      `RTDB ${String(message.method)} ${field} at ${loss.path} holds ${loss.found}, which a JSON frame cannot carry. The write was not sent.`,
+    );
+  }
+}
+
 /** Encode bounded output, retaining correlation when an oversized result can be refused. */
 export function encodeBridgeMessage(frame: BridgeMessage): string | undefined {
+  assertJsonSafeRtdbWrite(frame);
   const payload = JSON.stringify(frame);
   const fitsFrameLimit = utf8.encode(payload).byteLength <= MAX_BRIDGE_FRAME_BYTES;
   if (fitsFrameLimit) return payload;

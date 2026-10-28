@@ -7,6 +7,7 @@ import { assertQueryStructure } from '../host/query-structure.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
 import { assertRtdbQuery } from './rtdb-query.js';
+import { updateValuesShapeError } from '../client/rtdb-value-validation.js';
 export { isMessageRecord } from './fields.js';
 
 function assertRequiredPath(message: Record<string, unknown>): void {
@@ -143,8 +144,10 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'rtdb.update':
     case 'rtdb.onDisconnectUpdate': {
       const hasValues = isMessageRecord(message.values);
-      requireShape(hasValues, 'values');
-      return;
+      if (hasValues) return;
+      // The served client refuses this first; the host keeps the SDK's text as its second line.
+      const fnName = message.method === 'rtdb.update' ? 'update' : 'OnDisconnect.update';
+      throw new FirebaseError('invalid-argument', updateValuesShapeError(fnName).message);
     }
     case 'rtdb.push': {
       const hasValidKey = message.key === undefined || typeof message.key === 'string';
