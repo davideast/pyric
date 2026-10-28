@@ -5,11 +5,16 @@
  */
 import { createRequire } from 'node:module';
 import type { RemoteSandbox } from '../remote/index.js';
+import { disconnectFromHost, sendToHost } from './child-ipc.js';
 import {
+  HEARTBEAT_INTERVAL_MS,
+  STOP_DEADLINE_MS,
   isChildMessage,
   serializeError,
   type FunctionsChildMessage,
 } from './child-protocol.js';
+import { startHttpChildServer, type HttpChildServer } from './http/child-server.js';
+import { httpFunctionInfo, httpOnRequestFamily, inspectOnRequest } from './http/discovery.js';
 import { loadFunctionsModuleExports } from './module-loader.js';
 import { rtdbCreatedFamily } from './rtdb/discovery.js';
 import type { OnValueCreatedExecutionHost } from './rtdb/execution.js';
@@ -21,8 +26,34 @@ interface AdminAppModule {
   deleteApp(app: unknown): Promise<void>;
 }
 
-function send(message: FunctionsChildMessage): void {
-  process.send?.(message);
+const send = (message: FunctionsChildMessage): void => sendToHost(message);
+
+/** With the host gone there is nothing to wait for: close quickly and exit. */
+const HOST_LOST_DEADLINE_MS = 1_500;
+/** How often the child checks that its parent is still the one that spawned it. */
+const PARENT_POLL_MS = 500;
+
+/**
+ * An exception thrown outside any handler's own call and promise (a timer
+ * callback in an onRequest handler, say) would end this process, and with it
+ * every RTDB trigger it serves. The owner decision for functions-http#12 is to
+ * report it and keep serving instead of restarting.
+ */
+function surviveUncaughtErrors(): void {
+  let reporting = false;
+  const report = (error: unknown): void => {
+    // Only blocks synchronous re-entry (an error thrown inside the send). The next-tick
+    // loop a send on a closed channel used to start is prevented in sendToHost instead.
+    if (reporting) return;
+    reporting = true;
+    try {
+      send({ type: 'uncaught-error', error: serializeError(error) });
+    } finally {
+      reporting = false;
+    }
+  };
+  process.on('uncaughtException', report);
+  process.on('unhandledRejection', report);
 }
 
 async function runFunctionsChild(): Promise<void> {
@@ -34,16 +65,25 @@ async function runFunctionsChild(): Promise<void> {
     throw new Error('Functions RTDB child is missing its required environment');
   }
 
+  // A handler stuck in a synchronous loop stops these beats, which is how the host
+  // tells a wedged child from a busy one.
+  const heartbeat = setInterval(() => send({ type: 'heartbeat' }), HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref();
+
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
   serveInstanceAsDefault(instance);
   const app = adminApp.initializeApp();
   let host: OnValueCreatedExecutionHost | undefined;
+  let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
 
   const close = (): Promise<void> => {
     if (closing) return closing;
     closing = (async () => {
+      clearInterval(heartbeat);
+      clearInterval(parentWatch);
+      await httpServer?.close();
       host?.close();
       await host?.idle();
       app.sandbox.close();
@@ -55,8 +95,25 @@ async function runFunctionsChild(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     await close();
     send({ type: 'stopped' });
-    process.disconnect?.();
+    disconnectFromHost();
   };
+
+  // The host is gone (its channel closed, or this process was re-parented) or asked
+  // us to stop by signal: close what can be closed, and exit by the deadline either way.
+  let exiting = false;
+  const exitSoon = (deadlineMs: number): void => {
+    if (exiting) return;
+    exiting = true;
+    setTimeout(() => process.exit(process.exitCode ?? 0), deadlineMs);
+    void close().catch(() => undefined).finally(() => process.exit(process.exitCode ?? 0));
+  };
+  const hostLost = (): void => exitSoon(HOST_LOST_DEADLINE_MS);
+  process.once('disconnect', hostLost);
+  const spawnedBy = process.ppid;
+  const parentWatch = setInterval(() => {
+    if (process.ppid !== spawnedBy) hostLost();
+  }, PARENT_POLL_MS);
+  parentWatch.unref();
 
   process.once('message', (raw: unknown) => {
     if (isChildMessage(raw) && raw.type === 'stopped') return;
@@ -64,12 +121,19 @@ async function runFunctionsChild(): Promise<void> {
       void shutdown().catch((error) => {
         send({ type: 'fatal', error: serializeError(error) });
         process.exitCode = 1;
-        process.disconnect?.();
+        disconnectFromHost();
       });
     }
   });
-  process.once('SIGINT', () => void shutdown());
-  process.once('SIGTERM', () => void shutdown());
+  // Ctrl-C reaches this process directly, alongside the host's own stop request.
+  // Its deadline is the host's force-kill deadline, so in-flight triggers get the
+  // same time either way.
+  const onSignal = (): void => {
+    void shutdown().catch(() => undefined);
+    exitSoon(STOP_DEADLINE_MS);
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
 
   try {
     // The real database provider asks firebase-admin/app for its default app
@@ -85,10 +149,18 @@ async function runFunctionsChild(): Promise<void> {
       send,
     });
     await host.ready;
+    const httpFunctions = inspectOnRequest(exported);
+    if (httpFunctions.length > 0) {
+      surviveUncaughtErrors();
+      httpServer = await startHttpChildServer(entry, httpFunctions);
+    }
     send({
       type: 'ready',
       triggerCount: host.triggerCount,
-      unsupportedTriggers: findUnsupportedTriggers(exported, [rtdbCreatedFamily]),
+      unsupportedTriggers: findUnsupportedTriggers(exported, [rtdbCreatedFamily, httpOnRequestFamily]),
+      ...(httpServer === undefined
+        ? {}
+        : { http: { port: httpServer.port, functions: httpFunctions.map(httpFunctionInfo) } }),
     });
   } catch (error) {
     await close();
@@ -102,6 +174,6 @@ if (process.env.PYRIC_FUNCTIONS_RTDB_CHILD === '1') {
     send({ type: 'fatal', error: serialized });
     process.stderr.write(`${serialized.stack ?? `${serialized.name}: ${serialized.message}`}\n`);
     process.exitCode = 1;
-    process.disconnect?.();
+    disconnectFromHost();
   });
 }
