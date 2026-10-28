@@ -268,6 +268,72 @@ jobs:
         # components. The check reads the built package dist restored above.
         run: bun run --cwd packages/site-docs typecheck
 
+  pack-packages:
+    name: Pack the published packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: plan
+    # The one pack of a run. It builds what the release builds, the Studio
+    # site embedded in @pyric/cli included, packs it once with
+    # scripts/pack-packages.sh, and uploads the tarballs with the manifest
+    # that records each tarball's sha256. The app scenarios, the packaging
+    # gate and the install matrix test these bytes and pack nothing of their
+    # own; each checks the tarballs against the manifest before using them.
+    # It runs beside build-packages, not after it, because the packages-only
+    # build leaves the Studio site out of the CLI tarball.
+    if: needs.plan.outputs.app-scenarios == 'true' || (needs.plan.outputs.check-set == 'full' && needs.plan.outputs.packaging == 'true')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15'
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Build packages and the embedded Studio site
+        uses: ./.github/actions/restore-dist
+        with:
+          flavor: studio
+      - name: Pack the published packages
+        run: bash scripts/pack-packages.sh --skip-build
+      - name: Upload the packed tarballs and their manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-packages
+          path: dist/packages/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+      - name: Upload the build the tarballs came from
+        # The packaging gate's exports and dist drift check reads the
+        # workspace dist, so it gets the dist these tarballs were packed from.
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-build
+          path: |
+            packages/*/dist
+            !packages/site-docs/dist
+            packages/cli/src/assurance/.generated
+            packages/cli/src/conformance/.generated
+            packages/cli/src/cli/service-commands.generated.ts
+            packages/cli/src/bridge/tool-families.generated.ts
+            packages/cli/src/bridge/surface/manifest.generated.ts
+            packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
+            packages/cli/src/bridge/surface/descriptions.generated.ts
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
   build-and-test:
     name: Build all packages + run tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
@@ -400,7 +466,7 @@ jobs:
     name: App scenarios (real apps on the packed packages)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [plan, build-packages]
+    needs: [plan, pack-packages]
     # Selected by scripts/ci/plan.ts for changes to the Vite plugin and served
     # hosts, the register hook, pyric-admin, the AI broker, the published
     # manifests, packaging, or test/apps, and always outside pull requests.
@@ -430,9 +496,18 @@ jobs:
           restore-keys: app-scenarios-npm-${{ runner.os }}-
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
-      - uses: ./.github/actions/restore-dist
+      - name: Download the packed tarballs
+        uses: actions/download-artifact@v4
         with:
-          flavor: packages
+          name: packed-packages
+          path: dist/packages
+      - name: Download the build the tarballs came from
+        uses: actions/download-artifact@v4
+        with:
+          name: packed-build
+          path: packages
+      - name: Check the tarballs against the pack manifest
+        run: node scripts/lib/proven-stamp.mjs check dist/packages
       - name: Cache Playwright Chromium
         id: playwright-cache
         uses: actions/cache@v4
@@ -447,8 +522,6 @@ jobs:
         # Chromium build can differ from the one a shared cache entry holds.
         # With the build present this is a no-op.
         run: bunx playwright install chromium
-      - name: Pack the published packages
-        run: bash scripts/pack-packages.sh --skip-build
       - name: Test the app selection and the driver
         run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/install.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts
       - name: Restore the app scenario times
@@ -461,7 +534,8 @@ jobs:
           key: app-durations-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: app-durations-
       - name: App scenarios
-        # Each app in test/apps installs from the tarballs above plus registry
+        # Each app in test/apps installs from the tarballs the pack job made
+        # (the CLI as it ships, Studio site included) plus registry
         # firebase, firebase-admin and vite, runs its own Vite dev server and
         # server scripts, and drives its page in Chromium. npm downloads go to
         # ~/.cache/pyric-app-scenarios-npm, the cache restored above. Apps that
@@ -660,7 +734,7 @@ jobs:
     name: Packaging gate (pack + install + subpath resolution)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: plan
+    needs: [plan, pack-packages]
     # Cost: the publish-shape gate is expensive, so it runs only when it can
     # tell us something. `plan` sets `packaging` when the diff touches the
     # scaffolder, a published package manifest, or the packaging scripts —
@@ -702,28 +776,33 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      - name: Download the packed tarballs
+        uses: actions/download-artifact@v4
+        with:
+          name: packed-packages
+          path: dist/packages
+
+      - name: Download the build the tarballs came from
+        uses: actions/download-artifact@v4
+        with:
+          name: packed-build
+          path: packages
+
+      - name: Check the tarballs against the pack manifest
+        run: node scripts/lib/proven-stamp.mjs check dist/packages
+
       - name: Packaging gate
-        # The release path: scripts/pack-packages.sh builds and packs every
-        # publishable package, then scripts/packaging-test.sh --packages tests
-        # those tarballs with no build or pack of its own. It lints them
-        # (publint + attw types resolution on the tarballs; the exports↔dist
-        # drift check reads the workspace dist the tarballs came from),
-        # installs the tarballs into a fresh consumer,
+        # The release path: the pack job built and packed every publishable
+        # package with scripts/pack-packages.sh, and
+        # scripts/packaging-test.sh --packages tests those tarballs with no
+        # build or pack of its own. It lints them (publint + attw types
+        # resolution on the tarballs; the exports↔dist drift check reads the
+        # workspace dist the tarballs came from, downloaded above), installs
+        # the tarballs into a fresh consumer,
         # asserts every advertised subpath import resolves + the export shapes,
         # exercises the bin, runs a serve smoke, RUNS the libraries (runtime
         # asset paths), and pins the ESM-only + subpath-only module contract.
-        env:
-          PYRIC_PACKAGING_ARTIFACT_DIR: ${{ runner.temp }}/proven-packages
-        run: |
-          bash scripts/pack-packages.sh
-          bash scripts/packaging-test.sh --packages dist/packages
-
-      - name: Upload the exact proven tarballs
-        uses: actions/upload-artifact@v4
-        with:
-          name: proven-packages-${{ github.sha }}
-          retention-days: 1
-          path: ${{ runner.temp }}/proven-packages
+        run: bash scripts/packaging-test.sh --packages dist/packages
 
   install-matrix:
     name: Install matrix (${{ matrix.pm }})
@@ -781,11 +860,16 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Download tarballs proven by the packaging gate
+      - name: Download the tarballs the packaging gate proved
+        # The pack job's tarballs; this job needs the packaging gate, so it
+        # runs only after the gate passed on these same bytes.
         uses: actions/download-artifact@v4
         with:
-          name: proven-packages-${{ github.sha }}
+          name: packed-packages
           path: dist/packages
+
+      - name: Check the tarballs against the pack manifest
+        run: node scripts/lib/proven-stamp.mjs check dist/packages
 
       - name: Install matrix — ${{ matrix.pm }}
         env:
@@ -943,7 +1027,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [plan, deletion-guard, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, app-scenarios]
+    needs: [plan, deletion-guard, build-packages, pack-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, app-scenarios]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

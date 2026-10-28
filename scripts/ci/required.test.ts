@@ -82,12 +82,53 @@ describe('required CI result', () => {
     })).toEqual([]);
     expect(requiredFailures({
       checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
-      results: { ...success, 'app-scenarios': 'failure' },
+      results: { ...success, 'pack-packages': 'success', 'app-scenarios': 'failure' },
     })).toEqual(['app-scenarios: failure']);
     expect(requiredFailures({
       checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
-      results: { ...success, 'app-scenarios': 'success' },
+      results: { ...success, 'pack-packages': 'success', 'app-scenarios': 'success' },
     })).toEqual([]);
+  });
+
+  test('requires the one pack whenever the app scenarios or the packaging proof are selected', () => {
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireAppScenarios: false,
+      results: { ...success, 'pack-packages': 'skipped' },
+    })).toEqual([]);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
+      results: { ...success, 'pack-packages': 'failure', 'app-scenarios': 'success' },
+    })).toEqual(['pack-packages: failure']);
+    const packaged = { ...success, packaging: 'success', 'install-matrix': 'success', standalone: 'success', 'release-contract': 'success' };
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: true, results: packaged,
+    })).toEqual(['pack-packages: missing']);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: true, results: { ...packaged, 'pack-packages': 'success' },
+    })).toEqual([]);
+  });
+
+  test('the pack job is the only pack, and every tarball consumer checks its manifest', () => {
+    const workflow = Bun.YAML.parse(readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8')) as {
+      jobs: Record<string, { needs?: string | string[]; steps?: { name?: string; run?: string; uses?: string; with?: Record<string, string> }[] }>;
+    };
+    const needsOf = (job: string) => [workflow.jobs[job]?.needs ?? []].flat();
+    const runs = (job: string) => (workflow.jobs[job]?.steps ?? []).map((step) => step.run ?? '').join('\n');
+    const packers = Object.keys(workflow.jobs).filter((job) => runs(job).includes('scripts/pack-packages.sh'));
+    expect(packers).toEqual(['pack-packages']);
+    expect(runs('pack-packages')).toContain('bash scripts/pack-packages.sh --skip-build');
+    expect(needsOf('required')).toContain('pack-packages');
+    expect(needsOf('app-scenarios')).toContain('pack-packages');
+    expect(needsOf('packaging')).toContain('pack-packages');
+    for (const job of ['app-scenarios', 'packaging', 'install-matrix']) {
+      const steps = workflow.jobs[job]?.steps ?? [];
+      const download = steps.findIndex((step) => step.uses?.startsWith('actions/download-artifact') && step.with?.name === 'packed-packages');
+      const check = steps.findIndex((step) => step.run === 'node scripts/lib/proven-stamp.mjs check dist/packages');
+      const firstUse = steps.findIndex((step) => /dist\/packages|PYRIC_PACKAGE_ARTIFACT_DIR/.test(`${step.run ?? ''}`) && !step.run?.includes('proven-stamp.mjs check'));
+      expect(download).toBeGreaterThanOrEqual(0);
+      expect(check).toBeGreaterThan(download);
+      expect(firstUse === -1 || firstUse > check).toBe(true);
+    }
   });
 
   test('the aggregate job receives the app scenario result and the plan\'s selection', () => {
@@ -157,6 +198,6 @@ describe('required CI result', () => {
       checkSet: 'full',
       requirePackaging: true,
       results: success,
-    })).toEqual(['packaging: skipped', 'install-matrix: skipped', 'standalone: skipped', 'release-contract: skipped']);
+    })).toEqual(['packaging: skipped', 'install-matrix: skipped', 'standalone: skipped', 'release-contract: skipped', 'pack-packages: missing']);
   });
 });

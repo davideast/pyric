@@ -139,3 +139,52 @@ describe('verifying the stamp before an upload', () => {
     expect(verify(repo).stderr).toContain('uncommitted or untracked changes now');
   });
 });
+
+describe('checking downloaded tarballs against the pack record', () => {
+  const check = (repo: string) => node(repo, 'check', packages(repo));
+
+  test('the tarballs the pack wrote pass in any tree, even another commit', () => {
+    const repo = checkout();
+    pack(repo);
+    writeFileSync(join(repo, 'README.md'), 'second\n');
+    git(repo, 'commit', '-q', '-am', 'second');
+    const checked = check(repo);
+    expect(checked.status).toBe(0);
+    expect(checked.stdout).toContain('are the ones packed from');
+  });
+
+  test('a tarball whose bytes changed after the pack is refused', () => {
+    const repo = checkout();
+    pack(repo);
+    writeFileSync(tarball(repo, 'pyric-cli'), 'another build');
+    const checked = check(repo);
+    expect(checked.status).toBe(1);
+    expect(checked.stderr).toContain(`pyric-cli-${VERSION}.tgz is not the file the pack record names`);
+    expect(checked.stderr).not.toContain('PYRIC_PUBLISH_SKIP_GATES');
+  });
+
+  test('a missing or an extra tarball is refused', () => {
+    const missing = checkout();
+    pack(missing);
+    unlinkSync(tarball(missing, 'pyric-ui'));
+    expect(check(missing).status).toBe(1);
+
+    const extra = checkout();
+    pack(extra);
+    writeFileSync(tarball(extra, 'pyric-extra'), 'not packed');
+    expect(check(extra).stderr).toContain('not exactly');
+  });
+
+  test('no manifest, no pack record, or no tarballs is refused', () => {
+    const none = checkout();
+    expect(check(none).stderr).toContain('no manifest.json');
+
+    const unrecorded = checkout();
+    writeFileSync(join(packages(unrecorded), 'manifest.json'), JSON.stringify({ packages: [] }));
+    expect(check(unrecorded).stderr).toContain('has no pack record');
+
+    const empty = checkout();
+    pack(empty, { names: [] });
+    expect(check(empty).stderr).toContain('holds no tarballs');
+  });
+});

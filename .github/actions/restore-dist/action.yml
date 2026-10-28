@@ -9,8 +9,10 @@ description: >
 inputs:
   flavor:
     description: >
-      "packages" for `scripts/build.sh --packages-only`; "site" for the full
-      build plus the composed public site (scripts/build-site.sh).
+      "packages" for `scripts/build.sh --packages-only`; "studio" for the
+      full `scripts/build.sh`, which embeds the Studio site in @pyric/cli as
+      the published tarball ships it; "site" for the full build plus the
+      composed public site (scripts/build-site.sh).
     required: true
 runs:
   using: composite
@@ -53,10 +55,33 @@ runs:
           dist/site
         key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
 
+    - name: Restore built packages with the embedded Studio site
+      if: inputs.flavor == 'studio'
+      id: restore-studio
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          packages/*/dist
+          packages/cli/src/assurance/.generated
+          packages/cli/src/conformance/.generated
+          packages/cli/src/cli/service-commands.generated.ts
+          packages/cli/src/bridge/tool-families.generated.ts
+          packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
+          packages/cli/src/bridge/surface/descriptions.generated.ts
+        # The site key covers every input of the full build and more, so it
+        # is exact for this flavor too; the prefix keeps the two apart.
+        key: dist-studio-${{ runner.os }}-${{ steps.key.outputs.site-key }}
+
     - name: Build packages (site omitted)
       if: inputs.flavor == 'packages' && steps.restore-packages.outputs.cache-hit != 'true'
       shell: bash
       run: bash scripts/build.sh --packages-only
+
+    - name: Build packages and the embedded Studio site
+      if: inputs.flavor == 'studio' && steps.restore-studio.outputs.cache-hit != 'true'
+      shell: bash
+      run: bash scripts/build.sh
 
     - name: Build packages and compose the public site
       if: inputs.flavor == 'site' && steps.restore-site.outputs.cache-hit != 'true'
@@ -77,6 +102,21 @@ runs:
           packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
           packages/cli/src/bridge/surface/descriptions.generated.ts
         key: dist-packages-${{ runner.os }}-${{ steps.key.outputs.packages-key }}
+
+    - name: Save built packages with the embedded Studio site
+      if: inputs.flavor == 'studio' && steps.restore-studio.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          packages/*/dist
+          packages/cli/src/assurance/.generated
+          packages/cli/src/conformance/.generated
+          packages/cli/src/cli/service-commands.generated.ts
+          packages/cli/src/bridge/tool-families.generated.ts
+          packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
+          packages/cli/src/bridge/surface/descriptions.generated.ts
+        key: dist-studio-${{ runner.os }}-${{ steps.key.outputs.site-key }}
 
     - name: Save built packages and site
       if: inputs.flavor == 'site' && steps.restore-site.outputs.cache-hit != 'true'

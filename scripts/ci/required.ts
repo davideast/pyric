@@ -21,6 +21,8 @@ const CHECK_SET_JOBS: Record<PrCheckSet, readonly string[]> = {
   'docs-only': [],
 };
 
+const PACK_JOB = 'pack-packages';
+
 export function requiredFailures(input: RequiredInput): string[] {
   const required = [
     ...CHECK_SET_JOBS[input.checkSet],
@@ -29,6 +31,9 @@ export function requiredFailures(input: RequiredInput): string[] {
     ...(input.requireAppScenarios ? ['app-scenarios'] : []),
     ...(input.requireDeletionGuard ? ['deletion-guard'] : []),
   ];
+  // The app scenarios and the packaging gate test the tarballs the one pack
+  // job made, so either one requires that pack to have succeeded.
+  if (input.requirePackaging || input.requireAppScenarios) required.push(PACK_JOB);
   return required.flatMap((job) => input.results[job] === 'success'
     ? []
     : [`${job}: ${input.results[job] ?? 'missing'}`]);
