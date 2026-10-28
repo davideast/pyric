@@ -14,6 +14,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../host.js';
 import { portSession } from '../host-auth.js';
+import { signInWithCredentialPayload, type CredentialPayload } from '../host/auth-credential-sign-in.js';
 import type { InboundMessage, OutboundMessage, ResMessage } from '../protocol.js';
 import { wirePort } from '../client/core.js';
 import type { ClientPort } from '../client/handles.js';
@@ -138,5 +139,91 @@ describe('served signInWithCredential with an email credential', () => {
     expect(noPassword).toMatchObject({ ok: false, error: { code: 'auth/missing-password' } });
 
     expect(portSession(h.ctx, h.rawPort)).toBeNull();
+  });
+});
+
+describe('served signInWithCredential with a provider id that is not federated (#1466)', () => {
+  function ownerProviderIds(h: ReturnType<typeof harness>, uid: string): string[] {
+    const owner = authSandbox.listUsers(getAuth(h.sandbox)).find((user) => user.uid === uid);
+    return owner?.providerUserInfo.map((entry) => entry.providerId) ?? [];
+  }
+
+  function refusedPayloads(uid: string): Record<string, CredentialPayload> {
+    return {
+      capitalPassword: { providerId: 'Password', signInMethod: 'password', email: OWNER, password: 'wrong' },
+      trailingSpacePassword: { providerId: 'password ', signInMethod: 'password', email: OWNER, password: 'wrong' },
+      emailLink: { providerId: 'emailLink', email: OWNER },
+      phone: { providerId: 'phone', uid },
+      anonymous: { providerId: 'anonymous', uid },
+      firebase: { providerId: 'firebase', uid },
+      madeUp: { providerId: 'acme', email: OWNER },
+      emptyOidc: { providerId: 'oidc.', email: OWNER },
+      googleWithPasswordMethod: { providerId: 'google.com', signInMethod: 'password', email: OWNER, password: 'wrong' },
+    };
+  }
+
+  function thrownCode(run: () => unknown): string {
+    try {
+      run();
+    } catch (error) {
+      return (error as { code?: string }).code ?? String(error);
+    }
+    return 'signed-in';
+  }
+
+  it('refuses each look-alike and unknown id with auth/no-mock-configured and leaves the owner untouched', async () => {
+    const h = harness();
+    const uid = await h.createOwner();
+    const before = h.userCount();
+    const auth = getAuth(h.sandbox);
+
+    for (const [name, payload] of Object.entries(refusedPayloads(uid))) {
+      const code = thrownCode(() => signInWithCredentialPayload(auth, payload, { tenantId: null }));
+      expect({ name, code }).toEqual({ name, code: 'auth/no-mock-configured' });
+    }
+
+    expect(ownerProviderIds(h, uid)).toEqual(['password']);
+    expect(h.userCount()).toBe(before);
+  });
+
+  it('checks a disabled provider first, as in-page does, and refuses it with auth/operation-not-allowed', async () => {
+    const h = harness();
+    const uid = await h.createOwner();
+    const auth = getAuth(h.sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'anonymous', false);
+    authSandbox.setAuthProviderConfig(auth, 'phone', false);
+
+    for (const providerId of ['anonymous', 'phone']) {
+      const code = thrownCode(() => signInWithCredentialPayload(auth, { providerId, uid }, { tenantId: null }));
+      expect({ providerId, code }).toEqual({ providerId, code: 'auth/operation-not-allowed' });
+    }
+
+    expect(ownerProviderIds(h, uid)).toEqual(['password']);
+  });
+
+  it('refuses a look-alike over the wire, nested or flat, and binds no session', async () => {
+    const h = harness();
+    const uid = await h.createOwner();
+
+    const nested = await h.sendRaw({ credential: { providerId: 'Password', email: OWNER } });
+    expect(nested).toMatchObject({ ok: false, error: { code: 'auth/no-mock-configured' } });
+    const flat = await h.sendRaw({ providerId: 'phone', uid });
+    expect(flat).toMatchObject({ ok: false, error: { code: 'auth/no-mock-configured' } });
+
+    expect(portSession(h.ctx, h.rawPort)).toBeNull();
+    expect(ownerProviderIds(h, uid)).toEqual(['password']);
+  });
+
+  it('still signs a google.com and an oidc.acme credential in as the identity they assert', () => {
+    const h = harness();
+    const auth = getAuth(h.sandbox);
+
+    const google = signInWithCredentialPayload(auth, { providerId: 'google.com', idToken: 'token-1', email: 'g@example.com' }, { tenantId: null });
+    expect(google.providerId).toBe('google.com');
+    expect(google.session.user.email).toBe('g@example.com');
+
+    const oidc = signInWithCredentialPayload(auth, { providerId: 'oidc.acme', email: 'o@example.com' }, { tenantId: null });
+    expect(oidc.providerId).toBe('oidc.acme');
+    expect(oidc.session.user.email).toBe('o@example.com');
   });
 });
