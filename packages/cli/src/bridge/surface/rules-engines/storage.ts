@@ -6,19 +6,19 @@ import {
   getStorageCrossServiceIam,
   getStorageService,
   replaceStorageRules,
-  requestResourceFor,
   resourceFromStored,
   storageFirestoreLookup,
-  type StoredMetadata,
 } from 'pyric/storage/internal';
 import { asSentence } from 'pyric/sandbox/internal';
+import { lint as lintRules, type RuleIssue } from 'pyric/rules';
 import { describeCompileLimitViolations, sourceCompileLimitViolations } from 'pyric/rules/internal';
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
 import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
-import type { SurfaceContext } from '../types.js';
+import type { OperationResult, SurfaceContext } from '../types.js';
 import { markLintFindings } from '../rules-verdict.js';
+import { simulatedRequestResource } from './storage-request-resource.js';
 import type { RulesEngine, RulesSourceProblem } from './types.js';
 
 /** What a call has to do when it named no source and the sandbox holds none. */
@@ -37,72 +37,6 @@ function identityFor(
   const held = ctx.identity.authState();
   if (held === null) return null;
   return { uid: held.uid, token: held.token ?? {} };
-}
-
-function requestResourceFromData(
-  object: StorageReference,
-  operation: string,
-  data: unknown,
-  existing: StoredMetadata | undefined,
-) {
-  if (data === undefined || typeof data !== 'object' || data === null || Array.isArray(data)) {
-    return undefined;
-  }
-  const raw = data as Record<string, unknown>;
-  const writeKind = operation === 'update' ? 'metadataUpdate' : 'upload';
-  const customMetadata =
-    raw.metadata !== undefined &&
-    typeof raw.metadata === 'object' &&
-    raw.metadata !== null &&
-    !Array.isArray(raw.metadata)
-      ? (raw.metadata as Record<string, string>)
-      : raw.customMetadata !== undefined &&
-          typeof raw.customMetadata === 'object' &&
-          raw.customMetadata !== null &&
-          !Array.isArray(raw.customMetadata)
-        ? (raw.customMetadata as Record<string, string>)
-        : existing?.customMetadata;
-  const base = requestResourceFor(
-    {
-      fullPath: typeof raw.name === 'string' ? raw.name : object.fullPath,
-      bucket: typeof raw.bucket === 'string' ? raw.bucket : object.bucket,
-      size: typeof raw.size === 'number' ? raw.size : (existing?.size ?? 0),
-      contentType:
-        typeof raw.contentType === 'string'
-          ? raw.contentType
-          : (existing?.contentType ?? 'application/octet-stream'),
-      customMetadata,
-      cacheControl: typeof raw.cacheControl === 'string' ? raw.cacheControl : existing?.cacheControl,
-      contentDisposition:
-        typeof raw.contentDisposition === 'string'
-          ? raw.contentDisposition
-          : existing?.contentDisposition,
-      contentEncoding:
-        typeof raw.contentEncoding === 'string' ? raw.contentEncoding : existing?.contentEncoding,
-      contentLanguage:
-        typeof raw.contentLanguage === 'string' ? raw.contentLanguage : existing?.contentLanguage,
-      generation:
-        typeof raw.generation === 'number' || typeof raw.generation === 'string'
-          ? String(raw.generation)
-          : existing?.generation,
-      metageneration:
-        typeof raw.metageneration === 'number' || typeof raw.metageneration === 'string'
-          ? String(raw.metageneration)
-          : existing?.metageneration,
-    },
-    writeKind,
-  );
-  if (raw.metadata === null || raw.customMetadata === null) base.metadata = null;
-  if (raw.contentDisposition === null) base.contentDisposition = null;
-  if (raw.contentEncoding === null) base.contentEncoding = null;
-  if (raw.contentLanguage === null) base.contentLanguage = null;
-  if (raw.cacheControl === null) base.cacheControl = null;
-  if (typeof raw.generation === 'number' || raw.generation === null) base.generation = raw.generation;
-  if (typeof raw.metageneration === 'number' || raw.metageneration === null) {
-    base.metageneration = raw.metageneration;
-  }
-  if (raw.etag === null) base.etag = null;
-  return base;
 }
 
 /**
@@ -125,6 +59,33 @@ function sourceProblem(source: string, error: unknown): RulesSourceProblem {
   };
 }
 
+/** One finding as a line: its code, where it is, and what it says. */
+function findingLine(issue: RuleIssue): string {
+  const where = issue.path === undefined ? '' : ` at ${issue.path}`;
+  return `${issue.code}${where}: ${issue.message}`;
+}
+
+/**
+ * A compiled source's lint result. An error-severity finding fails the lint,
+ * as a security hole or a construct production reads differently is a reason
+ * not to deploy; warnings alone pass, and are listed.
+ */
+function lintResult(issues: RuleIssue[]): OperationResult {
+  const errors = issues.filter((issue) => issue.severity === 'error');
+  const warnings = issues.filter((issue) => issue.severity !== 'error');
+  const warningNote =
+    warnings.length === 0 ? '' : ` Warnings: ${warnings.map((issue) => issue.code).join(', ')}.`;
+  const data = { errors: errors.map(findingLine), issues };
+  if (errors.length > 0) {
+    return markLintFindings({
+      ok: false,
+      summary: `Storage rules lint found ${errors.length} error(s). ${errors.map(findingLine).join(' ')}${warningNote}`,
+      data,
+    });
+  }
+  return { ok: true, summary: `Storage rules compiled with no lint errors.${warningNote}`, data };
+}
+
 export const STORAGE_RULES: RulesEngine = {
   requestMethods: ['get', 'list', 'create', 'update', 'delete', 'read', 'write'],
 
@@ -142,6 +103,9 @@ export const STORAGE_RULES: RulesEngine = {
     if (source === null) {
       return operationFailure(NO_RULES_LOADED);
     }
+    // The shared linter is what `lint()` from `pyric/rules` runs, so both
+    // report the same findings for one source.
+    const issues = lintRules(source);
     try {
       compileStorageRules(source);
     } catch (error) {
@@ -149,10 +113,10 @@ export const STORAGE_RULES: RulesEngine = {
       return markLintFindings({
         ok: false,
         summary: `${message} ${sourceProblem(source, error).fix}`,
-        data: { errors: [message] },
+        data: { errors: [message], issues },
       });
     }
-    return { ok: true, summary: 'Storage rules parsed with no errors.', data: { errors: [] } };
+    return lintResult(issues);
   },
 
   async simulate(ctx, request) {
@@ -173,12 +137,11 @@ export const STORAGE_RULES: RulesEngine = {
     const existing = object.fullPath
       ? await service.backend.getMetadata(object.fullPath, object.bucket)
       : undefined;
-    const requestResource = requestResourceFromData(
-      object,
-      request.operation,
-      request.data,
-      existing,
-    );
+    const built = simulatedRequestResource(object, request.operation, request.data, existing);
+    if (!built.ok) {
+      return operationFailure(`${request.operation} ${request.path}: ${built.reason}`);
+    }
+    const requestResource = built.resource;
     const evaluated = evaluateStorageRules(
       parsed,
       {
