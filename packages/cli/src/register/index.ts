@@ -36,9 +36,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
-import { resolvesIntoPackage } from './package-identity.js';
+import { packageNameOf, resolvesIntoPackage } from './package-identity.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
-import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
+import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode, type NetGuard } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { remoteSandbox } from '../remote/index.js';
@@ -148,6 +148,47 @@ const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
   return resolveMapped(mapped, context, nextResolve);
 };
 
+const REAL_ADMIN_ISSUE_URL = 'https://github.com/davideast/pyric/issues/1443';
+
+/** A path segment that can hold `firebase-admin`, under its own name or Turbopack's rename. */
+const ADMIN_SEGMENT = /\/firebase-admin(-[0-9a-f]{16})?\//;
+
+/** Whether a resolved URL is a file of the real `firebase-admin` package. */
+function isRealAdminFile(url: string): boolean {
+  const mayBeAdmin = ADMIN_SEGMENT.test(url);
+  return mayBeAdmin && packageNameOf(url) === 'firebase-admin';
+}
+
+/**
+ * The tripwire (#1443): `pyric-admin` has no runtime dependency on
+ * `firebase-admin`, and the hook maps every form of the import it recognizes,
+ * so a real `firebase-admin` file in a registered process is a missed import
+ * holding this machine's credentials. The first one escalates the guard to
+ * `block`, even under an explicit `PYRIC_GUARD=warn`, so the metadata server
+ * and every catalog host refuse with `PYRIC_GUARD_BLOCKED` instead of reaching
+ * production. `PYRIC_GUARD=off` installs no guard and so no tripwire.
+ *
+ * Only the sync hook gets one: the async fallback runs on Node's loader
+ * thread, which cannot reach this process's guard.
+ */
+function withRealAdminTripwire(resolve: SyncResolve, guard: NetGuard | null): SyncResolve {
+  if (guard === null) return resolve;
+  let tripped = false;
+  return (specifier, context, nextResolve) => {
+    const result = resolve(specifier, context, nextResolve);
+    const trips = !tripped && isRealAdminFile(result.url);
+    if (!trips) return result;
+    tripped = true;
+    process.stderr.write(
+      `@pyric/cli/register: the real firebase-admin loaded from ${result.url} ` +
+        `(import '${specifier}' from ${context.parentURL ?? 'the entry point'}), which the register ` +
+        `did not route to the sandbox. Please report it: ${REAL_ADMIN_ISSUE_URL}\n`,
+    );
+    guard.escalate('the real firebase-admin loaded in a process pyric registered');
+    return result;
+  };
+}
+
 function activate(): void {
   // FIRST, before any hook or global: the network guard.
   //
@@ -181,7 +222,7 @@ function activate(): void {
   if (typeof moduleApi.registerHooks === 'function') {
     hooksInstalled = true;
     moduleApi.registerHooks({
-      resolve: resolveFirebase,
+      resolve: withRealAdminTripwire(resolveFirebase, guard),
     });
   } else {
     process.stderr.write(

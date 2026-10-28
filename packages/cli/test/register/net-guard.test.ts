@@ -577,6 +577,65 @@ describe('installNetGuard', () => {
     expect(log.lines[0]).toContain('Set PYRIC_GUARD=block to fail these requests instead.');
   });
 
+  it('escalate moves a warn guard to block for the rest of the process, with one line saying why (#1443)', () => {
+    const real = mockDispatcher();
+    const scope = fakeScope(real);
+    const log = collector();
+    const socketCalls: unknown[][] = [];
+    const socketPrototype = { connect: (...args: unknown[]): unknown => socketCalls.push(args) };
+    const guard = installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'warn' },
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      agentPrototypes: [],
+      socketPrototypes: [socketPrototype],
+    })!;
+    const dispatch = (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch;
+    dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {});
+    expect(real.calls).toHaveLength(1);
+
+    expect(guard.escalate('the real firebase-admin loaded')).toBe(true);
+    expect(guard.mode).toBe('block');
+    expect(log.lines.filter((line) => line.includes('escalated to block'))).toHaveLength(1);
+    expect(log.lines.at(-1)).toContain('the real firebase-admin loaded');
+
+    expect(() => dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {})).toThrow(
+      expect.objectContaining({ code: 'PYRIC_GUARD_BLOCKED' }),
+    );
+    expect(real.calls).toHaveLength(1);
+    expect(() => socketPrototype.connect({ host: '169.254.169.254', port: 80 })).toThrow(
+      expect.objectContaining({ code: 'PYRIC_GUARD_BLOCKED' }),
+    );
+    expect(socketCalls).toHaveLength(0);
+
+    // A second escalation changes nothing and says nothing.
+    const before = log.lines.length;
+    expect(guard.escalate('again')).toBe(false);
+    expect(log.lines).toHaveLength(before);
+  });
+
+  it('escalate leaves a block guard as it is, and the allowlist still permits its hosts', () => {
+    const real = mockDispatcher();
+    const scope = fakeScope(real);
+    const log = collector();
+    const guard = installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block', PYRIC_GUARD_ALLOW: 'aiplatform.googleapis.com' },
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    })!;
+    expect(guard.escalate('the real firebase-admin loaded')).toBe(false);
+    expect(guard.mode).toBe('block');
+    expect(log.lines).toEqual([]);
+    const dispatch = (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch;
+    dispatch({ origin: 'https://aiplatform.googleapis.com', path: '/v1' }, {});
+    expect(real.calls).toHaveLength(1);
+  });
+
   it('permits a host named after install, as the Vite plugin does for its AI upstream', () => {
     const real = mockDispatcher();
     const scope = fakeScope(real);

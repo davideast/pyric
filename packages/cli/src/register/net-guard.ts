@@ -362,12 +362,12 @@ interface Reporter {
 
 function createReporter(options: ReporterOptions): Reporter {
   const write = options.write ?? ((line: string) => void process.stderr.write(line));
-  const policy = { mode: options.mode, allow: options.allow };
   const reported = options.reported ?? new Set<string>();
   return {
     check(hostname, transport) {
       if (hostname === undefined) return;
-      const verdict = evaluateEgress(hostname, policy);
+      // Read per check: an escalated guard (`NetGuard.escalate`) changes the mode.
+      const verdict = evaluateEgress(hostname, { mode: options.mode, allow: options.allow });
       if (verdict === null) return;
       // A dev server retries relentlessly; one line per host is the signal,
       // and it also collapses the undici-over-net.connect double report.
@@ -466,8 +466,17 @@ export interface NetGuardHooks {
 type RequestPrototype = { onSocket?: unknown };
 
 export interface NetGuard {
+  /** The mode in force now; `escalate` can move it from `warn` to `block`. */
   readonly mode: GuardMode;
   readonly allow: readonly string[];
+  /**
+   * Move a `warn` guard to `block` for the rest of this process, and write one
+   * line naming `reason`. A `block` guard is left as it is. Returns whether
+   * the mode changed. Used when the process shows it is about to reach
+   * production by mistake, such as the real `firebase-admin` loading under
+   * the register (#1443), and by `withPyric` in the Next dev server.
+   */
+  escalate(reason: string): boolean;
   /** Permit one more host, given bare or as a URL, for the rest of this
    *  process. A launcher that learns a destination after install, such as the
    *  Vite plugin's configured AI upstream, names it here. */
@@ -544,7 +553,17 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 
   const allow = parseAllowHosts(env.PYRIC_GUARD_ALLOW);
   const context = contextFrom(hooks.argv ?? process.argv);
-  const reporterOptions: ReporterOptions = { mode, allow, write, context, reported: new Set() };
+  // One mode for every seam, read on each check, so `escalate` reaches them all.
+  const state = { mode };
+  const reporterOptions: ReporterOptions = {
+    get mode() {
+      return state.mode;
+    },
+    allow,
+    write,
+    context,
+    reported: new Set(),
+  };
 
   const scope = hooks.scope ?? (globalThis as unknown as Record<symbol, unknown>);
 
@@ -619,8 +638,20 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   }
 
   return {
-    mode,
+    get mode() {
+      return state.mode;
+    },
     allow,
+    escalate(reason: string): boolean {
+      const isWarn = state.mode === 'warn';
+      if (!isWarn) return false;
+      state.mode = 'block';
+      write(
+        `${LOG_PREFIX} escalated to block: ${reason}. Egress from this process to live ` +
+          `Google/Firebase endpoints now fails with ${GUARD_BLOCKED_CODE}; PYRIC_GUARD_ALLOW still permits its hosts.\n`,
+      );
+      return true;
+    },
     permit(hostOrUrl: string): void {
       for (const host of parseAllowHosts(hostOrUrl)) {
         if (!allow.includes(host)) allow.push(host);
