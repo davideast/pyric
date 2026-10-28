@@ -23,7 +23,9 @@ import { getAppCheck } from '../../src/app-check/index.js';
 
 const isClimb = process.env.PYRIC_CLIMB === '1';
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check-admin');
-const gate = createObservationGate({ dir: OBS_DIR, match: (file) => file.startsWith('app-check-admin-') });
+/** The hunt's `app-check-admin-options-` captures are replayed in a sibling file, under their own rows. */
+const HUNT_REPLAY = join(import.meta.dir, 'hunt-captures.test.ts');
+const gate = createObservationGate({ dir: OBS_DIR, match: (file) => file.startsWith('app-check-admin-'), siblingSources: [HUNT_REPLAY] });
 const obs = gate.load;
 
 const PROJECT_ID = 'genkit-idx';
@@ -198,7 +200,7 @@ describe('oracle conformance (app-check admin)', () => {
 
   (isClimb ? it : it.skip)('completeness: every observations/app-check-admin/ capture is asserted (prefix gate)', () => {
     const report = gate.report();
-    expect(report.committed.length).toBe(6);
+    expect(report.committed.length).toBe(8);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });
