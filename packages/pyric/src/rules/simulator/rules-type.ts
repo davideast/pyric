@@ -1,6 +1,7 @@
 import {
   normalizeRe2ForJsRegExp,
   scanRe2Pattern,
+  spellRe2Dot,
   spellRe2PropertyShorthand,
   spellRe2SpaceClasses,
 } from '../grammar/re2-pattern.js';
@@ -80,20 +81,20 @@ function parseSizedRe2Ast(pattern: string): RegexNode {
  * rejects in production, and patterns past pyric's size limits.
  */
 export function compileRe2Regex(method: string, pattern: string, source: string, flags?: string): RegExp {
-  const backref = /\\[1-9]/.test(pattern);
-  const lookaround = /\(\?<?[=!]/.test(pattern);
-  if (backref || lookaround) {
-    const kind = backref ? 'backreference' : 'lookaround';
+  // The scan skips escapes and classes, so `\\1` and `[(?=]` are literals.
+  const { unsupported, inlineFlags } = scanRe2Pattern(pattern);
+  if (unsupported !== null) {
     throw new Error(
-      `${method}() pattern uses an RE2-unsupported construct (${kind}) that production would reject`,
+      `${method}() pattern uses an RE2-unsupported construct (${unsupported}) that production would reject`,
     );
   }
-  // `(?i)` and the other inline flags reach the RegExp as flags, and `\s`
-  // is RE2's ASCII class (FS2-SIM-6).
-  const mergedFlags = [...new Set(`${flags ?? ''}${scanRe2Pattern(pattern).inlineFlags}`)].join('');
+  // `(?i)` and the other inline flags reach the RegExp as flags, `\s` is
+  // RE2's ASCII class (FS2-SIM-6), and `.` matches `\r` (FS2-SIM-5a2).
+  const mergedFlags = [...new Set(`${flags ?? ''}${inlineFlags}`)].join('');
+  const spaced = spellRe2SpaceClasses(normalizeRe2ForJsRegExp(source), false);
   let regex: RegExp;
   try {
-    regex = new RegExp(spellRe2SpaceClasses(normalizeRe2ForJsRegExp(source), false), mergedFlags);
+    regex = new RegExp(spellRe2Dot(spaced, mergedFlags.includes('s')), mergedFlags);
   } catch (err) {
     throw new Error(`Invalid regex '${pattern}' in ${method}(): ${(err as Error).message}`);
   }
@@ -346,14 +347,19 @@ export function parseRe2Ast(pattern: string): RegexNode {
   return parseAlternation();
 }
 
+/** Number of capture groups in `regex`, read from a match of the empty alternative. */
+export function re2CaptureGroupCount(regex: RegExp): number {
+  const probe = new RegExp(`${regex.source}|`).exec('');
+  return probe === null ? 0 : probe.length - 1;
+}
+
 /**
  * Evaluate `subject.replace(pattern, replacement)` with RE2 regex compilation
  * and Java `Matcher` replacement template rules (`$n`, `${name}`, `\c`).
  */
 export function replaceRe2(subject: string, pattern: string, replacement: string): string {
   const regex = compileRe2Regex('replace', pattern, pattern, 'g');
-  const probe = new RegExp(`${regex.source}|`).exec('');
-  const groupCount = probe === null ? 0 : probe.length - 1;
+  const groupCount = re2CaptureGroupCount(regex);
   return subject.replace(regex, (...match: unknown[]) => {
     const groups = match.slice(0, groupCount + 1) as Array<string | undefined>;
     const lastArg = match[match.length - 1];
