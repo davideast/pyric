@@ -1,0 +1,8 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/other/documents {
+    match /c/{id} {
+      allow read, write: if true;
+    }
+  }
+}
