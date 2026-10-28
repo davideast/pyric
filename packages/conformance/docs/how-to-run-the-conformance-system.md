@@ -873,56 +873,77 @@ cannot pass by skipping. A credential that is present but cannot mint a token
 CI holds no service account key. The `parity-stress` job in
 `simulator-parity.yml` and the rules legs of `oracle-recapture.yml` exchange
 the job's GitHub OIDC token for short-lived credentials of the parity service
-account. Both skip with a warning until the `GCP_WIF_PROVIDER` repository
-variable is set. Run these once, as a project owner, with your values in the
-first three lines:
+account on `digame-mas`. Until the `GCP_WIF_PROVIDER` repository variable is
+set, `simulator-parity.yml` skips with a warning and the scheduled re-capture
+fails. Run these once, as a project owner:
 
 ```sh
-PROJECT_ID=<project-id>
-PROJECT_NUMBER=<project-number>
-SA_EMAIL=<parity-sa-name>@<project-id>.iam.gserviceaccount.com
+PROJECT_ID=digame-mas
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+REPO_ID=1290109388   # gh api repos/davideast/pyric --jq .id
 
-# APIs the token exchange and impersonation use.
-gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com \
+# 0. Read-only: find the parity service account and the roles it holds.
+gcloud iam service-accounts list --project="$PROJECT_ID" --format='table(email,displayName)'
+gcloud projects get-iam-policy "$PROJECT_ID" --flatten='bindings[].members' \
+  --filter='bindings.members:serviceAccount' --format='table(bindings.role,bindings.members)'
+gcloud iam roles list --project="$PROJECT_ID" --format='table(name,title)'
+RULES_SA=<parity service account email from the output above>
+
+# 1. APIs the token exchange, impersonation and Rules Test API use.
+gcloud services enable iam.googleapis.com cloudresourcemanager.googleapis.com \
+  iamcredentials.googleapis.com sts.googleapis.com firebaserules.googleapis.com \
   --project="$PROJECT_ID"
 
-# A pool, and an OIDC provider that accepts only this repository's tokens.
-gcloud iam workload-identity-pools create github \
-  --project="$PROJECT_ID" --location=global \
-  --display-name="GitHub Actions"
+# 2. A custom role with only the Rules Test API permission. Skip it if step 0
+#    shows the account already holds firebaserules.rulesets.test.
+gcloud iam roles create pyricRulesTester --project="$PROJECT_ID" \
+  --title="pyric Rules Test API caller" --permissions=firebaserules.rulesets.test --stage=GA
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition=None \
+  --member="serviceAccount:$RULES_SA" --role="projects/$PROJECT_ID/roles/pyricRulesTester"
 
+# 3. A pool, and an OIDC provider that accepts only this repository's tokens.
+#    The numeric repository id survives a rename and can't be claimed by a new repo.
+gcloud iam workload-identity-pools create github \
+  --project="$PROJECT_ID" --location=global --display-name="GitHub Actions"
 gcloud iam workload-identity-pools providers create-oidc pyric \
-  --project="$PROJECT_ID" --location=global \
-  --workload-identity-pool=github \
+  --project="$PROJECT_ID" --location=global --workload-identity-pool=github \
   --display-name="davideast/pyric" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --attribute-condition="assertion.repository=='davideast/pyric'"
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_id=assertion.repository_id" \
+  --attribute-condition="assertion.repository_id=='$REPO_ID'"
 
-# Let workflows from this repository impersonate the parity service account.
-gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
-  --project="$PROJECT_ID" \
+# 4. Let this repository's workflows impersonate the parity service account.
+gcloud iam service-accounts add-iam-policy-binding "$RULES_SA" --project="$PROJECT_ID" \
   --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/davideast/pyric"
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository_id/$REPO_ID"
 
-# The two repository variables the workflows read.
+# 5. The two repository variables the workflows read.
 gh variable set GCP_WIF_PROVIDER --repo davideast/pyric \
   --body "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/pyric"
-gh variable set PARITY_SA_EMAIL --repo davideast/pyric --body "$SA_EMAIL"
+gh variable set PARITY_SA_EMAIL --repo davideast/pyric --body "$RULES_SA"
 ```
 
-The service account keeps the role it already has for
-`firebaserules.rulesets.test`; nothing else changes on it. Trigger
-`simulator-parity.yml` with `workflow_dispatch` and confirm the parity packs
-report production verdicts. Then remove the stored key:
+`roles/firebaserules.viewer` doesn't grant `firebaserules.rulesets.test`. The
+permission is in `roles/firebaserules.admin`, the Firebase Admin, Editor and
+Develop Admin roles, and the basic roles, all of which grant far more, so the
+custom role is the least-privilege option. Pools, providers and bindings can
+take up to five minutes to take effect.
+
+This pool admits every workflow in the repository, pull requests included,
+which suits an account that can only test rulesets. An account that can change
+rules or data needs its own pool restricted to `main`.
+
+Trigger `simulator-parity.yml` and `oracle-recapture.yml` with
+`workflow_dispatch` and confirm the parity packs and the rules legs report
+production verdicts. After the first green run, remove the stored key:
 
 ```sh
 gh secret delete PARITY_SA_BASE64 --repo davideast/pyric
 
 # List the user-managed keys, then delete each one by its KEY_ID.
-gcloud iam service-accounts keys list --iam-account="$SA_EMAIL" \
+gcloud iam service-accounts keys list --iam-account="$RULES_SA" \
   --project="$PROJECT_ID" --managed-by=user
-gcloud iam service-accounts keys delete <key-id> --iam-account="$SA_EMAIL" \
+gcloud iam service-accounts keys delete <key-id> --iam-account="$RULES_SA" \
   --project="$PROJECT_ID"
 ```
 
@@ -1025,10 +1046,12 @@ The lane runs two of the three tiers from
   secret for `oracle-run` and `messaging-send`, the `GCP_WIF_PROVIDER`
   variable for the two rules legs
   ([Workload Identity Federation](#one-time-ci-setup-workload-identity-federation)).
-  When it is absent (a fork, or a repo that has not provisioned the oracle
-  project) that rig's leg skips cleanly with a warning and the run stays green,
-  the same contract `simulator-parity.yml` uses. A configured credential that
-  fails to authenticate fails the leg. `messaging-send` carries
+  A leg whose `disabled` field names a blocking issue skips with that reason;
+  today `oracle-run` and `messaging-send` are disabled until their credentials
+  work without a key file. On a scheduled run, any other leg whose credential
+  is absent fails, so the weekly check can't go green with nothing checked
+  against production. On a manual dispatch it skips with a warning. A
+  configured credential that fails to authenticate fails the leg. `messaging-send` carries
   the highest-drift-risk records, the purely server-side `messaging-admin`
   facts, so it is the one to prioritize provisioning.
 
@@ -1043,8 +1066,17 @@ lane never touches it.
 
 The comparison ignores the `observedAt` stamp every capture rewrites (and any
 pure reformatting), so the lane fires only on a real change to a captured fact,
-not on the timestamp. It never commits, pushes, or otherwise persists a changed
-observation: the observations tree is read-only to CI.
+not on the timestamp. It never commits or pushes a changed observation: the
+observations tree is read-only to CI. On drift, each failed leg uploads its
+rewritten observation files as a workflow artifact named
+`observation-drift-<rig>`, kept 14 days.
+
+`rules-firestore` leaves alone any scenario whose committed observation came
+from the real-database rig (`run-firestore-real.ts`, recognized by its
+`productionDatabase` or `hostedTestApiLimitation` diagnostics). The Rules Test
+API can't evaluate those scenarios, so recapturing them there would replace a
+production fact with the API's limitation. The run names each one as "owned by
+run-firestore-real.ts, not captured here".
 
 ### When the drift report fires
 
@@ -1052,7 +1084,8 @@ A red re-capture run means a fact you had pinned no longer matches production.
 The changed observations are not in the repository — the lane refuses to write
 them — so the recovery is deliberate, on a branch, by a person:
 
-1. **Read the diff** in the failed run's job summary. Each drifted file is shown
+1. **Read the diff** in the failed run's job summary, and download the
+   `observation-drift-<rig>` artifact for the rewritten files. Each drifted file is shown
    with the `observedAt` noise already stripped, so what is left is the behavior
    that moved. If the summary lists nothing and the run is still red, the failure
    is the rig itself, not drift — read the step log.
