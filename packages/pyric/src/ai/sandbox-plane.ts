@@ -164,8 +164,11 @@ export async function planeGenerateContentStream(
     // HTTP errors instead of a stream.
     const admitsBeforeStream = target.kind === 'sandbox' && appCheck !== undefined;
     if (admitsBeforeStream) await target.broker.admitAppCheck(modelResource, appCheck);
+    // Once admitted here, the claim is spent: the broker then validates at the
+    // call instead of deferring validation behind its own gate.
+    const claimForStream = admitsBeforeStream ? undefined : appCheck;
     inner = (target.kind === 'transport' ? target.transport : target.broker)
-      .streamGenerateContent(normalized, modelResource, appCheck);
+      .streamGenerateContent(normalized, modelResource, claimForStream);
   } catch (err) {
     activity.fail(err);
     throw planeError(target, err, modelResource, 'streamGenerateContent');
