@@ -77,11 +77,11 @@ export const sdkCaptureBlock: CompatibilityTableBlock = {
       oracleObservations: ['firestore-query-disjunction-limits'],
       conformanceTests: [`${IN_PAGE}/firestore-query-disjunction-limits.test.ts`],
     }),
-    captureRow({
+    matchingRow({
       rowRef: 'negative-zero-equality',
       featureKeys: ['where'],
       api: "where(field, '==' | '!=', 0) with a -0 value stored",
-      behavior: 'Production treats -0 and 0 as equal in `==` and `!=`; pyric does not. FL-31.',
+      behavior: '-0 equals 0 in `==` and `!=` but not in `in`, as in production. FL-31.',
       evidence: '`oracle:firestore-query-negative-zero` and `oracle:firestore-non-finite-number-roundtrip` key `eq0`.',
       risk: ['specific-value'],
       riskScore: 2,
