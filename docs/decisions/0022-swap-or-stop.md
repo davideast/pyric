@@ -1,16 +1,18 @@
 # 0022: Swap or stop: the module swap is the guarantee, and the network guard only guards credentials
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-10-28
 
-David approved the direction on 2026-10-28. This record states it, checks it
-against the SDK and auth library sources, and lists the questions it leaves
-open. Refs [#1475](https://github.com/davideast/pyric/issues/1475).
+David approved the direction on 2026-10-28, and later that day accepted the
+recommendation for each of the seven decisions this record raised. The
+answers are in [Rulings](#rulings). This record states the design, checks it
+against the SDK and auth library sources, and plans the work. Refs
+[#1475](https://github.com/davideast/pyric/issues/1475).
 
 It replaces the escalation that [#1474](https://github.com/davideast/pyric/pull/1474)
-added and supersedes the draft [#1488](https://github.com/davideast/pyric/pull/1488),
-which is on hold until this record decides what carries over.
+added and supersedes the draft [#1488](https://github.com/davideast/pyric/pull/1488).
+Only #1488's package-name check carries over.
 
 ## Context
 
@@ -270,7 +272,7 @@ exchanges there, not at `oauth2.googleapis.com`.
 | #1475, item 3 (children don't inherit the escalation) | Moot. Every registered child installs its own stop and choke point |
 | #1475, item 4 (no Next `PYRIC_GUARD=warn` case) | Becomes a scenario case: `warn` doesn't open a token endpoint and doesn't stop a stop |
 | #1475, item 5 (the docs claim the tripwire works everywhere) | Replaced: the docs describe stop per plane, including ESM on the async hook |
-| #1488, every Google host after the tripwire, the Fonts exemption, escalation scope | Superseded. Only its manifest-name check carries over. Close it when this record is accepted |
+| #1488, every Google host after the tripwire, the Fonts exemption, escalation scope | Superseded. Only its manifest-name check carries over. David decides when to close it |
 | #1499, children inherit the narrower list | Mostly moot: the choke point is the same in every registered process. What's left is the child that isn't Node, which is listed as a residual. Close it with PR 2 |
 | #1442 and #1445, address forms, tunnels, workers | Kept. The choke point depends on them |
 | `GOOGLE_ENDPOINT_CATALOG` | Kept for `inlined-sdk-scanner.ts`, which greps built output for SDK fingerprints. The guard stops reading it, and the metadata entries move to the token list |
@@ -323,6 +325,8 @@ Each PR below changes the paragraph its behavior touches.
 
 ## Decisions for David
 
+Each is answered in [Rulings](#rulings).
+
 1. **Does `warn` still exist for the choke point?** Options: `warn` reports a
    token request and lets it through, as today; or the choke point always
    refuses while the guard is on. **Recommended: always refuse.** A token
@@ -364,6 +368,27 @@ Each PR below changes the paragraph its behavior touches.
    file imported from outside the `firebase` and `@firebase/*` packages and
    pyric's own modules stops. Without that rule, `import '@firebase/firestore'`
    is a side door around the swap.
+
+## Rulings
+
+David accepted each recommendation above on 2026-10-28
+([#1510](https://github.com/davideast/pyric/pull/1510)).
+
+1. `warn` doesn't exist for the choke point. Token requests are always refused
+   while the guard is on. `warn` stays an accepted value and prints one notice
+   line.
+2. A stop is an exception: the resolve hook throws `PYRIC_REAL_SDK_STOPPED`,
+   and only the import that asked fails. The process keeps running.
+3. `PYRIC_GUARD_ALLOW` can't open a token endpoint, and is retired (PR 5).
+4. `PYRIC_GUARD=off` doesn't turn off stop. To run the real SDK, run the
+   process without the register.
+5. In registered processes, `GOOGLE_APPLICATION_CREDENTIALS` is removed when it
+   names a `service_account` key, and loads of `@google-cloud/firestore` stop
+   (PR 4). An inline `cert()` in a bundled copy stays a documented residual.
+6. On `www.googleapis.com`, only token paths (`/oauth2/*/token`) are refused,
+   at the undici dispatcher and `http.ClientRequest`.
+7. Stop covers `@firebase/*` imported directly by app code, on the Node and
+   Vite planes.
 
 ## Consequences
 
@@ -488,7 +513,7 @@ No conformance rows change.
   Chromium reports the stop error. Both fail on main, where the real SDK
   loads.
 
-### PR 4: Close the service-account key path (if decision 5 is the second option)
+### PR 4: Close the service-account key path
 
 - **Files:** new `register/credential-scrub.ts` (read the file that
   `GOOGLE_APPLICATION_CREDENTIALS` names; when its `type` is
@@ -507,7 +532,7 @@ No conformance rows change.
   On main, the self-signed JWT goes out and the trap records
   `firestore.googleapis.com:443`.
 
-### PR 5: Retire `PYRIC_GUARD_ALLOW` and the AI upstream allowance (if decision 3 is accepted)
+### PR 5: Retire `PYRIC_GUARD_ALLOW` and the AI upstream allowance
 
 - **Files:** `register/net-guard.ts` (parse and ignore with a notice; remove
   `permit` and `permitGuardHost`); `cli/sandbox-runner.ts` (`childGuardAllow`);
