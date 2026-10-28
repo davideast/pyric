@@ -188,6 +188,30 @@ export async function GET() {
 }
 `;
 
+/**
+ * Loads the real firebase-admin by absolute path, a load no import map can
+ * recognize, then calls Firestore's REST endpoint as it would. `require` comes
+ * from `process.getBuiltinModule` so neither bundler sees the load and Node
+ * resolves it at run time, through the register's hook. The Firestore URL
+ * comes from the environment: a route file that names a Firebase host makes
+ * `pyric sandbox` refuse the directory as one that bundles the real SDK.
+ */
+const REAL_ADMIN_ROUTE = `export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  const { createRequire } = process.getBuiltinModule('node:module');
+  const { join } = process.getBuiltinModule('node:path');
+  const load = createRequire(join(process.cwd(), 'package.json'));
+  load(join(process.cwd(), 'node_modules', 'firebase-admin', 'lib', 'app', 'index.js'));
+  try {
+    await fetch(process.env.SCENARIO_FIRESTORE_URL);
+    return Response.json({ code: 'sent' });
+  } catch (error) {
+    return Response.json({ code: error?.cause?.code ?? error?.code ?? String(error) });
+  }
+}
+`;
+
 const APP_FILES: Record<string, string> = {
   'next.config.mjs': NEXT_CONFIG,
   'firebase.json': JSON.stringify({ firestore: { rules: 'firestore.rules' } }, null, 2),
@@ -196,6 +220,7 @@ const APP_FILES: Record<string, string> = {
   'src/app/page.jsx': PAGE,
   'src/app/api/admin/route.js': ADMIN_ROUTE,
   'src/app/api/client/route.js': CLIENT_ROUTE,
+  'src/app/api/real-admin/route.js': REAL_ADMIN_ROUTE,
 };
 
 /** The preload and the empty gcloud folder sit outside the project, so Next never watches them. */
@@ -230,6 +255,13 @@ interface SafetyRecord {
   registered: boolean;
   kind: 'connection' | 'real-firebase';
   detail: string;
+}
+
+/** The trapped connections a case may not have. */
+function escapedConnections(records: readonly SafetyRecord[]): string[] {
+  return records
+    .filter((record) => record.kind === 'connection' && record.detail !== NEXT_VERSION_CHECK)
+    .map((record) => record.detail);
 }
 
 function readSafetyLog(path: string): SafetyRecord[] {
@@ -286,6 +318,7 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
     SCENARIO_SAFETY_LOG: safetyLog,
     CLOUDSDK_CONFIG: safety.emptyGcloud,
     NEXT_TELEMETRY_DISABLED: '1',
+    SCENARIO_FIRESTORE_URL: `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/items/from-admin`,
   };
 
   const sandbox = await app.step(`${testCase.name}: Next serves the app`, async () => {
@@ -338,10 +371,17 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
   await app.step(`${testCase.name}: no real Firebase SDK loaded and nothing left the machine`, async () => {
     const records = readSafetyLog(safetyLog);
     const realFirebase = records.filter((record) => record.kind === 'real-firebase').map((record) => record.detail);
-    const connections = records
-      .filter((record) => record.kind === 'connection' && record.detail !== NEXT_VERSION_CHECK)
-      .map((record) => record.detail);
+    const connections = escapedConnections(records);
     assert.deepEqual({ realFirebase, connections }, { realFirebase: [], connections: [] });
+  });
+
+  // #1443 part 2: a load the register can't map still fails closed.
+  await app.step(`${testCase.name}: the real firebase-admin trips the guard, and Firestore is refused`, async () => {
+    const response = await fetch(`${nextUrl}/api/real-admin`, { signal: AbortSignal.timeout(120_000) });
+    const body = await jsonFrom(response);
+    const connections = escapedConnections(readSafetyLog(safetyLog));
+    assert.deepEqual({ body, connections }, { body: { code: 'PYRIC_GUARD_BLOCKED' }, connections: [] });
+    assert.match(sandbox.output, /the real firebase-admin loaded from file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
     await page.close();
     await sandbox.stop();
   });
