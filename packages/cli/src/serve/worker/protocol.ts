@@ -60,6 +60,17 @@ export type AiEngineConfigWire =
   | { kind: 'gemini'; baseUrl?: string; apiKey?: string };
 
 /**
+ * The App Check claim an AI request from an app-backed handle carries, as
+ * production reads `X-Firebase-AppCheck`: a token, or `null` when the handle
+ * has none. The worker broker refuses a request whose claim has no valid
+ * sandbox token. Requests from handles with no app send no claim and are not
+ * gated.
+ */
+export interface AiAppCheckWire {
+  token: string | null;
+}
+
+/**
  * Wire form of the Gemini error envelope an `AiBrokerError` carries.
  */
 export interface AiErrorEnvelopeWire {
@@ -289,8 +300,8 @@ export type OpMessage = (
    */
   | ({ t: 'op'; id: string; method: 'storage.createUploadSession'; path: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string; origin?: string } & StorageBucketWire)
   // AI ops
-  | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
-  | { t: 'op'; id: string; method: 'ai.countTokens'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
+  | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire; appCheck?: AiAppCheckWire }
+  | { t: 'op'; id: string; method: 'ai.countTokens'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire; appCheck?: AiAppCheckWire }
   | { t: 'op'; id: string; method: 'getRuntimeEpoch' }
   | { t: 'op'; id: string; method: 'retireRuntime'; targetEpoch: string }
   | { t: 'op'; id: string; method: 'getVersion' }
@@ -377,6 +388,7 @@ export interface AiStreamSubMessage {
   model: string;
   request: Record<string, unknown>;
   engine?: AiEngineConfigWire;
+  appCheck?: AiAppCheckWire;
 }
 
 export interface MessagingSubMessage {
