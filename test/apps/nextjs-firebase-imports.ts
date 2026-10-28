@@ -12,8 +12,9 @@
 // Nothing can leave the machine, before or after the fix. A preload, loaded
 // through NODE_OPTIONS ahead of the register the launcher appends, sends every
 // connection to a host other than loopback to a sink this scenario runs on
-// 127.0.0.1, which closes it at once, and records it. In each registered process it also records any module
-// that loads from a real `firebase-admin` or `firebase` package. The app
+// 127.0.0.1, which closes it at once, and records it. In each registered
+// process it also records any import that resolves into a real
+// `firebase-admin` or `firebase` package. The app
 // processes run with a fresh HOME, CLOUDSDK_CONFIG pointed at an empty folder,
 // no GOOGLE_APPLICATION_CREDENTIALS, and a `demo-` project id.
 import assert from 'node:assert/strict';
@@ -39,7 +40,6 @@ const PROJECT_ID = 'demo-firebase-imports';
 const SAFETY_PRELOAD = `'use strict';
 const net = require('node:net');
 const { appendFileSync } = require('node:fs');
-const { registerHooks } = require('node:module');
 
 const LOG = process.env.SCENARIO_SAFETY_LOG;
 const SINK_PORT = Number(process.env.SCENARIO_SINK_PORT);
@@ -72,15 +72,28 @@ net.Socket.prototype.connect = function (...args) {
   return connect.apply(this, args);
 };
 
-// Registered before the register's own hooks, so it sees what they hand on.
+// Records the URL each import finally resolves to. Registered right after the
+// register's own hook, so it runs first and its nextResolve returns the
+// register's answer: a renamed import the register checks and then maps never
+// shows here as the real package. A resolve hook, not a load hook: on Node
+// 22.15 a load hook breaks require() of CommonJS inside Next.
 const REAL_FIREBASE = /\\/node_modules\\/(firebase-admin|firebase)(-[0-9a-f]{16})?\\//;
+const spy = {
+  resolve(specifier, context, nextResolve) {
+    const result = nextResolve(specifier, context);
+    if (REAL_FIREBASE.test(result.url)) record('real-firebase', result.url);
+    return result;
+  },
+};
+const moduleApi = require('node:module');
+const registerHooks = moduleApi.registerHooks;
 if (registered && typeof registerHooks === 'function') {
-  registerHooks({
-    load(url, context, nextLoad) {
-      if (REAL_FIREBASE.test(url)) record('real-firebase', url);
-      return nextLoad(url, context);
-    },
-  });
+  moduleApi.registerHooks = function (hooks) {
+    const handle = registerHooks.call(this, hooks);
+    moduleApi.registerHooks = registerHooks;
+    registerHooks.call(this, spy);
+    return handle;
+  };
 }
 `;
 
