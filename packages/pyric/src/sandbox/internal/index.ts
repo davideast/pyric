@@ -238,3 +238,10 @@ export {
   type AppCheckTokenParts,
   type MintedAppCheckToken,
 } from './app-check-token.js';
+export {
+  appCheckActivationOf,
+  appCheckTokenFor,
+  recordAppCheckActivation,
+  type AppCheckActivation,
+  type AppCheckTokenOptions,
+} from './app-check-activation.js';

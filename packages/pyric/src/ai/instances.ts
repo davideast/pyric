@@ -7,6 +7,7 @@ import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import { Backend, BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
 import { AiBroker } from './broker/broker.js';
+import { appCheckAttachmentFor } from './app-check-gate.js';
 import type { AnswerEngine, EngineConfig } from './broker/types.js';
 import { TARGET_SYMBOL, isSandbox } from './target.js';
 import type { AI, AIOptions, SandboxTarget } from './types.js';
@@ -149,6 +150,10 @@ function sandboxHandle(sandbox: Sandbox, broker: AiBroker, options?: AIOptions, 
     broker,
     ...(appRuntime !== undefined
       ? { assertAlive: () => appRuntime.assertAlive() }
+      : {}),
+    // Read App Check now, as the SDK's AI service does when it is built.
+    ...(app !== undefined
+      ? { appCheck: appCheckAttachmentFor(app, options?.useLimitedUseAppCheckTokens === true) }
       : {}),
   };
   Object.defineProperty(handle, TARGET_SYMBOL, { value: target, enumerable: false });

@@ -130,12 +130,26 @@ export interface WireErrorEnvelope {
   };
 }
 
+/**
+ * The App Check token a request from an app-backed handle carries, `null`
+ * when the handle has none. Production reads it from `X-Firebase-AppCheck`.
+ * Requests from handles with no app carry no claim and are not gated.
+ */
+export interface AppCheckClaim {
+  token: string | null;
+}
+
 // ── The answer-engine seam (cdd-deltas #97, verbatim) ───────────────────────
 
+/**
+ * `appCheck` is the claim the request carries. The broker checks it before
+ * any engine runs, so engines ignore it; a transport that forwards requests
+ * to another plane's broker sends it along.
+ */
 export interface AnswerEngine {
-  generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse>;
-  streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk>;
-  countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse>;
+  generateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): Promise<WireResponse>;
+  streamGenerateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): AsyncIterable<WireChunk>;
+  countTokens(req: CountTokensRequest, model: string, appCheck?: AppCheckClaim): Promise<CountTokensResponse>;
   /**
    * OPTIONAL self-report: which model this engine will ACTUALLY answer with
    * for a requested Gemini model id, and why it differs. Engines that redirect
