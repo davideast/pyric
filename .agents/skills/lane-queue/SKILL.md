@@ -25,6 +25,7 @@ Each lane has a label:
 | `lane:node-host` | Prove the Node host |
 | `lane:functions` | Cloud Functions |
 | `lane:demos` | Work that enables demos |
+| `lane:live-mode` | Live mode |
 
 When `PRIORITIES.md` changes, this table changes with it.
 

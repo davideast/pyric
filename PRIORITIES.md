@@ -117,3 +117,15 @@ Demos are the only outward-facing focus. A demo is something distributable, a vi
 
 **Counts:** fixes and polish a planned demo depends on; turning a published demo's app into a scenario under `test/apps/` so it keeps working.
 **Doesn't count:** repo work no planned demo needs.
+
+## Live mode
+
+**Test:** Does this move live mode toward a safe, evidence-backed design, or deliver a stage of that design?
+
+In live mode, pyric's tools connect to a real Firebase project and its data flows through pyric, so Studio, denials, rules explain, and the other observability tools work on production data. A real app using pyric has asked for it. It also makes every live session a source of conformance signal: pyric can predict each answer and compare it with production's, flagging divergences for a deliberate capture on the oracle project to confirm. An earlier attempt is parked on `live/parked` under ruling D3 in `docs/hosted-release-plan.md`. It forwarded one Firestore function and threw on the rest.
+
+**Counts:** research and probes that settle the design; safety guarantees against accidental production writes; comparisons that keep user data on the user's machine and record request shapes, not values; stages that forward the full surface or document each refusal with a scenario.
+**Doesn't count:** forwarding part of a surface without documenting the rest; anything that sends user data off the machine without the user's explicit action; production calls added only to make a comparison possible.
+
+**Now:**
+- Deep research across seven tracks: the parked attempt, where data passes through pyric, what each tool can do live, what production lets a client observe, safety, prior art, and live mode as a conformance source
