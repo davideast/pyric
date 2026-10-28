@@ -40,6 +40,8 @@ export function signInWithCredentialPayload(
 ): CredentialSignIn {
   const isEmailCredential = payload.providerId === EMAIL_PROVIDER_ID;
   if (isEmailCredential) return signInWithEmailCredential(auth, payload, scope);
+  // In-page checks enablement before anything else, so a disabled provider is operation-not-allowed.
+  sandbox.assertAuthProviderEnabled(auth, payload.providerId);
   const isFederated = isFederatedProviderId(payload.providerId);
   const signInMethod = payload.signInMethod;
   const hasOtherSignInMethod = signInMethod !== undefined && signInMethod !== payload.providerId;

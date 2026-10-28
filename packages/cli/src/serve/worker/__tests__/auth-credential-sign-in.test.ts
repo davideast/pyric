@@ -186,6 +186,21 @@ describe('served signInWithCredential with a provider id that is not federated (
     expect(h.userCount()).toBe(before);
   });
 
+  it('checks a disabled provider first, as in-page does, and refuses it with auth/operation-not-allowed', async () => {
+    const h = harness();
+    const uid = await h.createOwner();
+    const auth = getAuth(h.sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'anonymous', false);
+    authSandbox.setAuthProviderConfig(auth, 'phone', false);
+
+    for (const providerId of ['anonymous', 'phone']) {
+      const code = thrownCode(() => signInWithCredentialPayload(auth, { providerId, uid }, { tenantId: null }));
+      expect({ providerId, code }).toEqual({ providerId, code: 'auth/operation-not-allowed' });
+    }
+
+    expect(ownerProviderIds(h, uid)).toEqual(['password']);
+  });
+
   it('refuses a look-alike over the wire, nested or flat, and binds no session', async () => {
     const h = harness();
     const uid = await h.createOwner();
