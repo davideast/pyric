@@ -212,11 +212,17 @@ const INEQUALITY_OPS: ReadonlySet<QueryWhereFilterOp> = new Set<QueryWhereFilter
   '<', '<=', '>', '>=', '!=', 'not-in',
 ]);
 
-/** Read the order value for a row at `field`. `__name__` resolves to a
- *  reference-like keyed on the document path so `compareValues` orders it
- *  via its reference branch; all other fields read from the doc data. */
+/** A document key as a query value. It is a class instance, not a plain
+ *  map, so `compareValues` ranks it as a reference and compares its path
+ *  segment by segment (FL-5, FL-6). */
+class DocumentKeyValue {
+  constructor(readonly path: string) {}
+}
+
+/** Read the order value for a row at `field`. `__name__` resolves to the
+ *  row's document key; all other fields read from the doc data. */
 function orderValue(row: { path: string; data: QueryDocumentData }, field: string): unknown {
-  return field === KEY_FIELD ? { path: row.path } : dataFieldValue(row.data, field);
+  return field === KEY_FIELD ? new DocumentKeyValue(row.path) : dataFieldValue(row.data, field);
 }
 
 /** The set of fields a filter constrains with an inequality operator —
@@ -268,6 +274,14 @@ function greaterOrEqual(a: unknown, b: unknown): boolean {
 // Where / order / limit application.
 // ─────────────────────────────────────────────────────────────────────────
 
+/** `==` and `!=` compare with `valueCompare`, as upstream `FieldFilter`
+ *  does, so -0 equals 0 there (FL-31; production capture
+ *  `firestore-query-negative-zero`). `in` and the array operators keep
+ *  value equality, which tells -0 from 0, as production's `in [0]` does. */
+function comparesEqual(a: unknown, b: unknown): boolean {
+  return sameType(a, b) && compareValues(a, b) === 0;
+}
+
 function matchesWhere(
   value: unknown,
   op: QueryWhereFilterOp,
@@ -279,11 +293,11 @@ function matchesWhere(
   // short-circuits every operator to false.
   const present = value !== undefined;
   switch (op) {
-    case '==': return present && firestoreValuesEqual(value, target);
+    case '==': return present && comparesEqual(value, target);
     case '!=':
       // != requires the field to EXIST and be non-null, then differ.
       // (clones/.../core/filter.ts FieldFilter.matches NOT_EQUAL branch.)
-      return present && value !== null && !firestoreValuesEqual(value, target);
+      return present && value !== null && !comparesEqual(value, target);
     case '<': return present && lessThan(value, target);
     case '<=': return present && lessOrEqual(value, target);
     case '>': return present && greaterThan(value, target);
@@ -308,34 +322,37 @@ function matchesWhere(
 
 /**
  * Resolve a where-clause field against a candidate row. `__name__`
- * (documentId()) is the document key — for collection-scoped queries
- * the modular SDK compares string operands against the document id
- * (last path segment) and DocumentReference operands against that
- * same id (via {@link normalizeNameOperand}).
+ * (documentId()) is the full document key, as upstream compares it
+ * (FL-5); operands become keys via {@link normalizeNameOperand}.
  */
 function filterFieldValue(row: QueryRow, field: string): unknown {
-  if (field === KEY_FIELD) {
-    const parts = row.path.split('/');
-    return parts[parts.length - 1] ?? row.path;
-  }
-  return dataFieldValue(row.data, field);
+  return field === KEY_FIELD ? new DocumentKeyValue(row.path) : dataFieldValue(row.data, field);
+}
+
+function parentPath(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash < 0 ? '' : path.slice(0, slash);
 }
 
 /**
- * Normalize a `documentId()` / `__name__` operand so string ids and
- * DocumentReference-like values compare as document ids.
+ * Turn a `documentId()` / `__name__` operand into the document key the SDK
+ * builds from it (`parseDocumentIdValue`). A string with no `/` is an id in
+ * the queried collection, which is the row's own parent for a collection
+ * query; a string with `/` is a full path, which only a collection-group
+ * query accepts. A DocumentReference names its own full path, so a ref
+ * into another collection matches nothing.
  */
-function normalizeNameOperand(target: unknown): unknown {
+function normalizeNameOperand(target: unknown, rowPath: string): unknown {
   if (Array.isArray(target)) {
-    return target.map(normalizeNameOperand);
+    return target.map((entry) => normalizeNameOperand(entry, rowPath));
   }
-  if (target && typeof target === 'object') {
-    const ref = target as { id?: unknown; path?: unknown };
-    if (typeof ref.id === 'string') return ref.id;
-    if (typeof ref.path === 'string') {
-      const parts = ref.path.split('/');
-      return parts[parts.length - 1] ?? ref.path;
-    }
+  if (typeof target === 'string') {
+    const isFullPath = target.includes('/');
+    return new DocumentKeyValue(isFullPath ? target : `${parentPath(rowPath)}/${target}`);
+  }
+  const isObject = target !== null && typeof target === 'object';
+  if (isObject && typeof (target as { path?: unknown }).path === 'string') {
+    return new DocumentKeyValue((target as { path: string }).path);
   }
   return target;
 }
@@ -350,7 +367,7 @@ function matchesQueryFilter(row: QueryRow, filter: QueryFilter): boolean {
     const value = filterFieldValue(row, filter.field);
     const target =
       filter.field === KEY_FIELD
-        ? normalizeNameOperand(filter.value)
+        ? normalizeNameOperand(filter.value, row.path)
         : filter.value;
     return matchesWhere(value, filter.op, target);
   }
@@ -441,18 +458,31 @@ function applyOrder(
 }
 
 
+/** Field paths compare segment by segment (`FieldPath.comparator`). */
+function compareFieldPaths(a: string, b: string): number {
+  const aSegments = a.split('.');
+  const bSegments = b.split('.');
+  const n = Math.min(aSegments.length, bSegments.length);
+  for (let i = 0; i < n; i++) {
+    const cmp = compareValues(aSegments[i], bSegments[i]);
+    if (cmp !== 0) return cmp;
+  }
+  return aSegments.length - bSegments.length;
+}
+
+/** Upstream `queryNormalizedOrderBy`: the explicit orders, then each
+ *  inequality field not already ordered, in field-path order (the SDK keeps
+ *  them in a sorted set, FL-4), then the document key. */
 export function normalizedQueryOrders(spec: QueryExecutionSpec): QueryOrderClause[] {
   const out: QueryOrderClause[] = [...spec.orders];
   const seen = new Set(out.map((order) => order.field));
   const lastDirection: QueryOrderDirection =
     spec.orders.length > 0 ? spec.orders[spec.orders.length - 1]!.direction : 'asc';
-  for (const filter of spec.filters) {
-    for (const field of inequalityFields(filter)) {
-      if (field !== KEY_FIELD && !seen.has(field)) {
-        seen.add(field);
-        out.push({ field, direction: lastDirection });
-      }
-    }
+  const implicitFields = new Set(spec.filters.flatMap(inequalityFields));
+  const unordered = [...implicitFields].filter((field) => field !== KEY_FIELD && !seen.has(field));
+  for (const field of unordered.sort(compareFieldPaths)) {
+    seen.add(field);
+    out.push({ field, direction: lastDirection });
   }
   if (!seen.has(KEY_FIELD)) {
     out.push({ field: KEY_FIELD, direction: lastDirection });
