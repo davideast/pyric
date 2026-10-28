@@ -9,6 +9,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as client from '../../../src/serve/worker/index.js';
 import { encodeBridgeMessage } from '../../../src/bridge/frame-output.js';
+import { validateRtdbUpdateValues } from '../../../src/serve/worker/client/rtdb-value-validation.js';
 import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
 import { setDatabaseRules } from '../../../src/serve/worker/host/rules.js';
 import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
@@ -121,6 +122,9 @@ describe('served RTDB writes with values the SDK refuses', () => {
     await client.rtdbSet(ref, { n: 1, s: 'x', b: true, list: [1, 2], gone: null, t: { '.sv': 'timestamp' } });
     await client.rtdbSetWithPriority(client.rtdbRef(rtdb, 'ok/p'), 1, 3);
     await client.rtdbUpdate(ref, { n: 2, 'deep/path': 'y' });
+    // A server value is a valid priority; the served serverTimestamp() is the host's marker for one.
+    // (Sending this update hits #1458, so only the client's check runs here.)
+    expect(() => validateRtdbUpdateValues('update', { 'list/.priority': client.rtdbServerTimestamp() }, '/ok')).not.toThrow();
     const after = await stored(ref) as Record<string, unknown>;
     expect(after.n).toBe(2);
     expect(after.deep).toEqual({ path: 'y' });

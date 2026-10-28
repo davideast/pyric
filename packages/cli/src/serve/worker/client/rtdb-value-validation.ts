@@ -50,8 +50,13 @@ function isValidKey(key: string): boolean {
   return key.length !== 0 && !INVALID_KEY.test(key);
 }
 
+/**
+ * A server value: the SDK's `{ '.sv': ... }`, or the served client's
+ * `serverTimestamp()` marker, which the host turns into one.
+ */
 function isServerValue(value: unknown): boolean {
-  return typeof value === 'object' && value !== null && Object.hasOwn(value, '.sv');
+  const isObject = typeof value === 'object' && value !== null;
+  return isObject && (Object.hasOwn(value, '.sv') || Object.hasOwn(value, '__rtdbSentinel'));
 }
 
 function isValidPriority(priority: unknown): boolean {

@@ -120,18 +120,19 @@ function findJsonLoss(value: unknown, path: string): { path: string; found: stri
 function assertJsonSafeRtdbWrite(frame: BridgeMessage): void {
   const isOtherFrame = frame.type !== 'worker-message';
   if (isOtherFrame) return;
-  const message = frame.message as unknown as Record<string, unknown>;
-  const isRtdbOperation = message.t === 'op' && typeof message.method === 'string' && message.method.startsWith('rtdb.');
+  const message = frame.message;
+  const isRtdbOperation = message.t === 'op' && message.method.startsWith('rtdb.');
   if (!isRtdbOperation) return;
-  const path = typeof message.path === 'string' ? message.path : '/';
+  const fields: Record<string, unknown> = { ...message };
+  const path = typeof fields.path === 'string' ? fields.path : '/';
   for (const field of RTDB_WRITE_FIELDS) {
-    const isAbsent = !Object.hasOwn(message, field);
+    const isAbsent = !Object.hasOwn(fields, field);
     if (isAbsent) continue;
-    const loss = findJsonLoss(message[field], path);
+    const loss = findJsonLoss(fields[field], path);
     const isJsonSafe = loss === undefined;
     if (isJsonSafe) continue;
     throw new Error(
-      `RTDB ${String(message.method)} ${field} at ${loss.path} holds ${loss.found}, which a JSON frame cannot carry. The write was not sent.`,
+      `RTDB ${message.method} ${field} at ${loss.path} holds ${loss.found}, which a JSON frame cannot carry. The write was not sent.`,
     );
   }
 }
