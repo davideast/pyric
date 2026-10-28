@@ -133,7 +133,7 @@ jobs:
           - rig: messaging-send
             script: packages/conformance/src/messaging-send-probes.ts
             guard: PYRIC_MESSAGING_SA_BASE64
-            disabled: '#69 (credentials without a key file)'
+            disabled: '#1387 (credentials without a key file)'
           # The Rules Test API legs authenticate through Workload Identity
           # Federation, so their guard is the GCP_WIF_PROVIDER variable.
           - rig: rules-firestore
