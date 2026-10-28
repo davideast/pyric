@@ -8,7 +8,8 @@
  * container.
  *
  * Every plane that swaps Firebase modules reads {@link swappedFirebaseEntries}:
- * the `pyric sandbox` import map (`html-injection.ts`) and the Vite resolver
+ * the `pyric sandbox` import map (`html-injection.ts`, through
+ * {@link importMapFirebaseEntries}) and the Vite resolver
  * (`vite-module-swap.ts`). Every front door resolves the mode with
  * {@link resolveAiMode}. One table and one precedence rule, so the planes
  * cannot disagree about what production mode means. It imports only Node
@@ -78,6 +79,34 @@ export function swappedFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebase
   return swapped;
 }
 
+/**
+ * The Firebase SDK modules `pyric sandbox` builds for the browser from the
+ * project's own `firebase` install in production AI mode, to the entry key of
+ * each (`/__pyric/sdk/<key>.js`). One build, so the three share one
+ * `@firebase/app` component registry. The Vite and register planes resolve
+ * the Firebase SDK themselves and never read this.
+ */
+export const REAL_SDK_ENTRIES: ReadonlyMap<ServedFirebaseSpecifier, string> = new Map([
+  ['firebase/app', 'firebase-sdk-app'],
+  ['firebase/ai', 'firebase-sdk-ai'],
+  ['firebase/app-check', 'firebase-sdk-app-check'],
+]);
+
+/**
+ * The import-map plane's specifier to entry key table: the swap, plus, in
+ * production AI mode, the unswapped `firebase/ai` sent to the Firebase SDK
+ * that `pyric sandbox` builds. A browser has no package resolution, so on
+ * this plane an unswapped specifier still needs a URL.
+ */
+export function importMapFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebaseSpecifier, string> {
+  const entries = new Map(swappedFirebaseEntries(mode));
+  for (const [specifier, key] of REAL_SDK_ENTRIES) {
+    const isUnswapped = !entries.has(specifier);
+    if (isUnswapped) entries.set(specifier, key);
+  }
+  return entries;
+}
+
 /** This package's root (`src/serve/` and `dist/serve/` both sit two levels below it), as written and resolved. */
 const PACKAGE_ROOTS: readonly string[] = (() => {
   const root = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/');
@@ -116,4 +145,15 @@ const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase/app', 'fireba
 /** Whether this import is a shadow-app wrapper reaching the Firebase SDK it wraps. */
 export function isBypassedBridgeImport(specifier: string, importer: string | undefined): boolean {
   return BRIDGED_SPECIFIERS.has(specifier) && isShadowAppImporter(importer);
+}
+
+/**
+ * Where a bypassed bridge import goes on the import-map plane: the entry key
+ * of the Firebase SDK module `pyric sandbox` builds. The bare specifier
+ * cannot stay, because the import map sends it back to the wrapper itself.
+ * Undefined for every import {@link isBypassedBridgeImport} does not name.
+ */
+export function bridgeImportEntryKey(specifier: string, importer: string | undefined): string | undefined {
+  if (!isBypassedBridgeImport(specifier, importer)) return undefined;
+  return REAL_SDK_ENTRIES.get(specifier as ServedFirebaseSpecifier);
 }

@@ -28,6 +28,8 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
+import { bridgeImportEntryKey, REAL_SDK_ENTRIES } from './firebase-module-swap.js';
+
 export { SDK_MODULES } from './firebase-module-swap.js';
 
 /**
@@ -160,6 +162,145 @@ function nodeShimPlugin(): esbuild.Plugin {
   };
 }
 
+/**
+ * Send the shadow-app wrappers' own `firebase/app` and `firebase/app-check`
+ * imports to the Firebase SDK bundle `pyric sandbox` builds in production AI
+ * mode (`/__pyric/sdk/firebase-sdk-*.js`). Left bare, the import map would
+ * send them back to the wrappers themselves. The rule is
+ * `isBypassedBridgeImport`, which the Vite and register planes read too.
+ */
+function bridgeImportPlugin(): esbuild.Plugin {
+  return {
+    name: 'pyric-serve-bridge-imports',
+    setup(build) {
+      build.onResolve({ filter: /^firebase\// }, (args) => {
+        const key = bridgeImportEntryKey(args.path, args.importer);
+        if (key === undefined) return undefined;
+        return { path: `/__pyric/sdk/${key}.js`, external: true };
+      });
+    },
+  };
+}
+
+// ─── the project's Firebase SDK (production AI mode) ─────────────────
+
+/** The project's resolved `firebase` package. */
+export interface ProjectFirebase {
+  /** The package directory, as resolved from the project. */
+  root: string;
+  version: string;
+}
+
+/**
+ * Find the `firebase` package the project's own code resolves, walking up
+ * `node_modules` directories from `projectDir` as Node does. Throws a message
+ * that tells the user to install it when there is none.
+ */
+export function resolveProjectFirebase(projectDir: string): ProjectFirebase {
+  let dir = projectDir;
+  while (true) {
+    const manifest = join(dir, 'node_modules', 'firebase', 'package.json');
+    if (existsSync(manifest)) {
+      const pkg = JSON.parse(readFileSync(manifest, 'utf8')) as { version?: string };
+      return { root: dirname(manifest), version: pkg.version ?? '0.0.0' };
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(
+    `pyric sandbox: production AI mode (${productionModeSetting(process.env)}) serves the Firebase SDK from this project, ` +
+      `but no firebase package resolves from ${projectDir}. Install it with \`npm install firebase\`, ` +
+      `or unset ${productionModeSetting(process.env).split('=')[0]} to answer firebase/ai from the Pyric sandbox.`,
+  );
+}
+
+/**
+ * The environment setting that turned production AI mode on, for messages.
+ * `PYRIC_AI_MODE=production` wins; otherwise the passthrough switch did it.
+ */
+export function productionModeSetting(env: NodeJS.ProcessEnv): string {
+  const isModeSet = env.PYRIC_AI_MODE === 'production';
+  return isModeSet ? 'PYRIC_AI_MODE=production' : 'PYRIC_AI_PASSTHROUGH=1';
+}
+
+export interface ProjectFirebasePlan {
+  /** Pass to `bundleSdk`; absent when the real-SDK build is skipped. */
+  projectFirebase?: { projectDir: string };
+  /** One line to log when the build is skipped. */
+  warning?: string;
+}
+
+/**
+ * Decide whether production AI mode builds the Firebase SDK. Plain
+ * `pyric sandbox` serves the page itself, so a missing `firebase` throws.
+ * With a child command the child resolves `firebase` on its own, so a
+ * missing one only skips the build and warns.
+ */
+export function planProjectFirebase(projectDir: string, hasChildCommand: boolean, env: NodeJS.ProcessEnv = process.env): ProjectFirebasePlan {
+  try {
+    resolveProjectFirebase(projectDir);
+  } catch (error) {
+    if (!hasChildCommand) throw error;
+    return {
+      warning:
+        `  ⚠ production AI mode (${productionModeSetting(env)}): no firebase package resolves from ${projectDir}, ` +
+        `so the Firebase SDK is not built. Pages the sandbox serves itself (import map) need firebase installed where pyric starts; ` +
+        `your command resolves firebase on its own.`,
+    };
+  }
+  return { projectFirebase: { projectDir } };
+}
+
+
+const REAL_SDK_NAMESPACE = 'pyric-firebase-sdk';
+
+/**
+ * Build `firebase/app`, `firebase/ai` and `firebase/app-check` from the
+ * project's `firebase` install into `outDir`, in one pass with splitting so
+ * the three share one `@firebase/app` component registry, as Vite's
+ * dependency optimizer does.
+ */
+async function bundleProjectFirebase(outDir: string, projectDir: string, firebase: ProjectFirebase, minify: boolean): Promise<void> {
+  const entryPoints: Record<string, string> = {};
+  for (const [specifier, key] of REAL_SDK_ENTRIES) entryPoints[key] = `${REAL_SDK_NAMESPACE}:${specifier}`;
+  const result = await esbuild.build({
+    entryPoints,
+    outdir: outDir,
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    splitting: true,
+    sourcemap: 'linked',
+    minify,
+    logLevel: 'silent',
+    chunkNames: 'firebase-sdk-[hash]',
+    banner: {
+      js: `/* The Firebase JS SDK, firebase@${firebase.version} from this project, built by pyric sandbox for production AI mode. */`,
+    },
+    plugins: [{
+      name: 'pyric-serve-project-firebase',
+      setup(build) {
+        build.onResolve({ filter: new RegExp(`^${REAL_SDK_NAMESPACE}:`) }, (args) => ({
+          path: args.path.slice(REAL_SDK_NAMESPACE.length + 1),
+          namespace: REAL_SDK_NAMESPACE,
+        }));
+        build.onLoad({ filter: /.*/, namespace: REAL_SDK_NAMESPACE }, (args) => ({
+          contents: `export * from ${JSON.stringify(args.path)};`,
+          resolveDir: projectDir,
+          loader: 'js',
+        }));
+      },
+    }],
+  });
+  const hasBuildErrors = result.errors.length > 0;
+  if (hasBuildErrors) {
+    throw new Error(
+      `pyric sandbox: building firebase@${firebase.version} for production AI mode failed:\n${result.errors.map((e) => e.text).join('\n')}`,
+    );
+  }
+}
+
 // ─── cache ────────────────────────────────────────────────────────────
 
 export interface BundleOptions {
@@ -171,6 +312,12 @@ export interface BundleOptions {
   /** Override the cache root (tests). Default `~/.pyric/serve-cache`. */
   cacheRoot?: string;
   minify?: boolean;
+  /**
+   * Production AI mode: also build the Firebase SDK from this project's own
+   * `firebase` install (`/__pyric/sdk/firebase-sdk-*.js`). Absent in sandbox
+   * AI mode, which neither builds nor serves it.
+   */
+  projectFirebase?: { projectDir: string };
 }
 
 export interface BundleResult {
@@ -184,7 +331,7 @@ export interface BundleResult {
 }
 
 /** Bump when bundler logic changes in a way that must invalidate caches. */
-const BUNDLER_REV = 9; // 9: cache keys also cover dependency-resolution metadata
+const BUNDLER_REV = 10; // 10: wrappers import the project's Firebase SDK by URL; production keys cover it
 
 const RESOLUTION_FILES = [
   'bun.lock',
@@ -262,12 +409,23 @@ export function cacheKey(
     h.update(name);
     h.update(readFileSync(file, 'utf8'));
   }
+  // Production AI mode also serves the project's Firebase SDK, so upgrading
+  // `firebase`, or a project resolving another copy, rebuilds it.
+  const projectFirebase = opts.projectFirebase;
+  if (projectFirebase) {
+    const firebase = resolveProjectFirebase(projectFirebase.projectDir);
+    h.update(`firebase-sdk\0${firebase.root}\0${firebase.version}`);
+  }
   return `${version}-${h.digest('hex').slice(0, 12)}`;
 }
 
 // ─── the bundle step ──────────────────────────────────────────────────
 
 export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
+  // Resolved first, so a project without `firebase` fails before any build.
+  const projectFirebase = opts.projectFirebase
+    ? { ...opts.projectFirebase, firebase: resolveProjectFirebase(opts.projectFirebase.projectDir) }
+    : undefined;
   const root = pyricPackageRoot();
   const version = pyricVersion(root);
   const key = cacheKey(opts, version);
@@ -317,13 +475,16 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
         js: '/* pyric sandbox shim serving firebase/*. This is not the real Firebase SDK. */',
       },
       external: ['firebase/*'],
-      plugins: [pyricResolvePlugin(), nodeShimPlugin()],
+      plugins: [pyricResolvePlugin(), nodeShimPlugin(), bridgeImportPlugin()],
     });
     const hasBuildErrors = result.errors.length > 0;
     if (hasBuildErrors) {
       throw new Error(
         `pyric sandbox: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
       );
+    }
+    if (projectFirebase) {
+      await bundleProjectFirebase(outDir, projectFirebase.projectDir, projectFirebase.firebase, opts.minify ?? true);
     }
     writeFileSync(join(outDir, '.complete'), new Date().toISOString());
     const files = readdirSync(outDir)

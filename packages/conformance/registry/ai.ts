@@ -1109,13 +1109,15 @@ const serverProcessRows: CompatibilityRow[] = [
  */
 export const APP_CHECK_AI_SUITE = 'packages/cli/test/serve/ai-app-check-passthrough.test.ts';
 const APP_CHECK_AI_SCENARIO = 'test/apps/ai-production-app-check/scenario.ts';
+/** The same calls on the import-map plane: plain `pyric sandbox`, no Vite (#1290). */
+const APP_CHECK_AI_IMPORT_MAP_SCENARIO = 'test/apps/ai-production-import-map/scenario.ts';
 const appCheckAiRow = defineRows({
   surface: 'ai',
   defaults: {
     section: 'App Check on the AI path',
     status: 'conforms' as const,
     automation: 'oracle-backed' as const,
-    conformanceTests: [APP_CHECK_AI_SUITE, APP_CHECK_AI_SCENARIO],
+    conformanceTests: [APP_CHECK_AI_SUITE, APP_CHECK_AI_SCENARIO, APP_CHECK_AI_IMPORT_MAP_SCENARIO],
   },
 });
 
