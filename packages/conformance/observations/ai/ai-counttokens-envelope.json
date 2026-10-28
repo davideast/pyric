@@ -2,13 +2,13 @@
   "name": "ai-counttokens-envelope",
   "matrixRow": "",
   "rowIds": [
-    "ai#counttokens-envelope",
-    "ai#counttokens-deterministic"
+    "ai#counttokens-deterministic",
+    "ai#counttokens-envelope"
   ],
-  "description": "countTokens raw envelope on the GoogleAI backend, called twice with an identical payload to record whether token counting is deterministic. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
-  "observedAt": "2026-07-10T01:47:04.278Z",
+  "description": "countTokens raw envelope on the GoogleAI backend, called twice with an identical payload to record whether token counting is deterministic.",
+  "observedAt": "2026-10-28T02:04:02.505Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
   "behavior": {

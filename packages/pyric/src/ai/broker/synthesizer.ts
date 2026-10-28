@@ -156,7 +156,7 @@ export function unknownModel(name: string): WireErrorEnvelope {
 export function badRole(role: string): WireErrorEnvelope {
   return errorEnvelope(
     400,
-    `Role '${role}' is not supported. Please use a valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER.`,
+    `Role '${role}' is not supported. Please use a valid role: MODEL, USER.`,
     'INVALID_ARGUMENT',
   );
 }

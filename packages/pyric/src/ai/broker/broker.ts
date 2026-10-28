@@ -59,13 +59,15 @@ import type {
 } from './types.js';
 
 /**
- * Roles production accepts, from the captured rejection text
- * (`ai-error-bad-role`): "Please use a valid role: SYSTEM, SYSTEM_1, USER,
- * ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER." — compared
- * case-insensitively (the SDK sends lowercase `user`/`model`). `FUNCTION` is
- * additionally accepted: the captured message omits it, yet production
- * accepted the SDK's function-response turn (`ai-function-response-round`),
- * and the installed SDK threads those turns with role `function`.
+ * Roles the broker accepts, from the 2026-07 rejection text: "Please use a
+ * valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT,
+ * USER_CONTEXT, MODEL, USER." — compared case-insensitively (the SDK sends
+ * lowercase `user`/`model`). `FUNCTION` is additionally accepted: production
+ * accepted the SDK's function-response turn in 2026-07
+ * (`ai-function-response-round`), and the installed SDK threads those turns
+ * with role `function`. The 2026-10 capture of `ai-error-bad-role` lists only
+ * MODEL, USER for an unknown role, and production now rejects role
+ * `function`; whether the broker narrows this set is open in #1410.
  */
 const ACCEPTED_ROLES = new Set([
   'SYSTEM',
