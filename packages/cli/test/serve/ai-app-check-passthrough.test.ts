@@ -217,4 +217,29 @@ describe('App Check on the AI path (production AI pass-through)', () => {
   it('completeness: one assertion set per App Check AI row', () => {
     expect(Object.keys(assertions).sort()).toEqual(appCheckAiRows.map((row) => row.id).sort());
   });
+
+  it('the served firebase/app entry and the register bridge share one shadow registry', async () => {
+    const served = await import('../../src/serve/entries/app-ai-passthrough.js');
+    // Pyric allows one Firebase configuration per runtime; other suites in this process bind theirs.
+    const { resetAppRegistryForTests } = await import('pyric/app/internal');
+    await resetAppRegistryForTests();
+    const { shadowAppOf } = await import('../../src/register/app-bridge-shadow.js');
+    const sdkApp = await import('firebase/app');
+    const sdk = await import('firebase/app-check');
+    const bridge = await import('../../src/register/app-bridge-app-check.js');
+    const name = `served-shadow-${++appSeq}`;
+    const app = served.initializeApp(OPTIONS, name);
+    try {
+      const shadow = shadowAppOf(app) as { container?: unknown };
+      expect(shadow).toBe(sdkApp.getApp(name));
+      expect((app as unknown as { container?: unknown }).container).toBe(shadow.container);
+      const provider = new sdk.CustomProvider({ getToken: async () => ({ token: 'served-token', expireTimeMillis: Date.now() + 3_600_000 }) });
+      const handle = (bridge.initializeAppCheck as (app: unknown, options: unknown) => { app: unknown })(app, { provider, isTokenAutoRefreshEnabled: false });
+      expect(handle.app).toBe(shadow);
+    } finally {
+      await served.deleteApp(app);
+      await resetAppRegistryForTests();
+    }
+    expect(() => sdkApp.getApp(name)).toThrow();
+  });
 });

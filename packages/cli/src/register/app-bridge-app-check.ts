@@ -20,6 +20,10 @@ import { shadowAppOf } from './app-bridge-shadow.js';
 
 type RealInitialize = typeof realAppCheck.initializeAppCheck;
 
+/**
+ * `shadowAppOf` throws when the shadow app could not be created, so that
+ * cause surfaces here before the SDK would fail on a missing container.
+ */
 export function initializeAppCheck(app: { name: string } | undefined, options: unknown): unknown {
   const shadow = app === undefined ? undefined : shadowAppOf(app);
   return realAppCheck.initializeAppCheck(shadow as Parameters<RealInitialize>[0], options as Parameters<RealInitialize>[1]);

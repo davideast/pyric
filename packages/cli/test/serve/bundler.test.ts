@@ -350,14 +350,23 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     // The in-page runtime's verify capture records every RTDB instance.
     const sources = result.files.map((f) => readFileSync(f, 'utf8'));
     expect(sources.some((src) => src.includes('captureRtdbInstances'))).toBe(true);
+    // The production AI pass-through entries wrap the Firebase SDK by design,
+    // and so does the shadow-app chunk they share (register/app-bridge-shadow).
+    // No other entry may reach a file that imports the Firebase SDK.
+    const PASSTHROUGH_ENTRIES = ['app-ai-passthrough.js', 'app-ai-passthrough-app-check.js'];
+    const baseName = (f: string) => f.split('/').pop()!;
+    const importsSdk = (src: string) => /from\s*["']firebase\//.test(src);
+    const sdkChunks = result.files.filter((f) => !PASSTHROUGH_ENTRIES.includes(baseName(f)) && importsSdk(readFileSync(f, 'utf8')));
+    for (const chunk of sdkChunks) {
+      expect(baseName(chunk)).toStartWith('pyric-sandbox-');
+      expect(readFileSync(chunk, 'utf8')).toContain('src/register/app-bridge-shadow.ts');
+      const importers = result.files.filter((f) => readFileSync(f, 'utf8').includes(`./${baseName(chunk)}`));
+      expect(importers.map(baseName).filter((name) => !PASSTHROUGH_ENTRIES.includes(name))).toEqual([]);
+    }
     for (const f of result.files) {
       const src = readFileSync(f, 'utf8');
       // provenance banner on every served bundle
       expect(src).toContain('not the real Firebase SDK');
-      // The production AI pass-through entries wrap the Firebase SDK by design.
-      if (!f.endsWith('/app-ai-passthrough.js') && !f.endsWith('/app-ai-passthrough-app-check.js')) {
-        expect(src).not.toMatch(/from\s*["']firebase\//);
-      }
       expect(src).not.toMatch(/from\s*["']node:/);
     }
   }, 30_000);
