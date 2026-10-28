@@ -25,7 +25,7 @@ import {
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { watchRulesFiles } from '../serve/rules-files-watch.js';
-import { formatDatabaseRulesRemoved, formatStorageRulesRemoved } from '../serve/rules.js';
+import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketLabel } from '../serve/rules.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
@@ -646,27 +646,37 @@ async function startServeRuntime(opts: {
       dbRulesFiles.close();
     });
   }
-  // The Storage rules file is watched the same way. A deleted file returns
-  // Storage to denying every client operation, the state the server starts
+  // Each bucket's Storage rules file is watched the same way, and only the
+  // buckets that deploy the changed file reload. A deleted file returns its
+  // buckets to denying every client operation, the state the server starts
   // in without the file.
   if (isWatchEnabled) {
     let debounceStorage: ReturnType<typeof setTimeout> | null = null;
+    const changedStorageFiles = new Set<string>();
     const storageRulesFiles = watchRulesFiles(
-      () => [session.storageRulesFile()],
-      () => {
+      () => session.storageRulesFiles(),
+      (file) => {
+        changedStorageFiles.add(file);
         const pendingReload = debounceStorage;
         const hasPendingReload = pendingReload !== null;
         if (hasPendingReload) clearTimeout(pendingReload);
         debounceStorage = setTimeout(() => {
-          void session.reloadStorageRules().then((result) => {
-            if (result.kind === 'reloaded') {
-              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
-            } else if (result.kind === 'rejected') {
-              logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}`);
-            } else if (result.kind === 'removed') {
-              logger.note(`  ⚠ ${formatStorageRulesRemoved(session.storageRulesFile())} → ${result.clients} page(s)`);
-            }
-          });
+          const files = [...changedStorageFiles];
+          changedStorageFiles.clear();
+          for (const changed of files) {
+            void session.reloadStorageRules(changed).then((results) => {
+              for (const { bucket, file: source, result } of results) {
+                const label = storageBucketLabel(bucket);
+                if (result.kind === 'reloaded') {
+                  logger.note(`  ↻ storage rules reloaded for ${label} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
+                } else if (result.kind === 'rejected') {
+                  logger.note(`  ⚠ storage rules NOT reloaded for ${label} (last-good stays live): ${result.error.message}`);
+                } else if (result.kind === 'removed') {
+                  logger.note(`  ⚠ ${formatStorageRulesRemoved(source, bucket)} → ${result.clients} page(s)`);
+                }
+              }
+            });
+          }
         }, 150);
       },
       (error) => {
@@ -711,10 +721,19 @@ async function startServeRuntime(opts: {
     logger.info('• rules    no database.rules — RTDB sandbox runs with default rules');
   }
   const hasStorageRules = Boolean(session.payload().storageRules);
+  const storageBuckets = session.summary.rules.storageBuckets;
   if (hasStorageRules) {
-    logger.info(`✔ rules    ${session.summary.rules.storage.sourcePath} → deployed to the storage sandbox (hash ${session.summary.rules.storage.hash})`);
-  } else {
+    logger.info(`✔ rules    ${session.summary.rules.storage.sourcePath} → deployed to the default Storage bucket (hash ${session.summary.rules.storage.hash})`);
+  }
+  for (const loaded of storageBuckets) {
+    logger.info(`✔ rules    ${loaded.sourcePath} → deployed to Storage bucket ${loaded.bucket} (hash ${loaded.hash})`);
+  }
+  const hasNoStorageRules = !hasStorageRules && storageBuckets.length === 0;
+  if (hasNoStorageRules) {
     logger.info('• rules    no storage.rules — storage sandbox denies client operations by default');
+  } else {
+    // A bucket firebase.json deploys nothing to is locked, as production creates one (#1313).
+    logger.info('• rules    any other Storage bucket denies every client operation until firebase.json deploys rules to it');
   }
   const hasStudioUrl = uiUrl !== null;
   if (hasStudioUrl) {
@@ -785,7 +804,9 @@ async function startServeRuntime(opts: {
     for (const databaseRulesFile of session.databaseRulesFiles()) {
       logger.info(`✔ watch    hot-reloading ${databaseRulesFile} over /__pyric/events`);
     }
-    logger.info(`✔ watch    hot-reloading ${session.storageRulesFile()} over /__pyric/events`);
+    for (const storageRulesFile of session.storageRulesFiles()) {
+      logger.info(`✔ watch    hot-reloading ${storageRulesFile} over /__pyric/events`);
+    }
   }
   // Browser-honesty: the sandbox is browser-resident — firestore/auth and
   // persistence run IN the served page. With no page open, data ops silently

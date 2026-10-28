@@ -340,8 +340,8 @@ export function storageRulesPath(cwd: string, config: FirebaseJson | null): stri
 
 /** The notice a dev server logs when the Storage rules file it loaded is
  *  deleted and Storage returns to denying every client operation. */
-export function formatStorageRulesRemoved(path: string): string {
-  return `storage rules removed: ${path} does not exist, client Storage operations default to DENY`;
+export function formatStorageRulesRemoved(path: string, bucket: string | null = null): string {
+  return `storage rules removed: ${path} does not exist, client Storage operations on ${storageBucketLabel(bucket)} default to DENY`;
 }
 
 /** One Storage rules file deployed to one bucket, or to the app's default bucket. */

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
-import { formatDatabaseRulesRemoved, formatStorageRulesRemoved } from './rules.js';
+import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketLabel } from './rules.js';
 import type { SandboxSession } from './sandbox-session.js';
 import { createVerifyHint } from './verify-hint.js';
 
@@ -23,21 +23,22 @@ export function watchViteGenerationRules(input: {
   const { server, session } = input;
   const databaseFiles = session.databaseRulesFiles();
   const databaseFileByResolved = new Map(databaseFiles.map((file) => [path.resolve(file), file]));
-  const storageFile = session.storageRulesFile();
-  const storageResolved = path.resolve(storageFile);
+  const storageFiles = session.storageRulesFiles();
+  const storageFileByResolved = new Map(storageFiles.map((file) => [path.resolve(file), file]));
 
   let debounce: ReturnType<typeof setTimeout> | null = null;
   // The services whose files changed since the last reload. One debounce
   // covers every file, so a change to one service's file does not drop a
   // pending reload of another's.
-  const pending = { firestore: false, database: new Set<string>(), storage: false };
+  const pending = { firestore: false, database: new Set<string>(), storage: new Set<string>() };
   const onRulesChange = (file: string): void => {
     const resolvedFile = path.resolve(file);
     pending.firestore ||= session.firestoreRulesFiles().some((file) => path.resolve(file) === resolvedFile);
     const databaseFile = databaseFileByResolved.get(resolvedFile);
     if (databaseFile !== undefined) pending.database.add(databaseFile);
-    pending.storage ||= resolvedFile === storageResolved;
-    const isNoMatch = !pending.firestore && pending.database.size === 0 && !pending.storage;
+    const storageFile = storageFileByResolved.get(resolvedFile);
+    if (storageFile !== undefined) pending.storage.add(storageFile);
+    const isNoMatch = !pending.firestore && pending.database.size === 0 && pending.storage.size === 0;
     if (isNoMatch) {
       return;
     }
@@ -46,11 +47,12 @@ export function watchViteGenerationRules(input: {
       clearTimeout(debounce as ReturnType<typeof setTimeout>);
     }
     debounce = setTimeout(() => {
-      const { firestore: isFirestoreMatch, storage: isStorageMatch } = pending;
+      const { firestore: isFirestoreMatch } = pending;
       const changedDatabaseFiles = [...pending.database];
+      const changedStorageFiles = [...pending.storage];
       pending.firestore = false;
       pending.database.clear();
-      pending.storage = false;
+      pending.storage.clear();
       if (isFirestoreMatch) {
         void session.reloadFirestoreRules().then((result) => {
           server.watcher.add([...session.firestoreRulesFiles()]);
@@ -94,23 +96,26 @@ export function watchViteGenerationRules(input: {
           }
         });
       }
-      if (isStorageMatch) {
-        void session.reloadStorageRules().then((result) => {
-          if (result.kind === 'reloaded') {
-            server.config.logger.info(`  ↻ [pyric] storage rules reloaded (${result.rulesHash})${getVerifyHint()}`);
-          } else if (result.kind === 'rejected') {
-            server.config.logger.warn(
-              `  ⚠ [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}`,
-            );
-          } else if (result.kind === 'removed') {
-            server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile)}`);
+      for (const storageFile of changedStorageFiles) {
+        void session.reloadStorageRules(storageFile).then((results) => {
+          for (const { bucket, result } of results) {
+            const label = storageBucketLabel(bucket);
+            if (result.kind === 'reloaded') {
+              server.config.logger.info(`  ↻ [pyric] storage rules reloaded for ${label} (${result.rulesHash})${getVerifyHint()}`);
+            } else if (result.kind === 'rejected') {
+              server.config.logger.warn(
+                `  ⚠ [pyric] storage rules NOT reloaded for ${label} (last-good stays live): ${result.error.message}`,
+              );
+            } else if (result.kind === 'removed') {
+              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(storageFile, bucket)}`);
+            }
           }
         });
       }
     }, 150);
   };
 
-  server.watcher.add([...session.firestoreRulesFiles(), ...databaseFiles, storageFile]);
+  server.watcher.add([...session.firestoreRulesFiles(), ...databaseFiles, ...storageFiles]);
   server.watcher.on('change', onRulesChange);
   server.watcher.on('add', onRulesChange);
   server.watcher.on('unlink', onRulesChange);

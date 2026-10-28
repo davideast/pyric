@@ -43,7 +43,7 @@ import { createSurfaceContext } from '../../bridge/surface/context.js';
 import { callMethod } from '../../bridge/surface/method-call.js';
 import { methodByKey } from '../../bridge/surface/methods/registry.js';
 import type { OperationResult } from '../../bridge/surface/types.js';
-import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
+import type { InitPayload, RulesDestination } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { ensureAuth, setPortSession } from '../worker/host-auth.js';
@@ -546,12 +546,17 @@ export async function createHostedRuntime(
      *  `instance` names the RTDB instance a database ruleset deploys to, as
      *  {@link setDatabaseRules} takes it, absent for the default instance, or
      *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
-    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
+    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: RulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
       if (service === 'storage') {
-        await replaceStorageRules(ctx.sandbox, source);
-        recorder?.note({ kind: 'rules', at: Date.now(), service, source });
+        // A bucket by name gets its own rules; without one, the default bucket's (#1313).
+        const bucket = typeof instance === 'object' && 'bucket' in instance ? instance.bucket : undefined;
+        await replaceStorageRules(ctx.sandbox, source, bucket === undefined ? {} : { bucket });
+        if (bucket === undefined) recorder?.note({ kind: 'rules', at: Date.now(), service, source });
         return;
+      }
+      if (instance !== undefined && typeof instance === 'object' && 'bucket' in instance) {
+        throw new Error(`A ${service} ruleset does not deploy to a Storage bucket.`);
       }
       if (service === 'database') {
         const deployed = typeof instance === 'object'

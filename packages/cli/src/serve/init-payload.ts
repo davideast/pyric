@@ -26,6 +26,9 @@ export interface DatabaseInstancesRules {
  *  default instance, or an unresolved deploy target. */
 export type DatabaseRulesDestination = string | { target: string };
 
+/** Where a ruleset deploys on the Node host: a database destination, or a Storage bucket by name (absent for the default bucket). */
+export type RulesDestination = DatabaseRulesDestination | { bucket: string };
+
 /**
  * A `firebase.json` deploy target the server could not map to instances,
  * because no project was set or the project does not map it. The sandbox
@@ -65,6 +68,13 @@ export interface InitPayload {
    *  replaces them over `storage-rules-update` when the rules file changes. */
   storageRules: string | null;
   storageRulesHash: string | null;
+  /**
+   * The Storage rules each bucket `firebase.json` names gets, by bucket name.
+   * The default bucket's are `storageRules`. A bucket in neither is locked.
+   * A dev server replaces one bucket's over `storage-rules-update` with its
+   * `bucket` named. Absent on older servers.
+   */
+  storageBucketRules?: Record<string, { rules: string; rulesHash: string }> | null;
   /**
    * Local project identity — the served project directory. Scopes the
    * storage IndexedDB database name (`pyric-storage:<projectKey>`, issue

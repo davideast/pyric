@@ -392,7 +392,7 @@ service firebase.storage {
       firebaseConfig: null,
       sdk: { dir: join(root, 'sdk') },
     });
-    expect(session.storageRulesFile()).toBe(join(root, 'storage.rules'));
+    expect(session.storageRulesFiles()).toEqual([join(root, 'storage.rules')]);
     await session.close();
   });
 
@@ -401,10 +401,10 @@ service firebase.storage {
     writeFileSync(join(root, 'bucket.rules'), storageRules('configured'));
     const session = await createSandboxSession({
       projectDir: root,
-      firebaseConfig: { storage: [{ rules: 'bucket.rules' }] },
+      firebaseConfig: { storage: [{ bucket: 'media-bucket', rules: 'bucket.rules' }] },
       sdk: { dir: join(root, 'sdk') },
     });
-    expect(session.storageRulesFile()).toBe(join(root, 'bucket.rules'));
+    expect(session.storageRulesFiles()).toEqual([join(root, 'bucket.rules')]);
     await session.close();
   });
 
@@ -417,8 +417,9 @@ service firebase.storage {
     });
     expect(session.payload().storageRules).toBeNull();
     writeFileSync(join(root, 'storage.rules'), storageRules('created'));
-    const reloaded = await session.reloadStorageRules();
-    expect(reloaded.kind).toBe('reloaded');
+    const [reloaded] = await session.reloadStorageRules(join(root, 'storage.rules'));
+    expect(reloaded?.bucket).toBeNull();
+    expect(reloaded?.result.kind).toBe('reloaded');
     expect(session.payload().storageRules).toContain('/created/{file}');
     expect(session.payload().storageRulesHash).not.toBeNull();
     await session.close();
@@ -435,8 +436,8 @@ service firebase.storage {
     });
     const firstHash = session.payload().storageRulesHash;
     writeFileSync(rulesPath, storageRules('second'));
-    const reloaded = await session.reloadStorageRules();
-    expect(reloaded.kind).toBe('reloaded');
+    const [reloaded] = await session.reloadStorageRules(rulesPath);
+    expect(reloaded?.result.kind).toBe('reloaded');
     expect(session.payload().storageRules).toContain('/second/{file}');
     expect(session.payload().storageRulesHash).not.toBe(firstHash);
     await session.close();
@@ -452,9 +453,9 @@ service firebase.storage {
       sdk: { dir: join(root, 'sdk') },
     });
     writeFileSync(rulesPath, 'service firebase.storage { match /b/{bucket}/o {');
-    const rejected = await session.reloadStorageRules();
-    expect(rejected.kind).toBe('rejected');
-    expect(rejected.kind === 'rejected' ? rejected.error.message : '').toContain('failed to parse');
+    const rejected = (await session.reloadStorageRules(rulesPath))[0]?.result;
+    expect(rejected?.kind).toBe('rejected');
+    expect(rejected?.kind === 'rejected' ? rejected.error.message : '').toContain('failed to parse');
     expect(session.payload().storageRules).toContain('/kept/{file}');
     await session.close();
   });
@@ -469,13 +470,13 @@ service firebase.storage {
       sdk: { dir: join(root, 'sdk') },
     });
     rmSync(rulesPath);
-    const removed = await session.reloadStorageRules();
-    expect(removed).toEqual({ kind: 'removed', policy: 'deny', clients: 0 });
+    const removed = await session.reloadStorageRules(rulesPath);
+    expect(removed).toEqual([{ bucket: null, file: rulesPath, result: { kind: 'removed', policy: 'deny', clients: 0 } }]);
     expect(session.payload().storageRules).toBeNull();
     expect(session.payload().storageRulesHash).toBeNull();
 
-    const again = await session.reloadStorageRules();
-    expect(again.kind).toBe('not-configured');
+    const again = (await session.reloadStorageRules(rulesPath))[0]?.result;
+    expect(again?.kind).toBe('not-configured');
     await session.close();
   });
 
@@ -492,9 +493,9 @@ service firebase.storage {
       },
     });
     writeFileSync(rulesPath, storageRules('hosted'));
-    await session.reloadStorageRules();
+    await session.reloadStorageRules(rulesPath);
     rmSync(rulesPath);
-    await session.reloadStorageRules();
+    await session.reloadStorageRules(rulesPath);
     expect(deployed.map(([service]) => service)).toEqual(['storage', 'storage']);
     expect(deployed[0]?.[1]).toContain('/hosted/{file}');
     expect(deployed[1]?.[1]).toBeNull();

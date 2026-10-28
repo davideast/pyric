@@ -29,7 +29,7 @@ function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
     summary: { rules: { firestore: { sourcePath: MAIN }, database: { sourcePath: null } } },
     firestoreRulesFiles: () => [MAIN, ...files.current],
     databaseRulesFiles: () => ['/project/database.rules.json'],
-    storageRulesFile: () => STORAGE,
+    storageRulesFiles: () => [STORAGE],
     reloadFirestoreRules: async () => {
       reloads += 1;
       const kind = results.shift() ?? 'reloaded';
@@ -37,7 +37,7 @@ function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
       return { kind, rulesHash: 'h', clients: 1 };
     },
     reloadDatabaseRules: async () => [],
-    reloadStorageRules: async () => ({ kind: 'not-configured' }),
+    reloadStorageRules: async () => [],
   } as unknown as SandboxSession;
   return { server, session, watcher, watched, reloads: () => reloads };
 }
@@ -133,7 +133,7 @@ function missingFilesFakes(databaseResults: DatabaseResult[]) {
     summary: { rules: { firestore: { sourcePath: null }, database: { sourcePath: null } } },
     firestoreRulesFiles: () => [FIRESTORE],
     databaseRulesFiles: () => [DATABASE],
-    storageRulesFile: () => STORAGE,
+    storageRulesFiles: () => [STORAGE],
     reloadFirestoreRules: async () => {
       firestoreReloads += 1;
       return { kind: 'reloaded', rulesHash: 'fh', clients: 1 };
@@ -142,7 +142,7 @@ function missingFilesFakes(databaseResults: DatabaseResult[]) {
       databaseReloads += 1;
       return [{ instance: 'demo-default-rtdb', file, result: databaseResults.shift() ?? { kind: 'not-configured' } }];
     },
-    reloadStorageRules: async () => ({ kind: 'not-configured' }),
+    reloadStorageRules: async () => [],
   } as unknown as SandboxSession;
   return {
     ...f,
@@ -223,9 +223,9 @@ function storageFakes(results: StorageResult[]) {
   let storageReloads = 0;
   const session = {
     ...f.session,
-    reloadStorageRules: async () => {
+    reloadStorageRules: async (file: string) => {
       storageReloads += 1;
-      return results.shift() ?? { kind: 'not-configured' };
+      return [{ bucket: null, file, result: results.shift() ?? { kind: 'not-configured' } }];
     },
   } as unknown as SandboxSession;
   return { ...f, session, storageReloads: () => storageReloads };
@@ -247,7 +247,7 @@ describe('Vite Storage rules watching', () => {
     expect(f.storageReloads()).toBe(1);
     expect(f.firestoreReloads()).toBe(0);
     expect(f.databaseReloads()).toBe(0);
-    expect(f.logs.some((line) => line.includes('storage rules reloaded (sh)'))).toBe(true);
+    expect(f.logs.some((line) => line.includes('storage rules reloaded for the default bucket (sh)'))).toBe(true);
     stop();
   });
 

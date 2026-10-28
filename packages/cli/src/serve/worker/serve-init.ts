@@ -36,7 +36,7 @@ import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
-import { replaceStorageRules } from 'pyric/storage/internal';
+import { applyStorageRulesUpdate, installServedStorageRules, storageRulesUpdateNotice, type StorageRulesUpdate } from '../storage-rules-install.js';
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { createSandboxRoot, EventHistory } from 'pyric/sandbox/internal';
 import {
@@ -159,13 +159,10 @@ export function setupWorkerHotReload(
     // Null rules mean the rules file was deleted: Storage then denies every
     // client operation, as it does when the worker starts without rules.
     void (async () => {
-      const { rules } = JSON.parse(ev.data) as { rules: string | null; rulesHash?: string | null };
-      await replaceStorageRules(ctx.sandbox, rules);
-      const notice = rules === null
-        ? 'storage.rules removed; client Storage operations default to deny'
-        : 'storage.rules hot-reloaded';
+      const update = JSON.parse(ev.data) as StorageRulesUpdate;
+      await applyStorageRulesUpdate(ctx.sandbox, update);
       // eslint-disable-next-line no-console
-      console.info(`[pyric worker] ${notice}`);
+      console.info(`[pyric worker] ${storageRulesUpdateNotice(update)}`);
     })().catch((err: unknown) => {
       const errorMessage = err instanceof Error ? err.message : String(err);
       // eslint-disable-next-line no-console
@@ -340,11 +337,11 @@ export function applyServeInit(
   //     (`pyric-storage:<projectKey>`, issue #359) — which is why it now runs
   //     unconditionally: a lazy first open from `ensureStorage`/`lensStorage`
   //     would land on the legacy shared database.
-  getStorageSandbox(ctx.sandbox, {
-    ...(payload.storageRules ? { rules: payload.storageRules } : {}),
-    ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
-  });
-  if (payload.storageRules) {
+  //     Each bucket firebase.json names gets its own rules, and a bucket
+  //     nothing deploys to is locked (#1313).
+  installServedStorageRules(ctx.sandbox, payload);
+  const deploysBucketRules = Object.keys(payload.storageBucketRules ?? {}).length > 0;
+  if (payload.storageRules || deploysBucketRules) {
     result.storageRulesDeployed = true;
   }
 
