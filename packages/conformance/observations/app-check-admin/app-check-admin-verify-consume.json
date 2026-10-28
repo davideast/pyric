@@ -2,7 +2,8 @@
   "name": "app-check-admin-verify-consume",
   "matrixRow": "",
   "rowIds": [
-    "app-check-admin#verify-token-consume"
+    "app-check-admin#verify-token-consume",
+    "app-check-admin#verify-token-firebase-token-consume"
   ],
   "description": "Replay protection through verifyToken(token, { consume: true }) on a fresh Admin-minted token: the first call, a second consume, and a plain verify after consumption.",
   "observedAt": "2026-10-22T03:10:05.272Z",

@@ -5,7 +5,9 @@
  * 1. the token is a string;
  * 2. content: header `alg` is RS256, `aud` names the project, `iss` is the App
  *    Check issuer, `sub` is a non-empty string;
- * 3. the `kid` names a known key (a missing `kid` is tried against every key);
+ * 3. the `kid` names the sandbox key (a missing `kid` is tried against every
+ *    key); a token whose `kid` names another key came from Firebase, and
+ *    firebase-token.test.ts covers it;
  * 4. the signature;
  * 5. `nbf` then `exp`, read by jsonwebtoken: absent never applies, a
  *    non-number fails as an invalid signature, a future `nbf` fails as an
@@ -41,8 +43,10 @@ const MESSAGES = {
   algorithm: (alg: string) => `The provided App Check token has incorrect algorithm. Expected "RS256" but got "${alg}".`,
   noSub: 'The provided App Check token has no "sub" (subject) claim.',
   emptySub: 'The provided App Check token has an empty string "sub" (subject) claim.',
-  noMatchingKid:
-    'The provided App Check token has "kid" claim which does not correspond to a known public key. Most likely the provided App Check token is expired, so get a fresh token from your client app and try again.',
+  notSandbox:
+    "This App Check token was not minted by the Pyric sandbox, so the sandbox's firebase-admin/app-check cannot verify it. " +
+    'A page in production AI mode gets its App Check tokens from Firebase. Start this server in production AI mode too ' +
+    '(PYRIC_AI_MODE=production) and Pyric verifies them with firebase-admin. In sandbox AI mode, page tokens come from the sandbox and verify here.',
   signature: 'The provided App Check token has invalid signature.',
   expired: 'The provided App Check token has expired. Get a fresh App Check token from your client app and try again.',
 };
@@ -147,9 +151,9 @@ describe('verifyToken content', () => {
 });
 
 describe('verifyToken key and signature', () => {
-  it('rejects a kid that names no known key', async () => {
+  it("refuses a kid that names a key other than the sandbox's, saying the token came from Firebase", async () => {
     const token = await signAppCheckToken({ ...HEADER, kid: 'not-a-key' }, CLAIMS());
-    expect(await rejection(() => appCheck().verifyToken(token))).toEqual(invalid(MESSAGES.noMatchingKid));
+    expect(await rejection(() => appCheck().verifyToken(token))).toEqual(invalid(MESSAGES.notSandbox));
   });
 
   it('accepts a sandbox-signed token with no kid, as firebase-admin tries every key', async () => {

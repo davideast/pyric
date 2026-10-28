@@ -68,6 +68,21 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase/app-check', join(cliRoot, 'dist/register/app-bridge-app-check.js'), { aiMode: 'production', sandbox: '' })).toBeNull();
   });
 
+  it('lets the App Check verifier bridge reach the real firebase-admin, and maps it for app files (#1552)', () => {
+    const bridges = [join(cliRoot, 'dist/register/app-bridge-admin-app-check.js'), `file://${join(cliRoot, 'src/register/app-bridge-admin-app-check.ts')}`];
+    for (const bridge of bridges) {
+      for (const aiMode of ['production', 'sandbox'] as const) {
+        expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode, sandbox: 'local' })).toBeNull();
+        expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode, sandbox: 'local' })).toBeNull();
+      }
+      expect(mapFirebaseSpecifier('firebase-admin/firestore', bridge, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/firestore');
+    }
+    for (const appFile of ['/home/me/app/server.mjs', '/home/me/app/dist/register/app-bridge-admin-app-check.js']) {
+      expect(mapFirebaseSpecifier('firebase-admin/app', appFile, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app');
+      expect(mapFirebaseSpecifier('firebase-admin/app-check', appFile, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app-check');
+    }
+  });
+
   it('swaps an app file that is merely named like a bridge', () => {
     for (const userFile of ['/home/me/app/src/register/app-bridge.js', '/home/me/app/dist/register/app-bridge.js', '/home/me/app/app-ai-passthrough.ts']) {
       expect(mapFirebaseSpecifier('firebase/app-check', userFile, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app-check');
