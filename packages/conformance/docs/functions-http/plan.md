@@ -13,7 +13,7 @@ Stack note: the rig manifest (`rigs/functions-http.ts`) lands with the capture i
 
 ## Priority gate
 
-Top of Funnel: "Does this reduce what a new user must learn or do before their first success with pyric?" An app whose backend is an `onRequest` function gets no first success today: discovery labels it `https` and skips it (`packages/cli/src/functions-rtdb/child.ts:459-482`). The planned Now line ("Cloud Functions beyond the one RTDB trigger, HTTP onRequest first") is not on main yet; this plan assumes it lands first.
+Cloud Functions: "Does this let an app's Cloud Functions run in pyric and behave as they do in production?" An app whose backend is an `onRequest` function has it skipped on its first run today: discovery labels it `https` (`packages/cli/src/functions/endpoints.ts`) and the child serves only RTDB triggers. This surface serves `onRequest` on both planes and on the Node host, as production does, so it passes the test. It is the first line under Cloud Functions in `PRIORITIES.md`.
 
 ## What to match (evidence)
 
