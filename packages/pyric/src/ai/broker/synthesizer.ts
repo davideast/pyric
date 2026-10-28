@@ -165,7 +165,7 @@ export function badRole(role: string): WireErrorEnvelope {
  * `ai-error-function-role-refused` (400 INVALID_ARGUMENT), captured text
  * verbatim. Production lists a longer role vocabulary for `function` than
  * for an unknown role (`badRole`), and the broker accepts neither list in
- * full: it accepts only MODEL and USER.
+ * full: it accepts MODEL, USER and ASSISTANT, as production does.
  */
 export function functionRoleRefused(): WireErrorEnvelope {
   return errorEnvelope(

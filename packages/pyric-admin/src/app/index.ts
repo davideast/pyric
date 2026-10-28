@@ -15,6 +15,7 @@ import { parsePyricSandbox, processActivation } from 'pyric/sandbox/internal';
 import { readFileSync } from 'node:fs';
 
 import { assertAdminAppActive, markAdminAppDeleted } from './lifecycle.js';
+import { keepAppCredentialProjectId, keepCredentialProjectId } from './project-id.js';
 
 /** Brand carried by every sandbox admin app. */
 export const ADMIN_APP_TARGET = Symbol.for('pyric.admin.app.target');
@@ -59,9 +60,16 @@ export function applicationDefault(): never {
  * Link-compatible mirror of `firebase-admin/app`'s `cert(serviceAccountPathOrObject)`.
  * Returns an inert sandbox credential token so unchanged application setup code
  * can assign `appOptions.credential = cert(...)` under `@pyric/cli/register`.
+ *
+ * It keeps one field, the service account's project id, because firebase-admin
+ * finds an app's project there when the options name none. A path is read as a
+ * JSON file; a file that is missing, unreadable, or has no project id gives a
+ * credential without one, and never throws, so apps run without a key on disk.
  */
 export function cert(serviceAccountPathOrObject: unknown): object {
-  return { [Symbol.for('pyric.admin.credential')]: 'cert' };
+  const credential = { [Symbol.for('pyric.admin.credential')]: 'cert' };
+  keepCredentialProjectId(credential, serviceAccountPathOrObject);
+  return credential;
 }
 
 /**
@@ -139,6 +147,7 @@ export function initializeApp(
       throw alreadyExists(name, 'invalid-app-options');
     }
     const app = initializeAmbientApp(name, ambientAppOptions(config));
+    keepAppCredentialProjectId(app, config);
     appRegistry.set(name, app);
     ambientApps.add(app);
     return app;
@@ -158,6 +167,7 @@ export function initializeApp(
     name,
     options: appOptionsFrom(config),
   };
+  keepAppCredentialProjectId(app, config);
   appRegistry.set(name, app);
   return app;
 }
