@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { RemoteRtdbTriggerDelivery } from '../../src/functions-rtdb/remote-delivery.js';
+import { RemoteRtdbTriggerDelivery } from '../../src/functions/rtdb/remote-delivery.js';
 import type {
   RemoteRtdb,
   RemoteRtdbSnapshot,

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import {
   discoverOnValueCreated,
   inspectOnValueCreated,
-} from '../../src/functions-rtdb/discovery.js';
+} from '../../src/functions/rtdb/discovery.js';
 
 const requireFromConformance = createRequire(
   join(import.meta.dir, '../../../conformance/package.json'),

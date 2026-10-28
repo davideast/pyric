@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 
-export interface FunctionsRtdbProject {
+export interface FunctionsProject {
   sourceDir: string;
   entry: string;
 }
@@ -13,7 +13,7 @@ interface FunctionsConfig {
 }
 
 /** Discover the one Node Functions source supported by the first RTDB slice. */
-export function discoverFunctionsRtdbProject(cwd: string): FunctionsRtdbProject | null {
+export function discoverFunctionsProject(cwd: string): FunctionsProject | null {
   const firebaseJsonPath = join(cwd, 'firebase.json');
   if (!existsSync(firebaseJsonPath)) return null;
 
