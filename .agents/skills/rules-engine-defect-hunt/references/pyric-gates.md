@@ -35,7 +35,7 @@ bun run build            # scripts/build.sh; or build:pyric for the engine alone
 | Production observations | `packages/conformance/observations/{rtdb-rules,firestore-rules,storage}/`, plus SDK-level ones under `rtdb-modular/`, `firestore/`, `rtdb/` |
 | Registry rows | `packages/conformance/registry/rules.ts` and siblings |
 | Node counts | `packages/conformance/assurance-node-counts/<service>.json`; a registry row added or removed edits this file in the same change (AGENTS.md boundary 6) |
-| Scorecards / baselines | `packages/conformance/baselines/*-scorecard.json`, `coverage-baseline.json` |
+| Scorecards / baselines | `packages/conformance/baselines/*-scorecard.json`; coverage compares with the base commit's report, and a deliberate row demotion or removal adds `packages/conformance/coverage-acceptances/<row-id>.md` |
 | Score pins in tests | `packages/conformance/test/src/{conformance-model,generate-docs-scoreboard,rules-language-coverage,rules-scorecard-gate}.test.ts` |
 | RTDB runtime pins | `KNOWN_DIVERGENCES` in `packages/pyric/test/rules/rtdb/rules-conformance.test.ts` |
 | Static validator pins | `KNOWN_CORPUS_VALIDATOR_GAPS` in `packages/pyric/test/rules/rtdb/grammar/validator-types.test.ts` |

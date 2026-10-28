@@ -646,6 +646,22 @@ jobs:
           BASE_REF: origin/${{ github.base_ref || 'main' }}
         run: bash scripts/ci/conformance-coupling-gate.sh
 
+      # The coverage gate compares this commit's report with its base
+      # commit's: the queue's base for a merge group, otherwise the first
+      # parent (a PR's merge ref, or the previous commit on main, octopus
+      # merges included). Runs on main save each commit's report; a miss is
+      # computed inside conformance-gates.sh.
+      - name: Resolve the coverage base commit
+        id: coverage-base
+        env:
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: echo "sha=${MERGE_GROUP_BASE_SHA:-$(git rev-parse HEAD^1)}" >> "$GITHUB_OUTPUT"
+      - name: Restore the base commit's coverage report
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/coverage-report
+          key: coverage-report-${{ steps.coverage-base.outputs.sha }}
+
       - name: Conformance gate chain
         # The five gates that used to run serially at the tail of
         # build-and-test (audit gate, observations × probes, graph integrity,
@@ -654,7 +670,32 @@ jobs:
         # keeps them off the critical path without pairing them against the
         # CLI suite, whose verify replays flip verdicts under CPU contention
         # (reproduced deterministically while validating this layout).
+        env:
+          COVERAGE_BASE_SHA: ${{ steps.coverage-base.outputs.sha }}
+          COVERAGE_BASE_REPORT: ${{ runner.temp }}/coverage-report/report.json
+          COVERAGE_HEAD_REPORT: ${{ runner.temp }}/coverage-head-report.json
         run: bash scripts/ci/conformance-gates.sh
+
+      # Only branch runs save (main, and a manual run on a branch), so a PR
+      # or merge-queue run can never write a report another ref reads.
+      - name: Stage this commit's coverage report
+        id: coverage-head
+        if: always() && github.event_name != 'pull_request' && github.event_name != 'merge_group'
+        env:
+          HEAD_REPORT: ${{ runner.temp }}/coverage-head-report.json
+          CACHE_DIR: ${{ runner.temp }}/coverage-report
+        run: |
+          if [ -s "$HEAD_REPORT" ]; then
+            mkdir -p "$CACHE_DIR"
+            cp "$HEAD_REPORT" "$CACHE_DIR/report.json"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save this commit's coverage report
+        if: always() && steps.coverage-head.outputs.ready == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/coverage-report
+          key: coverage-report-${{ github.sha }}
 
   packaging:
     name: Packaging gate (pack + install + subpath resolution)

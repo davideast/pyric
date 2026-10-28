@@ -4,6 +4,7 @@ import { canIUse, deriveConformanceModel, registerImportEvidence, type Conforman
 import { assuranceNodeCountProblems } from '../../src/assurance-node-counts.ts';
 import { allCompatibilityRows } from '../../registry/index.ts';
 import { surfaceContracts } from '../../surfaces/load.ts';
+import { buildReport } from '../../src/coverage.ts';
 
 let model: ConformanceModel;
 beforeAll(async () => { model = await deriveConformanceModel(); }, 60_000);
@@ -34,7 +35,8 @@ describe('multi-axis conformance model', () => {
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
     expect(model.documentation.rows.length).toBeGreaterThan(600);
-    expect(model.documentation.coverageBaseline.overall.publicSurface.runtime.denominator).toBeGreaterThan(0);
+    // The coverage report is built from this model; the entry-path programs are its own gate's concern.
+    expect(buildReport(model, () => []).overall.surfaceCoverage.runtime.denominator).toBeGreaterThan(0);
     expect(model.evidence.observations.length).toBeGreaterThan(0);
     expect(Object.keys(model.evidence.observationExceptions).length).toBeGreaterThan(0);
   });

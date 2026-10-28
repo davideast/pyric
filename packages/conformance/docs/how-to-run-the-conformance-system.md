@@ -44,7 +44,7 @@ order, cheapest and most specific first:
 | 4 | `compat:entry-path` | A canonical initialization program went red without a cited, currently-real gap. This is a CLIFF, not a ratchet. |
 | 5 | `compat:conformance:check` | Any ignored runtime projection—the Node developer-feature query, compact browser query, or assurance node-verdict lookup—is missing or no longer matches the central model. Run the CLI prebuild or `compat:conformance`. |
 | 6 | `compat:rules-score` | The ordered Firestore Rules universe, input-bound production evidence, per-construct facts, or canonical score differs from its explicitly reviewed baseline. |
-| 7 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
+| 7 | `compat:coverage` | A published number regressed against the base commit's report (in CI): a `conforms` row flipped or a row vanished without an acceptance file, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
 
 Green looks like this (trimmed):
 
@@ -80,8 +80,12 @@ Firestore Rules conformance: 129/140 (92.1%) — 2 diverged, 0 unknown,
 
 # Compatibility coverage
 [… the coverage table …]
-✓ No regressions vs. coverage-baseline.json.
+No base report given, so no regression check ran. […]
 ```
+
+Locally, `compat:check` prints the coverage table only. CI runs the coverage
+regression check against the base commit's report (see
+[the regression gate](#the-coverage-table-axis-by-axis)).
 
 Exit code 0. Generated outputs are always rebuilt from their source:
 
@@ -317,7 +321,7 @@ which is the whole point.
 ### The coverage table, axis by axis
 
 ```
-$ bun run compat:coverage
+$ bun run compat:coverage --base-report base.json --base-commit a62fbbc98
 service         runtime(public)  types(public)  behavior(total)  behavior(intended)  diverged  unverified
 ---------------------------------------------------------------------------------------------------------
 ai                         69.1%          66.5%             92.3%                92.3%          6            0
@@ -344,7 +348,7 @@ Entry-path (compat:entry-path — CLIFF, not a ratchet):
   firestore    green
   storage      green
 
-✓ No regressions vs. coverage-baseline.json.
+✓ No regressions vs. the base commit a62fbbc98.
 ```
 
 **Public runtime surface** is mirrored public runtime exports over Firebase
@@ -403,23 +407,52 @@ them and applies cliff semantics: a green program turning red or red-known is a
 regression, the one place this ordinarily regression-tolerant report refuses to
 tolerate.
 
-**The regression gate.** `compat:coverage` diffs against
-`baselines/coverage-baseline.json` and fails ONLY on regression: a `conforms`
-row flipping or disappearing, a public runtime or type percentage dropping, a new orphan
-observation, or the high-risk-unverified count increasing. It never fails for
-being below an absolute percentage. A threshold gate would invite relabeling
-rows `conforms` to clear the bar, which is the exact dishonesty this system
-exists to prevent. The gate protects a number that was true from silently
-stopping being true; it does not police how high the number is.
+**The regression gate.** `compat:coverage --base-report <file> --base-commit
+<sha>` compares this commit's report with the base commit's report, so `main`
+itself is the baseline and nothing is committed. It fails ONLY on regression:
+a `conforms` row flipping, a row disappearing (whatever its status), a public
+runtime or type percentage dropping, a new orphan observation, the
+high-risk-unverified count increasing, or a green entry-path program no longer
+green. It never fails for being below an absolute percentage. A threshold gate
+would invite relabeling rows `conforms` to clear the bar, which is the exact
+dishonesty this system exists to prevent. The gate protects a number that was
+true from silently stopping being true; it does not police how high the number
+is.
 
-When a change makes a legitimate, evidence-backed difference to coverage (a real
-new divergence, a newly mirrored public export or type, a fixed row moving to `conforms`),
-update the baseline alongside it:
+CI finds the base report like this (`scripts/ci/conformance-gates.sh` and the
+Conformance gates job in `.github/workflows/build.yml`):
 
-```sh
-bun run compat:coverage --update-baseline
-git add packages/conformance/baselines/coverage-baseline.json
+- The base commit is the first parent: a PR's merge ref's first parent, or the
+  previous commit on `main` (an octopus merge included). For a merge-queue
+  group it is the queue's base, `merge_group.base_sha`.
+- Every run on `main` saves its own report to the Actions cache as
+  `coverage-report-<sha>`. Only `main` writes keys that PRs and merge groups can
+  read.
+- On a hit, the gate restores that report. On a miss (the base's run on `main`
+  has not finished, or it was cancelled), the script computes the base report
+  from a worktree of the base commit, with its own install and build, while the
+  other gates run.
+
+A change that deliberately demotes a `conforms` row, or removes a row, accepts
+it by adding one file per row, `packages/conformance/coverage-acceptances/<row-id>.md`,
+holding the reason and the issue (`#<n>` or its URL):
+
+```md
+<!-- packages/conformance/coverage-acceptances/firestore#76.md (an example) -->
+Production rejects this query shape, so the row moves to `bug` until the
+fix in #1234 lands.
 ```
+
+The gate honors only files the change adds (diffed against the base commit),
+and each one has to name a row that really regressed against the base report.
+Files from earlier merges stay as a record and can never authorize a later
+change. The other regressions have no acceptance file: fix them. A fixed row
+moving to `conforms` or a newly mirrored export needs nothing; the next base
+report includes it.
+
+To run the check locally, write a base report from a checkout of the base
+commit with `bun run compat:coverage --json > base.json`, then run
+`bun run compat:coverage --base-report base.json --base-commit <sha>` here.
 
 ### The rules-language axes
 
