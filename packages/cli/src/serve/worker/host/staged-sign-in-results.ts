@@ -6,8 +6,9 @@
  * sign-in uses it up. That is in-page's rule (`AuthFlowRegistry.setMockResult`
  * and `consumeMockResult`). Keying by port means one tab, or one register
  * process, can't stage a sign-in for another, as in-page where each tab has
- * its own Auth. The slots live in a `WeakMap`, so they go away with the port,
- * and they are never persisted.
+ * its own Auth. The host clears a port's slots when it tears the port down,
+ * since a torn-down port can be reused (a Node host session resume, an
+ * app-config eviction). They are never persisted.
  */
 
 import type { PortLike } from '../host-context.js';
@@ -18,6 +19,8 @@ export interface StagedSignInResults {
   stage(port: PortLike, identity: ResolvedIdentity): void;
   /** Use up the port's staged result for `providerId`, or `null` when none. */
   take(port: PortLike, providerId: string): ResolvedIdentity | null;
+  /** Drop everything the port staged, when the host tears the port down. */
+  clear(port: PortLike): void;
 }
 
 export function createStagedSignInResults(): StagedSignInResults {
@@ -42,6 +45,9 @@ export function createStagedSignInResults(): StagedSignInResults {
       if (staged === undefined) return null;
       slots?.delete(providerId);
       return staged;
+    },
+    clear(port) {
+      slotsByPort.delete(port);
     },
   };
 }

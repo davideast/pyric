@@ -270,6 +270,7 @@ export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   ctx.portSessions?.delete(port);
   portTenantsFor(ctx).delete(port);
   _lastAuthStateUid.delete(port);
+  stagedSignInResultsFor(ctx).clear(port);
 }
 
 // ─── Auth op handlers ─────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { handleMessage, type HostCtx, type PortLike } from '../host.js';
+import { cleanupPort, handleMessage, type HostCtx, type PortLike } from '../host.js';
 import { stagedSignInResultsFor } from '../host-auth.js';
 import { createStagedSignInResults } from '../host/staged-sign-in-results.js';
 import type { InboundMessage, OutboundMessage, ResMessage, ResolvedIdentity } from '../protocol.js';
@@ -77,6 +77,23 @@ describe('createStagedSignInResults', () => {
   });
 });
 
+describe('createStagedSignInResults clear', () => {
+  it('drops every provider the port staged and leaves other ports alone', () => {
+    const staged = createStagedSignInResults();
+    const port = recordingPort();
+    const otherPort = recordingPort();
+    staged.stage(port, identity('alice'));
+    staged.stage(port, identity('gh', 'github.com'));
+    staged.stage(otherPort, identity('bob'));
+
+    staged.clear(port);
+
+    expect(staged.take(port, 'google.com')).toBeNull();
+    expect(staged.take(port, 'github.com')).toBeNull();
+    expect(staged.take(otherPort, 'google.com')?.uid).toBe('bob');
+  });
+});
+
 describe('auth.mockSignInResult on the host', () => {
   it('stages the identity for the calling port and replies null', async () => {
     const ctx = hostCtx();
@@ -88,6 +105,16 @@ describe('auth.mockSignInResult on the host', () => {
     expect(reply).toMatchObject({ ok: true, value: null });
     expect(stagedSignInResultsFor(ctx).take(otherPort, 'google.com')).toBeNull();
     expect(stagedSignInResultsFor(ctx).take(port, 'google.com')).toEqual(identity('alice'));
+  });
+
+  it('drops what a port staged when the host tears the port down', async () => {
+    const ctx = hostCtx();
+    const port = recordingPort();
+    await stageOverPort(ctx, port, identity('alice'));
+
+    cleanupPort(ctx, port);
+
+    expect(stagedSignInResultsFor(ctx).take(port, 'google.com')).toBeNull();
   });
 
   it('refuses a result without a uid and stages nothing', async () => {
