@@ -135,6 +135,22 @@ describe('the store key', () => {
     expect(storeKey({ ...base, packed: publishedAt('0.1.0-alpha.1', { zod: '^4.0.0' }) })).not.toBe(storeKey(base));
   });
 
+  test('changes when a published package gains or drops a dependency on another Pyric package', () => {
+    const [pyric, , cli] = base.packed;
+    const adminAlone = [pyric, packed('pyric-admin', '0.1.0-alpha.1', {}), cli].filter((pack) => pack !== undefined);
+    expect(storeKey({ ...base, packed: adminAlone })).not.toBe(storeKey(base));
+  });
+
+  test('changes with a published package\'s peerDependenciesMeta and bundleDependencies', () => {
+    const withExtra = (extra: Partial<PackedPackage['manifest']>) => base.packed.map((pack) => (pack.name === '@pyric/cli' ? { ...pack, manifest: { ...pack.manifest, ...extra } } : pack));
+    const optionalPeer = storeKey({ ...base, packed: withExtra({ peerDependenciesMeta: { vite: { optional: true } } }) });
+    const bundled = storeKey({ ...base, packed: withExtra({ bundleDependencies: ['ws'] }) });
+    // A Pyric peer turning optional counts too: its meta is not replaced by the placeholder.
+    const optionalPyricPeer = storeKey({ ...base, packed: withExtra({ peerDependencies: { vite: '^7.0.0', pyric: '^0.1.0-alpha.1' }, peerDependenciesMeta: { pyric: { optional: true } } }) });
+    const requiredPyricPeer = storeKey({ ...base, packed: withExtra({ peerDependencies: { vite: '^7.0.0', pyric: '^0.1.0-alpha.1' } }) });
+    expect(new Set([storeKey(base), optionalPeer, bundled, optionalPyricPeer, requiredPyricPeer]).size).toBe(5);
+  });
+
   test('changes with the Node major, the npm version, the OS and the architecture', () => {
     const keys = [
       storeKey(base),
@@ -192,14 +208,15 @@ describe('the third-party check', () => {
   });
 });
 
-/** An npm stand-in: a warm writes a tree and a lockfile; the offline install runs `onOffline`. */
-function scriptedNpm(options: { warmDelayMs?: number; onOffline?: (cwd: string) => void } = {}) {
+/** An npm stand-in: a warm writes a tree and a lockfile; the offline install runs `onOffline` and exits `offlineCode`. */
+function scriptedNpm(options: { warmDelayMs?: number; onOffline?: (cwd: string) => void; offlineCode?: number } = {}) {
   const calls: Array<{ args: string[]; cwd: string }> = [];
   const runNpm: RunNpm = async (args, { cwd }) => {
     calls.push({ args, cwd });
     if (args.includes('--offline')) {
       options.onOffline?.(cwd);
-      return { code: 0, output: 'changed 2 packages\n', timedOut: false };
+      const code = options.offlineCode ?? 0;
+      return { code, output: code === 0 ? 'changed 2 packages\n' : 'npm error code ENOTCACHED\n', timedOut: false };
     }
     await new Promise((resolve) => setTimeout(resolve, options.warmDelayMs ?? 0));
     mkdirSync(join(cwd, 'node_modules/fake-a'), { recursive: true });
@@ -279,6 +296,20 @@ describe('the store', () => {
     expect(result.code).not.toBe(0);
     expect(result.retryable).toBe(false);
     expect(result.output).toContain('node_modules/fake-a');
+    expect(result.output).toContain(`delete ${join(storeDir, scriptedStore(storeDir, npm).keyOf(scriptedSetDir('0.1.0-alpha.1')))}`);
+  });
+
+  test('a failed offline install names the entry to delete, since a later run would fail the same way', async () => {
+    const storeDir = join(tempDir(), 'deps');
+    const npm = scriptedNpm({ offlineCode: 1 });
+    await scriptedStore(storeDir, npm).provide(scriptedSetDir('0.1.0-alpha.1'));
+    const dir = scriptedSetDir('0.1.0-alpha.2');
+    const store = scriptedStore(storeDir, npm, '0.1.0-alpha.2');
+    const result = await store.provide(dir);
+    expect(result.code).not.toBe(0);
+    expect(result.retryable).toBe(false);
+    expect(result.output).toContain('ENOTCACHED');
+    expect(result.output).toContain(`delete ${join(storeDir, store.keyOf(dir))}`);
   });
 
   test('a set whose Pyric packages changed restamps the lockfile and installs them offline', async () => {
@@ -306,12 +337,35 @@ describe('the store', () => {
 });
 
 describe('a warm that times out', () => {
-  test('a command past its limit is stopped with its group, and the result says so', async () => {
-    const result = await runTimedCommand('sleep', ['5'], { cwd: tmpdir(), timeoutMs: 200 });
-    expect(result.timedOut).toBe(true);
-    expect(result.code).toBeNull();
-    expect(result.output).toContain('sleep stopped after 0.2 s');
-  });
+  /** Whether `pid` is a live process: present in /proc and not a zombie. */
+  function isAlive(pid: number): boolean {
+    const stat = join('/proc', String(pid), 'stat');
+    if (!existsSync(stat)) return false;
+    const state = readFileSync(stat, 'utf8').split(') ')[1]?.[0];
+    return state !== 'Z';
+  }
+
+  test.if(process.platform === 'linux')('a command past its limit is stopped with its whole group, a grandchild that ignores SIGTERM too', async () => {
+    const work = tempDir();
+    const [childFile, grandchildFile] = [join(work, 'child.pid'), join(work, 'grandchild.pid')];
+    // The grandchild ignores SIGTERM, so only the SIGKILL after the grace period ends it.
+    writeFileSync(join(work, 'grandchild.sh'), `trap '' TERM\necho $$ > ${grandchildFile}\nwhile :; do sleep 0.05; done\n`);
+    const script = `echo $$ > ${childFile}; sh ${join(work, 'grandchild.sh')} & wait`;
+    const result = await runTimedCommand('sh', ['-c', script], { cwd: work, timeoutMs: 500 });
+    const pids = [Number(readFileSync(childFile, 'utf8')), Number(readFileSync(grandchildFile, 'utf8'))];
+    try {
+      expect(new Set(pids).size).toBe(2);
+      expect(result.timedOut).toBe(true);
+      expect(result.code).toBeNull();
+      expect(result.output).toContain('sh stopped after 0.5 s');
+      // The default grace before SIGKILL is 1 s; allow time for the kernel and the reaper.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      expect(pids.filter(isAlive)).toEqual([]);
+    } finally {
+      // A failing run must not leave its processes behind.
+      for (const pid of pids.filter(isAlive)) process.kill(pid, 'SIGKILL');
+    }
+  }, 10_000);
 
   test('is worth retrying, and leaves no entry and no partial build behind', async () => {
     const storeDir = join(tempDir(), 'deps');

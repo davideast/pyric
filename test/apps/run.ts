@@ -34,8 +34,11 @@
  *   PYRIC_APPS_DEPS_STORE  the store's directory (default
  *                          ~/.cache/pyric-app-scenarios/deps, shared by
  *                          every worktree)
- *   PYRIC_APPS_OFFLINE=1   install nothing from the registry: a set the store
- *                          does not hold fails at once, with its key and app
+ *   PYRIC_APPS_OFFLINE=1   install no shared set from the registry: a set the
+ *                          store does not hold fails at once, with its key
+ *                          and app. A scenario's own nested install
+ *                          (app.installProject) still goes online until it
+ *                          uses the store too
  *
  * Logs land in
  * test-results/apps/<name>/. Apps start longest first, by the times the last

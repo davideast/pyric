@@ -33,8 +33,14 @@ export const STORE_FORMAT = 1;
 /** What a Pyric package's spec becomes in the key, so the tarball's path and version drop out. */
 const PYRIC_SPEC = '<pyric tarball>';
 
-/** The fields of a published package that name the third-party packages it installs. */
-const PUBLISHED_DEPENDENCY_FIELDS = ['dependencies', 'optionalDependencies', 'peerDependencies'] as const;
+/**
+ * The fields of a published package that decide what an install of it puts
+ * in the tree. Its dependencies on other Pyric packages count too, by name.
+ */
+const PUBLISHED_INSTALL_FIELDS = ['dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta', 'bundleDependencies', 'bundledDependencies'] as const;
+
+/** The published fields whose values are version specs, where a Pyric package's spec becomes the placeholder. */
+const PUBLISHED_SPEC_FIELDS = new Set<string>(['dependencies', 'optionalDependencies', 'peerDependencies']);
 
 /** The root lockfile fields that carry the project's own dependency specs. */
 const ROOT_DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const;
@@ -142,11 +148,12 @@ function withPyricPlaceholders(fields: Record<string, unknown>, pyricNames: Read
   return Object.fromEntries(Object.entries(fields).map(([field, value]) => [field, replace(value)]));
 }
 
-/** A published package's third-party dependencies: no Pyric package, no `workspace:` spec. */
-function thirdPartyDependencies(manifest: PackedManifest, pyricNames: ReadonlySet<string>): Record<string, unknown> {
-  const isThirdParty = ([name, spec]: [string, unknown]) => !pyricNames.has(name) && !String(spec).startsWith('workspace:');
-  const fields = PUBLISHED_DEPENDENCY_FIELDS.filter((field) => isRecord(manifest[field]));
-  return Object.fromEntries(fields.map((field) => [field, sortedObject(Object.fromEntries(Object.entries(manifest[field] as object).filter(isThirdParty)))]));
+/** A published package's install fields, every Pyric package's spec replaced by the placeholder. */
+function publishedInstallFields(manifest: PackedManifest, pyricNames: ReadonlySet<string>): Record<string, unknown> {
+  const fields = PUBLISHED_INSTALL_FIELDS.filter((field) => manifest[field] !== undefined);
+  const specs = Object.fromEntries(fields.filter((field) => PUBLISHED_SPEC_FIELDS.has(field)).map((field) => [field, sortedObject(manifest[field])]));
+  const others = Object.fromEntries(fields.filter((field) => !PUBLISHED_SPEC_FIELDS.has(field)).map((field) => [field, sortedObject(manifest[field])]));
+  return { ...withPyricPlaceholders(specs, pyricNames), ...others };
 }
 
 /** The key's inputs, written to `store.json` too. */
@@ -160,7 +167,7 @@ export function storeKeyInputs(inputs: KeyInputs): Record<string, unknown> {
     platform: { nodeMajor, npm, os, arch },
     project: { name: manifest.name ?? null, ...withPyricPlaceholders(installManifest(manifest), pyricNames) },
     npmrc: inputs.npmrc ?? null,
-    published: published.map((pack) => ({ name: pack.name, ...thirdPartyDependencies(pack.manifest, pyricNames) })),
+    published: published.map((pack) => ({ name: pack.name, ...publishedInstallFields(pack.manifest, pyricNames) })),
   };
 }
 
@@ -292,6 +299,14 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The way out of a failure the entry itself causes. The entry stays in the
+ * store, so every later run would fail the same way until it is removed.
+ */
+function deleteToRewarm(entry: string): string {
+  return `[runner] every later run fails the same way while this entry stands: delete ${entry} and the next run warms it again\n`;
+}
+
 function secondsSince(started: number): string {
   return ((performance.now() - started) / 1000).toFixed(1);
 }
@@ -410,13 +425,13 @@ export class DependencyStore {
       const lock = restampLockfile(stored, { projectDir, manifest, packed: this.options.packed });
       writeFileSync(join(projectDir, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
       if (pyricStampsMatch(stored, this.options.packed)) return { code: 0, output: '', note: ', its Pyric packages already this run\'s', retryable: false };
-      return await this.installOffline(stored, projectDir);
+      return await this.installOffline(stored, entry, projectDir);
     } catch (error) {
-      return failed(`[runner] making the set from store entry ${entry} failed: ${messageOf(error)}\n`);
+      return failed(`[runner] making the set from store entry ${entry} failed: ${messageOf(error)}\n${deleteToRewarm(entry)}`);
     }
   }
 
-  private async installOffline(stored: Lockfile, projectDir: string): Promise<CommandResult & { note: string; retryable: boolean }> {
+  private async installOffline(stored: Lockfile, entry: string, projectDir: string): Promise<CommandResult & { note: string; retryable: boolean }> {
     const started = performance.now();
     const cache = mkdtempSync(join(tmpdir(), 'pyric-offline-npm-cache-'));
     try {
@@ -424,11 +439,11 @@ export class DependencyStore {
       const result = await this.options.runNpm(args, { cwd: projectDir, timeoutMs: this.options.materializeMs ?? MATERIALIZE_MS });
       const header = `[runner] npm install --offline of this run's Pyric tarballs: ${result.timedOut ? 'timed out' : `exit ${result.code}`} in ${secondsSince(started)} s\n`;
       const output = `${header}${result.output}`;
-      if (result.timedOut || result.code !== 0) return { code: result.code ?? 1, output, note: '', retryable: false };
+      if (result.timedOut || result.code !== 0) return { code: result.code ?? 1, output: `${output}${deleteToRewarm(entry)}`, note: '', retryable: false };
       const changed = changedThirdPartyEntries(stored, readJson<Lockfile>(join(projectDir, 'package-lock.json')), this.pyricNames);
       if (changed.length > 0) {
         const list = changed.map((path) => `  ${path}`).join('\n');
-        return { code: 1, output: `${output}[runner] the offline install changed third-party lockfile entries the store holds:\n${list}\n`, note: '', retryable: false };
+        return { code: 1, output: `${output}[runner] the offline install changed third-party lockfile entries the store holds:\n${list}\n${deleteToRewarm(entry)}`, note: '', retryable: false };
       }
       return { code: 0, output, note: ', its Pyric packages installed offline', retryable: false };
     } finally {
