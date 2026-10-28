@@ -33,7 +33,7 @@ const OUT = join(OUT_DIR, 'captures.json');
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
 export type Service = 'firestore' | 'storage';
-export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting' | 'list-nesting' | 'map-nesting' | 'index-chain' | 'call-nesting' | 'slash-divisor' | 'member-chain' | 'glob-in-path' | 'glob-nested';
+export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting' | 'list-nesting' | 'map-nesting' | 'index-chain' | 'call-nesting' | 'slash-divisor' | 'member-chain' | 'glob-in-path' | 'glob-nested' | 'and-chain' | 'and-chain-calls';
 
 const LEAF = "request.auth.uid == 'a'";
 
@@ -97,6 +97,19 @@ export function probeBlock(shape: Shape, n: number, path = 'p'): string {
       // n recursive wildcards across a match and the match nested in it:
       // /p/{gid} then /{rest=**} at n = 1, /{g=**}/p/{gid} then /{rest=**} at n = 2.
       return `    match /${n === 1 ? '' : '{g=**}/'}${path}/{gid} {\n      match /{rest=**} {\n        allow read: if ${LEAF};\n      }\n    }`;
+    case 'and-chain': {
+      // A flat chain of n comparisons, no parentheses: t1 && t2 && ... && leaf.
+      const terms = Array.from({ length: n - 1 }, (_, i) => `request.auth.uid != 'z${i + 1}'`);
+      return `    match /${path}/{d} {\n      allow read: if ${[...terms, LEAF].join(' && ')};\n    }`;
+    }
+    case 'and-chain-calls': {
+      // A flat chain of n zero-argument calls, no parentheses, as in
+      // secure/firestore-rules-limits.md: check01() && ... && checkN().
+      const name = (i: number) => `check${String(i).padStart(2, '0')}`;
+      const fns = Array.from({ length: n }, (_, i) => `      function ${name(i + 1)}() { return ${LEAF}; }`).join('\n');
+      const chain = Array.from({ length: n }, (_, i) => `${name(i + 1)}()`).join(' && ');
+      return `    match /${path}/{d} {\n${fns}\n      allow read: if ${chain};\n    }`;
+    }
     case 'and-nesting': {
       // n terms: t1 && (t2 && (... && (leaf))).
       let inner = LEAF;
@@ -249,7 +262,7 @@ export interface Boundary { service: Service; shape: Shape; largestPass: number 
 export function boundaries(probes: readonly ProbeRecord[]): Boundary[] {
   const out: Boundary[] = [];
   for (const service of ['firestore', 'storage'] as const) {
-    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal', 'list-nesting', 'map-nesting', 'index-chain', 'call-nesting', 'slash-divisor', 'member-chain', 'glob-in-path', 'glob-nested'] as const) {
+    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal', 'list-nesting', 'map-nesting', 'index-chain', 'call-nesting', 'slash-divisor', 'member-chain', 'glob-in-path', 'glob-nested', 'and-chain', 'and-chain-calls'] as const) {
       const mine = probes.filter((p) => p.service === service && p.shape === shape && !p.range);
       if (mine.length === 0) continue;
       const ok = mine.filter((p) => p.compiles).map((p) => p.n);

@@ -30,6 +30,7 @@ import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
+import type { AppPorts } from './app-ports.js';
 import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
 import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
@@ -141,6 +142,12 @@ export interface NamespaceOptions {
   boundHost?: string;
   /** Extra allowed hostnames. */
   allowedHosts?: string[];
+  /** Under `pyric sandbox`, the app's ports, including the port of a dev
+   *  server that proxies `/__pyric/*` here (`withPyric` under `next dev`).
+   *  The guarded routes accept a page's Origin on any of them. Absent, only
+   *  the connection's own port is accepted, as under the Vite plugin. The
+   *  caller that creates it teaches it from each request. */
+  appPorts?: AppPorts;
   /** The OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to
    *  (pyric/ai — cdd-deltas #98.2). Falls back to the
    *  `PYRIC_AI_PROXY_UPSTREAM` env var, then `http://localhost:11434/v1`
@@ -525,20 +532,27 @@ async function handleDenials(
   res.writeHead(204).end();
 }
 
-function guardLoopback(
-  req: IncomingMessage,
-  res: ServerResponse,
-  boundHost: string,
-  allowedHosts?: string[],
-): boolean {
+/**
+ * A /__pyric request comes from a page of this app, so the Origin names one of
+ * its ports: this server's own, or under `pyric sandbox` the port of a dev
+ * server that proxies to it (see app-ports.ts).
+ */
+function isAppOrigin(req: IncomingMessage, originHeader: string, opts: GuardOptions): boolean {
+  const boundHost = opts.boundHost ?? 'localhost';
+  const ports = opts.appPorts?.forRequest(req) ?? [req.socket.localPort];
+  return ports.some((port) => isAllowedOrigin(originHeader, boundHost, opts.allowedHosts, port));
+}
+
+type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPorts'>;
+
+function guardLoopback(req: IncomingMessage, res: ServerResponse, opts: GuardOptions): boolean {
   const hostHeader = getHeader(req, 'host');
   const originHeader = getHeader(req, 'origin');
-  if (!isAllowedHost(hostHeader, boundHost, allowedHosts)) {
+  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
     return false;
   }
-  // A /__pyric request comes from a page on this same server, so the Origin names this port.
-  if (originHeader && !isAllowedOrigin(originHeader, boundHost, allowedHosts, req.socket.localPort)) {
+  if (originHeader && !isAppOrigin(req, originHeader, opts)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }
@@ -583,14 +597,14 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
     const isDiagnostics = url.pathname === DIAGNOSTICS_PATH;
     if (isDiagnostics) {
-      const refused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const refused = !guardLoopback(req, res, opts);
       if (refused) return true;
       return diagnostics(req, res).then(() => true);
     }
     const thresholds = opts.thresholds;
     const isThresholdRequest = thresholds !== undefined && url.pathname === '/__pyric/thresholds';
     if (isThresholdRequest) {
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
       if (sessionRefused) {
@@ -602,7 +616,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const indexes = opts.indexes;
     const isIndexRequest = indexes !== undefined && url.pathname === '/__pyric/indexes';
     if (isIndexRequest) {
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
       if (sessionRefused) {
@@ -616,7 +630,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     if (hasStudioRoutes) {
       const isStudioRequest = url.pathname.startsWith('/__pyric/workspace') || url.pathname.startsWith('/__pyric/projects');
       if (isStudioRequest) {
-        const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+        const hostRefused = !guardLoopback(req, res, opts);
         if (hostRefused) return true;
         return routes(req, res, url);
       }
@@ -624,7 +638,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const state = opts.state;
     const isObjectRequest = state !== undefined && url.pathname.startsWith(STATE_OBJECTS_PREFIX);
     if (isObjectRequest) {
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
       if (sessionRefused) {
@@ -636,7 +650,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     const isStateRequest = state !== undefined && url.pathname === '/__pyric/state';
     if (isStateRequest) {
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
       if (sessionRefused) {
@@ -656,7 +670,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const rateCaptures = opts.rateCaptures;
     const isRateCaptureRequest = rateCaptures !== undefined && url.pathname === '/__pyric/rate-captures';
     if (isRateCaptureRequest) {
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
       if (sessionRefused) {
@@ -667,7 +681,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const capture = opts.capture;
     const isCaptureRequest = capture !== undefined && url.pathname === '/__pyric/capture';
     if (isCaptureRequest) {
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
       if (sessionRefused) {
@@ -683,7 +697,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const events = opts.events;
     const isEventsRequest = events !== undefined && url.pathname === '/__pyric/events';
     if (isEventsRequest) {
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       events.handle(req, res);
       return true;

@@ -158,6 +158,42 @@ describe('oracle conformance (storage)', () => {
     expect(e.code).toBe(obs.code as string);
   });
 
+  it('storage-rules-denied-signed-out-error-code', async () => {
+    // Prod capture: with no signed-in user, an upload under
+    // `allow read, write: if request.auth != null` (the oracle namespace) and
+    // one outside any grant both throw storage/unauthorized (HTTP 403), never
+    // storage/unauthenticated; an anonymous user's upload under the namespace
+    // succeeds, which shows the namespace rule was deployed. The sandbox
+    // gives the same codes. Docs pin: DT-H1-11 in
+    // packages/cli/test/docs-production-claims.test.ts.
+    const obs = load('storage-rules-denied-signed-out-error-code.json');
+    type Attempt = { threw: boolean; code: string | null };
+    const signedOutNamespace = obs.signedOutNamespace as Attempt;
+    const signedOutOutside = obs.signedOutOutside as Attempt;
+    const anonymousNamespace = obs.anonymousNamespace as Attempt;
+    expect(obs.signedOutCurrentUser).toBeNull();
+    expect(obs.namespaceRuleDeployed).toBe(true);
+
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /pyric_oracle/{run}/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
+    const sandbox = initializeSandbox({});
+    const signedOut = getStorageSandbox(sandbox, { dbName: uniqueDbName('signed-out'), rules });
+    const inNamespace = await caught(() => uploadBytes(ref(signedOut, 'pyric_oracle/r/signed-out/forbidden.bin'), new Blob(['x'])));
+    expect({ threw: true, code: inNamespace.code }).toEqual({ threw: signedOutNamespace.threw, code: signedOutNamespace.code });
+    const outside = await caught(() => uploadBytes(ref(signedOut, 'pyric_oracle_denied_storage/r/signed-out.bin'), new Blob(['x'])));
+    expect({ threw: true, code: outside.code }).toEqual({ threw: signedOutOutside.threw, code: signedOutOutside.code });
+
+    const anonymous = getStorageSandbox(sandbox.withAuth({ uid: 'anon' }), { dbName: uniqueDbName('anonymous'), rules });
+    await uploadBytes(ref(anonymous, 'pyric_oracle/r/anonymous/control.bin'), new Blob(['x']));
+    expect(anonymousNamespace.threw).toBe(false);
+  });
+
   it('storage-uploadstring-unknown-format (KNOWN DIVERGENCE)', async () => {
     // Prod capture: a genuinely-unknown uploadString format string
     // throws storage/unknown; `base64url` (a format Firebase upstream
