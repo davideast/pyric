@@ -2733,6 +2733,21 @@ export const rtdbRegistry = {
           oracleObservations: ["rtdb-rules-denied-error-code"],
           aliases: ["rtdb#115"],
         }),
+        row9({
+          rowRef: "SW1",
+          surface: "rtdb-modular",
+          featureKeys: ["set", "update", "push", "setPriority", "setWithPriority", "onDisconnect"],
+          behavior: "On the SharedWorker and Node host planes, a write whose value, priority or update map the SDK refuses (NaN, Infinity, `undefined`, a function, an invalid key, an update map that is not an object) throws synchronously at the call with the SDK's text, sends nothing, and leaves stored data unchanged: `set`, `update`, `push`, `setPriority`, `setWithPriority` and `onDisconnect().set`, `setWithPriority` and `update`",
+          status: "conforms",
+          evidence: "Production behavior: firebase 12.13.0 offline throws synchronously for each call (`validateFirebaseDataArg`, `validateFirebaseMergeDataArg` and `validatePriority` in `@firebase/database`), recorded in the 2026-10-27 SDK hunt (RP-1, RP-6). `packages/cli/src/serve/worker/client/rtdb-value-validation.ts` runs those checks with their texts before a frame is sent; `bridge/frame-output.ts` refuses to encode an RTDB value JSON cannot carry, and the host refuses a non-object update map with the SDK's text. `packages/cli/test/serve/worker/rtdb-invalid-writes.test.ts` asserts each text and the unchanged data on the SharedWorker client. App scenario `test/apps/node-rtdb-invalid-writes` runs the client SDK under `node --import @pyric/cli/register` against the Node host and reads each path back with `firebase-admin`; on main (c706c6415) `set(ref, NaN)` resolved and deleted the value. CDD assertion `rtdb-modular#SW1` pins the sandbox side: the in-page sandbox fails the same writes and keeps the data.",
+          notes: "Transactions that return such a value are #1373's. The in-page sandbox rejects these writes asynchronously rather than throwing (#1224).",
+          automation: "unit-backed",
+          conformanceTests: [
+            "packages/cli/test/serve/worker/rtdb-invalid-writes.test.ts",
+            "test/apps/node-rtdb-invalid-writes/scenario.ts",
+            "packages/pyric/test/database/cdd/public-operations.test.ts",
+          ],
+        }),
       ],
     },
     {
