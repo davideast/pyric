@@ -108,8 +108,10 @@ service cloud.firestore {
     // Production rejects an expression nested past 99 levels with
     // "Expression is too complex to evaluate safely."
     // (fixtures/compile-limits/captures.json, shapes and-nesting and
-    // paren-nesting, Firestore and Storage).
-    const nesting = compileLimitProbes().filter(p => p.shape.endsWith('-nesting') || p.shape === 'paren-literal' || p.shape === 'index-chain');
+    // paren-nesting, Firestore and Storage; and-chain and and-chain-calls,
+    // flat chains of comparisons and of zero-argument calls, Firestore).
+    const nestingShapes = new Set(['paren-literal', 'index-chain', 'and-chain', 'and-chain-calls']);
+    const nesting = compileLimitProbes().filter(p => p.shape.endsWith('-nesting') || nestingShapes.has(p.shape));
 
     for (const probe of nesting) {
       test(`${probe.label}: ${probe.compiles ? 'no NESTING_DEPTH' : 'NESTING_DEPTH error'}, as production ${probe.compiles ? 'compiles' : 'rejects'} it`, () => {

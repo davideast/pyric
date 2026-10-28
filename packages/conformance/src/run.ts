@@ -4481,6 +4481,63 @@ const probes: Probe[] = [
     },
   },
   {
+    name: 'storage-rules-denied-signed-out-error-code',
+    matrixRow: 'storage #105',
+    rowIds: ['storage#105'],
+    description:
+      'Upload with no signed-in user (not even anonymous), to the oracle namespace (pyric_oracle/*, whose oracle rule is `allow read, write: if request.auth != null` when deployed) and to a path outside it. Capture the error code, HTTP status and class for each, and whether the namespace rule is deployed at the time (an anonymous upload to the namespace succeeds only when it is).',
+    async observe() {
+      if (!storage) {
+        return {
+          skipped: true,
+          reason: 'Storage not enabled on this project (no storageBucket in Web SDK config).',
+        };
+      }
+      const bucket = storage;
+      type Attempt = {
+        threw: boolean;
+        code: string | null;
+        status: number | null;
+        message: string | null;
+        errorName: string | null;
+        isFirebaseError: boolean;
+      };
+      const attempt = async (path: string): Promise<Attempt> => {
+        const ref = storageRef(bucket, path);
+        try {
+          await uploadBytes(ref, new Uint8Array([0xff]));
+          try { await deleteObject(ref); } catch { /* ignored */ }
+          return { threw: false, code: null, status: null, message: null, errorName: null, isFirebaseError: false };
+        } catch (e) {
+          const err = e as { code?: string; message?: string; name?: string; status?: number };
+          return {
+            threw: true,
+            code: err.code ?? null,
+            status: typeof err.status === 'number' ? err.status : null,
+            message: err.message ?? null,
+            errorName: err.name ?? null,
+            isFirebaseError: err.name === 'FirebaseError',
+          };
+        }
+      };
+      await signOut(auth);
+      const signedOutCurrentUser = auth.currentUser === null ? null : 'present';
+      const signedOutNamespace = await attempt(`pyric_oracle/${RUN_ID}/signed-out/forbidden.bin`);
+      const signedOutOutside = await attempt(`pyric_oracle_denied_storage/${RUN_ID}/signed-out.bin`);
+      await signInAnonymously(auth);
+      const anonymousNamespace = await attempt(`pyric_oracle/${RUN_ID}/anonymous/control.bin`);
+      await dropCurrentUser();
+      await signOut(auth);
+      return {
+        signedOutCurrentUser,
+        signedOutNamespace,
+        signedOutOutside,
+        anonymousNamespace,
+        namespaceRuleDeployed: !anonymousNamespace.threw,
+      };
+    },
+  },
+  {
     name: 'rtdb-set-then-get-roundtrip',
     matrixRow: 'rtdb #16/#10',
     rowIds: ['rtdb#16', 'rtdb#10', 'rtdb-modular#M10', 'rtdb-modular#109', 'rtdb-modular#114'],
