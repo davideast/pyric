@@ -37,6 +37,7 @@ import { sendProbe, sendProbeRequest, type ProbeTargets } from './send.ts';
 import {
   clearCaptureState,
   deployOutcome,
+  inactiveFunctions,
   readCaptureState,
   resolveFirebaseTools,
   writeCaptureState,
@@ -130,7 +131,8 @@ function runFirebase(args: string[], env: Record<string, string>): Promise<Fireb
   return new Promise((resolvePromise, reject) => {
     const child = spawn('node', [firebaseTools.bin, ...args], {
       cwd: REPO_ROOT,
-      env: { ...process.env, ...env },
+      // NO_COLOR keeps the `Error:` label plain, so deployOutcome can read it.
+      env: { ...process.env, ...env, NO_COLOR: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -168,7 +170,27 @@ async function deployFixture(projectId: string, env: Record<string, string>): Pr
   if (outcome === 'failed') throw new Error(`firebase deploy exited ${result.status}`);
   if (outcome === 'deployed-without-cleanup-policy') {
     console.log('Functions deployed. No cleanup policy was set; this run deletes its own images.');
+    // The exit status no longer says every function deployed, so read each one back.
+    const inactive = await inactiveFixtureFunctions(await accessToken(), projectId);
+    if (inactive.length > 0) throw new Error(`firebase deploy left fixture functions not ACTIVE: ${inactive.join(', ')}`);
   }
+}
+
+/** Reads every fixture function's state through the v2 API; changes nothing. */
+async function inactiveFixtureFunctions(token: string, projectId: string): Promise<string[]> {
+  const states = new Map<string, string>();
+  for (const fn of FIXTURE_FUNCTIONS) {
+    try {
+      const body = await googleApi(
+        token,
+        `https://cloudfunctions.googleapis.com/v2/projects/${projectId}/locations/${fn.region}/functions/${fn.name}`,
+      ) as { state?: string };
+      if (body.state) states.set(fn.name, body.state);
+    } catch (error) {
+      console.error(`Could not read ${fn.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return inactiveFunctions(FIXTURE_FUNCTIONS.map((fn) => fn.name), states);
 }
 
 async function googleApi(token: string, url: string, init: RequestInit = {}): Promise<unknown> {

@@ -65,18 +65,45 @@ export type DeployOutcome = 'deployed' | 'deployed-without-cleanup-policy' | 'fa
 const CLEANUP_POLICY_REFUSAL = /^Error: Functions successfully deployed but could not set up cleanup policy in locations? /m;
 /** Any other `Error:` line firebase-tools' `logError` printed. */
 const ERROR_LINE = /^Error: /gm;
+/**
+ * What `reporter.printErrors` prints, with `logger.info` and no `Error:`
+ * prefix, when a function failed. In 15.23.0 the cleanup policy refusal is
+ * thrown after it and before "There was an error deploying functions", so a
+ * partial failure can end in the refusal alone.
+ */
+const FUNCTION_FAILURE_LINES = [
+  'Functions deploy had errors with the following functions:',
+  'Unable to set the invoker for the IAM policy on the following functions:',
+];
+const ANSI_ESCAPE = /\u001b\[[0-9;]*m/g;
 
 /**
  * What a `firebase deploy --non-interactive` run did. The cleanup policy
  * refusal counts as deployed: the capture sets no policy on the project and
- * deletes its own images instead. It counts only when it is the one error.
+ * deletes its own images instead. It counts only when it is the one error and
+ * no function failure was reported before it.
  */
 export function deployOutcome(status: number | null, output: string): DeployOutcome {
   if (status === 0) return 'deployed';
   if (status === null) return 'failed';
-  const errorLines = output.match(ERROR_LINE) ?? [];
-  const isOnlyCleanupPolicyRefusal = errorLines.length === 1 && CLEANUP_POLICY_REFUSAL.test(output);
+  const plain = output.replace(ANSI_ESCAPE, '');
+  const reportedFunctionFailure = FUNCTION_FAILURE_LINES.some((line) => plain.includes(line));
+  if (reportedFunctionFailure) return 'failed';
+  const errorLines = plain.match(ERROR_LINE) ?? [];
+  const isOnlyCleanupPolicyRefusal = errorLines.length === 1 && CLEANUP_POLICY_REFUSAL.test(plain);
   return isOnlyCleanupPolicyRefusal ? 'deployed-without-cleanup-policy' : 'failed';
+}
+
+/**
+ * The fixture functions that are not ACTIVE, by the state the Cloud Functions
+ * v2 API reports for each (absent when it has none), as `name (STATE)`.
+ */
+export function inactiveFunctions(names: readonly string[], states: ReadonlyMap<string, string>): string[] {
+  return names.flatMap((name) => {
+    const state = states.get(name);
+    if (state === 'ACTIVE') return [];
+    return [`${name} (${state ?? 'not deployed'})`];
+  });
 }
 
 /** The run a later start must clean up if this one never reaches its own cleanup. */

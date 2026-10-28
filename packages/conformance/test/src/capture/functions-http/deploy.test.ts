@@ -6,6 +6,7 @@ import {
   FIREBASE_TOOLS_VERSION,
   clearCaptureState,
   deployOutcome,
+  inactiveFunctions,
   readCaptureState,
   resolveFirebaseTools,
   writeCaptureState,
@@ -37,13 +38,53 @@ describe('deployOutcome', () => {
     expect(deployOutcome(2, 'Error: An unexpected error has occurred.')).toBe('failed');
   });
 
-  it('reads a cleanup policy refusal alongside a failed function as failed', () => {
-    const output = `Error: There was an error deploying functions\n${CLEANUP_POLICY_ERROR}`;
+  // firebase-tools 15.23.0 `release/index.js`: reporter.printErrors lists the
+  // failed functions with logger.info (no `Error:` prefix), then
+  // setupArtifactCleanupPolicies throws before "There was an error deploying
+  // functions" is reached, so the policy error is the only `Error:` line.
+  it('reads a partial failure that ends in the cleanup policy refusal as failed', () => {
+    const output = [
+      'i  functions: creating Node.js 22 (2nd Gen) function pyricHttpRegional(us-east1)...',
+      '',
+      'Functions deploy had errors with the following functions:',
+      '\tpyricHttpEcho(us-central1)',
+      '',
+      '⚠  functions: No cleanup policy detected for repositories in us-central1, us-east1.',
+      '',
+      CLEANUP_POLICY_ERROR.replace('location us-east1', 'locations us-central1, us-east1'),
+      '',
+    ].join('\n');
     expect(deployOutcome(1, output)).toBe('failed');
+  });
+
+  it('reads a failed invoker set that ends in the cleanup policy refusal as failed', () => {
+    const output = [
+      'Unable to set the invoker for the IAM policy on the following functions:',
+      '\tpyricHttpEcho(us-central1)',
+      CLEANUP_POLICY_ERROR,
+    ].join('\n');
+    expect(deployOutcome(1, output)).toBe('failed');
+  });
+
+  it('reads the refusal through a colored Error: label', () => {
+    expect(deployOutcome(1, `\u001b[1m\u001b[31mError:\u001b[39m\u001b[22m ${CLEANUP_POLICY_ERROR.slice('Error: '.length)}`)).toBe(
+      'deployed-without-cleanup-policy',
+    );
   });
 
   it('reads a signal or a missing status as failed', () => {
     expect(deployOutcome(null, CLEANUP_POLICY_ERROR)).toBe('failed');
+  });
+});
+
+describe('inactiveFunctions', () => {
+  it('names every fixture function that is missing or not ACTIVE', () => {
+    expect(inactiveFunctions(['a', 'b', 'c', 'd'], new Map([['a', 'ACTIVE'], ['b', 'FAILED'], ['c', 'DEPLOYING']]))).toEqual([
+      'b (FAILED)',
+      'c (DEPLOYING)',
+      'd (not deployed)',
+    ]);
+    expect(inactiveFunctions(['a'], new Map([['a', 'ACTIVE']]))).toEqual([]);
   });
 });
 
