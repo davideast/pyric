@@ -139,8 +139,12 @@ export function resolveChildModulePath(childModuleUrl?: string | URL): string {
  * Assemble the child process environment variables.
  *
  * Guaranteed child-only synthetic sandbox metadata:
- * - GCLOUD_PROJECT is set to the resolved sandbox project ID
+ * - GCLOUD_PROJECT, GOOGLE_CLOUD_PROJECT and GCP_PROJECT are set to the
+ *   resolved sandbox project ID, as production sets them to the function's
+ *   own project (the Firebase emulator reserves the same three)
  * - FIREBASE_CONFIG is set to synthetic JSON with projectId, databaseURL, and storageBucket
+ * - GOOGLE_APPLICATION_CREDENTIALS is removed, so a Google client in function
+ *   code never loads the host's credentials file
  *
  * Explicit control flow ensures that host environment cannot pollute or route
  * sandbox functions execution to a production Firebase/GCP project.
@@ -166,8 +170,11 @@ export function buildFunctionsChildEnv(options: FunctionsChildEnvOptions): NodeJ
     PYRIC_FUNCTIONS_LOCATION: location,
     PYRIC_FUNCTIONS_DATABASE_HOST: databaseHost,
     GCLOUD_PROJECT: projectId,
+    GOOGLE_CLOUD_PROJECT: projectId,
+    GCP_PROJECT: projectId,
     FIREBASE_CONFIG: syntheticFirebaseConfig,
   };
+  delete childEnv.GOOGLE_APPLICATION_CREDENTIALS;
 
   return childEnv;
 }
