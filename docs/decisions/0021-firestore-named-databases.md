@@ -77,10 +77,22 @@ decision below.
    `packages/pyric/src/storage/sandbox/rules-firestore-lookup.ts` ("Storage
    rules may access only the default Firestore database") matches it and stays.
 
-The plan asked for a Rules Test API capture before this record states how
-production evaluates rules for a named database. This record was written
-without running captures. Where production's behavior is unknown, it says so
-and names the capture that settles it.
+A fourth fact comes from capture C3, run for this record on 2026-10-28
+(observation `firestore-named-database-absent`, under "Captures"):
+
+4. **Production has no "database not found" verdict for the client, and no
+   special error for a malformed id.** A read from a database the project
+   lacks gets `NOT_FOUND: The database <id> does not exist for project <p> ...`
+   from the backend. The Admin SDK rejects with that message. The client SDK
+   treats it as a connection failure: it logs the `NOT_FOUND`, goes offline,
+   and `getDoc` rejects with `unavailable`, `Failed to get document because the
+   client is offline.` An id outside the naming rules (`Bad_Id`) and the keyword
+   `default` get the same answer as a valid id that doesn't exist.
+
+Two captures could not run for this record. C1, the Rules Test API, was
+refused: the oracle service account lacks `firebaserules.rulesets.test`. C2,
+which deploys rules to `probes`, waits for David's approval. Where production's
+behavior still rests on them, this record says so.
 
 ## Decisions
 
@@ -112,7 +124,9 @@ that production could not have created (the
 [naming rules](https://firebase.google.com/docs/firestore/manage-databases):
 4 to 63 characters, lowercase letters, numbers and hyphens, starting with a
 letter, ending with a letter or number, not shaped like a UUID) is a database
-that does not exist. Decision 3 covers what using one does.
+that does not exist. C3 confirms production answers `Bad_Id` exactly as it
+answers a valid id it lacks, and answers `default` the same way, so `default`
+is a named database. Decision 3 covers what using one does.
 
 The checks the SDK does make are ported, with their messages:
 
@@ -247,22 +261,41 @@ A named database that `firebase.json` deploys no rules to starts locked, unless
 the runtime runs in permissive mode, which opens it as it opens `(default)`.
 Pyric logs this once per database, as `undeployedInstanceNotice` does for RTDB.
 
-**A database that does not exist.** Production cannot hold a database
-`firebase.json` doesn't name, but pyric can't tell that apart from one created
-in the console. This record does not know what the client and Admin SDKs
-report when they address a database that doesn't exist. Until capture C3
-settles it, pyric serves any id under the locked rules above. If C3 shows a
-distinct error, an id outside the naming rules gets that error, and an id
-inside them keeps being served, because pyric cannot see the console.
+**A database that does not exist.** Pyric cannot see the console, so a
+database exists in pyric when something declares it:
+
+- a `firestore` entry in `firebase.json` names it, by `database` or by a
+  `target` that `.firebaserc` resolves to it (decision 6);
+- a seed, a restored snapshot or a host store holds documents for it;
+- the sandbox API declares it, as `setRules` with a database id does.
+
+Every other id is a database that does not exist, and pyric answers as C3
+recorded production answering:
+
+- the Admin SDK and `pyric-admin` reject with gRPC code 5, `5 NOT_FOUND: The
+  database <id> does not exist for project <project> Please visit
+  https://console.cloud.google.com/datastore/setup?project=<project> to add a
+  Cloud Datastore or Cloud Firestore database. `;
+- the client SDK logs the same `NOT_FOUND` as a connection failure, and `getDoc`
+  rejects with `unavailable`, `Failed to get document because the client is
+  offline.`;
+- pyric adds one notice naming the entry to add to `firebase.json`.
+
+C3 captured one-shot reads only. What an `onSnapshot` listener and a write
+against a missing database do was not captured. Until it is, a listener gets
+the client's offline behavior and a write rejects as the Admin SDK's read does,
+and MD9 says which parts are captured.
 
 Rejected:
 
 - **Allow cross-database lookups until captured.** It could fail open.
-- **Refuse every id `firebase.json` does not name.** A project that creates
-  its databases in the console and deploys rules from the CLI declares them
-  only by its rules entries, and a project with no rules entry for a database
-  would lose it. Locked rules give the same verdicts for the client and keep
-  admin access working.
+- **Serve any id under locked rules.** This record proposed it before C3.
+  Admin access to an undeclared database would then succeed in pyric where
+  production fails with `NOT_FOUND`, so pyric would allow what production
+  denies.
+- **Refuse an id outside the naming rules at `getFirestore`.** C3 shows
+  production accepts the call and fails the request like any missing
+  database.
 
 ### 4. The worker protocol: one versioned change
 
@@ -504,7 +537,7 @@ count raised by the same number in the same change (AGENTS.md item 6;
 | MD6 | rules `get()`, `exists()`, `getAfter()`, `existsAfter()` of another database | #1316, status from C2 |
 | MD7 | a `DocumentReference` field or a batch or transaction reference from another database is refused with the SDK's message | #1316 |
 | MD8 | a named database without deployed rules denies client access | #1319 |
-| MD9 | a database that does not exist | #1316, status from C3 |
+| MD9 | a database that does not exist: the Admin SDK's `NOT_FOUND` and the client's offline `unavailable`, on C3's evidence; listeners and writes unverified | #1316 |
 | MD10 | per-database rules from the `firestore` array, `target` and `database` forms | #1319 |
 
 The refusal of a host that predates `workerProtocol` 2 (decision 4) has no
@@ -534,7 +567,7 @@ this record merges, and its body is updated to match what's here.
 2. **#1316**: the identity module, one environment per database, the rules
    binding, the ported SDK errors, `SandboxSnapshot.firestoreDatabases`, and the
    sandbox `getFirestore` forms. Flips MD1 and, with a capture, MD4. Adds MD5,
-   MD6, MD7, MD9.
+   MD6, MD7, MD9 (a missing database answers as C3 recorded).
 3. **#1317**: `databaseId` on the worker protocol, `workerProtocol` 2 on the
    connect exchanges, the served entry, the bridge relay and the Node host.
    Flips MD2.
@@ -552,10 +585,11 @@ this record merges, and its body is updated to match what's here.
 persistence. Nothing else in the sequence runs in parallel, because #1316
 changes the sandbox core every later issue builds on.
 
-## Captures this record needs
+## Captures
 
-None was run for this record. Each is named with what it settles and what it
-costs.
+All three captures use `packages/conformance/src/capture-firestore-named-databases.ts`
+against the oracle project `digame-mas`, run one at a time under the shared
+production-capture lock.
 
 - **C1: Rules Test API against a named database's path.** Through
   `packages/conformance/src/run-rules.ts`, a scenario in
@@ -565,18 +599,43 @@ costs.
   to there. It needs only `firebaserules.rulesets.test` and changes no
   production state. If the API refuses the path or always binds `(default)`, C2
   settles MD4 instead.
+
+  Not run. The `run-rules.ts` corpus cannot express it, because
+  `normalizeDocPath` in `packages/pyric/src/rules/test/spec.ts` always prefixes
+  `/databases/(default)/documents/`, so the capture script's `rules-api` mode
+  posts its own test cases (`RULES_PROBES`: `database` against each id,
+  `request.path[1]`, a literal `match /databases/probes/documents`, and a mocked
+  `get()` of each database). On 2026-10-28 the API answered `403`: the
+  `digame-mas` service account lacks `firebaserules.rulesets.test`. It runs
+  unchanged once a credential that holds that permission is named.
 - **C2: real SDK against `probes`.** A deploy-observe-restore capture, like
   `storage-stdlib-real.ts`, that deploys a ruleset to the `probes` database's
   release and to `(default)`'s, then observes: what `database` binds to; whether
   `get()` and `exists()` in each database can read the other; and that the same
   path holds different documents. It settles MD4 and MD6 and gives MD1 an
   oracle observation. Deploying rules to `probes` changes production state, so
-  it waits for David's yes (Decision 2 for David).
-- **C3: a database that does not exist.** With the client SDK and the Admin
-  SDK, `getDoc` against `getFirestore(app, '<an id the project lacks>')` and
-  against an id outside the naming rules, recording the error code and
-  message. It settles MD9 and decision 3's handling of unknown ids. It reads
-  only and creates nothing.
+  it waits for David's yes (Decision 2 for David). It must snapshot the
+  `cloud.firestore/probes` release before it deploys, restore it, and read it
+  back to confirm, and it touches no other database.
+
+  Not run yet: it waits for that yes.
+- **C3: a database that does not exist.** Run 2026-10-28, observation
+  `packages/conformance/observations/firestore/firestore-named-database-absent.json`,
+  linked from MD1. It reads one missing document from `pyric-absent-<run>`,
+  `Bad_Id` and `default` through the client SDK 12.13.0 (no sign-in), the Admin
+  SDK 13.10.0 and the REST API, with `(default)` and `probes` as controls. It
+  reads only and creates nothing.
+
+  | Database | Client `getDoc` | Admin `get()` | REST |
+  | --- | --- | --- | --- |
+  | `pyric-absent-<run>` | `unavailable`, client is offline | code 5, `NOT_FOUND: The database ... does not exist` | `404 NOT_FOUND`, same message |
+  | `Bad_Id` | same | same | same |
+  | `default` | same | same | same |
+  | `(default)` (control) | `permission-denied` | missing document | `404`, `Document ... not found.` |
+  | `probes` (control) | `permission-denied` | missing document | `404`, `Document ... not found.` |
+
+  It settles decision 3's handling of a missing database and decision 1's
+  reading of `default`.
 
 ## Consequences
 
@@ -590,6 +649,10 @@ costs.
 - An older build refuses a version 7 host store and drops named databases from
   a newer bundle. Downgrades keep `(default)`.
 - Until C2 runs, a rule reading another database denies, and MD6 says so.
+  Until C1 or C2 runs, MD4 stays `diverged-documented` once #1316 lands, with a
+  note that pyric binds the handle's id on the docs' word alone.
+- A database nothing declares behaves as missing, so a project that created a
+  database in the console must name it in `firebase.json` to use it in pyric.
 - `instances.ts`'s generic registry moves to a service-neutral module, a
   mechanical change in #1316.
 - ADR-0011 gains a protocol version before its handshake exists. When phase D
@@ -602,7 +665,11 @@ costs.
    Decision 4 says where it goes and who refuses.
 2. **A capture against a named database.** The oracle project already has the
    `probes` named database, so nothing needs creating. Recommended: approve C2,
-   which deploys and then restores rules on `probes`, only if C1 cannot settle
-   MD4. MD6 needs C2 either way, so the yes covers both.
-3. **The order.** Recommended: decision 10's order, which is the one proposed
+   which deploys and then restores rules on `probes`. MD6 needs it whatever C1
+   shows, and while C1 is blocked it is also the only way to settle MD4.
+3. **A credential for C1.** The `digame-mas` service account lacks
+   `firebaserules.rulesets.test`. Recommended: grant that one permission to it,
+   or name the credential the parity harness uses, and C1 runs as written.
+   Granting it changes IAM in production, so it is yours to do.
+4. **The order.** Recommended: decision 10's order, which is the one proposed
    in #1314, with #1318 free to run beside #1319 and #1320.

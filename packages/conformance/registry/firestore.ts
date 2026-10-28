@@ -320,6 +320,7 @@ export const firestoreRegistry = {
           statusNote: "every database id resolves to (default)",
           evidence: "`packages/pyric/test/firestore/named-database.test.ts` asserts two database ids return the `(default)` handle and that a document written under one id reads back under another.",
           conformanceTests: ["packages/pyric/test/firestore/named-database.test.ts"],
+          oracleObservations: ["firestore-named-database-absent"],
         }),
         namedDatabaseRow({
           rowRef: "MD2",
