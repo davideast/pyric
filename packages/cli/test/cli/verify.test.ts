@@ -162,6 +162,25 @@ describe('runVerify', () => {
     expect(await verifyIn(dir, ['session.json'])).toBe(0);
   });
 
+  // #1315: the (default) entry of an array, not a firestore.rules the array does not name.
+  it('resolves the (default) entry of a firestore array in firebase.json', async () => {
+    const dir = tmp();
+    writeFirebaseJson(dir, {
+      firestore: [
+        { database: '(default)', rules: 'firestore.default.rules' },
+        { database: 'reports', rules: 'reports.rules' },
+      ],
+    });
+    writeFileSync(join(dir, 'firestore.default.rules'), DENY_ALL_FIRESTORE_RULES);
+    writeFileSync(join(dir, 'reports.rules'), ALICE_RULES);
+    writeFileSync(join(dir, 'firestore.rules'), ALICE_RULES);
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureFirestoreFixture()));
+    expect(await verifyIn(dir, ['session.json'])).toBe(1);
+
+    writeFileSync(join(dir, 'firestore.default.rules'), ALICE_RULES);
+    expect(await verifyIn(dir, ['session.json'])).toBe(0);
+  });
+
   it('exit 1 when Firestore candidate rules would change captured writes', async () => {
     const dir = tmp();
     writeFirebaseJson(dir, { firestore: { rules: 'firestore.rules' } });

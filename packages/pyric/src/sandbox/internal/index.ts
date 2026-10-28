@@ -219,6 +219,19 @@ export {
   type DatabaseRulesFileTarget,
   type UnresolvedDatabaseRulesTarget,
 } from './database-rules-config.js';
+export {
+  DEFAULT_FIRESTORE_DATABASE,
+  DEFAULT_FIRESTORE_RULES_FILE,
+  FIRESTORE_NAMED_DATABASES_ISSUE,
+  FIRESTORE_RULES_OVERRIDE_KEY,
+  defaultFirestoreDatabase,
+  firestoreRulesConfig,
+  unservedFirestoreDatabaseWarnings,
+  type FirestoreDatabaseConfig,
+  type FirestoreRulesConfig,
+  type FirestoreRulesConfigOptions,
+  type UnresolvedFirestoreTarget,
+} from './firestore-rules-config.js';
 export { parsePyricSandbox, isRemoteActivation, type PyricSandboxActivation } from './sandbox-activation.js';
 export {
   clearProcessActivation,

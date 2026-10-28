@@ -24,6 +24,8 @@ import { assertNotAppInstance, stagingTargetFrom, stagingToken, type StagingTarg
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
+import { firestoreDatabases } from '../serve/rules.js';
+import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
 import {
   isRtdbInstanceRulesKey,
   resolveRtdbCandidateRules,
@@ -551,7 +553,7 @@ async function resolveCandidateRules(
   const rules: VerifyRulesInput = {};
   const paths: Record<string, string> = {};
   if (services.includes('firestore')) {
-    const rel = overrides.firestore ?? (await readConfig())?.firestore?.rules;
+    const rel = overrides.firestore ?? configuredFirestoreRules(cwd, await readConfig(), input.project);
     if (!rel) {
       throw new Error('missing candidate firestore rules. Pass --rules firestore=<path> or configure firebase.json.');
     }
@@ -591,6 +593,14 @@ async function resolveCandidateRules(
     rules.storage = readFileSync(path, 'utf8');
   }
   return { rules, paths };
+}
+
+/** The rules file `firebase.json` names for the `(default)` Firestore database, from either `firestore` form. */
+function configuredFirestoreRules(cwd: string, config: FirebaseJson | null, project: string | undefined): string | undefined {
+  const projectId = project ?? readFirebaseRcSync(cwd)?.projects?.default;
+  const databases = firestoreDatabases(cwd, config, projectId === undefined ? {} : { projectId });
+  const entry = defaultFirestoreDatabase(databases);
+  return entry?.configured === true ? entry.rulesFile : undefined;
 }
 
 function configuredStorageRules(config: FirebaseJson | null): string | undefined {

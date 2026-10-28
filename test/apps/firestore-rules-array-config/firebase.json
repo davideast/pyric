@@ -1,0 +1,6 @@
+{
+  "firestore": [
+    { "database": "(default)", "rules": "firestore.default.rules" },
+    { "database": "reports", "rules": "reports.rules" }
+  ]
+}
