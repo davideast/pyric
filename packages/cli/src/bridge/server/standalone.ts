@@ -39,6 +39,7 @@ import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from '
 import { sendBridgeMessage } from './socket-message.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
+import { createAppPorts } from '../../serve/app-ports.js';
 
 const BRIDGE_VERSION = pyricVersion();
 const DEFAULT_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
@@ -185,6 +186,8 @@ export async function startServer(
   }
 
   // ── HTTP server ─────────────────────────────────────────────────
+  // No proxy fronts this bridge, so it learns no port: an MCP request names this port or none.
+  const mcpPorts = createAppPorts('127.0.0.1');
   const http = createServer(async (req, res) => {
     const url = req.url ?? '/';
     const debugEnabled = Boolean(process.env.PYRIC_DEBUG);
@@ -201,7 +204,7 @@ export async function startServer(
     const supportsMcpMethod = req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE';
     const requestsMcp = url === DEFAULT_MCP_PATH && supportsMcpMethod;
     if (requestsMcp) {
-      const refusesOrigin = !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts);
+      const refusesOrigin = !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts, mcpPorts.forRequest(req));
       if (refusesOrigin) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
@@ -270,6 +273,8 @@ export async function startServer(
     // DNS-rebinding + cross-origin hijack guard (the request-time isAllowedHost
     // runs on the `request` event only — `upgrade` bypasses it). The standalone
     // bridge binds 127.0.0.1 only, so the allowlist is the loopback set.
+    // The port is not compared here: this bridge is a sidecar, and the browser
+    // peer it serves loads from the app's own dev server on another port.
     const refusesUpgrade = !isAllowedUpgrade(req.headers, '127.0.0.1', opts.allowedHosts);
     if (refusesUpgrade) {
       logger.error(

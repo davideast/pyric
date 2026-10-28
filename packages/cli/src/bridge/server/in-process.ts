@@ -53,7 +53,12 @@ import {
 import type { BridgeToolEvent } from './bridge.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { claimProjectState } from '../../serve/hosted/project-ownership.js';
-import { firestoreDatabaseWarnings, firestoreDatabases } from '../../serve/rules.js';
+import {
+  firestoreDatabaseWarnings,
+  firestoreDatabases,
+  prepareStorageRulesSource,
+  storageRulesPath,
+} from '../../serve/rules.js';
 import { readFirebaseRcSync, type FirebaseJson } from '../../cli/firebase-json.js';
 import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
 import { TargetRouter } from './target-router.js';
@@ -209,23 +214,28 @@ export function loadProjectRules(
  * a restored session complete. Returns the storage handle, which the sidecar
  * codec reads and writes; storage keeps its own durability and is not in the
  * bundle at all.
+ *
+ * Storage enforces the rules file the project deploys, found and prepared as
+ * the dev server finds and prepares it: the first `firebase.json` `storage`
+ * entry with a `rules` path, else `storage.rules` in `cwd`, with `2+modules`
+ * imports resolved against the file's own directory.
  */
 export function openPersistedServices(sandbox: LocalSandbox, cwd: string): FirebaseStorage {
   getAuth(sandbox);
   getAdminDatabase(sandbox);
   // Storage rules are read only by the call that opens the service, so the
   // project's rules have to be in hand here or not at all.
-  const rulesPath = join(cwd, 'storage.rules');
+  const rulesPath = storageRulesPath(cwd, readProjectFirebaseJson(cwd));
   if (!existsSync(rulesPath)) return getAdminStorageSandbox(sandbox);
   const source = readFileSync(rulesPath, 'utf8');
   try {
-    return getAdminStorageSandbox(sandbox, { rules: source });
+    return getAdminStorageSandbox(sandbox, { rules: prepareStorageRulesSource(source, rulesPath) });
   } catch (error) {
-    // A rules file that does not parse cannot govern the service, but a lint
-    // call must still be able to say what is wrong with it. The service opens
-    // without rules and the source is kept for the lint operation.
+    // A rules file the sandbox cannot install cannot govern the service, but a
+    // lint call must still be able to say what is wrong with it. The service
+    // opens without rules and the source is kept for the lint operation.
     process.stderr.write(
-      `[pyric mcp in-process] storage.rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
+      `[pyric mcp in-process] Storage rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     rememberUnloadedStorageRules(sandbox, source);
     return getAdminStorageSandbox(sandbox);

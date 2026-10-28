@@ -31,6 +31,7 @@ import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/p
 import { pointerHeldByAnotherHost } from './discovery.js';
 import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
+import { createAppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
@@ -68,6 +69,11 @@ export interface BridgeMountOptions {
    *  `allowedHosts: true` = the caller (vite `server.allowedHosts: true`) opted
    *  into all hosts. Omit ⇒ loopback-only. */
   upgradeGuard?: { boundHost: string; allowedHosts?: string[] | true };
+  /** Accept a page on the port of a dev server that proxies `/__pyric/*` to
+   *  this one (`pyric sandbox -- next dev`). Only the standalone server sets
+   *  it. A mount inside a dev server, such as the Vite plugin's, serves the
+   *  page on its own port, which the connection's port already covers. */
+  learnsProxyPorts?: boolean;
 }
 
 export interface BridgeMount {
@@ -131,6 +137,8 @@ export interface BridgeHostAttachment {
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
+  // The ports a page of this app may name in its Origin (see app-ports.ts).
+  const appPorts = createAppPorts(opts.upgradeGuard?.boundHost ?? 'localhost');
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
   let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
@@ -313,6 +321,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     instanceId: bridge.instanceId,
 
     async handler(req, res, url) {
+      if (opts.learnsProxyPorts === true) appPorts.learn(req);
       const isHealthRequest = url.pathname === HEALTH_PATH;
       const isMcpRequest = url.pathname === MCP_PATH;
       const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
@@ -338,7 +347,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const allowedHosts = guard?.allowedHosts;
           const hasNamedHosts = Array.isArray(allowedHosts);
           const extra = hasNamedHosts ? allowedHosts : [];
-          const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extra);
+          const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extra, appPorts.forRequest(req));
           if (isForbidden) {
             res.writeHead(403, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
@@ -534,7 +543,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const allowedHosts = guard.allowedHosts;
           const hasNamedHosts = Array.isArray(allowedHosts);
           const extra = hasNamedHosts ? allowedHosts : [];
-          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra);
+          const acceptsProxiedPage = opts.learnsProxyPorts === true;
+          const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
+          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra, ports);
           if (isForbidden) {
             socket.destroy();
             return;
