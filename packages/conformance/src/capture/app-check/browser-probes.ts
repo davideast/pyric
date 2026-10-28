@@ -45,7 +45,7 @@ export interface BrowserProbeInput {
   only?: string[];
 }
 
-/** Browser probes that run on their own, without the main flow. Only the before-initialize one sends an AI request. */
+/** Browser probes that run on their own, without the main flow. The ones that send an AI request are AI_REQUEST_BROWSER_PROBES (enforcement-guard.ts). */
 export const STANDALONE_BROWSER_PROBES = [
   'app-check-client-initialize-twice',
   'app-check-client-initialize-twice-unset-auto-refresh',

@@ -97,7 +97,7 @@ bun --env-file=<repo>/.env packages/conformance/src/app-check-probes.ts
 A run registers one debug token named `pyric-app-check-capture-<runId>` and deletes it in a `finally` block.
 It first deletes any debug token whose display name starts with `pyric-app-check-capture-`, left over from an interrupted run, so it is safe to re-run.
 
-To capture only some standalone browser probes, pass `--only=<name>,<name>` (the names in `STANDALONE_BROWSER_PROBES`, `capture/app-check/browser-probes.ts`). That run skips the admin, wire, and main-flow probes, so it sends no `generateContent` request unless it names `app-check-client-get-token-before-initialize`.
+To capture only some standalone browser probes, pass `--only=<name>,<name>` (the names in `STANDALONE_BROWSER_PROBES`, `capture/app-check/browser-probes.ts`). That run skips the admin, wire, and main-flow probes, so it sends no `generateContent` request unless it names `app-check-client-get-token-before-initialize`. A selection that names that probe reads AI Logic enforcement first, as a full run does, and refuses to run when enforcement is on (`capture/app-check/enforcement-guard.ts`).
 `app-check-client-initialize-twice-unset-auto-refresh` and `app-check-client-get-token-concurrent` were captured that way on 2026-10-28, against the oracle project `digame-mas`.
 
 ## Enforcement step (proposal, not run)
