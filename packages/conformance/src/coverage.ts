@@ -26,17 +26,23 @@
  * relabeling-to-game-the-number this script exists to prevent.
  *
  * Usage:
- *   bun run compat:coverage                    # human table + regression check (CI)
- *   bun run compat:coverage --json              # machine JSON only, no regression check
- *   bun run compat:coverage --update-baseline   # recompute and overwrite the committed baseline
+ *   bun run compat:coverage                      # human table only
+ *   bun run compat:coverage --json               # machine JSON only, no regression check
+ *   bun run compat:coverage --base-report <file> --base-commit <sha> [--report-out <file>]
+ *                                                # table + regression check (CI)
  *
- * Exit codes: 0 clean / baseline updated, 1 a regression was found vs. the
- * committed baseline (coverage-baseline.json). NEVER fails on an absolute
- * percentage threshold — see the design note at the bottom of this file.
+ * The regression check compares this commit's report with the base commit's
+ * report, so `main` itself is the baseline and nothing is committed. CI
+ * restores the base report from the Actions cache, or computes it from a
+ * worktree of the base commit (scripts/ci/conformance-gates.sh), and
+ * `--report-out` writes this commit's report for the commits built on it.
+ *
+ * Exit codes: 0 clean, 1 a regression was found vs. the base report. NEVER
+ * fails on an absolute percentage threshold (see findRegressions()).
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CensusSurface } from '../surfaces/types.ts';
 import { type Surface } from '../registry/index.ts';
@@ -46,8 +52,6 @@ import { deriveConformanceModel, type ConformanceModel } from './conformance-mod
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
 const ENTRY_PATH_GATE_SCRIPT = join(HERE, 'entry-path-gate.ts');
-const BASELINE_PATH = join(HERE, '..', 'baselines', 'coverage-baseline.json');
-const ROW_REMOVAL_ALLOWLIST_PATH = join(HERE, '..', 'row-removal-allowlist.json');
 
 interface CensusRow {
   surface: CensusSurface;
@@ -61,7 +65,7 @@ interface CensusRow {
 // reimplemented) ────────────────────────────────────────────────────────────
 
 /** One program's result, as entry-path-gate.ts --json reports it (subset). */
-interface EntryPathProgramSummary {
+export interface EntryPathProgramSummary {
   program: string;
   verdict: 'green' | 'red-known' | 'red' | 'stale-expected-failure';
 }
@@ -187,7 +191,10 @@ export interface CoverageReport {
   entryPath: EntryPathProgramSummary[];
 }
 
-function buildReport(model: ConformanceModel): CoverageReport {
+export function buildReport(
+  model: ConformanceModel,
+  entryPath: () => EntryPathProgramSummary[] = runEntryPathGate,
+): CoverageReport {
   const censuses = model.census;
   const censusBySurface = new Map(censuses.map((c) => [c.surface, c]));
   const ledger = buildCompatibilityLedger(model);
@@ -244,7 +251,6 @@ function buildReport(model: ConformanceModel): CoverageReport {
   const rowStatuses: Record<string, string> = {};
   for (const r of ledger.entries) rowStatuses[r.id] = r.status;
 
-  const entryPath = runEntryPathGate();
 
   return {
     generatedAt: new Date().toISOString(),
@@ -253,7 +259,7 @@ function buildReport(model: ConformanceModel): CoverageReport {
     orphanObservations: ledger.orphanObservations.map((o) => o.name),
     highRiskUnverified: highRisk,
     rowStatuses,
-    entryPath,
+    entryPath: entryPath(),
   };
 }
 
@@ -328,199 +334,172 @@ function printTable(report: CoverageReport, model: ConformanceModel): void {
   }
 }
 
-// ── Baseline + regression gate ──────────────────────────────────────────────
+// ── Regression gate: the head report against the base commit's report ───────
 
-interface BaselineService {
-  /** Absent for a native surface (no upstream breadth to ratchet). */
-  publicSurface?: SurfaceCoverage;
-  /** Marks a native surface so the regression gate skips its (absent) breadth. */
-  native?: boolean;
-  /** Marks an unchanged-upstream integration surface with no export census. */
-  integration?: boolean;
-}
-
-export interface Baseline {
-  generatedAt: string;
-  services: Record<string, BaselineService>;
-  overall: { publicSurface: SurfaceCoverage };
-  rowStatuses: Record<string, string>;
-  highRiskUnverified: string[];
-  orphanObservations: string[];
-  /** program -> verdict, at baseline time. See findRegressions()'s entry-path
-   *  rule: this is the ONE cliff exception to the ratchet — a program that
-   *  was 'green' and is no longer is a FAILURE, full stop, never tolerated. */
-  entryPathVerdicts: Record<string, string>;
-}
+/** Where a change adds `<row-id>.md` to accept that row's demotion or removal. */
+export const ACCEPTANCES_DIR = 'packages/conformance/coverage-acceptances';
 
 /**
- * The reviewed escape hatch for DELETING a baseline registry row.
- *
- * Without it the ratchet could be cleared by deleting inconvenient rows rather
- * than fixing them — dropping a `bug` row shrinks the denominator and lifts the
- * published percentage, which is the same relabeling dishonesty this file
- * exists to prevent, spelled with a delete key. A row may therefore only leave
- * the registry if its id is listed here with a reason, in the diff, under
- * review. Absent/empty file = no removals permitted.
+ * One acceptance file. The change that demotes a `conforms` row, or removes a
+ * row, adds `coverage-acceptances/<row-id>.md` with the reason and the issue.
+ * Only files the change adds count (loadAddedAcceptances): a file from an
+ * earlier merge stays as a record and can never authorize a later change.
  */
-export interface RowRemoval {
-  /** Why this row is allowed to leave the registry (e.g. merged into another row, surface retired). */
-  reason: string;
+export interface CoverageAcceptance {
+  rowId: string;
+  /** Repo-relative path, as the change added it. */
+  path: string;
+  text: string;
 }
 
-export type RowRemovalAllowlist = Record<string, RowRemoval>;
+const ACCEPTANCE_NAME = /^([A-Za-z0-9._-]+#[A-Za-z0-9._-]+)\.md$/;
+const ISSUE_REFERENCE = /#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+/;
 
-export function loadRowRemovalAllowlist(path: string = ROW_REMOVAL_ALLOWLIST_PATH): RowRemovalAllowlist {
-  if (!existsSync(path)) return {};
-  let allowlist: RowRemovalAllowlist;
-  try {
-    allowlist = JSON.parse(readFileSync(path, 'utf8')) as RowRemovalAllowlist;
-  } catch (err) {
-    // A raw SyntaxError names neither the file nor the gate; this hatch is
-    // hand-authored, so the reader needs to be told exactly what to fix.
-    throw new Error(`Row-removal allowlist at ${path} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  for (const [id, entry] of Object.entries(allowlist)) {
-    if (typeof entry?.reason !== 'string' || entry.reason.trim() === '') {
-      throw new Error(`Row-removal allowlist entry '${id}' needs a non-empty reason`);
+export function parseAcceptance(path: string, text: string): CoverageAcceptance {
+  const name = ACCEPTANCE_NAME.exec(basename(path));
+  if (!name) throw new Error(`${path} is not named <row-id>.md`);
+  if (text.trim() === '') throw new Error(`${path} is empty: give the reason and the issue`);
+  if (!ISSUE_REFERENCE.test(text)) throw new Error(`${path} names no issue: add #<n> or the issue's URL`);
+  const reason = text.replace(new RegExp(ISSUE_REFERENCE.source, 'g'), '').replace(/[\s.,;:()-]/g, '');
+  if (reason === '') throw new Error(`${path} gives no reason: say why the row may regress`);
+  return { rowId: name[1], path, text };
+}
+
+/** The acceptance files HEAD adds relative to `baseCommit`. An edit or a rename target that already existed does not count. */
+export function loadAddedAcceptances(baseCommit: string, repoRoot: string = REPO_ROOT): CoverageAcceptance[] {
+  const added = execFileSync(
+    'git',
+    ['diff', '-z', '--no-renames', '--diff-filter=A', '--name-only', baseCommit, 'HEAD', '--', ACCEPTANCES_DIR],
+    { cwd: repoRoot, encoding: 'utf8' },
+  ).split('\0').filter((path) => path !== '');
+  return added.map((path) => parseAcceptance(path, readFileSync(join(repoRoot, path), 'utf8')));
+}
+
+const CONFORMING_DEMOTION = new Set(['bug', 'diverged-documented', 'unverified', 'unsupported']);
+
+function rowRegressions(base: CoverageReport, head: CoverageReport): Map<string, string> {
+  const regressed = new Map<string, string>();
+  for (const [id, baseStatus] of Object.entries(base.rowStatuses)) {
+    const headStatus = head.rowStatuses[id];
+    // A row may change status freely below conforms, but it may never just
+    // vanish: deleting a `bug`/`unverified` row shrinks the denominator and
+    // lifts the published percentage without fixing anything.
+    if (headStatus === undefined) {
+      regressed.set(id, `${id}: was '${baseStatus}', row removed from the registry`);
+    } else if (baseStatus === 'conforms' && CONFORMING_DEMOTION.has(headStatus)) {
+      regressed.set(id, `${id}: was 'conforms', now '${headStatus}'`);
     }
   }
-  return allowlist;
+  return regressed;
 }
 
-function toBaseline(report: CoverageReport): Baseline {
-  return {
-    generatedAt: report.generatedAt,
-    services: Object.fromEntries(
-      report.services.map((s): [string, BaselineService] => [
-        s.surface,
-        s.surfaceCoverage
-          ? { publicSurface: s.surfaceCoverage }
-          : s.kind === 'integration' ? { integration: true } : { native: true },
-      ]),
-    ),
-    overall: { publicSurface: report.overall.surfaceCoverage },
-    rowStatuses: report.rowStatuses,
-    highRiskUnverified: report.highRiskUnverified,
-    orphanObservations: report.orphanObservations,
-    entryPathVerdicts: Object.fromEntries(report.entryPath.map((p) => [p.program, p.verdict])),
+function surfaceRegressions(base: CoverageReport, head: CoverageReport): string[] {
+  const problems: string[] = [];
+  const dropped = (label: string, from: SurfaceCoverage, to: SurfaceCoverage): void => {
+    if (to.runtime.pct < from.runtime.pct) problems.push(`${label}: public runtime surface dropped ${from.runtime.pct}% -> ${to.runtime.pct}%`);
+    if (to.types.pct < from.types.pct) problems.push(`${label}: public type surface dropped ${from.types.pct}% -> ${to.types.pct}%`);
   };
+  const baseServices = new Map(base.services.map((s) => [s.surface, s]));
+  for (const s of head.services) {
+    const baseSurface = baseServices.get(s.surface)?.surfaceCoverage;
+    // A native or integration surface has no breadth percentage to compare.
+    if (baseSurface && s.surfaceCoverage) dropped(s.surface, baseSurface, s.surfaceCoverage);
+  }
+  dropped('overall', base.overall.surfaceCoverage, head.overall.surfaceCoverage);
+  return problems;
+}
+
+function entryPathRegressions(base: CoverageReport, head: CoverageReport): string[] {
+  // The one cliff in this ratchet (see entry-path-gate.ts's header): a program
+  // that was green and is no longer fails, whatever it became.
+  const problems: string[] = [];
+  const headVerdicts = new Map(head.entryPath.map((p) => [p.program, p.verdict]));
+  for (const { program, verdict } of base.entryPath) {
+    if (verdict !== 'green') continue;
+    const headVerdict = headVerdicts.get(program);
+    if (headVerdict === undefined) {
+      problems.push(`entry-path '${program}': was green, program removed from the corpus`);
+    } else if (headVerdict !== 'green') {
+      problems.push(`entry-path '${program}': was green, now '${headVerdict}' (a cliff regression, never tolerated)`);
+    }
+  }
+  return problems;
 }
 
 /**
  * Regression-only gate. Deliberately does NOT fail on an absolute percentage
  * — a threshold gate invites relabeling rows `conforms` just to clear the
  * bar, which is the exact dishonesty this ratchet exists to prevent. It only
- * fails when something that WAS true stops being true:
+ * fails when something true of the base commit stops being true of the head:
  *   - a row that was `conforms` is no longer `conforms`,
- *   - a row in the baseline is gone from the registry (any previous status)
- *     without an entry in the row-removal allowlist,
- *   - a service's surface coverage % drops,
+ *   - a row in the base report is gone from the registry (any status),
+ *   - a service's public surface coverage % drops,
  *   - a NEW orphan observation appears,
- *   - the high-risk-unverified count increases.
+ *   - the high-risk-unverified count increases,
+ *   - an entry-path program that was green is not.
+ * The first two are excused only by an acceptance file the change adds, and
+ * every such file has to name a row that really regressed.
  */
 export function findRegressions(
-  baseline: Baseline,
-  report: CoverageReport,
-  allowedRowRemovals: RowRemovalAllowlist,
+  base: CoverageReport,
+  head: CoverageReport,
+  acceptances: readonly CoverageAcceptance[],
 ): string[] {
-  const problems: string[] = [];
+  const problems = surfaceRegressions(base, head);
 
-  for (const s of report.services) {
-    const base = baseline.services[s.surface];
-    // A native surface has no breadth percentage to ratchet — skip. (Both the
-    // report side and the baseline side are absent for native.)
-    if (!base || !base.publicSurface || !s.surfaceCoverage) continue;
-    if (s.surfaceCoverage.runtime.pct < base.publicSurface.runtime.pct) {
-      problems.push(`${s.surface}: public runtime surface dropped ${base.publicSurface.runtime.pct}% -> ${s.surfaceCoverage.runtime.pct}%`);
-    }
-    if (s.surfaceCoverage.types.pct < base.publicSurface.types.pct) {
-      problems.push(`${s.surface}: public type surface dropped ${base.publicSurface.types.pct}% -> ${s.surfaceCoverage.types.pct}%`);
-    }
+  const regressedRows = rowRegressions(base, head);
+  const accepted = new Set(acceptances.map((a) => a.rowId));
+  for (const [id, problem] of regressedRows) {
+    if (!accepted.has(id)) problems.push(problem);
   }
-  if (report.overall.surfaceCoverage.runtime.pct < baseline.overall.publicSurface.runtime.pct) {
-    problems.push(`overall: public runtime surface dropped ${baseline.overall.publicSurface.runtime.pct}% -> ${report.overall.surfaceCoverage.runtime.pct}%`);
-  }
-  if (report.overall.surfaceCoverage.types.pct < baseline.overall.publicSurface.types.pct) {
-    problems.push(`overall: public type surface dropped ${baseline.overall.publicSurface.types.pct}% -> ${report.overall.surfaceCoverage.types.pct}%`);
-  }
-
-  const CONFORMING_DEMOTION = new Set(['bug', 'diverged-documented', 'unverified', 'unsupported']);
-  for (const [id, prevStatus] of Object.entries(baseline.rowStatuses)) {
-    const currentStatus = report.rowStatuses[id];
-    // A baseline row may change status freely below conforms, but it may never
-    // just vanish: deleting a `bug`/`unverified` row shrinks the denominator
-    // and lifts the published percentage without fixing anything. Only an
-    // allowlist entry — authored, reasoned, and reviewable in the diff —
-    // excuses a deletion, whatever the row's previous status.
-    if (currentStatus === undefined) {
-      if (!allowedRowRemovals[id]) {
-        problems.push(`${id}: was '${prevStatus}', row removed from the registry`);
-      }
-      continue;
-    }
-    if (prevStatus === 'conforms' && CONFORMING_DEMOTION.has(currentStatus)) {
-      problems.push(`${id}: was 'conforms', now '${currentStatus}'`);
+  for (const acceptance of acceptances) {
+    if (!regressedRows.has(acceptance.rowId)) {
+      problems.push(`${acceptance.path} names '${acceptance.rowId}', which did not regress against the base report`);
     }
   }
 
-  // An allowlist entry is a grant for ONE removal, not a standing permission.
-  // Left behind after the removal lands (or the row's later re-addition), it
-  // silently pre-authorizes deleting that row again — the reviewer who approved
-  // the original reason never saw the second deletion. So every entry must be
-  // EXERCISED right now: named in the baseline and gone from the registry.
-  // Anything else is dead configuration and has to be deleted from the file.
-  for (const id of Object.keys(allowedRowRemovals)) {
-    if (report.rowStatuses[id] !== undefined) {
-      problems.push(`allowlist entry '${id}' is stale: row present in registry`);
-    }
-    if (baseline.rowStatuses[id] === undefined) {
-      problems.push(`allowlist entry '${id}' is stale: id not in baseline`);
-    }
-  }
-
-  const baselineOrphans = new Set(baseline.orphanObservations);
-  const newOrphans = report.orphanObservations.filter((o) => !baselineOrphans.has(o));
+  const baseOrphans = new Set(base.orphanObservations);
+  const newOrphans = head.orphanObservations.filter((o) => !baseOrphans.has(o));
   if (newOrphans.length > 0) problems.push(`${newOrphans.length} NEW orphan observation(s): ${newOrphans.join(', ')}`);
 
-  if (report.highRiskUnverified.length > baseline.highRiskUnverified.length) {
-    problems.push(`high-risk unverified rows increased: ${baseline.highRiskUnverified.length} -> ${report.highRiskUnverified.length}`);
+  if (head.highRiskUnverified.length > base.highRiskUnverified.length) {
+    problems.push(`high-risk unverified rows increased: ${base.highRiskUnverified.length} -> ${head.highRiskUnverified.length}`);
   }
 
-  // Entry-path: the one CLIFF exception to this whole function's ratchet
-  // framing (see entry-path-gate.ts's header). A program that was GREEN and
-  // is no longer is a FAILURE here regardless of WHY (red, red-known, or a
-  // now-stale expected-failure) — there is no tolerance, unlike every other
-  // check in this function, which only flags a regression once it crosses a
-  // baseline it previously cleared.
-  for (const [program, prevVerdict] of Object.entries(baseline.entryPathVerdicts)) {
-    if (prevVerdict !== 'green') continue;
-    const currentVerdict = report.entryPath.find((p) => p.program === program)?.verdict;
-    if (currentVerdict === undefined) {
-      problems.push(`entry-path '${program}': was green, program removed from the corpus`);
-    } else if (currentVerdict !== 'green') {
-      problems.push(`entry-path '${program}': was green, now '${currentVerdict}' — CLIFF regression, never tolerated`);
-    }
-  }
-
+  problems.push(...entryPathRegressions(base, head));
   return problems;
 }
 
 // ── main ─────────────────────────────────────────────────────────────────
 
+function flagValue(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return undefined;
+  const value = process.argv[index + 1];
+  if (value === undefined || value.startsWith('--')) throw new Error(`${name} needs a value`);
+  return value;
+}
+
+function readBaseReport(path: string): CoverageReport {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as CoverageReport;
+  } catch (err) {
+    throw new Error(`Base coverage report at ${path} is unreadable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function main(): Promise<void> {
   const wantJson = process.argv.includes('--json');
-  const updateBaseline = process.argv.includes('--update-baseline');
+  const baseReportPath = flagValue('--base-report');
+  const baseCommit = flagValue('--base-commit');
+  const reportOut = flagValue('--report-out');
+  if (baseReportPath !== undefined && baseCommit === undefined) {
+    throw new Error('--base-report needs --base-commit <sha>, the commit the base report describes');
+  }
 
   const model = await deriveConformanceModel();
   const report = buildReport(model);
-
-  if (updateBaseline) {
-    writeFileSync(BASELINE_PATH, JSON.stringify(toBaseline(report), null, 2) + '\n');
-    console.log(`Baseline updated: ${BASELINE_PATH.replace(REPO_ROOT + '/', '')}`);
-    console.log(`  overall public surface: runtime ${report.overall.surfaceCoverage.runtime.pct}%, types ${report.overall.surfaceCoverage.types.pct}%`);
-    console.log(`  overall behavior conformance: total ${report.overall.behavior.total.pct}%, intended ${report.overall.behavior.intended.pct}%`);
-    process.exit(0);
-  }
+  if (reportOut !== undefined) writeFileSync(reportOut, JSON.stringify(report) + '\n');
 
   if (wantJson) {
     console.log(JSON.stringify(report, null, 2));
@@ -529,22 +508,22 @@ async function main(): Promise<void> {
 
   printTable(report, model);
 
-  if (!existsSync(BASELINE_PATH)) {
-    console.log('\n! No coverage-baseline.json found — run `bun run compat:coverage --update-baseline` to create one.');
+  if (baseReportPath === undefined || baseCommit === undefined) {
+    console.log('\nNo base report given, so no regression check ran. CI compares this report with the base commit\'s (scripts/ci/conformance-gates.sh); pass --base-report <file> --base-commit <sha> to run it here.');
     process.exit(0);
   }
 
-  const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as Baseline;
-  const regressions = findRegressions(baseline, report, loadRowRemovalAllowlist());
+  const shortBase = baseCommit.slice(0, 9);
+  const regressions = findRegressions(readBaseReport(baseReportPath), report, loadAddedAcceptances(baseCommit));
 
   if (regressions.length > 0) {
-    console.log(`\n✗ ${regressions.length} regression(s) vs. coverage-baseline.json:`);
+    console.log(`\n✗ ${regressions.length} regression(s) vs. the base commit ${shortBase}:`);
     for (const r of regressions) console.log(`  - ${r}`);
-    console.log('\nIf this is an intentional change (a legit new diverged/unsupported row, a scoped-down surface), run `bun run compat:coverage --update-baseline` in this PR to accept the new baseline.');
+    console.log(`\nTo accept a deliberate demotion or removal of a row, add ${ACCEPTANCES_DIR}/<row-id>.md in this change, with the reason and the issue. Other regressions have no acceptance file: fix them.`);
     process.exit(1);
   }
 
-  console.log('\n✓ No regressions vs. coverage-baseline.json.');
+  console.log(`\n✓ No regressions vs. the base commit ${shortBase}.`);
   process.exit(0);
 }
 
