@@ -17,8 +17,7 @@
  * {@link set}.
  */
 import {
-  compileLimitViolations,
-  parseToAST,
+  checkRulesSource,
   readAuthoredSourceMap,
   type AuthoredSourceMap,
   type FirestoreRules,
@@ -49,8 +48,9 @@ export class RulesState {
 
   /**
    * RULES-B11 — parsed-AST cache, keyed on the exact source string.
-   * `ast` is `null` when the source doesn't parse or breaks one of
-   * production's compile limits (the simulate() call then reports the
+   * `ast` is `null` when production's load check refuses the source: it
+   * doesn't parse, its service is not `cloud.firestore`, or it breaks one
+   * of production's compile limits (the simulate() call then reports the
    * failure on its own).
    */
   private parsedCache: { source: string; ast: FirestoreRules | null } | null = null;
@@ -80,16 +80,14 @@ export class RulesState {
 
   /**
    * The parsed rules AST for the current source, cached per source
-   * string. Returns `null` when the source doesn't parse or production
-   * would reject it at compile time, so no request evaluates it.
+   * string. Returns `null` when production would not load the source as
+   * Firestore rules, so no request evaluates it and the sandbox fails
+   * closed.
    */
   ast(): FirestoreRules | null {
     if (this.parsedCache?.source !== this.currentSource) {
-      const parsed = parseToAST(this.currentSource);
-      this.parsedCache = {
-        source: this.currentSource,
-        ast: parsed && compileLimitViolations(parsed).length === 0 ? parsed : null,
-      };
+      const checked = checkRulesSource(this.currentSource);
+      this.parsedCache = { source: this.currentSource, ast: checked.ok ? checked.ast : null };
     }
     return this.parsedCache.ast;
   }

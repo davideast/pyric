@@ -40,7 +40,12 @@ export type { ParseError, ParseResult } from '../grammar/FirestoreParser.js';
 export { assembleRules, assembleExpression as printExpression } from '../grammar/FirestoreAssembler.js';
 export { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 export { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
-export { rulesSourceRejection, sourceCompileLimitViolations } from '../grammar/source-compile-limits.js';
+export {
+  checkRulesSource,
+  rulesGrammarRejection,
+  rulesSourceRejection,
+  sourceCompileLimitViolations,
+} from '../grammar/source-compile-limits.js';
 export type { RulesSourceRejection } from '../grammar/source-compile-limits.js';
 export type { CompileLimitViolation } from '../grammar/compile-limits.js';
 export type { ValidationFinding } from '../grammar/FirestoreValidator.js';
