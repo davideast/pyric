@@ -87,7 +87,8 @@ import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 if (import.meta.env.DEV) {
-  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  const scope = self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string };
+  scope.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
 initializeAppCheck(firebaseApp, {
   provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),

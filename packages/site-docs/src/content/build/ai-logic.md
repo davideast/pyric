@@ -20,7 +20,8 @@ import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAI, getGenerativeModel } from 'firebase/ai';
 
 if (import.meta.env.DEV) {
-  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  const scope = self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string };
+  scope.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
 initializeAppCheck(app, {
   provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
@@ -41,11 +42,14 @@ Setting `FIREBASE_APPCHECK_DEBUG_TOKEN` in development switches App Check to its
 With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
 
 ```ts
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'pyric/app-check';
 import { getAI } from 'pyric/ai';
 import { script } from 'pyric/ai/scripting';
 
-initializeAppCheck(app, { provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key') });
+initializeAppCheck(app, {
+  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
+  isTokenAutoRefreshEnabled: true,
+});
 const ai = getAI(app);
 script(ai, [
   {
