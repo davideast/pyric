@@ -50,6 +50,7 @@ import { evaluateStorageRules } from './sandbox/rules-evaluator.js';
 import { RuleEvalError } from './sandbox/rules-evaluation-error.js';
 import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
+import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
 
 export function enforceRules(
   service: StorageService,
@@ -75,7 +76,7 @@ export function enforceRules(
     emitOperation(target, input, 'deny', reasons, 'user', false, boundProvenance);
     throw unauthorized(input.request.method, input.request.path, ' — No Storage rules configured; default deny.');
   }
-  const evaluationInput = target ? withCanonicalRulesPath(input, target.bucket) : input;
+  const evaluationInput = target ? withCanonicalRulesPath(input, target) : input;
   // `request.time` is the sandbox's clock when the caller has a sandbox handle,
   // so a `request.time < timestamp.date(...)` rule flips with it. A pure
   // evaluation with no target keeps the evaluator's own wall-clock default.
@@ -96,19 +97,13 @@ export function enforceRules(
 
 /**
  * Firebase's modular Storage SDK exposes object-relative references, while
- * Storage Rules match those objects below `/b/{bucket}/o`. Keep the public
- * reference, persistence key, errors, and emitted Traffic path object-relative;
- * canonicalize only the evaluator input at this boundary.
+ * Storage Rules match those objects below `/b/{bucket}/o`, under the bucket's
+ * real name. Keep the public reference, persistence key, errors, and emitted
+ * Traffic path object-relative; canonicalize only the evaluator input at this
+ * boundary, under the name the caller knows the bucket by.
  */
-function withCanonicalRulesPath(input: EvaluationInput, bucket: string): EvaluationInput {
-  const objectPath = input.request.path.replace(/^\/+/, '');
-  return {
-    ...input,
-    request: {
-      ...input.request,
-      path: objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`,
-    },
-  };
+function withCanonicalRulesPath(input: EvaluationInput, target: Target): EvaluationInput {
+  return bindRulesBucket(input, target.bucket, rulesBucketName(target.bucket, target.bucketName));
 }
 
 /**

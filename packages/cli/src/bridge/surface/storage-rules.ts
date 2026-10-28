@@ -9,7 +9,6 @@
  * ruleset.
  */
 import type { LocalSandbox } from 'pyric/sandbox';
-import type { StorageReference } from 'pyric/storage';
 import { getStorageRulesResolution } from 'pyric/storage/internal';
 import { storageFor } from './service-handles.js';
 import type { SurfaceContext } from './types.js';
@@ -34,15 +33,4 @@ export function activeStorageRules(ctx: SurfaceContext): string | null {
   const loaded = getStorageRulesResolution(storageFor(ctx))?.source;
   if (loaded !== undefined) return loaded;
   return unloadedStorageRules.get(ctx.sandbox) ?? null;
-}
-
-/**
- * The path a Storage rule matches on. Rules address an object through the
- * bucket, as `b/<bucket>/o/<object path>`, while the operation set names the
- * object path alone.
- */
-export function rulesRequestPath(object: StorageReference): string {
-  return object.fullPath === ''
-    ? `b/${object.bucket}/o`
-    : `b/${object.bucket}/o/${object.fullPath}`;
 }

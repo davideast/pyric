@@ -5,8 +5,10 @@ import {
   compileStorageRules,
   getStorageCrossServiceIam,
   getStorageService,
+  bindRulesBucket,
   replaceStorageRules,
   resourceFromStored,
+  rulesBucketName,
   storageFirestoreLookup,
 } from 'pyric/storage/internal';
 import { asSentence } from 'pyric/sandbox/internal';
@@ -15,7 +17,7 @@ import { describeCompileLimitViolations, sourceCompileLimitViolations } from 'py
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
-import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
+import { activeStorageRules } from '../storage-rules.js';
 import type { OperationResult, SurfaceContext } from '../types.js';
 import { markLintFindings } from '../rules-verdict.js';
 import { simulatedRequestResource } from './storage-request-resource.js';
@@ -37,6 +39,13 @@ function identityFor(
   const held = ctx.identity.authState();
   if (held === null) return null;
   return { uid: held.uid, token: held.token ?? {} };
+}
+
+/** The bucket a case's data names, which is the name its rules see. */
+function caseBucketName(data: unknown): string | undefined {
+  if (data === null || typeof data !== 'object') return undefined;
+  const bucket = (data as { bucket?: unknown }).bucket;
+  return typeof bucket === 'string' && bucket !== '' ? bucket : undefined;
 }
 
 /**
@@ -133,6 +142,7 @@ export const STORAGE_RULES: RulesEngine = {
     }
 
     const object = ref(storageFor(ctx), request.path);
+    const bucketName = rulesBucketName(object.bucket, caseBucketName(request.data) ?? ctx.storageBucketName?.());
     const service = await getStorageService(object.storage);
     const existing = object.fullPath
       ? await service.backend.getMetadata(object.fullPath, object.bucket)
@@ -142,17 +152,24 @@ export const STORAGE_RULES: RulesEngine = {
       return operationFailure(`${request.operation} ${request.path}: ${built.reason}`);
     }
     const requestResource = built.resource;
-    const evaluated = evaluateStorageRules(
-      parsed,
+    // Rules see the bucket under the name the app knows it by, as the live
+    // planes bind it (ST-H2-4).
+    const input = bindRulesBucket(
       {
         request: {
           auth: identityFor(ctx, request.uid),
           method: request.operation as StorageRequestMethod,
-          path: rulesRequestPath(object),
+          path: object.fullPath,
           ...(requestResource !== undefined ? { resource: requestResource } : {}),
         },
         resource: resourceFromStored(existing),
       },
+      object.bucket,
+      bucketName,
+    );
+    const evaluated = evaluateStorageRules(
+      parsed,
+      input,
       new Date(requestInstant(ctx, request.requestTime)),
       // A rule reaching into Firestore is answered here the way the
       // enforcement path answers it, under the posture the sandbox is in, so a
