@@ -6,10 +6,16 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { endGroup, watchChildExit } from './unreaped-exit.ts';
+import { DEFAULT_EXIT_TIMING, endGroup, watchChildExit, type ExitTiming } from './unreaped-exit.ts';
 
-/** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
-const LEFTOVER_TERM_MS = 1000;
+/** The waits `runCommand` uses. Tests pass short ones; the runner uses the defaults. */
+export interface CommandTiming {
+  exit: ExitTiming;
+  /** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
+  leftoverTermMs: number;
+}
+
+const DEFAULT_COMMAND_TIMING: CommandTiming = { exit: DEFAULT_EXIT_TIMING, leftoverTermMs: 1000 };
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -57,10 +63,11 @@ export interface CommandResult {
 export function runCommand(
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv; spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess },
+  options: { cwd: string; env?: NodeJS.ProcessEnv; spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess; timing?: CommandTiming },
 ): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
     const spawnChild = options.spawnChild ?? spawn;
+    const timing = options.timing ?? DEFAULT_COMMAND_TIMING;
     // Its own process group, so what it starts and leaves running can be found and ended.
     const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
@@ -68,9 +75,9 @@ export function runCommand(
     child.stderr?.on('data', (chunk) => { output += chunk; });
     const stopWatching = watchChildExit(child, command, (exit) => {
       const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
-      if (hasLeftovers) void endGroup(child.pid ?? 0, LEFTOVER_TERM_MS);
+      if (hasLeftovers) void endGroup(child.pid ?? 0, timing.leftoverTermMs);
       resolvePromise({ code: exit.code, output: `${output}${exit.note}` });
-    });
+    }, timing.exit);
     child.on('error', (error) => {
       stopWatching();
       reject(error);

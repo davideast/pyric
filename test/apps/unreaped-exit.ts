@@ -80,8 +80,8 @@ export interface LiveProcess {
  * the pipes, and the app fails unless its scenario expects them. With none,
  * the runner lost `close`, and the exit counts.
  */
-export function describeHeldPipes(name: string, code: number | null, signal: NodeJS.Signals | null, leftovers: readonly LiveProcess[]): string {
-  const wait = `${OUTPUT_CLOSE_GRACE_MS / 1000}s`;
+export function describeHeldPipes(name: string, code: number | null, signal: NodeJS.Signals | null, leftovers: readonly LiveProcess[], graceMs = OUTPUT_CLOSE_GRACE_MS): string {
+  const wait = `${graceMs / 1000}s`;
   if (leftovers.length === 0) {
     return `\n[driver] ${name} ${ending(code, signal)}; its output pipes did not report closing ${wait} later, and no process is left in its group, so the runner lost \`close\`; the driver records the exit (#1274)\n`;
   }
@@ -219,6 +219,16 @@ export interface WatchTiming {
 
 const DEFAULT_TIMING: WatchTiming = { intervalMs: 500, graceMs: 3000 };
 
+/** The waits `watchChildExit` uses. Tests pass short ones; the runner uses the defaults. */
+export interface ExitTiming {
+  /** How long after `exit` to wait for `close` (`OUTPUT_CLOSE_GRACE_MS` by default). */
+  outputCloseGraceMs: number;
+  /** How the unreaped-zombie watcher polls. */
+  zombie: WatchTiming;
+}
+
+export const DEFAULT_EXIT_TIMING: ExitTiming = { outputCloseGraceMs: OUTPUT_CLOSE_GRACE_MS, zombie: DEFAULT_TIMING };
+
 /**
  * Check `pid` every `intervalMs` and call `onExit` once if it has stayed an
  * unreaped zombie for `graceMs`. Returns the function that stops watching. A
@@ -258,14 +268,14 @@ export interface WatchedExit {
 
 /**
  * Settle once on whichever comes first: `close`; `exit` followed by
- * `OUTPUT_CLOSE_GRACE_MS` with no `close`; or the child staying an unreaped
- * zombie for its grace period. On the second, /proc says which it was: live
+ * `timing.outputCloseGraceMs` with no `close`; or the child staying an
+ * unreaped zombie for `timing.zombie.graceMs`. On the second, /proc says which it was: live
  * processes in the child's group (`held-pipes`, a process it started holds
  * the pipes) or none (`lost-close`, the runner lost the event). An unknown
  * zombie status settles with code null. Returns the function that stops
  * watching. `child` must lead its own process group (spawned detached).
  */
-export function watchChildExit(child: ChildProcess, name: string, onExit: (exit: WatchedExit) => void): () => void {
+export function watchChildExit(child: ChildProcess, name: string, onExit: (exit: WatchedExit) => void, timing: ExitTiming = DEFAULT_EXIT_TIMING): () => void {
   let settled = false;
   let pipeTimer: ReturnType<typeof setTimeout> | undefined;
   let stopZombieWatch: () => void = () => {};
@@ -286,12 +296,12 @@ export function watchChildExit(child: ChildProcess, name: string, onExit: (exit:
     pipeTimer = setTimeout(() => {
       const leftovers = child.pid === undefined ? [] : liveGroupMembers(child.pid);
       const source = leftovers.length > 0 ? 'held-pipes' : 'lost-close';
-      settle({ code, source, note: describeHeldPipes(name, code, signal, leftovers), leftovers });
-    }, OUTPUT_CLOSE_GRACE_MS);
+      settle({ code, source, note: describeHeldPipes(name, code, signal, leftovers, timing.outputCloseGraceMs), leftovers });
+    }, timing.outputCloseGraceMs);
     pipeTimer.unref();
   });
   if (child.pid !== undefined) {
-    stopZombieWatch = watchUnreapedExit(child.pid, (exit) => settle({ code: exit.code, source: 'unreaped', note: describeUnreapedExit(name, exit), leftovers: [] }));
+    stopZombieWatch = watchUnreapedExit(child.pid, (exit) => settle({ code: exit.code, source: 'unreaped', note: describeUnreapedExit(name, exit), leftovers: [] }), timing.zombie);
   }
   return stop;
 }
