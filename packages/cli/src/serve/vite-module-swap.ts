@@ -20,6 +20,8 @@ import { loadServerTarget } from './vite-ssr-loader.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
+/** The SDK package the served entries import; one instance per page. */
+const PYRIC_PACKAGE = 'pyric';
 type OptimizerOptions = NonNullable<DepOptimizationOptions['esbuildOptions']>;
 type OptimizerPlugin = NonNullable<OptimizerOptions['plugins']>[number];
 
@@ -244,6 +246,12 @@ export function createViteModuleSwap(
         '@firebase/app-check',
         '@firebase/util',
         '@firebase/logger',
+        // A page's own `pyric/*` import would otherwise get a pre-bundled copy
+        // of pyric, with its own app registry, and the served entries would
+        // resolve to that copy too. The page and the entries must share the
+        // one pyric `initializeApp` registers apps in (#1506). The bare name
+        // covers every subpath.
+        PYRIC_PACKAGE,
       ];
       const usesRolldown = Number(viteVersion.split('.')[0]) >= 8;
       const optimizer = usesRolldown

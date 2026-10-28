@@ -56,6 +56,7 @@ describe('Vite module swap', () => {
       '@firebase/app-check',
       '@firebase/util',
       '@firebase/logger',
+      'pyric',
     ]);
     expect(config.optimizeDeps?.include).toBeUndefined();
     expect(config.optimizeDeps?.esbuildOptions?.plugins).toHaveLength(1);
