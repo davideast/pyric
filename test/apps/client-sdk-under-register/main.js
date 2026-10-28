@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, get } from "firebase/database";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, collection, getAggregateFromServer, count } from "firebase/firestore";
 
 const app = initializeApp({
   apiKey: "demo",
@@ -15,4 +15,5 @@ const firestore = getFirestore(app);
 window.readBack = async () => ({
   database: (await get(ref(db, "server/client"))).val(),
   firestore: (await getDoc(doc(firestore, "server/client"))).data() ?? null,
+  aggregate: (await getAggregateFromServer(collection(firestore, "server"), { n: count() })).data(),
 });

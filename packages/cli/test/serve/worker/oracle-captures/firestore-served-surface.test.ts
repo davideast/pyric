@@ -16,8 +16,8 @@ import { readDocumentAs } from '../../../../src/serve/worker/client/firestore-re
 import { connectClientToHost, makeHostCtx } from '../integration-support.js';
 import { scenario as aggregates } from '../../../../../conformance/src/capture/sdk-scenarios/firestore/firestore-aggregate-field-semantics.scenario.ts';
 import { replayTiming } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-timing.ts';
-import type { FirestoreSdk } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-types.ts';
-import { expectReplay, load, restoreSharedWorker, withoutMessages } from './support.ts';
+import type { FirestoreScenarioContext, FirestoreSdk } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-types.ts';
+import { expectReplay, load, restoreSharedWorker, servedFirestoreContext, withoutMessages, type Pin } from './support.ts';
 
 restoreSharedWorker();
 
@@ -34,33 +34,47 @@ function inPageDb() {
   return ip.getFirestore(sandbox.withAuth({ uid: 'alice' }));
 }
 
-const UNSUPPORTED = { error: 'firestore/unsupported-in-served-mode' };
+/** The aggregate findings other items own (#1374); the in-page replay pins the same answers. */
+const AGGREGATE_PINS: Pin[] = [
+  { key: 'multi', finding: 'FL-30: aggregations on several fields need a composite index', production: { error: 'failed-precondition' }, pyric: { n: 4, sx: 6, sy: 16, ay: 16 / 3 } },
+  { key: 'countAndSumY', finding: 'FL-27: count with sum(y) counts only docs that have y', production: { n: 3, sy: 16 }, pyric: { n: 4, sy: 16 } },
+  { key: 'nullField', finding: 'FL-30: aggregations on several fields need a composite index', production: { error: 'failed-precondition' }, pyric: { n: 2, sx: 3, sy: 4 } },
+  { key: 'nan', finding: 'FL-28: sum and average over a NaN value are NaN', production: { s: 'NaN', a: 'NaN', n: 3 }, pyric: { s: 3, a: 1.5, n: 3 } },
+  { key: 'inf', finding: 'FL-28: sum and average over Infinity are Infinity', production: { s: 'Infinity', a: 'Infinity', n: 2 }, pyric: { s: 1, a: 1, n: 2 } },
+];
+
+/** A replay context on the plane the surface picked at load: the worker client and host, or the in-page sandbox. */
+async function surfacePlaneContext(): Promise<FirestoreScenarioContext> {
+  const servedOverWorker = surface.getAggregateFromServer === (client.getAggregateFromServer as unknown);
+  if (servedOverWorker) return servedFirestoreContext();
+  return {
+    ...replayTiming,
+    fs: ip as unknown as FirestoreSdk,
+    db: inPageDb() as never,
+    base: 'pyric_oracle/replay',
+    deniedDocPath: 'pyric_oracle_denied_replay/x',
+    newClient: async () => ({ db: inPageDb() as never }),
+  };
+}
+
+const AGGREGATE_PRODUCTION = () => withoutMessages(load('firestore-aggregate-field-semantics'));
 
 describe('served firestore surface', () => {
-  it('FP-4: getAggregateFromServer throws unsupported-in-served-mode where production aggregates', async () => {
-    // The served export, over a sandbox that does aggregate.
-    const fs = { ...ip, getAggregateFromServer: surface.getAggregateFromServer } as unknown as FirestoreSdk;
-    const pyric = withoutMessages(await aggregates.run({
-      ...replayTiming,
-      fs,
-      db: inPageDb() as never,
-      base: 'pyric_oracle/replay',
-      deniedDocPath: 'pyric_oracle_denied_replay/x',
-      newClient: async () => ({ db: inPageDb() as never }),
-    }));
-    const finding = 'FP-4: a leftover stub (entries/unsupported/firestore.ts) shadows the worker client and host implementation';
-    expectReplay({
-      production: withoutMessages(load('firestore-aggregate-field-semantics')),
-      pyric,
-      pins: [
-        { key: 'multi', finding: `${finding}; FL-30`, production: { error: 'failed-precondition' }, pyric: UNSUPPORTED },
-        { key: 'countOnly', finding, production: { n: 4 }, pyric: UNSUPPORTED },
-        { key: 'countAndSumY', finding: `${finding}; FL-27`, production: { n: 3, sy: 16 }, pyric: UNSUPPORTED },
-        { key: 'nullField', finding: `${finding}; FL-30`, production: { error: 'failed-precondition' }, pyric: UNSUPPORTED },
-        { key: 'nan', finding: `${finding}; FL-28`, production: { s: 'NaN', a: 'NaN', n: 3 }, pyric: UNSUPPORTED },
-        { key: 'inf', finding: `${finding}; FL-28`, production: { s: 'Infinity', a: 'Infinity', n: 2 }, pyric: UNSUPPORTED },
-      ],
-    });
+  it('getAggregateFromServer is the data-path pick, as getCountFromServer is', () => {
+    const picks = [ip.getAggregateFromServer, client.getAggregateFromServer] as unknown[];
+    expect(picks).toContain(surface.getAggregateFromServer);
+  });
+
+  it('the served getAggregateFromServer aggregates as production does, apart from the aggregate findings', async () => {
+    const context = await surfacePlaneContext();
+    const fs = { ...context.fs, getAggregateFromServer: surface.getAggregateFromServer } as unknown as FirestoreSdk;
+    const pyric = withoutMessages(await aggregates.run({ ...context, fs }));
+    expectReplay({ production: AGGREGATE_PRODUCTION(), pyric, pins: AGGREGATE_PINS });
+  });
+
+  it('getAggregateFromServer over the worker client and host aggregates as in-page', async () => {
+    const pyric = withoutMessages(await aggregates.run(await servedFirestoreContext()));
+    expectReplay({ production: AGGREGATE_PRODUCTION(), pyric, pins: AGGREGATE_PINS });
   });
 
   describe('FP-9: network and persistence calls are accepted no-ops', () => {

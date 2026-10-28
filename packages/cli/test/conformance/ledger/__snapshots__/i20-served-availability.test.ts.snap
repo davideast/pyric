@@ -266,7 +266,7 @@ exports[`runtime classifications have a reviewable snapshot 1`] = `
     "endBefore": "supported",
     "ensureFirestoreConfigured": "imports-only",
     "executeWrite": "imports-only",
-    "getAggregateFromServer": "imports-only",
+    "getAggregateFromServer": "supported",
     "getCountFromServer": "supported",
     "getDoc": "supported",
     "getDocFromCache": "supported",
