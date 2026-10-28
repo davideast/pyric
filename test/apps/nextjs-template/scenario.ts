@@ -1,9 +1,10 @@
 // The Next.js template from `create-pyric --template nextjs`, run as its
 // README says: `pyric sandbox -- next dev`, with and without `--hosted`, under
-// webpack and Turbopack. The page's client component must mount, read the
-// signed-out auth state, see a post firebase-admin writes, and have a signed-out
-// write denied by the template's rules, with no page error. Before #1193 was
-// fixed every load threw "Missing Pyric page initialization" and nothing mounted.
+// Turbopack (the Next 16 default) and webpack. The page's client component must
+// mount, read the signed-out auth state, see a post firebase-admin writes, and
+// have a signed-out write denied by the template's rules, with no page error.
+// Before #1193 was fixed every load threw "Missing Pyric page initialization"
+// and nothing mounted.
 // The `--persist` case also asserts a known gap, that no state is saved
 // (#1194), so it fails when that is fixed.
 import assert from 'node:assert/strict';
@@ -15,15 +16,15 @@ import { scenario, sleep, type App } from '../driver.ts';
 interface Case {
   name: string;
   hosted: boolean;
-  turbopack: boolean;
+  webpack: boolean;
   persist: boolean;
 }
 
 const CASES: readonly Case[] = [
-  { name: 'pyric sandbox -- next dev', hosted: false, turbopack: false, persist: false },
-  { name: 'pyric sandbox --hosted -- next dev', hosted: true, turbopack: false, persist: false },
-  { name: 'pyric sandbox -- next dev --turbopack', hosted: false, turbopack: true, persist: false },
-  { name: 'pyric sandbox --persist -- next dev', hosted: false, turbopack: false, persist: true },
+  { name: 'pyric sandbox -- next dev', hosted: false, webpack: false, persist: false },
+  { name: 'pyric sandbox --hosted -- next dev', hosted: true, webpack: false, persist: false },
+  { name: 'pyric sandbox -- next dev --webpack', hosted: false, webpack: true, persist: false },
+  { name: 'pyric sandbox --persist -- next dev', hosted: false, webpack: false, persist: true },
 ];
 
 /** The 403 the host's origin guard answers through the rewrite (#1194): the one error response a page may get. */
@@ -31,8 +32,8 @@ const KNOWN_ERROR_RESPONSE = /^\[page \d+ response 403\] POST http:\/\/127\.0\.0
 /** The console line Chromium prints for any failed response; the response lines say which. */
 const FAILED_RESOURCE = /^\[page \d+ console\.error\] Failed to load resource: /;
 
-/** Scaffolds the template with the installed create-pyric and lays its files over the installed app. */
-function scaffold(app: App): void {
+/** Scaffolds the template with the installed create-pyric, lays its files over the installed app, and returns the scaffold's directory. */
+function scaffold(app: App): string {
   const bin = join(app.dir, 'node_modules', 'create-pyric', 'dist', 'bin.js');
   // Beside the app, in the run's directory, so Next and tsconfig never see a second src/app.
   const scaffolded = join(dirname(app.dir), 'scaffolded');
@@ -48,6 +49,7 @@ function scaffold(app: App): void {
     if (entry === 'package.json') continue;
     cpSync(join(scaffolded, entry), join(app.dir, entry), { recursive: true });
   }
+  return scaffolded;
 }
 
 async function answers(url: string): Promise<boolean> {
@@ -77,7 +79,7 @@ async function runCase(app: App, testCase: Case): Promise<void> {
   const nextUrl = `http://127.0.0.1:${nextPort}`;
   const sandboxUrl = `http://localhost:${sandboxPort}`;
   const nextArgs = ['next', 'dev', '--port', String(nextPort), '--hostname', '127.0.0.1'];
-  if (testCase.turbopack) nextArgs.push('--turbopack');
+  if (testCase.webpack) nextArgs.push('--webpack');
   const sandboxArgs = ['sandbox', '--no-open', '--port', String(sandboxPort)];
   if (testCase.hosted) sandboxArgs.push('--hosted');
   if (testCase.persist) sandboxArgs.push('--persist');
@@ -161,6 +163,11 @@ async function runCase(app: App, testCase: Case): Promise<void> {
 export default scenario(async (app) => {
   // The rewrite keeps the Next origin, which the host's origin guard refuses (#1194).
   app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
-  await app.step('create-pyric scaffolds the nextjs template', () => scaffold(app));
+  const scaffolded = await app.step('create-pyric scaffolds the nextjs template', () => scaffold(app));
   for (const testCase of CASES) await runCase(app, testCase);
+  // Next rewrites a tsconfig.json it disagrees with on the first `next dev`,
+  // which would leave a fresh project with a change to commit.
+  await app.step('next dev leaves the template\'s tsconfig.json as scaffolded', () => {
+    assert.equal(app.readFile('tsconfig.json'), readFileSync(join(scaffolded, 'tsconfig.json'), 'utf8'));
+  });
 });
