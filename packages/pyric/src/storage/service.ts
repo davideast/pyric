@@ -60,6 +60,12 @@ export interface SandboxTarget {
   /** App handles resolve auth at operation time; explicit contexts stay frozen. */
   readonly currentAuth?: () => AuthState;
   readonly bucket: string;
+  /**
+   * The name the caller knows this bucket by, which Storage rules see in place
+   * of the store key `bucket` (see `sandbox/rules-bucket-name.ts`). Absent when
+   * the caller named none, and the rules then see the store key.
+   */
+  readonly bucketName?: string;
   readonly servicePromise: Promise<StorageService>;
   /**
    * Rules-bypass admin plane. `true` only on handles minted by the
@@ -612,6 +618,19 @@ export function bindStorageOperationContext(
     context: bindOperationContext(target.context, context),
   };
   return Object.freeze({ [TARGET_SYMBOL]: scopedTarget });
+}
+
+/**
+ * A view of a Storage handle whose rules see the bucket as `name`, the name
+ * its caller knows it by. Objects, metadata and persistence keep the store's
+ * bucket key; only the rules input changes. No name returns the handle as is.
+ */
+export function nameStorageBucket(storage: FirebaseStorage, name: string | undefined): FirebaseStorage {
+  if (name === undefined || name === '') return storage;
+  const target = targetOf(storage);
+  if (target.bucketName === name) return storage;
+  const namedTarget: SandboxTarget = { ...target, bucketName: name };
+  return Object.freeze({ ...storage, [TARGET_SYMBOL]: namedTarget });
 }
 
 /**

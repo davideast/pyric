@@ -37,7 +37,8 @@ import {
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments } from 'pyric/sandbox/firestore';
 import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
-import { getMetadata, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { getMetadata, getStorage, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { createAppForSandbox } from 'pyric/app/internal';
 import {
   buildVerifyFixture,
   deriveRulesTestCases,
@@ -590,6 +591,24 @@ service firebase.storage {
     });
     // Round-trips through parse/validate too.
     expect(parseVerifyFixture(fixture).services.storage?.rules.source).toBe(OWNER_ONLY_RULES);
+  });
+
+  it('replays a live allow under the bucket name the rules saw (ST-H2-4)', async () => {
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/demo-app.appspot.com/o {
+    match /{p=**} { allow read, write: if true; }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    getStorageSandbox(sandbox, { dbName: uniqueDbName('bucket-name'), rules });
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: 'demo-app.appspot.com' }, uniqueDbName('app'));
+    const storage = getStorage(app);
+    await uploadBytes(storageRef(storage, 'x/a.txt'), new Uint8Array([1]));
+    await getMetadata(storageRef(storage, 'x/a.txt'));
+    const result = await verifyFixture(buildVerifyFixture({ sandbox, storageRules: rules }), { rules: { storage: rules } });
+    expect(result.services.storage?.checkedEvents).toBe(2);
+    expect(result.services.storage?.divergences).toEqual([]);
   });
 
   it('omits the storage block when no storage rules were deployed', () => {

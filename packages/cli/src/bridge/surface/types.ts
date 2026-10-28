@@ -50,6 +50,12 @@ export interface SurfaceContext {
    * sandbox knows them. Absent, they are read from the project's files.
    */
   databaseInstances?: import('./database-instance-catalog.js').DatabaseInstanceCatalog;
+  /**
+   * The name the served app knows its default Storage bucket by (its
+   * `storageBucket` option), when the host serving the sandbox knows it.
+   * Storage rules simulation binds it as the bucket's name.
+   */
+  storageBucketName?: () => string | undefined;
 }
 
 /** One tool as an MCP client sees it. */

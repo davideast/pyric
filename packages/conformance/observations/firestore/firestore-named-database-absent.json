@@ -1,0 +1,183 @@
+{
+  "name": "firestore-named-database-absent",
+  "matrixRow": "firestore MD1",
+  "rowIds": [
+    "firestore#MD1"
+  ],
+  "description": "Reading a document that does not exist from a database the project lacks (a valid id, an id outside the naming rules, and the keyword `default`) through the client SDK (unauthenticated), the Admin SDK and the REST API, with `(default)` and the existing named database `probes` as controls; then, against the missing databases only, a client setDoc, the first event of a client onSnapshot, and an Admin set(). No write targets a database that exists, so nothing is created.",
+  "observedAt": "2026-10-28T03:12:16.048Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "method": "getDoc(doc(getFirestore(app, id), path)) with the web config and no sign-in; getFirestore(adminApp, id).doc(path).get() with the service account; GET firestore.googleapis.com/v1/projects/<p>/databases/<id>/documents/<path> with the service account token. Each SDK read is bounded at 20000 ms. packages/conformance/src/capture-firestore-named-databases.ts.",
+  "behavior": {
+    "absent-valid-id:client": "error:unavailable",
+    "absent-valid-id:admin": "error:5",
+    "absent-valid-id:rest": "error:404",
+    "absent-valid-id:client-setDoc": "timeout",
+    "absent-valid-id:client-onSnapshot": "snapshot:fromCache=true:exists=false",
+    "absent-valid-id:admin-set": "error:5",
+    "absent-invalid-id:client": "error:unavailable",
+    "absent-invalid-id:admin": "error:5",
+    "absent-invalid-id:rest": "error:404",
+    "absent-invalid-id:client-setDoc": "timeout",
+    "absent-invalid-id:client-onSnapshot": "snapshot:fromCache=true:exists=false",
+    "absent-invalid-id:admin-set": "error:5",
+    "keyword-default:client": "error:unavailable",
+    "keyword-default:admin": "error:5",
+    "keyword-default:rest": "error:404",
+    "keyword-default:client-setDoc": "timeout",
+    "keyword-default:client-onSnapshot": "snapshot:fromCache=true:exists=false",
+    "keyword-default:admin-set": "error:5",
+    "control-default:client": "error:permission-denied",
+    "control-default:admin": "missing",
+    "control-default:rest": "missing:404",
+    "control-probes:client": "error:permission-denied",
+    "control-probes:admin": "missing",
+    "control-probes:rest": "missing:404"
+  },
+  "diagnostics": {
+    "absent-valid-id": {
+      "databaseId": "pyric-absent-7j7abqz7",
+      "client": {
+        "outcome": "error",
+        "code": "unavailable",
+        "message": "Failed to get document because the client is offline."
+      },
+      "admin": {
+        "outcome": "error",
+        "code": "5",
+        "message": "5 NOT_FOUND: The database pyric-absent-7j7abqz7 does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      },
+      "rest": {
+        "outcome": "error",
+        "status": 404,
+        "code": "NOT_FOUND",
+        "message": "The database pyric-absent-7j7abqz7 does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      }
+    },
+    "absent-valid-id:writes": {
+      "databaseId": "pyric-absent-7j7abqz7",
+      "clientSetDoc": {
+        "outcome": "timeout"
+      },
+      "clientOnSnapshot": {
+        "kind": "snapshot",
+        "fromCache": true,
+        "exists": false,
+        "afterMs": 188
+      },
+      "adminSet": {
+        "outcome": "error",
+        "code": "5",
+        "message": "5 NOT_FOUND: The database pyric-absent-7j7abqz7 does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      }
+    },
+    "absent-invalid-id": {
+      "databaseId": "Bad_Id",
+      "client": {
+        "outcome": "error",
+        "code": "unavailable",
+        "message": "Failed to get document because the client is offline."
+      },
+      "admin": {
+        "outcome": "error",
+        "code": "5",
+        "message": "5 NOT_FOUND: The database Bad_Id does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      },
+      "rest": {
+        "outcome": "error",
+        "status": 404,
+        "code": "NOT_FOUND",
+        "message": "The database Bad_Id does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      }
+    },
+    "absent-invalid-id:writes": {
+      "databaseId": "Bad_Id",
+      "clientSetDoc": {
+        "outcome": "timeout"
+      },
+      "clientOnSnapshot": {
+        "kind": "snapshot",
+        "fromCache": true,
+        "exists": false,
+        "afterMs": 222
+      },
+      "adminSet": {
+        "outcome": "error",
+        "code": "5",
+        "message": "5 NOT_FOUND: The database Bad_Id does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      }
+    },
+    "keyword-default": {
+      "databaseId": "default",
+      "client": {
+        "outcome": "error",
+        "code": "unavailable",
+        "message": "Failed to get document because the client is offline."
+      },
+      "admin": {
+        "outcome": "error",
+        "code": "5",
+        "message": "5 NOT_FOUND: The database default does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      },
+      "rest": {
+        "outcome": "error",
+        "status": 404,
+        "code": "NOT_FOUND",
+        "message": "The database default does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      }
+    },
+    "keyword-default:writes": {
+      "databaseId": "default",
+      "clientSetDoc": {
+        "outcome": "timeout"
+      },
+      "clientOnSnapshot": {
+        "kind": "snapshot",
+        "fromCache": true,
+        "exists": false,
+        "afterMs": 289
+      },
+      "adminSet": {
+        "outcome": "error",
+        "code": "5",
+        "message": "5 NOT_FOUND: The database default does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+      }
+    },
+    "control-default": {
+      "databaseId": "(default)",
+      "client": {
+        "outcome": "error",
+        "code": "permission-denied",
+        "message": "Missing or insufficient permissions."
+      },
+      "admin": {
+        "outcome": "missing"
+      },
+      "rest": {
+        "outcome": "missing",
+        "status": 404,
+        "code": "NOT_FOUND",
+        "message": "Document \"projects/digame-mas/databases/(default)/documents/__pyric_named_db_probe/7j7abqz7\" not found."
+      }
+    },
+    "control-probes": {
+      "databaseId": "probes",
+      "client": {
+        "outcome": "error",
+        "code": "permission-denied",
+        "message": "Missing or insufficient permissions."
+      },
+      "admin": {
+        "outcome": "missing"
+      },
+      "rest": {
+        "outcome": "missing",
+        "status": 404,
+        "code": "NOT_FOUND",
+        "message": "Document \"projects/digame-mas/databases/probes/documents/__pyric_named_db_probe/7j7abqz7\" not found."
+      }
+    }
+  }
+}

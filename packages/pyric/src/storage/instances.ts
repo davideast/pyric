@@ -26,8 +26,15 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseSt
       source: { kind: 'app' },
       authLens: { mode: 'app-session' },
     }), projectId ? { projectId } : {});
+    // The store keeps its own bucket key; rules see the bucket under the name
+    // the app knows it by (ST-H2-4).
+    const bucketName = bucketUrl ?? resolvedApp.options?.storageBucket;
     return Object.freeze({
-      [TARGET_SYMBOL]: { ...handle[TARGET_SYMBOL], currentAuth: () => session.currentUser },
+      [TARGET_SYMBOL]: {
+        ...handle[TARGET_SYMBOL],
+        currentAuth: () => session.currentUser,
+        ...(bucketName ? { bucketName } : {}),
+      },
       app: resolvedApp,
     });
   });

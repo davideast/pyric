@@ -8,6 +8,7 @@ import {
 } from 'pyric/sandbox';
 import { evaluateStorageRules, type StorageRequestMethod } from 'pyric/storage';
 import {
+  bindRulesBucket,
   compileStorageRules,
   DEFAULT_BUCKET,
   requestResourceFor,
@@ -858,18 +859,23 @@ async function verifyStorage(
           );
     }
 
-    const rulesPath = objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`;
-    const evaluated = evaluateStorageRules(
-      compiled.rules,
+    // The rules saw the bucket under the name the live op recorded (ST-H2-4).
+    const input = bindRulesBucket(
       {
         request: {
           auth: opEvent.auth ?? null,
           method: opEvent.method as StorageRequestMethod,
-          path: rulesPath,
+          path: objectPath,
           ...(requestResource !== undefined ? { resource: requestResource } : {}),
         },
         resource: resourceFromStored(existing),
       },
+      bucket,
+      recordedBucketName(opEvent, bucket),
+    );
+    const evaluated = evaluateStorageRules(
+      compiled.rules,
+      input,
       typeof opEvent.at === 'number' && Number.isFinite(opEvent.at)
         ? new Date(opEvent.at)
         : new Date(),
@@ -927,6 +933,12 @@ function storageOperationBucket(opEvent: SandboxOperationEvent): string | undefi
   const detailBucket = (opEvent.detail as { bucket?: unknown } | undefined)?.bucket;
   if (typeof detailBucket === 'string' && detailBucket.length > 0) return detailBucket;
   return undefined;
+}
+
+/** The bucket name the live op's rules saw, as its event recorded it; the store key for an event from before it was recorded. */
+function recordedBucketName(opEvent: SandboxOperationEvent, bucket: string): string {
+  const named = (opEvent.detail as { bucketName?: unknown } | undefined)?.bucketName;
+  return typeof named === 'string' && named !== '' ? named : bucket;
 }
 
 function resolveStorageOperationBucket(

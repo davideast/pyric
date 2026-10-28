@@ -5,8 +5,11 @@ import {
   compileStorageRules,
   getStorageCrossServiceIam,
   getStorageService,
+  bindRulesBucket,
   replaceStorageRules,
   resourceFromStored,
+  rulesBucketName,
+  targetOf,
   storageFirestoreLookup,
 } from 'pyric/storage/internal';
 import { asSentence } from 'pyric/sandbox/internal';
@@ -15,7 +18,7 @@ import { describeCompileLimitViolations, sourceCompileLimitViolations } from 'py
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
-import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
+import { activeStorageRules } from '../storage-rules.js';
 import type { OperationResult, SurfaceContext } from '../types.js';
 import { markLintFindings } from '../rules-verdict.js';
 import { simulatedRequestResource } from './storage-request-resource.js';
@@ -142,17 +145,24 @@ export const STORAGE_RULES: RulesEngine = {
       return operationFailure(`${request.operation} ${request.path}: ${built.reason}`);
     }
     const requestResource = built.resource;
-    const evaluated = evaluateStorageRules(
-      parsed,
+    // Rules see the bucket under the name the app knows it by, as the live
+    // planes bind it (ST-H2-4).
+    const input = bindRulesBucket(
       {
         request: {
           auth: identityFor(ctx, request.uid),
           method: request.operation as StorageRequestMethod,
-          path: rulesRequestPath(object),
+          path: object.fullPath,
           ...(requestResource !== undefined ? { resource: requestResource } : {}),
         },
         resource: resourceFromStored(existing),
       },
+      object.bucket,
+      rulesBucketName(object.bucket, targetOf(object.storage).bucketName),
+    );
+    const evaluated = evaluateStorageRules(
+      parsed,
+      input,
       new Date(requestInstant(ctx, request.requestTime)),
       // A rule reaching into Firestore is answered here the way the
       // enforcement path answers it, under the posture the sandbox is in, so a

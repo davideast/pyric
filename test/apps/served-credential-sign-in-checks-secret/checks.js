@@ -1,6 +1,8 @@
 // The sign-in checks the page and `node client.mjs` both run. An account with
-// a password owns private/<uid>; each check presents one email credential to
-// signInWithCredential, then reads that document and signs out.
+// a password owns private/<uid>; each check presents one credential to
+// signInWithCredential, then reads that document and signs out. The email
+// credentials come from EmailAuthProvider; the look-alikes are hand-built with
+// a provider id that is not exactly `password` and not federated (#1466).
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -55,13 +57,36 @@ async function present(credential, ownerUid) {
   return { ...outcome, signedIn, read };
 }
 
+/** The provider ids on the owner's account, read after signing in with the right password. */
+async function ownerProviderIds() {
+  const credential = await signInWithEmailAndPassword(auth, OWNER, PASSWORD);
+  const providerIds = credential.user.providerData.map((entry) => entry.providerId);
+  await signOut(auth);
+  return providerIds;
+}
+
+/** Hand-built credentials whose provider id looks like an email or other built-in one but is not federated. */
+function lookAlikes(ownerUid) {
+  return {
+    capitalPassword: { providerId: "Password", signInMethod: "password", email: OWNER, password: "wrong-password" },
+    trailingSpacePassword: { providerId: "password ", signInMethod: "password", email: OWNER, password: "wrong-password" },
+    emailLinkProvider: { providerId: "emailLink", email: OWNER },
+    phoneWithOwnerUid: { providerId: "phone", uid: ownerUid },
+    madeUpProvider: { providerId: "acme", email: OWNER },
+  };
+}
+
 export async function runChecks() {
   const ownerUid = await createOwner();
-  return {
+  const checks = {
     wrongPassword: await present(EmailAuthProvider.credential(OWNER, "wrong-password"), ownerUid),
     emptyPassword: await present(EmailAuthProvider.credential(OWNER, ""), ownerUid),
     unknownEmail: await present(EmailAuthProvider.credential("nobody@example.com", PASSWORD), ownerUid),
     madeUpLink: await present(EmailAuthProvider.credentialWithLink(OWNER, MADE_UP_LINK), ownerUid),
-    rightPassword: await present(EmailAuthProvider.credential(OWNER, PASSWORD), ownerUid),
   };
+  for (const [name, credential] of Object.entries(lookAlikes(ownerUid))) {
+    checks[name] = await present(credential, ownerUid);
+  }
+  checks.rightPassword = await present(EmailAuthProvider.credential(OWNER, PASSWORD), ownerUid);
+  return { checks, ownerProviderIds: await ownerProviderIds() };
 }

@@ -1,6 +1,6 @@
 import { FirebaseError } from 'pyric/app';
 import { AuthCredential, EmailAuthCredential, sandbox, type Auth, type MintedSession } from 'pyric/auth';
-import { resolveEmailLinkIdentity } from 'pyric/auth/internal';
+import { isFederatedProviderId, noMockConfiguredError, resolveEmailLinkIdentity } from 'pyric/auth/internal';
 import { resolveOAuthCredentialUser, type OAuthCredentialPayload } from './auth-session-seeder.js';
 
 /** The tenant and page origin a served sign-in mints its session under. */
@@ -24,10 +24,14 @@ const EMAIL_PROVIDER_ID = 'password';
  * Sign a port in with a credential.
  *
  * An email credential carries its own secret, so the engine checks it here
- * exactly as `signInWithEmailAndPassword` and `signInWithEmailLink` do. An
- * OAuth credential keeps the served behavior: the identity it asserts is
- * signed in, because the sandbox has no identity provider to redeem a token
- * against.
+ * exactly as `signInWithEmailAndPassword` and `signInWithEmailLink` do. A
+ * provider id that is not federated (a look-alike of `password`, `emailLink`,
+ * `phone`, or an id pyric doesn't know), or a payload whose `signInMethod`
+ * differs from its provider, is refused with in-page's
+ * `auth/no-mock-configured` before the resolver can find or touch an account
+ * (#1466). A federated credential keeps the served behavior: the identity it
+ * asserts is signed in, because the sandbox has no identity provider to
+ * redeem a token against.
  */
 export function signInWithCredentialPayload(
   auth: Auth,
@@ -36,6 +40,12 @@ export function signInWithCredentialPayload(
 ): CredentialSignIn {
   const isEmailCredential = payload.providerId === EMAIL_PROVIDER_ID;
   if (isEmailCredential) return signInWithEmailCredential(auth, payload, scope);
+  // In-page checks enablement before anything else, so a disabled provider is operation-not-allowed.
+  sandbox.assertAuthProviderEnabled(auth, payload.providerId);
+  const isFederated = isFederatedProviderId(payload.providerId);
+  const signInMethod = payload.signInMethod;
+  const hasOtherSignInMethod = signInMethod !== undefined && signInMethod !== payload.providerId;
+  if (!isFederated || hasOtherSignInMethod) throw noMockConfiguredError(payload.providerId);
   const { uid, isNewUser } = resolveOAuthCredentialUser(auth, payload);
   const session = sandbox.mintSession(auth, { kind: 'provider', uid, providerId: payload.providerId, ...scope });
   return { session, providerId: payload.providerId, isNewUser };
