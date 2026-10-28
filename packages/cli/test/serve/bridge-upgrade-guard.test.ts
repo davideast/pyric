@@ -13,7 +13,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
 
@@ -41,8 +41,13 @@ interface UpgradeResult {
 /** Build a guarded mount, emit one `upgrade`, report what happened. */
 function driveUpgrade(
   headers: Record<string, string | undefined>,
-  opts: { path?: string; allowedHosts?: string[] | true; boundHost?: string } = {},
+  opts: { path?: string; allowedHosts?: string[] | true; boundHost?: string; localPort?: number } = {},
 ): UpgradeResult {
+  return guardedMount(opts).upgrade(headers, opts);
+}
+
+/** A guarded mount attached to a fake server, for several requests in a row. */
+function guardedMount(opts: { allowedHosts?: string[] | true; boundHost?: string } = {}) {
   const mount = createBridgeMount({
     disableAuditLog: true,
     upgradeGuard: { boundHost: opts.boundHost ?? 'localhost', allowedHosts: opts.allowedHosts },
@@ -53,13 +58,22 @@ function driveUpgrade(
     projectDir: process.cwd(),
     origin: () => null,
   });
-
-  let destroyed = false;
-  const socket = new EventEmitter() as EventEmitter & { destroy(): void };
-  socket.destroy = () => { destroyed = true; socket.emit('close'); };
-  const req = { url: opts.path ?? WS_PATH, headers };
-  server.emit('upgrade', req, socket, Buffer.alloc(0));
-  return { destroyed, handshakes };
+  return {
+    /** An HTTP request the mount does not answer, such as `/__pyric/init.json`. */
+    async request(headers: Record<string, string>, localPort = 5000): Promise<boolean> {
+      const req = { url: '/__pyric/init.json', method: 'GET', headers, socket: { localPort } };
+      return mount.handler(req as unknown as IncomingMessage, {} as ServerResponse, new URL('http://localhost/__pyric/init.json'));
+    },
+    upgrade(headers: Record<string, string | undefined>, upgradeOpts: { path?: string; localPort?: number } = {}): UpgradeResult {
+      const before = handshakes;
+      let destroyed = false;
+      const socket = new EventEmitter() as EventEmitter & { destroy(): void };
+      socket.destroy = () => { destroyed = true; socket.emit('close'); };
+      const req = { url: upgradeOpts.path ?? WS_PATH, headers, socket: { localPort: upgradeOpts.localPort ?? 5000 } };
+      server.emit('upgrade', req, socket, Buffer.alloc(0));
+      return { destroyed, handshakes: handshakes - before };
+    },
+  };
 }
 
 describe('bridge WS upgrade guard (#765)', () => {
@@ -79,6 +93,35 @@ describe('bridge WS upgrade guard (#765)', () => {
     const r = driveUpgrade({ host: 'localhost:5000', origin: 'http://localhost:5000' });
     expect(r.destroyed).toBe(false);
     expect(r.handshakes).toBe(1); // guard passed → handshake proceeds
+  });
+
+  it('rejects a page on another local port before peer registration', () => {
+    // Both origins are loopback, so only the port tells them apart.
+    const r = driveUpgrade({ host: 'localhost:5000', origin: 'http://localhost:5001' }, { localPort: 5000 });
+    expect(r.destroyed).toBe(true);
+    expect(r.handshakes).toBe(0);
+  });
+
+  it('accepts a socket a dev-server proxy forwards from the page on its own port', () => {
+    // A Next.js rewrite keeps the page's Origin and names its own host in x-forwarded-host.
+    const r = driveUpgrade({ host: 'localhost:5000', origin: 'http://127.0.0.1:3000', 'x-forwarded-host': '127.0.0.1:3000' });
+    expect(r.destroyed).toBe(false);
+    expect(r.handshakes).toBe(1);
+  });
+
+  it('rejects a page on another port whose socket goes through the proxy', () => {
+    const r = driveUpgrade({ host: 'localhost:5000', origin: 'http://127.0.0.1:4000', 'x-forwarded-host': '127.0.0.1:3000' });
+    expect(r.destroyed).toBe(true);
+    expect(r.handshakes).toBe(0);
+  });
+
+  it('accepts a direct socket from the proxy\'s port once a proxied request named it', async () => {
+    const mount = guardedMount();
+    const page = { host: 'localhost:5000', origin: 'http://127.0.0.1:3000' };
+    expect(mount.upgrade(page).destroyed).toBe(true);
+    expect(await mount.request({ host: 'localhost:5000', origin: 'http://127.0.0.1:3000', 'x-forwarded-host': '127.0.0.1:3000' })).toBe(false);
+    expect(mount.upgrade(page).handshakes).toBe(1);
+    expect(mount.upgrade({ host: 'localhost:5000', origin: 'http://127.0.0.1:4000' }).destroyed).toBe(true);
   });
 
   it('accepts a non-browser peer (no Origin) on a loopback Host', () => {

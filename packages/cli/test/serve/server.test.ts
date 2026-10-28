@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import {
   contentTypeFor,
   isAllowedHost,
+  isAllowedLoopbackRequest,
   isAllowedOrigin,
   isAllowedUpgrade,
   loopbackHosts,
@@ -265,5 +266,31 @@ describe('isAllowedUpgrade (combined Host + Origin guard)', () => {
     expect(isAllowedUpgrade({}, 'localhost')).toBe(true);
     // --allowed-host threads through to both checks.
     expect(isAllowedUpgrade({ host: 'app.test:5000', origin: 'http://app.test:5000' }, 'localhost', ['app.test'])).toBe(true);
+  });
+
+  it('refuses a page on another local port once the bound port is known', () => {
+    const otherPort = { host: 'localhost:5000', origin: 'http://localhost:5001' };
+    expect(isAllowedUpgrade(otherPort, 'localhost', [], [5000])).toBe(false);
+    expect(isAllowedUpgrade({ host: 'localhost:5000', origin: 'http://localhost:5000' }, 'localhost', [], [5000])).toBe(true);
+  });
+});
+
+describe('isAllowedLoopbackRequest (combined Host + Origin guard for HTTP control routes)', () => {
+  const request = (host: string, origin?: string) => ({ headers: origin === undefined ? { host } : { host, origin } });
+
+  it('refuses a page on another local port once the bound port is known', () => {
+    expect(isAllowedLoopbackRequest(request('localhost:5000', 'http://localhost:5001'), 'localhost', [], [5000])).toBe(false);
+    expect(isAllowedLoopbackRequest(request('localhost:5000', 'http://127.0.0.1:5001'), 'localhost', [], [5000])).toBe(false);
+  });
+
+  it('allows a page on any of the app ports', () => {
+    // A dev server that proxies /__pyric/* serves the page on its own port.
+    expect(isAllowedLoopbackRequest(request('localhost:5000', 'http://127.0.0.1:3000'), 'localhost', [], [5000, 3000])).toBe(true);
+    expect(isAllowedLoopbackRequest(request('localhost:5000', 'http://127.0.0.1:4000'), 'localhost', [], [5000, 3000])).toBe(false);
+  });
+
+  it('allows the page this server serves and a client with no Origin', () => {
+    expect(isAllowedLoopbackRequest(request('localhost:5000', 'http://localhost:5000'), 'localhost', [], [5000])).toBe(true);
+    expect(isAllowedLoopbackRequest(request('localhost:5000'), 'localhost', [], [5000])).toBe(true);
   });
 });
