@@ -90,17 +90,21 @@ export const rtdbSdkCaptureBlock: CompatibilityTableBlock = {
       oracleObservations: [EVENT_ORDER],
       conformanceTests: [eventOrderTest],
     }),
-    captureRow({
+    matchingRow({
       rowRef: 'val-key-order',
       featureKeys: ['DataSnapshot'],
       api: 'Object.keys(snapshot.val())',
-      behavior: 'Production orders `val()` keys by priority, then key; pyric uses insertion or query order. RT-7; ref half in #138.',
-      evidence: '`oracle:rtdb-modular-remote-update-event-order` key `valKeys`.',
+      behavior: 'Production and pyric order `val()` keys by priority, then key, on a ref and a query snapshot. RT-7, fixed in #1371.',
+      evidence: '`oracle:rtdb-modular-remote-update-event-order` key `valKeys`, replayed in page and on the served planes; `packages/pyric/test/database/modular/snapshot-serialization.test.ts` adds priorities and nested values.',
       risk: ['specific-value'],
       riskScore: 2,
       riskReasons: ['asserts key order'],
       oracleObservations: [EVENT_ORDER],
-      conformanceTests: [eventOrderTest, `${SERVED}/rtdb-remote-update-event-order.test.ts`],
+      conformanceTests: [
+        eventOrderTest,
+        `${SERVED}/rtdb-remote-update-event-order.test.ts`,
+        'packages/pyric/test/database/modular/snapshot-serialization.test.ts',
+      ],
     }),
     captureRow({
       rowRef: 'served-event-order',

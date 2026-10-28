@@ -29,12 +29,6 @@ it('rtdb-modular-remote-update-event-order, served', async () => {
           'R value', 'A value', 'L moved a',
         ],
       },
-      {
-        key: 'valKeys',
-        finding: 'RT-7: val() keys follow priority, then key order',
-        production: { ref: 'a,b,c', query: 'a,b,c' },
-        pyric: { ref: 'b,a,c', query: 'b,c,a' },
-      },
     ],
   });
 });
