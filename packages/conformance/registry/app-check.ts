@@ -10,7 +10,7 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry, ConformanceDisposi
  *
  * Rows come from two inputs. The census (`compat:census`, surface
  * `app-check`) gives the shape universe: the 8 runtime exports of
- * `firebase/app-check` 12.13.0. The 16 `app-check-` captures
+ * `firebase/app-check` 12.13.0. The 18 `app-check-` captures
  * (packages/conformance/docs/app-check/capture-plan.md) give the behavior
  * facts. A row's behavior states a production fact only where a cited capture
  * vouches for it; anything else is marked upstream-documented in `evidence`
@@ -140,12 +140,13 @@ const initRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'initialize-twice-unset-auto-refresh',
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: SEC_INIT,
     api: 'initializeAppCheck(app, options) called twice',
     featureKeys: ['initializeAppCheck'],
-    behavior: 'The second call compares the raw `isTokenAutoRefreshEnabled` values with `===`: a first call that omits it followed by one that passes `false` throws `appCheck/already-initialized`, and two calls that both omit it return the same instance.',
-    evidence: 'Upstream-documented: `initializeAppCheck` in `@firebase/app-check` 0.11.3 (firebase 12.13.0) compares `initialOptions.isTokenAutoRefreshEnabled === options.isTokenAutoRefreshEnabled`. The error code, message, and `customData` are those of capture `app-check-client-initialize-twice` (`differentAutoRefresh`); no capture covers the omitted option, so the row does not cite one.',
+    behavior: 'An omitted `isTokenAutoRefreshEnabled` is not equal to `false`: a first call that omits it followed by one that passes `false`, or the reverse, throws `appCheck/already-initialized`, and two calls that both omit it return the same instance.',
+    evidence: 'capture `app-check-client-initialize-twice-unset-auto-refresh` (`unsetThenFalse`, `falseThenUnset`, `unsetThenUnset`). Upstream `initializeAppCheck` in `@firebase/app-check` 0.11.3 compares `initialOptions.isTokenAutoRefreshEnabled === options.isTokenAutoRefreshEnabled`.',
+    observations: ['app-check-client-initialize-twice-unset-auto-refresh'],
     errorText: true,
   }),
   row({
@@ -212,12 +213,14 @@ const tokenRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'get-token-concurrent',
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: SEC_TOKENS,
     api: 'getToken(appCheck, forceRefresh?) called concurrently',
     featureKeys: ['getToken'],
-    behavior: 'Concurrent `getToken` calls share one in-flight exchange, `forceRefresh` calls included: they resolve to the same token, and token listeners are called once per exchange. `getLimitedUseToken` calls are not shared.',
-    evidence: 'Upstream-documented: `getToken` in `@firebase/app-check` 0.11.3 (firebase 12.13.0) starts an exchange only `if (!state.exchangeTokenPromise)`, and only that call notifies listeners. No capture.',
+    behavior: 'Concurrent `getToken` calls share one in-flight exchange, `forceRefresh` calls included: two calls started together with no cached token resolve to one token, and two forced calls started together resolve to one new token. Listener calls are row `app-check#on-token-changed-refresh`.',
+    evidence: 'capture `app-check-client-get-token-concurrent` (`concurrentFirstShareOneToken`, `concurrentForcedShareOneToken`, `forcedDiffersFromFirst`). Upstream `getToken` in `@firebase/app-check` 0.11.3 starts an exchange only `if (!state.exchangeTokenPromise)`.',
+    observations: ['app-check-client-get-token-concurrent'],
+    notes: 'In debug mode the capture also records 0 listener calls after each pair, the debug-mode early return that row `app-check#on-token-changed-refresh` documents as a by-design divergence. The sandbox notifies listeners once per shared exchange, which a unit case in the suite pins.',
   }),
   row({
     plane: 'app-check',

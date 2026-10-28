@@ -65,6 +65,8 @@ All are captured by `packages/conformance/src/app-check-probes.ts` (rig `rigs/ap
 | `app-check-client-on-token-changed` | listener and observer forms, call count across `getToken` and `forceRefresh`, argument keys, unsubscribe type | Chromium | No |
 | `app-check-client-auto-refresh-toggle` | `setTokenAutoRefreshEnabled` return value and that it does not throw either way; `isTokenAutoRefreshEnabled` initial option | Chromium | No |
 | `app-check-client-initialize-twice` | same options return the same instance; different options throw `appCheck/already-initialized` | Chromium | No |
+| `app-check-client-initialize-twice-unset-auto-refresh` | an omitted `isTokenAutoRefreshEnabled` against `false` (both orders) throws `appCheck/already-initialized`; omitted twice returns the same instance | Chromium | No |
+| `app-check-client-get-token-concurrent` | two concurrent first `getToken` calls share one token, two concurrent `getToken(appCheck, true)` calls share one new token, and the listener count after each pair | Chromium | No |
 | `app-check-client-get-token-before-initialize` | public `getToken` on an app that never called `initializeAppCheck`, and `initializeAppCheck` after `firebase/ai` already ran on the app | Chromium | No |
 | `app-check-client-invalid-debug-token` | `getToken` with an unregistered debug token: resolves or rejects, `error` code and HTTP status, dummy token shape | Chromium | No |
 | `app-check-client-ai-header` | the `X-Firebase-AppCheck` header the real `firebase/ai` SDK sends on `generateContent`: present, equal to `getToken`'s token, limited-use mode (`useLimitedUseAppCheckTokens`), absent without App Check, and what it sends when App Check fails | Chromium, request intercepted with Playwright `page.route` and continued | No |
@@ -94,6 +96,9 @@ bun --env-file=<repo>/.env packages/conformance/src/app-check-probes.ts
 
 A run registers one debug token named `pyric-app-check-capture-<runId>` and deletes it in a `finally` block.
 It first deletes any debug token whose display name starts with `pyric-app-check-capture-`, left over from an interrupted run, so it is safe to re-run.
+
+To capture only some standalone browser probes, pass `--only=<name>,<name>` (the names in `STANDALONE_BROWSER_PROBES`, `capture/app-check/browser-probes.ts`). That run skips the admin, wire, and main-flow probes, so it sends no `generateContent` request unless it names `app-check-client-get-token-before-initialize`.
+`app-check-client-initialize-twice-unset-auto-refresh` and `app-check-client-get-token-concurrent` were captured that way on 2026-10-28, against the oracle project `digame-mas`.
 
 ## Enforcement step (proposal, not run)
 

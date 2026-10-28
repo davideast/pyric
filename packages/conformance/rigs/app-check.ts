@@ -38,7 +38,7 @@ export const rig: RigManifestRecord = {
   },
   safety: {
     writes:
-      'Registers one debug token named pyric-app-check-capture-<runId> on the config web app. Mints App Check tokens and consumes one through verifyToken. Sends six small generateContent requests from the page (model quota). Writes the app-check- observation files under observations/app-check/.',
+      'Registers one debug token named pyric-app-check-capture-<runId> on the config web app. Mints App Check tokens and consumes one through verifyToken. Sends six small generateContent requests from the page (model quota); a run with --only that names only probes without AI requests sends none. Writes the app-check- observation files under observations/app-check/.',
     cleanup:
       'Before registering, deletes any debug token whose display name starts with pyric-app-check-capture- (an interrupted run). A finally block deletes the run token and lists again, failing the run if any run-scoped token remains. Minted tokens expire on their own.',
     unattendedSafe: false,
