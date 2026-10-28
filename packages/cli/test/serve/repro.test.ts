@@ -71,6 +71,13 @@ describe('repro comparison', () => {
       .toEqual({ at: TIME, iat: TIME, iso: TIME, ts: TIME });
     expect(normalize('{"createdAt":1760000000000}')).toEqual({ json: { createdAt: TIME } });
   });
+
+  test('a sandbox ID token minted a second later matches: its time claims compare as times', () => {
+    const minted = (at: number) => `sandbox-id-token-u1-1:${JSON.stringify({ sub: 'u1', auth_time: at, iat: at, exp: at + 3600, user_id: 'u1' })}`;
+    expect(matchRecorded({ value: minted(1_793_196_457) }, { value: minted(1_793_196_458) }, new IdBindings()).matches).toBe(true);
+    const otherSubject = minted(1_793_196_457).replace('"sub":"u1"', '"sub":"u2"');
+    expect(matchRecorded({ value: minted(1_793_196_457) }, { value: otherSubject }, new IdBindings()).matches).toBe(false);
+  });
 });
 
 function base(): Omit<ReproBase, 'subscriptions'> {
