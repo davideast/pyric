@@ -5,11 +5,15 @@
 // host's real instance id and project directory. Both origins are loopback,
 // so only the port tells them apart. The host refuses both, while the page it
 // serves on its own port still attaches and a CLI command with no Origin
-// still writes.
+// still writes. Before each socket, the other page also sends a CORS request
+// that names its own port in `x-forwarded-host`, the header a dev-server
+// proxy sets, so the host must not take that port as the app's. The same
+// holds for the Vite plugin's hosted mount, whose dev server answers the
+// CORS preflight for localhost origins.
 import assert from 'node:assert/strict';
 import { realpathSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
 
 interface SocketAttempt {
   attached: boolean;
@@ -72,6 +76,16 @@ async function tryMethod(input: { url: string; body: string }): Promise<string> 
   }
 }
 
+/** Runs in the page: a CORS request naming the page's own port as the proxy's. */
+async function tryNamingOwnPort(input: { url: string; forwardedHost: string }): Promise<string> {
+  try {
+    const response = await fetch(input.url, { headers: { 'x-forwarded-host': input.forwardedHost } });
+    return `answered ${response.status}`;
+  } catch (error) {
+    return `threw ${String(error)}`;
+  }
+}
+
 /** A direct command from Node, with no Origin, the way `pyric` calls the host. */
 async function callMethod(base: string, call: MethodCall): Promise<string> {
   const response = await fetch(`${base}/__pyric/hosted/method`, {
@@ -90,7 +104,7 @@ async function startOtherPortServer(port: number): Promise<Server> {
   return server;
 }
 
-async function waitForHost(app: App, base: string, running: () => boolean): Promise<string> {
+async function waitForHost(base: string, running: () => boolean): Promise<string> {
   const deadline = Date.now() + 60_000;
   for (;;) {
     assert.ok(running(), 'pyric sandbox exited before it served /__pyric/health');
@@ -104,17 +118,21 @@ async function waitForHost(app: App, base: string, running: () => boolean): Prom
 }
 
 export default scenario(async (app) => {
-  // The refusal this app checks for: the other page's service command.
+  // The refusals this app checks for: the other page's service command, and
+  // the request that names its own port, which no route answers.
   app.expectHostError(/^403 POST \/__pyric\/hosted\/method$/);
+  app.expectHostError(/^\d+ GET \/__pyric\/not-a-route$/);
   const hostPort = await app.freePort();
   const otherPort = await app.freePort();
   const base = `http://localhost:${hostPort}`;
   const socketUrl = `ws://localhost:${hostPort}/__pyric/sandbox`;
   const projectDir = realpathSync(app.dir);
 
+  let sandbox: AppProcess | undefined;
   const instanceId = await app.step('pyric sandbox --hosted --bridge serves the project', async () => {
     const host = app.pyricProcess(['sandbox', '--hosted', '--bridge', '--no-open', '--port', String(hostPort)]);
-    return await waitForHost(app, base, () => host.running);
+    sandbox = host;
+    return await waitForHost(base, () => host.running);
   });
 
   const other = await app.step('another local app serves a page on a second port', () => startOtherPortServer(otherPort));
@@ -122,6 +140,8 @@ export default scenario(async (app) => {
     const page = await app.step('the other page opens', () => app.page(`http://localhost:${otherPort}/`));
 
     await app.step('the host refuses the other page\'s bridge socket', async () => {
+      const forwardedHost = `localhost:${otherPort}`;
+      await page.evaluate(tryNamingOwnPort, { url: `${base}/__pyric/not-a-route`, forwardedHost });
       const attempt = await page.evaluate(trySocket, { url: socketUrl, path: 'scratch/socket' });
       assert.deepEqual(
         { attached: attempt.attached, wrote: attempt.wrote },
@@ -156,6 +176,33 @@ export default scenario(async (app) => {
     await app.step('the page the host serves on its own port still attaches', async () => {
       const own = await app.page(`${base}/`);
       const attempt = await own.evaluate(trySocket, { url: socketUrl, path: 'scratch/own' });
+      assert.equal(attempt.attached, true, JSON.stringify(attempt));
+      await own.close();
+    });
+
+    await app.step('pyric sandbox stops', async () => {
+      await sandbox?.stop();
+    });
+
+    const vite = await app.step('the Vite plugin\'s hosted dev server serves the project', () => app.devServer());
+
+    await app.step('the Vite host refuses the other page\'s bridge socket after a CORS request naming its port', async () => {
+      const forwardedHost = `localhost:${otherPort}`;
+      const sent = await page.evaluate(tryNamingOwnPort, { url: `${vite.url}/__pyric/not-a-route`, forwardedHost });
+      // Vite answers the preflight for a localhost origin, so the request reaches the plugin.
+      assert.match(sent, /^answered /, sent);
+      const viteSocket = `ws://127.0.0.1:${vite.port}/__pyric/sandbox`;
+      const attempt = await page.evaluate(trySocket, { url: viteSocket, path: 'scratch/vite-socket' });
+      assert.deepEqual(
+        { attached: attempt.attached, wrote: attempt.wrote },
+        { attached: false, wrote: false },
+        `the page on port ${otherPort} attached to the Vite host on port ${vite.port}: ${JSON.stringify(attempt)}`,
+      );
+    });
+
+    await app.step('the page the Vite host serves still attaches', async () => {
+      const own = await app.page(`${vite.url}/`);
+      const attempt = await own.evaluate(trySocket, { url: `ws://127.0.0.1:${vite.port}/__pyric/sandbox`, path: 'scratch/vite-own' });
       assert.equal(attempt.attached, true, JSON.stringify(attempt));
       await own.close();
     });

@@ -41,16 +41,17 @@ interface UpgradeResult {
 /** Build a guarded mount, emit one `upgrade`, report what happened. */
 function driveUpgrade(
   headers: Record<string, string | undefined>,
-  opts: { path?: string; allowedHosts?: string[] | true; boundHost?: string; localPort?: number } = {},
+  opts: { path?: string; allowedHosts?: string[] | true; boundHost?: string; localPort?: number; learnsProxyPorts?: boolean } = {},
 ): UpgradeResult {
   return guardedMount(opts).upgrade(headers, opts);
 }
 
 /** A guarded mount attached to a fake server, for several requests in a row. */
-function guardedMount(opts: { allowedHosts?: string[] | true; boundHost?: string } = {}) {
+function guardedMount(opts: { allowedHosts?: string[] | true; boundHost?: string; learnsProxyPorts?: boolean } = {}) {
   const mount = createBridgeMount({
     disableAuditLog: true,
     upgradeGuard: { boundHost: opts.boundHost ?? 'localhost', allowedHosts: opts.allowedHosts },
+    learnsProxyPorts: opts.learnsProxyPorts,
   });
   const server = new EventEmitter();
   mount.attachHost({
@@ -102,26 +103,42 @@ describe('bridge WS upgrade guard (#765)', () => {
     expect(r.handshakes).toBe(0);
   });
 
+  // What Next's rewrite forwards for the page it serves on port 3000.
+  const proxied = { host: 'localhost:5000', origin: 'http://127.0.0.1:3000', 'x-forwarded-host': '127.0.0.1:3000', 'sec-fetch-site': 'same-origin' };
+
   it('accepts a socket a dev-server proxy forwards from the page on its own port', () => {
-    // A Next.js rewrite keeps the page's Origin and names its own host in x-forwarded-host.
-    const r = driveUpgrade({ host: 'localhost:5000', origin: 'http://127.0.0.1:3000', 'x-forwarded-host': '127.0.0.1:3000' });
+    const r = driveUpgrade(proxied, { learnsProxyPorts: true });
     expect(r.destroyed).toBe(false);
     expect(r.handshakes).toBe(1);
   });
 
   it('rejects a page on another port whose socket goes through the proxy', () => {
-    const r = driveUpgrade({ host: 'localhost:5000', origin: 'http://127.0.0.1:4000', 'x-forwarded-host': '127.0.0.1:3000' });
+    const r = driveUpgrade({ ...proxied, origin: 'http://127.0.0.1:4000', 'sec-fetch-site': 'same-site' }, { learnsProxyPorts: true });
     expect(r.destroyed).toBe(true);
     expect(r.handshakes).toBe(0);
   });
 
   it('accepts a direct socket from the proxy\'s port once a proxied request named it', async () => {
-    const mount = guardedMount();
+    const mount = guardedMount({ learnsProxyPorts: true });
     const page = { host: 'localhost:5000', origin: 'http://127.0.0.1:3000' };
     expect(mount.upgrade(page).destroyed).toBe(true);
-    expect(await mount.request({ host: 'localhost:5000', origin: 'http://127.0.0.1:3000', 'x-forwarded-host': '127.0.0.1:3000' })).toBe(false);
+    expect(await mount.request(proxied)).toBe(false);
     expect(mount.upgrade(page).handshakes).toBe(1);
     expect(mount.upgrade({ host: 'localhost:5000', origin: 'http://127.0.0.1:4000' }).destroyed).toBe(true);
+  });
+
+  it('learns no port from a page on another port that names itself in x-forwarded-host', async () => {
+    const mount = guardedMount({ learnsProxyPorts: true });
+    const other = { host: 'localhost:5000', origin: 'http://localhost:4000' };
+    expect(await mount.request({ ...other, 'x-forwarded-host': 'localhost:4000', 'sec-fetch-site': 'same-site' })).toBe(false);
+    expect(mount.upgrade(other).destroyed).toBe(true);
+  });
+
+  it('a mount inside a dev server learns no port', async () => {
+    // The Vite plugin's mount serves the page on the connection's own port.
+    const mount = guardedMount();
+    expect(await mount.request(proxied)).toBe(false);
+    expect(mount.upgrade({ host: 'localhost:5000', origin: 'http://127.0.0.1:3000' }).destroyed).toBe(true);
   });
 
   it('accepts a non-browser peer (no Origin) on a loopback Host', () => {

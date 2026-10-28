@@ -69,6 +69,11 @@ export interface BridgeMountOptions {
    *  `allowedHosts: true` = the caller (vite `server.allowedHosts: true`) opted
    *  into all hosts. Omit ⇒ loopback-only. */
   upgradeGuard?: { boundHost: string; allowedHosts?: string[] | true };
+  /** Accept a page on the port of a dev server that proxies `/__pyric/*` to
+   *  this one (`pyric sandbox -- next dev`). Only the standalone server sets
+   *  it. A mount inside a dev server, such as the Vite plugin's, serves the
+   *  page on its own port, which the connection's port already covers. */
+  learnsProxyPorts?: boolean;
 }
 
 export interface BridgeMount {
@@ -316,7 +321,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     instanceId: bridge.instanceId,
 
     async handler(req, res, url) {
-      appPorts.learn(req);
+      if (opts.learnsProxyPorts === true) appPorts.learn(req);
       const isHealthRequest = url.pathname === HEALTH_PATH;
       const isMcpRequest = url.pathname === MCP_PATH;
       const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
@@ -538,8 +543,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const allowedHosts = guard.allowedHosts;
           const hasNamedHosts = Array.isArray(allowedHosts);
           const extra = hasNamedHosts ? allowedHosts : [];
-          appPorts.learn(req);
-          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra, appPorts.forRequest(req));
+          const acceptsProxiedPage = opts.learnsProxyPorts === true;
+          const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
+          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra, ports);
           if (isForbidden) {
             socket.destroy();
             return;

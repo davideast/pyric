@@ -367,6 +367,8 @@ async function startServeRuntime(opts: {
         projectKey: opts.cwd,
         disableAuditLog: opts.disableAuditLog,
         upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
+        // `pyric sandbox -- next dev` serves the page from Next's port.
+        learnsProxyPorts: true,
     });
   }
   const mount = bridgeMount;
