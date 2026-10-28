@@ -421,6 +421,14 @@ automatically routes calls to a live Node host for the same project (reporting
 `--allow-production` (or `PYRIC_ALLOW_PRODUCTION=1`) enables `production`-effect
 methods.
 
+Each method record declares where its handler runs. A `runsIn: 'sandbox'`
+record is given only a `SandboxSurfaceContext` (`surface/sandbox-context.ts`)
+and imports nothing Node-only, so a host can run it wherever its sandbox lives;
+`surface/methods/sandbox-registry.ts` loads just these records from the
+generated `manifest.sandbox.generated.ts`. A `runsIn: 'bridge'` record reads the
+project directory, imports a Node-only module, or dispatches an in-process tool
+family, and runs only in the bridge process.
+
 The served bridge (`pyric sandbox --bridge`) advertises a
 second, separate contract: the **bridge transport surface** a browser sandbox
 peer executes, plus the rules, conformance, identity, and capture tools that

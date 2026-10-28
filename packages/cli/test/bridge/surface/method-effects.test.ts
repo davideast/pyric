@@ -39,6 +39,7 @@ function fakeMethod(overrides: Partial<Method>): Method {
   return {
     tool: 'sandbox',
     method: 'wipeEverything',
+    runsIn: 'bridge',
     sdkOrigin: 'pyric',
     effect: 'production',
     signature: 'wipeEverything(confirm)',

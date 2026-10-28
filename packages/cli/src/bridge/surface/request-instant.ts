@@ -15,14 +15,14 @@
  * would have got by naming no instant at all.
  */
 import { getClock } from 'pyric/sandbox';
-import type { SurfaceContext } from './types.js';
+import type { SandboxSurfaceContext } from './types.js';
 
 /**
  * The instant `request.time` (Firestore, Storage) or `now` (database) reads,
  * in epoch milliseconds: the caller's `requestTime` when it names a parsable
  * one, and the sandbox clock's own instant otherwise.
  */
-export function requestInstant(ctx: SurfaceContext, requestTime: string | undefined): number {
+export function requestInstant(ctx: SandboxSurfaceContext, requestTime: string | undefined): number {
   if (requestTime === undefined) return getClock(ctx.sandbox).now();
   const named = Date.parse(requestTime);
   if (Number.isNaN(named)) return getClock(ctx.sandbox).now();

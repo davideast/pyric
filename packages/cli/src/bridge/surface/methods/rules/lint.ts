@@ -7,6 +7,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'rules',
   method: 'lint',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `lint(service: ${SERVICES.join('|')}, rules?, instance?)`,

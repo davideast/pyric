@@ -9,6 +9,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'database',
   method: 'remove',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'remove(path, instance?)',

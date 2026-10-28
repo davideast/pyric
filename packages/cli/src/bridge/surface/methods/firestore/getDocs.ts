@@ -14,7 +14,7 @@ import {
   constraintsOf,
   RENAMES,
 } from '../../arguments/firestore.js';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { OperationResult } from '../../types.js';
 
@@ -29,6 +29,7 @@ function applyDirection(result: OperationResult, direction: string | undefined):
 export default {
   tool: 'firestore',
   method: 'getDocs',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
   signature: 'getDocs(path, constraints?[asc|desc])',

@@ -9,6 +9,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'database',
   method: 'set',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'set(path, value, instance?)',

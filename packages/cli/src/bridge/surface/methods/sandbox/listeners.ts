@@ -40,6 +40,7 @@ function totalsFor(listeners: readonly ActiveListener[]): Record<string, number>
 export default {
   tool: 'sandbox',
   method: 'listeners',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `listeners(service?: ${SERVICES.join('|')}, target?)`,

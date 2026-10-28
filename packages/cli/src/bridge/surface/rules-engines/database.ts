@@ -5,7 +5,6 @@ import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
 import { resolveDatabaseInstance } from 'pyric/sandbox/internal';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
-import { projectDatabaseInstances } from '../database-instance-catalog.js';
 import { instanceSelector, onInstance } from '../database-instance.js';
 import { databaseRulesSource, installDatabaseRules } from '../database-rules-load.js';
 import { databaseFor } from '../service-handles.js';
@@ -67,7 +66,7 @@ async function deploySelector(ctx: SurfaceContext, raw: unknown): Promise<string
   if (raw === undefined) return undefined;
   const instance = resolveDatabaseInstance(String(raw));
   if (instance === undefined) return undefined;
-  const catalog = ctx.databaseInstances ?? (await projectDatabaseInstances(ctx.sandbox, ctx.projectDir));
+  const catalog = await ctx.databaseInstances();
   return catalog.select(instance.name) === undefined ? undefined : instance.name;
 }
 

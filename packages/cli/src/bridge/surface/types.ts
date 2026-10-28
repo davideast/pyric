@@ -9,6 +9,7 @@
  */
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { SandboxDispatch } from '../client/dispatch.js';
+import type { DatabaseInstanceCatalog } from './database-instance-catalog.js';
 import type { SurfaceIdentity } from './identity.js';
 
 /** What one operation returns. Mirrors the dispatcher's result shape. */
@@ -28,11 +29,37 @@ export interface SurfaceTargetRouter {
   ): Promise<OperationResult>;
 }
 
-/** Everything a handler is given: the sandbox, the shared dispatcher, and the caller identity. */
-export interface SurfaceContext {
+/**
+ * What a handler is given wherever the sandbox lives: the sandbox, the
+ * dispatcher over the forwarded tool families, the caller identity, and the
+ * RTDB instances a `database` method may name. A record that runs in the
+ * sandbox (`runsIn: 'sandbox'`) is given only this, so it cannot reach the
+ * project directory or a tool family that exists only in Node.
+ */
+export interface SandboxSurfaceContext {
   sandbox: LocalSandbox;
   dispatch: SandboxDispatch;
   identity: SurfaceIdentity;
+  /**
+   * The RTDB instances a `database` method may name. A host answers from the
+   * instances it serves; the bridge process reads the project's files on each
+   * call.
+   */
+  databaseInstances(): Promise<DatabaseInstanceCatalog>;
+  /**
+   * The name the served app knows its default Storage bucket by (its
+   * `storageBucket` option), when the host serving the sandbox knows it.
+   * Storage rules simulation binds it as the bucket's name.
+   */
+  storageBucketName?: () => string | undefined;
+}
+
+/**
+ * Everything a handler in the bridge process is given: the sandbox context,
+ * plus the project directory, the checkpoint store, the target router, and a
+ * dispatcher that also reaches the in-process tool families.
+ */
+export interface SurfaceContext extends SandboxSurfaceContext {
   /**
    * The directory the session's own files live under: the rules files, the
    * in-process state, and everything else below `.pyric/`. A method that reaches
@@ -41,21 +68,10 @@ export interface SurfaceContext {
    * project directory that is not where the process was started.
    */
   projectDir: string;
-  /** Dynamic target router for hosted following (ADR 0016). */
   /** Where the host keeps checkpoints, when not the project's directory. */
   checkpoints?: import('pyric/sandbox/checkpoints').CheckpointBackend;
+  /** Dynamic target router for hosted following (ADR 0016). */
   targetRouter?: SurfaceTargetRouter;
-  /**
-   * The RTDB instances a `database` method may name, when the host serving the
-   * sandbox knows them. Absent, they are read from the project's files.
-   */
-  databaseInstances?: import('./database-instance-catalog.js').DatabaseInstanceCatalog;
-  /**
-   * The name the served app knows its default Storage bucket by (its
-   * `storageBucket` option), when the host serving the sandbox knows it.
-   * Storage rules simulation binds it as the bucket's name.
-   */
-  storageBucketName?: () => string | undefined;
 }
 
 /** One tool as an MCP client sees it. */

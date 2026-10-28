@@ -9,13 +9,14 @@
 import { z } from 'zod';
 import { AIError, AIErrorCode } from 'pyric/ai';
 import { clearScripts as clearScriptsEngine } from 'pyric/ai/scripting';
-import { operationFailure } from '../../context.js';
+import { operationFailure } from '../../sandbox-context.js';
 import { aiFor } from '../../service-handles.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'ai_logic',
   method: 'clearScripts',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'clearScripts()',

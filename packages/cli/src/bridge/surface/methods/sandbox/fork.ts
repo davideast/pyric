@@ -22,6 +22,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'sandbox',
   method: 'fork',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'fork(branch, candidateRules?: string | {firestore?, database?, storage?})',

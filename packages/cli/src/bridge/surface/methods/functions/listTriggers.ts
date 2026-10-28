@@ -27,6 +27,7 @@ function describeTrigger(trigger: {
 export default {
   tool: 'functions',
   method: 'listTriggers',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'listTriggers()',

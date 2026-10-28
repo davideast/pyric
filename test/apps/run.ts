@@ -26,6 +26,10 @@
  * per run, copied into each app (shared-installs.ts). Logs land in
  * test-results/apps/<name>/. Apps start longest first, by the times the last
  * run recorded in test-results/app-durations.json (schedule.ts).
+ *
+ * Every run, including one of named apps, is heavy: it takes a machine-wide
+ * slot (scripts/lib/heavy-run-slots.ts) before it samples the machine and
+ * packs the workspace, and waits while two other heavy runs hold both slots.
  */
 import { chromium, type Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -35,6 +39,7 @@ import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
+import { takeHeavyRunSlot } from '../../scripts/lib/heavy-run-slots.ts';
 import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
 import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
@@ -219,6 +224,7 @@ async function main(): Promise<void> {
   // Apps named on the command line run in the order given; a whole run starts the longest first.
   const isWholeRun = options.names.length === 0;
   const names = isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run;
+  await takeHeavyRunSlot();
   // Measured before packing, so the runner's own build and pack do not count as load.
   const machine = await sampleMachineLoad();
   if (names.length === 0) {

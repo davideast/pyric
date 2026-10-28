@@ -15,6 +15,7 @@ function inputFor(args: Args): ProvisionStorageInput {
 export default {
   tool: 'storage',
   method: 'provision',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'production',
   signature: 'provision(bucket?, confirm)',

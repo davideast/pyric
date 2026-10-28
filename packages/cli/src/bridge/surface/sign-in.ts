@@ -19,9 +19,9 @@ import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
 
 import { describeAppSession, readAppSession } from './app-session.js';
-import { operationFailure } from './context.js';
+import { operationFailure } from './sandbox-context.js';
 import { describeAgentIdentity } from './held-identity.js';
-import type { OperationResult, SurfaceContext } from './types.js';
+import type { OperationResult, SandboxSurfaceContext } from './types.js';
 
 /** The fix for a credential no account in the pool matches. */
 export const MISSING_ACCOUNT_FIX =
@@ -66,7 +66,7 @@ export function scopeToStoredTenant(sandbox: LocalSandbox, subject: SignInSubjec
  * Report what a sign-in or a sign-out did: the app session it moved, and the
  * agent identity it left alone.
  */
-export function reportAppSession(ctx: SurfaceContext): OperationResult {
+export function reportAppSession(ctx: SandboxSurfaceContext): OperationResult {
   const appSession = readAppSession(ctx.sandbox);
   const agent = ctx.identity.describe();
   return {

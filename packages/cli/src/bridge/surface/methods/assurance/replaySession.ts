@@ -71,6 +71,7 @@ function stateDivergences(service: string, found: readonly VerifyDivergence[]): 
 export default {
   tool: 'assurance',
   method: 'replaySession',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'replaySession(sessionPath?, candidateRules?, service?: firestore|database)',

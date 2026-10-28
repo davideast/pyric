@@ -19,6 +19,7 @@ function fakeMethod(overrides: Partial<Method>): Method {
   return {
     tool: 'widgets',
     method: 'spin',
+    runsIn: 'bridge',
     sdkOrigin: 'pyric',
     effect: 'read',
     signature: 'spin(id)',
