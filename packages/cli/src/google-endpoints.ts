@@ -133,10 +133,81 @@ const CATALOG_BY_SPECIFICITY: readonly GoogleEndpoint[] = [...GOOGLE_ENDPOINT_CA
   (a, b) => b.host.length - a.host.length,
 );
 
-/** Trim, lowercase, and drop a trailing root dot. The one spelling of a
- *  hostname that every comparison in the guard and the catalog uses. */
+/**
+ * Trim, lowercase, drop a trailing root dot, and write an IP address in one
+ * form. The one spelling of a hostname that every comparison in the guard and
+ * the catalog uses.
+ *
+ * The system resolver connects to `2852039166`, `0xa9fea9fe`, `169.254.43518`
+ * and `::ffff:169.254.169.254` as `169.254.169.254`, so comparing the text a
+ * caller wrote would let any of them past an entry for the metadata server.
+ */
 export function normalizeHostname(value: string): string {
-  return value.trim().toLowerCase().replace(/\.$/, '');
+  const text = value.trim().toLowerCase().replace(/\.$/, '');
+  return canonicalIpAddress(text) ?? text;
+}
+
+/** Characters the URL parser reads as something other than part of a host. */
+const URL_DELIMITERS = /[\s/?#@\\%]/;
+
+/** A host the URL parser could read as IPv4: digits, dots and hex. */
+const IPV4_CANDIDATE = /^[0-9a-fx.]+$/;
+
+const DOTTED_QUAD = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+
+/** An IPv4-mapped IPv6 address as the URL parser writes it. */
+const MAPPED_IPV4 = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+
+/**
+ * `text` written the way the URL parser writes an IP address: a dotted quad
+ * for every IPv4 form, and for IPv6 the compressed form without brackets, or
+ * its IPv4 address when it is IPv4-mapped. `undefined` for anything that is
+ * not an IP address, which stays as text.
+ */
+function canonicalIpAddress(text: string): string | undefined {
+  if (text.includes(':')) return canonicalIpv6Text(text);
+  if (text.length === 0 || URL_DELIMITERS.test(text)) return undefined;
+  if (!IPV4_CANDIDATE.test(text)) return undefined;
+  const hostname = parsedHostname(text);
+  if (hostname !== undefined && DOTTED_QUAD.test(hostname)) return hostname;
+  return undefined;
+}
+
+/** A trailing IPv6 zone id, `%lo`, or `%25lo` as a URL writes it. */
+const ZONE_ID = /%(?:25)?[^%]*$/;
+
+/**
+ * IPv6 text without its brackets and zone id. Node and the kernel accept
+ * `::ffff:a9fe:a9fe%lo` and reach the IPv4 address, but the URL parser rejects
+ * a zone id, so it comes off before parsing.
+ */
+function canonicalIpv6Text(text: string): string | undefined {
+  const bare = text.replace(/^\[(.*)\]$/, '$1').replace(ZONE_ID, '');
+  if (bare.length === 0 || URL_DELIMITERS.test(bare)) return undefined;
+  return canonicalIpv6(bare);
+}
+
+function canonicalIpv6(bare: string): string | undefined {
+  const hostname = parsedHostname(`[${bare}]`);
+  if (hostname === undefined) return undefined;
+  const address = hostname.replace(/^\[(.*)\]$/, '$1');
+  const mapped = MAPPED_IPV4.exec(address);
+  if (mapped === null) return address;
+  return [...hextetBytes(mapped[1]!), ...hextetBytes(mapped[2]!)].join('.');
+}
+
+function hextetBytes(hextet: string): [number, number] {
+  const value = Number.parseInt(hextet, 16);
+  return [value >> 8, value & 0xff];
+}
+
+/** The hostname the WHATWG URL parser reads from `host`, or `undefined`. */
+function parsedHostname(host: string): string | undefined {
+  try {
+    return new URL(`http://${host}/`).hostname;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
