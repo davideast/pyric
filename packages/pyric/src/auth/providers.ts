@@ -237,6 +237,23 @@ export const FEDERATED_PROVIDER_IDS = [
 /** One of the first-class federated provider ids ({@link FEDERATED_PROVIDER_IDS}). */
 export type FederatedProviderId = (typeof FEDERATED_PROVIDER_IDS)[number];
 
+const FEDERATED_PROVIDER_ID_SET: ReadonlySet<string> = new Set(FEDERATED_PROVIDER_IDS);
+
+/** A custom OIDC or SAML provider id: `oidc.` or `saml.` and a non-empty name with no whitespace. */
+const CUSTOM_FEDERATED_PROVIDER_ID = /^(oidc|saml)\.\S+$/;
+
+/**
+ * Whether `id` names a federated identity provider: one of the seven
+ * {@link FEDERATED_PROVIDER_IDS}, or a custom `oidc.<name>` / `saml.<name>`
+ * id. Matching is exact and case-sensitive, as Firebase's is, so
+ * `Password`, `password `, `emailLink`, `phone`, `anonymous` and unknown
+ * ids are not federated. The served planes use it to refuse a credential
+ * whose provider id pyric doesn't know, as in-page does (#1466).
+ */
+export function isFederatedProviderId(id: string): boolean {
+  return FEDERATED_PROVIDER_ID_SET.has(id) || CUSTOM_FEDERATED_PROVIDER_ID.test(id);
+}
+
 /**
  * Union of all supported provider instance shapes. Used in the
  * `signInWithPopup` / `signInWithRedirect` overloads (the latter is

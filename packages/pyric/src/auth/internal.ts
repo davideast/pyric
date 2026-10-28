@@ -22,3 +22,5 @@ export {
 export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';
 export { isEmailSignInLink, resolveEmailLinkIdentity } from './email-link.js';
 export { resolveCustomTokenIdentity } from './tokens.js';
+export { isFederatedProviderId } from './providers.js';
+export { noMockConfiguredError } from './sign-in.js';
