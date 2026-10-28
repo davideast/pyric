@@ -38,12 +38,6 @@ describe('SDK hunt captures: one remote update, then setPriority', () => {
           production: PRODUCTION_LOG,
           pyric: SANDBOX_LOG,
         },
-        {
-          key: 'valKeys',
-          finding: 'RT-7: val() keys follow priority, then key order',
-          production: { ref: 'a,b,c', query: 'a,b,c' },
-          pyric: { ref: 'b,a,c', query: 'b,c,a' },
-        },
       ],
     });
   });
@@ -65,9 +59,8 @@ describe('SDK hunt captures: one remote update, then setPriority', () => {
   });
 
   row('val-key-order', async () => {
-    // RT-7, pinned on both sides in the remote-update-event-order row; this row's own fact.
-    expect(obs('rtdb-modular-remote-update-event-order').valKeys).toEqual({ ref: 'a,b,c', query: 'a,b,c' });
-    expect((await runInPage(scenario)).valKeys).toEqual({ ref: 'b,a,c', query: 'b,c,a' });
+    // RT-7, fixed in #1371: val() keys follow priority, then key order, as production's do.
+    expect((await runInPage(scenario)).valKeys).toEqual(obs('rtdb-modular-remote-update-event-order').valKeys);
   });
 
   // RP-5 is a served-plane finding, pinned in

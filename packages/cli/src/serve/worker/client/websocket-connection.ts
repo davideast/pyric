@@ -65,10 +65,18 @@ export function getHostedFirestore(target: {
    * passes nothing and presents the boot it was served by (#1153).
    */
   currentHostInstanceId?: () => Promise<string | undefined>;
+  /**
+   * Resolves the socket url again before a reattach. A Node process passes it:
+   * a host that stopped may come back on another port, which its
+   * `.pyric/serve.json` names. A page passes nothing and redials its own origin.
+   */
+  currentUrl?: () => Promise<string>;
 }, existingPort?: ClientPort): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  /** The url the next socket dials; a reattach may resolve it again. */
+  let socketUrl = target.url;
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
-    recordDiagnostic({ phase, connectionId, endpoint: target.url, code });
+    recordDiagnostic({ phase, connectionId, endpoint: socketUrl, code });
   };
   const connectionListeners = new Set<(connected: boolean) => void>();
   let state: HostedConnectionState = 'connecting';
@@ -242,10 +250,23 @@ export function getHostedFirestore(target: {
     failInFlightStreams(port, lost, subId => held.holdsSubscription({ t: 'unsub', subId }));
     noteTraffic({});
     connection.close();
+    scheduleReconnect();
+  }
+
+  function scheduleReconnect(): void {
     const delay = Math.min(5_000, 250 * 2 ** reconnectAttempt);
     reconnectAttempt += 1;
     const jitter = Math.random() * Math.min(250, delay / 10);
     reconnectTimer = armed(setTimeout(connect, Math.min(5_000, delay + jitter)));
+  }
+
+  /** A reattach whose url could not be resolved (no host answers yet) tries again on the same backoff. */
+  function retryResolution(): void {
+    const isClosed = state === 'closed';
+    if (isClosed) return;
+    state = 'interrupted';
+    notifyConnectionChange();
+    scheduleReconnect();
   }
 
   function scheduleHeartbeat(connection: WebSocket): void {
@@ -337,8 +358,23 @@ export function getHostedFirestore(target: {
     const retentionExpired = interruptedAt !== undefined && performance.now() - interruptedAt >= WORKER_SESSION_RETENTION_MS;
     if (retentionExpired) resumeToken = undefined;
     const requestsFreshSession = resumeToken === undefined;
+    const resolveUrl = target.currentUrl;
+    const resolvesAgain = hasEverAttached && resolveUrl !== undefined;
+    if (!resolvesAgain) {
+      openSocket(requestsFreshSession);
+      return;
+    }
+    void resolveUrl().then(url => {
+      const isClosedMeanwhile = state === 'closed';
+      if (isClosedMeanwhile) return;
+      socketUrl = url;
+      openSocket(requestsFreshSession);
+    }, retryResolution);
+  }
+
+  function openSocket(requestsFreshSession: boolean): void {
     let connection: WebSocket;
-    try { connection = realm ? realm.createSocket(target.url) : new WebSocket(target.url); }
+    try { connection = realm ? realm.createSocket(socketUrl) : new WebSocket(socketUrl); }
     catch (error) { report('socket-error'); throw error; }
     socket = connection;
     attachDeadline = armed(setTimeout(() => {
@@ -412,7 +448,7 @@ export function getHostedFirestore(target: {
           const offersByteRoute = capabilities.includes(STORAGE_BYTE_ROUTE_CAPABILITY);
           const sessionToken = target.sessionToken;
           const usesByteRoute = offersByteRoute && sessionToken !== undefined;
-          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(target.url), sessionToken };
+          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(socketUrl), sessionToken };
           else delete port.byteRoute;
           settleByteRoute();
           realm?.attached?.(message);
