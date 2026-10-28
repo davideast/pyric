@@ -54,6 +54,10 @@
       "types": "./dist/firestore/internal/value-codec.d.ts",
       "import": "./dist/firestore/internal/value-codec.js"
     },
+    "./firestore/internal/implicit-order": {
+      "types": "./dist/firestore/internal/implicit-order.d.ts",
+      "import": "./dist/firestore/internal/implicit-order.js"
+    },
     "./firestore/internal/update-fields": {
       "types": "./dist/firestore/internal/update-fields.d.ts",
       "import": "./dist/firestore/internal/update-fields.js"
