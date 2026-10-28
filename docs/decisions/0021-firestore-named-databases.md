@@ -538,38 +538,70 @@ is byte-identical):
 - An entry with neither throws the CLI's message,
   `Must supply either "target" or "databaseId" in firestore config`.
 
-Pyric adds refusals the CLI leaves to the API, each naming the entry:
+Pyric adds checks the CLI leaves to the API, each naming the entry:
 
-- a `database` value outside the naming rules (decision 1), because production
-  can't hold that database;
-- more than 100 databases;
-- two entries that deploy different rules files to one database. This follows
-  `database-rules-config.ts` for RTDB: the CLI deploys both, so the
-  configuration doesn't decide which ruleset production keeps.
+- two entries that deploy different rules files to one database are refused.
+  This follows `database-rules-config.ts` for RTDB: the CLI deploys both, so the
+  configuration doesn't decide which ruleset production keeps;
+- a `database` value outside the naming rules (decision 1) gets a startup
+  warning, and its database is never declared, so it answers as missing
+  (decision 3). Production can't hold that database. David chose to warn and
+  serve rather than refuse at startup (#1444);
+- more than 100 declared databases is refused, as decision 1's cap.
 
 A target no `.firebaserc` mapping resolves waits for the page's project, as
 RTDB targets do (the `rtdb-deploy-target-unresolved` app scenario), and the
 dev server logs that it is unresolved.
 
-One pure resolver, `packages/pyric/src/sandbox/internal/firestore-rules-config.ts`,
-returns:
+One pure resolver, `firestoreRulesConfig` in
+`packages/pyric/src/sandbox/internal/firestore-rules-config.ts`, exported from
+`pyric/sandbox/internal`, returns the shape #1444 (closing #1315) ships:
 
 ```ts
-interface FirestoreConfigTarget {
-  database: string;         // '(default)' or a declared id
-  rulesFile?: string;       // absent: the entry declares the database and deploys no rules
-  indexesFile?: string;
-  label: string;            // 'firebase.json firestore[1]'
-  configured: boolean;      // false only for the firestore.rules fallback with no firestore key
+interface FirestoreRulesConfig {
+  form: 'absent' | 'object' | 'array';  // which firestore form firebase.json uses
+  databases: {
+    database: string;        // '(default)' or the named id, as written
+    rulesFile?: string;      // absent: the entry declares its database and deploys no rules
+    indexesFile?: string;    // filled when firebase.json names one
+    label: string;           // 'firebase.json firestore[0]'
+    configured: boolean;     // firebase.json names the rules file, so a missing file is an error
+  }[];
+  unresolved: { target: string; label: string; rulesFile?: string; indexesFile?: string }[];
 }
-// plus { target, label }[] for targets no mapping resolves
 ```
 
-It reads no file, as `database-rules-config.ts` reads none. #1315 ships this
-shape, with only the `(default)` result consumed. Its plan first described a
-narrower return. The coordinator has told the #1315 run to ship this shape
-instead, and #1315's body is updated when that PR opens. Every loader calls
-the resolver:
+It reads no file, as `database-rules-config.ts` reads none. The named-database
+issues reuse it unchanged. Its fields beyond what firebase-tools reads:
+
+- `configured` carries pyric's old fallback. Without a `firestore` key, or
+  with an object that names no `rules`, `firestore.rules` in the project
+  directory goes to `(default)` with `configured: false`. The array form has
+  no fallback. Whether the fallback should stay is #1452.
+- `form` lets a loader tell an object from an array, which the interim rule
+  below needs.
+- A Vite or `pyric.config` rules override becomes a `{ pyricRulesOverride:
+  file }` entry, applied after resolving to whichever entry deploys to
+  `(default)`, including one that reaches it through a `.firebaserc` target.
+  `firebase.json` never holds this key.
+
+**Until named databases land, an object that names another database keeps
+enforcing on `(default)`.** For `{ "firestore": { "database": "reports",
+"rules": "r.rules" } }`, main enforced `r.rules` on `(default)`. #1444 keeps
+doing so, so no project loses enforcement it had. The resolver still reports
+that the object deploys to `reports`, and startup warns: `firebase.json deploys
+r.rules to Firestore database "reports". Pyric serves only (default) for now,
+so it enforces r.rules on (default), and getFirestore(app, "reports") reads and
+writes (default).` Named entries in an array get the matching warning and are
+not served. #1319 ends both. From then on the object's rules govern `reports`,
+`(default)` gets what pyric gives a `(default)` with no deployed rules today,
+and the warning goes away. The Consequences list this as an upgrade change.
+
+The planes pick the project for target resolution in different ways, so a
+target can resolve on one plane and not another (#1454). Named databases
+inherit that until #1454 is fixed.
+
+Every loader calls the resolver:
 
 - the dev server, SharedWorker, in-page runtime and Node host
   (`packages/cli/src/serve/rules.ts`);
@@ -733,8 +765,9 @@ with the in-page plane, and each later issue adds its plane.
 The order in Decision 3 for David holds. Each issue's plan is written after
 this record merges, and its body is updated to match what's here.
 
-1. **#1315**: the `(default)` entry of a `firestore` array. It lands the
-   resolver of decision 6 in its full shape, with only `(default)` consumed.
+1. **#1315** (PR #1444): the `(default)` entry of a `firestore` array. It lands
+   the resolver of decision 6 in its full shape, with only `(default)`
+   consumed, and the interim object rule.
 2. **#1316**: the core. Flips MD1 and MD4, and adds MD5, MD6, MD7 and MD9. It
    covers:
    - the identity module and the declared set;
@@ -751,8 +784,8 @@ this record merges, and its body is updated to match what's here.
    flips. Its evidence is a restart scenario on the Node host with two
    databases, including a restart after a reset.
 5. **#1319**: per-database rules and indexes from the `firestore` array on every
-   plane, with locked rules for a declared database without rules. Adds MD8 and
-   MD10.
+   plane, with locked rules for a declared database without rules. It retires
+   #1444's interim object rule and its warnings. Adds MD8 and MD10.
 6. **#1320**: `pyric-admin` `getFirestore(app, databaseId)` and
    `getFirestore(databaseId)` on both arms. Flips MD3.
 7. **#1321**: the tools, `pyric verify --rules firestore:<database>=<path>`,
@@ -852,6 +885,11 @@ production-capture lock.
   the `firebase.json` entry to add and says when `(default)` holds documents at
   the paths asked for. Pyric moves no data. The release notes list this under
   "Behavior changes", as a fix that moves pyric closer to production.
+- **An object `firestore` that names another database moves its rules.**
+  Until #1319, pyric enforces such an object's rules on `(default)` with a
+  warning (decision 6). After it, they govern the named database. `(default)`
+  then gets what pyric gives a `(default)` with no deployed rules, unless
+  another entry deploys to it. The release notes list this under "Behavior changes".
 - A database nothing declares behaves as missing, so a project that created a
   database in the console must name it in `firebase.json`, with or without
   rules, to use it in pyric.
