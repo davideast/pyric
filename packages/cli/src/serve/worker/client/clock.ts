@@ -10,30 +10,28 @@
  *
  * So the state is mirrored rather than fetched. `wirePort` asks the host to
  * stream it; the host answers immediately and again on every move, and
- * {@link sandboxNow} derives the instant from the mirror using the same three
- * modes the clock itself does. A port that has not been answered yet mirrors
- * the wall clock, which is what an unmoved clock reports anyway.
+ * {@link sandboxNow} derives the instant from the mirror through the same
+ * `ClockReading` the clock itself uses, so the page applies the same modes and
+ * the same rule for a host clock that steps back. A port that has not been
+ * answered yet mirrors the wall clock, which is what an unmoved clock reports
+ * anyway.
  */
+import { ClockReading } from 'pyric/sandbox/internal';
 import type { SandboxClockState } from 'pyric/sandbox';
 
-/** The state a clock that has never been moved reports. */
-const WALL: SandboxClockState = { mode: 'wall', fixedAt: 0, offsetMs: 0 };
-
-let mirrored: SandboxClockState = WALL;
+const mirror = new ClockReading();
 
 /** Adopt the state the host just sent. */
 export function receiveClockState(state: SandboxClockState): void {
-  mirrored = state;
+  mirror.follow(state);
 }
 
 /** The state the page currently believes the sandbox clock holds. */
 export function mirroredClockState(): SandboxClockState {
-  return mirrored;
+  return mirror.state;
 }
 
 /** The sandbox's current time, in epoch milliseconds, from the mirror. */
 export function sandboxNow(): number {
-  if (mirrored.mode === 'fixed') return mirrored.fixedAt;
-  if (mirrored.mode === 'offset') return Date.now() + mirrored.offsetMs;
-  return Date.now();
+  return mirror.now();
 }

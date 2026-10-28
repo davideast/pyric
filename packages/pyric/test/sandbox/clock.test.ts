@@ -101,6 +101,95 @@ describe('SandboxClock', () => {
   });
 });
 
+// The sandbox clock stands in for Firebase's servers, whose clock never steps
+// back. A host clock that does (WSL2 steps back about 1.5 s) must not move a
+// `serverTimestamp()` or `request.time` backward (#1255).
+describe('when the host clock steps backward', () => {
+  const STEP_BACK_MS = 1500;
+
+  it('holds a wall clock at its last reading until the host catches up', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    expect(clock.now()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS - STEP_BACK_MS);
+    expect(clock.now()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS + 10);
+    expect(clock.now()).toBe(WALL_MS + 10);
+  });
+
+  it('holds an offset clock at its last reading until the host catches up', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    clock.advance(HOUR_MS);
+    expect(clock.now()).toBe(WALL_MS + HOUR_MS);
+
+    setSystemTime(WALL_MS - STEP_BACK_MS);
+    expect(clock.now()).toBe(WALL_MS + HOUR_MS);
+
+    setSystemTime(WALL_MS + 10);
+    expect(clock.now()).toBe(WALL_MS + HOUR_MS + 10);
+  });
+
+  it('still moves back when the caller advances by a negative delta', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    expect(clock.now()).toBe(WALL_MS);
+
+    clock.advance(-HOUR_MS);
+    expect(clock.now()).toBe(WALL_MS - HOUR_MS);
+  });
+
+  it('advances forward from the held reading, not from the host clock', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    expect(clock.now()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS - STEP_BACK_MS);
+    clock.advance(1000);
+    expect(clock.now()).toBe(WALL_MS + 1000);
+
+    setSystemTime(WALL_MS + 10);
+    expect(clock.now()).toBe(WALL_MS + 1010);
+  });
+
+  it('advances back exactly that far below the held reading', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    clock.advance(HOUR_MS);
+    expect(clock.now()).toBe(WALL_MS + HOUR_MS);
+
+    setSystemTime(WALL_MS - STEP_BACK_MS);
+    clock.advance(-1000);
+    expect(clock.now()).toBe(WALL_MS + HOUR_MS - 1000);
+  });
+
+  it('drops the held reading on reset', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    expect(clock.now()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS - STEP_BACK_MS);
+    clock.reset();
+    expect(clock.now()).toBe(WALL_MS - STEP_BACK_MS);
+  });
+
+  it('never decreases across many readings on a host that keeps stepping back', () => {
+    const clock = new SandboxClock();
+    let host = WALL_MS;
+    let previous = Number.NEGATIVE_INFINITY;
+    for (let step = 0; step < 20; step += 1) {
+      const isStepBack = step % 3 === 2;
+      host += isStepBack ? -STEP_BACK_MS : 400;
+      setSystemTime(host);
+      const reading = clock.now();
+      expect(reading).toBeGreaterThanOrEqual(previous);
+      previous = reading;
+    }
+  });
+});
+
 describe('getClock', () => {
   it('returns the same clock for the same sandbox', () => {
     const sandbox = initializeSandbox();
