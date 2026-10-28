@@ -119,15 +119,32 @@ export async function healthyBase(
   port: number,
   expectedInstanceId?: string | null,
 ): Promise<{ base: string; instanceId: string | null } | null> {
+  return (await probePort(port, expectedInstanceId)).match;
+}
+
+/** What answered on a port's loopback families. */
+interface PortProbe {
+  /** The family that answered as the expected sandbox, or `null`. */
+  match: AnsweringHost | null;
+  /** Whether a sandbox with another identity answered. */
+  otherAnswered: boolean;
+}
+
+async function probePort(port: number, expectedInstanceId?: string | null): Promise<PortProbe> {
+  let otherAnswered = false;
   for (const base of basesForPort(port)) {
     const health = await probeHealth(base);
     if (!health) continue;
     const id = health.instanceId ?? null;
     // Healthy but the WRONG server (the cross-family squatter): skip, try next.
-    if (expectedInstanceId && id !== expectedInstanceId) continue;
-    return { base, instanceId: id };
+    const isOtherHost = Boolean(expectedInstanceId) && id !== expectedInstanceId;
+    if (isOtherHost) {
+      otherAnswered = true;
+      continue;
+    }
+    return { match: { base, instanceId: id }, otherAnswered };
   }
-  return null;
+  return { match: null, otherAnswered };
 }
 
 /** Best-effort port extraction from a pointer url/mcpUrl. */
@@ -199,15 +216,36 @@ export async function probeHostUrl(url: string): Promise<AnsweringHost | null> {
     return null;
   }
   const isLoopback = LOOPBACK_HOSTNAMES.has(parsed.hostname);
-  if (isLoopback) {
-    const defaultPort = parsed.protocol === 'https:' ? 443 : 80;
-    const port = parsed.port === '' ? defaultPort : Number(parsed.port);
-    return healthyBase(port);
-  }
+  if (isLoopback) return healthyBase(urlPort(parsed));
   const base = `${parsed.protocol}//${parsed.host}`;
   const health = await probeHealth(base);
   if (health === null) return null;
   return { base, instanceId: health.instanceId ?? null };
+}
+
+/** The port a URL names, or its scheme's default when it names none. */
+function urlPort(parsed: URL): number {
+  const defaultPort = parsed.protocol === 'https:' ? 443 : 80;
+  return parsed.port === '' ? defaultPort : Number(parsed.port);
+}
+
+/**
+ * Whether `url` reaches the project's host: the same port on loopback, where
+ * `localhost` and either loopback address name one server, as
+ * {@link probeHostUrl} probes them; otherwise the same origin.
+ */
+function urlNamesHost(url: string, host: Discovered): boolean {
+  let wanted: URL;
+  let found: URL;
+  try {
+    wanted = new URL(url);
+    found = new URL(host.base);
+  } catch {
+    return false;
+  }
+  const bothLoopback = LOOPBACK_HOSTNAMES.has(wanted.hostname) && LOOPBACK_HOSTNAMES.has(found.hostname);
+  if (bothLoopback) return urlPort(wanted) === urlPort(found);
+  return wanted.origin === found.origin;
 }
 
 /** How an explicit `PYRIC_SANDBOX=remote:<url>` resolves. */
@@ -251,6 +289,11 @@ export async function selectExplicitHost(input: {
   const project = selectProjectHost(await (input.discover ?? discoverServe)(input.cwd), () => {});
   const isProjectHost = answered !== null && project !== null && answeredId !== null && answeredId === project.instanceId;
   if (isProjectHost) return { kind: 'explicit', serveUrl, base: answered.base };
+  // The probe found nothing, and discovery, a moment later, found this
+  // project's host at the same url: the host was starting or restarting
+  // between the two, so the url is current, not stale (#1527).
+  const projectAnswersAtUrl = answered === null && project !== null && urlNamesHost(serveUrl, project);
+  if (projectAnswersAtUrl) return { kind: 'explicit', serveUrl, base: project.base };
 
   const portable = 'Set PYRIC_SANDBOX=remote to find this project\'s host through .pyric/serve.json.';
   if (project !== null) {
@@ -340,6 +383,96 @@ export function readProjectPointerUrl(cwd: string): string | null {
   return null;
 }
 
+/**
+ * How long discovery waits for the host a pointer names when the pointer's
+ * process is running but nothing answers on its port: a dev server that is
+ * restarting, or one whose event loop is busy past the one-second health
+ * probe. Not answering is not the same as gone (#1527). It matches how long
+ * the Node remote client holds calls for a host that dropped its connection.
+ */
+const LIVE_POINTER_WAIT_MS = 10_000;
+const LIVE_POINTER_POLL_MS = 250;
+
+interface ServePointer {
+  url?: string;
+  mcpUrl?: string;
+  port?: number;
+  pid?: unknown;
+  instanceId?: string;
+}
+
+type PointerOutcome =
+  | { kind: 'found'; host: Discovered }
+  /** Nothing answered as the pointer's host. `waits` when its process still runs and nothing else holds the port. */
+  | { kind: 'unanswered'; port: number; expectedId: string | null; waits: boolean }
+  /** No pointer here, or one discovery cannot use. */
+  | { kind: 'unusable' };
+
+function readPointer(pointerPath: string): ServePointer | null {
+  const hasPointerFile = existsSync(pointerPath);
+  if (!hasPointerFile) return null;
+  try {
+    return JSON.parse(readFileSync(pointerPath, 'utf8')) as ServePointer;
+  } catch {
+    return null; // corrupt, or caught mid-write: try the next candidate
+  }
+}
+
+/** Whether a pointer records a pid and that process is running. */
+function hasRunningProcess(pid: unknown): boolean {
+  const hasPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
+  return hasPid && isPointerProcessAlive(pid);
+}
+
+/** One look at the host the pointer at `pointerPath` names. */
+async function probePointer(pointerPath: string): Promise<PointerOutcome> {
+  const p = readPointer(pointerPath);
+  if (p === null) return { kind: 'unusable' };
+  const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
+  const hasPort = port !== null && Boolean(port);
+  if (!hasPort) return { kind: 'unusable' };
+  const hasExpectedId = typeof p.instanceId === 'string' && p.instanceId !== '';
+  const expectedId = hasExpectedId ? p.instanceId ?? null : null;
+  const probe = await probePort(port, expectedId);
+  const match = probe.match;
+  if (match === null) {
+    const waits = !probe.otherAnswered && hasRunningProcess(p.pid);
+    return { kind: 'unanswered', port, expectedId, waits };
+  }
+  let pointerProjectDir: string;
+  try {
+    pointerProjectDir = realpathSync(dirname(dirname(pointerPath)));
+  } catch {
+    return { kind: 'unusable' }; // the pointer's directory went away
+  }
+  return {
+    kind: 'found',
+    host: {
+      pointerProjectDir,
+      mcpUrl: `${match.base}/__pyric/mcp`,
+      url: canonicalServeUrl(port, p.url),
+      base: match.base,
+      instanceId: match.instanceId,
+      source: `pointer ${pointerPath}`,
+    },
+  };
+}
+
+/**
+ * The host the pointer names, waiting up to {@link LIVE_POINTER_WAIT_MS} while
+ * its process runs and nothing answers. The pointer is read again each time,
+ * since a restarted dev server rewrites it.
+ */
+async function waitForPointerHost(pointerPath: string): Promise<PointerOutcome> {
+  const deadline = Date.now() + LIVE_POINTER_WAIT_MS;
+  let outcome = await probePointer(pointerPath);
+  while (outcome.kind === 'unanswered' && outcome.waits && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, LIVE_POINTER_POLL_MS));
+    outcome = await probePointer(pointerPath);
+  }
+  return outcome;
+}
+
 /** Find the running serve: pointer first (in `cwd`), then a port scan. The
  *  pointer gives the PORT and (when present) the identity; the family is
  *  resolved by probing, so the returned base always uses the address the
@@ -352,53 +485,25 @@ export async function discoverServe(
   scanPorts: number[] = SCAN_PORTS,
 ): Promise<Discovered | null> {
   for (const pointerPath of candidatePointerPaths(cwd)) {
-    const hasPointerFile = existsSync(pointerPath);
-    if (hasPointerFile) {
-      try {
-        const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
-          url?: string;
-          mcpUrl?: string;
-          port?: number;
-          instanceId?: string;
-        };
-        const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
-        const hasPort = port !== null && Boolean(port);
-        if (hasPort) {
-          const pointerId = p.instanceId;
-          const hasExpectedId = typeof pointerId === 'string' && pointerId !== '';
-          const expectedId = hasExpectedId ? pointerId : null;
-          const hit = await healthyBase(port, expectedId);
-          const hasMatchingHost = hit !== null;
-          if (hasMatchingHost) {
-            return {
-              pointerProjectDir: realpathSync(dirname(dirname(pointerPath))),
-              mcpUrl: `${hit.base}/__pyric/mcp`,
-              url: canonicalServeUrl(port, p.url),
-              base: hit.base,
-              instanceId: hit.instanceId,
-              source: `pointer ${pointerPath}`,
-            };
-          }
-          // The pointer named a specific identity we could NOT find on its port:
-          // a different sandbox may be squatting it (cross-family collision) or
-          // the server stopped. Do NOT scan into a possibly-wrong server — that
-          // split-brain is exactly what this identity check prevents. Fail legibly.
-          const pinsInstance = expectedId !== null;
-          if (pinsInstance) {
-            log(
-              `pointer ${pointerPath} names a server (instanceId ${expectedId.slice(0, 8)}…) ` +
-                `that isn't answering on port ${port} — another sandbox may be squatting the ` +
-                `port on the other loopback family, or the server stopped. Not falling back to ` +
-                `a blind port scan (it could hit the wrong sandbox). Restart your dev server, ` +
-                `and open the exact URL it prints (http://localhost:<port> by default) — every ` +
-                `page must share that ONE origin, or the browser splits into separate sandboxes.`,
-            );
-            return null;
-          }
-        }
-      } catch {
-        /* stale/corrupt pointer — fall through to next candidate */
-      }
+    const outcome = await waitForPointerHost(pointerPath);
+    if (outcome.kind === 'found') return outcome.host;
+    // The pointer named a specific identity we could NOT find on its port:
+    // a different sandbox may be squatting it (cross-family collision) or
+    // the server stopped. Do NOT scan into a possibly-wrong server — that
+    // split-brain is exactly what this identity check prevents. Fail legibly.
+    if (outcome.kind === 'unusable') continue;
+    const expectedId = outcome.expectedId;
+    const pinsInstance = expectedId !== null;
+    if (pinsInstance) {
+      log(
+        `pointer ${pointerPath} names a server (instanceId ${expectedId.slice(0, 8)}…) ` +
+          `that isn't answering on port ${outcome.port} — another sandbox may be squatting the ` +
+          `port on the other loopback family, or the server stopped. Not falling back to ` +
+          `a blind port scan (it could hit the wrong sandbox). Restart your dev server, ` +
+          `and open the exact URL it prints (http://localhost:<port> by default) — every ` +
+          `page must share that ONE origin, or the browser splits into separate sandboxes.`,
+      );
+      return null;
     }
   }
   for (const port of scanPorts) {
