@@ -18,6 +18,12 @@
  * narrow: only the two package roots match. `@firebase/*` internals,
  * `firebase-functions`, and anything merely *containing* "firebase" pass
  * through untouched.
+ *
+ * Next 16's Turbopack renames server externals (#1443): it links
+ * `.next/node_modules/firebase-admin-<16 hex>` to the installed package and
+ * imports `firebase-admin-<hash>/app`. `canonicalFirebaseSpecifier` names such
+ * an import by its package, and the hooks map the canonical name only after
+ * the renamed import resolved into the real package (`package-identity.ts`).
  */
 
 import { parsePyricSandbox } from 'pyric/sandbox/internal';
@@ -54,6 +60,27 @@ function nodeHostClientTarget(specifier: string): string | null {
   const subpath = specifier.slice('firebase/'.length);
   const servedByHost = NODE_HOST_CLIENT_SUBPATHS.has(subpath);
   return servedByHost ? `${NODE_HOST_CLIENT}/${subpath}` : null;
+}
+
+/**
+ * A Turbopack-renamed package root: `firebase-admin` or `firebase`, a dash and
+ * exactly 16 lowercase hex characters, then the end or a non-empty subpath.
+ * Anchored at the start, so `firebase-functions-<hash>`, `@firebase/*` and
+ * `my-firebase-<hash>` never match.
+ */
+const RENAMED_FIREBASE = /^(firebase-admin|firebase)-[0-9a-f]{16}(\/.+)?$/;
+
+/**
+ * The canonical name of a Turbopack-renamed Firebase import
+ * (`firebase-admin-<hash>/app` → `firebase-admin/app`), or `null` when the
+ * specifier isn't one. The name alone proves nothing: the caller confirms the
+ * import resolved into the package of that name before mapping it.
+ */
+export function canonicalFirebaseSpecifier(specifier: string): string | null {
+  const match = RENAMED_FIREBASE.exec(specifier);
+  if (match === null) return null;
+  const [, packageRoot, subpath = ''] = match;
+  return `${packageRoot}${subpath}`;
 }
 
 /**

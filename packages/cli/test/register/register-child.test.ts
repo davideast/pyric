@@ -457,6 +457,73 @@ describe('@pyric/cli/register (child process)', () => {
 });
 
 /**
+ * #1443: Next 16's Turbopack keeps `firebase-admin` external but links it as
+ * `.next/node_modules/firebase-admin-<16 hex>` and imports
+ * `firebase-admin-<hash>/app`. The register maps the renamed import once it
+ * resolves into the real package, and leaves a package that merely has such a
+ * name alone.
+ */
+describe('@pyric/cli/register renamed imports (child process)', () => {
+  let renamedFixtureDir: string;
+  const ADMIN = 'firebase-admin-0123456789abcdef';
+  const CLIENT = 'firebase-1111222233334444';
+  const DECOY = 'firebase-fedcba9876543210';
+
+  beforeAll(() => {
+    renamedFixtureDir = mkdtempSync(join(tmpdir(), 'pyric-register-renamed-'));
+    const nm = join(renamedFixtureDir, 'node_modules');
+    mkdirSync(join(nm, DECOY), { recursive: true });
+    symlinkSync(join(repoRoot, 'node_modules/firebase-admin'), join(nm, ADMIN));
+    symlinkSync(join(repoRoot, 'node_modules/firebase'), join(nm, CLIENT));
+    writeFileSync(join(nm, DECOY, 'package.json'), JSON.stringify({ name: 'decoy', main: 'index.js' }));
+    writeFileSync(join(nm, DECOY, 'index.js'), 'module.exports = { decoy: true };\n');
+    const files: Record<string, string> = {
+      'package.json': JSON.stringify({ name: 'register-renamed-fixture', type: 'commonjs' }),
+      'renamed.mjs': `import assert from 'node:assert';
+const admin = await import('${ADMIN}/app');
+assert.strictEqual(admin.ADMIN_APP_TARGET, Symbol.for('pyric.admin.app.target'), '${ADMIN}/app must be pyric-admin/app');
+const firestore = await import('${ADMIN}/firestore');
+assert.strictEqual(typeof firestore.getFirestore, 'function');
+const { initializeApp } = await import('${CLIENT}/app');
+const { getFirestore } = await import('${CLIENT}/firestore');
+const clientApp = initializeApp({ projectId: 'renamed-demo' });
+assert.strictEqual(getFirestore(clientApp).__kind, 'client-db', '${CLIENT}/firestore must be the Node host client');
+const decoy = await import('${DECOY}');
+assert.strictEqual(decoy.default.decoy, true, 'a package that is only named like firebase stays itself');
+console.log('RENAMED_ESM_OK');
+`,
+      'renamed.cjs': `const assert = require('node:assert');
+const admin = require('${ADMIN}/app');
+assert.strictEqual(admin.ADMIN_APP_TARGET, Symbol.for('pyric.admin.app.target'), 'require(${ADMIN}/app) must be pyric-admin/app');
+const { initializeApp } = require('${CLIENT}/app');
+const { getFirestore } = require('${CLIENT}/firestore');
+assert.strictEqual(getFirestore(initializeApp({ projectId: 'renamed-cjs' })).__kind, 'client-db');
+assert.strictEqual(require('${DECOY}').decoy, true, 'a package that is only named like firebase stays itself');
+console.log('RENAMED_CJS_OK');
+`,
+    };
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(renamedFixtureDir, name), content);
+  });
+
+  afterAll(() => {
+    if (renamedFixtureDir) rmSync(renamedFixtureDir, { recursive: true, force: true });
+  });
+
+  it('maps renamed firebase-admin and firebase imports to the sandbox, and leaves a decoy alone', () => {
+    const res = runNode('renamed.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' }, renamedFixtureDir);
+    expect(res.stderr).toContain('@pyric/cli/register: active');
+    expect(res.stdout, res.stderr).toContain('RENAMED_ESM_OK');
+    expect(res.status).toBe(0);
+  });
+
+  it.skipIf(!hasRegisterHooks)('maps renamed require() calls the same way', () => {
+    const res = runNode('renamed.cjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' }, renamedFixtureDir);
+    expect(res.stdout, res.stderr).toContain('RENAMED_CJS_OK');
+    expect(res.status).toBe(0);
+  });
+});
+
+/**
  * The handshake beacon. Two channels: the POST to `/__pyric/beacon` whenever
  * the child env carries a bridge URL, and the structured stderr line when the
  * developer asked for detail. Both prove the same thing, that interception is
