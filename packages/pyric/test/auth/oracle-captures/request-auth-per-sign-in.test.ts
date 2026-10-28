@@ -148,28 +148,24 @@ const SIGNED_IN = Object.keys(KINDS).filter((kind) => kind !== 'signedOut');
 interface PinGroup { finding: string; plane: string; kinds: string[]; labels: string[]; pyric: string; production: string }
 const PIN_GROUPS: PinGroup[] = [
   {
-    finding: '#1341: the rules token for a signed-in session drops sub, aud, iss, iat, exp and auth_time',
-    plane: 'firestore', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
-    labels: [
-      'token.sub equals uid', 'token.sub equals the decoded value', 'token.sub is string',
-      'token.aud equals the decoded value', 'token.iss equals the decoded value', 'token.iss is securetoken plus token.aud',
-      'token.iat equals the decoded value', 'token.iat is int', 'token.exp equals the decoded value', 'token.exp is int',
-      'token.exp minus token.iat is 3600', 'token.auth_time equals the decoded value', 'token.auth_time is int',
-      'token.auth_time is at or before token.iat',
-    ],
-  },
-  {
-    finding: 'auth-claims RA-1: RTDB auth.token.iat, exp and auth_time are filled from the evaluation time, not taken from the minted token',
-    plane: 'rtdb', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
-    labels: [
-      'token.iat equals the decoded value', 'token.exp equals the decoded value', 'token.auth_time equals the decoded value',
-      'token.auth_time is more than 5 s before evaluation',
-    ],
-  },
-  {
-    finding: 'auth-claims RA-2: the minted token names aud pyric-sandbox and iss https://sandbox.pyric.dev, not the project and securetoken',
+    finding: '#1503: the minted token names aud pyric-sandbox and iss https://sandbox.pyric.dev, not the project and securetoken',
     plane: 'rtdb', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
     labels: ['token.iss is securetoken plus token.aud'],
+  },
+  {
+    finding: '#1503: the minted token names aud pyric-sandbox and iss https://sandbox.pyric.dev, not the project and securetoken',
+    plane: 'firestore', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
+    labels: ['token.iss is securetoken plus token.aud'],
+  },
+  {
+    finding: '#1502: minted ID tokens last 100 years, so a rule on exp minus iat equal to 3600 denies',
+    plane: 'rtdb', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
+    labels: ['token.exp minus token.iat is 3600'],
+  },
+  {
+    finding: '#1502: minted ID tokens last 100 years, so a rule on exp minus iat equal to 3600 denies',
+    plane: 'firestore', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
+    labels: ['token.exp minus token.iat is 3600'],
   },
   {
     finding: 'auth-claims CO-1: a float custom claim does not read as float in Firestore rules',
