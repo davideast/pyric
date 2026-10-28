@@ -17,13 +17,22 @@ base_sha="${COVERAGE_BASE_SHA:-$(git merge-base HEAD origin/main)}"
 base_report="${COVERAGE_BASE_REPORT:-$scratch/coverage-report/report.json}"
 head_report="${COVERAGE_HEAD_REPORT:-$scratch/coverage-head-report.json}"
 base_log="$scratch/coverage-base-report.log"
+# One fixed path, removed before it is added (a run that stopped early may
+# have left it) and again once the base report is computed.
+base_worktree="$scratch/coverage-base-worktree"
+
+remove_base_worktree() {
+  if [ -e "$base_worktree" ]; then git worktree remove --force "$base_worktree"; fi
+  # Forget a registration whose directory is already gone.
+  git worktree prune
+}
 
 compute_base_report() {
-  local worktree="$scratch/coverage-base-$base_sha"
   mkdir -p "$(dirname "$base_report")"
-  git worktree add --detach --force "$worktree" "$base_sha"
+  remove_base_worktree
+  git worktree add --detach "$base_worktree" "$base_sha"
   (
-    cd "$worktree"
+    cd "$base_worktree"
     bun install --frozen-lockfile --filter '!@pyric/playground'
     bash scripts/build.sh --packages-only
     # An empty census path makes the base build its own census instead of
@@ -58,7 +67,10 @@ bun run compat:conformance:check
 gates_done="$SECONDS"
 
 if [ -n "$base_pid" ]; then
-  if ! wait "$base_pid"; then
+  base_status=0
+  wait "$base_pid" || base_status=$?
+  remove_base_worktree
+  if [ "$base_status" -ne 0 ]; then
     cat "$base_log"
     echo "Could not compute the coverage report for the base commit $base_sha (log above)." >&2
     exit 1

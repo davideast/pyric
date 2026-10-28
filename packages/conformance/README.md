@@ -78,7 +78,8 @@ packages/conformance/
                      service's directory, and two changes to one service merge
                      without conflict. Hand-written; the failure message gives
                      the delta.
-  coverage-acceptances/  one <row-id>.md per accepted coverage regression: a
+  coverage-acceptances/  one <row-id>.md (or <row-id>.<pr-or-issue>.md for a
+                     row accepted before) per accepted coverage regression: a
                      `conforms` row demoted, or a row removed. The file holds
                      the reason and the issue. The coverage gate compares the
                      head report with the base commit's report and honors
