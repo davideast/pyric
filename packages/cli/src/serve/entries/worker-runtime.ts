@@ -232,13 +232,13 @@ function initialize(configuration: WorkerInitPayload | null): void {
           const pageSuffix = hasOneOtherPage ? '' : 's';
           othersHint = ` ${otherPages} other page${pageSuffix} must disconnect before the worker can restart.`;
         } else if (isOnlyPage) {
-          othersHint = ' This is the only connected page — reload it to pick up the new worker.';
+          othersHint = ' This is the only connected page, so reloading it picks up the new worker.';
         }
         console.warn(
           `[pyric sandbox] the SharedWorker is running older code (build ${runningVersion}) than what is now `
-            + `served (build ${servedVersion}). A SharedWorker can't hot-update — CLOSE ALL TABS of this origin `
-            + 'and reopen to load the new worker. (All tabs share one worker, so a partial reload leaves '
-            + `the old code running for everyone.)${othersHint}`,
+            + `served (build ${servedVersion}). A SharedWorker can't update while it runs. Close every tab of this `
+            + 'origin, then reopen one to load the new worker. All tabs share one worker, so reloading only some '
+            + `of them leaves the old code running for all of them.${othersHint}`,
         );
       })
       .catch((error) => runtimeStatus.reportError(error, 'worker'));
