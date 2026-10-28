@@ -5,14 +5,16 @@ import { beginWorkerFirestoreActivity } from './sdk-activity.js';
  * `runTransaction` with read-set validation + retry for multi-tab correctness.
  */
 
-import type { WriteDescriptor, TxnReadEntry } from '../protocol.js';
+import type { WriteDescriptor, TxnReadEntry, UpdateFieldDescriptor } from '../protocol.js';
+import { parseUpdateArguments } from 'pyric/firestore/internal/update-fields';
 import { encodeDocValue, requireDocumentData, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 import { nextId, dataRpc } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
-import type { DocumentData, FirestoreDataConverter } from 'pyric/firestore';
+import type { DocumentData, FieldPath, FirestoreDataConverter } from 'pyric/firestore';
+import { FirebaseError } from 'pyric/app';
 
 interface ClientSetOptions {
   merge?: boolean;
@@ -56,17 +58,41 @@ export async function setDoc<T = DocumentData>(
   });
 }
 
-export async function updateDoc(
+/**
+ * Parse an update call with the Web SDK's rules and encode each field for
+ * the wire. Field paths travel as segment vectors, so a `FieldPath` segment
+ * that contains `.` stays one literal field name.
+ */
+function encodeUpdate(
+  methodName: string,
   ref: DocRefHandle,
-  data: Record<string, unknown>,
+  dataOrField: unknown,
+  rest: readonly unknown[],
+): UpdateFieldDescriptor[] {
+  return parseUpdateArguments(methodName, ref.descriptor.path, dataOrField, rest)
+    .map((field) => ({ path: [...field.path], value: encodeDocValue(field.value) }));
+}
+
+export function updateDoc(ref: DocRefHandle, data: Record<string, unknown>): Promise<void>;
+export function updateDoc(
+  ref: DocRefHandle,
+  field: string | FieldPath,
+  value: unknown,
+  ...moreFieldsAndValues: unknown[]
+): Promise<void>;
+export function updateDoc(
+  ref: DocRefHandle,
+  dataOrField: Record<string, unknown> | string | FieldPath,
+  ...valueAndMoreFieldsAndValues: unknown[]
 ): Promise<void> {
+  const fields = encodeUpdate('updateDoc', ref, dataOrField, valueAndMoreFieldsAndValues);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'updateDoc', 'operation'), async () => {
     await dataRpc(ref.port, {
       t: 'op',
       id: nextId(),
       method: 'updateDoc',
       path: ref.descriptor.path,
-      data: encodeDocValue(data),
+      fields,
       valueEncoding: DOC_VALUE_ENCODING,
     });
   });
@@ -117,6 +143,7 @@ export async function addDoc(
 export interface ClientWriteBatch {
   set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): ClientWriteBatch;
   update(ref: DocRefHandle, data: Record<string, unknown>): ClientWriteBatch;
+  update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): ClientWriteBatch;
   delete(ref: DocRefHandle): ClientWriteBatch;
   commit(): Promise<void>;
 }
@@ -132,8 +159,9 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
       writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
       return batch;
     },
-    update(ref, data) {
-      writes.push({ method: 'update', path: ref.descriptor.path, data: encodeDocValue(data), valueEncoding: DOC_VALUE_ENCODING });
+    update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
+      const fields = encodeUpdate('WriteBatch.update', ref, dataOrField, rest);
+      writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
       return batch;
     },
     delete(ref) {
@@ -160,9 +188,10 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
 /** Client-side transaction handle. */
 export interface ClientTransaction {
   get<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>>;
-  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): void;
-  update(ref: DocRefHandle, data: Record<string, unknown>): void;
-  delete(ref: DocRefHandle): void;
+  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): ClientTransaction;
+  update(ref: DocRefHandle, data: Record<string, unknown>): ClientTransaction;
+  update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): ClientTransaction;
+  delete(ref: DocRefHandle): ClientTransaction;
 }
 
 /**
@@ -199,11 +228,13 @@ const TXN_MAX_ATTEMPTS = 5;
 export async function runTransaction<R>(
   db: ClientDb,
   updateFn: (txn: ClientTransaction) => Promise<R> | R,
+  options?: { maxAttempts?: number },
 ): Promise<R> {
   return runSdkWrite(beginGroupActivity(db, 'runTransaction'), async () => {
     const port = db.port;
+    const maxAttempts = options?.maxAttempts ?? TXN_MAX_ATTEMPTS;
 
-    let attemptsRemaining = TXN_MAX_ATTEMPTS;
+    let attemptsRemaining = maxAttempts;
     let hasAttempts = attemptsRemaining > 0;
     while (hasAttempts) {
       attemptsRemaining -= 1;
@@ -213,6 +244,13 @@ export async function runTransaction<R>(
 
       const txn: ClientTransaction = {
         async get(ref) {
+          const hasQueuedWrites = writes.length > 0;
+          if (hasQueuedWrites) {
+            throw new FirebaseError(
+              'failed-precondition',
+              'Firestore transactions require all reads to be executed before all writes.',
+            );
+          }
           // RPC to the worker — capture the raw result before rehydration.
           const rawResult = await dataRpc(ref.port, {
             t: 'op',
@@ -238,12 +276,16 @@ export async function runTransaction<R>(
           const capturedOptions = captureSetOptions(options);
           const payload = convertSetData(ref, data);
           writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
+          return txn;
         },
-        update(ref, data) {
-          writes.push({ method: 'update', path: ref.descriptor.path, data: encodeDocValue(data), valueEncoding: DOC_VALUE_ENCODING });
+        update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
+          const fields = encodeUpdate('Transaction.update', ref, dataOrField, rest);
+          writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
+          return txn;
         },
         delete(ref) {
           writes.push({ method: 'delete', path: ref.descriptor.path });
+          return txn;
         },
       };
 
@@ -273,14 +315,11 @@ export async function runTransaction<R>(
     }
 
     // Exceeded max attempts.
-    const abortErr = Object.assign(
-      new Error(
-        `Transaction failed after ${TXN_MAX_ATTEMPTS} attempts due to repeated conflicts. ` +
+    throw new FirebaseError(
+      'failed-precondition',
+      `Transaction failed after ${maxAttempts} attempts due to repeated conflicts. ` +
         'Another tab is concurrently writing to the same documents.',
-      ),
-      { code: 'aborted' },
     );
-    throw abortErr;
   });
 }
 

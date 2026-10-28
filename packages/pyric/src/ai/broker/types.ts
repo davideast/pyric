@@ -139,8 +139,8 @@ export interface AnswerEngine {
   /**
    * OPTIONAL self-report: which model this engine will ACTUALLY answer with
    * for a requested Gemini model id, and why it differs. Engines that redirect
-   * silently (an openai `modelMap` entry or catch-all `model`, a gemini
-   * experimental alias) implement it so the broker can announce the swap on
+   * silently (an openai `modelMap` entry or catch-all `model`) implement it
+   * so the broker can announce the swap on
    * the event stream. A developer must never believe they tested model X when
    * model Y answered.
    *

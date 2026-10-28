@@ -1,7 +1,8 @@
-// Canonical firebase/* imports — UNCHANGED between dev and prod.
+// Canonical firebase/* imports, the same in dev and prod.
 // In `vite dev` the `@pyric/cli/vite` plugin swaps these to an in-process
-// sandbox (the config below is accepted but ignored). `vite build` ships the
-// real `firebase` package and uses the SAME config. Graduation is a build, not
+// sandbox: no request reaches the project the config below names, and the
+// sandbox reads its projectId the way Firebase does. `vite build` ships the
+// real `firebase` package with the same config. Graduation is a build, not
 // a code edit.
 import { initializeApp } from 'firebase/app';
 import {
@@ -39,7 +40,7 @@ if (hasProjectId) {
 
 const app = initializeApp({
   // Filled from .env (see .env.example) at `vite build` time for production.
-  // Ignored in `vite dev` — the pyric sandbox stands in for Firebase.
+  // In `vite dev` the pyric sandbox stands in for Firebase and reads projectId.
   apiKey,
   authDomain,
   projectId,

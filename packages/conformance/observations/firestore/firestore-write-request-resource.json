@@ -1,0 +1,874 @@
+{
+  "name": "firestore-write-request-resource",
+  "matrixRow": "firestore #137a",
+  "rowIds": [
+    "firestore#137a"
+  ],
+  "description": "Authenticated Web SDK single-document writes against temporarily deployed production rules. Each predicate over request.resource.data, resource.data, and request.resource.data.diff(resource.data) is a separate guarded rule, so the allow or deny verdict of the write reads out what the rules engine built for it. Covers a dotted updateDoc key, FieldPath updates with literal dots, a dotted deleteField, setDoc merge and mergeFields, a nested map replace, and a non-merge setDoc.",
+  "observedAt": "2026-10-07T04:19:16.347Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "inputDigest": "a0bfe911775dafb99fdd641382c63c359b9dbfe66933f5642b6076ed1176b6b0",
+  "lifecycle": {
+    "originalRulesetName": "projects/genkit-idx/rulesets/eaf1ab95-2495-4647-99e5-8ec12cbce618",
+    "probeRulesetName": "projects/genkit-idx/rulesets/07acba69-e91c-41d5-b0fc-1860a55f2dbc",
+    "restoredOriginalRelease": true
+  },
+  "behavior": {
+    "seed": {
+      "board": {
+        "c1r1": "a",
+        "c2r2": "b"
+      },
+      "keep": 1
+    },
+    "cases": [
+      {
+        "case": "dotted_update",
+        "description": "updateDoc(ref, {'board.c1r1': 'x'})",
+        "write": {
+          "kind": "updateObject",
+          "data": {
+            "board.c1r1": "x"
+          }
+        },
+        "predicates": [
+          {
+            "id": "nested_leaf",
+            "expr": "RRD.board.c1r1 == 'x'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "sibling_kept",
+            "expr": "RRD.board.c2r2 == 'b'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "top_level_kept",
+            "expr": "RRD.keep == 1",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "no_literal_key",
+            "expr": "!('board.c1r1' in RRD)",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "literal_key_present",
+            "expr": "'board.c1r1' in RRD",
+            "verdict": "deny",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1
+            }
+          },
+          {
+            "id": "top_keys_only_board_keep",
+            "expr": "RRD.keys().hasOnly(['board', 'keep'])",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "affected_is_board",
+            "expr": "RRD.diff(RES).affectedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "affected_has_literal",
+            "expr": "RRD.diff(RES).affectedKeys().hasAny(['board.c1r1'])",
+            "verdict": "deny",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1
+            }
+          },
+          {
+            "id": "changed_is_board",
+            "expr": "RRD.diff(RES).changedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "added_is_empty",
+            "expr": "RRD.diff(RES).addedKeys() == [].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "changed_has_board",
+            "expr": "RRD.diff(RES).changedKeys().hasAny(['board'])",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "changed_is_empty",
+            "expr": "RRD.diff(RES).changedKeys() == [].toSet()",
+            "verdict": "deny",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1
+            }
+          },
+          {
+            "id": "unchanged_is_keep",
+            "expr": "RRD.diff(RES).unchangedKeys() == ['keep'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "resource_unchanged",
+            "expr": "RES.board.c1r1 == 'a'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "case": "literal_dot_field_path",
+        "description": "updateDoc(ref, new FieldPath('a.b'), 'x')",
+        "write": {
+          "kind": "updateFieldPaths",
+          "entries": [
+            {
+              "path": [
+                "a.b"
+              ],
+              "value": "x"
+            }
+          ]
+        },
+        "predicates": [
+          {
+            "id": "literal_key_present",
+            "expr": "'a.b' in RRD",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1,
+              "a.b": "x"
+            }
+          },
+          {
+            "id": "literal_key_value",
+            "expr": "RRD['a.b'] == 'x'",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1,
+              "a.b": "x"
+            }
+          },
+          {
+            "id": "no_nested_a",
+            "expr": "!('a' in RRD)",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1,
+              "a.b": "x"
+            }
+          },
+          {
+            "id": "board_kept",
+            "expr": "RRD.board.c1r1 == 'a'",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1,
+              "a.b": "x"
+            }
+          },
+          {
+            "id": "top_keys_with_literal",
+            "expr": "RRD.keys().hasOnly(['board', 'keep', 'a.b'])",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1,
+              "a.b": "x"
+            }
+          },
+          {
+            "id": "affected_is_literal",
+            "expr": "RRD.diff(RES).affectedKeys() == ['a.b'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1,
+              "a.b": "x"
+            }
+          },
+          {
+            "id": "added_is_literal",
+            "expr": "RRD.diff(RES).addedKeys() == ['a.b'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1,
+              "a.b": "x"
+            }
+          }
+        ]
+      },
+      {
+        "case": "literal_dot_nested_segment",
+        "description": "updateDoc(ref, new FieldPath('board', 'c1.r1'), 'x')",
+        "write": {
+          "kind": "updateFieldPaths",
+          "entries": [
+            {
+              "path": [
+                "board",
+                "c1.r1"
+              ],
+              "value": "x"
+            }
+          ]
+        },
+        "predicates": [
+          {
+            "id": "literal_leaf_value",
+            "expr": "RRD.board['c1.r1'] == 'x'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b",
+                "c1.r1": "x"
+              }
+            }
+          },
+          {
+            "id": "sibling_kept",
+            "expr": "RRD.board.c1r1 == 'a'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b",
+                "c1.r1": "x"
+              }
+            }
+          },
+          {
+            "id": "no_top_literal",
+            "expr": "!('board.c1.r1' in RRD)",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b",
+                "c1.r1": "x"
+              }
+            }
+          },
+          {
+            "id": "affected_is_board",
+            "expr": "RRD.diff(RES).affectedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b",
+                "c1.r1": "x"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "case": "dotted_delete_field",
+        "description": "updateDoc(ref, {'board.c1r1': deleteField()})",
+        "write": {
+          "kind": "updateObject",
+          "data": {
+            "board.c1r1": {
+              "$deleteField": true
+            }
+          }
+        },
+        "predicates": [
+          {
+            "id": "leaf_removed",
+            "expr": "!('c1r1' in RRD.board)",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b"
+              }
+            }
+          },
+          {
+            "id": "sibling_kept",
+            "expr": "RRD.board.c2r2 == 'b'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b"
+              }
+            }
+          },
+          {
+            "id": "no_literal_key",
+            "expr": "!('board.c1r1' in RRD)",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b"
+              }
+            }
+          },
+          {
+            "id": "affected_is_board",
+            "expr": "RRD.diff(RES).affectedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "case": "set_merge",
+        "description": "setDoc(ref, {board: {c1r1: 'x'}, extra: 2}, {merge: true})",
+        "write": {
+          "kind": "setDoc",
+          "data": {
+            "board": {
+              "c1r1": "x"
+            },
+            "extra": 2
+          },
+          "options": {
+            "merge": true
+          }
+        },
+        "predicates": [
+          {
+            "id": "nested_leaf",
+            "expr": "RRD.board.c1r1 == 'x'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "extra": 2,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "sibling_kept",
+            "expr": "RRD.board.c2r2 == 'b'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "extra": 2,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "top_level_kept",
+            "expr": "RRD.keep == 1",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "extra": 2,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "new_field",
+            "expr": "RRD.extra == 2",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "extra": 2,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "top_keys",
+            "expr": "RRD.keys().hasOnly(['board', 'keep', 'extra'])",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "extra": 2,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "affected_is_board_extra",
+            "expr": "RRD.diff(RES).affectedKeys() == ['board', 'extra'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "extra": 2,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "resource_unchanged",
+            "expr": "RES.board.c1r1 == 'a'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "extra": 2,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "case": "set_merge_fields",
+        "description": "setDoc(ref, {board: {c1r1: 'x', c2r2: 'zzz'}, ignore: 5}, {mergeFields: ['board.c1r1']})",
+        "write": {
+          "kind": "setDoc",
+          "data": {
+            "board": {
+              "c1r1": "x",
+              "c2r2": "zzz"
+            },
+            "ignore": 5
+          },
+          "options": {
+            "mergeFields": [
+              "board.c1r1"
+            ]
+          }
+        },
+        "predicates": [
+          {
+            "id": "listed_leaf_written",
+            "expr": "RRD.board.c1r1 == 'x'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "unlisted_sibling_kept",
+            "expr": "RRD.board.c2r2 == 'b'",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "unlisted_top_absent",
+            "expr": "!('ignore' in RRD)",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "top_level_kept",
+            "expr": "RRD.keep == 1",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "affected_is_board",
+            "expr": "RRD.diff(RES).affectedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c2r2": "b",
+                "c1r1": "x"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "case": "nested_map_replace",
+        "description": "updateDoc(ref, {board: {c1r1: 'x'}})",
+        "write": {
+          "kind": "updateObject",
+          "data": {
+            "board": {
+              "c1r1": "x"
+            }
+          }
+        },
+        "predicates": [
+          {
+            "id": "board_only_new_key",
+            "expr": "RRD.board.keys().hasOnly(['c1r1'])",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "sibling_gone",
+            "expr": "!('c2r2' in RRD.board)",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "top_level_kept",
+            "expr": "RRD.keep == 1",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "top_keys",
+            "expr": "RRD.keys().hasOnly(['board', 'keep'])",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "affected_is_board",
+            "expr": "RRD.diff(RES).affectedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "changed_is_board",
+            "expr": "RRD.diff(RES).changedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "keep": 1,
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "case": "set_replace",
+        "description": "setDoc(ref, {board: {c1r1: 'x'}})",
+        "write": {
+          "kind": "setDoc",
+          "data": {
+            "board": {
+              "c1r1": "x"
+            }
+          }
+        },
+        "predicates": [
+          {
+            "id": "top_level_gone",
+            "expr": "!('keep' in RRD)",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "top_keys_only_board",
+            "expr": "RRD.keys().hasOnly(['board'])",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "sibling_gone",
+            "expr": "!('c2r2' in RRD.board)",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "affected_is_board_keep",
+            "expr": "RRD.diff(RES).affectedKeys() == ['board', 'keep'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          },
+          {
+            "id": "removed_is_keep",
+            "expr": "RRD.diff(RES).removedKeys() == ['keep'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "x"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "case": "scalar_update",
+        "description": "updateDoc(ref, {keep: 3})",
+        "write": {
+          "kind": "updateObject",
+          "data": {
+            "keep": 3
+          }
+        },
+        "predicates": [
+          {
+            "id": "changed_is_keep",
+            "expr": "RRD.diff(RES).changedKeys() == ['keep'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 3
+            }
+          },
+          {
+            "id": "affected_is_keep",
+            "expr": "RRD.diff(RES).affectedKeys() == ['keep'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 3
+            }
+          },
+          {
+            "id": "changed_is_empty",
+            "expr": "RRD.diff(RES).changedKeys() == [].toSet()",
+            "verdict": "deny",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1
+            }
+          },
+          {
+            "id": "unchanged_is_board",
+            "expr": "RRD.diff(RES).unchangedKeys() == ['board'].toSet()",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 3
+            }
+          }
+        ]
+      },
+      {
+        "case": "control",
+        "description": "updateDoc(ref, {keep: 2}) guarded by constant predicates",
+        "write": {
+          "kind": "updateObject",
+          "data": {
+            "keep": 2
+          }
+        },
+        "predicates": [
+          {
+            "id": "always_true",
+            "expr": "true",
+            "verdict": "allow",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 2
+            }
+          },
+          {
+            "id": "always_false",
+            "expr": "false",
+            "verdict": "deny",
+            "stored": {
+              "board": {
+                "c1r1": "a",
+                "c2r2": "b"
+              },
+              "keep": 1
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

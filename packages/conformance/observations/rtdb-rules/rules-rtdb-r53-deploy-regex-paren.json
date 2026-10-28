@@ -1,0 +1,51 @@
+{
+  "name": "rules-rtdb-r53-deploy-regex-paren",
+  "matrixRow": "rtdb-rules#42",
+  "rowIds": [
+    "rtdb-rules#42"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r53-deploy-regex-paren\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. pyric reports unmatched parentheses in regex literals with positions only one production observation supports; anchored and stray-parenthesis positions, unclosed repeat counts, empty alternatives and empty character sets have no production text.",
+  "observedAt": "2026-10-27T00:05:56.379Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "unmatched ) in an unanchored pattern (/)/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, end-of-string expected"
+    },
+    "unmatched ) mid-pattern (/a)b/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, end-of-string expected"
+    },
+    "unmatched ) after a leading ^ (/^)/)": {
+      "verdict": "ACCEPTED"
+    },
+    "unclosed ( after a leading ^ (/^(/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, expected ')' at position 3"
+    },
+    "unclosed ( between anchors (/^(a$/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, expected ')' at position 2"
+    },
+    "unclosed ( mid-pattern (/a(b/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, expected ')' at position 7"
+    },
+    "unclosed repeat count (/a{2/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, expected '}' at position 5"
+    },
+    "empty alternative left by the anchor strip (/^a|$/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, unexpected end-of-string"
+    },
+    "empty character set (/^[]$/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, expected ']' at position 2"
+    },
+    "control: anchored group (/^(a)$/)": {
+      "verdict": "ACCEPTED"
+    }
+  }
+}

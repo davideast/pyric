@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeApp } from 'pyric/app';
-import { createAppForSandbox } from 'pyric/app/internal';
+import { bindAppRegistryRefusal, clientSdkRefusal, clientSdkRefusalFor, createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox } from 'pyric/sandbox';
 import { BrokerSendError, DEFAULT_SENDER_ID, getMessagingBroker } from 'pyric/messaging/internal';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
@@ -473,6 +473,37 @@ const assertions: Record<string, () => Promise<void> | void> = {
   'messaging#21': () => {
     // Server-side inactivity expiry (~270 days) — unsupported: sandbox has no inactivity clock.
     throw new Error('messaging#21 token inactivity expiry: unsupported — server-side staleness window is not modellable in the sandbox.');
+  },
+
+  // ── client SDKs in a registered server process (#1082) ───────────────────
+  'messaging#RS1': async () => {
+    // The sandbox side of the refusal: an app registry bound to it, as the
+    // Node host client binds it, makes getMessaging(app) fail with
+    // failed-precondition instead of opening an in-process broker.
+    const m = await loadClient();
+    await resetAppRegistryForTests();
+    bindAppRegistryRefusal(() => clientSdkRefusal('remote'));
+    try {
+      const app = initializeApp({ apiKey: 'demo', appId: 'demo', projectId: 'demo-app' });
+      expect(() => m.getMessaging(app)).toThrow(expect.objectContaining({ code: 'failed-precondition' }));
+    } finally {
+      await resetAppRegistryForTests();
+    }
+  },
+  'messaging#RS2': async () => {
+    // Server-rendered modules under vite dev (#1123) bind the registry to the
+    // refusal under the dev server's in-process activation, named by its label.
+    const m = await loadClient();
+    await resetAppRegistryForTests();
+    const label = "the Vite dev server's server-rendered modules";
+    bindAppRegistryRefusal(() => clientSdkRefusalFor(label));
+    try {
+      const app = initializeApp({ apiKey: 'demo', appId: 'demo', projectId: 'demo-app' });
+      expect(() => m.getMessaging(app)).toThrow(expect.objectContaining({ code: 'failed-precondition' }));
+      expect(() => m.getMessaging(app)).toThrow(label);
+    } finally {
+      await resetAppRegistryForTests();
+    }
   },
 };
 

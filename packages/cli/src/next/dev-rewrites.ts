@@ -10,6 +10,7 @@ const PYRIC_PROXY_PATH = '/__pyric/:path*';
 interface RewriteRule {
   source: string;
   destination: string;
+  basePath?: false;
 }
 
 interface RewritesObject {
@@ -32,6 +33,9 @@ function assembleRewriteRule(options?: PyricNextOptions): RewriteRule {
   const rule: RewriteRule = {
     source: PYRIC_PROXY_SOURCE,
     destination: destinationUrl,
+    // The browser runtime requests `/__pyric/*` at the origin root. Without
+    // this, Next prefixes the source with a configured basePath.
+    basePath: false,
   };
   return rule;
 }

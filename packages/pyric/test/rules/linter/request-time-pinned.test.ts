@@ -196,3 +196,203 @@ describe('REQUEST_TIME_NOT_PINNED — multiple test cases', () => {
     expect(descs).toEqual(['tc1', 'tc2']);
   });
 });
+
+describe('FS-LNT-4, FS-LNT-6a, FS-LNT-7, FS-LNT-8 regressions', () => {
+  test('FS-LNT-4: lintFirestoreRules reports GLOB_MATCH_COUNT and mutually recursive CALL_DEPTH', () => {
+    const doubleGlob = lintFirestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /a/{x=**} {
+      match /b/{y=**} {
+        allow read: if request.auth != null;
+      }
+    }
+  }
+}`);
+    expect(doubleGlob.warnings.some(w => w.rule === 'GLOB_MATCH_COUNT' && w.severity === 'error')).toBe(true);
+
+    const cycle = lintFirestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function a() { return b(); }
+    function b() { return a(); }
+    match /items/{id} {
+      allow read: if a();
+    }
+  }
+}`);
+    expect(cycle.warnings.some(w => w.rule === 'CALL_DEPTH' && w.severity === 'error')).toBe(true);
+  });
+
+  test('FS-LNT-6a: evalConstBool folds ternary constant true for PERMISSIVE_RULE and RECURSIVE_WILDCARD_OPEN', () => {
+    const r = lintFirestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true ? true : false;
+    }
+  }
+}`);
+    expect(r.warnings.some(w => w.rule === 'PERMISSIVE_RULE')).toBe(true);
+    expect(r.warnings.some(w => w.rule === 'RECURSIVE_WILDCARD_OPEN')).toBe(true);
+  });
+
+  test('FS-LNT-7: lexical function scoping prevents sibling and shadowed functions from polluting GET_COUNT, GET_DUPLICATION, and REQUEST_TIME_NOT_PINNED', () => {
+    const sixExists = Array.from(
+      { length: 6 },
+      (_, i) => `exists(/databases/$(database)/documents/c${i}/$(id))`,
+    ).join(' && ');
+
+    const siblingSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+    match /light/{id} {
+      function check() { return request.auth != null; }
+      allow read: if check() && check();
+    }
+    match /heavy/{id} {
+      function check() {
+        return ${sixExists} && request.time > timestamp.date(2025, 1, 1);
+      }
+      allow read: if check();
+    }
+  }
+}`;
+    const siblingRes = lintFirestoreRules(siblingSource, {
+      testCases: [
+        {
+          description: 'read light',
+          expectation: 'ALLOW',
+          method: 'get',
+          path: 'light/1',
+          auth: { uid: 'u1' },
+        },
+      ],
+    });
+    const rule1Warnings = siblingRes.warnings.filter(w => w.location?.ruleIndex === 1);
+    expect(rule1Warnings).toHaveLength(0);
+
+    const shadowSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+    match /items/{id} {
+      function helper() { return ${sixExists}; }
+      allow read: if helper();
+      match /sub/{subId} {
+        function helper() { return request.auth != null; }
+        allow read: if helper() && helper();
+      }
+    }
+  }
+}`;
+    const shadowRes = lintFirestoreRules(shadowSource);
+    const subWarnings = shadowRes.warnings.filter(
+      w => w.location?.ruleIndex === 2 && (w.rule === 'GET_COUNT' || w.rule === 'GET_DUPLICATION'),
+    );
+    expect(subWarnings).toHaveLength(0);
+  });
+
+  test('FS-LNT-8: collectAllRules uses full match path from root for SHARED_GATE and REQUEST_TIME_NOT_PINNED', () => {
+    const r = lintFirestoreRules(
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      match /items/{id} {
+        allow update: if request.auth != null
+                      && request.time > timestamp.date(2025, 1, 1)
+                      && request.resource.data.title is string;
+      }
+    }
+    match /orgs/{orgId} {
+      allow read: if request.auth != null;
+      match /items/{id} {
+        allow update: if request.auth != null
+                      && request.resource.data.name is string;
+      }
+    }
+  }
+}`,
+      {
+        testCases: [
+          {
+            description: 'update nested user item without requestTime',
+            expectation: 'ALLOW',
+            method: 'update',
+            path: 'users/u1/items/i1',
+            auth: { uid: 'u1' },
+            data: { title: 'hello' },
+          },
+        ],
+      },
+    );
+    expect(findRule(r, 'SHARED_GATE')).toHaveLength(0);
+    expect(findRule(r, 'REQUEST_TIME_NOT_PINNED')).toHaveLength(1);
+  });
+
+  test('ST-LNT-4, ST-LNT-6c, ST-LNT-7: Storage GET_COUNT (limit 2), GET_DUPLICATION, REQUEST_TIME_NOT_PINNED, and compile limit rejections', () => {
+    const storageFourLookups = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function docRole(id) {
+      return firestore.get(/databases/(default)/documents/users/$(id)).data.role;
+    }
+    match /files/{fileId} {
+      allow read: if request.auth != null
+        && docRole(request.auth.uid) == 'admin'
+        && docRole(request.auth.uid) != 'banned'
+        && firestore.exists(/databases/(default)/documents/orgs/a)
+        && firestore.exists(/databases/(default)/documents/orgs/b);
+    }
+  }
+}`;
+    const r4 = lintFirestoreRules(storageFourLookups);
+    expect(r4.warnings.some(w => w.rule === 'GET_COUNT' && w.severity === 'error')).toBe(true);
+    expect(r4.warnings.some(w => w.rule === 'GET_DUPLICATION')).toBe(true);
+
+    const storageTimeRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function canAccessTimed(uid) {
+      return request.auth != null && request.auth.uid == uid && request.time > resource.timeCreated;
+    }
+    match /users/{uid}/file.txt {
+      allow read: if canAccessTimed(uid);
+    }
+  }
+}`;
+    const r7 = lintFirestoreRules(storageTimeRules, {
+      testCases: [
+        {
+          description: 'unpinned time-gated storage read',
+          expectation: 'ALLOW',
+          method: 'get',
+          path: '/users/alice/file.txt',
+        },
+      ],
+    });
+    expect(findRule(r7, 'REQUEST_TIME_NOT_PINNED')).toHaveLength(1);
+
+    const compileErrorRules = `rules_version = '3';
+service cloud.firestore {
+  function dup() { return true; }
+  function dup() { return false; }
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && uid.matches('(?=invalid_re2)a') && dup();
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const r6 = lintFirestoreRules(compileErrorRules);
+    expect(r6.warnings.some(w => w.rule === 'UNSUPPORTED_RULES_VERSION' && w.severity === 'error')).toBe(true);
+    expect(r6.warnings.some(w => w.rule === 'INVALID_REGEX_PATTERN' && w.severity === 'error')).toBe(true);
+    expect(r6.warnings.some(w => w.rule === 'FUNCTION_REDEFINED' && w.severity === 'error')).toBe(true);
+  });
+});

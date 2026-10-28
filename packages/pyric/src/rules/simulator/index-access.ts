@@ -14,6 +14,7 @@
  * `IndexAccessFailure` into its own error value, so `&&`/`||` absorb it.
  */
 import { describeRulesType, isRulesMap } from './rules-type.js';
+import { sliceBoundsError } from './slice-bounds.js';
 import { RulesValue } from './wrappers/base.js';
 
 /** Production's error for a failed index or key read. */
@@ -117,4 +118,20 @@ export function readMember(value: unknown, name: string): unknown {
   if (isRulesMap(value)) return indexMap(value, name);
   if (isPath(value)) return indexValue(value, name);
   return new IndexAccessFailure(`Type error. Received: [${describeRulesType(value)}] Expected: [map,path].`);
+}
+
+/** Range slice `obj[start:end]` on a List or String; errors on null/non-sliceable or bad bounds. */
+export function sliceValue(obj: unknown, start: unknown, end: unknown): unknown {
+  if (typeof start !== 'number' || !Number.isInteger(start)) {
+    return new IndexAccessFailure(`Slice start must be an integer, got ${describeRulesType(start)}`);
+  }
+  if (typeof end !== 'number' || !Number.isInteger(end)) {
+    return new IndexAccessFailure(`Slice end must be an integer, got ${describeRulesType(end)}`);
+  }
+  if (typeof obj === 'string' || Array.isArray(obj)) {
+    const boundsError = sliceBoundsError(start, end, obj.length);
+    if (boundsError) return new IndexAccessFailure(boundsError);
+    return obj.slice(start, end);
+  }
+  return new IndexAccessFailure(`Slice not supported on ${describeRulesType(obj)}`);
 }

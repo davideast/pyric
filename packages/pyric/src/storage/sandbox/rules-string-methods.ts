@@ -1,3 +1,6 @@
+import { re2FullMatch, replaceRe2 } from '../../rules/simulator/rules-type.js';
+import { splitRe2 } from '../../rules/simulator/string-split.js';
+import { trimRulesString } from '../../rules/simulator/string-trim.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
@@ -48,22 +51,21 @@ function evalMatches(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown
   const subject = stringReceiver(receiver, expr);
   const pattern = patternArgument(expr, ctx);
   if (typeof pattern !== 'string') return pattern;
-  // Anchor to the whole string. `(?:...)` keeps the caller's alternations
-  // from binding past the anchors.
-  return compileRe2Pattern('matches', pattern, `^(?:${pattern})$`).test(subject);
+  return asEvaluationError(() => re2FullMatch(pattern, subject));
 }
 
 /**
  * Evaluate `string.split(re)`: RE2 regex split, the storage-rules idiom for
- * segmenting object names (`fileId.split('-')[0:2]`). Shares matches()'s
- * RE2-vs-JS guard: constructs RE2 rejects (backreferences, lookaround) deny
- * with a reason rather than silently (mis)compiling under JS semantics.
+ * segmenting object names (`fileId.split('-')[0:2]`). It is the shared
+ * `splitRe2`, so Storage and Firestore split alike: no capture-group text,
+ * trailing empty pieces dropped, and RE2's syntax checks and pyric's size
+ * limits on a pattern from request data.
  */
 function evalSplit(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   const subject = stringReceiver(receiver, expr);
   const pattern = patternArgument(expr, ctx);
   if (typeof pattern !== 'string') return pattern;
-  return subject.split(compileRe2Pattern('split', pattern, pattern));
+  return asEvaluationError(() => splitRe2(subject, pattern));
 }
 
 /**
@@ -82,88 +84,16 @@ function evalReplace(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown
   if (args.length !== 2 || typeof pattern !== 'string' || typeof replacement !== 'string') {
     throw new RuleEvalError(`replace() expects (pattern: string, replacement: string)`);
   }
-  const regex = compileRe2Pattern('replace', pattern, pattern, 'g');
-  const groupCount = captureGroupCount(regex);
-  return subject.replace(regex, (...match: unknown[]) => {
-    const groups = match.slice(0, groupCount + 1) as Array<string | undefined>;
-    return expandReplacement(replacement, groups, namedGroupsOf(match[match.length - 1]));
-  });
+  return asEvaluationError(() => replaceRe2(subject, pattern, replacement));
 }
 
-/** The named-groups object JavaScript passes last to a replacer, when the pattern has one. */
-function namedGroupsOf(lastReplacerArgument: unknown): Readonly<Record<string, string | undefined>> {
-  if (typeof lastReplacerArgument === 'object' && lastReplacerArgument !== null) {
-    return lastReplacerArgument as Record<string, string | undefined>;
+/** Run a shared string method, turning what it throws into a Storage evaluation error. */
+function asEvaluationError<T>(method: () => T): T {
+  try {
+    return method();
+  } catch (err) {
+    throw new RuleEvalError((err as Error).message);
   }
-  return {};
-}
-
-/** Number of capture groups in `regex`, read from a match of the empty alternative. */
-function captureGroupCount(regex: RegExp): number {
-  const probe = new RegExp(`${regex.source}|`).exec('');
-  return probe === null ? 0 : probe.length - 1;
-}
-
-/**
- * Expand a Java `Matcher` replacement template. `groups[0]` is the whole
- * match; a group that did not participate inserts nothing.
- */
-function expandReplacement(
-  template: string,
-  groups: ReadonlyArray<string | undefined>,
-  namedGroups: Readonly<Record<string, string | undefined>>,
-): string {
-  const groupCount = groups.length - 1;
-  let out = '';
-  let i = 0;
-  while (i < template.length) {
-    const char = template[i];
-    if (char === '\\') {
-      if (i + 1 >= template.length) {
-        throw new RuleEvalError('replace() replacement ends with an escape character');
-      }
-      out += template[i + 1];
-      i += 2;
-      continue;
-    }
-    if (char !== '$') {
-      out += char;
-      i += 1;
-      continue;
-    }
-    const next = template[i + 1];
-    if (next === '{') {
-      const close = template.indexOf('}', i + 2);
-      if (close === -1) {
-        throw new RuleEvalError(`replace() replacement has an unclosed group name: ${template.slice(i)}`);
-      }
-      const name = template.slice(i + 2, close);
-      if (!Object.hasOwn(namedGroups, name)) {
-        throw new RuleEvalError(`replace() replacement names no group: ${template.slice(i, close + 1)}`);
-      }
-      out += namedGroups[name] ?? '';
-      i = close + 1;
-      continue;
-    }
-    if (next === undefined || next < '0' || next > '9') {
-      throw new RuleEvalError(`replace() replacement has an illegal group reference: ${template.slice(i)}`);
-    }
-    // Java reads the longest digit run that still names an existing group.
-    let group = Number(next);
-    let end = i + 2;
-    while (end < template.length && template[end] >= '0' && template[end] <= '9') {
-      const longer = group * 10 + Number(template[end]);
-      if (longer > groupCount) break;
-      group = longer;
-      end += 1;
-    }
-    if (group > groupCount) {
-      throw new RuleEvalError(`replace() replacement names group ${group}, but the pattern has ${groupCount}`);
-    }
-    out += groups[group] ?? '';
-    i = end;
-  }
-  return out;
 }
 
 /** `string.lower()`, `upper()`, and `trim()`. */
@@ -172,7 +102,7 @@ function evalCaseAndTrim(receiver: unknown, expr: MethodCall): unknown {
   expectNoArguments(expr);
   if (expr.method === 'lower') return subject.toLowerCase();
   if (expr.method === 'upper') return subject.toUpperCase();
-  return subject.trim();
+  return trimRulesString(subject);
 }
 
 /** `string.toUtf8()`: the string's UTF-8 encoding as Bytes. */
@@ -180,27 +110,6 @@ function evalToUtf8(receiver: unknown, expr: MethodCall): unknown {
   const subject = stringReceiver(receiver, expr);
   expectNoArguments(expr);
   return Bytes.fromUtf8(subject);
-}
-
-/**
- * Compile a rules regular expression with JavaScript's `RegExp`. `pattern`
- * is the caller's RE2 pattern, checked for the constructs JS accepts and RE2
- * rejects (backreferences, lookaround); `source` is what compiles, which is
- * `pattern` itself or an anchored wrapper around it.
- */
-function compileRe2Pattern(method: string, pattern: string, source: string, flags?: string): RegExp {
-  const backref = /\\[1-9]/.test(pattern);
-  const lookaround = /\(\?<?[=!]/.test(pattern);
-  if (backref || lookaround) {
-    throw new RuleEvalError(
-      `${method}() pattern uses an RE2-unsupported construct (${backref ? 'backreference' : 'lookaround'}) that production would reject`,
-    );
-  }
-  try {
-    return new RegExp(source, flags);
-  } catch (err) {
-    throw new RuleEvalError(`${method}() invalid regex pattern: ${(err as Error).message}`);
-  }
 }
 
 export const stringMethods: ReceiverMethods = {

@@ -506,6 +506,43 @@ describe('applyServeInit — capture (the verify loop)', () => {
     expect(fetchSpy.calls.length).toBe(before);
   });
 
+  it('captures each named RTDB instance with its rules and tree, and the default instance URL', async () => {
+    const ctx = await makeCtx();
+    ctx.appOptions = { projectId: 'demo-app' };
+    const fetchSpy = recordingFetch();
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, databaseRules: RTDB_RULES, capture: true },
+      { fetch: fetchSpy, captureDebounceMs: 5 },
+    );
+    try {
+      const port = fakePort();
+      const shardRules = { rules: { '.read': true, '.write': true } };
+      await handleMessage(ctx, port, { t: 'op', id: 'd1', method: 'setDatabaseRules', instance: 'shard-00', source: shardRules });
+      await handleMessage(ctx, port, { t: 'op', id: 'r1', method: 'rtdb.set', path: '/rooms/r1', value: { name: 'General' } });
+      await handleMessage(ctx, port, { t: 'op', id: 'r2', method: 'rtdb.set', instance: 'shard-00', path: '/rooms/r2', value: { name: 'Shard' } });
+      await tick(20);
+
+      const captures = fetchSpy.calls.filter((c) => c.url === '/__pyric/capture');
+      const body = JSON.parse(captures.at(-1)!.body) as {
+        events: Array<{ kind: string; service?: string; instance?: string }>;
+        services: { rtdb: { databaseUrl?: string; state: { tree: unknown }; instances?: Record<string, unknown> } };
+      };
+      expect(body.services.rtdb.databaseUrl).toBe('https://demo-app-default-rtdb.firebaseio.com');
+      expect(body.services.rtdb.state.tree).toEqual({ rooms: { r1: { name: 'General' } } });
+      expect(body.services.rtdb.instances).toEqual({
+        'shard-00': {
+          rules: { format: 'rtdb.rules.json', json: shardRules },
+          state: { tree: { rooms: { r2: { name: 'Shard' } } } },
+        },
+      });
+      const commits = body.events.filter((event) => event.kind === 'commit' && event.service === 'rtdb');
+      expect(commits.map((event) => event.instance)).toEqual([undefined, 'shard-00']);
+    } finally {
+      result.dispose();
+    }
+  });
+
   it('no capture wiring when capture is off', async () => {
     const ctx = await makeCtx();
     const fetchSpy = recordingFetch();
@@ -662,12 +699,68 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
       rulesHash: 'hash123',
     }));
 
-    expect(ctx.activeRules?.database?.status).toBe('active');
-    expect(ctx.activeRules?.database?.source).toEqual({ rules: { '.read': 'false', '.write': 'false' } });
-    expect(ctx.rtdb).toBeDefined();
+    const instance = ctx.rtdbInstances?.get(ctx.rtdbInstances.defaultKey);
+    expect(instance?.rules?.status).toBe('active');
+    expect(instance?.rules?.source).toEqual({ rules: { '.read': 'false', '.write': 'false' } });
 
     dispose();
     expect(es.closed).toBe(true);
+  });
+
+  it('applies each instance\'s rules from rtdb-rules-update to that instance\'s store', async () => {
+    const ctx = await makeCtx();
+    ctx.defaultRtdbInstance = 'demo-default-rtdb';
+    const dispose = setupWorkerHotReload(ctx, (url) => new FakeES(url));
+    const es = FakeES.last!;
+    const rulesOf = (key: string) => ctx.rtdbInstances?.get(key)?.rules?.source;
+
+    es.emit('rtdb-rules-update', JSON.stringify({
+      instance: 'other',
+      rules: { rules: { '.read': 'true' } },
+      rulesHash: 'other',
+    }));
+    expect(rulesOf('other')).toEqual({ rules: { '.read': 'true' } });
+    expect(rulesOf('demo-default-rtdb')).toBeUndefined();
+
+    es.emit('rtdb-rules-update', JSON.stringify({
+      instance: 'demo-default-rtdb',
+      rules: { rules: { '.read': 'false' } },
+      rulesHash: 'default',
+    }));
+    expect(rulesOf('demo-default-rtdb')).toEqual({ rules: { '.read': 'false' } });
+    expect(rulesOf('other')).toEqual({ rules: { '.read': 'true' } });
+
+    es.emit('rtdb-rules-update', JSON.stringify({ instance: 'other', rules: null, policy: 'deny' }));
+    expect(rulesOf('other')).toBeUndefined();
+    expect(rulesOf('demo-default-rtdb')).toEqual({ rules: { '.read': 'false' } });
+
+    dispose();
+  });
+
+  it('applies firebase.json instances from the init payload, and locks an instance it deploys no rules to', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, {
+      ...basePayload,
+      databaseInstances: {
+        defaultInstance: 'demo-default-rtdb',
+        rules: {
+          'demo-default-rtdb': { rules: { '.read': true } },
+          second: { rules: { '.read': false } },
+        },
+      },
+    }, { fetch: recordingFetch() });
+    expect(ctx.rtdbInstances?.get('demo-default-rtdb')?.rules?.source).toEqual({ rules: { '.read': true } });
+    expect(ctx.rtdbInstances?.get('second')?.rules?.source).toEqual({ rules: { '.read': false } });
+    const read = async (id: string, instance?: string) => {
+      const port = fakePort();
+      await handleMessage(ctx, port, { t: 'op', id, method: 'rtdb.get', path: 'a', ...(instance ? { instance } : {}) });
+      return getRes(port, id);
+    };
+    expect((await read('default')).ok).toBe(true);
+    expect((await read('second', 'second')).ok).toBe(false);
+    const undeclared = await read('undeclared', 'third');
+    expect(undeclared.ok).toBe(false);
+    expect(ctx.rtdbInstances?.get('third')?.rules).toBeUndefined();
   });
 
   it('replaces the Storage rules on storage-rules-update, and a null ruleset returns Storage to deny-all', async () => {

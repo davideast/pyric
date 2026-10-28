@@ -9,6 +9,7 @@ import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.awaitClose
@@ -60,6 +61,14 @@ class FirebaseAuth internal constructor(
     private var initialBridgeSnapshotReceived = false
 
     init {
+        // A replaced bridge host holds no user for this session. Sign the session
+        // back in before the observers are re-sent.
+        bridgeClient.restoreAuth = { op ->
+            val user = currentUser
+            if (user != null) {
+                op("auth.restorePortSession", mapOf("uid" to user.uid, "tenantId" to user.tenantId))
+            }
+        }
         scope.launch {
             try {
                 BridgeAuthOperations.subscribeAuthState(bridgeClient).collect { rawUser ->
@@ -110,7 +119,7 @@ class FirebaseAuth internal constructor(
 
     fun signInWithEmailAndPassword(email: String, password: String): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInEmail(bridgeClient, email, password, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -124,7 +133,7 @@ class FirebaseAuth internal constructor(
 
     fun createUserWithEmailAndPassword(email: String, password: String): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.createUser(bridgeClient, email, password, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -138,7 +147,7 @@ class FirebaseAuth internal constructor(
 
     fun signInAnonymously(): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInAnonymously(bridgeClient, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -152,7 +161,7 @@ class FirebaseAuth internal constructor(
 
     fun signInWithCredential(credential: Map<String, Any?>): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential, tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -166,7 +175,7 @@ class FirebaseAuth internal constructor(
 
     fun signInWithCredential(credential: AuthCredential): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap(), tenantId)
                 val authResult = handleAuthSuccess(res)
@@ -179,15 +188,18 @@ class FirebaseAuth internal constructor(
     }
 
     fun signOut() {
-        scope.launch {
+        // Signing out is synchronous in the Firebase Android SDK: when this
+        // returns, currentUser is null and the next request is unauthenticated.
+        // Clear the local session first; the host is told afterwards.
+        _currentUser.value = null
+        _lensOverride.value = null
+        _authLens.value = AuthLens.Anon
+        notifyAuthStateChanged()
+        notifyIdTokenChanged()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 BridgeAuthOperations.signOut(bridgeClient)
             } catch (_: Exception) {}
-            _currentUser.value = null
-            _lensOverride.value = null
-            _authLens.value = AuthLens.Anon
-            notifyAuthStateChanged()
-            notifyIdTokenChanged()
         }
     }
 
@@ -328,7 +340,13 @@ class FirebaseAuth internal constructor(
             msg.contains("too-many-requests", ignoreCase = true) -> "ERROR_TOO_MANY_REQUESTS"
             else -> "ERROR_UNKNOWN"
         }
-        return FirebaseAuthException(code, msg, e)
+        // The same subclasses the Firebase Android SDK throws for these codes.
+        return when (code) {
+            "ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED" -> FirebaseAuthInvalidUserException(code, msg, e)
+            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_EMAIL", "ERROR_INVALID_CREDENTIAL" ->
+                FirebaseAuthInvalidCredentialsException(code, msg, e)
+            else -> FirebaseAuthException(code, msg, e)
+        }
     }
 
     fun interface AuthStateListener {
@@ -342,20 +360,24 @@ class FirebaseAuth internal constructor(
     companion object {
         private val instances = ConcurrentHashMap<String, FirebaseAuth>()
 
+        @JvmStatic
         fun getInstance(): FirebaseAuth = getInstance(FirebaseApp.getInstance())
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
                 FirebaseAuth(app, PyricBridgeClient.createDefault())
             }
         }
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
                 FirebaseAuth(app, bridgeClient)
             }
         }
 
+        @JvmStatic
         fun getInstance(
             app: FirebaseApp,
             bridgeClient: PyricBridgeClient,
@@ -366,6 +388,7 @@ class FirebaseAuth internal constructor(
             }
         }
 
+        @JvmStatic
         fun clearInstancesForTest() {
             for (auth in instances.values) {
                 auth.scope.cancel()

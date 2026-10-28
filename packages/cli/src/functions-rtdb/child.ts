@@ -4,7 +4,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { RemoteSandbox } from '../remote/index.js';
+import type { WorkerOpPayload, WorkerSubPayload } from '../bridge/protocol.js';
+import {
+  createRemoteSandboxHandle,
+  type RemoteSandbox,
+  type RemoteSandboxChannel,
+} from '../remote/index.js';
 import {
   startOnValueCreatedExecution,
   type OnValueCreatedExecutionHost,
@@ -61,7 +66,8 @@ export interface SpawnFunctionsRtdbChildOptions {
   instance: string;
   location: string;
   databaseHost?: string;
-  projectId?: string;
+  /** The project the child runs as, from `resolveFirebaseProject`. */
+  projectId: string;
   childModuleUrl?: string | URL;
   nodeExecutable?: string;
   onEvent?(event: FunctionsRtdbChildEvent): void;
@@ -107,39 +113,6 @@ export interface FunctionsChildEnvOptions {
 }
 
 /**
- * Resolve the project identifier for the functions child process.
- *
- * Precedence:
- * 1. Explicit options.projectId
- * 2. baseEnv.PYRIC_PROJECT
- * 3. Instance prefix when formatted as `<projectId>-default-rtdb`
- * 4. Default fallback to 'demo-project'
- */
-export function resolveChildProjectId(
-  explicitProjectId?: string,
-  instance?: string,
-  baseEnv?: NodeJS.ProcessEnv,
-): string {
-  if (typeof explicitProjectId === 'string' && explicitProjectId.length > 0) {
-    return explicitProjectId;
-  }
-
-  const pyricProject = baseEnv?.PYRIC_PROJECT;
-  if (typeof pyricProject === 'string' && pyricProject.length > 0) {
-    return pyricProject;
-  }
-
-  if (typeof instance === 'string' && instance.length > 0) {
-    const stripped = instance.replace(/-default-rtdb$/, '');
-    if (stripped.length > 0) {
-      return stripped;
-    }
-  }
-
-  return 'demo-project';
-}
-
-/**
  * Resolve the database host, defaulting to 'firebasedatabase.app'.
  */
 export function resolveChildDatabaseHost(databaseHost?: string): string {
@@ -166,8 +139,12 @@ export function resolveChildModulePath(childModuleUrl?: string | URL): string {
  * Assemble the child process environment variables.
  *
  * Guaranteed child-only synthetic sandbox metadata:
- * - GCLOUD_PROJECT is set to the resolved sandbox project ID
+ * - GCLOUD_PROJECT, GOOGLE_CLOUD_PROJECT and GCP_PROJECT are set to the
+ *   resolved sandbox project ID, as production sets them to the function's
+ *   own project (the Firebase emulator reserves the same three)
  * - FIREBASE_CONFIG is set to synthetic JSON with projectId, databaseURL, and storageBucket
+ * - GOOGLE_APPLICATION_CREDENTIALS is removed, so a Google client in function
+ *   code never loads the host's credentials file
  *
  * Explicit control flow ensures that host environment cannot pollute or route
  * sandbox functions execution to a production Firebase/GCP project.
@@ -193,8 +170,11 @@ export function buildFunctionsChildEnv(options: FunctionsChildEnvOptions): NodeJ
     PYRIC_FUNCTIONS_LOCATION: location,
     PYRIC_FUNCTIONS_DATABASE_HOST: databaseHost,
     GCLOUD_PROJECT: projectId,
+    GOOGLE_CLOUD_PROJECT: projectId,
+    GCP_PROJECT: projectId,
     FIREBASE_CONFIG: syntheticFirebaseConfig,
   };
+  delete childEnv.GOOGLE_APPLICATION_CREDENTIALS;
 
   return childEnv;
 }
@@ -204,7 +184,7 @@ export function spawnFunctionsRtdbChild(
   options: SpawnFunctionsRtdbChildOptions,
 ): FunctionsRtdbChildHandle {
   const childModulePath = resolveChildModulePath(options.childModuleUrl);
-  const projectId = resolveChildProjectId(options.projectId, options.instance, options.env);
+  const { projectId } = options;
   const databaseHost = resolveChildDatabaseHost(options.databaseHost);
   const childEnv = buildFunctionsChildEnv({
     baseEnv: options.env,
@@ -343,6 +323,46 @@ async function loadFunctionsExports(entry: string): Promise<Record<string, unkno
   return await import(pathToFileURL(entry).href) as Record<string, unknown>;
 }
 
+/**
+ * The configured instance name is the name of the default instance: the
+ * `functions.instance` option renames `<projectId>-default-rtdb`, and the host
+ * serves that instance without a name. Wrap the remote sandbox factory that
+ * `@pyric/cli/register` installs so every RTDB op and value subscription this
+ * child sends for `name`, from firebase-admin or from trigger delivery,
+ * reaches the default instance.
+ */
+function serveInstanceAsDefault(name: string): void {
+  const key = Symbol.for('pyric.remote.sandboxFactory');
+  const global = globalThis as Record<symbol, unknown>;
+  const factory = global[key] as ((options?: { url?: string }) => RemoteSandbox) | undefined;
+  if (typeof factory !== 'function') return;
+  global[key] = (options?: { url?: string }): RemoteSandbox => {
+    const inner = factory(options);
+    return createRemoteSandboxHandle({
+      channel: aliasDefaultInstance(inner.channel, name),
+      serveUrl: inner.serveUrl,
+      close: () => inner.close(),
+    });
+  };
+}
+
+/** A channel that sends `instance: name` as the default instance. */
+function aliasDefaultInstance(channel: RemoteSandboxChannel, name: string): RemoteSandboxChannel {
+  const alias = (instance: unknown): unknown => (instance === name ? undefined : instance);
+  return {
+    op: (payload) => channel.op(
+      'instance' in payload ? { ...payload, instance: alias(payload.instance) } as WorkerOpPayload : payload,
+    ),
+    subscribe: (sub, onSnap, onError) => {
+      const target = sub.target;
+      const isRtdb = typeof target === 'object' && target !== null && 'service' in target && target.service === 'rtdb';
+      const aliased = isRtdb ? { ...sub, target: { ...target, instance: alias(target.instance) } } as WorkerSubPayload : sub;
+      return channel.subscribe(aliased, onSnap, onError);
+    },
+    byteRoute: () => channel.byteRoute?.() ?? Promise.resolve(undefined),
+  };
+}
+
 async function runFunctionsRtdbChild(): Promise<void> {
   const entry = process.env.PYRIC_FUNCTIONS_ENTRY;
   const instance = process.env.PYRIC_FUNCTIONS_INSTANCE;
@@ -354,6 +374,7 @@ async function runFunctionsRtdbChild(): Promise<void> {
 
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
+  serveInstanceAsDefault(instance);
   const app = adminApp.initializeApp();
   let host: OnValueCreatedExecutionHost | undefined;
   let closing: Promise<void> | undefined;
@@ -404,9 +425,11 @@ async function runFunctionsRtdbChild(): Promise<void> {
           effectiveInstances.join(', '),
       );
     }
+    // Deliver from the instance the triggers name.
+    const rtdb = app.sandbox.rtdb.forInstance(effectiveInstances[0] ?? instance);
     host = startOnValueCreatedExecution({
       exported,
-      delivery: new RemoteRtdbTriggerDelivery(app.sandbox.rtdb),
+      delivery: new RemoteRtdbTriggerDelivery(rtdb),
       eventOptions: async (_projection, sequence, trigger) => ({
         id: `${randomUUID()}-${sequence}`,
         // The delivery's instant is the sandbox's, not this process's: the

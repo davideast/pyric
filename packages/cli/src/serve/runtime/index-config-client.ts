@@ -25,6 +25,7 @@ export function createIndexConfigClient(fetcher: typeof fetch): IndexConfigClien
     if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('No local index configuration is connected.');
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? 'Unable to read the index configuration.');
+    if (result.status === 'unavailable') throw new Error(result.reason ?? 'Unable to read the index configuration.');
     if (result.status === 'unconfigured' || result.unconfigured || !result.config) return null;
     const targetService = service ?? result.service;
     if (targetService === 'firestore') readIndexConfig(result.config);

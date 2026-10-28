@@ -8,7 +8,7 @@ import { Timestamp, GeoPoint } from 'pyric/firestore';
 import { cloneTree, collectDescendants, treeFromData } from './tree.js';
 import { validateTree } from './validation.js';
 import { defaultValueFor } from './defaults.js';
-import { isTimestampShape, isGeoPointShape, asVectorView } from '../types.js';
+import { isTimestampShape, isGeoPointShape, isBytesShape, coerceBytes, asVectorView } from '../types.js';
 
 /**
  * Rehydrate serialized Firestore values back into class instances. Over a
@@ -31,6 +31,7 @@ export function rehydrateFirestoreValues(value: unknown): unknown {
     const o = value as Record<string, number>;
     return new GeoPoint(o.latitude, o.longitude);
   }
+  if (isBytesShape(value)) return coerceBytes(value);
   if (Array.isArray(value)) return value.map(rehydrateFirestoreValues);
   const proto = Object.getPrototypeOf(value);
   if (proto === Object.prototype || proto === null) {

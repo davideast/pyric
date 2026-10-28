@@ -29,6 +29,12 @@ import { copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync, exist
 import { dirname, join } from 'node:path';
 import { parseStateFile, StateFileError, STATE_FILE_VERSION, type PyricStateFile } from './state-file.js';
 import { firestoreDocCount } from './state-summary.js';
+import {
+  BY_REFERENCE_ALTERNATIVE,
+  assertInlineStorageFits,
+  base64DecodedLength,
+  type InlineStorageDocument,
+} from 'pyric/sandbox/internal';
 export { firestoreDocCount } from './state-summary.js';
 export { StateFileError, STATE_FILE_VERSION, EXPECTED_CONTROLLER_BLOB_VERSION } from './state-file.js';
 export type { ExportedUsers, PyricStateFile } from './state-file.js';
@@ -64,6 +70,23 @@ export interface StateStore {
 
 export const STATE_RELATIVE_PATH = join('.pyric', 'state', 'state.json');
 
+/** The state file, and what to use once its Storage exceeds the inline limit. */
+const STATE_FILE_DOCUMENT: InlineStorageDocument = {
+  document: 'The `--persist` state file `.pyric/state/state.json`',
+  instead: BY_REFERENCE_ALTERNATIVE,
+};
+
+/** The object bytes a Storage section carries inline; a reference entry carries none. */
+function inlineStorageSectionBytes(section: unknown): number {
+  if (!Array.isArray(section)) return 0;
+  let total = 0;
+  for (const entry of section) {
+    const encoded = (entry as { dataBase64?: unknown } | null)?.dataBase64;
+    if (typeof encoded === 'string') total += base64DecodedLength(encoded);
+  }
+  return total;
+}
+
 export function createStateStore(projectDir: string): StateStore {
   const path = join(projectDir, STATE_RELATIVE_PATH);
   const backupPath = `${path}.bak`;
@@ -84,7 +107,10 @@ export function createStateStore(projectDir: string): StateStore {
     return parseStateFile(parsed, path);
   };
 
-  const writeAtomic = (file: { version: typeof STATE_FILE_VERSION; firestore: unknown; auth: unknown }): void => {
+  const writeAtomic = (file: { version: typeof STATE_FILE_VERSION; firestore: unknown; auth: unknown; storage?: unknown }): void => {
+    // Every write rewrites the whole envelope, so the Storage it carries is
+    // checked on every write, before the temporary file exists.
+    assertInlineStorageFits(inlineStorageSectionBytes(file.storage), STATE_FILE_DOCUMENT);
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.tmp-${process.pid}`;
     writeFileSync(tmp, JSON.stringify(file, null, 2) + '\n', 'utf8');

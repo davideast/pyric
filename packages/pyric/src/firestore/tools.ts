@@ -12,7 +12,7 @@
  * whichever backend they have.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import { QUERY_WHERE_OPERATORS } from './sandbox/query-operators.js';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { inspect } from './sandbox-controls.js';
@@ -35,6 +35,8 @@ import {
 export interface UserAuth {
   uid: string;
   claims?: Record<string, unknown>;
+  /** The tenant the identity signed in under; rules read it as `request.auth.token.firebase.tenant`. */
+  tenant?: string;
 }
 
 /**
@@ -56,6 +58,7 @@ const AS_SCHEMA = {
       type: 'object' as const,
       properties: {
         uid: { type: 'string' as const },
+        tenant: { type: 'string' as const, description: 'Tenant id, visible to rules as request.auth.token.firebase.tenant.' },
         claims: { type: 'object' as const, description: 'Custom claims forwarded to the rule context (request.auth.token).' },
       },
       required: ['uid'],

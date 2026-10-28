@@ -28,6 +28,8 @@ import {
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-compat';
 import { translateReadData } from '../../../firestore/sandbox/admin-compat/read-translation.js';
+import type { UpdateField } from '../../../firestore/sandbox/update-fields.js';
+import type { WireUpdateField } from './wire-types.js';
 import { invalidArgument } from './errors.js';
 import type { WireDocData } from './wire-types.js';
 
@@ -108,6 +110,11 @@ export function encodeValue(v: unknown): unknown {
 
 export function encodeWriteData(data: DocumentData): unknown {
   return encodeValue(data);
+}
+
+/** Encode parsed update fields for the wire, keeping each segment vector. */
+export function encodeUpdateFields(fields: readonly UpdateField[]): WireUpdateField[] {
+  return fields.map((field) => ({ path: [...field.path], value: encodeValue(field.value) }));
 }
 
 // ─── Read-data decoding (wire → compat shapes) ─────────────────────────────

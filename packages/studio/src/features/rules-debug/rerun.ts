@@ -37,15 +37,17 @@ import {
   collection,
   setDoc,
   updateDoc,
+  FieldPath,
   deleteDoc,
   addDoc,
   getDoc,
   getDocs,
   query,
 } from 'pyric/firestore';
-import { setRules as setRtdbRules, getActiveRules, snapshotState, stripJsonComments, type RtdbRulesJson } from 'pyric/sandbox/database';
+import { setRules as setRtdbRules, getActiveRules, snapshotState, toStrictRulesJson, type RtdbRulesJson } from 'pyric/sandbox/database';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import { lintFirestoreRules, type LintWarning } from 'pyric/rules/internal';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import type { Denial } from './model.js';
 
 /** Outcome of a single re-run: did the rule allow it this time, or deny again? */
@@ -91,8 +93,22 @@ export function lintEditedRuleset(rules: string, service: string = 'firestore'):
   const isRtdb = service === 'rtdb';
   if (isRtdb) {
     try {
-      JSON.parse(stripJsonComments(rules));
-      return { parseable: true, findings: [] };
+      const parsed: unknown = JSON.parse(toStrictRulesJson(rules));
+      // A ruleset production's deploy would refuse blocks the rerun as a
+      // parse failure does; the remaining findings are surfaced.
+      const rejection = rtdbRulesSourceRejection(parsed);
+      if (rejection !== null) {
+        return { parseable: false, parseError: rejection.message, findings: [] };
+      }
+      const findings: RulesetLintFinding[] = rtdbRules(parsed as RtdbRulesJson)
+        .lint()
+        .map((issue) => ({
+          rule: issue.rule === undefined ? issue.code : `${issue.path ?? ''} ${issue.rule}`.trim(),
+          severity: issue.severity,
+          message: issue.message,
+          ...(issue.fix ? { fix: issue.fix } : {}),
+        }));
+      return { parseable: true, findings };
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       return {
@@ -297,9 +313,19 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
       case 'set':
         await setDoc(doc(db, denial.path), resourceData);
         break;
-      case 'update':
-        await updateDoc(doc(db, denial.path), resourceData);
+      case 'update': {
+        // An update's payload is a tree; its field paths re-issue it exactly,
+        // including a segment that contains `.`.
+        const mask = denial.updateMask;
+        if (mask === undefined || mask.length === 0) {
+          await updateDoc(doc(db, denial.path), resourceData);
+          break;
+        }
+        const pairs = mask.flatMap((path) => [new FieldPath(...path), valueAt(resourceData, path)]);
+        const [field, value, ...more] = pairs as [FieldPath, unknown, ...unknown[]];
+        await updateDoc(doc(db, denial.path), field, value, ...more);
         break;
+      }
       case 'delete':
         await deleteDoc(doc(db, denial.path));
         break;
@@ -330,6 +356,16 @@ function documentData(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+/** The value an update's field path names inside its payload tree. */
+function valueAt(tree: Record<string, unknown>, path: readonly string[]): unknown {
+  let value: unknown = tree;
+  for (const segment of path) {
+    const isMap = value !== null && typeof value === 'object' && !Array.isArray(value);
+    value = isMap && Object.hasOwn(value as object, segment) ? (value as Record<string, unknown>)[segment] : undefined;
+  }
+  return value;
 }
 
 function parentCollection(path: string): string {
@@ -386,14 +422,19 @@ export async function rerunAsUser(
     await client.reissue(denial);
     return { outcome: 'allow' };
   } catch (e) {
-    const err = e as { code?: string; message?: string; reasons?: string[] };
+    const err = e as { code?: string; message?: string; denialContext?: { reasons?: string[] } };
     const code = err.code ?? 'unknown';
-    if (code === 'permission-denied') {
+    // Firestore denies with `permission-denied`, RTDB with `PERMISSION_DENIED`;
+    // a codeless RTDB transaction denial is known by its denial context.
+    const isDenial = code === 'permission-denied' || code === 'PERMISSION_DENIED'
+      || err.denialContext !== undefined;
+    if (isDenial) {
+      const reasons = err.denialContext?.reasons;
       return {
         outcome: 'deny',
         code,
         message: err.message ?? 'permission denied',
-        ...(err.reasons ? { reasons: err.reasons } : {}),
+        ...(reasons ? { reasons } : {}),
       };
     }
     return { outcome: 'error', code, message: err.message ?? String(e) };

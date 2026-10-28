@@ -121,9 +121,25 @@ export type AggregateSpecDescriptor = Record<string, AggregateFieldDescriptor>;
 // ─── Write descriptors for batch + transaction ────────────────────────────
 
 export type WriteDescriptor =
+  | { method: 'create'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { method: 'set'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
-  | { method: 'update'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
+  | ({ method: 'update'; path: string; valueEncoding?: DocValueEncoding } & UpdatePayload)
   | { method: 'delete'; path: string };
+
+/** One field of an update: its literal segment vector and its encoded value. */
+export interface UpdateFieldDescriptor {
+  path: string[];
+  value: unknown;
+}
+
+/**
+ * An update carries either an object whose keys are dot-separated field
+ * paths, or a list of fields whose paths are segment vectors. A segment may
+ * contain `.`, so a field-path update never travels as a dotted string.
+ */
+export type UpdatePayload =
+  | { data: unknown; fields?: undefined }
+  | { fields: UpdateFieldDescriptor[]; data?: undefined };
 
 /**
  * One entry in the read-set sent by the client on `txnCommit`.
@@ -170,6 +186,13 @@ export interface FirestoreSubMessage {
    * the page derives them and the host records these instead.
    */
   owners?: ListenerOwner[];
+  /**
+   * The listener's `SnapshotListenOptions.includeMetadataChanges`. When
+   * `true` the host also delivers metadata-only snapshots (the settled
+   * acknowledgement after a pending write). Every snapshot frame carries
+   * `hasPendingWrites`.
+   */
+  includeMetadataChanges?: boolean;
   /** Mechanical op provenance. */
   issuer?: 'studio';
   /** Marks traffic relayed from a remote Node/agent consumer, never page app activity. */

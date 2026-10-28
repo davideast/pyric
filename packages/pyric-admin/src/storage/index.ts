@@ -9,8 +9,13 @@
  *     `connectRemoteSandbox()`/`remoteSandbox()` relays every data
  *     operation to the sandbox's host (admin lens pinned — rules bypass).
  *     Bytes move over the host's HTTP byte route when it has one, and as
- *     frames when it does not (a browser tab's SharedWorker). Single bucket;
- *     `getSignedUrl` stays the local stub. See the remote arm section below.
+ *     frames when it does not (a browser tab's SharedWorker). Each bucket
+ *     name is its own bucket on the host; the default bucket is the host's
+ *     default one. `createResumableUpload` gives a session URL on the byte
+ *     route. `getSignedUrl` stays the local stub. See the remote arm section below.
+ *
+ *   - **Default bucket**: `bucket()` is the bucket the app's `storageBucket`
+ *     option names, or `'pyric-default'` without one, on both paths.
  *
  *   - **Sandbox path** — returns an in-process {@link Storage} backed
  *     by an in-memory `Map<bucketName, Map<path, FileEntry>>`. State
@@ -26,6 +31,9 @@
  *       - `file.download(options?)` → `[Buffer]`, whole or `start..end`
  *       - `file.createReadStream(options?)`, whole or `start..end`
  *       - `file.createWriteStream(options?)`
+ *       - `save` and `createWriteStream` take `firebaseStorageDownloadTokens`
+ *         under `metadata.metadata` as the file's download tokens, which grant
+ *         its download URL as `getDownloadURL` mints them
  *       - `file.getMetadata()` / `file.setMetadata(metadata)`: settable fields
  *         and custom metadata; a custom key set to `null` is removed
  *       - `getDownloadURL(file)`: mints a token into
@@ -34,11 +42,17 @@
  *       - `file.delete()` — idempotent
  *       - `file.exists()` → `[boolean]`
  *       - `file.getSignedUrl(options)` → `['pyric-sandbox-storage://…']`
+ *       - `file.copy(destination, options?)`, within a bucket or across buckets
+ *       - `bucket.getFiles(query?)` → `[files, nextQuery, apiResponse]`, with
+ *         `prefix`, `delimiter`, `maxResults`, `pageToken`, `autoPaginate`
+ *       - `bucket.deleteFiles(query?)`, honoring `force`
  *
  *     **Deferred in the sandbox backend** (throws `"not implemented in
- *     pyric-admin/storage sandbox backend"`): resumable uploads, signed
- *     cookies, IAM policies, lifecycle rules, ACLs, copy/move,
- *     notifications.
+ *     pyric-admin/storage sandbox backend"`): `file.createResumableUpload`
+ *     upload sessions, which need an HTTP host, signed cookies, IAM
+ *     policies, lifecycle rules, ACLs, move, notifications. Every other
+ *     `Bucket` and `File` method is a deferred member listed in
+ *     `deferred-members.ts`.
  */
 
 import { createWriteStream as createFileWriteStream, openAsBlob, type WriteStream } from 'node:fs';
@@ -53,7 +67,22 @@ import {
   type RemoteSandboxChannel,
   type Sandbox,
 } from 'pyric/sandbox';
-import { fetchFromByteRoute, uploadOverByteRoute } from 'pyric/storage/internal';
+import {
+  deleteObject as storageDeleteObject,
+  getMetadata as storageGetMetadata,
+  ref as storageRef,
+  type FirebaseStorage,
+  type SettableMetadata,
+} from 'pyric/storage';
+import {
+  copyObject,
+  fetchFromByteRoute,
+  getAdminStorageSandbox,
+  getStorageService,
+  patchObjectMetadata,
+  uploadObject,
+  uploadOverByteRoute,
+} from 'pyric/storage/internal';
 
 import {
   ADMIN_APP_TARGET,
@@ -62,6 +91,15 @@ import {
   type SandboxAdminApp,
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { defineDeferredMembers } from 'pyric/app/internal';
+import { BUCKET_DEFERRED_MEMBERS, FILE_DEFERRED_MEMBERS } from './deferred-members.js';
+import { deleteListedFiles } from './delete-files.js';
+import { assertQuery, type DeleteFilesOptions, type GetFilesOptions } from './file-query.js';
+import { getFilesResponse, type GetFilesResponse } from './get-files.js';
+import { namesUnderPrefix, type FolderListing } from './remote-names.js';
+
+export type { DeleteFilesOptions, GetFilesApiResponse, GetFilesOptions } from './file-query.js';
+export type { GetFilesResponse } from './get-files.js';
 
 // ─── Public surface ─────────────────────────────────────────────────────
 
@@ -89,6 +127,18 @@ export interface Bucket {
   readonly name: string;
   /** Get a {@link File} handle for `path`. The file may or may not exist. */
   file(path: string): File;
+  /**
+   * List the bucket's files, as `@google-cloud/storage` does: names starting
+   * with `prefix`, rolled up at `delimiter`, paged by `maxResults` and
+   * `pageToken`. Resolves `[files, nextQuery, apiResponse]`; see `get-files.ts`.
+   */
+  getFiles(query?: GetFilesOptions): Promise<GetFilesResponse<File>>;
+  /**
+   * Delete every file `getFiles(query)` would list across its pages. With
+   * `force`, a failed delete does not stop the others, and the call rejects
+   * with the array of errors.
+   */
+  deleteFiles(query?: DeleteFilesOptions): Promise<void>;
 }
 
 /**
@@ -131,6 +181,23 @@ export interface File {
    * stream finishes, as {@link File.save} does.
    */
   createWriteStream(options?: CreateWriteStreamOptions): Writable;
+  /**
+   * `@google-cloud/storage`'s resumable upload session: a URL that takes the
+   * object's bytes from a browser, and creates the object with
+   * `options.metadata` when the last byte arrives. A remote sandbox whose host
+   * serves HTTP (the hosted dev server) gives one. In process, and on a
+   * browser tab's SharedWorker host, there is no HTTP host to take the bytes,
+   * so this rejects with a not-implemented error there.
+   */
+  createResumableUpload(options?: CreateResumableUploadOptions): Promise<[string]>;
+  /**
+   * Copy the object, with its content type, custom metadata and download
+   * tokens, to `destination`: a path in this bucket, a `gs://` URL, another
+   * {@link Bucket} (same path), or another {@link File}. `options` change the
+   * copy's metadata; a custom key set to `null` is left off the copy.
+   * Resolves `[copy, copyMetadata]`.
+   */
+  copy(destination: CopyDestination, options?: CopyOptions): Promise<[File, FileMetadata]>;
   /** The file's metadata, as a `[metadata]` tuple. Throws if the file does not exist. */
   getMetadata(): Promise<[FileMetadata]>;
   /**
@@ -160,10 +227,10 @@ export interface File {
 /** Options bag for {@link File.save}. Subset of `@google-cloud/storage`'s `SaveOptions`. */
 export interface SaveOptions {
   /**
-   * Arbitrary metadata stored alongside the file. The sandbox stores
-   * it verbatim; consumers that need to round-trip `contentType`,
-   * `metadata.custom`, etc. get it back via internal admin tooling
-   * (not exposed on `File` itself yet).
+   * Metadata stored alongside the file: the settable fields `setMetadata`
+   * takes, and custom keys under `metadata`. A
+   * `firebaseStorageDownloadTokens` custom key sets the file's download
+   * tokens. Other fields are ignored. Read it back with {@link File.getMetadata}.
    */
   metadata?: Record<string, unknown>;
   /**
@@ -172,9 +239,8 @@ export interface SaveOptions {
    */
   contentType?: string;
   /**
-   * `resumable: false` is the only mode the sandbox models (single-
-   * shot writes). The sandbox throws when set to `true` since resumable
-   * uploads are deferred.
+   * How `@google-cloud/storage` sends the bytes. The sandbox stores the
+   * object in one write either way, so the stored object is the same.
    */
   resumable?: boolean;
 }
@@ -198,6 +264,28 @@ export interface CreateWriteStreamOptions {
   metadata?: Record<string, unknown>;
   /** Content type stored on the file. */
   contentType?: string;
+}
+
+/** Options bag for {@link File.createResumableUpload}. Subset of `@google-cloud/storage`'s `CreateResumableUploadOptions`. */
+export interface CreateResumableUploadOptions {
+  /** The object's metadata, as {@link SaveOptions.metadata} takes it. */
+  metadata?: Record<string, unknown>;
+  /** The page origin whose cross-origin requests the session URL answers. */
+  origin?: string;
+}
+
+/** Where {@link File.copy} copies to. */
+export type CopyDestination = string | Bucket | File;
+
+/** Options bag for {@link File.copy}. Subset of `@google-cloud/storage`'s `CopyOptions`. */
+export interface CopyOptions {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  /** Custom keys for the copy, merged over the source's; `null` leaves a key off. */
+  metadata?: Record<string, string | number | boolean | null>;
 }
 
 /** The custom metadata key holding a file's download tokens, comma-separated. */
@@ -271,10 +359,11 @@ export function getStorage(app?: StorageApp): Storage {
     // must never touch a remote handle — local state keyed off a remote
     // handle would be a private server-side store the browser never sees,
     // and `onEvent` throws on remote handles by design.
+    const defaultBucket = resolved.options.storageBucket ?? DEFAULT_SANDBOX_BUCKET;
     if (isRemoteSandbox(resolved.sandbox)) {
-      return getRemoteStorage(resolved.sandbox);
+      return getRemoteStorage(resolved.sandbox, defaultBucket);
     }
-    return getSandboxStorage(resolved);
+    return getSandboxStorage(resolved, defaultBucket);
   }
   // Defensive: the union is closed at the type level. A runtime value
   // that lands here means a caller forged a handle without going
@@ -318,201 +407,231 @@ export async function getDownloadURL(file: File): Promise<string> {
  */
 const DEFAULT_SANDBOX_BUCKET = 'pyric-default';
 
-/** A single file's bytes and metadata in the in-memory store. */
-interface FileEntry {
-  data: Uint8Array;
-  settable: Partial<Record<SettableField, string>>;
-  custom: Record<string, string>;
-  generation: string;
-  metageneration: number;
-  timeCreated: string;
-  updated: string;
+interface SandboxStorageState {
+  readonly dbName: string;
+  readonly defaultBucketNames: Set<string>;
+  readonly buckets: Set<string>;
+  pendingReset: Promise<void> | undefined;
 }
-
-let generationSequence = 0;
-
-/** A generation in the form `@google-cloud/storage` reports: microseconds since the epoch. */
-function nextGeneration(): string {
-  generationSequence = (generationSequence + 1) % 1000;
-  return `${Date.now()}${String(generationSequence).padStart(3, '0')}`;
-}
-
-/** Per-sandbox state: bucket name → (file path → entry). */
-type BucketMap = Map<string, Map<string, FileEntry>>;
 
 /**
  * State + reset-handler registry keyed on `Sandbox` so a single
- * Sandbox shares its storage across every `getStorage` call. The
- * `WeakMap` lets a discarded `Sandbox` (and its state) be GC'd
+ * Sandbox shares its storage across every `getStorage` call and with
+ * `pyric/storage`. The `WeakMap` lets a discarded `Sandbox` be GC'd
  * naturally.
  */
-const SANDBOX_STATE = new WeakMap<Sandbox, BucketMap>();
+const SANDBOX_STATE = new WeakMap<Sandbox, SandboxStorageState>();
 
-/**
- * Reset-subscription bookkeeping. We subscribe to `sandbox.onEvent`
- * once per Sandbox and re-create the bucket map on
- * `session_boundary` events with `phase: 'reset'`. Without this,
- * `sandbox.reset()` would wipe Firestore but leave storage untouched —
- * a leak the sandbox model deliberately avoids.
- */
-const RESET_HOOKED = new WeakSet<Sandbox>();
-
-function ensureBucketMap(sandbox: Sandbox): BucketMap {
-  let map = SANDBOX_STATE.get(sandbox);
-  if (!map) {
-    map = new Map();
-    SANDBOX_STATE.set(sandbox, map);
-  }
-  if (!RESET_HOOKED.has(sandbox)) {
-    RESET_HOOKED.add(sandbox);
+function ensureSandboxStorageState(sandbox: Sandbox, defaultBucket: string): SandboxStorageState {
+  let state = SANDBOX_STATE.get(sandbox);
+  if (!state) {
+    state = {
+      dbName: `pyric-admin-storage:${randomUUID()}`,
+      defaultBucketNames: new Set([DEFAULT_SANDBOX_BUCKET]),
+      buckets: new Set([DEFAULT_SANDBOX_BUCKET]),
+      pendingReset: undefined,
+    };
+    SANDBOX_STATE.set(sandbox, state);
     sandbox.onEvent((event) => {
       if (event.kind === 'session_boundary' && event.phase === 'reset') {
-        // Replace the map in place so existing Storage / Bucket / File
-        // handles keep working but observe an empty state.
-        const existing = SANDBOX_STATE.get(sandbox);
-        if (existing) existing.clear();
+        const current = SANDBOX_STATE.get(sandbox);
+        if (!current) return;
+        const previous = current.pendingReset ?? Promise.resolve();
+        const bucketsToReset = [...current.buckets];
+        const nextReset = previous
+          .then(async () => {
+            await Promise.all(
+              bucketsToReset.map(async (bucket) => {
+                const handle = getAdminStorageSandbox(sandbox, {
+                  dbName: current.dbName,
+                  bucket,
+                });
+                const service = await getStorageService(handle);
+                await service.backend.reset(bucket);
+              }),
+            );
+          })
+          .catch(() => {
+            // Best-effort reset across open bucket handles
+          });
+        current.pendingReset = nextReset;
       }
     });
   }
-  return map;
+  state.defaultBucketNames.add(defaultBucket);
+  return state;
 }
 
-function getSandboxStorage(app: SandboxAdminApp): Storage {
+function getSandboxStorage(app: SandboxAdminApp, defaultBucket: string): Storage {
   const sandbox = app.sandbox;
-  const buckets = ensureBucketMap(sandbox);
-  return new SandboxStorage(buckets);
+  const state = ensureSandboxStorageState(sandbox, defaultBucket);
+  return new SandboxStorage(sandbox, state, defaultBucket);
 }
 
 /**
- * Sandbox `Storage` implementation. Holds a reference to the per-
- * sandbox bucket map; each `bucket()` call returns a fresh `Bucket`
- * handle bound to the same underlying map, mirroring how
- * `@google-cloud/storage` returns lightweight per-call handles.
+ * Sandbox `Storage` implementation. Delegates to the per-sandbox
+ * `pyric/storage` admin plane (`getAdminStorageSandbox`) so `pyric-admin/storage`,
+ * `pyric/storage`, and `captureFullState` share one object store.
  */
 class SandboxStorage implements Storage {
-  constructor(private readonly buckets: BucketMap) {}
+  constructor(
+    readonly sandbox: Sandbox,
+    readonly state: SandboxStorageState,
+    readonly defaultBucket: string,
+  ) {}
+
+  storeBucketOf(bucketName: string): string {
+    if (
+      bucketName === DEFAULT_SANDBOX_BUCKET ||
+      bucketName === this.defaultBucket ||
+      this.state.defaultBucketNames.has(bucketName)
+    ) {
+      return DEFAULT_SANDBOX_BUCKET;
+    }
+    return bucketName;
+  }
+
+  async waitForReset(): Promise<void> {
+    while (this.state.pendingReset !== undefined) {
+      const pending = this.state.pendingReset;
+      await pending;
+      if (this.state.pendingReset === pending) {
+        this.state.pendingReset = undefined;
+      }
+    }
+  }
 
   bucket(name?: string): Bucket {
-    const bucketName = name ?? DEFAULT_SANDBOX_BUCKET;
-    let files = this.buckets.get(bucketName);
-    if (!files) {
-      files = new Map();
-      this.buckets.set(bucketName, files);
-    }
-    return new SandboxBucket(bucketName, files);
+    const bucketName = name ?? this.defaultBucket;
+    const storeBucket = this.storeBucketOf(bucketName);
+    this.state.buckets.add(storeBucket);
+    return new SandboxBucket(bucketName, storeBucket, this);
   }
 }
 
 class SandboxBucket implements Bucket {
   constructor(
     readonly name: string,
-    private readonly files: Map<string, FileEntry>,
+    readonly storeBucket: string,
+    readonly storage: SandboxStorage,
   ) {}
 
+  adminStorage(): FirebaseStorage {
+    this.storage.state.buckets.add(this.storeBucket);
+    return getAdminStorageSandbox(this.storage.sandbox, {
+      dbName: this.storage.state.dbName,
+      bucket: this.storeBucket,
+    });
+  }
+
   file(path: string): File {
-    return new SandboxFile(path, this, this.files);
+    return new SandboxFile(path, this);
+  }
+
+  async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
+    assertQuery(query, 'getFiles');
+    return getFilesResponse(await this.namesUnder(query.prefix ?? ''), query, (name) => this.file(name));
+  }
+
+  async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
+    assertQuery(query, 'deleteFiles');
+    await deleteListedFiles(await this.namesUnder(query.prefix ?? ''), query, (name) => this.file(name).delete());
+  }
+
+  private async namesUnder(prefix: string): Promise<string[]> {
+    await this.storage.waitForReset();
+    const service = await getStorageService(this.adminStorage());
+    const items = await service.backend.listByPrefix(prefix, this.storeBucket);
+    return items.map((item) => item.fullPath);
   }
 }
 
 class SandboxFile implements File {
   constructor(
     readonly name: string,
-    readonly bucket: Bucket,
-    private readonly files: Map<string, FileEntry>,
+    readonly bucket: SandboxBucket,
   ) {}
 
+  /**
+    * Store `data` in one write. `resumable` only chooses how
+    * `@google-cloud/storage` sends the bytes; the stored object is the same.
+    */
   async save(
     data: Buffer | string | Uint8Array,
     options: SaveOptions = {},
   ): Promise<void> {
-    if (options.resumable === true) {
-      throw new Error(
-        'not implemented in pyric-admin/storage sandbox backend: resumable uploads',
-      );
+    const rawLength = typeof data === 'string' ? Buffer.byteLength(data, 'utf8') : data.byteLength;
+    if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
+      throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
     }
+    await this.bucket.storage.waitForReset();
     const bytes = toBytes(data);
-    const saved = patchOf(options.metadata ?? {}, { strict: false });
+    const saved = savedMetadataOf(options.metadata ?? {});
     const contentType = options.contentType ?? saved.settable.contentType;
-    const now = new Date().toISOString();
-    const custom: Record<string, string> = {};
-    for (const [key, value] of Object.entries(saved.customMetadata)) if (value !== null) custom[key] = value;
-    const hasTokens = typeof saved.downloadTokens === 'string';
-    if (hasTokens) custom[DOWNLOAD_TOKENS_KEY] = saved.downloadTokens!;
-    this.files.set(this.name, {
-      data: bytes,
-      settable: { ...saved.settable, ...(contentType !== undefined ? { contentType } : {}) },
-      custom,
-      generation: nextGeneration(),
-      metageneration: 1,
-      timeCreated: now,
-      updated: now,
-    });
+    const settable: SettableMetadata = {
+      ...saved.settable,
+      ...(contentType !== undefined ? { contentType } : {}),
+      ...(Object.keys(saved.custom).length > 0 ? { customMetadata: saved.custom } : {}),
+    };
+    await uploadObject(
+      storageRef(this.bucket.adminStorage(), this.name),
+      bytes,
+      settable,
+      { ...(saved.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}) },
+    );
   }
 
   async getMetadata(): Promise<[FileMetadata]> {
-    return [this.metadataOf(this.entry())];
+    await this.bucket.storage.waitForReset();
+    const full = (await this.missingAsNoSuchObject(
+      storageGetMetadata(storageRef(this.bucket.adminStorage(), this.name)),
+    )) as HostMetadata;
+    return [fileMetadataOf({ ...full, bucket: this.bucket.name })];
   }
 
   async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
-    const entry = this.entry();
+    await this.bucket.storage.waitForReset();
     const patch = patchOf(metadata, { strict: true });
-    Object.assign(entry.settable, patch.settable);
-    for (const [key, value] of Object.entries(patch.customMetadata)) {
-      if (value === null) delete entry.custom[key];
-      else entry.custom[key] = value;
-    }
-    if (patch.downloadTokens === null) delete entry.custom[DOWNLOAD_TOKENS_KEY];
-    else if (patch.downloadTokens !== undefined) entry.custom[DOWNLOAD_TOKENS_KEY] = patch.downloadTokens;
-    this.touch(entry);
-    return [this.metadataOf(entry)];
+    const full = (await this.missingAsNoSuchObject(
+      patchObjectMetadata(storageRef(this.bucket.adminStorage(), this.name), patch),
+    )) as HostMetadata;
+    return [fileMetadataOf({ ...full, bucket: this.bucket.name })];
   }
 
   async [DOWNLOAD_URL](): Promise<string> {
-    const entry = this.entry();
-    const tokenless = !entry.custom[DOWNLOAD_TOKENS_KEY];
-    if (tokenless) {
-      entry.custom[DOWNLOAD_TOKENS_KEY] = randomUUID();
-      this.touch(entry);
+    await this.bucket.storage.waitForReset();
+    const r = storageRef(this.bucket.adminStorage(), this.name);
+    const full = (await this.missingAsNoSuchObject(storageGetMetadata(r))) as HostMetadata;
+    const token = (full.downloadTokens ?? '').split(',').find((existing) => existing !== '');
+    if (token === undefined) {
+      await patchObjectMetadata(r, { downloadTokens: randomUUID() });
     }
-    return dataUri(entry.data, entry.settable.contentType);
+    const [bytes] = await this.download();
+    return dataUri(bytes, full.contentType);
   }
 
-  private entry(): FileEntry {
-    const entry = this.files.get(this.name);
-    if (!entry) throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
-    return entry;
-  }
-
-  private touch(entry: FileEntry): void {
-    entry.metageneration += 1;
-    entry.updated = new Date().toISOString();
-  }
-
-  private metadataOf(entry: FileEntry): FileMetadata {
-    const hasCustom = Object.keys(entry.custom).length > 0;
-    return {
-      name: this.name,
-      bucket: this.bucket.name,
-      generation: entry.generation,
-      metageneration: String(entry.metageneration),
-      size: String(entry.data.byteLength),
-      timeCreated: entry.timeCreated,
-      updated: entry.updated,
-      ...entry.settable,
-      ...(hasCustom ? { metadata: { ...entry.custom } } : {}),
-    };
+  private async missingAsNoSuchObject<T>(pending: Promise<T>): Promise<T> {
+    try {
+      return await pending;
+    } catch (err) {
+      if (isObjectNotFound(err)) throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+      throw err;
+    }
   }
 
   async download(options: DownloadOptions = {}): Promise<[Buffer]> {
-    const entry = this.files.get(this.name);
-    if (!entry) {
+    await this.bucket.storage.waitForReset();
+    const service = await getStorageService(this.bucket.adminStorage());
+    const object = await service.backend.getObject(this.name, this.bucket.storeBucket);
+    if (!object) {
       // Mirror the gcs/firebase-admin error message shape so consumer
       // catch-blocks that string-match `No such object` keep working.
       throw new Error(
         `No such object: ${this.bucket.name}/${this.name}`,
       );
     }
-    return [Buffer.from(byteRange(entry.data, options))];
+    const bytes = new Uint8Array(await object.blob.arrayBuffer());
+    return [Buffer.from(byteRange(bytes, options))];
   }
 
   createReadStream(options: CreateReadStreamOptions = {}): Readable {
@@ -527,18 +646,44 @@ class SandboxFile implements File {
     return spooledWriteStream(async spooled => this.save(await readFile(spooled), options));
   }
 
+  async createResumableUpload(): Promise<[string]> {
+    throw new Error(
+      'not implemented in pyric-admin/storage sandbox backend: resumable upload sessions (createResumableUpload). ' +
+        'The in-process sandbox has no HTTP host to take the bytes; upload with file.save() or file.createWriteStream().',
+    );
+  }
+
+  async copy(destination: CopyDestination, options: CopyOptions = {}): Promise<[File, FileMetadata]> {
+    const target = copyTargetOf(this, destination, this.bucket.storage);
+    const local = target instanceof SandboxFile && target.bucket.storage.sandbox === this.bucket.storage.sandbox;
+    if (!local) throw new Error('pyric-admin/storage: File.copy copies to a File from the same getStorage() sandbox.');
+    await this.bucket.storage.waitForReset();
+    const patch = patchOf(copyMetadataOf(options), { strict: false });
+    const full = (await this.missingAsNoSuchObject(
+      copyObject(
+        storageRef(this.bucket.adminStorage(), this.name),
+        storageRef(target.bucket.adminStorage(), target.name),
+        patch,
+      ),
+    )) as HostMetadata;
+    return [target, fileMetadataOf({ ...full, bucket: target.bucket.name })];
+  }
+
   async delete(): Promise<void> {
-    this.files.delete(this.name);
+    await this.bucket.storage.waitForReset();
+    await storageDeleteObject(storageRef(this.bucket.adminStorage(), this.name));
   }
 
   async exists(): Promise<[boolean]> {
-    return [this.files.has(this.name)];
+    await this.bucket.storage.waitForReset();
+    const service = await getStorageService(this.bucket.adminStorage());
+    const stored = await service.backend.getMetadata(this.name, this.bucket.storeBucket);
+    return [stored !== undefined];
   }
 
   async getSignedUrl(options: GetSignedUrlOptions): Promise<[string]> {
     return [stubSignedUrl(this.bucket.name, this.name, options)];
   }
-
 }
 
 // ─── Remote sandbox arm (remote sandbox, slice 2) ───────────────────────
@@ -553,13 +698,15 @@ class SandboxFile implements File {
 // the browser never sees, and the local arm's `onEvent` reset hook throws
 // on remote handles by design.
 //
+// Buckets: every op names its bucket, and gives the app's name for the
+// default bucket, so the host stores each named bucket apart and answers to
+// the configured default name, in ops and in byte route URLs alike.
+//
 // Divergences from the local arm, all LOUD:
-//   - single bucket: the worker's `pyric/storage` store is single-bucket
-//     ("the data store is shared" — bucket names only round-trip in
-//     metadata), so `bucket('non-default')` throws instead of silently
-//     merging buckets. The default bucket name matches the local arm.
 //   - a host with an HTTP byte route takes and serves bytes there; a
 //     SharedWorker host has none and takes frames, in 4 MiB parts past that.
+//   - a host with a byte route gives `createResumableUpload` session URLs;
+//     the local arm and a SharedWorker host reject it.
 // `getSignedUrl` does NOT relay: it stays the byte-identical local stub.
 
 /** firebase-admin's rules-bypass lens, pinned on every relayed operation. */
@@ -577,14 +724,19 @@ const MAX_STORAGE_PART_BYTES = 4 * 1024 * 1024;
 /** Maximum whole-object size supported by the sandbox backend (512 MiB). Matches MAX_STORAGE_OBJECT_BYTES. */
 const MAX_STORAGE_OBJECT_BYTES = 512 * 1024 * 1024;
 
-/** One remote `Storage` per remote handle (handles only — never data). */
-const remoteStorageBySandbox = new WeakMap<Sandbox, Storage>();
+/** One remote `Storage` per remote handle and default bucket name (handles only, never data). */
+const remoteStorageBySandbox = new WeakMap<Sandbox, Map<string, Storage>>();
 
-function getRemoteStorage(sandbox: RemoteSandbox): Storage {
-  let storage = remoteStorageBySandbox.get(sandbox);
+function getRemoteStorage(sandbox: RemoteSandbox, defaultBucket: string): Storage {
+  let byDefault = remoteStorageBySandbox.get(sandbox);
+  if (!byDefault) {
+    byDefault = new Map();
+    remoteStorageBySandbox.set(sandbox, byDefault);
+  }
+  let storage = byDefault.get(defaultBucket);
   if (!storage) {
-    storage = new RemoteStorage(sandbox.channel);
-    remoteStorageBySandbox.set(sandbox, storage);
+    storage = new RemoteStorage(sandbox.channel, defaultBucket);
+    byDefault.set(defaultBucket, storage);
   }
   return storage;
 }
@@ -596,22 +748,21 @@ interface RemoteGetBytesResult {
   size: number;
 }
 
-class RemoteStorage implements Storage {
-  constructor(private readonly channel: RemoteSandboxChannel) {}
+/** How a relayed op names its bucket (`@pyric/cli`'s `StorageBucketWire`). */
+interface BucketWire {
+  bucket?: string;
+  defaultBucket?: string;
+}
 
+class RemoteStorage implements Storage {
+  constructor(
+    private readonly channel: RemoteSandboxChannel,
+    readonly defaultBucket: string,
+  ) {}
+
+  /** Each bucket name is its own bucket on the host; the default one is the host's default bucket. */
   bucket(name?: string): Bucket {
-    // The worker's object store is single-bucket. A non-default name can't
-    // be faithfully relayed — throw loudly instead of silently merging
-    // buckets (the local arm has REAL multi-bucket isolation; this is the
-    // sharpest local/remote divergence, so it must be explicit).
-    if (name !== undefined && name !== DEFAULT_SANDBOX_BUCKET) {
-      throw new Error(
-        `pyric-admin/storage: the remote (browser) sandbox has a single bucket — ` +
-          `bucket('${name}') cannot be isolated. Use bucket() (the default ` +
-          `'${DEFAULT_SANDBOX_BUCKET}' bucket) instead.`,
-      );
-    }
-    return new RemoteBucket(DEFAULT_SANDBOX_BUCKET, this.channel);
+    return new RemoteBucket(name ?? this.defaultBucket, this.channel, this);
   }
 }
 
@@ -619,29 +770,63 @@ class RemoteBucket implements Bucket {
   constructor(
     readonly name: string,
     private readonly channel: RemoteSandboxChannel,
+    readonly storage: RemoteStorage,
   ) {}
+
+  /**
+   * How ops name this bucket: the default bucket has no `bucket`, and every op
+   * gives the app's name for the default bucket, so the host answers to it.
+   */
+  get wire(): BucketWire {
+    const defaultName = this.storage.defaultBucket;
+    const namesDefault = defaultName !== DEFAULT_SANDBOX_BUCKET;
+    const isDefault = this.name === defaultName;
+    return {
+      ...(isDefault ? {} : { bucket: this.name }),
+      ...(namesDefault ? { defaultBucket: defaultName } : {}),
+    };
+  }
 
   file(path: string): File {
     return new RemoteFile(path, this, this.channel);
+  }
+
+  async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
+    assertQuery(query, 'getFiles');
+    return getFilesResponse(await this.namesUnder(query.prefix ?? ''), query, name => this.file(name));
+  }
+
+  async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
+    assertQuery(query, 'deleteFiles');
+    await deleteListedFiles(await this.namesUnder(query.prefix ?? ''), query, name => this.file(name).delete());
+  }
+
+  /** The host's object names under `prefix`, walked folder by folder with `storage.listAll`. */
+  private namesUnder(prefix: string): Promise<string[]> {
+    return namesUnderPrefix(prefix, async path => (await this.channel.op({
+      method: 'storage.listAll',
+      ...this.wire,
+      path,
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as FolderListing);
   }
 }
 
 class RemoteFile implements File {
   constructor(
     readonly name: string,
-    readonly bucket: Bucket,
+    readonly bucket: RemoteBucket,
     private readonly channel: RemoteSandboxChannel,
   ) {}
 
+  /**
+   * Store `data` in one upload. `resumable` only chooses how
+   * `@google-cloud/storage` sends the bytes; the stored object is the same.
+   */
   async save(
     data: Buffer | string | Uint8Array,
     options: SaveOptions = {},
   ): Promise<void> {
-    if (options.resumable === true) {
-      throw new Error(
-        'not implemented in pyric-admin/storage remote sandbox backend: resumable uploads',
-      );
-    }
     const rawLength = typeof data === 'string' ? Buffer.byteLength(data, 'utf8') : data.byteLength;
     if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
       throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
@@ -669,12 +854,60 @@ class RemoteFile implements File {
     });
   }
 
-  /** Store `data` over the host's byte route, or as one frame when the host has none. */
+  /**
+   * A session URL on the host's byte route that takes this object's bytes,
+   * as `@google-cloud/storage` returns a resumable upload URI. A browser sends
+   * them in one `PUT`, or in `Content-Range` slices whose first one names the
+   * total size, and the object is created with `metadata` when the last byte
+   * arrives. With `origin`, the URL answers that page origin's cross-origin
+   * requests. A host without a byte route (a browser tab's SharedWorker) has
+   * no URL to give, so this rejects there.
+   */
+  async createResumableUpload(options: CreateResumableUploadOptions = {}): Promise<[string]> {
+    const route = await this.channel.byteRoute?.();
+    const routed = route !== undefined;
+    if (!routed) {
+      throw new Error(
+        'not implemented in pyric-admin/storage remote sandbox backend: resumable upload sessions (createResumableUpload) ' +
+          'on a host without an HTTP byte route. Upload with file.save() or file.createWriteStream().',
+      );
+    }
+    const { uploadUrl } = (await this.channel.op({
+      method: 'storage.createUploadSession',
+      ...this.bucket.wire,
+      path: this.name,
+      ...uploadRequestOf({ ...(options.metadata !== undefined ? { metadata: options.metadata } : {}) }),
+      ...(options.origin !== undefined ? { origin: options.origin } : {}),
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as { uploadUrl: string };
+    return [new URL(uploadUrl, route.baseUrl).href];
+  }
+
+  /** Copy this object, with its metadata, to `destination`; `options` change the copy's metadata. */
+  async copy(destination: CopyDestination, options: CopyOptions = {}): Promise<[File, FileMetadata]> {
+    const target = copyTargetOf(this, destination, this.bucket.storage);
+    const remote = target instanceof RemoteFile && target.channel === this.channel;
+    if (!remote) throw new Error('pyric-admin/storage: File.copy copies to a File from the same remote sandbox.');
+    const destinationWire = target.bucket.wire;
+    const full = await this.missingAsNoSuchObject(this.channel.op({
+      method: 'storage.copyObject',
+      ...this.bucket.wire,
+      path: this.name,
+      ...(destinationWire.bucket !== undefined ? { destinationBucket: destinationWire.bucket } : {}),
+      destinationPath: target.name,
+      patch: patchOf(copyMetadataOf(options), { strict: false }),
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as HostMetadata;
+    return [target, fileMetadataOf(full)];
+  }
+
+  /**
+   * Store `data` over the host's byte route, or as one frame when the host has
+   * none. `firebaseStorageDownloadTokens` becomes the object's download tokens,
+   * as `setMetadata` sends it, and the other custom keys stay custom metadata.
+   */
   private async upload(data: Blob, options: CreateWriteStreamOptions): Promise<void> {
-    const request = {
-      ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
-      ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
-    };
+    const request = { ...this.bucket.wire, ...uploadRequestOf(options) };
     const route = await this.channel.byteRoute?.();
     const routed = route !== undefined;
     if (routed) {
@@ -725,6 +958,7 @@ class RemoteFile implements File {
   private async *read(options: DownloadOptions): AsyncGenerator<Uint8Array> {
     const metadata = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.getMetadata',
+      ...this.bucket.wire,
       path: this.name,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as { bucket: string; size: number; generation: string };
@@ -736,6 +970,7 @@ class RemoteFile implements File {
     }
     const response = await this.missingAsNoSuchObject(fetchFromByteRoute(route, {
       bucket: metadata.bucket,
+      ...this.bucket.wire,
       path: this.name,
       start: options.start,
       end: options.end,
@@ -759,6 +994,7 @@ class RemoteFile implements File {
     if (metadata.size <= MAX_STORAGE_PART_BYTES) {
       const wire = await this.missingAsNoSuchObject(this.channel.op({
         method: 'storage.getBytes',
+        ...this.bucket.wire,
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       })) as RemoteGetBytesResult;
@@ -769,6 +1005,7 @@ class RemoteFile implements File {
     for (let offset = options.start ?? 0; offset < last; offset += MAX_STORAGE_PART_BYTES) {
       const wire = await this.missingAsNoSuchObject(this.channel.op({
         method: 'storage.getBytes',
+        ...this.bucket.wire,
         path: this.name,
         offset,
         length: Math.min(MAX_STORAGE_PART_BYTES, last - offset),
@@ -782,6 +1019,7 @@ class RemoteFile implements File {
   async getMetadata(): Promise<[FileMetadata]> {
     const full = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.getMetadata',
+      ...this.bucket.wire,
       path: this.name,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as HostMetadata;
@@ -791,6 +1029,7 @@ class RemoteFile implements File {
   async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
     const full = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.setMetadata',
+      ...this.bucket.wire,
       path: this.name,
       patch: patchOf(metadata, { strict: true }),
       actAs: STORAGE_REMOTE_ADMIN_LENS,
@@ -802,6 +1041,7 @@ class RemoteFile implements File {
   async [DOWNLOAD_URL](): Promise<string> {
     const { path } = await this.missingAsNoSuchObject(this.channel.op({
       method: 'storage.getDownloadURL',
+      ...this.bucket.wire,
       path: this.name,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as { path: string };
@@ -826,6 +1066,7 @@ class RemoteFile implements File {
     try {
       await this.channel.op({
         method: 'storage.deleteObject',
+        ...this.bucket.wire,
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       });
@@ -842,6 +1083,7 @@ class RemoteFile implements File {
     try {
       await this.channel.op({
         method: 'storage.getMetadata',
+        ...this.bucket.wire,
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       });
@@ -919,6 +1161,36 @@ function quotaExceeded(sizeBytes: number, what: string): Error & { code: string 
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
+/**
+ * The File a copy writes: a path in the source's bucket, a `gs://` URL, the
+ * source's path in another Bucket, or a File.
+ */
+function copyTargetOf(source: File, destination: CopyDestination, storage: Storage): File {
+  if (typeof destination === 'string') {
+    const url = /^gs:\/\/([^/]+)\/(.+)$/.exec(destination);
+    return url === null ? source.bucket.file(destination) : storage.bucket(url[1]).file(url[2]!);
+  }
+  const isFile = 'save' in destination;
+  return isFile ? destination : destination.file(source.name);
+}
+
+/** {@link CopyOptions} as the metadata `save` takes: settable fields, and custom keys under `metadata`. */
+function copyMetadataOf(options: CopyOptions): Record<string, unknown> {
+  const { metadata, ...settable } = options;
+  return { ...settable, ...(metadata !== undefined ? { metadata } : {}) };
+}
+
+/** What an upload sends besides its bytes: settable fields and custom metadata, with the download tokens apart. */
+function uploadRequestOf(options: CreateWriteStreamOptions): { contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } {
+  const saved = options.metadata === undefined ? undefined : savedMetadataOf(options.metadata);
+  const hasCustom = saved !== undefined && Object.keys(saved.custom).length > 0;
+  return {
+    ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
+    ...(saved !== undefined ? { metadata: { ...saved.settable, ...(hasCustom ? { metadata: saved.custom } : {}) } } : {}),
+    ...(saved?.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}),
+  };
+}
+
 /** A metadata change in the form hosts take: settable fields, custom keys, and the download tokens apart. */
 interface MetadataPatch {
   settable: Partial<Record<SettableField, string>>;
@@ -956,6 +1228,26 @@ function patchOf(metadata: FileMetadataUpdate | Record<string, unknown>, { stric
     else patch.customMetadata[key] = next;
   }
   return patch;
+}
+
+/** Metadata a new object is saved with: settable fields, custom keys, and the download tokens apart. */
+interface SavedMetadata {
+  settable: Partial<Record<SettableField, string>>;
+  custom: Record<string, string>;
+  downloadTokens?: string;
+}
+
+/**
+ * The metadata `save` and `createWriteStream` create an object with. It is the
+ * {@link patchOf} split `setMetadata` uses, so `firebaseStorageDownloadTokens`
+ * becomes the object's download tokens on every path; a `null` key is not stored.
+ */
+function savedMetadataOf(metadata: Record<string, unknown>): SavedMetadata {
+  const patch = patchOf(metadata, { strict: false });
+  const custom: Record<string, string> = {};
+  for (const [key, value] of Object.entries(patch.customMetadata)) if (value !== null) custom[key] = value;
+  const tokens = patch.downloadTokens;
+  return { settable: patch.settable, custom, ...(typeof tokens === 'string' ? { downloadTokens: tokens } : {}) };
 }
 
 /** A `data:` URI carrying `bytes`, the download URL where no host serves them over HTTP. */
@@ -1052,4 +1344,16 @@ function normalizeExpires(expires: number | string | Date): number {
   // `NaN`, which is still embeddable in the URL; we don't enforce
   // strictness because the value only feeds the deterministic sandbox stub.
   return new Date(expires).getTime();
+}
+
+// ─── Deferred members ────────────────────────────────────────────────────
+//
+// The `Bucket` and `File` methods neither arm models fail with an error that
+// names the method instead of reading as `undefined`. See deferred-members.ts.
+
+for (const bucket of [SandboxBucket, RemoteBucket]) {
+  defineDeferredMembers(bucket.prototype, 'pyric-admin/storage', 'Bucket', BUCKET_DEFERRED_MEMBERS);
+}
+for (const file of [SandboxFile, RemoteFile]) {
+  defineDeferredMembers(file.prototype, 'pyric-admin/storage', 'File', FILE_DEFERRED_MEMBERS);
 }

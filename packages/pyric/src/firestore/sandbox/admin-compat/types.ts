@@ -21,7 +21,7 @@ import type {
   QueryOrderDirection,
   QueryWhereFilterOp,
 } from '../query-execution.js';
-import type { SnapshotFieldPath } from './field-path.js';
+import type { FieldPath, SnapshotFieldPath } from './field-path.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — what agent code calls.
@@ -88,7 +88,7 @@ export interface QuerySnapshot {
   readonly size: number;
   readonly empty: boolean;
   readonly docs: QueryDocumentSnapshot[];
-  forEach(callback: (snap: QueryDocumentSnapshot) => void): void;
+  forEach(callback: (snap: QueryDocumentSnapshot) => void, thisArg?: unknown): void;
 }
 
 export interface DocumentReference {
@@ -97,8 +97,11 @@ export interface DocumentReference {
   readonly parent: CollectionReference;
   collection(name: string): CollectionReference;
   get(opts?: OperationOptions): Promise<DocumentSnapshot>;
+  create(data: DocumentData, opts?: OperationOptions): Promise<void>;
   set(data: DocumentData, options?: SetOptions): Promise<void>;
   update(data: DocumentData, opts?: OperationOptions): Promise<void>;
+  update(field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Promise<void>;
+  update(dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): Promise<void>;
   delete(opts?: OperationOptions): Promise<void>;
 }
 
@@ -217,8 +220,11 @@ export interface CollectionReference extends Query {
 }
 
 export interface WriteBatch {
+  create(ref: DocumentReference, data: DocumentData): WriteBatch;
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch;
   update(ref: DocumentReference, data: DocumentData): WriteBatch;
+  update(ref: DocumentReference, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): WriteBatch;
+  update(ref: DocumentReference, dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): WriteBatch;
   delete(ref: DocumentReference): WriteBatch;
   commit(opts?: OperationOptions): Promise<void>;
 }
@@ -231,8 +237,11 @@ export interface Transaction {
   // lands.
   get(ref: DocumentReference): Promise<DocumentSnapshot>;
   get(query: Query): Promise<QuerySnapshot>;
+  create(ref: DocumentReference, data: DocumentData): Transaction;
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction;
   update(ref: DocumentReference, data: DocumentData): Transaction;
+  update(ref: DocumentReference, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Transaction;
+  update(ref: DocumentReference, dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): Transaction;
   delete(ref: DocumentReference): Transaction;
 }
 

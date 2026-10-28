@@ -1,0 +1,54 @@
+{
+  "name": "rules-storage-xref-root-literal-bucket",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#218"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"xref-root-literal-bucket\" (STORAGE-XREF-ROOT-LITERAL). A root match that names its bucket literally grants only that bucket; a request in another bucket matches no rule and denies.",
+  "observedAt": "2026-10-27T02:39:35.735Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "b5dd29c06321cc62eb298adc5be6cd965a0dbea3abc4f6352f2d8a4b05d291e8"
+  },
+  "behavior": {
+    "named bucket: get matches the literal root": "ALLOW",
+    "named bucket: create matches the literal root": "ALLOW",
+    "other bucket: get does not match the literal root": "DENY",
+    "other bucket: create does not match the literal root": "DENY",
+    "bucket name prefix: get in demo-pyric.appspot.com2 does not match": "DENY"
+  },
+  "diagnostics": {
+    "named bucket: get matches the literal root": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 43,
+              "currentOffset": 128,
+              "endOffset": 131
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "named bucket: create matches the literal root": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 43,
+              "currentOffset": 128,
+              "endOffset": 131
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

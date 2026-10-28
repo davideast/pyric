@@ -9,7 +9,7 @@
  *
  * Exits non-zero on the first failure. CI runs this as the standalone gate.
  */
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,35 @@ const lint = run(['rules', 'lint', '--service', 'firestore', '--rules', rulesSou
 check('rules lint --service firestore', lint.code === 0 && lint.out.includes('"metrics"'));
 const validate = run(['firestore', 'rules', 'validate', rulesPath]);
 check('firestore rules validate', validate.code === 0);
+
+const rtdbRulesPath = join(work, 'database.rules.ts');
+const rtdbOutPath = join(work, 'database.rules.json');
+mkdirSync(join(work, 'node_modules', 'pyric'), { recursive: true });
+symlinkSync(resolve(PKG_ROOT, '..', 'pyric', 'dist', 'rules'), join(work, 'node_modules', 'pyric', 'rules'), 'dir');
+writeFileSync(
+  rtdbRulesPath,
+  "import { allow, deny, defineRtdbRules } from 'pyric/rules';\n" +
+    "export default defineRtdbRules({ paths: { '/': { read: allow(), write: deny() } } });\n",
+);
+const rtdbGen1 = run(['database', 'rules', 'generate', '--config', rtdbRulesPath, '--out', rtdbOutPath]);
+const rtdbJson1 = existsSync(rtdbOutPath) ? readFileSync(rtdbOutPath, 'utf8') : '';
+check(
+  'database rules generate (v1)',
+  rtdbGen1.code === 0 && rtdbJson1.includes('".read": true') && rtdbJson1.includes('".write": false'),
+  rtdbGen1.err.trim(),
+);
+writeFileSync(
+  rtdbRulesPath,
+  "import { allow, deny, defineRtdbRules } from 'pyric/rules';\n" +
+    "export default defineRtdbRules({ paths: { '/': { read: deny(), write: allow() } } });\n",
+);
+const rtdbGen2 = run(['database', 'rules', 'generate', '--config', rtdbRulesPath, '--out', rtdbOutPath]);
+const rtdbJson2 = existsSync(rtdbOutPath) ? readFileSync(rtdbOutPath, 'utf8') : '';
+check(
+  'database rules generate (v2 after edit)',
+  rtdbGen2.code === 0 && rtdbJson2.includes('".read": false') && rtdbJson2.includes('".write": true'),
+  rtdbGen2.err.trim(),
+);
 
 // ── Embedded serve (the headline path) ────────────────────────────────
 writeFileSync(join(work, 'index.html'), '<!doctype html><html><body>smoke</body></html>');

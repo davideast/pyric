@@ -25,6 +25,8 @@ import { makeError } from 'pyric/sandbox/internal';
 import type { OperationResult } from 'pyric/sandbox/internal';
 import { lastSegment, parentCollectionPath } from './paths.js';
 import { makeDocSnapshot } from './snapshots.js';
+import { parseAdminUpdateArguments, type FieldPath } from './field-path.js';
+import { updateFieldsData, type UpdateField } from '../update-fields.js';
 import {
   boundedActivityIdentity,
   registerActivityValue,
@@ -106,6 +108,17 @@ export class DocumentRefImpl implements DocumentReference {
     return makeDocSnapshot(this, data);
   }
 
+  async create(data: DocumentData, opts?: OperationOptions): Promise<void> {
+    const result = this.env.execute({
+      method: 'create',
+      path: this.path,
+      data,
+      auth: opts?.auth !== undefined ? opts.auth : this.auth,
+      bypassRules: this.bypassRules,
+    });
+    if (!result.allowed) throwFromDenial(result, 'create denied');
+  }
+
   async set(data: DocumentData, options?: SetOptions): Promise<void> {
     // Three branches — each rides on the same execute() pipeline but
     // chooses a different combination of (rule clause, storage mode):
@@ -158,11 +171,17 @@ export class DocumentRefImpl implements DocumentReference {
     if (!result.allowed) throwFromDenial(result, 'set denied');
   }
 
-  async update(data: DocumentData, opts?: OperationOptions): Promise<void> {
+  /** Argument errors throw synchronously, as the Admin SDK's do; write results settle the promise. */
+  update(dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): Promise<void> {
+    const { fields, options } = parseAdminUpdateArguments<OperationOptions>(dataOrField, preconditionOrValues);
+    return this.commitUpdate(fields, options);
+  }
+
+  private async commitUpdate(fields: UpdateField[], opts: OperationOptions | undefined): Promise<void> {
     const result = this.env.execute({
       method: 'update',
       path: this.path,
-      data,
+      data: updateFieldsData(fields),
       auth: opts?.auth !== undefined ? opts.auth : this.auth,
       bypassRules: this.bypassRules,
     });

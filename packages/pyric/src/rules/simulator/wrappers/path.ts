@@ -80,7 +80,7 @@ export class Path extends RulesValue {
         continue;
       }
       const name = m[1];
-      if (name in bindings) {
+      if (Object.hasOwn(bindings, name)) {
         const v = bindings[name];
         if (v === null || v === undefined) {
           throw new TypeError(`Path.bind(): binding '${name}' must not be null`);
@@ -123,6 +123,11 @@ export class Path extends RulesValue {
   callMethod(method: string, args: unknown[]): unknown | NoOp {
     switch (method) {
       case 'bind': {
+        if (args.length !== 1) {
+          throw new TypeError(
+            `Incorrect number of arguments. Received: ${args.length}. Expected: path.bind(map).`,
+          );
+        }
         const m = args[0];
         if (m === null || m === undefined || typeof m !== 'object' || Array.isArray(m) || m instanceof RulesValue) {
           throw new TypeError(

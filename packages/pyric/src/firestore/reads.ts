@@ -34,6 +34,7 @@ import type {
   FirestoreDataConverter,
 } from './types.js';
 import { clientStateFor } from './client-state.js';
+import { forEachDocument } from './sandbox/for-each-document.js';
 import { beginFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
 
@@ -53,7 +54,7 @@ export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, 
   client.markStarted();
   try {
     const conv = converterOf(ref);
-    const snap = await chainDocFor(target, ref).get();
+    const snap = await withFirestoreFirebaseError(() => chainDocFor(target, ref).get());
     client.cachePath(ref.path);
     if (conv) {
       return finishSdkRead(activity, applyConverterToDocSnap(
@@ -103,6 +104,7 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
         size: wrappedDocs.length,
         empty: wrappedDocs.length === 0,
         docs: wrappedDocs,
+        forEach: forEachDocument(wrappedDocs),
         metadata: client.querySnapshotMetadata(),
       }, target);
       for (const document of wrappedDocs) client.cachePath(document.ref.path);

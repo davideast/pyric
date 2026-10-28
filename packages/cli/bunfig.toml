@@ -1,0 +1,3 @@
+[test]
+# Each run gets its own TMPDIR, removed after the last test file.
+preload = ["./test/tmpdir-per-run.ts"]

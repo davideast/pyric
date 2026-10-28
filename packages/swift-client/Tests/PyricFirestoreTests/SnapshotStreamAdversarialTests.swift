@@ -17,7 +17,9 @@ final class SnapshotStressHarness: WebSocketTransport, @unchecked Sendable {
         guard !isClosed else { throw PyricBridgeError.unavailable("Closed") }
         if let data = string.data(using: .utf8),
            let obj = try? JSONDecoder().decode(AnySendable.self, from: data),
-           let dict = obj.dictionaryValue {
+           let dict = obj.dictionaryValue,
+           dict["type"]?.stringValue != "ping" {
+            // Heartbeat pings are not frames these tests drive.
             sentMessages.append(dict)
         }
     }
@@ -582,7 +584,7 @@ struct SnapshotStreamAdversarialTests {
         #expect(snap1.metadata.isFromCache == false)
         #expect(snap1.metadata.hasPendingWrites == true)
 
-        // 2. QuerySnapshot hardcodes metadata to (hasPendingWrites: false, isFromCache: false)
+        // 2. QuerySnapshot reads the frame's hasPendingWrites; isFromCache stays false (the sandbox has no cache)
         let queryWire: [String: AnySendable] = [
             "docs": .array([.dictionary(wireWithCanonicalFromCache)]),
             "fromCache": .bool(true),
@@ -593,9 +595,9 @@ struct SnapshotStreamAdversarialTests {
             query: db.collection("col"),
             wire: .dictionary(queryWire)
         )
-        // QuerySnapshot.swift:94 unconditionally hardcodes false for both
         #expect(qSnap.metadata.isFromCache == false)
-        #expect(qSnap.metadata.hasPendingWrites == false)
+        #expect(qSnap.metadata.hasPendingWrites == true)
+        #expect(qSnap.documents.first?.metadata.hasPendingWrites == true)
     }
 
     // ─── 5. Dispatch Queue Routing & No Deadlocks ────────────────────────────

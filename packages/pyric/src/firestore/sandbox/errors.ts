@@ -23,7 +23,7 @@
  * `unauthenticated`) are reserved so adding their wiring later is a
  * pure callsite change, no error-set churn.
  */
-import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
+import type { QueryProofDiagnostic, QueryRepro } from '../../sandbox/types/query-proof.js';
 
 export const FIRESTORE_ERROR_CODES = [
   'permission-denied',
@@ -55,8 +55,10 @@ export interface FirestoreEvalRequest {
   method: 'get' | 'list' | 'create' | 'update' | 'delete';
   path: string;
   auth: { uid: string; token?: Record<string, unknown> } | null;
-  /** `request.resource.data` after sentinel resolution. Absent for reads. */
+  /** The proposed write payload; a non-merge update holds its decoded field tree. Absent for reads. */
   resourceData?: Record<string, unknown>;
+  /** A non-merge update's field paths as segment vectors. */
+  updateMask?: string[][];
 }
 
 /**
@@ -112,6 +114,11 @@ export interface FirestoreSimError {
     citation?: string;
     expression?: string;
   };
+  /**
+   * Ready-to-run repro (CLI command + fixture `TestCase`) for a rejected
+   * unprovable list query (#371).
+   */
+  repro?: QueryRepro;
 }
 
 /**
@@ -153,6 +160,7 @@ export function makeError(
       citation?: string;
       expression?: string;
     };
+    repro?: QueryRepro;
   },
 ): FirestoreSimError {
   const out: FirestoreSimError = { code, message };
@@ -178,6 +186,9 @@ export function makeError(
     const hasRule = extras!.rule !== undefined;
     if (hasRule) {
       out.rule = extras!.rule;
+    }
+    if (extras!.repro !== undefined) {
+      out.repro = extras!.repro;
     }
   }
   return out;

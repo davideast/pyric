@@ -6,10 +6,17 @@ export interface ViteNodeHost {
   close(): Promise<void>;
 }
 
-/** Run Vite on its supported Node host; the test runner only drives the wire. */
-export async function startViteNodeHost(root: string): Promise<ViteNodeHost> {
+/**
+ * Run Vite on its supported Node host; the test runner only drives the wire.
+ * `port` and `host` are Vite's requested `server.port` and `server.host`; the
+ * resolved `port` is the one Vite listened on.
+ */
+export async function startViteNodeHost(
+  root: string,
+  requested: { port?: number; host?: string } = {},
+): Promise<ViteNodeHost> {
   const script = fileURLToPath(new URL('./fixtures/vite-node-host.mjs', import.meta.url));
-  const child = fork(script, [root], {
+  const child = fork(script, [root, String(requested.port ?? 0), requested.host ?? 'localhost'], {
     execPath: process.env.PYRIC_TEST_NODE ?? 'node',
     execArgv: [],
     silent: true,

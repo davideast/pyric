@@ -10,6 +10,9 @@ import {
   type ConformanceGraph,
 } from '../../src/conformance-verdicts.ts';
 
+// Loading the whole conformance graph takes about 3 s on a CI runner and up to 7 s on a slow one.
+const FULL_GRAPH_TIMEOUT_MS = 20_000;
+
 function fakeGraph(overrides: Partial<ConformanceGraph> = {}): ConformanceGraph {
   return {
     snapshotStatus: new Map(), probeClass: new Map(), verifiedBy: new Map(), rows: new Map(),
@@ -33,7 +36,7 @@ describe('conformance verdict projection', () => {
     const verdicts = deriveAllNodeVerdicts(graph);
     expect(Object.keys(verdicts)).toHaveLength(graph.snapshotStatus.size + graph.rows.size);
     expect(Object.values(verdicts).every((value) => ['supported', 'qualified', 'unsupported'].includes(value))).toBe(true);
-  });
+  }, FULL_GRAPH_TIMEOUT_MS);
 
   it('is deterministic regardless of input record insertion order', () => {
     const left = renderConformanceVerdicts({ z: 'qualified', a: 'supported' });

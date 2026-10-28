@@ -18,9 +18,19 @@
  * `vectorConfig` field on each indexed field.
  */
 import type { Filter, QueryShape } from './types.js';
-import type { IndexesConfigEntry, IndexFieldOrder } from '../types.js';
+import type { IndexesConfigEntry, IndexField, IndexFieldOrder } from '../types.js';
 
+const EQ_OPS = new Set(['==', 'in']);
+const ARRAY_CONTAINS_OPS = new Set(['array-contains', 'array-contains-any']);
 const EQ_LIKE = new Set(['==', 'in', 'array-contains', 'array-contains-any']);
+
+function isEquality(f: Filter): boolean {
+  return EQ_OPS.has(f.op);
+}
+
+function isArrayContains(f: Filter): boolean {
+  return ARRAY_CONTAINS_OPS.has(f.op);
+}
 
 function isEqualityLike(f: Filter): boolean {
   return EQ_LIKE.has(f.op);
@@ -29,13 +39,14 @@ function isEqualityLike(f: Filter): boolean {
 export function needsCompositeIndex(s: QueryShape): boolean {
   const eq = s.filters.filter(isEqualityLike);
   const range = s.filters.filter(f => !isEqualityLike(f));
+  const filterFields = new Set(s.filters.map(f => f.field));
 
   // Trivially no composite — too few constraints.
-  if (s.filters.length === 0 && s.orders.length <= 1) return false;
-  if (s.filters.length === 1 && s.orders.length === 0) return false;
+  if (filterFields.size === 0 && s.orders.length <= 1) return false;
+  if (filterFields.size === 1 && s.orders.length === 0) return false;
 
-  // 2+ filters of any kind → composite.
-  if (s.filters.length >= 2) return true;
+  // 2+ distinct filter fields → composite.
+  if (filterFields.size >= 2) return true;
 
   // Equality + orderBy: composite iff orderBy is on a different field.
   if (eq.length >= 1 && s.orders.length >= 1) {
@@ -59,35 +70,49 @@ export function needsCompositeIndex(s: QueryShape): boolean {
  * directly into `firestore.indexes.json`'s `indexes[]`.
  *
  * Field ordering rule: equality filters first (Firestore's docs put them
- * before range/orderBy), then range filters, then orderBy fields. Within
- * each group we preserve source order so the agent can correlate the
- * extracted index with the source query.
+ * before range/orderBy), then array-contains filters (`arrayConfig: 'CONTAINS'`),
+ * then range filters, then orderBy fields. Within each group we preserve source
+ * order so the agent can correlate the extracted index with the source query.
  */
 export function shapeToIndexEntry(s: QueryShape): IndexesConfigEntry {
-  const fields: { fieldPath: string; order: IndexFieldOrder }[] = [];
+  const fields: IndexField[] = [];
+  const seen = new Set<string>();
 
   // Equality filters → ASCENDING.
   for (const f of s.filters) {
-    if (isEqualityLike(f)) {
+    if (isEquality(f) && !seen.has(f.field)) {
+      seen.add(f.field);
       fields.push({ fieldPath: f.field, order: 'ASCENDING' });
+    }
+  }
+  // Array membership filters → CONTAINS.
+  for (const f of s.filters) {
+    if (isArrayContains(f) && !seen.has(f.field)) {
+      seen.add(f.field);
+      fields.push({ fieldPath: f.field, arrayConfig: 'CONTAINS' });
     }
   }
   // Range filters → ASCENDING.
   for (const f of s.filters) {
-    if (!isEqualityLike(f)) {
+    if (!isEqualityLike(f) && !seen.has(f.field)) {
+      seen.add(f.field);
       fields.push({ fieldPath: f.field, order: 'ASCENDING' });
     }
   }
   // OrderBy fields — direction matters; only include fields not already in.
   for (const o of s.orders) {
+    const order: IndexFieldOrder = o.direction === 'desc' ? 'DESCENDING' : 'ASCENDING';
     const existing = fields.findIndex(x => x.fieldPath === o.field);
     if (existing >= 0) {
       // The orderBy direction wins over a default-ascending entry from
       // the filter loop — Firestore's index requires the orderBy
-      // direction to match.
-      fields[existing] = { fieldPath: o.field, order: o.direction === 'desc' ? 'DESCENDING' : 'ASCENDING' };
+      // direction to match (unless the field uses arrayConfig).
+      if (!fields[existing].arrayConfig) {
+        fields[existing] = { fieldPath: o.field, order };
+      }
     } else {
-      fields.push({ fieldPath: o.field, order: o.direction === 'desc' ? 'DESCENDING' : 'ASCENDING' });
+      seen.add(o.field);
+      fields.push({ fieldPath: o.field, order });
     }
   }
 
@@ -107,6 +132,6 @@ export function shapeToIndexEntry(s: QueryShape): IndexesConfigEntry {
  * dedupe across multiple shapes that map to the same index.
  */
 export function indexEntryKey(e: IndexesConfigEntry): string {
-  const fields = e.fields.map(f => `${f.fieldPath}:${f.order ?? 'ASCENDING'}`).join(',');
+  const fields = e.fields.map(f => `${f.fieldPath}:${f.arrayConfig ?? f.order ?? 'ASCENDING'}`).join(',');
   return `${e.queryScope}|${e.collectionGroup}|${fields}`;
 }

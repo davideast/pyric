@@ -155,7 +155,18 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
 
   // === Path literals ===
 
-  PathLiteral = "/" PathLitSegment ("/" PathLitSegment)*
+  PathLiteral = "/" PathLitContSegment* PathLitSegment
+
+  PathLitContSegment
+    = "$(" Expr closeParenSlash   -- interpolation
+    | "{" ident closeBraceSlash   -- captureRef
+    | parenLiteralSlash           -- parenLiteral
+    | pathIdentSlash              -- literal
+
+  closeParenSlash = ")" "/"
+  closeBraceSlash = "}" "/"
+  parenLiteralSlash = "(" pathIdent ")" "/"
+  pathIdentSlash = pathIdent "/"
 
   PathLitSegment
     = "$(" Expr ")"          -- interpolation

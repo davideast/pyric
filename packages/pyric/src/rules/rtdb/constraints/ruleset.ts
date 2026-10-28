@@ -1,6 +1,8 @@
 import { buildRuleExpression } from '../compiled-rules.js';
 import type { CompiledRtdbRules } from '../compiled-rules.js';
-import { schemaRules } from './schema.js';
+import { closestKey } from '../../closest-key.js';
+import { all, expr } from './compose.js';
+import { schemaRules, type SchemaFieldRule } from './schema.js';
 import type { Expr, PathDef, RulesetContext } from './types.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 
@@ -20,11 +22,12 @@ export function ruleset(
 
   // Flatten nested children into top-level path defs
   const flattened = flattenChildren(pathDefs);
+  assertUniquePaths(flattened);
 
   // Sort by depth (root first)
   flattened.sort((a, b) => {
-    const depthA = a[0] === '/' ? 0 : a[0].split('/').filter(Boolean).length;
-    const depthB = b[0] === '/' ? 0 : b[0].split('/').filter(Boolean).length;
+    const depthA = pathDepth(a[0]);
+    const depthB = pathDepth(b[0]);
     return depthA - depthB || a[0].localeCompare(b[0]);
   });
 
@@ -37,7 +40,7 @@ export function ruleset(
 
   // Pass 2: Apply rules, schemas, and indexOn to each node
   for (const [pathStr, def] of flattened) {
-    const node = pathStr === '/' ? root : findNode(root, pathStr);
+    const node = findNode(root, pathStr);
     if (!node) continue;
     applyRules(root, node, def, pathStr);
   }
@@ -66,70 +69,155 @@ function ensurePath(root: RtdbNode, pathStr: string): void {
 
 // ---- Pass 2: Rule application ----
 
+function mergeValidate(node: RtdbNode, nextExpr: Expr, pathVars: string[]): void {
+  const combined = node.validate ? all(expr(node.validate.raw), nextExpr) : nextExpr;
+  node.validate = buildExpr(combined, 'validate', pathVars);
+}
+
+function applySchemaChildren(
+  parentNode: RtdbNode,
+  children: Record<string, SchemaFieldRule>,
+  basePathVars: string[],
+): void {
+  for (const [fieldName, fieldDef] of Object.entries(children)) {
+    const fieldPath = normalizeRulePath(`${parentNode.path}/${fieldName}`);
+    const childVars = fieldName.startsWith('$') ? [...basePathVars, fieldName] : basePathVars;
+    let fieldNode = parentNode.children.find(c => c.path === fieldPath);
+    if (!fieldNode) {
+      fieldNode = { path: fieldPath, pathVariables: childVars, children: [] };
+      parentNode.children.push(fieldNode);
+    }
+    mergeValidate(fieldNode, fieldDef.validate, childVars);
+    if (fieldDef.children) {
+      applySchemaChildren(fieldNode, fieldDef.children, childVars);
+    }
+  }
+}
+
+/** Every key of {@link PathDef}; the `satisfies` makes the compiler fail when the interface gains one this list lacks. */
+const PATH_DEF_KEY_SET = { read: 0, write: 0, validate: 0, schema: 0, fieldConstraints: 0, indexOn: 0, children: 0 } satisfies Record<keyof PathDef, 0>;
+const PATH_DEF_KEYS: readonly string[] = Object.keys(PATH_DEF_KEY_SET);
+
+/** Refuse a key a path definition does not have, naming the nearest key that it does. */
+function assertKnownKeys(pathStr: string, def: PathDef): void {
+  if (typeof def !== 'object' || def === null || Array.isArray(def)) {
+    throw new Error(`The rules for "${pathStr}" must be a path definition object, got ${JSON.stringify(def)}.`);
+  }
+  for (const key of Object.keys(def)) {
+    if (PATH_DEF_KEYS.includes(key)) continue;
+    const nearest = closestKey(key, PATH_DEF_KEYS);
+    const hint = nearest === null
+      ? `; the keys are ${PATH_DEF_KEYS.map((k) => `'${k}'`).join(', ')}.`
+      : `; did you mean '${nearest}'?`;
+    throw new Error(`Unknown key '${key}' in the rules for "${pathStr}"${hint}`);
+  }
+}
+
+/**
+ * Refuse unknown keys in an object-form definition, nested children included.
+ * `defineRtdbRules` calls it so the error is thrown where the definition is
+ * written. The callback form is checked when the ruleset compiles, because its
+ * paths exist only once the callback has run.
+ */
+export function assertKnownPathKeys(paths: Record<string, PathDef>): void {
+  flattenChildren(Object.entries(paths));
+}
+
+/** A rule's expression: text, or a boolean as database.rules.json spells it. Anything else, including an empty string, is refused rather than dropped. */
+function ruleText(pathStr: string, key: 'read' | 'write' | 'validate', value: unknown): Expr | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'boolean') return expr(String(value));
+  if (typeof value === 'string' && value.trim().length > 0) return value;
+  throw new Error(`The ${key} rule for "${pathStr}" must be a non-empty expression or a boolean, got ${JSON.stringify(value)}.`);
+}
+
 function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: string): void {
-  const pathVars = pathStr.split('/').filter(s => s.startsWith('$'));
+  const segments = pathStr.split('/').filter(Boolean);
+  const pathVars = segments.filter(s => s.startsWith('$'));
+
+  if (def.fieldConstraints && !def.schema) {
+    throw new Error(`fieldConstraints on "${pathStr}" requires a schema.`);
+  }
 
   // Read/write/validate expressions
-  if (def.read) node.read = buildExpr(def.read, 'read', pathVars);
-  if (def.write) node.write = buildExpr(def.write, 'write', pathVars);
-  if (def.validate) node.validate = buildExpr(def.validate, 'validate', pathVars);
+  const read = ruleText(pathStr, 'read', def.read);
+  const write = ruleText(pathStr, 'write', def.write);
+  const validate = ruleText(pathStr, 'validate', def.validate);
+  if (read !== undefined) node.read = buildExpr(read, 'read', pathVars);
+  if (write !== undefined) node.write = buildExpr(write, 'write', pathVars);
+  if (validate !== undefined) mergeValidate(node, validate, pathVars);
 
   // Schema generates parent validate + child validate rules
   if (def.schema) {
     const sr = schemaRules(def.schema, def.fieldConstraints);
-    if (!node.validate) {
-      node.validate = buildExpr(sr.validate, 'validate', pathVars);
-    }
-    for (const [fieldName, fieldDef] of Object.entries(sr.children)) {
-      const fieldPath = `${pathStr}/${fieldName}`;
-      let fieldNode = node.children.find(c => c.path === fieldPath);
-      if (!fieldNode) {
-        fieldNode = { path: fieldPath, pathVariables: pathVars, children: [] };
-        node.children.push(fieldNode);
-      }
-      fieldNode.validate = buildExpr(fieldDef.validate, 'validate', pathVars);
-
-      // Nested object schema children
-      if ('children' in fieldDef && fieldDef.children) {
-        for (const [nestedName, nestedDef] of Object.entries(fieldDef.children as Record<string, { validate: Expr }>)) {
-          const nestedPath = `${fieldPath}/${nestedName}`;
-          let nestedNode = fieldNode.children.find(c => c.path === nestedPath);
-          if (!nestedNode) {
-            nestedNode = { path: nestedPath, pathVariables: pathVars, children: [] };
-            fieldNode.children.push(nestedNode);
-          }
-          nestedNode.validate = buildExpr(nestedDef.validate, 'validate', pathVars);
-        }
-      }
-    }
+    mergeValidate(node, sr.validate, pathVars);
+    applySchemaChildren(node, sr.children, pathVars);
   }
 
-  // indexOn goes on the container (parent of wildcard), not the wildcard itself
+  // indexOn goes on the container node directly, or lifts to the parent of a $wildcard path
   if (def.indexOn) {
-    const segments = pathStr.split('/').filter(Boolean);
-    const lastSegment = segments[segments.length - 1];
-    if (lastSegment?.startsWith('$')) {
-      const parentPath = '/' + segments.slice(0, -1).join('/');
-      const parent = findNode(root, parentPath);
-      if (parent) parent.indexOn = def.indexOn;
+    const target = resolveIndexOnTarget(root, node, segments);
+    if (target) {
+      if (!target.indexOn) {
+        target.indexOn = [...def.indexOn];
+      } else if (!hasSameIndexOnFields(target.indexOn, def.indexOn)) {
+        throw new Error(
+          `Conflicting indexOn declarations for "${target.path}": ${JSON.stringify(target.indexOn)} vs ${JSON.stringify(def.indexOn)}`,
+        );
+      }
     }
   }
 }
 
 // ---- Helpers ----
 
+function resolveIndexOnTarget(root: RtdbNode, node: RtdbNode, segments: string[]): RtdbNode | null {
+  const lastSegment = segments[segments.length - 1];
+  if (lastSegment?.startsWith('$')) {
+    const parentPath = '/' + segments.slice(0, -1).join('/');
+    return findNode(root, parentPath);
+  }
+  return node;
+}
+
+function hasSameIndexOnFields(existing: string[], declared: string[]): boolean {
+  return existing.length === declared.length && existing.every((field, i) => field === declared[i]);
+}
+
+function normalizeRulePath(pathStr: string): string {
+  return '/' + pathStr.split('/').filter(Boolean).join('/');
+}
+
+function pathDepth(pathStr: string): number {
+  return pathStr.split('/').filter(Boolean).length;
+}
+
+function assertUniquePaths(defs: Array<[string, PathDef]>): void {
+  const seen = new Set<string>();
+  for (const [normalizedPath] of defs) {
+    if (seen.has(normalizedPath)) {
+      throw new Error(`Duplicate ruleset path declaration for "${normalizedPath}"`);
+    }
+    seen.add(normalizedPath);
+  }
+}
+
 /** Flatten nested children into absolute path entries. */
 function flattenChildren(defs: Array<[string, PathDef]>): Array<[string, PathDef]> {
   const result: Array<[string, PathDef]> = [];
-  for (const [pathStr, def] of defs) {
+  for (const [pathStr, rawDef] of defs) {
+    const normalizedPath = normalizeRulePath(pathStr);
+    // A boolean is a bare rule, as a field in validation.shape may carry: it is that field's .validate.
+    const def: PathDef = typeof rawDef === 'boolean' ? { validate: expr(String(rawDef)) } : rawDef;
     // Add this path without the children property
+    assertKnownKeys(normalizedPath, def);
     const { children, ...rest } = def;
-    result.push([pathStr, rest as PathDef]);
+    result.push([normalizedPath, rest as PathDef]);
 
     // Recursively flatten children
     if (children) {
       const childEntries = Object.entries(children).map(
-        ([childPath, childDef]) => [pathStr + childPath, childDef] as [string, PathDef],
+        ([childPath, childDef]) => [`${normalizedPath}/${childPath}`, childDef] as [string, PathDef],
       );
       result.push(...flattenChildren(childEntries));
     }

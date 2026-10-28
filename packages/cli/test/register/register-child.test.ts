@@ -15,6 +15,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { blackholedPort } from '../blackholed-port.js';
+import { closedPort } from '../closed-port.js';
 
 const toolsRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(toolsRoot, '../..');
@@ -162,6 +164,26 @@ console.log('ESM_OK');
 `,
   );
 
+  // Stale-url fixture: the factory takes the PYRIC_SANDBOX url as a setting
+  // that may be stale. Nothing answers there and this project runs no host,
+  // so the first connect names the url as stale.
+  writeFileSync(
+    join(fixtureDir, 'stale.mjs'),
+    `import assert from 'node:assert';
+const factory = globalThis[Symbol.for('pyric.remote.sandboxFactory')];
+const url = process.env.PYRIC_SANDBOX.slice('remote:'.length);
+const handle = factory({ url });
+await assert.rejects(handle.ready, (error) => {
+  assert.strictEqual(error.code, 'not-found');
+  assert.ok(error.message.includes('PYRIC_SANDBOX=remote:' + url + ' is stale'), error.message);
+  assert.ok(error.message.includes('Set PYRIC_SANDBOX=remote'), error.message);
+  return true;
+});
+handle.close();
+console.log('STALE_OK');
+`,
+  );
+
   // CJS fixture: require() interception (sync hooks + the ESM-only exports
   // fallback → require(esm)).
   writeFileSync(
@@ -174,7 +196,9 @@ assert.strictEqual(typeof globalThis[Symbol.for('pyric.remote.sandboxFactory')],
 const clientApp = require('firebase/app').initializeApp({ projectId: 'cjs-demo' });
 assert.strictEqual(clientApp.name, '[DEFAULT]');
 assert.strictEqual(clientApp.options.projectId, 'cjs-demo');
-assert.strictEqual(typeof require('firebase/firestore').getFirestore(clientApp), 'object');
+// Under a remote activation firebase/firestore is the Node host client (#1082):
+// its handle is the hosted client's, and making it opens no connection.
+assert.strictEqual(require('firebase/firestore').getFirestore(clientApp).__kind, 'client-db');
 console.log('CJS_OK');
 `,
   );
@@ -237,11 +261,19 @@ const clientApp = clientAppModule.initializeApp(
   { apiKey: 'ignored', projectId: 'register-inertness' },
   'register-inertness',
 );
-const clientDb = firestoreModule.getFirestore(clientApp);
+// Under a remote activation firebase/firestore is the Node host client
+// (#1082), whose handle is the hosted client's; otherwise the pyric mirror's
+// handle carries its target symbol, and the real SDK's carries neither.
+function isFirestoreRewritten() {
+  const db = firestoreModule.getFirestore(clientApp);
+  const isNodeHostClient = db.__kind === 'client-db';
+  if (isNodeHostClient) return true;
+  return Object.getOwnPropertySymbols(db)
+    .some((symbol) => symbol.description === 'pyric/firestore/target');
+}
 console.log(JSON.stringify({
   rewritten: app.ADMIN_APP_TARGET === Symbol.for('pyric.admin.app.target'),
-  firestoreRewritten: Object.getOwnPropertySymbols(clientDb)
-    .some((symbol) => symbol.description === 'pyric/firestore/target'),
+  firestoreRewritten: isFirestoreRewritten(),
   factory: typeof factory,
 }));
 `;
@@ -281,6 +313,37 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.status).toBe(0);
   });
 
+  it('reports a stale PYRIC_SANDBOX url when nothing answers and the project runs no host', async () => {
+    const port = await closedPort();
+    const res = runNode('stale.mjs', { PYRIC_SANDBOX: `remote:http://127.0.0.1:${port}` });
+    expect(res.stdout).toContain('STALE_OK');
+    expect(res.status).toBe(0);
+  });
+
+  it('exits promptly when the project pointer names a port whose connect never completes', async () => {
+    // #1162: the discovery probe of the pointer's port must close its socket
+    // at the deadline, or the pending connect holds the child open about 10 s.
+    const hole = await blackholedPort();
+    const projectDir = join(fixtureDir, 'blackholed-project');
+    try {
+      mkdirSync(join(projectDir, '.pyric'), { recursive: true });
+      writeFileSync(
+        join(projectDir, '.pyric', 'serve.json'),
+        JSON.stringify({ port: hole.port, url: `http://localhost:${hole.port}`, instanceId: 'blackholed-host' }),
+      );
+      const stalePort = await closedPort();
+      const started = performance.now();
+      const res = runNode('../stale.mjs', { PYRIC_SANDBOX: `remote:http://127.0.0.1:${stalePort}` }, projectDir);
+      const exitMs = performance.now() - started;
+      expect(res.stdout).toContain('STALE_OK');
+      expect(res.status).toBe(0);
+      expect(exitMs).toBeLessThan(5_000);
+    } finally {
+      hole.close();
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('initializes unchanged client Firebase service imports through the sandbox app adapter', () => {
     const res = runNode('client.mjs', { PYRIC_SANDBOX: 'local' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
@@ -298,7 +361,7 @@ describe('@pyric/cli/register (child process)', () => {
   it.skipIf(!hasRegisterHooks)('rewrites CJS require() via the sync hooks', () => {
     const res = runNode('main.cjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
-    expect(res.stdout).toContain('CJS_OK');
+    expect(res.stdout, res.stderr).toContain('CJS_OK');
     expect(res.status).toBe(0);
   });
 
@@ -318,7 +381,7 @@ describe('@pyric/cli/register (child process)', () => {
 
   it('is inert without PYRIC_SANDBOX — real firebase-admin, no factory, no log', () => {
     const res = runNode('probe.mjs', {}, inactiveFixtureDir);
-    expect(res.status).toBe(0);
+    expect(res.status, res.stderr).toBe(0);
     expect(JSON.parse(res.stdout)).toEqual({
       rewritten: false,
       firestoreRewritten: false,
@@ -466,14 +529,117 @@ describe('@pyric/cli/register beacon (child process)', () => {
     }
   }, 30_000);
 
-  it('survives a bridge that refuses the beacon, and the child still runs', () => {
-    // Port 1 is reliably not listening; the POST must fail silently.
+  it('survives a bridge that refuses the beacon, and the child still runs', async () => {
+    // Nothing listens on a freed port; the POST must fail silently.
+    const port = await closedPort();
     const res = runNode('beacon.mjs', {
-      PYRIC_SANDBOX: 'remote:http://127.0.0.1:1',
+      PYRIC_SANDBOX: `remote:http://127.0.0.1:${port}`,
       PYRIC_DEBUG: '1',
     });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('BEACON_FIXTURE_OK');
     expect(res.stderr).toContain('@pyric/cli/register: beacon ACTIVE');
   }, 30_000);
+});
+
+/**
+ * #1120: `PYRIC_SANDBOX=local` runs the client SDKs in process. The project's
+ * `firebase.json` rules govern them as they govern the dev server: Firestore,
+ * each Realtime Database instance (named and deploy-target entries), and
+ * Storage. Before the fix only `firestore.rules` loaded, so every RTDB and
+ * Storage call was denied by the default policy.
+ */
+describe('@pyric/cli/register local rules (child process)', () => {
+  let rulesFixtureDir: string;
+
+  beforeAll(() => {
+    rulesFixtureDir = mkdtempSync(join(tmpdir(), 'pyric-register-rules-'));
+    const nm = join(rulesFixtureDir, 'node_modules');
+    mkdirSync(nm);
+    symlinkSync(join(repoRoot, 'packages/pyric-admin'), join(nm, 'pyric-admin'));
+    symlinkSync(join(repoRoot, 'packages/pyric'), join(nm, 'pyric'));
+    const files: Record<string, string> = {
+      'package.json': JSON.stringify({ name: 'register-rules-fixture', type: 'module' }),
+      'firebase.json': JSON.stringify({
+        firestore: { rules: 'firestore.rules' },
+        database: [
+          { instance: 'rules-demo-default-rtdb', rules: 'database.rules.json' },
+          { target: 'chat', rules: 'chat.rules.json' },
+        ],
+        storage: { rules: 'storage.rules' },
+      }),
+      '.firebaserc': JSON.stringify({
+        projects: { default: 'rules-demo' },
+        targets: { 'rules-demo': { database: { chat: ['rules-demo-chat'] } } },
+      }),
+      'firestore.rules': `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /open/{doc} { allow read, write: if true; }
+  }
+}`,
+      'database.rules.json': JSON.stringify({ rules: { open: { '.read': true, '.write': true } } }),
+      'chat.rules.json': JSON.stringify({ rules: { rooms: { '.read': true, '.write': true } } }),
+      'storage.rules': `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /public/{file} { allow read, write: if true; }
+  }
+}`,
+      'rules.mjs': `import assert from 'node:assert';
+import { initializeApp } from 'firebase/app';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+import { getDatabase, ref, set } from 'firebase/database';
+import { getStorage, ref as storageRef, uploadString } from 'firebase/storage';
+const app = initializeApp({ apiKey: 'ignored', projectId: 'rules-demo', storageBucket: 'rules-demo.appspot.com' });
+const denied = (code) => (error) => error?.code === code;
+const failures = [];
+async function check(service, run) {
+  try {
+    await run();
+  } catch (error) {
+    failures.push(service + ': ' + (error?.message ?? String(error)));
+  }
+}
+
+const db = getFirestore(app);
+await check('firestore', async () => {
+  await setDoc(doc(db, 'open/a'), { ok: true });
+  await assert.rejects(setDoc(doc(db, 'closed/a'), { ok: false }), denied('permission-denied'));
+});
+
+const rtdb = getDatabase(app);
+await check('rtdb default instance', async () => {
+  await set(ref(rtdb, 'open/a'), 'default instance allows open/');
+  await assert.rejects(set(ref(rtdb, 'rooms/a'), 'no rule'), denied('PERMISSION_DENIED'));
+});
+
+const chat = getDatabase(app, 'https://rules-demo-chat.firebaseio.com');
+await check('rtdb chat target', async () => {
+  await set(ref(chat, 'rooms/a'), 'chat target allows rooms/');
+  await assert.rejects(set(ref(chat, 'open/a'), 'no rule'), denied('PERMISSION_DENIED'));
+});
+
+const storage = getStorage(app);
+await check('storage', async () => {
+  await uploadString(storageRef(storage, 'public/a.txt'), 'hello');
+  await assert.rejects(uploadString(storageRef(storage, 'private/a.txt'), 'no rule'), denied('storage/unauthorized'));
+});
+
+console.log(failures.length === 0 ? 'LOCAL_RULES_OK' : 'LOCAL_RULES_FAILED\\n' + failures.join('\\n'));
+process.exit(0);
+`,
+    };
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(rulesFixtureDir, name), content);
+  });
+
+  afterAll(() => {
+    if (rulesFixtureDir) rmSync(rulesFixtureDir, { recursive: true, force: true });
+  });
+
+  it('applies every rules file firebase.json declares to the in-process client SDKs', () => {
+    const res = runNode('rules.mjs', { PYRIC_SANDBOX: 'local' }, rulesFixtureDir);
+    expect(res.stderr).not.toContain('could not load');
+    expect(res).toMatchObject({ status: 0, stdout: expect.stringContaining('LOCAL_RULES_OK') });
+  });
 });

@@ -22,7 +22,7 @@ import * as wcRaw from '../worker/client.js';
 import { acceptProviderCredential, restorePortSession } from '../worker/client.js';
 import { useWorker } from './worker-runtime.js';
 import { sessionStoreForApp } from './app-session-store.js';
-import { customClaimsFromTokenClaims } from './auth-helper-core.js';
+import { helperCustomClaims } from './auth-helper-core.js';
 import { resolveServeAuthFlow } from './auth-helper-runtime.js';
 import type { SessionMode } from './session-store.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
@@ -173,10 +173,8 @@ export const setPersistence = (
 
 /**
  * Resolve a provider identity through the backend-free ServeAuthHelper, then
- * hand it to the worker. The helper seeds `{ sub, ...claims, firebase }` into
- * the resolved credential's token, so we strip the synthesized `sub` and
- * `firebase` entries to recover the original custom claims for the worker
- * seed (see `customClaimsFromTokenClaims`).
+ * hand it to the worker with the custom claims of the identity the helper
+ * resolved (see `helperCustomClaims`).
  *
  * Enforcement lives at the hand-off: `auth.acceptIdentity` gates against the
  * WORKER's provider config and rejects `auth/operation-not-allowed` for a
@@ -193,10 +191,7 @@ async function bridgeProviderSignIn(
     { providerId, authType: 'signIn' },
     kind,
   );
-  const tokenResult = await cred.user.getIdTokenResult();
-  const customClaims = customClaimsFromTokenClaims(
-    (tokenResult.claims ?? {}) as Record<string, unknown>,
-  );
+  const customClaims = helperCustomClaims(cred);
   return acceptProviderCredential(auth as never, {
     uid: cred.user.uid,
     email: cred.user.email,

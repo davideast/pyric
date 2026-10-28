@@ -8,6 +8,10 @@
   "observedAt": "2026-09-27T20:55:12.355Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "e669fd5fcb839bd6f872d51764d16700ee63587532d6c26f0eb390a7216be3f3"
+  },
   "behavior": {
     "int('12') == 12 && int('12') is int → ALLOW": "ALLOW",
     "int(request.resource.metadata.moves) == 12 → ALLOW": "ALLOW",

@@ -6,23 +6,32 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
   Expr = Ternary
 
   Ternary
-    = Logical "?" Ternary ":" Ternary  -- ternary
-    | Logical
+    = LogicalOr "?" Ternary ":" Ternary  -- ternary
+    | LogicalOr
 
-  Logical
-    = Logical "&&" Comparison  -- and
-    | Logical "||" Comparison  -- or
+  // \`||\` and \`&&\` match as flat chains, not left recursion, so a semantics
+  // folds a chain of any length in a loop instead of descending once per
+  // term. Production deploys a 2,000-term \`||\` chain (r51).
+  LogicalOr
+    = LogicalAnd ("||" LogicalAnd)+  -- or
+    | LogicalAnd
+
+  LogicalAnd
+    = Equality ("&&" Equality)+  -- and
+    | Equality
+
+  Equality
+    = Equality "===" Comparison  -- strictEq
+    | Equality "!==" Comparison  -- strictNeq
+    | Equality "==" Comparison   -- looseEq
+    | Equality "!=" Comparison   -- looseNeq
     | Comparison
 
   Comparison
-    = Comparison "===" Additive  -- strictEq
-    | Comparison "!==" Additive  -- strictNeq
-    | Comparison ">=" Additive   -- gte
+    = Comparison ">=" Additive   -- gte
     | Comparison "<=" Additive   -- lte
     | Comparison ">" Additive    -- gt
     | Comparison "<" Additive    -- lt
-    | Comparison "==" Additive   -- looseEq
-    | Comparison "!=" Additive   -- looseNeq
     | Additive
 
   Additive
@@ -87,7 +96,14 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
 
   regexChar
     = "\\\\" any     -- escape
-    | ~("/" | "\\n") any  -- char
+    | regexClass   -- class
+    | ~("/" | "\\n" | "[") any  -- char
+
+  regexClass = "[" regexClassChar* "]"
+
+  regexClassChar
+    = "\\\\" any     -- escape
+    | ~("]" | "\\n") any  -- char
 
   regexFlags = alnum*
 

@@ -1,33 +1,45 @@
-import type { AuthState } from 'pyric/sandbox';
+import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
-import { cloneJson, pathSegments, type JsonValue } from './data-tree.js';
-import { coerceArrays, normalizeWrite } from './normalize.js';
-import { canonicalPath, denyResultFor } from './operation-events.js';
+import { cloneJson, joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { coerceArrays, normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
+import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
+import { validatePriority } from './priority-state.js';
+import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
+import { captureRewindDetail, WritePlane } from './write-plane.js';
 
-function transactionPermissionDenied(): Error {
-  return new Error('permission_denied');
+/** Production rejects a denied transaction with a codeless plain `Error`
+ *  whose message is `permission_denied`. */
+function transactionPermissionDenied(context: RtdbDenialContext): Error {
+  return withDenialContext(new Error('permission_denied'), context);
 }
 
 export class Transactions {
+  /**
+   * `writes` publishes a commit as every other data write is published; the
+   * backend passes its own so the two cannot drift.
+   */
   constructor(
     private readonly state: BackendState,
-    private readonly values: ValueListeners,
+    values: ValueListeners,
     private readonly children: ChildListeners,
+    private readonly writes: WritePlane = new WritePlane(state, values, children),
   ) {}
 
   run(
     auth: AuthState,
     path: string,
     updateFn: (current: JsonValue) => JsonValue | undefined,
-    options?: { applyLocally?: boolean },
+    options?: { applyLocally?: boolean; admin?: boolean },
   ): { committed: boolean; val: JsonValue; key: string | null } {
     const applyLocally = options?.applyLocally !== false;
+    const isAdmin = options?.admin === true;
     const segments = pathSegments(path);
     const key = segments.length === 0 ? null : segments[segments.length - 1]!;
     let current: JsonValue = null;
+    let visible: JsonValue = null;
     let proposed: JsonValue | undefined;
     let attempts = 0;
     let settled = false;
@@ -35,7 +47,8 @@ export class Transactions {
       attempts += 1;
       const version = this.state.mutations.begin();
       current = this.state.tree.read(path);
-      const input = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
+      visible = isAdmin || this.canRead(auth, path) ? current : null;
+      const input = visible === null ? null : coerceArrays(cloneJson(visible)) as JsonValue;
       let conflicted = false;
       try {
         proposed = updateFn(input);
@@ -53,11 +66,11 @@ export class Transactions {
     const groupId = this.state.events.nextGroupId('transaction');
     if (proposed === undefined) {
       this.state.events.operation(auth, 'transaction', path, 'not-applicable', undefined, {
-        origin: 'transaction', groupId, groupKind: 'transaction',
-        resourceBefore: { data: current, exists: current !== null },
+        origin: isAdmin ? 'admin' : 'transaction', groupId, groupKind: 'transaction',
+        resourceBefore: { data: visible, exists: visible !== null },
         detail: { committed: false, aborted: true },
       });
-      return { committed: false, val: current, key };
+      return { committed: false, val: visible, key };
     }
 
     const now = this.state.clock.now();
@@ -65,74 +78,89 @@ export class Transactions {
       resolveSentinels(proposed, now, current) as JsonValue,
       path === '/' ? '' : path,
     );
+    const currentPriority = this.state.priorities.get(path);
+    const written = writePriority(proposed, currentPriority);
+    validatePriority(written.priority);
+    const effectivePriority = resolved === null ? null : written.priority;
     const at = this.state.clock.now();
-    const evaluation = this.state.rules.evaluate('write', path, {
-      auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData: resolved,
-    });
-    if (evaluation.check !== 'allow') {
-      this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: this.state.clock.now() - at, origin: 'transaction',
-        request: { data: proposed, resourceData: proposed },
-        resourceBefore: { data: current, exists: current !== null },
-        resourceAfter: { data: resolved, exists: resolved !== null },
-        groupId, groupKind: 'transaction',
+    let evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined;
+    if (!isAdmin) {
+      const newData = withPriorities(resolved, [
+        { segments: [], priority: effectivePriority },
+        ...written.nested,
+      ]);
+      evaluation = this.state.rules.evaluate('write', path, {
+        auth, mockData: this.state.rulesSnapshot(), newData, now,
       });
-      throw transactionPermissionDenied();
+      if (evaluation.check !== 'allow') {
+        this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
+          at, durationMs: this.state.clock.now() - at, origin: 'transaction',
+          request: { data: proposed, resourceData: proposed },
+          resourceBefore: { data: current, exists: current !== null },
+          resourceAfter: { data: resolved, exists: resolved !== null },
+          groupId, groupKind: 'transaction',
+          detail: effectivePriority !== null ? { priority: effectivePriority } : undefined,
+        });
+        throw transactionPermissionDenied(rtdbDenialContext(evaluation, auth, 'transaction', path, { data: proposed }));
+      }
     }
-    if (applyLocally) {
-      const currentPriority = this.state.priorities.get(path);
-      const childPriors = this.children.snapshotParents();
-      this.state.tree.write(path, resolved);
-      this.state.priorities.replace(path, resolved === null ? null : currentPriority);
-      this.values.fanOut([path]);
-      this.children.fanOut(childPriors);
-      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation);
-      return { committed: true, val: resolved, key };
-    }
-    this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
-      at, durationMs: this.state.clock.now() - at, origin: 'transaction',
+    const hasNode = (p: string): boolean => this.state.tree.read(p) !== null;
+    const rewindDetail = captureRewindDetail(this.state, path, current, currentPriority, true);
+    // A commit is recorded as a set is: its operation, then the revocations
+    // and deliveries it causes, then the commit itself.
+    const opResult = isAdmin ? 'not-applicable' : 'allow';
+    const opOrigin = isAdmin ? 'admin' : 'transaction';
+    this.state.events.operation(auth, 'transaction', path, opResult, evaluation, {
+      at, durationMs: this.state.clock.now() - at, origin: opOrigin,
       request: { data: proposed, resourceData: proposed },
       resourceBefore: { data: current, exists: current !== null },
       resourceAfter: { data: resolved, exists: resolved !== null },
       groupId, groupKind: 'transaction',
     });
-    const priority = this.state.priorities.get(path);
     const childPriors = this.children.snapshotParents();
     this.state.tree.write(path, resolved);
-    this.state.priorities.replace(path, resolved === null ? null : priority);
-    this.state.mutations.mark(path);
-    this.values.fanOut([path]);
-    this.children.fanOut(childPriors);
-    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false);
+    this.state.priorities.replace(path, effectivePriority, hasNode);
+    this.storeNestedPriorities(segments, written.nested, hasNode);
+    this.writes.changed([path], childPriors);
+    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, applyLocally, isAdmin, rewindDetail);
     this.state.notifyWrite();
     return { committed: true, val: resolved, key };
   }
 
-  private recordCommit(
-    auth: AuthState, path: string, proposed: JsonValue, current: JsonValue,
-    resolved: JsonValue, groupId: string, now: number, at: number, applyLocally: boolean,
-    evaluation: ReturnType<BackendState['rules']['evaluate']>,
+  private storeNestedPriorities(
+    baseSegments: string[],
+    nested: readonly InlinePriority[],
+    hasNode: (path: string) => boolean,
   ): void {
-    this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
-      at, durationMs: this.state.clock.now() - at, origin: 'transaction',
-      request: { data: proposed, resourceData: proposed },
-      resourceBefore: { data: current, exists: current !== null },
-      resourceAfter: { data: resolved, exists: resolved !== null },
-      groupId, groupKind: 'transaction',
+    for (const { segments, priority } of nested) {
+      const target = joinPath([...baseSegments, ...segments]);
+      this.state.priorities.set(target, hasNode(target) ? priority : null);
+    }
+  }
+
+  private canRead(auth: AuthState, path: string): boolean {
+    const evaluation = this.state.rules.evaluate('read', path, {
+      auth,
+      mockData: this.state.rulesSnapshot(),
+      now: this.state.clock.now(),
     });
-    this.finishEvents(auth, path, proposed, current, resolved, groupId, now, applyLocally);
-    this.state.mutations.mark(path);
-    this.state.notifyWrite();
+    return evaluation.check === 'allow';
   }
 
   private finishEvents(
     auth: AuthState, path: string, proposed: JsonValue, current: JsonValue,
     resolved: JsonValue, groupId: string, now: number, applyLocally: boolean,
+    isAdmin: boolean, rewindDetail: Record<string, unknown>,
   ): void {
     this.state.events.commit(auth, 'transaction', path, {
       data: proposed, priorState: current, nextState: resolved,
       groupId, groupKind: 'transaction', replay: { requestTime: now },
-      detail: { committed: true, applyLocally },
+      detail: {
+        ...(isAdmin ? { admin: true } : {}),
+        committed: true,
+        applyLocally,
+        ...rewindDetail,
+      },
     });
     this.state.events.mutation(auth, 'transaction', canonicalPath(path), {
       before: current, after: resolved, detail: { committed: true },

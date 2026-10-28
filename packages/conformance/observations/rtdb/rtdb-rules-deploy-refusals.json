@@ -1,0 +1,266 @@
+{
+  "name": "rtdb-rules-deploy-refusals",
+  "matrixRow": "rtdb#89",
+  "rowIds": [
+    "rtdb#89"
+  ],
+  "description": "Deploys one rule expression at a time through the rules REST endpoint and records whether production accepts the ruleset or refuses it, with the refusal text: method argument count and types, regular expression literals and flags, `$wildcard` variables, and snapshot operands of comparison and arithmetic operators. The prior rules are restored and read back after every attempt.",
+  "observedAt": "2026-10-07T05:10:17.137Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "repeatCount": 2,
+    "outcomes": {
+      "hasChildren with two string arguments": {
+        "accepted": false,
+        "status": 400,
+        "message": "hasChildren() expects only a single argument (containing an array of child names)."
+      },
+      "hasChildren with one string argument": {
+        "accepted": false,
+        "status": 400,
+        "message": "hasChildren() expects an array of child names."
+      },
+      "hasChildren with an array holding a number": {
+        "accepted": false,
+        "status": 400,
+        "message": "hasChildren() expects an array of strings."
+      },
+      "hasChildren with an empty array": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "hasChildren with an array of strings": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "hasChildren with no arguments": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "hasChildren with two arrays": {
+        "accepted": false,
+        "status": 400,
+        "message": "hasChildren() expects only a single argument (containing an array of child names)."
+      },
+      "hasChildren with a data value": {
+        "accepted": false,
+        "status": 400,
+        "message": "hasChildren() expects an array of child names."
+      },
+      "beginsWith with a number literal": {
+        "accepted": false,
+        "status": 400,
+        "message": "beginsWith() expects a string argument."
+      },
+      "contains with a null literal": {
+        "accepted": false,
+        "status": 400,
+        "message": "contains() expects a string argument."
+      },
+      "endsWith with a boolean literal": {
+        "accepted": false,
+        "status": 400,
+        "message": "endsWith() expects a string argument."
+      },
+      "contains with a data value": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "beginsWith with no arguments": {
+        "accepted": false,
+        "status": 400,
+        "message": "beginsWith() expects 1 argument."
+      },
+      "beginsWith with two arguments": {
+        "accepted": false,
+        "status": 400,
+        "message": "beginsWith() expects 1 argument."
+      },
+      "child with a number literal": {
+        "accepted": false,
+        "status": 400,
+        "message": "child() expects a string argument."
+      },
+      "child with auth.uid": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "hasChild with a null literal": {
+        "accepted": false,
+        "status": 400,
+        "message": "hasChild() expects a string argument."
+      },
+      "replace with a number replacement": {
+        "accepted": false,
+        "status": 400,
+        "message": "Argument 2 of replace() must be a string."
+      },
+      "replace with a regex literal pattern": {
+        "accepted": false,
+        "status": 400,
+        "message": "Argument 1 of replace() must be a string."
+      },
+      "replace with a slash-delimited string pattern": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "matches with a string argument": {
+        "accepted": false,
+        "status": 400,
+        "message": "matches() expects a regular expression literal argument."
+      },
+      "matches with a slash-delimited string argument": {
+        "accepted": false,
+        "status": 400,
+        "message": "matches() expects a regular expression literal argument."
+      },
+      "matches with an unterminated character class": {
+        "accepted": false,
+        "status": 400,
+        "message": "unterminated regular expression literal"
+      },
+      "matches with the i flag": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "matches with the g flag": {
+        "accepted": false,
+        "status": 400,
+        "message": "regular expressions do not support flags other than i"
+      },
+      "undeclared wildcard variable": {
+        "accepted": false,
+        "status": 400,
+        "message": "Unknown variable '$undeclared'."
+      },
+      "declared wildcard variable": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "ancestor wildcard variable": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "sibling wildcard variable": {
+        "accepted": false,
+        "status": 400,
+        "message": "Unknown variable '$one'."
+      },
+      "snapshot on the left of ==": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid == expression: left operand is not a number, boolean, string, null."
+      },
+      "snapshot on the right of ==": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid == expression: right operand is not a number, boolean, string, or null."
+      },
+      "snapshot on the left of !=": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid != expression: left operand is not a number, boolean, string, or null."
+      },
+      "snapshot on the right of !=": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid != expression: right operand is not a number, boolean, string, or null."
+      },
+      "snapshot on the left of ===": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid == expression: left operand is not a number, boolean, string, null."
+      },
+      "snapshot on the left of !==": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid != expression: left operand is not a number, boolean, string, or null."
+      },
+      "snapshot compared to null": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid == expression: left operand is not a number, boolean, string, null."
+      },
+      "snapshot compared to snapshot": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid == expression: left operand is not a number, boolean, string, null."
+      },
+      "child snapshot compared to a string": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid == expression: left operand is not a number, boolean, string, null."
+      },
+      "parent snapshot compared to parent snapshot": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid == expression: left operand is not a number, boolean, string, null."
+      },
+      "snapshot on the left of +": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid + expression: left operand is not a number or string."
+      },
+      "snapshot on the right of +": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid + expression: right operand is not a number or string."
+      },
+      "snapshot on the left of -": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid - expression: left operand is not a number."
+      },
+      "snapshot on the left of *": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid * expression: left operand is not a number."
+      },
+      "snapshot on the left of <": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid < expression: left operand must be a number or string."
+      },
+      "snapshot on the right of <": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid < expression: right operand must be a number or string."
+      },
+      "snapshot on the left of >=": {
+        "accepted": false,
+        "status": 400,
+        "message": "Invalid >= expression: left operand must be a number or string."
+      },
+      "literal tautology": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "literal contradiction": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "child with a dot segment": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      },
+      "child with a dot-dot segment": {
+        "accepted": true,
+        "status": 200,
+        "message": null
+      }
+    }
+  }
+}

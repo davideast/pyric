@@ -9,11 +9,13 @@
  * holds. The second is what a caller asking what breaks means, and the first is
  * what it costs.
  */
+import { getActiveRules } from 'pyric/sandbox/database';
 import { z } from 'zod';
 
+import { parseRtdbRulesText } from '../../../../rtdb/rules-json.js';
 import { CAPTURE_RELATIVE_PATH } from '../../../../serve/capture-store.js';
 
-import { verifyFixture, type VerifyDivergence } from '../../../../verify/index.js';
+import { verifyFixture, type VerifyDivergence, type VerifyRulesInput } from '../../../../verify/index.js';
 import {
   candidateRules,
   readFixtureFile,
@@ -51,9 +53,19 @@ function verdictDivergences(cases: readonly CaseVerdict[]): VerdictDivergence[] 
     }));
 }
 
-/** The state divergences a replay found, minus the ones it classifies as expected. */
-function stateDivergences(found: readonly VerifyDivergence[]): VerifyDivergence[] {
-  return found.filter((divergence) => divergence.kind !== 'expected-drift');
+/**
+ * A replay divergence that is a verdict the candidate rules changed: the
+ * database replay re-decides each recorded request and reports `now-denied`
+ * or `now-allowed`. Firestore's derived cases report those same requests as
+ * verdict divergences, so only the database replay's are counted here.
+ */
+function isReplayVerdict(service: string, divergence: VerifyDivergence): boolean {
+  return service === 'rtdb' && (divergence.kind === 'now-denied' || divergence.kind === 'now-allowed');
+}
+
+/** The state divergences a replay found, minus the ones it classifies as expected and the verdicts it re-decided. */
+function stateDivergences(service: string, found: readonly VerifyDivergence[]): VerifyDivergence[] {
+  return found.filter((divergence) => divergence.kind !== 'expected-drift' && !isReplayVerdict(service, divergence));
 }
 
 export default {
@@ -88,18 +100,40 @@ export default {
     if ('refusal' in read) return read.refusal;
 
     const service = verifiableService(args.service as string | undefined);
-    const rules =
-      typeof args.candidateRules === 'string' ? args.candidateRules : activeFirestoreRules(ctx);
-    if (service === 'firestore' && rules.length === 0) {
-      return operationFailure(
-        'No candidate rules were supplied and the sandbox is running none, so there is nothing to replay against.',
-      );
+    let firestoreRules = '';
+    let rulesInput: VerifyRulesInput;
+    if (service === 'firestore') {
+      firestoreRules =
+        typeof args.candidateRules === 'string' ? args.candidateRules : activeFirestoreRules(ctx);
+      if (firestoreRules.length === 0) {
+        return operationFailure(
+          'No candidate rules were supplied and the sandbox is running none, so there is nothing to replay against.',
+        );
+      }
+      rulesInput = { firestore: firestoreRules };
+    } else {
+      let rtdbRules: ReturnType<typeof getActiveRules> = null;
+      if (typeof args.candidateRules === 'string') {
+        try {
+          rtdbRules = parseRtdbRulesText(args.candidateRules, (reason) => reason);
+        } catch (error) {
+          return operationFailure(error instanceof Error ? error.message : String(error));
+        }
+      } else {
+        rtdbRules = getActiveRules(ctx.sandbox);
+      }
+      if (rtdbRules === null || rtdbRules === undefined) {
+        return operationFailure(
+          'No candidate rules were supplied and the sandbox is running none, so there is nothing to replay against.',
+        );
+      }
+      rulesInput = { rtdb: rtdbRules };
     }
 
     let replayed;
     try {
       replayed = await verifyFixture(read.fixture, {
-        rules: service === 'firestore' ? { firestore: rules } : { rtdb: JSON.parse(rules) },
+        rules: rulesInput,
         services: [service],
         engines: ['sandbox'],
       });
@@ -107,14 +141,27 @@ export default {
       return operationFailure(error instanceof Error ? error.message : String(error));
     }
 
-    const state = stateDivergences(replayed.services[service]?.divergences ?? []);
-    const decided = service === 'firestore' ? runDerivedCases(read.fixture, rules) : { cases: [] };
-    const verdicts = 'cases' in decided ? verdictDivergences(decided.cases) : [];
-    const divergences = [...verdicts, ...state];
-    const summary =
+    const replayDivergences = replayed.services[service]?.divergences ?? [];
+    const state = stateDivergences(service, replayDivergences);
+    const redecided = replayDivergences.filter((divergence) => isReplayVerdict(service, divergence));
+    const decided =
+      service === 'firestore' ? runDerivedCases(read.fixture, firestoreRules) : { cases: [] };
+    if ('error' in decided) return operationFailure(decided.error);
+    const verdicts = verdictDivergences(decided.cases);
+    const verdictCount = verdicts.length + redecided.length;
+    const divergences = [...verdicts, ...redecided, ...state];
+    const skippedInstances = replayed.services[service]?.skippedInstances ?? [];
+    const found =
       divergences.length === 0
         ? `Replaying '${named}' under the candidate rules changed no recorded verdict.`
-        : `Replaying '${named}' under the candidate rules changed ${verdicts.length} verdict(s) and left ${state.length} state divergence(s).`;
+        : `Replaying '${named}' under the candidate rules changed ${verdictCount} verdict(s) and left ${state.length} state divergence(s).`;
+    // The candidate rules are the default instance's; a named instance the
+    // session used is named rather than checked against them.
+    const skipped =
+      skippedInstances.length === 0
+        ? ''
+        : ` Not checked: the session also used database instance(s) ${skippedInstances.join(', ')}; run \`pyric verify --rules rtdb:<instance>=<path>\` to check them.`;
+    const summary = found + skipped;
     // The read succeeded whatever it found, so a replay that reports what
     // breaks is not an error. What broke is in the data, and a caller that
     // asks what breaks is asking for exactly that.
@@ -126,6 +173,7 @@ export default {
         service,
         checkedEvents: replayed.services[service]?.checkedEvents ?? 0,
         divergences,
+        ...(skippedInstances.length > 0 ? { skippedInstances } : {}),
       },
     };
   },

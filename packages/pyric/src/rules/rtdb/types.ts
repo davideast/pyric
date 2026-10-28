@@ -35,5 +35,21 @@ export type RtdbNode = {
   write?: RtdbRuleExpression;
   validate?: RtdbRuleExpression;
   indexOn?: string[];
+  /** Shape problems in the rules object this node came from; absent when it has none. */
+  structure?: RtdbStructuralFinding[];
   children: RtdbNode[];
+};
+
+/** A problem in the shape of a rules object, found while compiling its node. */
+export type RtdbStructuralFinding = {
+  path: string;
+  code:
+    | 'MULTIPLE_WILDCARDS'
+    | 'EXPECTED_OBJECT'
+    | 'RULE_NOT_EXPRESSION'
+    | 'INDEX_ON_SHAPE'
+    | 'INVALID_KEY';
+  message: string;
+  /** `error` when a production deploy of this form has been captured; `warning` when the refusal is inferred from the deploy's message text. */
+  severity: 'error' | 'warning';
 };

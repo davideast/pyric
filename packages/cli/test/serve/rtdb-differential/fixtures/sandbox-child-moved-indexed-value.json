@@ -1,0 +1,16 @@
+{
+  "description": "child_moved fires when a child's indexed value changes: an object child's value under orderByValue changes without changing its rank. A plain reference orders by priority, and a child whose priority stays null does not move when a set clears a descendant's priority. The sandbox fires neither case as production does.",
+  "sequence": {
+    "seed": 3096,
+    "instances": 2,
+    "initialRules": [0, 0],
+    "steps": [
+      { "op": "listen", "db": 0, "id": 0, "path": "items", "event": "child_moved", "query": { "orderBy": "value" } },
+      { "op": "set", "db": 0, "path": "items/a", "value": { "x": 1 } },
+      { "op": "set", "db": 0, "path": "items/a", "value": { "x": 2 } },
+      { "op": "listen", "db": 1, "id": 1, "path": "items", "event": "child_moved" },
+      { "op": "set", "db": 1, "path": "items/a/n", "value": { "a": 46, ".priority": "p" } },
+      { "op": "set", "db": 1, "path": "items/a", "value": { "t": 96 } }
+    ]
+  }
+}

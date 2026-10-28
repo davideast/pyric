@@ -87,6 +87,13 @@ class PyricDocumentReference extends DocumentReferencePlatform {
         firestore,
         path,
         event,
+        hasPendingWrites: event is Map && event['hasPendingWrites'] == true,
+      ),
+      mapGap: (lastEvent) => PyricDocumentSnapshot.fromWire(
+        firestore,
+        path,
+        lastEvent,
+        isFromCache: true,
       ),
     );
   }

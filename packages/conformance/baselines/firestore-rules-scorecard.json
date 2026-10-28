@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 137,
+    "numerator": 128,
     "denominator": 140,
-    "ratio": 0.9785714285714285,
-    "percent": 97.9
+    "ratio": 0.9142857142857143,
+    "percent": 91.4
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 137,
-      "diverged": 0,
-      "unverified": 3
+      "verified": 129,
+      "diverged": 9,
+      "unverified": 2
     }
   },
   "counts": {
-    "conformant": 137,
-    "diverged": 0,
+    "conformant": 128,
+    "diverged": 9,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -213,7 +213,9 @@
         "get-after-and-exists-after",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -222,9 +224,11 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
@@ -257,6 +261,7 @@
         "get-after-and-exists-after",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -346,15 +351,18 @@
         "map-get-string-and-list-form",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "simulator-language-semantics",
         "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
       ],
       "verifiedByRows": [
-        "firestore-rules#188"
+        "firestore-rules#188",
+        "firestore-rules#196"
       ],
       "divergedByRows": []
     },
@@ -383,16 +391,19 @@
         "map-get-string-and-list-form",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "simulator-language-semantics",
         "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
       ],
       "verifiedByRows": [
         "firestore-rules#183",
-        "firestore-rules#188"
+        "firestore-rules#188",
+        "firestore-rules#196"
       ],
       "divergedByRows": []
     },
@@ -409,6 +420,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "cross-type-operator-overloads",
+        "int64-and-duration-range",
         "prototype-chain-keys",
         "time-math-and-casts",
         "timestamp-component-accessors"
@@ -493,7 +505,8 @@
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [
         "firestore-rules#184",
@@ -519,7 +532,8 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [
         "firestore-rules#183",
@@ -544,7 +558,6 @@
         "resource-document-identity"
       ],
       "verifiedByRows": [
-        "firestore-rules#165",
         "firestore-rules#183"
       ],
       "divergedByRows": []
@@ -566,7 +579,6 @@
         "resource-document-identity"
       ],
       "verifiedByRows": [
-        "firestore-rules#165",
         "firestore-rules#183"
       ],
       "divergedByRows": []
@@ -618,6 +630,7 @@
         "globals-request-path-and-resource-id",
         "hierarchical-match-cascade",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -626,15 +639,22 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "rules-version-1-recursive-glob",
+        "service-root-match-path",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
+        "split-and-trim-edges",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access",
+        "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [],
@@ -653,10 +673,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
-        "get-missing-doc"
+        "get-missing-doc",
+        "simcase-mock-and-path-fidelity"
       ],
       "verifiedByRows": [
-        "firestore-rules#165"
+        "firestore-rules#165",
+        "firestore-rules#197"
       ],
       "divergedByRows": []
     },
@@ -672,10 +694,14 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "get-missing-doc"
+        "get-missing-doc",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics"
       ],
       "verifiedByRows": [
-        "firestore-rules#165"
+        "firestore-rules#165",
+        "firestore-rules#196",
+        "firestore-rules#197"
       ],
       "divergedByRows": []
     },
@@ -715,8 +741,7 @@
         "get-after-and-exists-after"
       ],
       "verifiedByRows": [
-        "firestore-rules#164",
-        "firestore-rules#190"
+        "firestore-rules#164"
       ],
       "divergedByRows": []
     },
@@ -732,9 +757,11 @@
       "productionEvaluationAgreement": false,
       "productionEvidence": "verified",
       "classification": "conformant",
-      "verifiedBy": [],
+      "verifiedBy": [
+        "unknown-function-names-runtime-error"
+      ],
       "verifiedByRows": [
-        "firestore-rules#191"
+        "firestore-rules#203"
       ],
       "divergedByRows": []
     },
@@ -893,9 +920,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "builtins-time-and-math",
-        "cross-type-operator-overloads"
+        "cross-type-operator-overloads",
+        "simulator-language-semantics"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
       "divergedByRows": []
     },
     "firestore.function.timestamp.value": {
@@ -911,6 +941,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "cross-type-operator-overloads",
+        "int64-and-duration-range",
         "timestamp-component-accessors",
         "undefined-field-access"
       ],
@@ -926,18 +957,21 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "builtins-time-and-math",
         "cross-type-operator-overloads",
         "duration-and-latlng",
+        "int64-and-duration-range",
         "list-methods-concat-removeall-toset",
         "time-math-and-casts",
         "undefined-field-access"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#198"
+      ]
     },
     "firestore.function.duration.time": {
       "productionAcceptance": "accepted",
@@ -1077,13 +1111,16 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
+        "int64-and-duration-range",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#198"
+      ]
     },
     "firestore.function.cast.int": {
       "productionAcceptance": "accepted",
@@ -1094,15 +1131,19 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
+        "int64-and-duration-range",
+        "simulator-language-semantics",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
-        "firestore-rules#167"
+        "firestore-rules#180"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#198"
+      ]
     },
     "firestore.function.cast.float": {
       "productionAcceptance": "accepted",
@@ -1123,7 +1164,7 @@
         "time-math-and-casts"
       ],
       "verifiedByRows": [
-        "firestore-rules#167"
+        "firestore-rules#180"
       ],
       "divergedByRows": []
     },
@@ -1177,14 +1218,17 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "matches-full-string-regex",
+        "re2-pattern-semantics",
         "string-literals-and-regex"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#199"
+      ]
     },
     "firestore.method.string.lower": {
       "productionAcceptance": "accepted",
@@ -1198,9 +1242,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "list-and-string-methods"
+        "list-and-string-methods",
+        "simulator-language-semantics"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
       "divergedByRows": []
     },
     "firestore.method.string.upper": {
@@ -1232,7 +1279,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "list-and-string-methods"
+        "list-and-string-methods",
+        "split-and-trim-edges"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1250,6 +1298,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
+        "re2-pattern-semantics",
+        "split-and-trim-edges",
         "string-literals-and-regex",
         "time-math-and-casts"
       ],
@@ -1265,14 +1315,20 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "functions-verbs-and-recursive",
-        "list-and-string-methods"
+        "list-and-string-methods",
+        "re2-pattern-semantics",
+        "split-and-trim-edges"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": []
+      "verifiedByRows": [
+        "firestore-rules#202"
+      ],
+      "divergedByRows": [
+        "firestore-rules#199"
+      ]
     },
     "firestore.method.string.replace": {
       "productionAcceptance": "accepted",
@@ -1286,9 +1342,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "list-and-string-methods"
+        "list-and-string-methods",
+        "re2-pattern-semantics",
+        "simulator-language-semantics"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
       "divergedByRows": []
     },
     "firestore.method.string.toUtf8": {
@@ -1369,6 +1429,7 @@
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "prototype-chain-keys",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff"
       ],
       "verifiedByRows": [],
@@ -1389,7 +1450,9 @@
         "functions-verbs-and-recursive",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
-        "required-fields-and-mapdiff"
+        "re2-pattern-semantics",
+        "required-fields-and-mapdiff",
+        "split-and-trim-edges"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1409,9 +1472,12 @@
         "list-methods-concat-removeall-toset",
         "prototype-chain-keys",
         "required-fields-and-mapdiff",
-        "set-algebra-difference-union-intersection"
+        "set-algebra-difference-union-intersection",
+        "simulator-language-semantics"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
       "divergedByRows": []
     },
     "firestore.method.list.concat": {
@@ -1521,7 +1587,9 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
-        "globals-request-path-and-resource-id"
+        "globals-request-path-and-resource-id",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1540,9 +1608,12 @@
       "verifiedBy": [
         "error-absorption-and-or",
         "map-get-string-and-list-form",
+        "simulator-language-semantics",
         "undefined-field-access"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
       "divergedByRows": []
     },
     "firestore.method.map.hasAll": {
@@ -1578,9 +1649,11 @@
       "productionEvaluationAgreement": false,
       "productionEvidence": "verified",
       "classification": "conformant",
-      "verifiedBy": [],
+      "verifiedBy": [
+        "unknown-function-names-runtime-error"
+      ],
       "verifiedByRows": [
-        "firestore-rules#191"
+        "firestore-rules#203"
       ],
       "divergedByRows": []
     },
@@ -1596,9 +1669,11 @@
       "productionEvaluationAgreement": false,
       "productionEvidence": "verified",
       "classification": "conformant",
-      "verifiedBy": [],
+      "verifiedBy": [
+        "unknown-function-names-runtime-error"
+      ],
       "verifiedByRows": [
-        "firestore-rules#191"
+        "firestore-rules#203"
       ],
       "divergedByRows": []
     },
@@ -1617,9 +1692,12 @@
         "functions-verbs-and-recursive",
         "prototype-chain-keys",
         "required-fields-and-mapdiff",
-        "set-algebra-difference-union-intersection"
+        "set-algebra-difference-union-intersection",
+        "simulator-language-semantics"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
       "divergedByRows": []
     },
     "firestore.method.mapdiff.addedKeys": {
@@ -1690,7 +1768,8 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "required-fields-and-mapdiff",
-        "set-algebra-difference-union-intersection"
+        "set-algebra-difference-union-intersection",
+        "simulator-language-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1834,7 +1913,8 @@
       "verifiedBy": [
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
-        "set-algebra-difference-union-intersection"
+        "set-algebra-difference-union-intersection",
+        "simulator-language-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1929,6 +2009,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "int64-and-duration-range",
         "time-math-and-casts",
         "timestamp-component-accessors"
       ],
@@ -1947,6 +2028,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "simulator-language-semantics",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -1964,6 +2046,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "simulator-language-semantics",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2240,7 +2323,9 @@
         "get-missing-doc",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2248,15 +2333,20 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
+        "split-and-trim-edges",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2282,6 +2372,8 @@
         "functions-verbs-and-recursive",
         "get-after-and-exists-after",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2289,10 +2381,12 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simulator-language-semantics",
         "time-math-and-casts",
         "undefined-field-access",
         "unsupported-feature-witness"
@@ -2314,6 +2408,7 @@
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "cross-type-operator-overloads",
+        "int64-and-duration-range",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2336,7 +2431,9 @@
         "duration-and-latlng",
         "error-absorption-and-or",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
+        "simulator-language-semantics",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2374,6 +2471,7 @@
         "duration-and-latlng",
         "functions-verbs-and-recursive",
         "list-and-string-methods",
+        "simulator-language-semantics",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2388,17 +2486,20 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "cross-type-operator-overloads",
         "error-absorption-and-or",
+        "int64-and-duration-range",
         "time-math-and-casts",
         "undefined-field-access"
       ],
       "verifiedByRows": [],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#198"
+      ]
     },
     "firestore.operator.sub": {
       "productionAcceptance": "accepted",
@@ -2409,14 +2510,20 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "cross-type-operator-overloads",
+        "int64-and-duration-range",
+        "simulator-language-semantics",
         "time-math-and-casts"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": []
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
+      "divergedByRows": [
+        "firestore-rules#198"
+      ]
     },
     "firestore.operator.mul": {
       "productionAcceptance": "accepted",
@@ -2431,6 +2538,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
+        "int64-and-duration-range",
         "time-math-and-casts"
       ],
       "verifiedByRows": [],
@@ -2445,17 +2553,20 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "error-absorption-and-or",
         "int-float-and-division",
+        "int64-and-duration-range",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
         "firestore-rules#167"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#198"
+      ]
     },
     "firestore.operator.mod": {
       "productionAcceptance": "accepted",
@@ -2507,14 +2618,17 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [
         "firestore-rules#163",
@@ -2539,13 +2653,15 @@
         "error-absorption-and-or",
         "get-missing-doc",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
         "time-math-and-casts",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [
         "firestore-rules#163",
@@ -2571,13 +2687,17 @@
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "prototype-chain-keys",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2621,6 +2741,7 @@
         "list-methods-concat-removeall-toset",
         "prototype-chain-keys",
         "set-algebra-difference-union-intersection",
+        "simulator-language-semantics",
         "undefined-field-access"
       ],
       "verifiedByRows": [
@@ -2663,21 +2784,27 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-methods-concat-removeall-toset",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
+        "simulator-language-semantics",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": []
+      "verifiedByRows": [
+        "firestore-rules#196"
+      ],
+      "divergedByRows": [
+        "firestore-rules#198"
+      ]
     },
     "firestore.operator.member": {
       "productionAcceptance": "accepted",
@@ -2704,7 +2831,9 @@
         "get-missing-doc",
         "global-and-service-scope-functions",
         "globals-request-path-and-resource-id",
+        "hierarchical-match-cascade",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2713,15 +2842,19 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access",
+        "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [],
@@ -2747,6 +2880,7 @@
         "path-constructor-and-bind",
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
+        "simulator-language-semantics",
         "undefined-field-access"
       ],
       "verifiedByRows": [],
@@ -2786,7 +2920,11 @@
         "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
         "global-and-service-scope-functions",
+        "hierarchical-match-cascade",
         "optional-rules-version",
+        "service-root-match-path",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
         "string-literals-and-regex",
         "unsupported-feature-witness"
       ],
@@ -2807,7 +2945,8 @@
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
-        "optional-rules-version"
+        "optional-rules-version",
+        "service-root-match-path"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2826,11 +2965,17 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "hierarchical-match-cascade",
+        "int64-and-duration-range",
+        "re2-pattern-semantics",
         "resource-document-identity",
         "resource-missing-document",
+        "rules-version-1-recursive-glob",
+        "simulator-language-semantics",
+        "split-and-trim-edges",
         "string-literals-and-regex",
         "timestamp-component-accessors",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2847,7 +2992,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "functions-verbs-and-recursive"
+        "functions-verbs-and-recursive",
+        "simcase-mock-and-path-fidelity"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2887,6 +3033,7 @@
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
@@ -2932,7 +3079,8 @@
         "ast-strictness-and-unsupported-casts",
         "get-after-and-exists-after",
         "resource-document-identity",
-        "resource-missing-document"
+        "resource-missing-document",
+        "simulator-language-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2964,6 +3112,7 @@
         "globals-request-path-and-resource-id",
         "hierarchical-match-cascade",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -2972,18 +3121,27 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "rules-version-1-recursive-glob",
+        "service-root-match-path",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
+        "split-and-trim-edges",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access",
+        "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#201"
+      ],
       "divergedByRows": []
     },
     "firestore.rule-kind.function": {
@@ -3002,11 +3160,13 @@
         "error-absorption-and-or",
         "functions-verbs-and-recursive",
         "global-and-service-scope-functions",
+        "simulator-language-semantics",
         "undefined-field-access"
       ],
       "verifiedByRows": [
         "firestore-rules#186",
-        "firestore-rules#189"
+        "firestore-rules#189",
+        "firestore-rules#196"
       ],
       "divergedByRows": []
     },
@@ -3056,6 +3216,7 @@
         "globals-request-path-and-resource-id",
         "hierarchical-match-cascade",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3064,19 +3225,27 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "rules-version-1-recursive-glob",
+        "service-root-match-path",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
+        "split-and-trim-edges",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access",
+        "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [
-        "firestore-rules#185"
+        "firestore-rules#185",
+        "firestore-rules#200"
       ],
       "divergedByRows": []
     },
@@ -3118,6 +3287,7 @@
         "globals-request-path-and-resource-id",
         "hierarchical-match-cascade",
         "int-float-and-division",
+        "int64-and-duration-range",
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "map-get-string-and-list-form",
@@ -3126,15 +3296,22 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
+        "rules-version-1-recursive-glob",
+        "service-root-match-path",
         "set-algebra-difference-union-intersection",
+        "simcase-mock-and-path-fidelity",
+        "simulator-language-semantics",
+        "split-and-trim-edges",
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "timestamp-component-accessors",
         "undefined-field-access",
+        "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [
@@ -3154,9 +3331,16 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "functions-verbs-and-recursive"
+        "functions-verbs-and-recursive",
+        "hierarchical-match-cascade",
+        "rules-version-1-recursive-glob",
+        "service-root-match-path",
+        "simcase-mock-and-path-fidelity"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#197",
+        "firestore-rules#200"
+      ],
       "divergedByRows": []
     },
     "firestore.semantic.error-absorption-and": {
@@ -3193,7 +3377,8 @@
         "cross-type-operator-overloads",
         "error-absorption-and-or",
         "get-missing-doc",
-        "undefined-field-access"
+        "undefined-field-access",
+        "unknown-function-names-runtime-error"
       ],
       "verifiedByRows": [
         "firestore-rules#163"
@@ -3216,10 +3401,12 @@
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
+      "productionEvidence": "verified",
       "classification": "unprobeable",
       "verifiedBy": [],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#182"
+      ],
       "divergedByRows": []
     }
   }

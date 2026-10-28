@@ -1,3 +1,5 @@
+'use client';
+
 export { CopyButton, type CopyButtonProps } from './CopyButton.js';
 export { Badge, type BadgeProps } from './Badge.js';
 export {

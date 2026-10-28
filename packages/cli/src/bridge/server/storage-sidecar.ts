@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { FirebaseStorage } from 'pyric/storage';
+import { BY_REFERENCE_ALTERNATIVE, type InlineStorageDocument } from 'pyric/sandbox/internal';
 import {
   exportStorage,
   restoreStorage,
@@ -28,9 +29,19 @@ import {
 /** Where the sidecar lives, relative to the run directory. */
 export const STORAGE_SIDECAR_RELATIVE = join('.pyric', 'state', 'storage.json');
 
-/** Write the bucket's contents to `<dir>/.pyric/state/storage.json`. */
+/** The sidecar, and what to use once its Storage exceeds the inline limit. */
+const SIDECAR_DOCUMENT: InlineStorageDocument = {
+  document: 'The in-process storage file `.pyric/state/storage.json`',
+  instead: BY_REFERENCE_ALTERNATIVE,
+};
+
+/**
+ * Write the bucket's contents to `<dir>/.pyric/state/storage.json`. A bucket
+ * past the inline limit is refused before a byte is read, and the previous
+ * sidecar is left as it was.
+ */
 export async function saveStorageSidecar(storage: FirebaseStorage, dir: string): Promise<void> {
-  const records = await exportStorage(storage);
+  const records = await exportStorage(storage, SIDECAR_DOCUMENT);
   const path = join(dir, STORAGE_SIDECAR_RELATIVE);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(records, null, 2)}\n`, 'utf8');

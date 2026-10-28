@@ -6,12 +6,14 @@ import type {
   TestCase,
 } from 'pyric/rules/internal';
 import { projectEvaluatedRule,renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
-import { proveGlobalCollectionGroupRules } from './collection-group-rule-proof.js';
+import { proveCollectionGroupRules } from './collection-group-rule-proof.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import {
+  buildQueryRepro,
   proveListQuery,
   renderQueryRemediation,
+  renderQueryRepro,
   type ListProofVerdict,
   type QueryConstraints,
 } from './list-query-proof.js';
@@ -33,7 +35,9 @@ export interface RulesListAuthorizerHost {
 }
 
 export interface ListAuthorizationRequest {
-  /** Collection groups require a symbolic all-path proof, never row sampling. */
+  /** A collection-group query, with `path` holding the collection id. It is
+   *  authorized only from rules that govern every collection with that id,
+   *  never from the stored rows. */
   collectionGroup?: boolean;
   path: string;
   auth: Operation['auth'];
@@ -100,12 +104,13 @@ export class RulesListAuthorizer {
 
     const deployedAst = this.rules.ast();
     const evaluationAst = request.collectionGroup
-      ? proveGlobalCollectionGroupRules(deployedAst)
+      ? proveCollectionGroupRules(deployedAst, path)
       : deployedAst;
     if (request.collectionGroup && !evaluationAst) {
       const message =
-        `list ${path} denied: symbolic collection-group proof is not supported; ` +
-        'the query is rejected rather than authorizing from the currently stored rows';
+        `list ${path} denied: no rule governs every '${path}' collection. A collection-group ` +
+        `query needs a list or read rule at match /{path=**}/${path}/{id} or match /{document=**} ` +
+        'whose condition reads no path binding';
       this.emitRequest({
         at: evalAt,
         evalMs: 0,
@@ -150,6 +155,7 @@ export class RulesListAuthorizer {
       ? this.simulator.simulateParsed(residualAst, this.rules.source, [testCase], {
         getDoc,
         sourceMap: this.rules.sourceMap(),
+        skipQueryProof: true,
       })
       : this.simulator.simulate(this.rules.source, [testCase], { getDoc });
     const evalMs = performance.now() - evalStart;
@@ -248,12 +254,23 @@ export class RulesListAuthorizer {
     const reasons = primary
       ? [message, ...residualReasons.filter(reason => !reason.startsWith('No allow rules found'))]
       : residualReasons;
-    const remediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+    const narrowingRemediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+    const reproInput = {
+      path: request.path,
+      auth: request.auth,
+      constraints: request.constraints,
+    };
+    const repro = primary ? buildQueryRepro(reproInput) : undefined;
+    const reproText = primary ? renderQueryRepro(reproInput) : undefined;
+    const remediation = narrowingRemediation && reproText
+      ? `${narrowingRemediation}\n\n${reproText}`
+      : (narrowingRemediation ?? reproText);
     const error = makeError('permission-denied', message, {
       request: { method: 'list', path: request.path, auth: request.auth },
       query: request.constraints,
       queryProof,
       ...(remediation ? { remediation } : {}),
+      ...(repro ? { repro } : {}),
       ...(primary?.rule || evaluatedRule ? { rule: primary?.rule ?? evaluatedRule } : {}),
     });
     this.emitRequest({

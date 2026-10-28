@@ -65,6 +65,13 @@ const summary = rules.simulate([
 ```
 The simulator runs in-process against the same grammar the sandbox enforces. `data` is the database tree before the write, from the root; `newData` is the value written at `path`. `auth: 'alice'` is shorthand for `{ uid: 'alice', token: {} }`. Each case result carries the `decision`, whether it `passed`, and the `matchedPath` and `matchedRule` that decided it.
 
+A case can describe three more kinds of request:
+- A scalar write: `newData` is any JSON value, so `{ operation: 'write', path: '/scores/alice', newData: 5 }` is `set(ref, 5)`.
+- A multi-path update: `operation: 'update'` takes `newData` as the patch, keyed by paths relative to `path`, such as `{ operation: 'update', path: '/', newData: { 'rooms/r1/title': 'x', 'rooms/r2/title': 'y' } }`. Every written path is judged against the tree the whole update produces, and the case is `DENY` when any path is denied. `matchedPath` names the path that decided.
+- A query read: `query` on a `read` case sets the members `query.*` rules read, `orderByChild`, `orderByKey`, `orderByValue`, `equalTo`, `startAt`, `endAt`, `limitToFirst` and `limitToLast`. A rule such as `query.orderByChild == 'owner' && query.equalTo == auth.uid` is `ALLOW` for a case that carries that query and `DENY` for the same read without it.
+
+The same fields work in `rtdb_simulate_access` and `rules.simulate` (`data`, `query`, and `operation: 'update'`), and `pyric verify` replays captured updates, scalar writes and query reads against candidate rules.
+
 ## Ship the JSON
 ```ts
 import { writeFileSync } from 'node:fs';
@@ -82,6 +89,39 @@ The CLI checks the JSON file itself, so CI can gate on it without TypeScript in 
 - `pyric rules lint --service database --rules-file database.rules.json` prints every issue, errors and warnings, the same list `rtdbRules(json).lint()` returns for the file's contents. It exits `2` when any issue is an error and `0` otherwise. Without `--rules-file`, it lints the rules the sandbox is running.
 - `pyric database rules validate database.rules.json` prints the error findings only. It exits `2` when there is one or when the file is not rules JSON, `1` when the file can't be read, and `0` otherwise.
 - `pyric rules simulate --service database --rules-file database.rules.json --operation read --path /notes/n1` evaluates one request against the file.
+
+## Compare compiled rules with the rules you wrote by hand
+
+When you move hand-written rules to TypeScript, the compiled JSON spells the same rules differently: `auth != null` where you wrote `auth.uid !== null`, `child('a').child($id)` where you wrote `child('a/' + $id)`. `diffRtdbRules` with `ignoreEquivalent` reports only the rules that can decide differently:
+```ts
+import { readFileSync } from 'node:fs';
+import { diffRtdbRules, canonicalRtdbExpression } from 'pyric/rules';
+
+const handWritten = JSON.parse(readFileSync('legacy/database.rules.json', 'utf8')).rules;
+const compiled = rules.toJSON().rules;
+
+diffRtdbRules(handWritten, compiled);                             // every rule whose text differs
+diffRtdbRules(handWritten, compiled, { ignoreEquivalent: true }); // only rules that can decide differently
+// → [{ path, kind: '.read' | '.write' | '.validate' | '.indexOn', change: 'added' | 'removed' | 'changed', deployed?, local? }]
+
+canonicalRtdbExpression("$uid === auth.uid");  // "$uid == auth.uid"
+canonicalRtdbExpression("auth.uid !== null");  // "!(auth == null)"
+```
+A changed entry keeps both expressions exactly as written. Without the option the diff compares text.
+
+Two expressions are equivalent when their canonical texts are equal. The canonical form applies only rewrites that cannot change a decision, errors included (a rule that errors fails, and `||` or `!` does not rescue it):
+
+| Treated as the same | Why |
+| --- | --- |
+| whitespace, grouping parentheses, `a && (b && c)` and `a && b && c` | parentheses only shape the tree; `&&` and `\|\|` evaluate left to right either way |
+| `"a"` and `'a'`, for a string literal written without a backslash | the same string; a literal with any escape (`'\d'`, `'\u0041'`) keeps its spelling, since production's reading of most escapes has not been observed |
+| `===` and `==`, `!==` and `!=` | RTDB compares without type conversion in both |
+| `auth.uid == null` and `auth == null` | `auth` is null exactly when signed out, and a signed-in `auth` always has a uid |
+| `child('a/b/' + $id + '/c')` and `child('a').child('b').child($id).child('c')` | a `$` variable is exactly one key, and `child()` reads `/` as a separator |
+| `a != b` and `!(a == b)` | both fail on the same inputs; otherwise `==` gives a boolean |
+| `a == b` and `b == a` | equality is symmetric; operands that could fail other than with a rule error, or that index into an array, keep their order |
+
+Deliberately not treated as the same: a concatenated part that is not a string literal or a `$` variable, `auth.uid` included (`child('m/' + auth.uid)` is not `child('m').child(auth.uid)`, because production has not been observed reading a uid such as `/x` or `a//b` with empty segments the same way in both forms); a literal glued to a variable (`'user_' + $id`) or written with an escape; empty segments and key-invalid characters in a path; the order of `&&` and `||` operands; `>=` and `>`; double negation; and arithmetic or constant folding. A rule that falls in one of those is reported as changed, so read those entries yourself.
 
 ## Turn enforcement, from a deployed game
 
@@ -115,4 +155,4 @@ An agent authors and checks the same way you do: lint and simulate locally (`pyr
 
 ## Where to go next
 
-The full builder catalog, with the exact expression each one produces, is in the [constraints reference](pyric-database-reference-api.md). For the data side of RTDB, see [Sync realtime data](../build/realtime-database.md).
+The full builder catalog, with the exact expression each one produces, is in the [constraints reference](pyric-database-reference-api.md). For matches, turns, results, counters, presence, rate limits and validated shapes, compose the [RTDB rules standard library](rtdb-rules-standard-library.md) instead of writing the expressions yourself. For the data side of RTDB, see [Sync realtime data](../build/realtime-database.md).

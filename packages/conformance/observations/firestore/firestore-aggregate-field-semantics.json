@@ -1,0 +1,41 @@
+{
+  "name": "firestore-aggregate-field-semantics",
+  "matrixRow": "firestore#76, firestore#aggregate-count-with-sum, firestore#aggregate-non-finite, firestore#composite-index-required",
+  "rowIds": [
+    "firestore#76",
+    "firestore#aggregate-count-with-sum",
+    "firestore#aggregate-non-finite",
+    "firestore#composite-index-required"
+  ],
+  "description": "getAggregateFromServer over four small collections: several aggregations on different fields, count alone, count with sum(y) where one doc lacks y, a null field, a NaN value and an Infinity value. Records each result or error code.",
+  "observedAt": "2026-10-27T19:27:38.630Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "multi": {
+      "error": "failed-precondition",
+      "message": "9 FAILED_PRECONDITION: The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/digame-mas/firestore/indexes?create_composite=CkZwcm9qZWN0cy9kaWdhbWUtbWFzL"
+    },
+    "countOnly": {
+      "n": 4
+    },
+    "countAndSumY": {
+      "n": 3,
+      "sy": 16
+    },
+    "nullField": {
+      "error": "failed-precondition",
+      "message": "9 FAILED_PRECONDITION: The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/digame-mas/firestore/indexes?create_composite=Cklwcm9qZWN0cy9kaWdhbWUtbWFzL"
+    },
+    "nan": {
+      "s": "NaN",
+      "a": "NaN",
+      "n": 3
+    },
+    "inf": {
+      "s": "Infinity",
+      "a": "Infinity",
+      "n": 2
+    }
+  }
+}

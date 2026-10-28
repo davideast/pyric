@@ -288,12 +288,15 @@ describe('hashing.* — through evaluator', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('unknown hashing method → UNSUPPORTED', () => {
+  test('unknown hashing method → DENY (FS-SIM-7a3)', () => {
     const r = sim.simulate(
       rules("hashing.sha512('x').size() == 64"),
       [tc('unknown alg', 'ALLOW')],
     );
-    expect(r.success && r.data.unsupported).toBe(1);
+    expect(r.success && r.data.passed).toBe(0);
+    expect(r.success && r.data.failed).toBe(1);
+    expect(r.success && r.data.unsupported).toBe(0);
+    expect(r.success && r.data.results[0]?.decision).toBe('DENY');
   });
 });
 

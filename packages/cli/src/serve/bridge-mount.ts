@@ -28,19 +28,34 @@ import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
+import { pointerHeldByAnotherHost } from './discovery.js';
 import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
-import type { InitPayload } from './init-payload.js';
+import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
-import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
+import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, HOSTED_REPRO_PATH, hostedMethodRequest, hostedReproRequest } from './hosted/method-protocol.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
 
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
 const HEALTH_PATH = '/__pyric/health';
 const BRIDGE_VERSION = pyricVersion();
+
+/**
+ * Test-only: `PYRIC_TEST_PEER_LIVENESS_MS` shortens the host's peer liveness
+ * window so app scenarios (`test/apps/host-closes-silent-page`) need not wait
+ * the real 90s. It is read once when the mount is created and is not a user
+ * setting. Anything other than a positive integer leaves the default.
+ */
+function testPeerLivenessMs(): number | undefined {
+  const raw = process.env.PYRIC_TEST_PEER_LIVENESS_MS;
+  const value = Number(raw);
+  const isPositiveInteger = Number.isInteger(value) && value > 0;
+  if (isPositiveInteger) return value;
+  return undefined;
+}
 
 export interface BridgeMountOptions {
   hosted?: boolean;
@@ -57,7 +72,9 @@ export interface BridgeMountOptions {
 
 export interface BridgeMount {
   /** A null database or Storage source clears the rules, so the default policy applies. */
-  deployHostedRules(service: 'firestore' | 'database' | 'storage', source: string | null): Promise<void>;
+  /** `instance` names the RTDB instance a database ruleset deploys to, absent
+   *  for the default instance, or an unresolved deploy target. */
+  deployHostedRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void>;
   startHostedSandbox(payload: InitPayload, baseUrl: string | (() => string), ai?: HostedRuntimeOptions): Promise<void>;
   /** Stable per-process identity (mirrors `/__pyric/health`'s instanceId).
    *  The pointer writer records this so the proxy can verify it reached this
@@ -81,6 +98,12 @@ export interface BridgeMount {
   wsUrl(origin: { host: string; port: number }): string;
   /** The MCP endpoint for the banner. */
   mcpUrl(origin: { host: string; port: number }): string;
+}
+
+/** A host as a URL writes it: an IPv6 literal (`::1`, from `server.host`) in brackets. */
+export function urlHost(host: string): string {
+  const isBareIpv6 = host.includes(':') && !host.startsWith('[');
+  return isBareIpv6 ? `[${host}]` : host;
 }
 
 export interface BridgeHostOptions {
@@ -107,6 +130,7 @@ export interface BridgeHostAttachment {
 }
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
+  const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
   let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
@@ -243,12 +267,25 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     }
   };
 
+  /** The pointer's contents when it names another live host; null when this mount may write it. */
+  const livePointerHolder = (pointer: string): { url?: string; pid?: unknown } | null => {
+    try {
+      const isMissing = !existsSync(pointer);
+      if (isMissing) return null;
+      const current = JSON.parse(readFileSync(pointer, 'utf8')) as { url?: string; pid?: unknown; instanceId?: unknown };
+      return pointerHeldByAnotherHost(current, bridge.instanceId) ? current : null;
+    } catch {
+      // A malformed pointer names no host.
+      return null;
+    }
+  };
+
   const mount: BridgeMount = {
-    async deployHostedRules(service, source) {
+    async deployHostedRules(service, source, instance) {
       const runtime = hostedRuntime;
       const isMissing = runtime === undefined;
       if (isMissing) throw new Error('The hosted sandbox is not running.');
-      await runtime.deployRules(service, source);
+      await runtime.deployRules(service, source, instance);
     },
     async startHostedSandbox(payload, baseUrl, ai) {
       if (closed) throw new Error('pyric bridge: cannot start a closed mount');
@@ -278,7 +315,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     async handler(req, res, url) {
       const isHealthRequest = url.pathname === HEALTH_PATH;
       const isMcpRequest = url.pathname === MCP_PATH;
-      const isHostedMethod = url.pathname === HOSTED_METHOD_PATH;
+      const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
+      // The repro route takes the same guards as a direct command.
+      const isHostedMethod = url.pathname === HOSTED_METHOD_PATH || isHostedRepro;
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
       const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes);
       if (rejectsClosedRequest) {
@@ -308,7 +347,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         }
       }
       if (isStorageBytes) {
-        // Only a page this server serves, or a process with no Origin, reaches object bytes.
+        // Only a page this server serves, or a process with no Origin, reaches
+        // object bytes. An upload session also takes its bytes from the origin
+        // its creator named.
         const guard = opts.upgradeGuard;
         const checksHosts = guard?.allowedHosts !== true;
         if (checksHosts) {
@@ -317,8 +358,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const extra = Array.isArray(allowedHosts) ? allowedHosts : [];
           const hostHeader = getHeader(req, 'host');
           const originHeader = getHeader(req, 'origin');
-          const allowed = isAllowedHost(hostHeader, boundHost, extra)
-            && isAllowedOrigin(originHeader, boundHost, extra, req.socket.localPort);
+          const allowedOrigin = isAllowedOrigin(originHeader, boundHost, extra, req.socket.localPort)
+            || hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
+          const allowed = isAllowedHost(hostHeader, boundHost, extra) && allowedOrigin;
           if (!allowed) {
             res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
             return true;
@@ -331,6 +373,34 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           return true;
         }
         return runtime.storageHttp(req, res, url);
+      }
+      if (isHostedRepro) {
+        const runtime = hostedRuntime;
+        const hasNoHostedRuntime = runtime === undefined;
+        if (hasNoHostedRuntime) {
+          res.writeHead(404).end();
+          return true;
+        }
+        const rejectsHttpMethod = req.method !== 'POST';
+        if (rejectsHttpMethod) {
+          res.writeHead(405, { allow: 'POST' }).end();
+          return true;
+        }
+        try {
+          const call = hostedReproRequest.parse(await collectBody(req, HOSTED_METHOD_BODY_LIMIT));
+          const targetsAnotherInstance = call.instanceId !== bridge.instanceId;
+          if (targetsAnotherInstance) {
+            res.writeHead(409, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'The discovered host instance has changed.' }));
+            return true;
+          }
+          const repro = await runtime.captureRepro(call.projectDir);
+          res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(repro));
+        } catch (error) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+        }
+        return true;
       }
       if (isHostedMethod) {
         const runtime = hostedRuntime;
@@ -474,7 +544,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         socket.once('close', () => upgradedSockets.delete(socket));
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           const allowSandboxPeer = opts.hosted !== true;
-          attachPeer(bridge, ws, allowSandboxPeer);
+          attachPeer(bridge, ws, allowSandboxPeer, peerOptions);
         });
       };
 
@@ -482,6 +552,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         const currentOrigin = origin();
         const cannotPublish = !currentOrigin?.port || attachmentClosed;
         if (cannotPublish) return;
+        const holder = livePointerHolder(pointer);
+        if (holder !== null) {
+          const warn = collision?.warn ?? ((message: string) => { process.stderr.write(message); });
+          warn(
+            `\n⚠  pyric: ${pointer} names another running sandbox (${holder.url ?? 'unknown url'}, pid ${String(holder.pid)}). ` +
+              `This server at http://${urlHost(currentOrigin.host)}:${currentOrigin.port} leaves it in place, so ` +
+              '`pyric <tool> <method>`, `pyric mcp`, and PYRIC_SANDBOX=remote keep finding that one.\n',
+          );
+          return;
+        }
         try {
           mkdirSync(dirname(pointer), { recursive: true });
           writeFileSync(pointer, JSON.stringify({
@@ -599,8 +679,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     },
     sandboxConnected: () => bridge.health().sandboxConnected === true,
     onSandboxPeerConnected: bridge.onSandboxPeerConnected,
-    wsUrl: ({ host, port }) => `ws://${host}:${port}${WS_PATH}`,
-    mcpUrl: ({ host, port }) => `http://${host}:${port}${MCP_PATH}`,
+    wsUrl: ({ host, port }) => `ws://${urlHost(host)}:${port}${WS_PATH}`,
+    mcpUrl: ({ host, port }) => `http://${urlHost(host)}:${port}${MCP_PATH}`,
     close(): Promise<void> {
       const closing = closePromise;
       const isClosing = closing !== null;

@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#207","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"pyric holds ints as JavaScript doubles, so values above 2^53 lose bits; production keeps all 64","issue":"ST-H1-4 / FS2-SIM-2"}

@@ -75,26 +75,18 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "path": .string(path),
             "value": RtdbValueCodec.toAnySendable(value)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.set",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.set", params: params)
     }
 
     public func setValue(
         _ value: Any?,
         withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
     ) {
-        let sendableValue = RtdbValueCodec.toAnySendable(value)
-        Task {
-            do {
-                try await setValue(sendableValue)
-                block(nil, self)
-            } catch {
-                block(error, self)
-            }
-        }
+        let params: [String: AnySendable] = [
+            "path": .string(path),
+            "value": RtdbValueCodec.toAnySendable(value)
+        ]
+        database.sendInCallOrder(method: "rtdb.set", params: params) { error in block(error, self) }
     }
 
     public func setPriority(_ priority: Any?) async throws {
@@ -102,26 +94,18 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "path": .string(path),
             "priority": RtdbValueCodec.toAnySendable(priority)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.setPriority",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.setPriority", params: params)
     }
 
     public func setPriority(
         _ priority: Any?,
         withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
     ) {
-        let sendablePriority = RtdbValueCodec.toAnySendable(priority)
-        Task {
-            do {
-                try await setPriority(sendablePriority)
-                block(nil, self)
-            } catch {
-                block(error, self)
-            }
-        }
+        let params: [String: AnySendable] = [
+            "path": .string(path),
+            "priority": RtdbValueCodec.toAnySendable(priority)
+        ]
+        database.sendInCallOrder(method: "rtdb.setPriority", params: params) { error in block(error, self) }
     }
 
     public func setValue(_ value: Any?, andPriority priority: Any?) async throws {
@@ -130,11 +114,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "value": RtdbValueCodec.toAnySendable(value),
             "priority": RtdbValueCodec.toAnySendable(priority)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.setWithPriority",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.setWithPriority", params: params)
     }
 
     public func setValue(
@@ -142,16 +122,12 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         andPriority priority: Any?,
         withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
     ) {
-        let sendableValue = RtdbValueCodec.toAnySendable(value)
-        let sendablePriority = RtdbValueCodec.toAnySendable(priority)
-        Task {
-            do {
-                try await setValue(sendableValue, andPriority: sendablePriority)
-                block(nil, self)
-            } catch {
-                block(error, self)
-            }
-        }
+        let params: [String: AnySendable] = [
+            "path": .string(path),
+            "value": RtdbValueCodec.toAnySendable(value),
+            "priority": RtdbValueCodec.toAnySendable(priority)
+        ]
+        database.sendInCallOrder(method: "rtdb.setWithPriority", params: params) { error in block(error, self) }
     }
 
     public func updateChildValues(_ values: [AnyHashable: Any]) async throws {
@@ -159,58 +135,34 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             "path": .string(path),
             "values": RtdbValueCodec.toAnySendable(values)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.update",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.update", params: params)
     }
 
     public func updateChildValues(
         _ values: [AnyHashable: Any],
         withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
     ) {
-        let sendableValues = RtdbValueCodec.toAnySendable(values)
-        Task {
-            do {
-                let params: [String: AnySendable] = [
-                    "path": .string(path),
-                    "values": sendableValues
-                ]
-                _ = try await database.bridgeClient.op(
-                    method: "rtdb.update",
-                    params: params,
-                    actAs: database.currentAuthLens()
-                )
-                block(nil, self)
-            } catch {
-                block(error, self)
-            }
-        }
+        let params: [String: AnySendable] = [
+            "path": .string(path),
+            "values": RtdbValueCodec.toAnySendable(values)
+        ]
+        database.sendInCallOrder(method: "rtdb.update", params: params) { error in block(error, self) }
     }
 
     public func removeValue() async throws {
         let params: [String: AnySendable] = [
             "path": .string(path)
         ]
-        _ = try await database.bridgeClient.op(
-            method: "rtdb.remove",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        try await database.send(turn: database.takeTurn(), method: "rtdb.remove", params: params)
     }
 
     public func removeValue(
         completionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
     ) {
-        Task {
-            do {
-                try await removeValue()
-                block(nil, self)
-            } catch {
-                block(error, self)
-            }
-        }
+        let params: [String: AnySendable] = [
+            "path": .string(path)
+        ]
+        database.sendInCallOrder(method: "rtdb.remove", params: params) { error in block(error, self) }
     }
 
     // ── Transactions ──────────────────────────────────────────────────────────
@@ -218,12 +170,22 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
     public func runTransactionBlock(
         _ block: @escaping @Sendable (MutableData) -> TransactionResult
     ) async throws -> (committed: Bool, snapshot: DataSnapshot) {
+        try await runTransaction(block, firstReadTurn: database.takeTurn())
+    }
+
+    /// Runs a transaction whose first read is sent in the place `firstReadTurn`
+    /// holds. Later reads and the commit take their turns when they are sent.
+    private func runTransaction(
+        _ block: @escaping @Sendable (MutableData) -> TransactionResult,
+        firstReadTurn: OperationTurn
+    ) async throws -> (committed: Bool, snapshot: DataSnapshot) {
         var attempts = 0
         let maxRetries = 25
 
         while attempts < maxRetries {
             attempts += 1
-            let currentSnap = try await getData()
+            let isFirstAttempt = attempts == 1
+            let currentSnap = try await getData(turn: isFirstAttempt ? firstReadTurn : database.takeTurn())
             let mutable = MutableData(
                 key: currentSnap.key,
                 value: currentSnap.value,
@@ -271,9 +233,10 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         _ block: @escaping @Sendable (MutableData) -> TransactionResult,
         andCompletionBlock completionBlock: @escaping @Sendable (Error?, Bool, DataSnapshot?) -> Void
     ) {
+        let firstReadTurn = database.takeTurn()
         Task {
             do {
-                let result = try await runTransactionBlock(block)
+                let result = try await runTransaction(block, firstReadTurn: firstReadTurn)
                 completionBlock(nil, result.committed, result.snapshot)
             } catch {
                 completionBlock(error, false, nil)

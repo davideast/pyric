@@ -764,6 +764,18 @@ const RULES_ROUTES: DiscriminatorRoute[] = [
       return translated;
     },
   },
+  {
+    tool: 'diagnose_rule_denial',
+    action: null,
+    selects: on('service', 'database'),
+    operation: 'diagnose_database_denial',
+    translate: (args) => {
+      const translated: Args = { operation: args.operation, path: args.path };
+      assign(translated, 'uid', overrideUid(args));
+      assign(translated, 'data', parseJsonValue(text(args, 'resourceDataJson')));
+      return translated;
+    },
+  },
   ...(['firestore', 'database', 'storage'] as const).map((service) => ({
     tool: 'verify_security_rules',
     action: 'lint',
@@ -796,6 +808,7 @@ interface RulesTestCase {
   path: string;
   uid?: string;
   resourceDataJson?: string;
+  queryJson?: string;
 }
 
 /** The suite's first case, which is the one the canonical simulate operations evaluate. */
@@ -805,7 +818,10 @@ function translateFirstTestCase(args: Args): Args {
   if (first === undefined) throw new Error('simulate_suite requires at least one test case');
   const translated: Args = { operation: first.operation, path: first.path };
   assign(translated, 'uid', first.uid);
-  assign(translated, 'data', parseJsonObject(first.resourceDataJson));
+  // Database rules take any JSON value here, a scalar write or an update patch.
+  // The canonical method refuses a non-object for the services that take only one.
+  assign(translated, 'data', parseJsonValue(first.resourceDataJson));
+  assign(translated, 'query', parseJsonObject(first.queryJson));
   assign(translated, 'rules', text(args, 'source'));
   return translated;
 }

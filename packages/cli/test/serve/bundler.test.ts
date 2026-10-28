@@ -293,18 +293,25 @@ export const db = getFirestore(initializeSandbox());`,
 });
 
 describe('the real wrapper entries (plan step 1.2)', () => {
-  it('defaultSdkEntries locates every served Firebase entry including both Messaging planes', () => {
+  it('defaultSdkEntries locates every served Firebase entry including deferred subpaths and both Messaging planes', () => {
     const entries = (require('../../src/serve/bundler.js') as typeof import('../../src/serve/bundler.js')).defaultSdkEntries();
     expect(Object.keys(entries).sort()).toEqual([
       'ai',
+      'analytics',
       'app',
       'app-ai-passthrough',
+      'app-ai-passthrough-app-check',
+      'app-check',
       'auth',
       'database',
       'firestore',
+      'firestore-lite',
+      'functions',
       'init',
       'messaging',
       'messaging-sw',
+      'performance',
+      'remote-config',
       'storage',
     ]);
   });
@@ -340,11 +347,15 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     expect(storageSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
     expect(authSrc).not.toMatch(/initializeSandbox/); // sandbox lives in the chunk
     expect(fsSrc).not.toMatch(/initializeSandbox/);
+    // The in-page runtime's verify capture records every RTDB instance.
+    const sources = result.files.map((f) => readFileSync(f, 'utf8'));
+    expect(sources.some((src) => src.includes('captureRtdbInstances'))).toBe(true);
     for (const f of result.files) {
       const src = readFileSync(f, 'utf8');
       // provenance banner on every served bundle
       expect(src).toContain('not the real Firebase SDK');
-      if (!f.endsWith('/app-ai-passthrough.js')) {
+      // The production AI pass-through entries wrap the Firebase SDK by design.
+      if (!f.endsWith('/app-ai-passthrough.js') && !f.endsWith('/app-ai-passthrough-app-check.js')) {
         expect(src).not.toMatch(/from\s*["']firebase\//);
       }
       expect(src).not.toMatch(/from\s*["']node:/);
@@ -478,8 +489,12 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     expect(src).not.toMatch(/from\s*["']node:/);
     // Browser tool dispatch uses the in-memory modules resolver. Pulling the
     // disk-backed resolver into this graph makes Vite request an `fs` shim and
-    // can fail at module evaluation before the worker connects.
-    expect(src).not.toContain('readFileSync');
+    // can fail at module evaluation before the worker connects. No module in
+    // the graph imports `fs` statically, so the node-shim plugin never
+    // inlines its `fs` shim. (`rtdbRules.fromFirebaseJson` reaches `node:fs`
+    // only through `process.getBuiltinModule` at call time.)
+    expect(src).not.toContain('diskReader');
+    expect(src).not.toContain('fs is not available in the browser');
     // Provenance banner + the connect wiring that makes it a SharedWorker host.
     expect(src).toContain('not the real Firebase SDK');
     expect(src).toContain('onconnect');

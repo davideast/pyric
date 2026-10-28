@@ -34,15 +34,32 @@ export { patchObjectMetadata, toFullMetadata, type AdminMetadataPatch } from './
 export {
   decodeString,
   defaultRawContentType,
+  uploadObject,
+  uploadObjectReplacing,
+  type ReplacingUploadResult,
+  type UploadObjectOptions,
 } from './upload.js';
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
+export { generationIssuer, higherGeneration, raisedMark, type GenerationIssuer } from './generation.js';
 export { isStorageUrl, parseStorageUrl, refPathOf, type StorageLocation } from './url.js';
-export type { StorageRulesResolution } from './rules-resolution.js';
+export {
+  compileStorageRules,
+  type CompiledStorageRules,
+  type StorageRulesResolution,
+} from './rules-resolution.js';
 export {
   snapshotStorageState, restoreStorageState, resetStorageState, referenceStorageState, restoreStorageReferences,
   type StorageStateRecord, type StorageReferenceRecord,
 } from './sandbox/persistence-state.js';
-export type { StorageBackend, StoredMetadata } from './persistence.js';
+export { DEFAULT_BUCKET, assertPriorAt, type StorageBackend, type StoredMetadata, type StoredObject } from './persistence.js';
+export { copyObject } from './copy.js';
+export { deleteObjectGeneration } from './download.js';
+export {
+  canceledRollbackFailed, keepReplacedObject, restoreObjectGeneration, rollBackCanceledCommit,
+  undoCanceledCommit,
+  type ReplacedAtCommit, type RollbackOutcome,
+} from './upload-rollback.js';
 export { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute, type RemoteReadRequest, type RemoteUploadRequest } from './remote-bytes.js';
 
 export { observeStorageOperation, storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';
+export { localStorageUrl, storageObjectPath, STORAGE_ROUTE_PREFIX } from './byte-route.js';

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, writeFile, readFile, mkdir, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { captureIndexQuery } from 'pyric/sandbox/internal';
+import { captureDatabaseIndexQuery, captureIndexQuery } from 'pyric/sandbox/internal';
 import { createIndexConfigStore } from '../../src/serve/index-config-store.js';
 
 const query = captureIndexQuery('projects', false, [{ kind: 'where', field: 'status', op: '==' }], [{ field: 'createdAt', direction: 'desc' }]);
@@ -93,5 +93,52 @@ test('returns unconfigured without throwing when firebase.json lacks index confi
   const missingRead = await store.read();
   expect(missingRead.status).toBe('unconfigured');
   await expect(store.preview(query)).rejects.toThrow('Set firestore.indexes in firebase.json');
+}));
+
+test('a database list whose entries share one rules file reads and edits that file', () => fixture(async root => {
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ database: [
+    { instance: 'demo-app-default-rtdb', rules: 'database.rules.json' },
+    { instance: 'demo-app-shard-1', rules: 'database.rules.json' },
+  ] }));
+  await writeFile(join(root, 'database.rules.json'), JSON.stringify({ rules: { rooms: { '.read': true } } }));
+  const store = createIndexConfigStore(root);
+  const defaultRead = await store.read();
+  expect(defaultRead.status).toBe('configured');
+  expect(defaultRead.service).toBe('rtdb');
+  const read = await store.read('rtdb');
+  expect(read.status).toBe('configured');
+  expect(read.path).toBe('database.rules.json');
+
+  const rtdbQuery = captureDatabaseIndexQuery('rooms', { orderBy: { kind: 'child', path: 'createdAt' } });
+  const preview = await store.preview(rtdbQuery);
+  expect(preview.addition).toEqual({ path: '/rooms', indexOn: ['createdAt'] });
+  await store.apply(rtdbQuery, preview.revision);
+  expect(JSON.parse(await readFile(join(root, 'database.rules.json'), 'utf8')).rules.rooms['.indexOn']).toBe('createdAt');
+}));
+
+test('a database list with a rules file per entry reads as unavailable and names the files', () => fixture(async root => {
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ database: [
+    { target: 'main', rules: 'main.rules.json' },
+    { target: 'shard', rules: 'shard.rules.json' },
+  ] }));
+  const store = createIndexConfigStore(root);
+  const read = await store.read('rtdb');
+  expect(read.status).toBe('unavailable');
+  expect(read.path).toBeNull();
+  expect(read.status === 'unavailable' && read.reason).toContain('main.rules.json, shard.rules.json');
+  const rtdbQuery = captureDatabaseIndexQuery('rooms', { orderBy: { kind: 'key' } });
+  await expect(store.preview(rtdbQuery)).rejects.toThrow('main.rules.json, shard.rules.json');
+}));
+
+test('a Firestore database list whose entries share one indexes file reads that file', () => fixture(async root => {
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ firestore: [
+    { database: '(default)', rules: 'firestore.rules', indexes: 'config/indexes.json' },
+    { database: 'reports', rules: 'firestore.rules', indexes: 'config/indexes.json' },
+  ] }));
+  const store = createIndexConfigStore(root);
+  const read = await store.read();
+  expect(read.status).toBe('configured');
+  expect(read.service).toBe('firestore');
+  expect(read.path).toBe('config/indexes.json');
 }));
 

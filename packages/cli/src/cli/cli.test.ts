@@ -176,6 +176,31 @@ describe('runDatabaseRulesValidate', () => {
     expect(out.errors).toEqual([expect.objectContaining({ code: 'PARSE_ERROR', path: '/notes/$id', rule: '.write' })]);
   });
 
+  it('names the file line and column of the rule behind each finding, through comments', async () => {
+    const io = bufferIo();
+    const source = [
+      '// rules with a comment first', // 1
+      '{', // 2
+      '  "rules": {', // 3
+      '    "notes": {', // 4
+      '      "$id": {', // 5
+      '        /* ".write": "x" */', // 6
+      '        ".write": "auth != null && ("', // 7
+      '      }', // 8
+      '    }', // 9
+      '  }', // 10
+      '}', // 11
+    ].join('\n');
+    const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => source) as never,
+    });
+    expect(code).toBe(2);
+    const out = JSON.parse(io.getOut()) as { errors: Array<Record<string, unknown>> };
+    expect(out.errors).toEqual([expect.objectContaining({ code: 'PARSE_ERROR', line: 7, column: 9 })]);
+  });
+
   it('exits 0 with no errors on rules whose expressions all parse', async () => {
     const io = bufferIo();
     const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
@@ -185,6 +210,94 @@ describe('runDatabaseRulesValidate', () => {
     });
     expect(code).toBe(0);
     expect(JSON.parse(io.getOut())).toEqual({ errors: [] });
+  });
+
+  it('exits 0 by default without --fail-on even when RTDB-SEC-1 is present', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => '{"rules":{".read":true,".write":true}}') as never,
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(io.getOut())).toEqual({ errors: [] });
+  });
+
+  it('exits 2 and includes RTDB-SEC-1 in errors when --fail-on high or --fail-on critical is passed', async () => {
+    for (const level of ['high', 'critical'] as const) {
+      const io = bufferIo();
+      const code = await runDatabaseRulesValidate(
+        serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', level]),
+        {
+          ...io,
+          cwd: '/tmp',
+          readFile: (async () => '{\n  "rules": {\n    ".read": true,\n    ".write": true\n  }\n}') as never,
+        },
+      );
+      expect(code).toBe(2);
+      const out = JSON.parse(io.getOut()) as { errors: Array<Record<string, unknown>> };
+      expect(out.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'RTDB-SEC-1',
+            severity: 'critical',
+            path: '/',
+            rule: '.write',
+            line: 4,
+            column: 5,
+          }),
+        ]),
+      );
+    }
+  });
+
+  it('filters medium findings by --fail-on threshold on validate', async () => {
+    const mediumRules = '{"rules":{"posts":{".read":true}}}';
+    const highIo = bufferIo();
+    const highCode = await runDatabaseRulesValidate(
+      serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', 'high']),
+      {
+        ...highIo,
+        cwd: '/tmp',
+        readFile: (async () => mediumRules) as never,
+      },
+    );
+    expect(highCode).toBe(0);
+    expect(JSON.parse(highIo.getOut())).toEqual({ errors: [] });
+
+    const mediumIo = bufferIo();
+    const mediumCode = await runDatabaseRulesValidate(
+      serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', 'medium']),
+      {
+        ...mediumIo,
+        cwd: '/tmp',
+        readFile: (async () => mediumRules) as never,
+      },
+    );
+    expect(mediumCode).toBe(2);
+    const out = JSON.parse(mediumIo.getOut()) as { errors: Array<Record<string, unknown>> };
+    expect(out.errors).toEqual([
+      expect.objectContaining({
+        code: 'RTDB-SEC-2',
+        severity: 'medium',
+        path: '/posts',
+        rule: '.read',
+      }),
+    ]);
+  });
+
+  it('exits 1 when --fail-on is given an invalid value on validate', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesValidate(
+      serviceArgs(['database', 'rules', 'validate', 'database.rules.json', '--fail-on', 'low']),
+      {
+        ...io,
+        cwd: '/tmp',
+        readFile: (async () => '{"rules":{}}') as never,
+      },
+    );
+    expect(code).toBe(1);
+    expect(io.getErr()).toContain('Invalid --fail-on level "low". Expected critical, high, or medium.');
   });
 });
 
@@ -367,9 +480,9 @@ describe('runInit', () => {
 
     // Missing Pyric development scripts + deps added.
     expect(written.scripts.bridge).toBe('pyric bridge');
-    expect(written.scripts.dev).toBe('pyric sandbox --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts');
+    expect(written.scripts.dev).toBe('pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts');
     expect(Object.keys(written.scripts).some((name) => name.startsWith('deploy'))).toBe(false);
-    expect(written.dependencies.firebase).toBe('^12.12.0');
+    expect(written.dependencies.firebase).toBe('~12.13.0');
     expect(written.dependencies.pyric).toBeUndefined();
     expect(written.devDependencies['@pyric/cli']).toBe('*');
     expect(written.devDependencies.typescript).toBe('^5.7.0');
@@ -392,10 +505,10 @@ describe('runInit', () => {
         private: true,
         scripts: {
           start: 'node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
-          dev: 'pyric sandbox --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
+          dev: 'pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
           bridge: 'pyric bridge',
         },
-        dependencies: { firebase: '^12.12.0' },
+        dependencies: { firebase: '~12.13.0' },
         devDependencies: { '@pyric/cli': '*', '@types/node': '^22.0.0', typescript: '^5.7.0' },
       },
       null,

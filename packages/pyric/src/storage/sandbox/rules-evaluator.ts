@@ -19,7 +19,7 @@ import {
   isValueTypeOperand,
   typeMatches,
 } from './rules-operators.js';
-import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
+import { formatPath, matchSegments, recursiveWildcardMinimum, splitPath, type PathParamValue } from './rules-path-match.js';
 import {
   RuleEvalError,
   RuleExpressionLimitError,
@@ -80,11 +80,11 @@ export function evaluateStorageRules(
   function visit(
     block: MatchBlock,
     remaining: string[],
-    params: Record<string, string | string[]>,
+    params: Record<string, PathParamValue>,
   ): boolean {
     if (stopped) return false;
     // Match this block's segments against the start of `remaining`.
-    const match = matchSegments(block.segments, remaining, params);
+    const match = matchSegments(block.segments, remaining, params, rules._version);
     if (!match) return false;
     const newParams = match.params;
     const left = match.left;
@@ -107,6 +107,8 @@ export function evaluateStorageRules(
               input,
               now: nowMillis,
               params: newParams,
+              matchParams: newParams,
+              scopeKind: 'match',
               locals: {},
               funcs: block.visibleFuncs ?? new Map(),
               firestoreLookup,
@@ -159,6 +161,16 @@ export function evaluateStorageRules(
             }
             return false;
           }
+          // Exceeding the 2-lookup Firestore access cap terminates the entire
+          // request evaluation immediately: later allow rules and match blocks
+          // must not run.
+          if (err instanceof RuleResourceLimitError) {
+            stopped = true;
+            reasons.push(
+              `match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`,
+            );
+            return false;
+          }
           // Any thrown evaluation failure (an unresolved
           // import, an error inside a body) denies this rule with a reason
           // that names the function, never a false allow.
@@ -175,6 +187,30 @@ export function evaluateStorageRules(
         reasons.push(
           `match ${formatPath(block.segments)} ${input.request.method}: condition false`,
         );
+      }
+    }
+    // When this block ends with `{name=**}` and has nested `match` children,
+    // `{name=**}` can consume any prefix of the remaining segments while the
+    // child block matches the suffix (mirroring Firestore's `collectBelowRecursive`).
+    const lastSeg = block.segments[block.segments.length - 1];
+    if (block.children.length > 0 && lastSeg !== undefined && lastSeg.kind === 'wildcard') {
+      const prefixSegments = block.segments.slice(0, -1);
+      const prefixMatch = matchSegments(prefixSegments, remaining, params, rules._version);
+      if (prefixMatch) {
+        const tail = prefixMatch.left;
+        const fewest = recursiveWildcardMinimum(rules._version);
+        for (let splitLen = tail.length; splitLen >= fewest; splitLen--) {
+          const captured = tail.slice(0, splitLen);
+          const childLeft = tail.slice(splitLen);
+          const childParams: Record<string, PathParamValue> = {
+            ...prefixMatch.params,
+            [lastSeg.name]: new StoragePath('/' + captured.join('/')),
+          };
+          for (const child of block.children) {
+            if (visit(child, childLeft, childParams)) return true;
+          }
+        }
+        return false;
       }
     }
     // Recurse into children with the leftover path.
@@ -219,9 +255,12 @@ export interface EvalCtx {
   /** The evaluation instant in epoch milliseconds (injected by the caller,
    *  defaulting to evaluation-time now); `request.time` is its Timestamp. */
   now: number;
-  /** Path wildcards from the enclosing match. Empty inside a function
-   *  body: caller wildcards do not leak in except via arguments. */
-  params: Record<string, string | string[]>;
+  /** Path wildcards visible in the current lexical scope. */
+  params: Record<string, PathParamValue>;
+  /** Full path wildcards captured by the matched `allow` rule's `match` chain. */
+  matchParams?: Record<string, PathParamValue>;
+  /** Lexical scope kind (`'global'` above `service`, `'service'` inside `service`, `'match'` inside `match`). */
+  scopeKind?: 'global' | 'service' | 'match';
   /** Function parameter and `let` bindings for the current body. */
   locals: Record<string, unknown>;
   /** Functions callable from the current scope. */
@@ -278,18 +317,20 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       return expr.value;
     case 'ident': {
       // Local (param / let) bindings win over globals and path params.
-      if (expr.name in ctx.locals) return ctx.locals[expr.name];
-      if (expr.name === 'request') return buildRequestObject(ctx.input, ctx.now);
-      // Production exposes no usable `resource` value when the target object
-      // does not exist. Even comparing the missing binding with null errors
-      // and denies; it is not a JavaScript-like null sentinel.
-      if (expr.name === 'resource') {
-        return ctx.input.resource === null
-          ? new RuleError('Null value error.')
-          : buildResourceObject(ctx.input.resource);
+      if (Object.hasOwn(ctx.locals, expr.name)) return ctx.locals[expr.name];
+      if (ctx.scopeKind !== 'global') {
+        if (expr.name === 'request') return buildRequestObject(ctx.input, ctx.now);
+        // Production exposes no usable `resource` value when the target object
+        // does not exist. Even comparing the missing binding with null errors
+        // and denies; it is not a JavaScript-like null sentinel.
+        if (expr.name === 'resource') {
+          return ctx.input.resource === null
+            ? new RuleError('Null value error.')
+            : buildResourceObject(ctx.input.resource);
+        }
       }
-      if (expr.name in ctx.params) return ctx.params[expr.name];
-      return undefined;
+      if (Object.hasOwn(ctx.params, expr.name)) return ctx.params[expr.name];
+      return new RuleError(`Identifier ${expr.name} is undefined.`);
     }
     case 'member': {
       const t = evalExpr(expr.target, ctx);
@@ -583,10 +624,21 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   fn.params.forEach((p, i) => {
     locals[p] = argVals[i];
   });
+  const fullMatchParams = ctx.matchParams ?? ctx.params;
+  const declParams: Record<string, PathParamValue> = {};
+  if (fn.declCaptures) {
+    for (const key of fn.declCaptures) {
+      if (Object.hasOwn(fullMatchParams, key)) {
+        declParams[key] = fullMatchParams[key]!;
+      }
+    }
+  }
   const bodyCtx: EvalCtx = {
     input: ctx.input,
     now: ctx.now,
-    params: {}, // no dynamic-scope leakage of caller wildcards
+    params: declParams,
+    matchParams: fullMatchParams,
+    scopeKind: fn.scopeKind ?? 'match',
     locals,
     funcs: fn.declScope ?? new Map(),
     firestoreLookup: ctx.firestoreLookup,
@@ -608,8 +660,12 @@ function evalGlobalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): un
   if (expr.name === 'path' && expr.args.length === 1) {
     const inner = evalExpr(expr.args[0], ctx);
     if (isErr(inner)) return inner;
-    if (typeof inner === 'string') return new StoragePath(inner);
-    if (inner instanceof StoragePath) return inner;
+    if (typeof inner === 'string') {
+      if (inner.includes('//')) {
+        return new RuleError(`Invalid argument error in path(): empty path segment.`);
+      }
+      return new StoragePath(inner);
+    }
     return new RuleError(`path() expects a string, got ${describeType(inner)}.`);
   }
   const conversion = conversionFor(expr.name);

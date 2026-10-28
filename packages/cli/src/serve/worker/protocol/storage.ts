@@ -34,20 +34,8 @@ export const MAX_STORAGE_PART_B64_LENGTH = Math.ceil(MAX_STORAGE_PART_BYTES / 3)
  */
 export const MAX_STORAGE_OBJECT_BYTES = 512 * 1024 * 1024;
 
-/**
- * The Node host's HTTP byte route. Its paths follow Firebase's download paths
- * under the pyric namespace: `<prefix><bucket>/o/<encoded path>` for an object,
- * `<prefix><bucket>/o?name=…` for an upload.
- */
-export const STORAGE_ROUTE_PREFIX = '/__pyric/storage/v0/b/';
-
-/** An object's path on the byte route, with a token when the URL must carry its own authority. */
-export function storageObjectPath(bucket: string, path: string, token?: string): string {
-  const query = new URLSearchParams({ alt: 'media' });
-  const hasToken = token !== undefined;
-  if (hasToken) query.set('token', token);
-  return `${STORAGE_ROUTE_PREFIX}${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}?${query}`;
-}
+export { STORAGE_ROUTE_PREFIX, storageObjectPath } from 'pyric/storage/internal';
+import { STORAGE_ROUTE_PREFIX } from 'pyric/storage/internal';
 
 /** Where one upload's bytes are sent, carrying the token bound to that upload. */
 export function storageUploadPath(bucket: string, path: string, uploadId: string, token: string): string {

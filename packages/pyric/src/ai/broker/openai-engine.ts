@@ -289,6 +289,20 @@ export function mapFinishReason(reason: string | null | undefined): string {
   return FINISH_REASON_MAP[reason] ?? 'OTHER';
 }
 
+/**
+ * OpenAI tool-call `arguments` is a JSON string; Gemini wants an object.
+ * Text that does not parse is kept under `__malformed` and flagged, so the
+ * candidate finishes `MALFORMED_FUNCTION_CALL` on both the unary and the
+ * streamed path.
+ */
+function parseToolArguments(raw: string): { args: Record<string, unknown>; malformed: boolean } {
+  try {
+    return { args: JSON.parse(raw || '{}'), malformed: false };
+  } catch {
+    return { args: { __malformed: raw }, malformed: true };
+  }
+}
+
 function messagePartsFromOpenAI(msg: {
   content: string | null;
   tool_calls?: OpenAIToolCall[];
@@ -304,14 +318,7 @@ function messagePartsFromOpenAI(msg: {
   if (reasoning) parts.push({ text: reasoning, thought: true });
   if (msg.content) parts.push({ text: msg.content });
   for (const tc of msg.tool_calls ?? []) {
-    let args: Record<string, unknown> = {};
-    try {
-      // LOSSY EDGE in reverse: OpenAI arguments is a JSON *string*; Gemini
-      // wants an object.
-      args = JSON.parse(tc.function.arguments || '{}');
-    } catch {
-      args = { __malformed: tc.function.arguments };
-    }
+    const { args } = parseToolArguments(tc.function.arguments);
     parts.push({ functionCall: { name: tc.function.name, args } });
   }
   if (!parts.length) parts.push({ text: '' });
@@ -320,14 +327,9 @@ function messagePartsFromOpenAI(msg: {
 
 export function openAIToGeminiResponse(resp: OpenAIResponse): WireResponse {
   const choice = resp.choices[0]!;
-  const malformedToolArgs = (choice.message.tool_calls ?? []).some((tc) => {
-    try {
-      JSON.parse(tc.function.arguments || '{}');
-      return false;
-    } catch {
-      return true;
-    }
-  });
+  const malformedToolArgs = (choice.message.tool_calls ?? []).some(
+    (tc) => parseToolArguments(tc.function.arguments).malformed,
+  );
   const out: WireResponse = {
     candidates: [
       {
@@ -386,22 +388,22 @@ export class ToolCallBuffer {
     return this.byIndex.size;
   }
 
-  /** Emit whole functionCall parts (args parsed to an object) and reset. */
-  flush(): WirePart[] {
+  /**
+   * Emit whole functionCall parts (args parsed to an object) and reset.
+   * `malformed` is true when any call's accumulated arguments did not parse.
+   */
+  flush(): { parts: WirePart[]; malformed: boolean } {
     const parts: WirePart[] = [];
+    let malformed = false;
     const indexes = [...this.byIndex.keys()].sort((a, b) => a - b);
     for (const i of indexes) {
-      const { name, args } = this.byIndex.get(i)!;
-      let parsed: Record<string, unknown> = {};
-      try {
-        parsed = JSON.parse(args || '{}');
-      } catch {
-        parsed = { __malformed: args };
-      }
-      parts.push({ functionCall: { name, args: parsed } });
+      const { name, args: raw } = this.byIndex.get(i)!;
+      const parsed = parseToolArguments(raw);
+      if (parsed.malformed) malformed = true;
+      parts.push({ functionCall: { name, args: parsed.args } });
     }
     this.byIndex.clear();
-    return parts;
+    return { parts, malformed };
   }
 }
 
@@ -629,9 +631,14 @@ export class OpenAiEngine implements AnswerEngine {
       // final frame: empty text part, signed, finishReason present).
       // LOSSY EDGE: buffered tool-call fragments emit here as WHOLE
       // functionCall parts, exactly once.
+      // Arguments that do not parse finish MALFORMED_FUNCTION_CALL, as the
+      // unary path does.
       const flushed = toolBuffer.flush();
-      const finalParts = synth.signParts(flushed.length ? flushed : [{ text: '' }]);
-      yield frame(finalParts, mapFinishReason(pendingFinish));
+      const finalParts = synth.signParts(flushed.parts.length ? flushed.parts : [{ text: '' }]);
+      yield frame(
+        finalParts,
+        flushed.malformed ? 'MALFORMED_FUNCTION_CALL' : mapFinishReason(pendingFinish),
+      );
     })();
   }
 

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { FirebaseJson } from '../cli/firebase-json.js';
+import { withDefaultFirestoreRules, type FirebaseJson } from '../cli/firebase-json.js';
 
 /**
  * Apply the Vite authoring convention without replacing unrelated Firebase
@@ -25,10 +25,7 @@ export function resolveViteRulesConfig(
     ...(firebaseConfig ?? {}),
   };
   if (firestoreSource) {
-    resolved.firestore = {
-      ...(firebaseConfig?.firestore ?? {}),
-      rules: firestoreSource,
-    };
+    resolved.firestore = withDefaultFirestoreRules(firebaseConfig?.firestore, firestoreSource);
   }
   if (storageSource) {
     const storage = firebaseConfig?.storage;

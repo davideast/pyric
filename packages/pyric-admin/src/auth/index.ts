@@ -67,6 +67,7 @@ import {
   type Sandbox,
   type SandboxEvent,
 } from 'pyric/sandbox';
+import { assertNoReservedCustomClaims } from 'pyric/sandbox/internal';
 import type {
   AuthUserRecord,
   CreateUserRequest as SandboxCreateUserRequest,
@@ -346,6 +347,11 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
       uid: string,
       customUserClaims: object | null,
     ): Promise<void> {
+      try {
+        if (customUserClaims !== null) assertNoReservedCustomClaims(customUserClaims as Record<string, unknown>);
+      } catch (e) {
+        return Promise.reject(e);
+      }
       const prior = store.usersByUid.get(uid);
       if (!prior) {
         return Promise.reject(
@@ -634,6 +640,8 @@ function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
      *  `null` clears (the worker's UpdateUserRequest.customClaims
      *  replaces the whole map, admin `setCustomUserClaims` semantics). */
     async setCustomUserClaims(uid: string, customUserClaims: object | null): Promise<void> {
+      // Checked before the relay, as the Admin SDK checks before its request.
+      if (customUserClaims !== null) assertNoReservedCustomClaims(customUserClaims as Record<string, unknown>);
       await channel.op({
         method: 'auth.adminUpdateUser',
         uid,

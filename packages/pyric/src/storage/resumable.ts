@@ -11,13 +11,14 @@ import { storageTaskProgress, storageTaskResult } from '../sandbox/internal/stor
  */
 import type { EventProvenance } from 'pyric/sandbox';
 import type { StorageReference } from './reference.js';
-import type { SettableMetadata, FullMetadata } from './metadata.js';
+import type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js';
 import { toFullMetadata } from './metadata.js';
 import { planeOf } from './content-defaults.js';
-import { targetOf } from './service.js';
-import { uploadBytes, buildStoredMetadata } from './upload.js';
-import { deleteObject } from './download.js';
+import { getStorageService, targetOf } from './service.js';
+import { buildStoredMetadata, uploadObjectReplacing } from './upload.js';
 import { invalidRootOperation, uploadCanceled, type StorageError } from './errors.js';
+import type { StoredObject } from './persistence.js';
+import { rollBackCanceledCommit } from './upload-rollback.js';
 
 export type TaskEvent = 'state_changed';
 export type TaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
@@ -50,6 +51,18 @@ export interface UploadTask extends Promise<UploadTaskSnapshot> {
     complete?: null | (() => unknown),
   ): () => void;
 }
+
+/** What one commit stored, and the object it replaced. */
+interface StoredUpload {
+  readonly result: UploadResult;
+  readonly prior: StoredObject | undefined;
+}
+
+/**
+ * How a commit settled: what it stored, or why it failed. Undefined when the
+ * task stopped before the write, so the commit stored nothing.
+ */
+type CommitOutcome = { stored: StoredUpload } | { error: unknown } | undefined;
 
 interface TaskObserver {
   next: ((snapshot: UploadTaskSnapshot) => unknown) | undefined;
@@ -89,6 +102,10 @@ class UploadTaskImpl implements UploadTask {
   private _observers: TaskObserver[] = [];
   private _didIntermediateProgress = false;
   private _committing = false;
+  /** The commit once it is sent; it cannot be recalled, so a cancel waits on it. */
+  private _sentCommit: Promise<CommitOutcome> | undefined;
+  /** The commit's outcome when it settled while paused; resuming reports it. */
+  private _heldOutcome: CommitOutcome;
   private _error: Error | StorageError | undefined;
   private readonly _ref: StorageReference;
   private readonly _blob: Blob;
@@ -174,13 +191,22 @@ class UploadTaskImpl implements UploadTask {
       this._updateSnapshot('running', this._snapshot.bytesTransferred);
       this._notifyObservers('next');
       queueMicrotask(() => {
-        this._runStep();
+        const stillRunning = this._snapshot.state === 'running';
+        if (!stillRunning) return;
+        const reported = this._releaseHeldOutcome();
+        if (!reported) this._runStep();
       });
       return true;
     }
     return false;
   }
 
+  /**
+   * Cancel the upload. The snapshot is `canceled` at once. Observers and the
+   * promise hear `storage/canceled` together, once a commit that raced the
+   * cancel is rolled back, as the Firebase SDK settles them together. When
+   * the rollback fails they hear its own error, as the object is still there.
+   */
   cancel(): boolean {
     let canCancel = false;
     const isRunning = this._snapshot.state === 'running';
@@ -194,10 +220,8 @@ class UploadTaskImpl implements UploadTask {
     }
 
     if (canCancel) {
-      this._error = uploadCanceled();
       this._updateSnapshot('canceled', this._snapshot.bytesTransferred);
-      this._notifyObservers('error');
-      this._reject(this._error);
+      void this._rollBackCanceled().then((error) => this._settleCanceled(error));
       return true;
     }
     return false;
@@ -454,48 +478,118 @@ class UploadTaskImpl implements UploadTask {
     this._commitUpload();
   }
 
+  /**
+   * Commit the upload in one call. It cannot be recalled: an outcome that
+   * arrives while paused is held for resume, and a cancel waits on it to roll
+   * the object back.
+   */
   private async _commitUpload(): Promise<void> {
-    if (this._committing) return;
     const isNotRunning = this._snapshot.state !== 'running';
-    if (isNotRunning) {
+    const hasStarted = this._committing || this._heldOutcome !== undefined;
+    if (isNotRunning || hasStarted) return;
+    this._committing = true;
+    const sent = this._storeUpload();
+    this._sentCommit = sent;
+    const outcome = await sent;
+    this._committing = false;
+    this._settleCommit(outcome);
+  }
+
+  /** Store the upload, noting the object it replaces. */
+  private async _storeUpload(): Promise<CommitOutcome> {
+    try {
+      // Yield once, as the commit always has, so a cancel issued in the same
+      // turn as the upload stops it before anything is stored.
+      await getStorageService(this._ref.storage);
+      const stoppedFirst = this._snapshot.state !== 'running';
+      if (stoppedFirst) return undefined;
+      // The backend returns the object its write replaced, read in the same
+      // transaction, so a write landing just before this one is what a
+      // rollback puts back.
+      const { result, replaced: prior } = await uploadObjectReplacing(this._ref, this._blob, this._metadata, { provenance: this._provenance });
+      return { stored: { result, prior } };
+    } catch (error: unknown) {
+      return { error };
+    }
+  }
+
+  /**
+   * Report a settled commit, or hold it while paused; a cancel rolls it back
+   * itself. While a commit is held, readers already see the object and its
+   * `object_put` event has fired, before the task reports success, as in the
+   * worker client.
+   */
+  private _settleCommit(outcome: CommitOutcome): void {
+    const state = this._snapshot.state;
+    const isRunning = state === 'running';
+    if (isRunning) {
+      this._report(outcome);
       return;
     }
+    const isPaused = state === 'paused';
+    if (isPaused) this._heldOutcome = outcome;
+  }
 
-    this._committing = true;
-    try {
-      const result = await uploadBytes(this._ref, this._blob, this._metadata, this._provenance);
-      const isStillRunning = this._snapshot.state === 'running';
-      if (isStillRunning) {
-        this._updateSnapshot('success', this._snapshot.totalBytes, result.metadata);
-        this._notifyObservers('next');
-        this._notifyObservers('complete');
-        this._resolve(this._snapshot);
-      } else {
-        try {
-          await deleteObject(this._ref, this._provenance);
-        } catch {
-          // Best-effort rollback if cancelled during commit
-        }
-      }
-    } catch (err: unknown) {
-      const isStillRunning = this._snapshot.state === 'running';
-      if (isStillRunning) {
-        let errObj: Error;
-        const isInstanceOfError = err instanceof Error;
-        if (isInstanceOfError) {
-          errObj = err as Error;
-        } else {
-          errObj = new Error(String(err));
-        }
-        this._error = errObj;
-        this._updateSnapshot('error', this._snapshot.bytesTransferred);
-        this._notifyObservers('error');
-        this._reject(this._error);
-      }
-    } finally {
-      this._committing = false;
-      if (this._snapshot.state === 'running') queueMicrotask(() => this._runStep());
+  /** Report the outcome a commit held while paused; false when there is none. */
+  private _releaseHeldOutcome(): boolean {
+    const held = this._heldOutcome;
+    if (held === undefined) return false;
+    this._heldOutcome = undefined;
+    this._report(held);
+    return true;
+  }
+
+  private _report(outcome: CommitOutcome): void {
+    const storedNothing = outcome === undefined;
+    if (storedNothing) {
+      queueMicrotask(() => this._runStep());
+      return;
     }
+    if ('stored' in outcome) {
+      this._updateSnapshot('success', this._snapshot.totalBytes, outcome.stored.result.metadata);
+      this._notifyObservers('next');
+      this._notifyObservers('complete');
+      this._resolve(this._snapshot);
+      return;
+    }
+    this._fail(outcome.error);
+  }
+
+  /** Tell observers and the promise how the cancel ended, together. */
+  private _settleCanceled(error: Error): void {
+    this._error = error;
+    this._notifyObservers('error');
+    this._reject(error);
+  }
+
+  private _fail(err: unknown): void {
+    let errObj: Error;
+    const isInstanceOfError = err instanceof Error;
+    if (isInstanceOfError) {
+      errObj = err;
+    } else {
+      errObj = new Error(String(err));
+    }
+    this._error = errObj;
+    this._updateSnapshot('error', this._snapshot.bytesTransferred);
+    this._notifyObservers('error');
+    this._reject(this._error);
+  }
+
+  /**
+   * Undo what a canceled upload stored: wait for a sent commit, then roll
+   * back the generation it wrote, whether it settled while paused or settles
+   * after the cancel. Resolves the error the cancel ends with.
+   */
+  private async _rollBackCanceled(): Promise<Error> {
+    const held = this._heldOutcome;
+    this._heldOutcome = undefined;
+    const outcome = held ?? (await this._sentCommit);
+    const stored = outcome !== undefined && 'stored' in outcome;
+    if (!stored) return uploadCanceled();
+    const commit = { generation: outcome.stored.result.metadata.generation, prior: outcome.stored.prior };
+    const failed = await rollBackCanceledCommit(this._ref, commit, this._provenance);
+    return failed ?? uploadCanceled();
   }
 }
 

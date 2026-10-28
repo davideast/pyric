@@ -17,6 +17,7 @@ export type {
   Fidelity,
 } from './.generated/can-i-use-browser.js';
 
-/** Query the compact browser projection. Full claims and evidence remain on
- * the Node-only `@pyric/cli/conformance` entry point. */
+/** Query the compact browser projection. Claims and their evidence chains
+ * remain on the Node-only `@pyric/cli/conformance` entry point; caveats ship
+ * whole, including evidence text for registry rows that do not conform. */
 export const canIUse = createServedQuery(CONFORMANCE_SUPPORTS, resolveCanIUse<BrowserFeatureSupport>);

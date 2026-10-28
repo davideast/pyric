@@ -7,10 +7,24 @@ import {
   ownSandboxAppResource,
 } from './runtime.js';
 
-export { bindAppRegistrySandbox } from './registry.js';
+export { bindAppRegistryRefusal, bindAppRegistrySandbox, resetAppRegistryForTests } from './registry.js';
+export { clientSdkRefusal, clientSdkRefusalFor } from './client-sdk-refusal.js';
 export { firebaseOptionsEqual } from './options.js';
 export { isSandboxAppDeleted };
-export { deferredEntry, PyricDeferredApiError, type DeferredApi } from '../deferred/entry.js';
+export {
+  DEFERRED_API,
+  deferredEntry,
+  isDeferredApi,
+  PyricDeferredApiError,
+  type DeferredApi,
+} from '../deferred/entry.js';
+export {
+  defineDeferredMembers,
+  deferredExport,
+  deferredMember,
+  type DeferredMemberKind,
+  type DeferredMembers,
+} from '../deferred/member.js';
 
 /** Host-only lifecycle seam for resources owned by one FirebaseApp. */
 export function registerAppCleanup(

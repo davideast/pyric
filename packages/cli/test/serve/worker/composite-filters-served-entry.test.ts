@@ -124,7 +124,7 @@ beforeAll(async () => {
   for (const [docId, data] of items) {
     await fs.setDoc(fs.doc(db, `items/${docId}`), data);
   }
-  await sleep();
+  // Each seeding write was awaited, and nothing listens, so nothing is in flight.
 });
 
 afterAll(async () => {
@@ -182,5 +182,21 @@ describe('composite or()/and() over the SharedWorker via the served firebase/fir
     );
     // n=5 tie between b and c breaks on the implicit key ordering (DESC) → c, b.
     expect((snap as { docs: Array<{ id: string }> }).docs.map((d) => d.id)).toEqual(['c', 'b']);
+  });
+});
+
+// Production binds `getFirestore(app, databaseId)` to that named database. The
+// worker protocol carries no database id, so the served entry returns the
+// app's one handle and every id reads the (default) documents.
+describe('getFirestore(app, databaseId) via the served firebase/firestore entry', () => {
+  it('resolves every database id to the (default) database', async () => {
+    const getFirestoreWithDatabaseId = fs.getFirestore as unknown as (
+      app: FirebaseApp,
+      databaseId: string,
+    ) => typeof db;
+    const reports = getFirestoreWithDatabaseId(fixtureApp, 'reports');
+    expect(reports).toBe(db);
+    const snap = await fs.getDocs(fs.collection(reports, 'items'));
+    expect((snap as { docs: Array<{ id: string }> }).docs.map((d) => d.id).sort()).toEqual(['a', 'b', 'c', 'd']);
   });
 });

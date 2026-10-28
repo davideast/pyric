@@ -13,6 +13,7 @@ import {
   parseCommandString,
   registerModuleUrl,
   resolveSandboxChild,
+  sandboxMethodHint,
   waitForSandboxPeer,
 } from '../../src/cli/sandbox-runner.js';
 
@@ -159,6 +160,7 @@ describe('buildChildEnv', () => {
       },
     );
     expect(env.PYRIC_SANDBOX).toBe('remote:http://localhost:5000');
+    expect(env.PYRIC_SANDBOX_INSTANCE).toBeUndefined();
     expect(env.PYRIC_BEACON_TOKEN).toBe('launch-secret');
     expect(env.NODE_OPTIONS).toBe('--max-old-space-size=4096 --import file:///x/register/index.js');
     expect(env.PATH).toBe('/bin');
@@ -170,6 +172,39 @@ describe('buildChildEnv', () => {
       { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', beaconToken: 't' },
     );
     expect(env.NODE_OPTIONS).toBe('--import file:///r.js');
+  });
+
+  it('pins the host identity beside the url it injects', () => {
+    const env = buildChildEnv(
+      {},
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', instanceId: 'host-identity' },
+    );
+    expect(env.PYRIC_SANDBOX).toBe('remote:http://h:1');
+    expect(env.PYRIC_SANDBOX_INSTANCE).toBe('host-identity');
+  });
+
+  it('drops an inherited host identity when the launcher has none to pin', () => {
+    const env = buildChildEnv(
+      { PYRIC_SANDBOX_INSTANCE: 'outer-host' },
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' },
+    );
+    expect('PYRIC_SANDBOX_INSTANCE' in env).toBe(false);
+  });
+
+  it("hands the child the host's page transport selection and drops an inherited one", () => {
+    const workerInit = { hosted: true, projectKey: '/app', bridgeUrl: '/__pyric/sandbox' };
+    const env = buildChildEnv(
+      { PYRIC_WORKER_INIT: '{"hosted":false}', PYRIC_WORKER_INIT_HOST: 'http://outer:2' },
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', workerInit },
+    );
+    expect(JSON.parse(env.PYRIC_WORKER_INIT ?? '')).toEqual(workerInit);
+    expect(env.PYRIC_WORKER_INIT_HOST).toBe('http://h:1');
+    const bare = buildChildEnv(
+      { PYRIC_WORKER_INIT: '{"hosted":false}', PYRIC_WORKER_INIT_HOST: 'http://outer:2' },
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' },
+    );
+    expect('PYRIC_WORKER_INIT' in bare).toBe(false);
+    expect('PYRIC_WORKER_INIT_HOST' in bare).toBe(false);
   });
 
   it('omits the beacon secret when the launcher runs no beacon receiver', () => {
@@ -288,7 +323,14 @@ describe('formatStartupEnvExport', () => {
       registerUrl: 'file:///usr/local/pyric/dist/register/index.js',
       beaconToken: 'launch-secret',
     });
-    expect(output).toContain('export PYRIC_SANDBOX="remote:http://localhost:3473"');
+    // The line to copy names no address: discovery finds the running host
+    // through the project's .pyric/serve.json, whatever port it took.
+    expect(output).toContain('  export PYRIC_SANDBOX=remote\n');
+    expect(output).not.toContain('export PYRIC_SANDBOX="remote:');
+    expect(output).toContain('.pyric/serve.json');
+    expect(output).toContain(
+      'From another directory or machine, set PYRIC_SANDBOX=remote:http://localhost:3473 instead.',
+    );
     expect(output).not.toContain('launch-secret');
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
     expect(output).toContain('Automatic interception confirmation requires launching the command through pyric.');
@@ -304,5 +346,21 @@ describe('formatStartupEnvExport', () => {
       registerUrl: 'file:///r.js',
     });
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
+  });
+});
+
+describe('sandboxMethodHint', () => {
+  it('names the sandbox methods when a word that is not a command was run', async () => {
+    const hint = await sandboxMethodHint('save');
+    expect(hint).toContain("'save' is neither a command on PATH nor a `pyric sandbox` method");
+    expect(hint).toContain('checkpoint');
+    expect(hint).toContain('restore');
+  });
+
+  it('says nothing for a path or an actual sandbox method', async () => {
+    expect(await sandboxMethodHint('./bin/dev')).toBeNull();
+    expect(await sandboxMethodHint('/usr/local/bin/vite')).toBeNull();
+    expect(await sandboxMethodHint('')).toBeNull();
+    expect(await sandboxMethodHint('checkpoint')).toBeNull();
   });
 });

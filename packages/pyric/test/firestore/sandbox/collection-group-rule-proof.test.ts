@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { proveGlobalCollectionGroupRules } from '../../../src/firestore/sandbox/collection-group-rule-proof.js';
+import { proveCollectionGroupRules } from '../../../src/firestore/sandbox/collection-group-rule-proof.js';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
 
 function project(source: string) {
-  return proveGlobalCollectionGroupRules(parseToAST(source));
+  return proveCollectionGroupRules(parseToAST(source), 'items');
 }
 
 function rules(children: string, outer = ''): string {
@@ -16,7 +16,7 @@ function rules(children: string, outer = ''): string {
     }`;
 }
 
-describe('proveGlobalCollectionGroupRules', () => {
+describe('proveCollectionGroupRules', () => {
   test('retains a safe allow while removing a path-dependent sibling', () => {
     const result = project(rules(`match /{document=**} {
       allow list: if true;
@@ -76,10 +76,32 @@ describe('proveGlobalCollectionGroupRules', () => {
     });
   });
 
-  test('rejects concrete-only and recursive-suffix rules', () => {
+  test('rejects concrete collection rules', () => {
     expect(project(rules('match /items/{id} { allow list: if true; }'))).toBeNull();
-    expect(project(rules('match /{path=**}/items/{id} { allow list: if true; }'))).toBeNull();
+    expect(project(rules('match /users/{uid}/items/{id} { allow list: if true; }'))).toBeNull();
   });
+
+  test('retains the collection-group rule for the queried collection id', () => {
+    const result = project(rules(`
+      match /items/{id} { allow list: if true; }
+      match /{path=**}/items/{id} { allow read: if request.auth != null; }
+    `));
+
+    expect(result?.service.match.children).toHaveLength(1);
+    expect(result?.service.match.children[0]?.path.raw).toBe('/{path=**}/items/{id}');
+  });
+
+  test('rejects a collection-group rule for another collection id or another shape', () => {
+    expect(project(rules('match /{path=**}/other/{id} { allow list: if true; }'))).toBeNull();
+    expect(project(rules('match /{path=**}/items/{id}/sub/{subId} { allow list: if true; }'))).toBeNull();
+    expect(project(rules('match /users/{path=**}/items/{id} { allow list: if true; }'))).toBeNull();
+  });
+
+  for (const condition of ["path == 'users/u1'", "id == 'a'"]) {
+    test(`rejects a collection-group rule that reads a path binding: ${condition}`, () => {
+      expect(project(rules(`match /{path=**}/items/{id} { allow list: if ${condition}; }`))).toBeNull();
+    });
+  }
 
   for (const condition of [
     "request.path.document == 'items/__listPlaceholder__'",

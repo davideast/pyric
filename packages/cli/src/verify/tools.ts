@@ -1,4 +1,4 @@
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import type { ProjectScope } from '../credentials/core/types.js';
 import {
   deriveRulesTestCases,
@@ -22,8 +22,16 @@ export function createVerifyTools(deps: VerifyToolDeps = {}): ToolHandler[] {
         type: 'object',
         properties: {
           fixture: { type: 'object' },
-          rules: { type: 'object' },
-          services: { type: 'array', items: { type: 'string', enum: ['firestore', 'rtdb'] } },
+          rules: {
+            type: 'object',
+            properties: {
+              firestore: { type: 'string' },
+              rtdb: { type: 'object' },
+              rtdbInstances: { type: 'object' },
+              storage: { type: 'string' },
+            },
+          },
+          services: { type: 'array', items: { type: 'string', enum: ['firestore', 'rtdb', 'storage'] } },
           engines: { type: 'array', items: { type: 'string', enum: ['sandbox', 'rulesTestApi'] } },
           expressionReportLevel: { type: 'string', enum: ['NONE', 'VISITED', 'FULL'] },
           caseDerivation: { type: 'object' },

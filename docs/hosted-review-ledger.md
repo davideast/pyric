@@ -1,10 +1,37 @@
 # Hosted sandbox and live mode: review ledger
 
 > This ledger is closed. It records the review of the Node host work before it landed on `main`, and it is kept as history.
-> Every ruled item in it is merged. What still has to be true before the Node host ships under the npm `latest` tag is tracked in the
-> [Node host: npm latest](https://github.com/davideast/pyric/milestone/3) milestone. New Node host defects go to GitHub issues with the `node-host` label, not here.
+> Every ruled item in it is merged, and the Node host has shipped under the npm `latest` tag. What is left from this ledger is the
+> "What is left" list in the latest reconciliation below; each line links a GitHub issue with the
+> [`node-host`](https://github.com/davideast/pyric/issues?q=is%3Aissue+is%3Aopen+label%3Anode-host) label. New Node host defects go to issues with that label, not here.
 
 Review baseline: `origin/main` at `f7e90081` against `origin/hosted-live-mode` at `470ba3d4` (123 commits, 678 files), reviewed 2026-09-16. Delta review of `470ba3d4..26a6ae0d` (18 commits) on 2026-09-17; statuses below reflect the later tip. Section I holds the delta findings.
+
+## Reconciliation, 2026-10-27
+
+Reconciled against `main` at `6846b009d`, after the Node host shipped under npm `latest` (alpha.26). Each of the 13 items still open after 2026-10-17 was checked against the code its entry names; none of those code paths changed. The probes are code reads, noted in each entry. No ledger acceptance was rerun, because none of the 13 has an entry in `scripts/ledger-acceptance.json`. Status changes: I10 closed by David's decision (the pages stay up). The other 12 stay open, and each now has an issue. The [Node host: npm latest](https://github.com/davideast/pyric/milestone/3) milestone is closed, and its open issues stay open under the `node-host` label.
+
+What is left:
+
+- A8, a `mergeFields` write naming a missing field throws with no request event: #1379
+- A9, a reset skips `setOnline` for `.info/connected` observers: #1380
+- A10, sign-out drops cached tokens for every tenant of a uid: #1381
+- A11, a batch `set` then `delete` of one path evaluates the set as a delete: #1382
+- A12, a document skipped on restore is dropped on the next flush: #1383
+- A13, the in-process MCP store load is strict with no recovery path (needs David's ruling): #1384
+- D7, a per-consumer observation queue that reports gaps: #1385
+- E1, conformance rows for the foundation slice's engine changes: #1386
+- F1, the hosted suites and ledger acceptances in CI: #1053
+- H2, the `node:sqlite` experimental warning (needs David's decision): #1057
+- I6, a frozen persistence baseline: #1052
+- I17, the slow-consumer memory ceiling: #1055
+- No ledger letter: the phase 4 multi-client run, #1051, and the persistence contract's memory bounds, #1056
+
+## Reconciliation, 2026-10-17
+
+Reconciled against `main` at `81b9d9a4`. Every bun-run acceptance in `scripts/ledger-acceptance.json` that maps a ledger item passes there, and the pyric and cli typechecks exit 0. Each entry below that changed carries a dated note. Status changes: D6 and F5 closed; B4, D5, F2, F3, and F4 moot, because what they describe never reached `main`. What is left before promotion is in the milestone named above, not here.
+
+Acceptance that the entries name but `main` does not carry: the browser acceptances for C1, D3, I16, and I17 stayed on the shared branch for the phase 4 slice, so `scripts/ledger-acceptance.json` has no C1, D3, I16, or I17 entry. I16's core test is on `main` without an `I16-core` entry. The map also holds I19, I20, and I21, and the tests include I18 and C17, none of which has an entry in this ledger.
 
 This ledger is the acceptance record for the branch. Each item stays open until its acceptance evidence runs green on the current branch tip. A fix without the named evidence does not close the item.
 
@@ -101,21 +128,21 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A8. Field-mask merge error escapes without a request event
 
-- Severity: nit. Slice: `core`. Status: open.
+- Severity: nit. Slice: `core`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: a probe sends `update` with `merge: { mergeFields: ['b'] }` and data without `b`. `execute` throws "Field 'b' is specified in your field mask but missing from your input data.", records no request event, and leaves the document unchanged. Left: raise it in `execute` as an invalid-argument deny with a request event, and add the test. Reconciled 2026-10-27 at `6846b009d`: still open. `write-engine.ts:254` calls `applyWrite` unguarded and `field-merge.ts:186` still throws. Tracked in #1379.
 - Location: `packages/pyric/src/firestore/sandbox/write-engine.ts:82`, `field-merge.ts:181`.
 - Defect: the new `mergeFields` throw fires inside `applyWrite`, after rules passed but before `eventLog.append` and `emitRequest`. Every other invalid-argument path records a deny. State stays unchanged.
 - Acceptance: the error is raised in `execute` like other invalid-argument paths and a request event is recorded.
 
 ### A9. Reset bypasses `setOnline` for connection observers
 
-- Severity: nit. Slice: `core`. Status: open.
+- Severity: nit. Slice: `core`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: `synchronizeReset` still assigns `this.online = true` directly. Left: route it through `setOnline` and add the offline, reset, observe test. Reconciled 2026-10-27 at `6846b009d`: still open; the direct assignment is at `connection-lifecycle.ts:25`. Tracked in #1380.
 - Location: `packages/pyric/src/database/connection-lifecycle.ts:16`.
 - Defect: `synchronizeReset` assigns `online = true` directly. Observers of `/.info/connected` attached while offline never receive `true` after a reset, and a later `goOnline()` is a no-op because the state is already online.
 - Acceptance: route through `setOnline` and add a test for the offline, reset, observe sequence.
 
 ### A10. Sign-out deletes cached tokens for every tenant of a uid
 
-- Severity: nit. Slice: `core`. Status: open.
+- Severity: nit. Slice: `core`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: sign-out still calls `this.tokenCache.delete(previousUser.uid)` (`sandbox-backend.ts:1415`), which drops every tenant's entry. Left: delete only the signed-out tenant's entry, with the two-port test. Reconciled 2026-10-27 at `6846b009d`: still open; the call is now at `sandbox-backend.ts:1422`. Tracked in #1381.
 - Location: `packages/pyric/src/auth/sandbox-backend.ts:1375`.
 - Defect: sign-out deletes the whole per-uid token map. Another port holding the same uid under a different tenant gets a silent token rotation on its next `getIdToken(false)`.
 - Acceptance: delete only the signed-out tenant's entry; test with two ports, one uid, two tenants.
@@ -145,7 +172,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### B4. The code-form gate fails on the branch itself
 
-- Severity: blocker for the gate, not for the product. Slice: `peel`. Status: open.
+- Severity: blocker for the gate, not for the product. Slice: `peel`. Status: moot (2026-10-17). `scripts/check-code-form.ts` and `scripts/check-changed-code-form.ts` never entered `main`, and no job in `.github/workflows/build.yml` at `81b9d9a4` runs a code-form gate. The gate stays with its peel branch.
 - Location: `scripts/check-changed-code-form.ts:22`, `.github/workflows/build.yml:238`.
 - Defect: `bun scripts/check-changed-code-form.ts origin/main` exits 1 with 705 issues in 84 of 595 checked files. Any touched top-level statement or class member is checked in full, so unchanged lines inside an edited function count. Every future pull request that touches a legacy function will be red until that function is rewritten.
 - Acceptance: either scope the check to changed lines, or land the gate as advisory until the offenders are fixed. The gate moves to its own pull request with its conventions change.
@@ -154,7 +181,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C1. Resume after host restart drops RTDB, presence, and event-stream subscriptions
 
-- Severity: should-fix. Slice: `host`. Status: closed at f2eb1830 (verified 2026-09-20). After a reconnect the client reissues every live observation it owns (Firestore, RTDB, presence, and the event stream) and does not replay operations or AI requests. Acceptance is a Chromium page against a real Node host that is killed and restarted on its port. Reviewer probe: with restoration reduced to Firestore only, the RTDB and presence cases fail.
+- Severity: should-fix. Slice: `host`. Status: closed at f2eb1830 (verified 2026-09-20). After a reconnect the client reissues every live observation it owns (Firestore, RTDB, presence, and the event stream) and does not replay operations or AI requests. Acceptance is a Chromium page against a real Node host that is killed and restarted on its port. Reviewer probe: with restoration reduced to Firestore only, the RTDB and presence cases fail. Reconciled 2026-10-17 at `81b9d9a4`: the browser acceptance did not land on `main`; it waits in the phase 4 slice, and the map has no C1 entry. `main` carries the unit coverage in `packages/cli/test/serve/worker/disconnect.test.ts` (8 pass) and an app scenario in which `.info/connected` and presence re-arm after a hosted dev server restart, green in CI on `81b9d9a4`. No browser case on `main` covers the event stream after a restart.
 - Location: `packages/cli/src/serve/worker/client/websocket-connection.ts:224`; `restoreFirestoreSubscriptions` filters on `service === 'firestore'`; `client/rtdb-listeners.ts` subscriptions carry no service tag.
 - Failure: host restart or retention expiry. Pending calls are rejected, but `onValue` listeners silently stop delivering with no error callback.
 - Seam: application SDK over the hosted transport.
@@ -229,6 +256,8 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 Each is `declined` or `open` once you decide. Record the decision here.
 
+Reconciled 2026-10-17 at `81b9d9a4`: no decision is recorded for any of the three. For the third, no code under `packages/cli/src/serve` or `packages/cli/src/bridge` ends a dropped client's pending SDK operation activity; only AI streams finish as `cancelled`, on unsubscribe. Left: an owner decision on each bullet.
+
 - `auth.setTenantId` no longer retargets a live session (`packages/cli/src/serve/worker/host-auth.ts:305`). The real SDK only affects future sign-ins, so this may be a fix, but no test pins either behavior and listeners opened under the old tenant keep the old claim.
 - The in-page tab-sync fallback no longer propagates sign-in and sign-out across tabs (`packages/cli/src/serve/entries/tab-sync-wiring.ts`). The rewritten tests pin the new behavior. This is a visible change for users of the fallback.
 - Pending observations with no terminal status are exempt from every history limit (`packages/pyric/src/sandbox/internal/event-history.ts:232`). No code under `packages/cli/src/serve` emits `interrupted` or `cancelled` for a dropped client.
@@ -255,7 +284,7 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D3. Observation backpressure closes the socket instead of reporting drops
 
-- Slice: `transport`. Status: closed by contract amendment (2026-09-20); shared socket cutoff retained under the release ruling. The independently mapped memory budget remains open as I16. Verified 2026-09-20 by the reviewer at 9228d3cf: the policy test passes; every assertion of the original scenario survives the split with its threshold unchanged.
+- Slice: `transport`. Status: closed by contract amendment (2026-09-20); shared socket cutoff retained under the release ruling. The independently mapped memory budget remains open as I16. Verified 2026-09-20 by the reviewer at 9228d3cf: the policy test passes; every assertion of the original scenario survives the split with its threshold unchanged. Reconciled 2026-10-17 at `81b9d9a4`: the contract text on `main` still states the 24 MiB shared backlog and the `1013` close. The stalled-observation policy test stayed on the shared branch for the phase 4 slice, so the map on `main` has no D3 entry.
 - Decision 2026-09-20: retain the existing shared 24 MiB socket backlog for this release; defer independent observation queues and drop reporting to D7.
 - Contract: `docs/hosted-persistence-contract.md`, Transport backlog and recovery. All frames share one socket backlog; close with 1013 when the next frame would exceed 24 MiB. A stalled observation consumer interrupts its own operations; sent mutations may have completed. Reconnect restores observations without replaying writes.
 - State: `packages/cli/src/bridge/server/socket-message.ts` implements this cutoff. No product change is required for the amendment.
@@ -270,19 +299,19 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D5. Support contract validation checks shape only
 
-- Slice: `evidence`. Status: open.
+- Slice: `evidence`. Status: moot (2026-10-17). `scripts/check-support-contract.ts` and `docs/hosted-support.json` never entered `main`. Named-database support is tracked as conformance registry rows under the multi-resource work.
 - Contract: "The support inventory must account for default and named app/database cases before declaring either supported."
 - State: `scripts/check-support-contract.ts` checks referential integrity. Gate ids are unchecked strings. The manifest has no named-database cases. Deleting every hosted scenario file still passes.
 - Acceptance: each scenario id in the manifest resolves to a spec file, and named-database cases are present.
 
 ### D6. History age eviction is not in the contract
 
-- Slice: `core`. Status: open. Same fix as A4.
+- Slice: `core`. Status: closed at `9ec53e1f` (the A4 fix, merged with the foundation slice). Verified 2026-10-17 at `81b9d9a4`: `verify-ledger A4` 2 pass, 0 fail, and no `maxAgeMs` remains under `packages/pyric/src` or `packages/cli/src`. Same fix as A4.
 - Contract bounds history by count and bytes. The implementation adds 30 minutes.
 
 ### D7. Per-consumer observation queue with drop reporting
 
-- Severity: nit. Slice: `post-release`. Status: open.
+- Severity: nit. Slice: `post-release`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: unchanged and deferred past the release by the D3 ruling. Reconciled 2026-10-27 at `6846b009d`: still open, and the release it was deferred past has shipped. The bridge sends `observation_gap` only for a batch over the frame limit (`frame-output.ts:109`) and still closes a backlogged consumer with 1013 (`socket-message.ts:75`). Tracked in #1385.
 - Location: bridge output scheduling and consumer lifecycle.
 - Scope: bound pending observations per consumer at 1,000 events or 16 MiB of serialized data. Drop observation batches under pressure and report omitted count and range, preserving ordering around the gap. Keep operation and control scheduling independent; do not replay writes or classify data-subscription results as disposable history. Keep an overall transport safety bound.
 - Wire decision 2026-09-20: reuse the existing `observation_gap` envelope with first and last event ids for the dropped range; do not add a numeric sequence protocol.
@@ -302,31 +331,31 @@ Not hosted or live work. Each moves to its own branch with its own tests, or wai
 
 ### F1. No hosted suite runs in CI
 
-- Slice: `evidence`. Status: open.
+- Slice: `evidence`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: CI on `main` runs the Node host smoke set (`packages/cli/test/e2e/hosted/smoke.pw.ts` against a real Node host) and the hosted SQLite fixtures under Node in the cli test shards, both green on `81b9d9a4`. That does not match the acceptance: the branch's hosted Playwright suites never reached `main`, and `GATES.md` does not exist to link the run. Left: the owner confirms which suites are the hosted suites of record, and the phase 4 acceptance suites run in CI. Reconciled 2026-10-27 at `6846b009d`: still open. CI now also runs the app scenarios under `test/apps/` on the packed packages, several against a real Node host (for example `hosted-dev-server-restart` and `node-client-host-restart`), with the timer-bound ones in `slow-scenarios.yml`. No workflow runs `scripts/verify-ledger.ts`, and only `smoke.pw.ts` remains under `packages/cli/test/e2e/hosted`. Tracked in #1053.
 - State: 215 Playwright specs, 6 packed cases, and the manual suites under `packages/cli/test/e2e/hosted`, `e2e/live`, and `test/manual` are not referenced by any workflow or package script. They run only from commands in the docs.
 - Acceptance: a workflow job or a documented single command that runs the hosted suites, with the run linked from `GATES.md`. Until then no claim that cites them counts as verified.
 
 ### F2. Evidence lives in an ignored directory
 
-- Slice: `evidence`. Status: open.
+- Slice: `evidence`. Status: moot (2026-10-17). None of the ignored-directory evidence, `GATES.md`, or `docs/hosted-sandbox-live-mode-evidence.json` entered `main`, and no document on `main` cites `ignored/` as evidence. A newer results JSON that nothing reads is filed as a `node-host` issue in the milestone.
 - State: all recorded evidence is under `ignored/` (`.gitignore:21`). `docs/hosted-sandbox-live-mode-evidence.md` is a historical candidate. None of the case counts in `GATES.md`, the handoff, or the verification docs are reproducible from the repository. `docs/hosted-sandbox-live-mode-evidence.json` (88,450 lines) is consumed by nothing.
 - Acceptance: evidence is either regenerated by a CI job or removed from the docs. Delete the unconsumed JSON.
 
 ### F3. Manual QA cited as gate evidence
 
-- Slice: `evidence`. Status: open.
+- Slice: `evidence`. Status: moot (2026-10-17). `hosted-milestone-verification.md`, `hosted-section-one-results.md`, and the section-four documents never entered `main`. The persistence contract's memory claim, which rests on a manual run, is filed as a `node-host` issue in the milestone.
 - State: the gates doc says handwritten passed evidence does not pass, yet `hosted-milestone-verification.md` and the section-four docs rest on manual QA. `hosted-section-one-results.md` declares automated verification complete while D2 is asserted only as "no late registration".
 - Acceptance: each claim maps to an automated case or is reworded as manual.
 
 ### F4. Skipped or mode-filtered cases counted as passes
 
-- Slice: `evidence`. Status: open.
+- Slice: `evidence`. Status: moot (2026-10-17). No document on `main` states a hosted case count. The two skips it names remain in their test files, but no claim counts them.
 - State: `vite-plugin-bridge-e2e.test.ts:42` is skipped unless an environment flag is set; `examples/teams-workspace/notifications.pw.ts` skips 8 cases by mode, so "6 browser checks passed" is a partial selection.
 - Acceptance: counts in the docs state the total and the skipped number.
 
 ### F5. The two cli test shards do not partition the suite
 
-- Severity: nit, cost only. Slice: `peel`. Status: open. Found by the implementing agent during the host extraction proofs, 2026-09-20; confirmed by the reviewer from CI logs.
+- Severity: nit, cost only. Slice: `peel`. Status: closed at `7a628b82`. Verified 2026-10-17 at `81b9d9a4`: `bun test scripts/ci/test-shard.test.ts` 8 pass, 0 fail; `bun scripts/ci/test-shard.ts --list` gives 255 files for shard 1 and 254 for shard 2, with no file in both and a union of 509, every `*.test.ts` under `packages/cli`; the two CI jobs on `81b9d9a4` report the same 255 and 254 files. Found by the implementing agent during the host extraction proofs, 2026-09-20; confirmed by the reviewer from CI logs.
 - Location: `.github/workflows/build.yml` (`bun run test:ci:cli --shard=${{ matrix.shard }}/2`) and the `test:ci:cli` script in the root `package.json`.
 - Defect: the pinned Bun release does not act on `--shard`. Both jobs on pull request 655 report the identical run, 3804 tests across 398 files, so every pull request runs the whole cli suite twice. Coverage is complete; about three minutes of runner time per pull request is wasted, and a failure that appears in only one job is an order or timing effect, not a property of that job's file set.
 - Acceptance: either the two jobs run disjoint file sets whose union is the whole suite, proven by their reported file counts, or the matrix collapses to one job.
@@ -354,7 +383,7 @@ See `docs/hosted-persistence-plan-review.md` for the discussion.
 
 ### H2. Experimental warning on every hosted start
 
-- Severity: nit, first-run. Slice: `host`. Status: open.
+- Severity: nit, first-run. Slice: `host`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: no decision is recorded, and no code under `packages/cli/src` disables or explains the warning. The Node host page in Get started now says the warning is expected. Left: the owner decides, and the first-run terminal output follows the decision. Reconciled 2026-10-27 at `6846b009d`: still open and undecided. Nothing under `packages/cli/src` handles the warning, and `get-started/node-host.md` still explains it. Tracked in #1057.
 - Context: `node:sqlite` prints `ExperimentalWarning` at first use. The ownership lock already triggers it on the branch. Node can only disable the whole category, not one module.
 - Acceptance: decide whether to disable the category on the hosted CLI path or accept the warning until Node marks the module stable. Either way, the getting-started path must not show an unexplained warning on first run.
 
@@ -401,7 +430,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I6. Baseline was not frozen before implementation
 
-- Severity: should-fix. Slice: `evidence`. Status: open.
+- Severity: should-fix. Slice: `evidence`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: neither the multi-client harness nor `docs/hosted-persistence-baseline.md` is on `main`. Left: the whole acceptance, in phase 4. Reconciled 2026-10-27 at `6846b009d`: still open; neither is on `main`. Tracked in #1052.
 - Location: `docs/hosted-persistence-baseline.md:4,18`; commit `1ac597ff`.
 - Defect: the baseline doc, its JSON, the plan, the contract, and the entire SQLite backend land in one commit. The 25 ms acknowledgment budget was chosen after two of three runs. The post-implementation results JSON records the same commit hash as the baseline because the implementation was uncommitted when the script ran. Neither ceiling appears in any script or test; the harness fails only on errors.
 - Acceptance: re-run the baseline at a commit that predates the backend and record its hash; encode both ceilings in the harness so it fails above them; store pre- and post-implementation runs under distinct commit hashes.
@@ -422,14 +451,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I9. Undo history grows the database without bound
 
-- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19. The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19. The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory. Reconciled 2026-10-17 at `81b9d9a4`, I9b is open: `archive.ts` still copies the directory to a temporary directory to run `quick_check`, now leaving out the object files, and its comment gives the reason (opening SQLite can alter sidecars). Left: run it in place, or decline I9b with that reason.
 - Location: `packages/cli/src/serve/hosted/persistence/undo.ts:14`, `history.ts:45`, `archive.ts:44`.
 - Defect: every allowed write stores prior and next documents in `history_records` forever; nothing prunes. The history contract admits unbounded disk; the persistence contract does not mention it. `fresh` also copies the whole directory to the temp filesystem to run `quick_check`.
 - Acceptance: a retention bound on `history_records` with a test, the bound stated in the persistence contract, and `quick_check` run in place.
 
 ### I10. Hosted mode is announced in the site docs while acceptance is failing
 
-- Severity: should-fix. Slice: `evidence`. Status: open, ruled (owner ruling D2, 2026-09-18): remove the three public pages now; they return only when the phase 4 harness passes in CI with a committed artifact. Acceptance is the removal commit plus a site build with no hosted reference.
+- Severity: should-fix. Slice: `evidence`. Status: closed (2026-10-27), overtaken by the release. David's decision on #1310: the Node host shipped under npm `latest`, so the public Node host pages stay up, and #1054 is closed with this item. The app scenarios under `test/apps/` are the evidence D2 asked for. Earlier status: open, ruled (owner ruling D2, 2026-09-18): remove the three public pages now; they return only when the phase 4 harness passes in CI with a committed artifact. Acceptance is the removal commit plus a site build with no hosted reference. Reconciled 2026-10-17 at `81b9d9a4`: the condition has gone the other way. `packages/site-docs/src/content/get-started/node-host.md` was added on 2026-09-21, and `get-started/vite.md` documents `hosted: true`, while phase 4 has not run. Left: the owner revisits D2, which the priorities list; until then the ruling says the pages come out.
 - Location: `packages/site-docs/src/content/build/hosted-persistence.md`, `reference/cli.md`, `get-started/vite.md`; `docs/hosted-multiclient-results.json`.
 - Defect: the plan forbids release claims until every gate passes. Step 6 is open. The committed acceptance artifact is a failing run: 62,599 of 90,000 operations completed, p95 4,250 ms, maximum capture delay 1,025 s against a 2 s bound. The passing run the verification docs cite lives in gitignored `ignored/`.
 - Acceptance: remove the public pages until step 6 passes, or commit the passing artifact and make the harness re-runnable.
@@ -461,7 +490,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### A11. A set followed by a delete of the same path in one batch evaluates the set as a delete
 
-- Severity: nit. Slice: `core`. Status: open. Follow-up from the A1 verification.
+- Severity: nit. Slice: `core`. Status: open. Follow-up from the A1 verification. Reconciled 2026-10-17 at `81b9d9a4`: a probe batch of `set` then `delete` on one path, under `allow create, update: if true; allow delete: if false`, reports `Rule #1 (delete) → deny` as the evidence for both writes. Left: evaluate the `set` under its own method. Reconciled 2026-10-27 at `6846b009d`: still open; `atomic-write-pipeline.ts:156` still gives a `set` the `delete` method when its projection is null. Tracked in #1382.
 - Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts:148`.
 - Defect: after the A1 fix, only `set` operations still derive their rule method from the batch projection. When a later operation in the same batch deletes the path, the projection is null and the `set` is evaluated under the delete rule. On `main`, `set` classified by existence only. Production evaluates each write under its own method with `getAfter` reflecting the final state.
 - Acceptance: a batch of `set` then `delete` on one path under `allow create, update: if true; allow delete: if false` is denied for the delete and the set's evidence names `create` or `update`, never `delete`.
@@ -476,14 +505,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### A12. A skipped document is dropped from its bucket on the next flush
 
-- Severity: nit. Slice: `core`. Status: open. Follow-up from the A3 verification; same behavior as `main`.
+- Severity: nit. Slice: `core`. Status: open. Follow-up from the A3 verification; same behavior as `main`. Reconciled 2026-10-17 at `81b9d9a4`: the shared restore still skips with `skipInvalidDocuments: true` (`controller.ts:541`); it neither carries the skipped record through nor states the drop. Left: either half of the acceptance. Reconciled 2026-10-27 at `6846b009d`: still open, unchanged at `controller.ts:541`. Tracked in #1383.
 - Location: `packages/pyric/src/sandbox/persistence/controller.ts:541` with the flush path.
 - Defect: the shared restore skips an unreadable document and warns, but the bucket's in-memory content no longer holds it. The first flush that touches that bucket rewrites it without the skipped document. The stored bytes are then gone. This is the concern the hosted fail-closed ruling addressed for the SQLite store; the SharedWorker and in-page stores have no equivalent.
 - Acceptance: either the skipped document's raw record is carried through to the next flush of its bucket unchanged, or the warning states that the document will be dropped on the next write and the contract document says so.
 
 ### A13. The in-process MCP store load is strict with no recovery path
 
-- Severity: nit, needs a ruling. Slice: `core`. Status: open.
+- Severity: nit, needs a ruling. Slice: `core`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: `loadSandboxSnapshot` in `in-process.ts` still decodes with the strict default. Left: the owner's ruling, then the error text and recovery path it implies. Reconciled 2026-10-27 at `6846b009d`: still open and still unruled; the strict decode is at `in-process.ts:277`. Tracked in #1384, which asks David for the ruling.
 - Location: `packages/cli/src/bridge/server/in-process.ts:244`.
 - Defect: the MCP host decodes its JSON store with the strict default. One malformed document makes `pyric mcp` fail to load its state. On `main` the decoder did not validate document roots or depth, so this store restored whatever it held. Hosted is fail-closed by ruling but has salvage; this store has neither the ruling nor a recovery command.
 - Acceptance: the owner rules whether the in-process store skips like the shared restore or fails closed like hosted. If fail-closed, the error names how to recover, and `pyric sandbox salvage` accepts this store's format or a sibling command exists.
@@ -521,7 +550,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I16. The Firestore engine's event log retains every written document without bound
 
-- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `core`. Status: closed at acc7401e (verified 2026-09-21; host acceptance promoted at cf8f8909). Reviewer verification: the engine-only probe under `node --expose-gc` holds 14.4 to 14.5 MiB across four cycles where it climbed to 203.2 MiB; the six-cycle collected-heap acceptance passes on a second machine; with pruning removed from the built engine that acceptance fails with 202,380,112 bytes of retained growth, and the seven engine cases fail with pruning removed in source. Eviction is oldest-first in append order, so the omitted events are always a prefix of the log and undo cannot restore across an omitted write. The resident-memory ceiling is tracked separately as I17. Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
+- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `core`. Status: closed at acc7401e (verified 2026-09-21; host acceptance promoted at cf8f8909). Reviewer verification: the engine-only probe under `node --expose-gc` holds 14.4 to 14.5 MiB across four cycles where it climbed to 203.2 MiB; the six-cycle collected-heap acceptance passes on a second machine; with pruning removed from the built engine that acceptance fails with 202,380,112 bytes of retained growth, and the seven engine cases fail with pruning removed in source. Eviction is oldest-first in append order, so the omitted events are always a prefix of the log and undo cannot restore across an omitted write. The resident-memory ceiling is tracked separately as I17. Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides. Reconciled 2026-10-17 at `81b9d9a4`: the engine fix is on `main` as `9e0bd166`, and its seven-case core test passes there, run directly as `bun test packages/pyric/test/sandbox/firestore/ledger/i16-event-log-retention.test.ts` (7 pass, 0 fail) because the map on `main` has no `I16-core` entry. The host acceptance `i16-collected-heap.pw.ts` stayed on the shared branch for the phase 4 slice.
 - Location: `packages/pyric/src/firestore/sandbox/event-log.ts`. Host acceptance: `packages/cli/test/e2e/hosted/i16-collected-heap.pw.ts`.
 - Defect: the existing scenario exceeds its 201,326,592-byte ceiling. Earlier runs measured 202,080,256 and 215,810,048 bytes after the first cycle. The split test preserves that ceiling and uses soft assertions so both cycles are measured.
 - Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
@@ -617,7 +646,7 @@ running the promoted acceptance, with no product changes.
 
 ### I17. The slow-consumer resident-memory ceiling predates persistence and is not reproducible across machines
 
-- Severity: should-fix. Slice: `evidence`. Status: open.
+- Severity: should-fix. Slice: `evidence`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: the test and its map entry are not on `main`; they wait in the phase 4 slice. The persistence contract's separate memory claim is a `node-host` issue in the milestone. Left: the whole acceptance, in phase 4. Reconciled 2026-10-27 at `6846b009d`: still open; `section-five-slow-client.pw.ts` is not on `main`. Tracked in #1055; the memory claim is #1056.
 - Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test; the file and its 192 MiB (201,326,592-byte) ceiling remain unchanged.
 - Defect: uncollected RSS immediately after a 48 MiB write burst varies with garbage collection and allocator behavior across machines. The engine leak is independently verified fixed, but this metric continues to cross the old ceiling without a consistent growth trend.
 - Acceptance: `bun scripts/verify-ledger.ts I17`. Under I6, re-derive the ceiling from a frozen baseline on the CI runner, with collection forced before sampling or a stated tolerance, and pass the test in the phase 4 CI job. The existing test remains independently mapped and may fail until then; I16's collected-heap acceptance does not replace or weaken it.
@@ -640,7 +669,7 @@ All recorded resident-growth measurements are bytes:
 
 ### E1. Conformance evidence for the foundation slice's engine changes
 
-- Severity: should-fix. Slice: `evidence`. Status: open. Filed 2026-09-19 when the coupling gate refused the foundation pull request.
+- Severity: should-fix. Slice: `evidence`. Status: open. Filed 2026-09-19 when the coupling gate refused the foundation pull request. Reconciled 2026-10-17 at `81b9d9a4`: `packages/conformance/registry/firestore.ts` has no row for the error codes of batch or transaction `update` on a missing document or `create` on an existing one. The query validation refusals were not audited row by row. Left: both sets of rows. Reconciled 2026-10-27 at `6846b009d`: still open; the `writeBatch` rows in `registry/firestore.ts` cover atomicity and `permission-denied` only, with no `not-found` or `already-exists` row. Tracked in #1386.
 - Context: the slice changes engine files under `packages/pyric` without moving any observation, registry row, or generated projection. `compat:generate` and `compat:validate` produce no diff, the conformance suite passes, and the registry count is unchanged, so the pull request carries a `Conformance-Exempt` trailer stating exactly that. The exemption is a claim that nothing observable changed; it is not evidence that the new behaviors match production.
 - Owed: registry rows with oracle observations for (a) the query validation refusals introduced on the branch (unsupported target descriptors, order directions, filter operators, non-array membership operands, invalid limits), asserting that pyric refuses what the Firebase SDK refuses and accepts what it accepts; and (b) the atomic write rule method, asserting that batch and transaction `update` on a missing document and `create` on an existing document produce the production error codes.
 - Acceptance: the rows exist with `oracle-backed` automation and captured observations; `compat:conformance` verifies them; the registry count test is updated; the trailer's reason is no longer needed for any later slice touching the same files.

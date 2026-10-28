@@ -13,7 +13,7 @@
  * field.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import {
   SELF_SCOPE_NOTE,
   TARGET_SCOPE_NOTE,

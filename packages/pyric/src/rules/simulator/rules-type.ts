@@ -1,5 +1,14 @@
+import {
+  normalizeRe2ForJsRegExp,
+  scanRe2Pattern,
+  spellRe2Dot,
+  spellRe2PropertyShorthand,
+  spellRe2SpaceClasses,
+} from '../grammar/re2-pattern.js';
 import { FirestoreSet } from './firestore-set.js';
 import { MapDiff } from './mapdiff.js';
+import { matchesRegexNode, type RegexNode } from './regex-nfa.js';
+import { MAX_REGEX_POSITIONS, MAX_REGEX_STATES, sizeProblem } from '../rtdb/grammar/regex-limits.js';
 import { RulesValue } from './wrappers/base.js';
 
 /** A Rules map is a plain key/value record, never a boxed scalar/wrapper. */
@@ -21,4 +30,400 @@ export function describeRulesType(value: unknown): string {
   if (Array.isArray(value)) return 'list';
   if (isRulesMap(value)) return 'map';
   return typeof value;
+}
+
+// ═══ Linear-time RE2 regex evaluation & Java Matcher replacement ═══
+
+function isWordChar(chars: readonly string[], idx: number): boolean {
+  if (idx < 0 || idx >= chars.length) return false;
+  const ch = chars[idx]!;
+  if (ch.length !== 1) return false;
+  const code = ch.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    code === 95
+  );
+}
+
+/** Production's text for a regex literal it refuses at deploy. */
+export function invalidPatternMessage(pattern: string): string {
+  return `Invalid regular expression pattern. Pattern: ${pattern}.`;
+}
+
+/**
+ * The refusal for a pattern that expands past pyric's size limits, the
+ * limits RTDB uses (#1261), or null. Production's own threshold for
+ * Firestore and Storage has not been measured (#1264).
+ */
+export function re2SizeRefusal(pattern: string, ast: RegexNode): string | null {
+  if (sizeProblem(ast) === null) return null;
+  return (
+    `${invalidPatternMessage(pattern)} pyric refuses patterns that expand past ` +
+    `${MAX_REGEX_POSITIONS.toLocaleString('en-US')} characters or ` +
+    `${MAX_REGEX_STATES.toLocaleString('en-US')} matcher states, a limit of pyric; ` +
+    `production's limit has not been measured.`
+  );
+}
+
+/** Parse `pattern`, throwing when it expands past pyric's size limits. */
+function parseSizedRe2Ast(pattern: string): RegexNode {
+  const ast = parseRe2Ast(pattern);
+  const sizeRefusal = re2SizeRefusal(pattern, ast);
+  if (sizeRefusal !== null) throw new Error(sizeRefusal);
+  return ast;
+}
+
+/**
+ * Validate and compile a rules RE2 pattern into a JS RegExp for `split` or
+ * `replace`, rejecting backreferences and lookaround constructs that RE2
+ * rejects in production, and patterns past pyric's size limits.
+ */
+export function compileRe2Regex(method: string, pattern: string, source: string, flags?: string): RegExp {
+  // The scan skips escapes and classes, so `\\1` and `[(?=]` are literals.
+  const { unsupported, inlineFlags } = scanRe2Pattern(pattern);
+  if (unsupported !== null) {
+    throw new Error(
+      `${method}() pattern uses an RE2-unsupported construct (${unsupported}) that production would reject`,
+    );
+  }
+  // `(?i)` and the other inline flags reach the RegExp as flags, `\s` is
+  // RE2's ASCII class (FS2-SIM-6), and `.` matches `\r` (FS2-SIM-5a2).
+  const mergedFlags = [...new Set(`${flags ?? ''}${inlineFlags}`)].join('');
+  const spaced = spellRe2SpaceClasses(normalizeRe2ForJsRegExp(source), false);
+  let regex: RegExp;
+  try {
+    regex = new RegExp(spellRe2Dot(spaced, mergedFlags.includes('s')), mergedFlags);
+  } catch (err) {
+    throw new Error(`Invalid regex '${pattern}' in ${method}(): ${(err as Error).message}`);
+  }
+  parseSizedRe2Ast(pattern);
+  return regex;
+}
+
+/**
+ * Evaluate `subject.matches(pattern)` (full-string RE2 match) in guaranteed
+ * O(M * N) time using a Thompson NFA state-set simulation so patterns with
+ * nested quantifiers like `((a+)+)b` never backtrack catastrophically.
+ */
+export function re2FullMatch(pattern: string, subject: string): boolean {
+  compileRe2Regex('matches', pattern, `^(?:${pattern})$`);
+  const ast = parseRe2Ast(pattern);
+  return matchesRegexNode(ast, Array.from(subject));
+}
+
+function compileCharMatcher(rawPattern: string, ignoreCase: boolean): (ch: string) => boolean {
+  let flags = 'u';
+  if (ignoreCase) flags = 'iu';
+  try {
+    const re = new RegExp(`^${spellRe2SpaceClasses(spellRe2PropertyShorthand(rawPattern), true)}$`, flags);
+    return (c) => re.test(c);
+  } catch {
+    const fallbackFlags = ignoreCase ? 'i' : '';
+    const re = new RegExp(`^${spellRe2SpaceClasses(rawPattern, false)}$`, fallbackFlags);
+    return (c) => re.test(c);
+  }
+}
+
+/** Parse an RE2 pattern into the matcher's tree, refusing a repeat count over 1000. */
+export function parseRe2Ast(pattern: string): RegexNode {
+  let pos = 0;
+  let ignoreCase = false;
+  let multiline = false;
+  let dotAll = false;
+
+  const applyFlagString = (flagStr: string) => {
+    let clearing = false;
+    for (const f of flagStr) {
+      if (f === '-') clearing = true;
+      else if (f === 'i') ignoreCase = !clearing;
+      else if (f === 'm') multiline = !clearing;
+      else if (f === 's') dotAll = !clearing;
+    }
+  };
+
+  const parseAlternation = (): RegexNode => {
+    let left = parseConcat();
+    while (pos < pattern.length && pattern[pos] === '|') {
+      pos++;
+      const right = parseConcat();
+      left = { kind: 'alt', left, right };
+    }
+    return left;
+  };
+
+  const parseConcat = (): RegexNode => {
+    const items: RegexNode[] = [];
+    while (pos < pattern.length && pattern[pos] !== '|' && pattern[pos] !== ')') {
+      items.push(parseQuantified());
+    }
+    if (items.length === 0) return { kind: 'empty' };
+    if (items.length === 1) return items[0]!;
+    return { kind: 'seq', items };
+  };
+
+  const parseQuantified = (): RegexNode => {
+    let node = parseAtom();
+    while (pos < pattern.length) {
+      const ch = pattern[pos];
+      if (ch === '*' || ch === '+' || ch === '?') {
+        pos++;
+        if (pos < pattern.length && pattern[pos] === '?') pos++;
+        let min = 0;
+        let max = Infinity;
+        if (ch === '+') min = 1;
+        else if (ch === '?') max = 1;
+        node = { kind: 'rep', body: node, min, max };
+      } else if (ch === '{') {
+        const m = /^\{(\d+)(?:,(\d*))?\}/.exec(pattern.slice(pos));
+        if (!m) break;
+        pos += m[0].length;
+        if (pos < pattern.length && pattern[pos] === '?') pos++;
+        const min = Number(m[1]);
+        let max = min;
+        if (m[2] !== undefined) {
+          max = m[2] === '' ? Infinity : Number(m[2]);
+        }
+        if (min > max || min > 1000 || (max !== Infinity && max > 1000)) {
+          throw new Error(`Invalid repeat count in '${pattern}'`);
+        }
+        node = { kind: 'rep', body: node, min, max };
+      } else {
+        break;
+      }
+    }
+    return node;
+  };
+
+  const matchLiteralChar = (target: string, caseInsensitive: boolean): RegexNode => {
+    if (caseInsensitive) {
+      const lo = target.toLowerCase();
+      const up = target.toUpperCase();
+      return { kind: 'char', test: (c) => c === lo || c === up };
+    }
+    return { kind: 'char', test: (c) => c === target };
+  };
+
+  const parseAtom = (): RegexNode => {
+    const ch = pattern[pos]!;
+    if (ch === '(') {
+      pos++;
+      const savedI = ignoreCase;
+      const savedM = multiline;
+      const savedS = dotAll;
+      if (pattern[pos] === '?') {
+        pos++;
+        if (pattern[pos] === ':') {
+          pos++;
+        } else if (pattern[pos] === '<' || (pattern[pos] === 'P' && pattern[pos + 1] === '<')) {
+          const closeGt = pattern.indexOf('>', pos);
+          pos = closeGt + 1;
+        } else {
+          const flagMatch = /^[imsU-]+/.exec(pattern.slice(pos));
+          if (flagMatch) {
+            applyFlagString(flagMatch[0]);
+            pos += flagMatch[0].length;
+            if (pattern[pos] === ')') {
+              pos++;
+              return { kind: 'empty' };
+            }
+            if (pattern[pos] === ':') pos++;
+          }
+        }
+      }
+      const inner = parseAlternation();
+      if (pattern[pos] === ')') pos++;
+      ignoreCase = savedI;
+      multiline = savedM;
+      dotAll = savedS;
+      return inner;
+    }
+    if (ch === '[') {
+      const start = pos;
+      pos++;
+      if (pattern[pos] === '^') pos++;
+      if (pattern[pos] === ']') pos++;
+      while (pos < pattern.length && pattern[pos] !== ']') {
+        if (pattern[pos] === '\\') pos += 2;
+        else pos++;
+      }
+      if (pattern[pos] === ']') pos++;
+      const rawClass = normalizeRe2ForJsRegExp(pattern.slice(start, pos));
+      return { kind: 'char', test: compileCharMatcher(rawClass, ignoreCase) };
+    }
+    if (ch === '^') {
+      pos++;
+      const isMulti = multiline;
+      return {
+        kind: 'assert',
+        check: (s, p) => p === 0 || (isMulti && p > 0 && s[p - 1] === '\n'),
+      };
+    }
+    if (ch === '$') {
+      pos++;
+      const isMulti = multiline;
+      return {
+        kind: 'assert',
+        check: (s, p) => p === s.length || (isMulti && p < s.length && s[p] === '\n'),
+      };
+    }
+    if (ch === '.') {
+      pos++;
+      const allowNl = dotAll;
+      // RE2's `.` matches every character but `\n`, so it matches `\r` (FS2-SIM-5a2).
+      return { kind: 'char', test: (c) => allowNl || c !== '\n' };
+    }
+    if (ch === '\\') {
+      const start = pos;
+      pos++;
+      const esc = pattern[pos]!;
+      if (esc === 'b') {
+        pos++;
+        return { kind: 'assert', check: (s, p) => isWordChar(s, p - 1) !== isWordChar(s, p) };
+      }
+      if (esc === 'B') {
+        pos++;
+        return { kind: 'assert', check: (s, p) => isWordChar(s, p - 1) === isWordChar(s, p) };
+      }
+      if (esc === 'A') {
+        pos++;
+        return { kind: 'assert', check: (_s, p) => p === 0 };
+      }
+      if (esc === 'z') {
+        pos++;
+        return { kind: 'assert', check: (s, p) => p === s.length };
+      }
+      if ((esc === 'x' || esc === 'u') && pattern[pos + 1] === '{') {
+        const closeBrace = pattern.indexOf('}', pos + 2);
+        const hex = pattern.slice(pos + 2, closeBrace);
+        pos = closeBrace + 1;
+        return matchLiteralChar(String.fromCodePoint(parseInt(hex, 16)), ignoreCase);
+      }
+      if ((esc === 'p' || esc === 'P') && /[A-Za-z]/.test(pattern[pos + 1] ?? '')) {
+        // A one-letter Unicode class, `\pL` for `\p{L}` (FS2-SIM-5b).
+        pos += 2;
+        return { kind: 'char', test: compileCharMatcher(`\\${esc}{${pattern[pos - 1]}}`, ignoreCase) };
+      }
+      if ((esc === 'p' || esc === 'P') && pattern[pos + 1] === '{') {
+        const closeBrace = pattern.indexOf('}', pos + 2);
+        pos = closeBrace + 1;
+        const rawEsc = pattern.slice(start, pos);
+        return { kind: 'char', test: compileCharMatcher(rawEsc, ignoreCase) };
+      }
+      if (esc === 'd' || esc === 'D' || esc === 'w' || esc === 'W' || esc === 's' || esc === 'S' || esc === 't' || esc === 'n' || esc === 'r' || esc === 'v' || esc === 'f') {
+        pos++;
+        const rawEsc = pattern.slice(start, pos);
+        return { kind: 'char', test: compileCharMatcher(rawEsc, ignoreCase) };
+      }
+      if (esc === 'x') {
+        pos += 3;
+        return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
+      }
+      if (esc === 'u') {
+        pos += 5;
+        return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
+      }
+      if (esc === 'c') {
+        pos += 2;
+        return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
+      }
+      if (esc >= '0' && esc <= '7') {
+        const oct = /^[0-7]{1,3}/.exec(pattern.slice(pos))!;
+        pos += oct[0].length;
+        return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
+      }
+      const cp = pattern.codePointAt(pos)!;
+      const lit = String.fromCodePoint(cp);
+      pos += lit.length;
+      return matchLiteralChar(lit, ignoreCase);
+    }
+    const cp = pattern.codePointAt(pos)!;
+    const fullCh = String.fromCodePoint(cp);
+    pos += fullCh.length;
+    return matchLiteralChar(fullCh, ignoreCase);
+  };
+
+  return parseAlternation();
+}
+
+/** Number of capture groups in `regex`, read from a match of the empty alternative. */
+export function re2CaptureGroupCount(regex: RegExp): number {
+  const probe = new RegExp(`${regex.source}|`).exec('');
+  return probe === null ? 0 : probe.length - 1;
+}
+
+/**
+ * Evaluate `subject.replace(pattern, replacement)` with RE2 regex compilation
+ * and Java `Matcher` replacement template rules (`$n`, `${name}`, `\c`).
+ */
+export function replaceRe2(subject: string, pattern: string, replacement: string): string {
+  const regex = compileRe2Regex('replace', pattern, pattern, 'g');
+  const groupCount = re2CaptureGroupCount(regex);
+  return subject.replace(regex, (...match: unknown[]) => {
+    const groups = match.slice(0, groupCount + 1) as Array<string | undefined>;
+    const lastArg = match[match.length - 1];
+    let namedGroups: Record<string, string | undefined> = {};
+    if (typeof lastArg === 'object' && lastArg !== null) {
+      namedGroups = lastArg as Record<string, string | undefined>;
+    }
+    return expandRe2Replacement(replacement, groups, namedGroups);
+  });
+}
+
+function expandRe2Replacement(
+  template: string,
+  groups: ReadonlyArray<string | undefined>,
+  namedGroups: Readonly<Record<string, string | undefined>>,
+): string {
+  const groupCount = groups.length - 1;
+  let out = '';
+  let i = 0;
+  while (i < template.length) {
+    const char = template[i];
+    if (char === '\\') {
+      if (i + 1 >= template.length) {
+        throw new Error('replace() replacement ends with an escape character');
+      }
+      out += template[i + 1];
+      i += 2;
+      continue;
+    }
+    if (char !== '$') {
+      out += char;
+      i += 1;
+      continue;
+    }
+    const next = template[i + 1];
+    if (next === '{') {
+      const close = template.indexOf('}', i + 2);
+      if (close === -1) {
+        throw new Error(`replace() replacement has an unclosed group name: ${template.slice(i)}`);
+      }
+      const name = template.slice(i + 2, close);
+      if (!Object.hasOwn(namedGroups, name)) {
+        throw new Error(`replace() replacement names no group: ${template.slice(i, close + 1)}`);
+      }
+      out += namedGroups[name] ?? '';
+      i = close + 1;
+      continue;
+    }
+    if (next === undefined || next < '0' || next > '9') {
+      throw new Error(`replace() replacement has an illegal group reference: ${template.slice(i)}`);
+    }
+    let group = Number(next);
+    let end = i + 2;
+    while (end < template.length && template[end]! >= '0' && template[end]! <= '9') {
+      const longer = group * 10 + Number(template[end]);
+      if (longer > groupCount) break;
+      group = longer;
+      end += 1;
+    }
+    if (group > groupCount) {
+      throw new Error(`replace() replacement names group ${group}, but the pattern has ${groupCount}`);
+    }
+    out += groups[group] ?? '';
+    i = end;
+  }
+  return out;
 }

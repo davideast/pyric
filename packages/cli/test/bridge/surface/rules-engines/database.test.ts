@@ -6,19 +6,23 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
+import { getActiveRules } from 'pyric/sandbox/database';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
 import { DATABASE_RULES } from '../../../../src/bridge/surface/rules-engines/database.js';
 
 const OPEN_RULES = JSON.stringify({ rules: { '.read': true, '.write': true } });
+/** A public read below the root: a hardcoded-true lint warning and a medium security finding. */
+const WARNING_RULES = JSON.stringify({ rules: { scores: { '.read': true } } });
 const CLOSED_RULES = JSON.stringify({ rules: { '.read': false, '.write': false } });
 const GATE_INSTANT = Date.parse('2026-01-01T00:00:00.000Z');
 const NOW_GATED_RULES = JSON.stringify({ rules: { '.read': `now > ${GATE_INSTANT}` } });
 
 /** A rules file as written by hand: line and block comments around and inside the object. */
 const OWNER_RULES = `{
-  "rules": { "notes": { "$uid": { ".read": "auth != null && auth.uid == $uid", ".write": "auth != null && auth.uid == $uid" } } }
+  "rules": { "notes": { "$uid": { ".read": "auth != null && auth.uid == $uid", ".write": "auth != null && auth.uid == $uid", ".validate": "newData.isString()" } } }
 }`;
 const COMMENTED_OWNER_RULES = `/* Notes rules. */
 {
@@ -28,7 +32,8 @@ const COMMENTED_OWNER_RULES = `/* Notes rules. */
       /* One entry per user id. */
       "$uid": {
         ".read": "auth != null && auth.uid == $uid", // the owner only
-        ".write": "auth != null && auth.uid == $uid"
+        ".write": "auth != null && auth.uid == $uid",
+        ".validate": "newData.isString()"
       }
     }
   }
@@ -46,7 +51,7 @@ function freshContext() {
 
 describe('requestMethods', () => {
   it('evaluates read, write, and validate', () => {
-    expect([...DATABASE_RULES.requestMethods]).toEqual(['read', 'write', 'validate']);
+    expect([...DATABASE_RULES.requestMethods]).toEqual(['read', 'write', 'update', 'validate']);
   });
 });
 
@@ -64,7 +69,7 @@ describe('lint', () => {
   });
 
   it('lints a supplied ruleset, reporting findings and errors', async () => {
-    const result = await DATABASE_RULES.lint(freshContext(), OPEN_RULES);
+    const result = await DATABASE_RULES.lint(freshContext(), WARNING_RULES);
     expect(result.ok).toBe(true);
     expect(result.data).toHaveProperty('issues');
   });
@@ -82,11 +87,19 @@ describe('lint', () => {
   });
 
   it('passes a supplied ruleset whose findings are warnings only', async () => {
-    const result = await DATABASE_RULES.lint(freshContext(), OPEN_RULES);
+    const result = await DATABASE_RULES.lint(freshContext(), WARNING_RULES);
     expect(result.ok).toBe(true);
     const issues = (result.data as { issues: Array<{ severity: string }> }).issues;
     expect(issues.length).toBeGreaterThan(0);
     expect(issues.every((issue) => issue.severity === 'warning')).toBe(true);
+  });
+
+  it('fails a ruleset that grants public read and write at the root, naming the security findings', async () => {
+    const result = await DATABASE_RULES.lint(freshContext(), OPEN_RULES);
+    expect(result.ok).toBe(false);
+    const issues = (result.data as { issues: Array<{ code: string; severity: string; path: string; fix?: string }> }).issues;
+    expect(issues).toContainEqual(expect.objectContaining({ code: 'RTDB-SEC-1', severity: 'error', path: '/', fix: expect.any(String) }));
+    expect(issues).toContainEqual(expect.objectContaining({ code: 'RTDB-SEC-2', severity: 'error', path: '/' }));
   });
 
   it('lints a supplied ruleset with line and block comments as it lints the same ruleset without them', async () => {
@@ -104,7 +117,7 @@ describe('lint', () => {
 
   it('lints the ruleset already installed when none is supplied', async () => {
     const ctx = freshContext();
-    await DATABASE_RULES.install(ctx, OPEN_RULES);
+    await DATABASE_RULES.install(ctx, WARNING_RULES);
     const result = await DATABASE_RULES.lint(ctx, undefined);
     expect(result.ok).toBe(true);
   });
@@ -123,6 +136,27 @@ describe('install', () => {
     expect(result.summary).toBe('Database rules installed.');
   });
 
+  it('refuses a ruleset production would refuse and keeps the rules in force', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, OPEN_RULES);
+    const bad = JSON.stringify({ rules: { rooms: { '.write': "auth.uid = 'x'" } } });
+    expect(DATABASE_RULES.compileFailure(bad)?.body).toContain('/rooms/.write:');
+    const result = await DATABASE_RULES.install(ctx, bad);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('/rooms/.write:');
+    expect(getActiveRules(ctx.sandbox)).toEqual({ rules: { '.read': true, '.write': true } });
+  });
+
+  it('refuses a ruleset with two wildcard siblings, with production\'s text', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, OPEN_RULES);
+    const bad = JSON.stringify({ rules: { a: { $x: {}, $y: {} } } });
+    expect(DATABASE_RULES.compileFailure(bad)?.body).toContain("Cannot have multiple default rules ('$x' and '$y').");
+    const result = await DATABASE_RULES.install(ctx, bad);
+    expect(result.ok).toBe(false);
+    expect(getActiveRules(ctx.sandbox)).toEqual({ rules: { '.read': true, '.write': true } });
+  });
+
   it('installs a ruleset with comments, the source check accepting it', async () => {
     expect(DATABASE_RULES.compileFailure(COMMENTED_OWNER_RULES)).toBeNull();
     expect(DATABASE_RULES.compileFailure(COMMENTED_BROKEN_RULES)).not.toBeNull();
@@ -131,6 +165,48 @@ describe('install', () => {
     expect(result.ok).toBe(true);
     const owner = await DATABASE_RULES.simulate(ctx, { operation: 'read', path: 'notes/alice', uid: 'alice' });
     expect((owner.data as { decision: string }).decision).toBe('ALLOW');
+  });
+});
+
+describe('simulate: evaluation trace', () => {
+  /** Line numbers are noted at the end of each row. */
+  const CASCADE_RULES = [
+    '// database.rules.json', // 1
+    '{', // 2
+    '  "rules": {', // 3
+    '    ".read": "false",', // 4
+    '    "rooms": {', // 5
+    '      ".read": "auth.token.admin === true",', // 6
+    '      "$roomId": {', // 7
+    '        ".read": "auth.uid === $roomId"', // 8
+    '      }', // 9
+    '    }', // 10
+    '  }', // 11
+    '}', // 12
+  ].join('\n');
+
+  const request = { operation: 'read', path: 'rooms/alice', uid: 'alice' } as const;
+
+  it('returns every evaluated rule of a supplied ruleset with its line in the supplied text', async () => {
+    const result = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: CASCADE_RULES });
+    const trace = (result.data as { trace: Array<Record<string, unknown>> }).trace;
+    expect(
+      trace.map((entry) => [entry.path, entry.kind, entry.conditionText, entry.verdict, entry.line]),
+    ).toEqual([
+      ['/', 'read', 'false', 'DENY', 4],
+      ['/rooms', 'read', 'auth.token.admin === true', 'DENY', 6],
+      ['/rooms/$roomId', 'read', 'auth.uid === $roomId', 'ALLOW', 8],
+    ]);
+    expect(trace[2].pathVariableBindings).toEqual({ $roomId: 'alice' });
+  });
+
+  it('returns the trace of the running ruleset, without lines because the source text is not kept', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, CASCADE_RULES);
+    const result = await DATABASE_RULES.simulate(ctx, request);
+    const trace = (result.data as { trace: Array<Record<string, unknown>> }).trace;
+    expect(trace.map((entry) => entry.verdict)).toEqual(['DENY', 'DENY', 'ALLOW']);
+    expect(trace.every((entry) => !('line' in entry))).toBe(true);
   });
 });
 
@@ -151,7 +227,15 @@ describe('simulate', () => {
       const commented = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: COMMENTED_OWNER_RULES });
       const plain = await DATABASE_RULES.simulate(freshContext(), { ...request, rules: OWNER_RULES });
       expect((commented.data as { decision: string }).decision).toBe(decision);
-      expect(commented).toEqual(plain);
+      // The decision and the evaluated rules match; only the lines differ,
+      // because the two texts place the rule on different lines.
+      const withoutLines = (result: typeof commented) => {
+        const data = result.data as { trace: Array<{ line?: number }> };
+        return { ...result, data: { ...data, trace: data.trace.map(({ line: _line, ...rest }) => rest) } };
+      };
+      expect(withoutLines(commented)).toEqual(withoutLines(plain));
+      expect((commented.data as { trace: Array<{ line: number }> }).trace.map((e) => e.line)).toEqual([8]);
+      expect((plain.data as { trace: Array<{ line: number }> }).trace.map((e) => e.line)).toEqual([2]);
     }
   });
 
@@ -233,5 +317,42 @@ describe('simulate', () => {
     getClock(ctx.sandbox).set(GATE_INSTANT + 1000);
     const after = await DATABASE_RULES.simulate(ctx, { operation: 'read', path: 'rooms/lobby' });
     expect((after.data as { decision: string }).decision).toBe('ALLOW');
+  });
+
+  it('projects a seeded user stored tenantId and customClaims when simulating by uid (CON-2b)', async () => {
+    const ctx = freshContext();
+    authSandbox.seedUsers(getAuth(ctx.sandbox), [
+      {
+        uid: 'alice',
+        email: 'alice@example.test',
+        tenantId: 'acme',
+        customClaims: { role: 'billingAdmin' },
+      },
+    ]);
+    const tenantedRules = JSON.stringify({
+      rules: {
+        invoices: {
+          '.read': "auth != null && auth.token.firebase.tenant == 'acme' && auth.token.role == 'billingAdmin'",
+        },
+      },
+    });
+
+    const supplied = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'invoices',
+      uid: 'alice',
+      rules: tenantedRules,
+    });
+    expect((supplied.data as { decision: string }).decision).toBe('ALLOW');
+    expect((supplied.data as { allowed: boolean }).allowed).toBe(true);
+
+    await DATABASE_RULES.install(ctx, tenantedRules);
+    const running = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'invoices',
+      uid: 'alice',
+    });
+    expect((running.data as { decision: string }).decision).toBe('ALLOW');
+    expect((running.data as { allowed: boolean }).allowed).toBe(true);
   });
 });

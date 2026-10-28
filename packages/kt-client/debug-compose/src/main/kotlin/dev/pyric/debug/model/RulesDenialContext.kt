@@ -90,16 +90,20 @@ data class EvaluatedAuth(
 data class DeniedRequest(
     val method: String? = null,
     val path: String? = null,
-    val resourceData: Map<String, Any?>? = null
+    val resourceData: Map<String, Any?>? = null,
+    /** The proposed value as sent. An RTDB write may propose any JSON value. */
+    val proposedValue: Any? = null
 ) {
     companion object {
         fun fromMap(map: Map<String, Any?>?): DeniedRequest? {
             if (map == null) return null
-            val method = (map["method"] as? String)?.lowercase()
+            // Kept as sent: RTDB methods such as `setPriority` are camelCase.
+            val method = map["method"] as? String
             val path = map["path"] as? String
+            val proposed = map["resourceData"] ?: map["data"]
             @Suppress("UNCHECKED_CAST")
-            val data = (map["resourceData"] ?: map["data"]) as? Map<String, Any?>
-            return DeniedRequest(method = method, path = path, resourceData = data)
+            val data = proposed as? Map<String, Any?>
+            return DeniedRequest(method = method, path = path, resourceData = data, proposedValue = proposed)
         }
     }
 }
@@ -149,6 +153,12 @@ data class FieldDiff(
     val kind: FieldDiffKind
 )
 
+/**
+ * A Security Rules denial frame. [engine] names the rules engine: "firestore"
+ * (the default when a frame names none) or "rtdb". An RTDB frame carries the
+ * deciding rules node ([matchedPath]), its expression ([matchedRule]) and the
+ * `$` wildcard bindings in place of a line citation; [rule] is derived from them.
+ */
 data class RulesDenialContext(
     val rule: RuleCitation? = null,
     val auth: EvaluatedAuth? = null,
@@ -156,8 +166,17 @@ data class RulesDenialContext(
     val failedFields: List<String> = emptyList(),
     val request: DeniedRequest? = null,
     val resource: DeniedResource? = null,
-    val query: DeniedQuery? = null
+    val query: DeniedQuery? = null,
+    val engine: String = "firestore",
+    val matchedPath: String? = null,
+    val matchedRule: String? = null,
+    val pathVariableBindings: Map<String, String>? = null,
+    val reason: String? = null,
+    val errorCode: String? = null
 ) {
+    val isRtdb: Boolean
+        get() = engine == "rtdb"
+
     fun computeDataDiff(): List<FieldDiff> {
         val oldData = resource?.data ?: emptyMap()
         val newData = request?.resourceData ?: emptyMap()
@@ -182,8 +201,24 @@ data class RulesDenialContext(
     }
 
     companion object {
+        private const val RTDB_RULES_FILE = "database.rules.json"
+
         fun fromMap(map: Map<String, Any?>): RulesDenialContext {
-            val rule = RuleCitation.parse(map["rule"])
+            val engine = map["engine"] as? String ?: "firestore"
+            val matchedPath = map["matchedPath"] as? String
+            val matchedRule = map["matchedRule"] as? String
+            val rtdbRule = if (engine == "rtdb" && (matchedPath != null || matchedRule != null)) {
+                RuleCitation(
+                    file = RTDB_RULES_FILE,
+                    citation = if (matchedPath != null) "$RTDB_RULES_FILE $matchedPath" else RTDB_RULES_FILE,
+                    expression = matchedRule
+                )
+            } else null
+            val rule = RuleCitation.parse(map["rule"]) ?: rtdbRule
+            val pathVariableBindings = (map["pathVariableBindings"] as? Map<*, *>)
+                ?.entries
+                ?.mapNotNull { (key, value) -> if (key is String && value != null) key to value.toString() else null }
+                ?.toMap()
             @Suppress("UNCHECKED_CAST")
             val auth = EvaluatedAuth.fromMap(map["auth"] as? Map<String, Any?>)
             @Suppress("UNCHECKED_CAST")
@@ -204,7 +239,13 @@ data class RulesDenialContext(
                 failedFields = failedFields,
                 request = request,
                 resource = resource,
-                query = query
+                query = query,
+                engine = engine,
+                matchedPath = matchedPath,
+                matchedRule = matchedRule,
+                pathVariableBindings = pathVariableBindings,
+                reason = map["reason"] as? String,
+                errorCode = map["errorCode"] as? String
             )
         }
     }

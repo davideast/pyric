@@ -1,0 +1,95 @@
+{
+  "name": "app-check-ai-gate-wire",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#app-check-required"
+  ],
+  "description": "AI Logic generateContent from Node in the ai-probes request shape (GoogleAI backend, gemini-flash-lite-latest) with no X-Firebase-AppCheck header, a malformed header, the web SDK placeholder token, an Admin-minted token with one signature character changed, and a valid Admin-minted token. The enforcementMode read for firebaseml.googleapis.com just before the capture is recorded in behavior.",
+  "observedAt": "2026-10-22T03:10:06.846Z",
+  "fbSdkVersion": "12.13.0",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "appCheckEnforcementModeAtCapture": "UNENFORCED",
+    "noHeader": {
+      "httpStatus": 403,
+      "isJson": true,
+      "errorKeySet": [
+        "code",
+        "message",
+        "status"
+      ],
+      "errorCode": 403,
+      "errorStatus": "PERMISSION_DENIED",
+      "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+      "raw": {
+        "error": {
+          "code": 403,
+          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+          "status": "PERMISSION_DENIED"
+        }
+      }
+    },
+    "malformedHeader": {
+      "httpStatus": 403,
+      "isJson": true,
+      "errorKeySet": [
+        "code",
+        "message",
+        "status"
+      ],
+      "errorCode": 403,
+      "errorStatus": "PERMISSION_DENIED",
+      "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+      "raw": {
+        "error": {
+          "code": 403,
+          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+          "status": "PERMISSION_DENIED"
+        }
+      }
+    },
+    "sdkPlaceholderToken": {
+      "httpStatus": 403,
+      "isJson": true,
+      "errorKeySet": [
+        "code",
+        "message",
+        "status"
+      ],
+      "errorCode": 403,
+      "errorStatus": "PERMISSION_DENIED",
+      "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+      "raw": {
+        "error": {
+          "code": 403,
+          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+          "status": "PERMISSION_DENIED"
+        }
+      }
+    },
+    "tamperedSignature": {
+      "httpStatus": 403,
+      "isJson": true,
+      "errorKeySet": [
+        "code",
+        "message",
+        "status"
+      ],
+      "errorCode": 403,
+      "errorStatus": "PERMISSION_DENIED",
+      "messageText": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+      "raw": {
+        "error": {
+          "code": 403,
+          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
+          "status": "PERMISSION_DENIED"
+        }
+      }
+    },
+    "validAdminMintedToken": {
+      "httpStatus": 200,
+      "finishReason": "STOP"
+    }
+  }
+}

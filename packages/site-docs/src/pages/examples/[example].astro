@@ -13,7 +13,7 @@ const definition = pyricExample(id).definition;
 ---
 
 <ExampleLayout title={definition.header}>
-  {definition.renderer === 'chess'
+  {'renderer' in definition && definition.renderer === 'chess'
     ? <ChessShowcase client:only="react" />
     : <ExampleRuntime id={id} client:only="react" />}
 </ExampleLayout>

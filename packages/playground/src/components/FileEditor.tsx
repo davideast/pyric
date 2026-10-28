@@ -16,12 +16,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { notifyVfsWrite } from '~/lib/files/bootstrap';
+import { createDebouncedFileWriter } from '~/lib/files/debounced-writer';
 import { useFilesStore } from '~/lib/store/files';
 import { getVFS } from '~/lib/vfs';
 
 import { CmEditor, type CmLanguage } from './CmEditor';
 
 const WRITE_DEBOUNCE_MS = 300;
+
+function decodeText(value: string | Uint8Array): string {
+  return typeof value === 'string' ? value : new TextDecoder().decode(value);
+}
 
 function languageForPath(path: string): CmLanguage {
   if (path.endsWith('.rules')) return 'rules';
@@ -35,8 +40,16 @@ export function FileEditor() {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const writeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastWrittenContent = useRef<string>('');
+  const writer = useRef<ReturnType<typeof createDebouncedFileWriter> | null>(null);
+  if (writer.current === null) {
+    writer.current = createDebouncedFileWriter({
+      delayMs: WRITE_DEBOUNCE_MS,
+      read: (path) => getVFS().promises.readFile(path, 'utf8').then(decodeText),
+      write: (path, next) => getVFS().promises.writeFile(path, next),
+      onWritten: notifyVfsWrite,
+      onError: (err) => setError(err instanceof Error ? err.message : String(err)),
+    });
+  }
 
   const language = useMemo<CmLanguage>(
     () => (activeFilePath ? languageForPath(activeFilePath) : 'js'),
@@ -58,9 +71,14 @@ export function FileEditor() {
       .promises.readFile(activeFilePath, 'utf8')
       .then((value) => {
         if (cancelled) return;
-        const text = typeof value === 'string' ? value : new TextDecoder().decode(value);
-        setContent(text);
-        lastWrittenContent.current = text;
+        const text = decodeText(value);
+        // Disk content that differs from the last known version came from
+        // another writer (an agent tool); it replaces the editor text and
+        // cancels the pending save typed against the old version. Disk
+        // content that matches is the editor's own save, so keystrokes
+        // typed since then stay.
+        const external = writer.current?.observe(activeFilePath, text) ?? false;
+        if (external || !writer.current?.hasPending(activeFilePath)) setContent(text);
         setLoading(false);
       })
       .catch((err: NodeJS.ErrnoException) => {
@@ -76,17 +94,7 @@ export function FileEditor() {
   const handleChange = (next: string) => {
     setContent(next);
     if (!activeFilePath) return;
-    if (writeTimeout.current) clearTimeout(writeTimeout.current);
-    writeTimeout.current = setTimeout(async () => {
-      if (next === lastWrittenContent.current) return;
-      try {
-        await getVFS().promises.writeFile(activeFilePath, next);
-        lastWrittenContent.current = next;
-        notifyVfsWrite(activeFilePath, next);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    }, WRITE_DEBOUNCE_MS);
+    writer.current?.schedule(activeFilePath, next);
   };
 
   if (!activeFilePath) {

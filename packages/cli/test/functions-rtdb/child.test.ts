@@ -4,46 +4,9 @@ import {
   buildFunctionsChildEnv,
   resolveChildDatabaseHost,
   resolveChildModulePath,
-  resolveChildProjectId,
 } from '../../src/functions-rtdb/child.js';
 
 describe('functions child metadata and environment resolution', () => {
-  describe('resolveChildProjectId', () => {
-    test('prefers explicit projectId when provided', () => {
-      const resolved = resolveChildProjectId('custom-proj', 'other-default-rtdb', {
-        PYRIC_PROJECT: 'env-proj',
-      });
-      expect(resolved).toBe('custom-proj');
-    });
-
-    test('prefers PYRIC_PROJECT from environment when explicit projectId is omitted', () => {
-      const resolved = resolveChildProjectId(undefined, 'instance-default-rtdb', {
-        PYRIC_PROJECT: 'env-proj',
-      });
-      expect(resolved).toBe('env-proj');
-    });
-
-    test('strips -default-rtdb from instance when explicit options are absent', () => {
-      const resolved = resolveChildProjectId(undefined, 'my-app-default-rtdb', {});
-      expect(resolved).toBe('my-app');
-    });
-
-    test('preserves instance without -default-rtdb suffix', () => {
-      const resolved = resolveChildProjectId(undefined, 'my-custom-instance', {});
-      expect(resolved).toBe('my-custom-instance');
-    });
-
-    test('falls back to demo-project when instance is empty', () => {
-      const resolved = resolveChildProjectId(undefined, '', {});
-      expect(resolved).toBe('demo-project');
-    });
-
-    test('falls back to demo-project when all arguments are undefined', () => {
-      const resolved = resolveChildProjectId();
-      expect(resolved).toBe('demo-project');
-    });
-  });
-
   describe('resolveChildDatabaseHost', () => {
     test('returns custom host when provided', () => {
       expect(resolveChildDatabaseHost('custom-host.local')).toBe('custom-host.local');
@@ -122,6 +85,27 @@ describe('functions child metadata and environment resolution', () => {
       expect(config.projectId).toBe('sandbox-app');
       expect(config.databaseURL).toBe('https://sandbox-app-default-rtdb.firebasedatabase.app');
       expect(config.storageBucket).toBe('sandbox-app.appspot.com');
+    });
+
+    test('replaces the host Google project variables and drops its credentials file', () => {
+      const childEnv = buildFunctionsChildEnv({
+        baseEnv: {
+          GOOGLE_CLOUD_PROJECT: 'corp-production-gcp-project',
+          GCP_PROJECT: 'corp-production-gcp-project',
+          GOOGLE_APPLICATION_CREDENTIALS: '/home/dev/.config/gcloud/prod-sa.json',
+          PATH: '/usr/bin',
+        },
+        entry: '/app/functions/index.js',
+        instance: 'sandbox-app-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+        projectId: 'sandbox-app',
+      });
+
+      expect(childEnv.GOOGLE_CLOUD_PROJECT).toBe('sandbox-app');
+      expect(childEnv.GCP_PROJECT).toBe('sandbox-app');
+      expect('GOOGLE_APPLICATION_CREDENTIALS' in childEnv).toBe(false);
+      expect(childEnv.PATH).toBe('/usr/bin');
     });
   });
 });

@@ -63,7 +63,7 @@ export interface AiModelSubstitutionPayload {
   effectiveModel?: unknown;
   /** Resolved broker engine (`openai` | `gemini` | ...). */
   engine?: unknown;
-  /** Why it differs, e.g. `engine modelMap`, `experimental alias`. */
+  /** Why it differs, e.g. `engine modelMap`, `engine catch-all model`. */
   reason?: unknown;
 }
 
@@ -150,7 +150,7 @@ export function formatAiBlockedBlock(payload: AiBlockedPayload): string {
  * Format a relayed AI model substitution into ONE terminal line, a single
  * line on purpose: there is no error, no status, and no missing content to
  * explain. The whole fact IS the arrow, and the parenthetical says which
- * engine did it and why (`engine modelMap`, `experimental alias`, ...).
+ * engine did it and why (`engine modelMap`, `engine catch-all model`, ...).
  * Exported for unit tests.
  */
 export function formatAiModelSubstitutionBlock(payload: AiModelSubstitutionPayload): string {
@@ -180,21 +180,28 @@ export interface AiTerminalBlock {
   format(payload: AiDiagnosticPayload): string;
   throttleTarget(payload: AiDiagnosticPayload): string;
   throttleReason(payload: AiDiagnosticPayload): string;
+  /** Print once per (target, reason) for the dev server's lifetime instead of
+   *  once per throttle window. A substitution is a fixed property of the
+   *  engine configuration, so repeating it adds nothing. */
+  printsOnce: boolean;
 }
 
 const AI_TERMINAL_BLOCKS: { [K in AiDiagnosticKind]: AiTerminalBlock } = {
   'ai-rejection': {
+    printsOnce: false,
     format: formatAiRejectionBlock,
     throttleTarget: (payload) => `ai-rejection ${readRawText(payload.model, '')}`,
     throttleReason: (payload) => readRawText(payload.message, 'request rejected'),
   },
   'ai-blocked': {
+    printsOnce: false,
     format: formatAiBlockedBlock,
     throttleTarget: (payload) => `ai-blocked ${readRawText(payload.model, '')}`,
     throttleReason: (payload) =>
       readRawText(payload.finishReason, readRawText(payload.blockReason, 'unknown')),
   },
   'ai-model-substituted': {
+    printsOnce: true,
     format: formatAiModelSubstitutionBlock,
     throttleTarget: (payload) => `ai-model ${readRawText(payload.requestedModel, '')}`,
     throttleReason: (payload) => readRawText(payload.effectiveModel, 'unknown'),

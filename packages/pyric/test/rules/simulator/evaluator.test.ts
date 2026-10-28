@@ -612,17 +612,22 @@ describe('RULES-B8: get() missing-doc + resource identity', () => {
     ctx.mockDocuments.set(path, data);
     return ctx;
   }
-  // get(path) takes a path literal — model it as a string literal arg (the
-  // evaluator String()-coerces). normalizePath strips the /databases prefix.
+  function docPathLit(fullPath: string): Expression {
+    return {
+      type: 'pathLiteral',
+      raw: fullPath,
+      segments: fullPath.split('/').filter(Boolean),
+    };
+  }
 
   test('get() of an existing mock doc returns its data', () => {
     const ctx = ctxWithDoc('config/app', { maxPlayers: 4 });
-    const expr = member(call('get', [lit('/databases/(default)/documents/config/app')]), 'data');
+    const expr = member(call('get', [docPathLit('/databases/(default)/documents/config/app')]), 'data');
     expect(evaluate(expr, ctx)).toEqual({ maxPlayers: 4 });
   });
 
   test('get() of a MISSING doc ERRORS (was silent null)', () => {
-    const expr = call('get', [lit('/databases/(default)/documents/config/missing')]);
+    const expr = call('get', [docPathLit('/databases/(default)/documents/config/missing')]);
     expect(() => evaluate(expr, baseCtx())).toThrow(/non-existent document/);
   });
 
@@ -631,23 +636,29 @@ describe('RULES-B8: get() missing-doc + resource identity', () => {
     // absorbed commutatively (RULES-B3). No throw, evaluates to false.
     const p = '/databases/(default)/documents/config/missing';
     const expr = binOp('&&',
-      call('exists', [lit(p)]),
-      member(member(call('get', [lit(p)]), 'data'), 'x'),
+      call('exists', [docPathLit(p)]),
+      member(member(call('get', [docPathLit(p)]), 'data'), 'x'),
     );
     expect(evaluate(expr, baseCtx())).toBe(false);
   });
 
   test('get(path).id is the last path segment (RULES-B8 identity)', () => {
     const ctx = ctxWithDoc('users/alice', { role: 'admin' });
-    const expr = member(call('get', [lit('/databases/(default)/documents/users/alice')]), 'id');
+    const expr = member(call('get', [docPathLit('/databases/(default)/documents/users/alice')]), 'id');
     expect(evaluate(expr, ctx)).toBe('alice');
   });
 
   test('get(path).__name__ is a Path wrapper', () => {
     const ctx = ctxWithDoc('users/alice', { role: 'admin' });
-    const expr = member(call('get', [lit('/databases/(default)/documents/users/alice')]), '__name__');
+    const expr = member(call('get', [docPathLit('/databases/(default)/documents/users/alice')]), '__name__');
     const v = evaluate(expr, ctx);
     expect(v).toBeInstanceOf(Path);
+  });
+
+  test('get() with a string argument instead of a Path throws EvalError (FS-SIM-12)', () => {
+    const ctx = ctxWithDoc('config/app', { maxPlayers: 4 });
+    const expr = call('get', [lit('/databases/(default)/documents/config/app')]);
+    expect(() => evaluate(expr, ctx)).toThrow(EvalError);
   });
 });
 
@@ -1082,5 +1093,31 @@ describe('RULES-B6 remainder: strict int()/bool()/float() parsing', () => {
   });
   test("float('abc') ERRORS", () => {
     expect(() => evaluate(call('float', [lit('abc')]), baseCtx())).toThrow(/Type conversion error/);
+  });
+});
+
+describe('language semantics — arithmetic operand types, slice access, path interpolation, map keys', () => {
+  test('rejects non-numeric operands for -, *, /, % and unary - (FS-SIM-2)', () => {
+    expect(() => evaluate(binOp('-', lit('5'), lit(2)), baseCtx())).toThrow(EvalError);
+    expect(() => evaluate(binOp('*', lit(true), lit(2)), baseCtx())).toThrow(EvalError);
+    expect(() => evaluate(binOp('/', lit(null), lit(2)), baseCtx())).toThrow(EvalError);
+    expect(() => evaluate(binOp('%', lit('10'), lit(3)), baseCtx())).toThrow(EvalError);
+    expect(() => evaluate(unaryOp('-', lit('3')), baseCtx())).toThrow(EvalError);
+  });
+
+  test('rejects sliceAccess on null and non-string/int pathLiteral interpolations (FS-SIM-8)', () => {
+    const nullSlice: Expression = { type: 'sliceAccess', object: lit(null), start: lit(0), end: lit(1) };
+    expect(() => evaluate(nullSlice, baseCtx())).toThrow(EvalError);
+
+    const boolPath: Expression = { type: 'pathLiteral', segments: ['users', lit(true)] };
+    expect(() => evaluate(boolPath, baseCtx())).toThrow(EvalError);
+  });
+
+  test('rejects non-string map literal keys (FS-SIM-11)', () => {
+    const nonStringKeyMap: Expression = {
+      type: 'mapLiteral',
+      entries: [{ key: lit(1), value: lit('x') }],
+    };
+    expect(() => evaluate(nonStringKeyMap, baseCtx())).toThrow(EvalError);
   });
 });

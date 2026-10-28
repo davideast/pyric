@@ -5,6 +5,7 @@ import {
   runSecurityCases,
   type LocalFirebaseTarget,
 } from "../../src/assurance/index.js";
+import { CONFORMANCE_VERDICTS } from "../../src/assurance/.generated/conformance-verdicts.js";
 
 const target: LocalFirebaseTarget = {
   schema: "pyric.assurance.target.v1",
@@ -434,5 +435,173 @@ describe("AuthorizationCampaign.map", () => {
     ).toThrow("actors[1].id is already mapped: 'alice'.");
 
     expect(campaign.spec().actors).toHaveLength(1);
+  });
+
+  it("minimizes deleted-field payload mutations and skips run-budget check on single-key payloads (AV-RUN-9)", async () => {
+    const campaign = createAuthorizationCampaign({ id: "av-run-9-minimize", target });
+    campaign.addActor({
+      id: "alice",
+      acquisition: { kind: "fixture-user", uid: "alice" },
+    });
+    campaign.addInvariant({
+      id: "inv-owner",
+      service: "firestore",
+      statement: "Updates must include role.",
+      expected: "DENY",
+      source: "declared",
+      confidence: "authoritative",
+    });
+    campaign.addProbe({
+      id: "probe-omit-owner",
+      actorId: "alice",
+      invariantId: "inv-owner",
+      control: {
+        service: "firestore",
+        method: "update",
+        path: "profiles/alice",
+        data: { role: "user", displayName: "Alice", bio: "Unchanged" },
+      },
+      mutation: {
+        dimension: "payload",
+        description: "Omit role while modifying displayName.",
+        operation: {
+          service: "firestore",
+          method: "update",
+          path: "profiles/alice",
+          data: { displayName: "Modified", bio: "Unchanged" },
+        },
+      },
+    });
+
+    await campaign.run();
+    const minimized = await campaign.minimize("probe-omit-owner");
+    expect(minimized.changed).toBe(true);
+    expect(
+      (minimized.probe.mutation.operation as { data?: Record<string, unknown> })
+        .data,
+    ).toEqual({ bio: "Unchanged" });
+
+    const singleKeyCampaign = createAuthorizationCampaign({
+      id: "av-run-9-single-key",
+      target,
+      safety: { maxRuns: 1 },
+    });
+    singleKeyCampaign.addActor({
+      id: "alice",
+      acquisition: { kind: "fixture-user", uid: "alice" },
+    });
+    singleKeyCampaign.addInvariant({
+      id: "inv-single",
+      service: "firestore",
+      statement: "Single-key payload mutation.",
+      expected: "DENY",
+      source: "declared",
+      confidence: "authoritative",
+    });
+    singleKeyCampaign.addProbe({
+      id: "probe-single",
+      actorId: "alice",
+      invariantId: "inv-single",
+      control: {
+        service: "firestore",
+        method: "update",
+        path: "profiles/alice",
+        data: { displayName: "Control" },
+      },
+      mutation: {
+        dimension: "payload",
+        description: "Change role.",
+        operation: {
+          service: "firestore",
+          method: "update",
+          path: "profiles/alice",
+          data: { role: "admin" },
+        },
+      },
+    });
+
+    await singleKeyCampaign.run();
+    const singleKeyResult = await singleKeyCampaign.minimize("probe-single");
+    expect(singleKeyResult.changed).toBe(false);
+    expect(singleKeyResult.removedPayloadFields).toEqual([]);
+  });
+
+  it("preserves summary.probes across partial runs and minimize, and retains probe.requires on exported SecurityCases (AV-RUN-10)", async () => {
+    const supportedEntry = Object.entries(CONFORMANCE_VERDICTS).find(
+      ([, verdict]) => verdict === "supported",
+    )!;
+    const supportedRequires = [
+      {
+        kind: supportedEntry[0].includes("#")
+          ? ("registry-row" as const)
+          : ("construct" as const),
+        id: supportedEntry[0],
+      },
+    ];
+    const campaign = createAuthorizationCampaign({ id: "av-run-10", target });
+    campaign.addActor({
+      id: "alice",
+      acquisition: { kind: "fixture-user", uid: "alice" },
+    });
+    campaign.addInvariant({
+      id: "inv-1",
+      service: "firestore",
+      statement: "Role must not be overwritten.",
+      expected: "DENY",
+      source: "declared",
+      confidence: "authoritative",
+    });
+    campaign.addProbe({
+      id: "probe-1",
+      actorId: "alice",
+      invariantId: "inv-1",
+      requires: supportedRequires,
+      control: {
+        service: "firestore",
+        method: "update",
+        path: "profiles/alice",
+        data: { displayName: "Valid" },
+      },
+      mutation: {
+        dimension: "payload",
+        description: "Change role with extra field.",
+        operation: {
+          service: "firestore",
+          method: "update",
+          path: "profiles/alice",
+          data: { role: "admin", displayName: "Extra" },
+        },
+      },
+    });
+    campaign.addProbe({
+      id: "probe-2",
+      actorId: "alice",
+      invariantId: "inv-1",
+      control: {
+        service: "firestore",
+        method: "update",
+        path: "profiles/alice",
+        data: { displayName: "Valid 2" },
+      },
+      mutation: {
+        dimension: "payload",
+        description: "Change role.",
+        operation: {
+          service: "firestore",
+          method: "update",
+          path: "profiles/alice",
+          data: { role: "admin" },
+        },
+      },
+    });
+
+    await campaign.run(["probe-1"]);
+    expect(campaign.report?.summary.probes).toBe(2);
+
+    await campaign.minimize("probe-1");
+    expect(campaign.report?.summary.probes).toBe(2);
+
+    const exportedCases = campaign.exportSecurityCases();
+    expect(exportedCases[0]?.requires).toEqual(supportedRequires);
   });
 });

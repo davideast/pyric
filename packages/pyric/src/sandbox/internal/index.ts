@@ -14,10 +14,22 @@
  * Documented in the design rationale section "Migration
  * scope summary".
  */
+export { withDatabaseRulesPreservedOnReset } from "../../database/sandbox/backend-for.js";
 export { getInternalEnv } from './sandbox-impl.js';
+export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
 export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';
 export { seedUserSchema, storedMetadataSchema } from './state-schemas.js';
+export {
+  BY_REFERENCE_ALTERNATIVE,
+  InlineStorageLimitError,
+  MAX_INLINE_STORAGE_BYTES,
+  assertInlineStorageFits,
+  base64DecodedLength,
+  inlineStorageLimit,
+  setInlineStorageLimitForTesting,
+  type InlineStorageDocument,
+} from './inline-storage-limit.js';
 export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../rules/indexes/query-analysis.js';
 export type { IndexesConfig, IndexesConfigEntry } from '../../rules/indexes/types.js';
 export {
@@ -59,6 +71,12 @@ export {
   type ListenerOwnerHint,
   type RecordedListenerOwners,
 } from '../attribution/listener-owners.js';
+export {
+  captureAttachStack,
+  configureListenerOwnerFrames,
+  DEFAULT_OWNER_FRAMES,
+  type ListenerOwnerFramesPolicy,
+} from '../attribution/owner-frames.js';
 export { recordEffectRegions } from '../attribution/effect-regions.js';
 export {
   isSelectableElement,
@@ -66,7 +84,7 @@ export {
   tagNameOf,
   type SelectableElement,
 } from '../attribution/element-selector.js';
-export { getClock } from '../clock.js';
+export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {
@@ -131,6 +149,11 @@ export * from '../../firestore/sandbox/converters/vector.js';
 export * from '../../firestore/sandbox/converters/fieldvalue.js';
 export * from '../../firestore/sandbox/converters/bytes-geopoint.js';
 export * from '../../firestore/sandbox/snapshot-listeners.js';
+// `DocumentSnapshot.get(fieldPath)` for every plane that rebuilds snapshots
+// (the served worker client, the remote Admin arm), so each reads a field as
+// the in-page snapshot does.
+export { getSnapshotField, type SnapshotFieldPath } from '../../firestore/sandbox/admin-compat/field-path.js';
+export { forEachDocument } from '../../firestore/sandbox/for-each-document.js';
 // Wire-encoder: produces Firestore JSON wire-format from sandbox
 // values. Used by the discover crawler's sandbox adapter (in
 // pyric/firestore/discover) to bridge LocalEnvironment ↔ the wire
@@ -161,3 +184,70 @@ export { requestStatusLabel } from '../types/request-observation.js';
 
 export { createActiveListenerState } from '../active-listeners.js';
 export { asSentence } from './sentence.js';
+export {
+  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, withIdTokenClaims, withoutJwtClaims,
+  type TokenClaimAccount, type TokenClaimRecord,
+} from './auth-token-claims.js';
+export { absolutePhotoUrl, realmOrigin } from './photo-url.js';
+// Realtime Database instance identity: the instance name production and
+// firebase.json use, and the per-instance registry sandbox and served hosts share.
+export {
+  UNNAMED_DEFAULT_DATABASE_INSTANCE,
+  createDatabaseInstanceRegistry,
+  databaseInstanceKey,
+  databaseInstanceNamed,
+  defaultDatabaseInstance,
+  defaultDatabaseInstanceName,
+  LOCKED_DATABASE_RULES,
+  isCustomDatabaseHost,
+  isDefaultDatabaseInstance,
+  undeployedInstanceNotice,
+  parseDatabaseLocationUrl,
+  parseDatabaseUrl,
+  resolveDatabaseInstance,
+  type DatabaseInstance,
+  type DatabaseInstanceRegistry,
+  type DatabaseLocationUrl,
+} from './instances.js';
+// The Realtime Database rules a firebase.json deploys to each instance, shared
+// by the dev server and `rtdbRules.fromFirebaseJson`.
+export {
+  DEFAULT_DATABASE_RULES_FILE,
+  databaseRulesConfig,
+  type DatabaseRulesConfig,
+  type DatabaseRulesConfigOptions,
+  type DatabaseRulesFileTarget,
+  type UnresolvedDatabaseRulesTarget,
+} from './database-rules-config.js';
+export {
+  DEFAULT_FIRESTORE_DATABASE,
+  DEFAULT_FIRESTORE_RULES_FILE,
+  FIRESTORE_NAMED_DATABASES_ISSUE,
+  FIRESTORE_RULES_OVERRIDE_KEY,
+  defaultFirestoreDatabase,
+  firestoreRulesConfig,
+  unservedFirestoreDatabaseWarnings,
+  type FirestoreDatabaseConfig,
+  type FirestoreRulesConfig,
+  type FirestoreRulesConfigOptions,
+  type UnresolvedFirestoreTarget,
+} from './firestore-rules-config.js';
+export { parsePyricSandbox, isRemoteActivation, type PyricSandboxActivation } from './sandbox-activation.js';
+export {
+  clearProcessActivation,
+  installProcessActivation,
+  onProcessActivationEnd,
+  processActivation,
+  type ProcessActivation,
+} from './process-activation.js';
+export {
+  appCheckProjectNumber,
+  checkAppCheckToken,
+  mintAppCheckToken,
+  signAppCheckToken,
+  type AppCheckIdentity,
+  type AppCheckTokenCheck,
+  type AppCheckTokenClaims,
+  type AppCheckTokenParts,
+  type MintedAppCheckToken,
+} from './app-check-token.js';

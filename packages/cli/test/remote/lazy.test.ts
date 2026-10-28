@@ -5,6 +5,9 @@
  * there, and a failed connect is retried by the next op.
  */
 import { describe, it, expect } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { REMOTE_SANDBOX } from 'pyric/sandbox';
 import {
   createLazyRemoteSandbox,
@@ -92,6 +95,25 @@ describe('createLazyRemoteSandbox', () => {
     expect(inner.ops).toHaveLength(1);
   });
 
+  it('after a loss, holds an op through a failed connect instead of rejecting it', async () => {
+    let connects = 0;
+    let lose: (reason: string) => void = () => {};
+    const inner = fakeInner();
+    const lazy = createLazyRemoteSandbox(async (onConnectionLost) => {
+      connects += 1;
+      lose = onConnectionLost;
+      if (connects === 2) throw Object.assign(new Error('serve restarting'), { code: 'unavailable' });
+      return inner.handle;
+    }, { warn: () => {} });
+    await lazy.rtdb.get('a');
+
+    lose('connection lost');
+    await lazy.rtdb.set('b', 1);
+    expect(connects).toBe(3);
+    expect(inner.ops.map((o) => o.method)).toEqual(['rtdb.get', 'rtdb.set']);
+    lazy.close();
+  });
+
   it('ready connects eagerly and resolves / rejects with the connect outcome', async () => {
     let connects = 0;
     const lazy = createLazyRemoteSandbox(async () => {
@@ -165,7 +187,7 @@ describe('createLazyRemoteSandbox', () => {
 });
 
 describe('remoteSandbox', () => {
-  it('is synchronous and fails fast on the first op when nothing is listening', async () => {
+  it('is synchronous and fails fast on the first op when nothing listens at the configured url', async () => {
     const server = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -174,9 +196,13 @@ describe('remoteSandbox', () => {
     const url = `http://127.0.0.1:${server.port}`;
     server.stop(true);
 
-    const lazy = remoteSandbox({ url });
+    // A project directory with no running host: the stale url has nothing to
+    // fall back to, so the first op names the url as stale.
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-lazy-stale-'));
+    const lazy = remoteSandbox({ configuredUrl: url, cwd });
     expect(lazy[REMOTE_SANDBOX]).toBe(true);
     expect(lazy.serveUrl).toBe(url);
-    expect(lazy.channel.op({ method: 'getSnapshot' })).rejects.toThrow(/failed to connect|timed out/);
+    await expect(lazy.channel.op({ method: 'getSnapshot' })).rejects.toThrow(`PYRIC_SANDBOX=remote:${url} is stale`);
+    rmSync(cwd, { recursive: true, force: true });
   });
 });

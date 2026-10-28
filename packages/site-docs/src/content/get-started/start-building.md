@@ -87,8 +87,7 @@ export default defineConfig({
 
 Update the Next.js configuration in `next.config.mjs`:
 
-```ts
-import { fileURLToPath } from 'node:url';
+```js
 import { withPyric } from '@pyric/cli/next';
 
 /** @type {import('next').NextConfig} */
@@ -99,7 +98,19 @@ const nextConfig = {
 export default withPyric(nextConfig);
 ```
 
-Start the normal development server:
+Run `next dev` under `pyric sandbox` by changing the `dev` script in `package.json`:
+
+```json
+{
+  "scripts": {
+    "dev": "pyric sandbox -- next dev"
+  }
+}
+```
+
+`pyric sandbox` starts the local backend that `withPyric` forwards to. [Next.js](./nextjs.md) covers server code and Node host mode.
+
+Start the development server:
 
 ```bash
 npm run dev
@@ -120,10 +131,20 @@ It can serve static files or start an existing development command. Put Pyric fl
 npx pyric sandbox --bridge -- npm run dev
 ```
 
+Server code that uses the client SDKs (`firebase/firestore`, `firebase/auth`, and the others) reaches only the Node host, so add `--hosted`. Without it, the first call fails with `failed-precondition`. Server code that uses `firebase-admin` works either way.
+
+```bash
+npx pyric sandbox --hosted -- node src/app.ts
+```
+
+See [Node host mode](./node-host.md).
+
 You can also set `command`, `port`, `project`, and rules paths in `pyric.json`. See the [CLI reference](../reference/cli.md). [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
 
 ## What remains local
 
 The mirrored services do not connect to a production Firebase project. Local data changes stay in the sandbox. Local Security Rules changes are enforced there and are not deployed. Firebase configuration passed to `initializeApp(config)` is accepted so the application code stays unchanged, but it does not select a cloud backend during development.
+
+Before you ship, check your rules against your captured sessions: [The same code goes live](../ship/ship-to-production.md).
 
 Continue with [How the swap works](./how-the-swap-works.md), then [develop with the Firebase APIs](../build/authentication.md).

@@ -192,6 +192,19 @@ describe('firestoreRules constructor', () => {
     expect(ast.service.match).toBeDefined();
     expect(JSON.parse(JSON.stringify(ast))).toBeTruthy();
   });
+
+  test('rejects service firebase.storage rulesets with RulesCompileError (ST-CON-5)', () => {
+    const storageSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    expect(() => firestoreRules(storageSource)).toThrow(RulesCompileError);
+    expect(() => firestoreRules(storageSource)).toThrow("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+  });
 });
 
 describe('tolerant lint(source)', () => {
@@ -209,6 +222,56 @@ describe('tolerant lint(source)', () => {
   test('parseable source yields lint/validate issues, not parse errors', () => {
     const issues = lint(NOTES_RULES);
     expect(issues.every((i) => i.origin !== 'parse')).toBe(true);
+  });
+
+  test('preserves pre-parse INVALID_OPERATOR warnings alongside PARSE_ERROR (FS-LNT-2)', () => {
+    const issues = lint(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /users/{uid} {
+      allow read: if request.auth.uid === uid && ;
+    }
+  }
+}`);
+    expect(issues.some((i) => i.code === 'PARSE_ERROR' && i.origin === 'parse')).toBe(true);
+    expect(issues.some((i) => i.code === 'INVALID_OPERATOR' && i.origin === 'lint')).toBe(true);
+  });
+
+  test('reports compile-limit rejections with origin: parse and GLOB_MATCH_COUNT (FS-CON-2, FS-LNT-4)', () => {
+    const doubleGlob = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{a=**}/sub/{b=**} {
+      allow read: if request.auth != null;
+    }
+  }
+}`;
+    const issues = lint(doubleGlob);
+    expect(
+      issues.some(
+        (i) => i.code === 'GLOB_MATCH_COUNT' && i.severity === 'error' && i.origin === 'parse',
+      ),
+    ).toBe(true);
+  });
+
+  test('reports UNSUPPORTED_RULES_VERSION, INVALID_REGEX_PATTERN, and FUNCTION_REDEFINED with origin: parse (ST-LNT-6c)', () => {
+    const compileErrorRules = `rules_version = '3';
+service cloud.firestore {
+  function dup() { return true; }
+  function dup() { return false; }
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && uid.matches('(?=invalid_re2)a') && dup();
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const issues = lint(compileErrorRules);
+    expect(issues.some((i) => i.code === 'UNSUPPORTED_RULES_VERSION' && i.origin === 'parse')).toBe(true);
+    expect(issues.some((i) => i.code === 'INVALID_REGEX_PATTERN' && i.origin === 'parse')).toBe(true);
+    expect(issues.some((i) => i.code === 'FUNCTION_REDEFINED' && i.origin === 'parse')).toBe(true);
   });
 });
 
@@ -317,6 +380,47 @@ describe('rtdbRules constructor', () => {
     expect(ruleset.toJSON().rules).toBeDefined();
   });
 
+  test('reads the text of a database.rules.json file, comments and trailing commas included', () => {
+    const text = `{
+  "rules": {
+    // rooms are readable by their members
+    "rooms": {
+      "$roomId": {
+        /* membership is a child of the room */
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+      },
+    },
+  },
+}`;
+    const ruleset = rtdbRules(text);
+    expect(ruleset.toJSON()).toEqual({
+      rules: { rooms: { $roomId: { '.read': "auth != null && data.child('members').child(auth.uid).exists()" } } },
+    });
+    const summary = ruleset.simulate([
+      { expectation: 'ALLOW', operation: 'read', path: '/rooms/r1', auth: 'alice', data: { rooms: { r1: { members: { alice: true } } } } },
+      { expectation: 'DENY', operation: 'read', path: '/rooms/r1', auth: 'bob', data: { rooms: { r1: { members: { alice: true } } } } },
+    ]);
+    expect([summary.passed, summary.failed]).toEqual([2, 0]);
+  });
+
+  test('rules text that is not a rules document throws RulesCompileError naming why', () => {
+    const notJson = () => rtdbRules('{ "rules": { ".read": true ');
+    expect(notJson).toThrow(RulesCompileError);
+    expect(notJson).toThrow(/^Realtime Database rules text is not valid JSON: /);
+    const noRules = () => rtdbRules('{ "paths": {} }');
+    expect(noRules).toThrow(RulesCompileError);
+    expect(noRules).toThrow('Realtime Database rules text has no top-level "rules" object');
+    let thrown: unknown;
+    try {
+      rtdbRules('[]');
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as RulesCompileError).issues).toEqual([
+      { code: 'PARSE_ERROR', severity: 'error', message: 'Realtime Database rules text has no top-level "rules" object', origin: 'parse' },
+    ]);
+  });
+
   test('simulates compiled { rules } JSON directly', () => {
     const compiled = { rules: { '.read': 'auth != null', '.write': false } };
     const ruleset = rtdbRules(compiled);
@@ -339,12 +443,13 @@ describe('rtdbRules constructor', () => {
     ]).cases.map((result) => result.decision)).toEqual(['ALLOW', 'DENY']);
   });
 
-  test('lint() surfaces check findings as unified issues', () => {
+  test('lint() surfaces check findings and security findings as unified issues', () => {
     const ruleset = rtdbRules(def);
     const issues = ruleset.lint();
     expect(issues).toEqual([
       expect.objectContaining({ code: 'HARDCODED_TRUE', origin: 'lint', path: '/notes/$noteId', rule: '.read' }),
       expect.objectContaining({ code: 'HARDCODED_FALSE', origin: 'lint', path: '/notes/$noteId', rule: '.write' }),
+      expect.objectContaining({ code: 'RTDB-SEC-2', origin: 'validate', path: '/notes/$noteId', rule: '.read' }),
     ]);
   });
 
@@ -474,6 +579,158 @@ describe('rtdbRules constructor', () => {
     expect(before.decision).toBe('DENY');
     expect(after.decision).toBe('ALLOW');
   });
+
+  test('simulate() preserves auth.tenant across rtdbRules inputs (CON-2a)', () => {
+    const tenantRule = "auth != null && auth.token.firebase.tenant == 'acme'";
+    const fromJson = rtdbRules({ rules: { t: { '.read': tenantRule } } });
+    const fromDoc = rtdbRules(defineRtdbRules({ paths: { '/t': { read: expr(tenantRule) } } }));
+
+    for (const ruleset of [fromJson, fromDoc]) {
+      const summary = ruleset.simulate([
+        {
+          description: 'matching tenant allows',
+          expectation: 'ALLOW',
+          operation: 'read',
+          path: '/t',
+          auth: { uid: 'u1', tenant: 'acme' },
+        },
+        {
+          description: 'different tenant denies',
+          expectation: 'DENY',
+          operation: 'read',
+          path: '/t',
+          auth: { uid: 'u1', tenant: 'other' },
+        },
+        {
+          description: 'missing tenant denies',
+          expectation: 'DENY',
+          operation: 'read',
+          path: '/t',
+          auth: { uid: 'u1' },
+        },
+      ]);
+      expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'DENY']);
+      expect(summary.passed).toBe(3);
+    }
+  });
+
+  test('simulate() honors updates on a write or validate case for multi-path writes', () => {
+    const rules = {
+      rules: {
+        a: {
+          '.write': "newData.parent().child('b').val() === 1",
+          '.validate': "newData.parent().child('b').val() === 1",
+        },
+        b: { '.write': true },
+      },
+    };
+    const ruleset = rtdbRules(rules);
+
+    const withUpdates = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/a',
+        newData: 2,
+        updates: [
+          { path: '/a', value: 2 },
+          { path: '/b', value: 1 },
+        ],
+      },
+    ]).cases[0]!;
+    const validateWithUpdates = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'validate',
+        path: '/a',
+        newData: 2,
+        updates: [
+          { path: '/a', value: 2 },
+          { path: '/b', value: 1 },
+        ],
+      },
+    ]).cases[0]!;
+    const asUpdateOp = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'update',
+        path: '/',
+        newData: { a: 2, b: 1 },
+      },
+    ]).cases[0]!;
+    const withoutUpdates = ruleset.simulate([
+      {
+        expectation: 'DENY',
+        operation: 'write',
+        path: '/a',
+        newData: 2,
+      },
+    ]).cases[0]!;
+    const withMismatchedUpdates = ruleset.simulate([
+      {
+        expectation: 'DENY',
+        operation: 'write',
+        path: '/a',
+        newData: 2,
+        updates: [
+          { path: '/a', value: 2 },
+          { path: '/b', value: 0 },
+        ],
+      },
+    ]).cases[0]!;
+
+    expect(withUpdates.decision).toBe('ALLOW');
+    expect(withUpdates.passed).toBe(true);
+    expect(validateWithUpdates.decision).toBe('ALLOW');
+    expect(validateWithUpdates.passed).toBe(true);
+    expect(asUpdateOp.decision).toBe('ALLOW');
+    expect(withoutUpdates.decision).toBe('DENY');
+    expect(withMismatchedUpdates.decision).toBe('DENY');
+  });
+
+  test('simulate() rejects updates on read or update cases and malformed updates entries as UNSUPPORTED', () => {
+    const ruleset = rtdbRules({
+      rules: {
+        a: { '.read': true, '.write': true },
+      },
+    });
+
+    const onRead = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/a',
+        updates: [{ path: '/a', value: 1 }],
+      },
+    ]).cases[0]!;
+    const onUpdate = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'update',
+        path: '/',
+        newData: { a: 1 },
+        updates: [{ path: '/a', value: 1 }],
+      },
+    ]).cases[0]!;
+    const badPath = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/a',
+        newData: 1,
+        updates: [{ path: 'a', value: 1 }],
+      },
+    ]).cases[0]!;
+
+    expect(onRead.decision).toBe('UNSUPPORTED');
+    expect(onRead.unsupported).toBe(true);
+    expect(onRead.reason).toBe("'updates' applies to a 'write' or 'validate' case, and this case is 'read'.");
+    expect(onUpdate.decision).toBe('UNSUPPORTED');
+    expect(onUpdate.unsupported).toBe(true);
+    expect(onUpdate.reason).toBe("'updates' applies to a 'write' or 'validate' case, and this case is 'update'.");
+    expect(badPath.decision).toBe('UNSUPPORTED');
+    expect(badPath.unsupported).toBe(true);
+  });
 });
 
 describe('value helpers', () => {
@@ -502,5 +759,46 @@ service cloud.firestore {
       },
     ]);
     expect(summary.passed).toBe(1);
+  });
+
+  test('serverTimestamp() from pyric/rules resolves to now in RTDB simulate() (CON-3)', () => {
+    const tsRules = rtdbRules({
+      rules: {
+        posts: {
+          $id: {
+            '.write': true,
+            createdAt: { '.validate': 'newData.isNumber() && newData.val() === now' },
+          },
+        },
+      },
+    });
+    const summary = tsRules.simulate([
+      {
+        description: 'write case resolves serverTimestamp() to now',
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/posts/p1',
+        auth: 'u1',
+        newData: { createdAt: serverTimestamp() },
+      },
+      {
+        description: 'validate case resolves serverTimestamp() to now',
+        expectation: 'ALLOW',
+        operation: 'validate',
+        path: '/posts/p1',
+        auth: 'u1',
+        newData: { createdAt: serverTimestamp() },
+      },
+      {
+        description: 'update case resolves serverTimestamp() to now',
+        expectation: 'ALLOW',
+        operation: 'update',
+        path: '/',
+        auth: 'u1',
+        newData: { 'posts/p1/createdAt': serverTimestamp() },
+      },
+    ]);
+    expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'ALLOW', 'ALLOW']);
+    expect(summary.passed).toBe(3);
   });
 });

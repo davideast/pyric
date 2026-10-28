@@ -128,21 +128,27 @@ public final class WriteBatch: @unchecked Sendable {
     }
 
     public func commit() async throws {
+        try markCommitted()
+        let params = PyricBridgeClient.batchCommitParams(writes: stagedWrites)
+        try await firestore.send(turn: firestore.takeTurn(), method: "batchCommit", params: params)
+    }
+
+    public func commit(completion: (@Sendable (Error?) -> Void)? = nil) {
+        // Marked committed at the call, so a second commit fails before it takes a turn.
+        do {
+            try markCommitted()
+        } catch {
+            firestore.settings.dispatchQueue.async { completion?(error) }
+            return
+        }
+        let params = PyricBridgeClient.batchCommitParams(writes: stagedWrites)
+        firestore.sendInCallOrder(method: "batchCommit", params: params, completion: completion)
+    }
+
+    private func markCommitted() throws {
         guard !isCommitted else {
             throw PyricFirestoreError.invalidArgument("WriteBatch has already been committed.")
         }
         isCommitted = true
-        try await firestore.bridgeClient.batchCommit(writes: stagedWrites, actAs: firestore.effectiveAuthLens)
-    }
-
-    public func commit(completion: (@Sendable (Error?) -> Void)? = nil) {
-        Task {
-            do {
-                try await commit()
-                firestore.settings.dispatchQueue.async { completion?(nil) }
-            } catch {
-                firestore.settings.dispatchQueue.async { completion?(error) }
-            }
-        }
     }
 }

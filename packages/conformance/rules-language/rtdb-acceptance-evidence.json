@@ -4,9 +4,9 @@
   "capturedAt": "2026-07-25T18:42:45.868Z",
   "projectId": "digame-mas",
   "engine": "rtdb",
-  "total": 56,
-  "accepted": 56,
-  "rejected": 0,
+  "total": 91,
+  "accepted": 70,
+  "rejected": 21,
   "unprobeable": 0,
   "constructs": [
     {
@@ -344,6 +344,251 @@
       "kind": "semantic",
       "status": "accepted",
       "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.query",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.orderByChild",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.orderByKey",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.orderByValue",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.orderByPriority",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.equalTo",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.startAt",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.endAt",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.limitToFirst",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.limitToLast",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r30-query-rules"
+    },
+    {
+      "id": "rtdb.binding.query.unknown-field",
+      "kind": "binding",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: No such method/property 'foo'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.binding.auth.token.custom-claim",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r31-token-claims"
+    },
+    {
+      "id": "rtdb.binding.unknown-variable",
+      "kind": "binding",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Unknown variable 'foo'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.binding.unbound-path-variable",
+      "kind": "binding",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Unknown variable '$nope'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.binding.newData-in-read",
+      "kind": "binding",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: newData is invalid in .read expressions.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.method.snapshot.unknown",
+      "kind": "method",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: No such method/property 'foo'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.method.snapshot.arity",
+      "kind": "method",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: child() expects 1 argument.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.method.string.unknown",
+      "kind": "method",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: No such method/property 'bar'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.method.string.length-call",
+      "kind": "method",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Type error: Function call on target that is not a function.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.operator.member.snapshot-property",
+      "kind": "operator",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: No such method/property 'foo'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.operator.member.auth-unknown-property",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.operator.snapshot-operand",
+      "kind": "operator",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid > expression: left operand must be a number or string.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.operator.type-mismatch",
+      "kind": "operator",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid - expression: left operand is not a number. | Invalid > expression: left operand must be a number or string. | ! only operates on booleans.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.operator.dynamic-operand",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.rule-kind.sibling-wildcards",
+      "kind": "rule-kind",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Cannot have multiple default rules ('$x' and '$y').",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.rule-kind.unknown-key",
+      "kind": "rule-kind",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Expected '{'. | String can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\"",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.rule-kind.non-expression-value",
+      "kind": "rule-kind",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid rule expression.  Expected 'true', 'false', or an expression string.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.rule-kind.indexOn-non-string",
+      "kind": "rule-kind",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Invalid indexOn expression. Must be either a string or an array of strings",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.rule-kind.invalid-key",
+      "kind": "rule-kind",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: String can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\"",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.rule-kind.non-object-child",
+      "kind": "rule-kind",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Expected '{'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.rule-kind.non-boolean-result",
+      "kind": "rule-kind",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Expression must evaluate to a boolean.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.semantic.method-wrong-receiver",
+      "kind": "semantic",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Type error: Function call on target that is not a function. | No such method/property 'contains'.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.semantic.method-argument-type",
+      "kind": "semantic",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: matches() expects a regular expression literal argument. | hasChild() expects a string argument.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.semantic.parse-error",
+      "kind": "semantic",
+      "status": "rejected",
+      "probeNote": "production rejects the deploy: Rule expressions may not contain assignments.",
+      "observation": "rules-rtdb-r29-deploy-rejections"
+    },
+    {
+      "id": "rtdb.semantic.rules-size-limit",
+      "kind": "semantic",
+      "status": "accepted",
+      "evidenceSource": "live-database",
+      "observation": "rules-rtdb-r29-deploy-rejections"
     }
   ]
 }

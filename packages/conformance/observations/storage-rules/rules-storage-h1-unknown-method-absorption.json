@@ -1,0 +1,106 @@
+{
+  "name": "rules-storage-h1-unknown-method-absorption",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#211"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-unknown-method-absorption\" (STORAGE-H1-UNKNOWN-METHOD). An undefined method name should be an absorbable function-not-found error, as an undefined function is.",
+  "observedAt": "2026-10-27T02:46:24.371Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "24a2967e7d5dbfc3a21b8f8b84b068c7c93a125fd0f229c198b1873110c1e175"
+  },
+  "behavior": {
+    "string-foo-or-true: 'a'.foo() || true (pyric DENY)": "ALLOW",
+    "list-indexof-or-true: [1, 2].indexOf(2) == 1 || true (pyric DENY)": "ALLOW",
+    "map-abs-or-true: {'abs': 1}.abs() == 1 || true (pyric DENY)": "ALLOW",
+    "not-foo-and-false: !('a'.foo() == 1 && false) (pyric DENY)": "ALLOW"
+  },
+  "diagnostics": {
+    "string-foo-or-true: 'a'.foo() || true (pyric DENY)": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "foo"
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 57,
+              "currentOffset": 128,
+              "endOffset": 130
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list-indexof-or-true: [1, 2].indexOf(2) == 1 || true (pyric DENY)": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "indexOf",
+            "args": [
+              2
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 59,
+              "currentOffset": 207,
+              "endOffset": 207
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "map-abs-or-true: {'abs': 1}.abs() == 1 || true (pyric DENY)": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "abs"
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 54,
+              "currentOffset": 294,
+              "endOffset": 294
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "not-foo-and-false: !('a'.foo() == 1 && false) (pyric DENY)": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "foo"
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 56,
+              "currentOffset": 382,
+              "endOffset": 382
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

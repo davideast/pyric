@@ -55,6 +55,25 @@ describe('prepareRulesSource', () => {
   });
 });
 
+describe('a recursive wildcard with an always-true condition', () => {
+  const wrap = (inner: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    ${inner}
+  }
+}`;
+
+  it('serves the collection-group shape Firebase documents for a public collection group', () => {
+    const source = wrap('match /{path=**}/items/{id} { allow read: if true; }');
+    expect(prepareRulesSource(source, 'firestore.rules')).toBe(source);
+  });
+
+  it('refuses a final recursive wildcard at the root and names every document in the database', () => {
+    expect(() => prepareRulesSource(wrap('match /{document=**} { allow read: if true; }'), 'firestore.rules'))
+      .toThrow('match /{document=**} allows read on every document in the database with an always-true condition.');
+  });
+});
+
 describe('a rules source past production\'s compile limits', () => {
   const overLetLimit = `rules_version = '2';
 service cloud.firestore {
@@ -74,6 +93,31 @@ ${Array.from({ length: 12 }, (_, i) => `      let v${i} = ${i};`).join('\n')}
     );
     expect(() => prepareProjectRules(deep, 'deep.rules')).toThrow(
       'pyric sandbox: deep.rules does not compile: Line 4: Expression is too complex to evaluate safely. Fix the rules before serving.',
+    );
+  });
+
+  it('fails to prepare a ruleset with a second recursive wildcard in one declaration path', () => {
+    const glob = 'Invalid glob match expression. Only one glob match is permitted in a match declaration path.';
+    const inPath = PLAIN.replace('match /pub/{id}', 'match /{p=**}/items/{q=**}');
+    expect(() => prepareProjectRules(inPath, 'glob.rules')).toThrow(
+      `pyric sandbox: glob.rules does not compile: Line 4: ${glob} Fix the rules before serving.`,
+    );
+    const nested = PLAIN.replace('match /pub/{id} { allow read: if true; }',
+      'match /{g=**}/groups/{gid} {\n      match /{rest=**} { allow read: if true; }\n    }');
+    expect(() => prepareProjectRules(nested, 'nested.rules')).toThrow(
+      `pyric sandbox: nested.rules does not compile: Line 5: ${glob} Fix the rules before serving.`,
+    );
+  });
+
+  it('fails to prepare a Storage ruleset as Firestore rules, with the reason every plane gives', () => {
+    const storage = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} { allow read, write: if true; }
+  }
+}`;
+    expect(() => prepareProjectRules(storage, 'firestore.rules')).toThrow(
+      "pyric sandbox: firestore.rules: Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'. Fix the rules before serving.",
     );
   });
 
@@ -133,7 +177,7 @@ describe('loadProjectRules', () => {
 
     const empty = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
     const none = await loadProjectRules(empty, null);
-    expect(none).toEqual({ rules: null, rulesHash: null, sourcePath: null, moduleFiles: [] });
+    expect(none).toEqual({ rules: null, rulesHash: null, sourcePath: null, moduleFiles: [], warnings: [] });
   });
 
   it('throws when firebase.json names a missing file (explicit config = contract)', async () => {

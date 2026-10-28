@@ -40,6 +40,15 @@ export function emptySchema(): FieldSchema {
   return { fields: {}, samplesSeen: 0 };
 }
 
+/**
+ * A record's own entry for a field name. Firestore accepts names such as
+ * `constructor` and `toString`, which a plain object also inherits from
+ * `Object.prototype`, so a bare `record[name]` would read the inherited member.
+ */
+function ownEntry<T>(record: Record<string, T>, name: string): T | undefined {
+  return Object.hasOwn(record, name) ? record[name] : undefined;
+}
+
 // ─── Type key (for dedup; NaN-safe by construction) ───────────────────────
 
 /**
@@ -350,7 +359,7 @@ function mergeMaps(
   const changes: SchemaChange[] = [];
   const fields: Record<string, FieldDescriptor> = { ...prev.fields };
   for (const [k, obsDesc] of Object.entries(obs.fields)) {
-    const prevDesc = fields[k];
+    const prevDesc = ownEntry(fields, k);
     if (!prevDesc) {
       fields[k] = obsDesc;
       changes.push({ kind: 'field_added', path: [...path, k], type: obsDesc.types[0]! });
@@ -405,8 +414,8 @@ export function mergeDoc(
   const changes: SchemaChange[] = [];
 
   for (const k of allKeys) {
-    const prevDesc = prev.fields[k];
-    const obs = doc[k];
+    const prevDesc = ownEntry(prev.fields, k);
+    const obs = ownEntry(doc, k);
 
     if (!prevDesc && obs) {
       // First time seeing this key.

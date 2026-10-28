@@ -1,5 +1,6 @@
 export type { Expr, Segment, PathDef, RulesetContext } from './types.js';
-export { expr, all, any, not, deny, always, allow } from './compose.js';
+export { expr, all, any, not, deny, always, allow, lit } from './compose.js';
+export type { Literal } from './compose.js';
 export {
   authenticated, ownPath, ownField, isNew,
   hasChildren, hasChild, fieldIsString, fieldIsNumber, fieldIsBoolean, fieldEnum,
@@ -12,7 +13,7 @@ export {
 export {
   dataVal, newDataVal, dataExists, newDataExists,
   newDataIs, dataParentVal, newDataParentVal, newDataParentExists,
-  eq, neq, gt, lte, AUTH_UID,
+  eq, neq, gt, lte, AUTH_UID, ref,
 } from './data.js';
 export { turnGuard, flip, winCheckHelper } from './game.js';
 export { schemaRules } from './schema.js';

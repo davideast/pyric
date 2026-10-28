@@ -1,0 +1,281 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "spaces_app": {
+      "eval_runs": {
+        ".read": "auth.uid !== null",
+        ".write": "auth.uid !== null"
+      },
+      "client_config": {
+        ".read": true
+      },
+      "userinfo": {
+        "$uid": {
+          // users can only access their own profile info
+          ".read": "auth.uid !== null && auth.uid === $uid",
+          ".write": "auth.uid !== null && auth.uid === $uid"
+        }
+      },
+      "spaces": {
+        "__playground__": {
+          ".read": true,
+          ".write": "auth.uid !== null"
+        },
+        "$spaceid": {
+          // changing metadata has special access controls
+          "metadata": {
+            // Readable by active space members
+            ".read": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+
+            "members": {
+              // admins can write metadata for any member, everyone else can only write to themselves
+              "$uid": {
+                ".write": "auth.uid !== null
+                    && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                    && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true
+                    && (root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('role').val() === 'admin'
+                        || ($uid === auth.uid && newData.child('role').val() !== 'admin')
+                       )"
+              }
+            },
+
+            // only admins can change space access
+            "anyoneCanJoin": {
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('role').val() === 'admin'"
+            },
+            "joinPassword": {
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('role').val() === 'admin'"
+            },
+
+            // this can only be set by product support
+            "maxMembers": {
+            	".write": false
+            },
+
+            // The space icon must be the moderated avatar.png the backend stored for this space
+            // (see backend/src/uploads). An unchanged legacy value (e.g. base64) is still accepted.
+            "thumbnailDataUri": {
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+              ".validate": "newData.isString() && (
+                  newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2Favatar.png?')
+                  || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2Favatar.png?')
+                  || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2Favatar.png?')
+                  || newData.val() === data.val())"
+            },
+
+            // everything else is writable by active space members
+            "$_": {
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true"
+            }
+          },
+
+          "apiKeys": {
+            // Readable by active space members
+            ".read": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+            
+            // Only admins can manage Space API keys
+            ".write": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('role').val() === 'admin'"
+          },
+
+          // Data (tab/chat metadata and code, context files)
+          "data": {
+            // Readable by active space members
+            ".read": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+
+            // Tab/chat metadata and code
+            "tabs": {
+              "$tabid": {
+                "code": {
+                  // code changes can only be done by the backend
+                  ".write": false
+                },
+                // A chat tab's copy of its newest message: same image rule as chatHistory
+                "lastMessage": {
+                  ".write": "auth.uid !== null
+                    && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                    && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+                  "content": {
+                    "imageUris": {
+                      "$i": {
+                        ".validate": "newData.isString() && (
+                            newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                            || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                            || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                            || newData.val().beginsWith('https://static.klipy.com/')
+                            || newData.val().beginsWith('https://static1.klipy.com/')
+                            || newData.val().beginsWith('https://static2.klipy.com/')
+                            || newData.val() === data.val())"
+                      }
+                    }
+                  }
+                },
+                // All other subkeys are only writable by active members
+                "$_": {
+                  ".write": "auth.uid !== null
+                    && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                    && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true"
+                }
+              }
+            },
+
+            // Files and links added to the space, writable by active members
+            "contexts": {
+              // Writable by active space members
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+              "$contextid": {
+                // A file context must be a moderated upload in this space's Storage folder (see
+                // backend/src/uploads). Existing file contexts keep working while their value is
+                // unchanged.
+                ".validate": "newData.child('type').val() !== 'file'
+                    || (data.child('type').val() === 'file' && newData.child('value').val() === data.child('value').val())
+                    || (newData.child('value').isString() && (
+                      newData.child('value').val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                      || newData.child('value').val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                      || newData.child('value').val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')))"
+              }
+            },
+
+            // All other subkeys are only writable by active members
+            "$_": {
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true"
+            }
+          },
+
+          // Code tab version history for a given tab ($tabid)
+          "tabHistory": {
+            "$tabid": {
+              // Readable by active space members
+              ".read": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+              // Writable by active space members
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+
+              // Support pagination for large collections
+              "meta": {
+                ".indexOn": ["whenNeg"]
+              }
+            }
+          },
+
+          // Chat history for a given chat ($tabid)
+          "chatHistory": {
+            "$tabid": {
+              // Readable by active chat participants (or all space members if it's global)
+              ".read": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true
+                && (!root.child('spaces_app/spaces/' + $spaceid + '/data/tabs/' + $tabid + '/members').exists()
+                    || root.child('spaces_app/spaces/' + $spaceid + '/data/tabs/' + $tabid + '/members/' + auth.uid).val() === true)",
+              // Writable by active chat participants (or all space members if it's global)
+              ".write": "auth.uid !== null
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+                && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true
+                && (!root.child('spaces_app/spaces/' + $spaceid + '/data/tabs/' + $tabid + '/members').exists()
+                    || root.child('spaces_app/spaces/' + $spaceid + '/data/tabs/' + $tabid + '/members/' + auth.uid).val() === true)",
+
+              // Support pagination for large collections
+              ".indexOn": ["whenNeg"],
+
+              // Individual messages
+              "$messageid": {
+                "content": {
+                  "imageUris": {
+                    // Images must be moderated uploads in this space's Storage folder (written by
+                    // the backend, see backend/src/uploads) or Klipy GIFs; no data: URLs, raw
+                    // base64 or other hosts. Buckets are listed per project since all projects
+                    // share these rules.
+                    // An edit may keep any image the message already had, so old messages with
+                    // inline base64 images stay editable. Removing an image shifts the later ones
+                    // down, so each entry is also compared with the old entries 0-9.
+                    "$i": {
+                      ".validate": "newData.isString() && (
+                          newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                          || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                          || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')
+                          || newData.val().beginsWith('https://static.klipy.com/')
+                          || newData.val().beginsWith('https://static1.klipy.com/')
+                          || newData.val().beginsWith('https://static2.klipy.com/')
+                          || newData.val() === data.val()
+                          || newData.val() === data.parent().child('0').val()
+                          || newData.val() === data.parent().child('1').val()
+                          || newData.val() === data.parent().child('2').val()
+                          || newData.val() === data.parent().child('3').val()
+                          || newData.val() === data.parent().child('4').val()
+                          || newData.val() === data.parent().child('5').val()
+                          || newData.val() === data.parent().child('6').val()
+                          || newData.val() === data.parent().child('7').val()
+                          || newData.val() === data.parent().child('8').val()
+                          || newData.val() === data.parent().child('9').val())"
+                    }
+                  }
+                }
+              }
+            }
+          },
+
+          // Activity log
+          "log": {
+            // Readable by active space members
+            ".read": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+            // Writable by active space members
+            ".write": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+            // Support pagination for large collections
+            ".indexOn": ["whenNeg"]
+          },
+
+          // Per-user last-seen timestamps and tab permissions (private to each user)
+          "lastSeen": {
+            "$uid": {
+              ".read": "auth.uid !== null && auth.uid === $uid",
+              ".write": "auth.uid !== null && auth.uid === $uid"
+            }
+          },
+
+          // All other keys
+          // (presence, yjs, memory)
+          "$_": {
+            // Readable by active space members
+            ".read": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true",
+            // Writable by active space members
+            ".write": "auth.uid !== null
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).exists()
+              && root.child('spaces_app/spaces/' + $spaceid + '/metadata/members').child(auth.uid).child('removed').val() !== true"
+          },
+        }
+      }
+    }
+  }
+}

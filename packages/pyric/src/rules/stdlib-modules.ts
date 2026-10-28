@@ -33,6 +33,7 @@
  * runtime constant grows, the test fails until this file catches up.
  */
 
+import { closestKey } from './closest-key.js';
 import { STDLIB_SERVICE_CONTRACTS } from './modules/stdlib-services.generated.js';
 
 export type ModuleKind =
@@ -1488,29 +1489,5 @@ export function suggestKey(
   input: string,
   service?: RulesService,
 ): string | null {
-  const want = input.toLowerCase();
-  let best: { key: string; d: number } | null = null;
-  for (const m of service ? modulesForService(service) : STDLIB_MODULES) {
-    const d = levenshtein(want, m.key.toLowerCase());
-    if (best === null || d < best.d) best = { key: m.key, d };
-  }
-  // Only return a suggestion if it's reasonably close.
-  if (best && best.d <= Math.max(2, Math.floor(want.length / 3))) return best.key;
-  return null;
-}
-
-function levenshtein(a: string, b: string): number {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-  const v0: number[] = new Array(b.length + 1).fill(0).map((_, i) => i);
-  const v1: number[] = new Array(b.length + 1).fill(0);
-  for (let i = 0; i < a.length; i++) {
-    v1[0] = i + 1;
-    for (let j = 0; j < b.length; j++) {
-      const cost = a[i] === b[j] ? 0 : 1;
-      v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1]! + 1, v0[j]! + cost);
-    }
-    for (let j = 0; j <= b.length; j++) v0[j] = v1[j]!;
-  }
-  return v1[b.length]!;
+  return closestKey(input, (service ? modulesForService(service) : STDLIB_MODULES).map((m) => m.key));
 }

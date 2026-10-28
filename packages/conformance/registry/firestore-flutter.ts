@@ -1,5 +1,5 @@
 import { defineRows } from './define-rows.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/flutter-client/test/conformance_test.dart';
 const UNOBSERVED_REASON =
@@ -16,19 +16,25 @@ interface FlutterRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
+  /** Tests beyond the conformance suite that also exercise this row. */
+  tests?: string[];
   flipped?: 'unit-backed';
+  /** A unit-backed status other than `conforms`, set in place of `flipped`. */
+  status?: CompatStatus;
+  statusNote?: string;
 }
 
 function row(seed: FlutterRowSeed): CompatibilityRow {
-  const { ref, flipped, evidence, ...rest } = seed;
-  const defaultEvidence = flipped ? 'cloud_firestore_platform_interface specification.' : 'cloud_firestore_platform_interface specification; unverified locally.';
+  const { ref, flipped, status, evidence, tests, ...rest } = seed;
+  const unitBacked = flipped !== undefined || status !== undefined;
+  const defaultEvidence = unitBacked ?'cloud_firestore_platform_interface specification.' : 'cloud_firestore_platform_interface specification; unverified locally.';
   const resolvedEvidence = evidence ?? defaultEvidence;
-  const climb = flipped
+  const climb = unitBacked
     ? {
-        status: 'conforms' as const,
+        status: status ?? ('conforms' as const),
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Container test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-flutter#${ref}\`.`,
-        conformanceTests: [CONFORMANCE_SUITE],
+        conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],
       }
     : {
         status: 'unverified' as const,
@@ -49,8 +55,11 @@ export const firestoreFlutterRows: CompatibilityRow[] = [
   // ── 1. FirebaseFirestorePlatform: Instance & Lifecycle ───────────────────
   row({ ref: 1, flipped: 'unit-backed', section: '`FirebaseFirestorePlatform` — instance & lifecycle',
     api: 'FirebaseFirestorePlatform.instance', behavior: 'Returns the default platform instance registered via PlatformInterface.', featureKeys: ['instance'] }),
-  row({ ref: 2, flipped: 'unit-backed', section: '`FirebaseFirestorePlatform` — instance & lifecycle',
-    api: 'FirebaseFirestorePlatform.instanceFor(app, databaseId)', behavior: 'Provides isolated platform instances distinguished by FirebaseApp and database ID.', featureKeys: ['instanceFor'] }),
+  row({ ref: 2, section: '`FirebaseFirestorePlatform` — instance & lifecycle',
+    api: 'FirebaseFirestorePlatform.instanceFor(app, databaseId)', behavior: 'Provides a distinct platform handle per FirebaseApp and database ID; production isolates the documents and rules of each named database.', featureKeys: ['instanceFor'],
+    status: 'diverged-documented',
+    statusNote: 'each database ID yields a distinct handle, but data is not isolated: the bridge does not carry the database ID, so every handle reaches (default)',
+    evidence: 'cloud_firestore_platform_interface specification. The test asserts the handle carries its database ID; bridge operations carry no database field.' }),
   row({ ref: 3, flipped: 'unit-backed', section: '`FirebaseFirestorePlatform` — instance & lifecycle',
     api: 'FirebaseFirestorePlatform.settings', behavior: 'Configures host, sslEnabled, persistenceEnabled, and cacheSizeBytes.', featureKeys: ['settings'] }),
   row({ ref: 4, flipped: 'unit-backed', section: '`FirebaseFirestorePlatform` — instance & lifecycle',
@@ -144,7 +153,9 @@ export const firestoreFlutterRows: CompatibilityRow[] = [
   row({ ref: 41, flipped: 'unit-backed', section: 'Snapshots & metadata',
     api: 'DocumentSnapshotPlatform.get(field)', behavior: 'Extracts single field value supporting dot notation or FieldPath instances.', featureKeys: ['get'] }),
   row({ ref: 42, flipped: 'unit-backed', section: 'Snapshots & metadata',
-    api: 'SnapshotMetadataPlatform (hasPendingWrites, isFromCache)', behavior: 'Exposes local cache and uncommitted pending write status on snapshots.', featureKeys: ['metadata'] }),
+    api: 'SnapshotMetadataPlatform (hasPendingWrites, isFromCache)', behavior: 'Exposes local cache and uncommitted pending write status on snapshots.', featureKeys: ['metadata'],
+    evidence: 'cloud_firestore_platform_interface specification. When the bridge connection drops, a listener registered with includeMetadataChanges receives its last documents with isFromCache true and no changes, and its first snapshot after re-attach has isFromCache false; a listener without includeMetadataChanges receives neither, as production raises a metadata-only change only to listeners that include metadata changes. Reconnect tests: `platform_reconnect_test.dart`.',
+    tests: ['packages/flutter-client/test/platform_reconnect_test.dart'] }),
   row({ ref: 43, flipped: 'unit-backed', section: 'Snapshots & metadata',
     api: 'QuerySnapshotPlatform.docs', behavior: 'Provides ordered List<DocumentSnapshotPlatform> of all query result documents.', featureKeys: ['docs'] }),
   row({ ref: 44, flipped: 'unit-backed', section: 'Snapshots & metadata',

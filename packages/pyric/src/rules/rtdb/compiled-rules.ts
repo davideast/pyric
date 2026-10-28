@@ -4,9 +4,8 @@ import { lintExpression } from './grammar/linter.js';
 import { validateExpression } from './grammar/validator.js';
 import { SimulateHandler } from './simulation/handler.js';
 import type { SimulationInput, SimulateResult } from './simulation/spec.js';
+import { SYSTEM_KEYS, structuralFindings } from './structure.js';
 import type { RtdbNode, RtdbRuleExpression } from './types.js';
-
-const SYSTEM_KEYS = new Set(['.read', '.write', '.validate', '.indexOn']);
 
 /** The environment-independent tree produced from an RTDB rules document. */
 export type CompiledRtdbRules = RtdbNode;
@@ -24,6 +23,7 @@ export function buildRuleExpression(
       raw,
       parsed: {
         ...parsed,
+        valid: parsed.valid && errors.length === 0,
         errors,
         warnings,
       },
@@ -64,7 +64,21 @@ function compileNode(
   ] as const) {
     const value = rulesObj[key];
     if (value !== undefined) {
-      node[context] = buildRuleExpression(String(value), context, pathVariables);
+      if (typeof value === 'boolean' || typeof value === 'string' || value === null) {
+        node[context] = buildRuleExpression(String(value), context, pathVariables);
+      } else {
+        const raw = JSON.stringify(value) ?? String(value);
+        node[context] = {
+          raw,
+          parsed: {
+            raw,
+            valid: false,
+            errors: [],
+            warnings: [],
+            referencedIdentifiers: [],
+          },
+        };
+      }
     }
   }
 
@@ -73,8 +87,13 @@ function compileNode(
     node.indexOn = Array.isArray(indexOn) ? indexOn.map(String) : [String(indexOn)];
   }
 
+  const structure = structuralFindings(path, rulesObj);
+  if (structure.length > 0) node.structure = structure;
+
   for (const [key, child] of Object.entries(rulesObj)) {
-    if (SYSTEM_KEYS.has(key) || typeof child !== 'object' || child === null) continue;
+    // A dotted key that is not a rule key names no location, so it is never a child.
+    if (key.startsWith('.') || SYSTEM_KEYS.has(key)) continue;
+    if (typeof child !== 'object' || child === null || Array.isArray(child)) continue;
     const childPath = path === '/' ? `/${key}` : `${path}/${key}`;
     const childPathVariables = key.startsWith('$')
       ? [...pathVariables, key]
@@ -95,7 +114,7 @@ export function compileRtdbRules(rulesJson: unknown): CompiledRtdbRules {
   if (!('rules' in document)) {
     throw new Error('Invalid rules JSON: missing top-level "rules" key');
   }
-  if (typeof document.rules !== 'object' || document.rules === null) {
+  if (typeof document.rules !== 'object' || document.rules === null || Array.isArray(document.rules)) {
     throw new Error('Invalid rules JSON: "rules" must be an object');
   }
   return compileNode(document.rules as Record<string, unknown>, '/', []);

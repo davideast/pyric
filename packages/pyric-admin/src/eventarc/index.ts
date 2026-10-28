@@ -1,14 +1,37 @@
 /**
- * `pyric-admin/eventarc`: a deferred entry for `firebase-admin/eventarc`.
- *
- * The sandbox does not model Eventarc. Every value `firebase-admin/eventarc`
- * exports is present so imports link; using one throws `PyricDeferredApiError`.
- * See `../deferred.ts`.
+ * `pyric-admin/eventarc`: deferred service handle for `firebase-admin/eventarc`.
  */
-import { deferredAdminEntry } from '../deferred.js';
+import type { PyricAdminApp } from '../app/index.js';
+import {
+  deferredAdminEntry,
+  guardDeferredServiceApp,
+  wireDeferredService,
+} from '../deferred.js';
 
 export { PyricDeferredApiError } from '../deferred.js';
 
-export const {
-  Channel, Eventarc, getEventarc,
-} = deferredAdminEntry('eventarc');
+export class Eventarc {
+  readonly #app: PyricAdminApp;
+
+  /** @internal */
+  constructor(...args: unknown[]) {
+    this.#app = guardDeferredServiceApp('eventarc', 'Eventarc', args);
+  }
+
+  get app(): PyricAdminApp {
+    return this.#app;
+  }
+
+  declare channel: (...args: unknown[]) => never;
+}
+
+export const getEventarc: (app?: PyricAdminApp) => Eventarc = wireDeferredService(
+  Eventarc,
+  'eventarc',
+  'Eventarc',
+  {
+    sync: ['channel'],
+  },
+);
+
+export const { Channel } = deferredAdminEntry('eventarc');

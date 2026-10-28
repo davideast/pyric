@@ -30,8 +30,9 @@ import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
 import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
 import { planeOf, uploadContentDisposition } from './content-defaults.js';
-import { invalidRootOperation, invalidFormat } from './errors.js';
-import type { StoredMetadata } from './persistence.js';
+import { StorageError, invalidRootOperation, invalidFormat } from './errors.js';
+import { clockGeneration, generationIssuer } from './generation.js';
+import type { StoredMetadata, StoredObject } from './persistence.js';
 import type { StorageReference } from './reference.js';
 
 const OCTET = 'application/octet-stream';
@@ -61,14 +62,65 @@ export async function uploadBytes(
   metadata?: SettableMetadata,
   provenance?: EventProvenance,
 ): Promise<UploadResult> {
+  return uploadObject(ref, data, metadata, { provenance });
+}
+
+/** What {@link uploadObject} takes besides the bytes and settable metadata. */
+export interface UploadObjectOptions {
+  provenance?: EventProvenance;
+  /**
+   * Download tokens the object is created with, comma-separated, as
+   * firebase-admin's `save` sets them through the
+   * `firebaseStorageDownloadTokens` custom key. Only the admin plane sets them.
+   */
+  downloadTokens?: string;
+}
+
+/** An upload's result, with the object its write replaced. */
+export interface ReplacingUploadResult {
+  result: UploadResult;
+  /**
+   * The object at the path just before the write, read by the backend in the
+   * same transaction as the write, or `undefined` when the path was empty. A
+   * rollback puts it back with `replaceIfGeneration`.
+   */
+  replaced: StoredObject | undefined;
+}
+
+/**
+ * The upload pipeline behind {@link uploadBytes}. The admin plane can also
+ * create the object with download tokens, in the same write as its bytes.
+ */
+export async function uploadObject(
+  ref: StorageReference,
+  data: Blob | Uint8Array | ArrayBuffer,
+  metadata: SettableMetadata | undefined,
+  options: UploadObjectOptions = {},
+): Promise<UploadResult> {
+  const { result } = await uploadObjectReplacing(ref, data, metadata, options);
+  return result;
+}
+
+/** {@link uploadObject}, also returning the object the write replaced. */
+export async function uploadObjectReplacing(
+  ref: StorageReference,
+  data: Blob | Uint8Array | ArrayBuffer,
+  metadata: SettableMetadata | undefined,
+  { provenance, downloadTokens }: UploadObjectOptions = {},
+): Promise<ReplacingUploadResult> {
   guardNonRoot(ref, 'uploadBytes');
   const target = targetOf(ref.storage);
+  const setsTokens = downloadTokens !== undefined;
+  if (setsTokens && planeOf(target) !== 'admin') {
+    throw new StorageError('unauthorized', 'Only the admin plane sets download tokens on upload.');
+  }
   const operationProvenance = storageOperationProvenance(target, provenance);
   const blob = toBlob(data, metadata?.contentType);
   // Server-set object times come from the sandbox clock, so `timeCreated` and
   // `updated` agree with the `request.time` the rules see for this same upload.
   const uploadedAt = getClock(target.sandbox).date();
   const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt });
+  if (setsTokens) stored.downloadTokens = downloadTokens;
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -83,7 +135,9 @@ export async function uploadBytes(
     },
     resource: resourceFromStored(existing),
   }, target, operationProvenance);
-  await service.backend.put(ref.fullPath, blob, stored);
+  // The backend issues the generation in the write's transaction, so every
+  // version gets its own, even within one clock tick (#1160).
+  const replaced = await service.backend.put(ref.fullPath, blob, stored, generationIssuer(uploadedAt.getTime()));
   // Land the put on the unified Studio stream. Best-effort: a throw from
   // the emit path must not fail the upload the caller just completed.
   try {
@@ -95,13 +149,13 @@ export async function uploadBytes(
         op: 'object_put',
         path: ref.fullPath,
         auth: storageAuth(target),
-        before: existing ?? undefined,
+        before: replaced?.metadata,
         after: stored,
         detail: {
           bucket: ref.bucket,
           size: stored.size,
           contentType: stored.contentType,
-          overwrite: existing != null,
+          overwrite: replaced !== undefined,
         },
       }),
       operationProvenance,
@@ -109,7 +163,7 @@ export async function uploadBytes(
   } catch {
     // Observational — never let event emission break a storage write.
   }
-  return { ref, metadata: toFullMetadata(stored, planeOf(target)) };
+  return { result: { ref, metadata: toFullMetadata(stored, planeOf(target)) }, replaced };
 }
 
 /**
@@ -155,7 +209,8 @@ export function buildStoredMetadata(args: {
 }): StoredMetadata {
   const { ref, blob, settable } = args;
   const now = (args.now ?? new Date()).toISOString();
-  const generation = generationFromTime(args.now ?? new Date());
+  // Provisional: the backend issues the generation the write stores.
+  const generation = String(clockGeneration((args.now ?? new Date()).getTime()));
   const name = ref.name;
   const client = planeOf(targetOf(ref.storage)) === 'client';
   return {
@@ -279,14 +334,6 @@ function base64ToBytes(b64: string): Uint8Array {
 
 export function defaultRawContentType(format: StringFormat): string {
   return format === 'raw' ? 'text/plain;charset=utf-8' : OCTET;
-}
-
-function generationFromTime(now: Date): string {
-  // Generation is a stringified counter in production. We mint a
-  // unique-enough value from the wallclock — collisions are
-  // tolerable for the v1 scope (single-process IDB; no cross-tab
-  // contention contract).
-  return String(now.getTime());
 }
 
 function guardNonRoot(ref: StorageReference, op: string): void {

@@ -44,8 +44,10 @@ const DEFAULT_BUCKET = 'pyric-default';
 /**
  * Hidden property on every {@link FirebaseStorage} handle. Carries
  * the sandbox state free functions share without exposing it publicly.
+ * Registered globally (`Symbol.for`) so `src` and `dist` module copies
+ * recognize handles and share per-sandbox service state across package boundaries.
  */
-export const TARGET_SYMBOL: unique symbol = Symbol('pyric/storage/target');
+export const TARGET_SYMBOL: unique symbol = Symbol.for('pyric/storage/target') as never;
 
 /**
  * Sandbox target — IDB-backed, identity from `SandboxContext`, rules
@@ -151,9 +153,37 @@ interface OpenStorageService {
   readonly crossServiceIam: CrossServiceIam;
 }
 
+/**
+ * Process-wide WeakMap caches keyed by `Symbol.for` so a workspace that loads
+ * both `src/storage/service.ts` and `dist/storage/service.js` shares one
+ * `StorageService` per `Sandbox` (matching `SANDBOX_CLOCK` and `APP_REGISTRY`).
+ */
+const SERVICE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
+
+interface StorageServiceCaches {
+  readonly openServices: WeakMap<Sandbox, OpenStorageService>;
+  readonly hostBackends: WeakMap<Sandbox, StorageBackend>;
+  readonly scopedServices: WeakMap<Sandbox, Map<string, Promise<StorageService>>>;
+  readonly sandboxHandles: WeakMap<SandboxContext, Map<string, FirebaseStorage>>;
+  readonly bareSandboxHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
+  readonly adminContextHandles: WeakMap<SandboxContext, Map<string, FirebaseStorage>>;
+  readonly bareAdminHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
+}
+
+const globalServiceCaches = globalThis as { [SERVICE_CACHES_KEY]?: StorageServiceCaches };
+const serviceCaches: StorageServiceCaches = (globalServiceCaches[SERVICE_CACHES_KEY] ??= {
+  openServices: new WeakMap(),
+  hostBackends: new WeakMap(),
+  scopedServices: new WeakMap(),
+  sandboxHandles: new WeakMap(),
+  bareSandboxHandles: new WeakMap(),
+  adminContextHandles: new WeakMap(),
+  bareAdminHandles: new WeakMap(),
+});
+
 /** One open storage service, with its opening configuration, per `Sandbox`. */
-const OPEN_SERVICES = new WeakMap<Sandbox, OpenStorageService>();
-const HOST_BACKENDS = new WeakMap<Sandbox, StorageBackend>();
+const OPEN_SERVICES = serviceCaches.openServices;
+const HOST_BACKENDS = serviceCaches.hostBackends;
 
 /** Hosts install their durable backend before any Storage service is created. */
 export function installStorageBackend(sandbox: Sandbox, backend: StorageBackend): void {
@@ -163,7 +193,7 @@ export function installStorageBackend(sandbox: Sandbox, backend: StorageBackend)
 }
 
 /** One scoped `StorageService` per (Sandbox, bucket). */
-const SCOPED_SERVICES = new WeakMap<Sandbox, Map<string, Promise<StorageService>>>();
+const SCOPED_SERVICES = serviceCaches.scopedServices;
 
 function getOrCreateScopedService(
   sandbox: Sandbox,
@@ -189,7 +219,7 @@ function getOrCreateScopedService(
 }
 
 /** Sandbox `FirebaseStorage` handles cached per `(SandboxContext, bucket)`. */
-const SANDBOX_HANDLES = new WeakMap<SandboxContext, Map<string, FirebaseStorage>>();
+const SANDBOX_HANDLES = serviceCaches.sandboxHandles;
 
 /**
  * Anonymous handles cached per `(Sandbox, bucket)`. `Sandbox.withAuth(null)`
@@ -199,7 +229,7 @@ const SANDBOX_HANDLES = new WeakMap<SandboxContext, Map<string, FirebaseStorage>
  * (ST-B3). Caching on the `Sandbox` keeps that path identity-stable,
  * matching the documented "handle is identity-stable per Sandbox".
  */
-const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, Map<string, FirebaseStorage>>();
+const BARE_SANDBOX_HANDLES = serviceCaches.bareSandboxHandles;
 
 /**
  * Reject a late option that differs from the one the service is already
@@ -404,7 +434,7 @@ function ensureService(
  * `SandboxContextImpl`) so the TS narrowing works downstream.
  */
 function isContext(target: Sandbox | SandboxContext): target is SandboxContext {
-  return target instanceof SandboxContextImpl;
+  return target instanceof SandboxContextImpl || ('sandbox' in target && target.sandbox !== undefined);
 }
 
 /**
@@ -469,8 +499,8 @@ export function getStorageSandbox(
 
 /** Admin handles are cached by bound context so Studio, agent, and
  * unattributed callers can share storage state without sharing provenance. */
-const ADMIN_CONTEXT_HANDLES = new WeakMap<SandboxContext, Map<string, FirebaseStorage>>();
-const BARE_ADMIN_HANDLES = new WeakMap<Sandbox, Map<string, FirebaseStorage>>();
+const ADMIN_CONTEXT_HANDLES = serviceCaches.adminContextHandles;
+const BARE_ADMIN_HANDLES = serviceCaches.bareAdminHandles;
 
 /**
  * INTERNAL (exported via `pyric/storage/internal` only) — construct

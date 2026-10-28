@@ -12,6 +12,9 @@ public actor MockWebSocketChannel: WebSocketTransport {
     public nonisolated let sentStream: AsyncStream<[String: AnySendable]>
 
     public private(set) var isClosed = false
+    /// Heartbeat pings the client sent. They are kept out of `sentStream`, so
+    /// tests that read frames in order see only the frames they drive.
+    public private(set) var sentPingCount = 0
 
     public init() {
         let (inStream, inCont) = AsyncThrowingStream<String, Error>.makeStream()
@@ -30,6 +33,10 @@ public actor MockWebSocketChannel: WebSocketTransport {
         if let data = text.data(using: .utf8),
            let obj = try? JSONDecoder().decode(AnySendable.self, from: data),
            let dict = obj.dictionaryValue {
+            if dict["type"]?.stringValue == "ping" {
+                sentPingCount += 1
+                return
+            }
             sentContinuation.yield(dict)
         }
     }
@@ -399,6 +406,52 @@ struct TransportTests {
         let pongFrame = try await mock.awaitNextSentMessage()
         #expect(pongFrame["type"]?.stringValue == "pong")
         #expect(pongFrame["id"]?.stringValue == "ping-test-456")
+
+        await client.disconnect()
+    }
+
+    @Test("Sends a heartbeat ping at attach")
+    func testHeartbeatPingAtAttach() async throws {
+        let mock = MockWebSocketChannel()
+        let client = PyricBridgeClient(channel: mock)
+
+        let connectTask = Task { try await client.connect() }
+        _ = try await mock.awaitNextSentMessage()
+        try mock.simulateServerMessage(["type": "attach-ack", "peerConnected": true])
+        try await connectTask.value
+
+        try await until { await mock.sentPingCount == 1 }
+        await client.disconnect()
+    }
+
+    @Test("A client on one supplied channel closes when the host is silent, failing its operations")
+    func testSingleChannelClosesOnSilence() async throws {
+        let mock = MockWebSocketChannel()
+        let client = PyricBridgeClient(channel: mock)
+        await client.setHeartbeatForTesting(interval: 0.05, livenessTimeout: 0.25)
+
+        let connectTask = Task { try await client.connect() }
+        _ = try await mock.awaitNextSentMessage()
+        try mock.simulateServerMessage(["type": "attach-ack", "peerConnected": true])
+        try await connectTask.value
+
+        let opTask = Task<AnySendable, Error> {
+            try await client.op(method: "getDoc", params: ["path": "rooms/a"])
+        }
+        let opFrame = try await mock.awaitNextSentMessage()
+        #expect(opFrame["type"]?.stringValue == "worker-op")
+
+        do {
+            _ = try await opTask.value
+            Issue.record("Expected the in-flight op to fail when the host went silent")
+        } catch let err as PyricBridgeError {
+            #expect(err.code == "unavailable")
+            #expect(err.message.contains("sent nothing for 45 seconds"))
+        }
+        #expect(await client.connectionState == .closed)
+        #expect(await client.isConnected == false)
+        try await until { await mock.isClosed }
+        #expect(await mock.sentPingCount >= 1)
 
         await client.disconnect()
     }

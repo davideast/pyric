@@ -138,6 +138,7 @@ function emitOperation(
         result,
         origin,
         reasons,
+        detail: { bucket: target.bucket },
         rulesDisposition: origin === 'admin'
           ? { kind: 'bypassed', reason: 'admin' }
           : evaluated

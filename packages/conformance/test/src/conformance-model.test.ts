@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { canIUse, deriveConformanceModel, registerImportEvidence, type ConformanceModel, type FeatureSupport } from '../../src/conformance-model.ts';
+import { assuranceNodeCountProblems } from '../../src/assurance-node-counts.ts';
 import { allCompatibilityRows } from '../../registry/index.ts';
 import { surfaceContracts } from '../../surfaces/load.ts';
 
@@ -17,18 +18,18 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1694);
+    expect(assuranceNodeCountProblems(Object.keys(model.assuranceNodeVerdicts))).toEqual([]);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 137, denominator: 140, ratio: 137 / 140, percent: 97.9,
+      numerator: 128, denominator: 140, ratio: 128 / 140, percent: 91.4,
     });
     expect(model.rulesLanguage.storageScorecard.score).toEqual({
-      numerator: 84, denominator: 86, ratio: 84 / 86, percent: 97.7,
+      numerator: 113, denominator: 140, ratio: 113 / 140, percent: 80.7,
     });
     expect(model.rulesLanguage.rtdbScorecard.score).toEqual({
-      numerator: 56, denominator: 56, ratio: 1, percent: 100,
+      numerator: 91, denominator: 91, ratio: 91 / 91, percent: 100,
     });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
@@ -152,10 +153,10 @@ describe('multi-axis conformance model', () => {
   });
 
   it('derives fidelity from rules-construct status when no registry row exists', () => {
-    expect(one('firestore-rules/debug')).toMatchObject({
+    expect(one('storage-rules/latlng.latitude')).toMatchObject({
       availability: 'available',
-      fidelity: 'conforms',
-      assurance: 'eligible',
+      fidelity: 'unverified',
+      assurance: 'qualified',
     });
   });
 
@@ -230,7 +231,9 @@ describe('multi-axis conformance model', () => {
   });
 
   it('joins Messaging runtime and behavior claims under one developer surface', () => {
-    const result = one('getToken');
+    // firebase/app-check also exports getToken, so the bare name is ambiguous.
+    expect(canIUse(model, 'getToken').match).toBe('ambiguous');
+    const result = one('messaging/getToken');
     expect(result.surface).toBe('messaging');
     expect(result.claims.map(({ id }) => id)).toEqual([
       'messaging:runtime:getToken',
@@ -254,9 +257,9 @@ describe('multi-axis conformance model', () => {
   });
 
   it('cannot silently drop a feature-bearing divergence from the query model', () => {
-    const result = one('reauthenticateWithCredential');
+    const result = canIUse(model, 'updateEmail').supports.find(({ surface }) => surface === 'auth')!;
     expect(result.fidelity).toBe('diverged');
-    expect(result.claims.map(({ id }) => id)).toContain('auth#176');
+    expect(result.claims.map(({ id }) => id)).toContain('auth#84');
   });
 
   it('reports onDisconnect as available with its priority and abrupt-loss divergences qualified', () => {

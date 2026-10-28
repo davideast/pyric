@@ -14,11 +14,11 @@ describe('rtdbRules().lint() names the stage and the rule each issue came from',
     expect(issues.every((issue) => issue.severity === 'warning')).toBe(true);
   });
 
-  test('a write rule that compares a value to false has no issues', () => {
+  test('a write rule that compares a value to false has no expression lint issues', () => {
     const issues = rtdbRules({
       paths: { '/rooms/$id': { write: "auth != null && data.child('open').val() == false" } },
     }).lint();
-    expect(issues).toEqual([]);
+    expect(issues.filter((issue) => issue.origin === 'lint')).toEqual([]);
   });
 
   test('a rule that does not parse is a parse issue', () => {
@@ -58,6 +58,7 @@ describe('rtdbRules().lint() names the stage and the rule each issue came from',
     expect(summarize(issues)).toEqual([
       { code: 'HARDCODED_TRUE', origin: 'lint', path: '/open', rule: '.read' },
       { code: 'HARDCODED_FALSE', origin: 'lint', path: '/open', rule: '.write' },
+      { code: 'RTDB-SEC-2', origin: 'validate', path: '/open', rule: '.read' },
     ]);
   });
 });

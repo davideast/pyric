@@ -13,15 +13,18 @@ import type { DeliveryStage } from 'pyric/messaging/internal';
 import type { Firestore } from 'pyric/firestore';
 import type { Database } from 'pyric/database';
 import type { LocalSandbox, PersistenceBackend } from 'pyric/sandbox';
+import type { DatabaseInstanceRegistry } from 'pyric/sandbox/internal';
 import type { CheckpointBackend } from 'pyric/sandbox/checkpoints';
 import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
 import type { SandboxDispatch } from '../../bridge/client/dispatch.js';
+import type { DatabaseTargetDeploy, PendingDatabaseTargets } from '../database-instance-rules-host.js';
 import {
   serializeError,
   type OutboundMessage,
   type AuthPersistenceMode,
   type AiEngineConfigWire,
+  type AppConfigMessage,
 } from './protocol.js';
 
 // ─── AI broker (structural view) ──────────────────────────────────────────
@@ -68,6 +71,8 @@ export interface HostCtx {
   sandbox: LocalSandbox;
   /** Persistence acknowledgment policy supplied by the owning runtime. */
   flushPersistence?: () => Promise<void>;
+  /** Records a caller-supplied default Storage bucket alias in durable host state. */
+  onDefaultBucketName?: (name: string) => void;
   /** Stable worker-lifetime activity identity for each page/app port. */
   activityJourneyIds?: WeakMap<PortLike, string>;
   activityJourneySequence?: number;
@@ -77,10 +82,45 @@ export interface HostCtx {
   /** The shared Storage handle (Pyric Studio data browse). Lazily created on
    *  the first storage op via `getStorageSandbox(sandbox)`. */
   storage?: FirebaseStorage;
-  /** Shared RTDB handle. Lazily created for the playground shared-runtime path. */
-  rtdb?: Database;
-  /** Cached admin (rules-bypass) RTDB handle for Studio/Playground data inspection. */
-  adminRtdb?: Database;
+  /**
+   * The RTDB instances the host serves, keyed by instance name. Each holds its
+   * own sandbox store, rules and handles; the sandbox's one Auth session pool
+   * authenticates every instance. Created on first use (see
+   * `host/rtdb-instances.ts`).
+   */
+  rtdbInstances?: DatabaseInstanceRegistry<HostRtdbInstance>;
+  /**
+   * The default RTDB instance's name, as the project's `firebase.json`
+   * resolves it. Absent, the host derives `<projectId>-default-rtdb` from the
+   * first app port's options. Set it before naming the default instance by name.
+   */
+  defaultRtdbInstance?: string;
+  /**
+   * The project id the server resolved, when one is set. `<projectId>` names
+   * the default RTDB instance as `<projectId>-default-rtdb` does; before this
+   * is set, the host learns the project from the first app port's options.
+   */
+  rtdbProjectId?: string;
+  /** Each declared RTDB instance's rules file, for messages that name it. */
+  rtdbRulesFiles?: Record<string, string>;
+  /**
+   * The project's `firebase.json` deploy targets no project resolved when the
+   * server started. The first app port's project id resolves them.
+   */
+  pendingDatabaseTargets?: PendingDatabaseTargets;
+  /**
+   * Called for each instance a deploy target's rules are set on, when the
+   * target resolves or its rules file changes after it resolved.
+   */
+  onDatabaseTargetDeploy?: (deploy: DatabaseTargetDeploy) => void;
+  /**
+   * Access for an instance without rules: `deny` unless the runtime opted
+   * into permissive access. Without permissive access, an instance with no
+   * deployed rules is locked, as production creates one. Applies to instances
+   * created after it is set; the default instance's policy is set where its
+   * rules are.
+   */
+  rtdbDefaultPolicy?: 'allow' | 'deny';
   /** The host serves Storage bytes over its HTTP byte route, and refuses
    *  them as frames. A SharedWorker host has no route and takes frames. */
   storageByteRoute?: boolean;
@@ -89,28 +129,24 @@ export interface HostCtx {
    *  the pyric-admin remote arm's storage ops resolve to. */
   adminStorage?: FirebaseStorage;
   /** Per-uid/token Storage handles for the impersonation lens (rules evaluate
-   *  as that user). Mirrors {@link HostCtx.lensRtdbs}. */
+   *  as that user). Mirrors {@link HostRtdbInstance.lenses}. */
   lensStorages?: Map<string, FirebaseStorage>;
   /** Per-session Storage handles so app-session rules see the initiating
    * port's authenticated identity. */
   sessionStorages?: Map<string, FirebaseStorage>;
+  /** Storage handles for buckets other than the default one, keyed by bucket and lens. */
+  bucketStorages?: Map<string, FirebaseStorage>;
   /** Cached genuinely-UNAUTHENTICATED Firestore handle for the
    *  `{ mode: 'anon' }` lens — `getFirestore(sandbox.withAuth(null))`, so
    *  rules evaluate with `request.auth == null`. The remote arm's
    *  `withAuth(null)`; distinct from an absent lens (the port's session). */
   anonDb?: Firestore;
-  /** Cached unauthenticated RTDB handle for the `{ mode: 'anon' }` lens. */
-  anonRtdb?: Database;
   /** Cached unauthenticated Storage handle for the `{ mode: 'anon' }` lens. */
   anonStorage?: FirebaseStorage;
-  /** Per-uid RTDB handles carrying a port session's real identity. */
-  sessionRtdbs?: Map<string, Database>;
-  /** Per-uid/token RTDB handles for the Studio impersonation lens. */
-  lensRtdbs?: Map<string, Database>;
-  /** Current active rules metadata for shared-runtime diagnostics and revert. */
+  /** Current active Firestore rules metadata for shared-runtime diagnostics
+   *  and revert. Each RTDB instance holds its own in {@link HostRtdbInstance}. */
   activeRules?: {
     firestore?: ActiveRulesState;
-    database?: ActiveRulesState;
   };
   /** Per-port subscription registry. Map<port, Map<subId, unsub>>. */
   subs: Map<PortLike, Map<string, () => void>>;
@@ -125,8 +161,30 @@ export interface HostCtx {
   /** Firebase options accepted by the first app-owned port. All named apps
    * and tabs share this one backend, so later app ports must match it. */
   appOptions?: Record<string, unknown>;
+  /** True while `appOptions` has only been seeded by ports re-attaching from an earlier host instance. */
+  appOptionsFromPriorHost?: boolean;
+  /** True once `appOptions` has been confirmed or set by a client verified against this host instance. */
+  appOptionsVerified?: boolean;
+  /** True when `adoptAppDefaultRtdbInstance` derived `defaultRtdbInstance` from a provisional prior-host port. */
+  defaultRtdbAdoptedFromPriorHost?: boolean;
+  /** Re-attached prior-host ports provisionally sharing `appOptions` until a fresh client confirms or supersedes it. */
+  priorHostConfigPorts?: Set<PortLike>;
+  /** Ports whose bundles presented no host instance id, held provisionally until a verified current-host client attaches. */
+  unverifiedConfigPorts?: Set<PortLike>;
   /** App ports that attempted to attach a different Firebase configuration. */
   rejectedConfigPorts?: WeakSet<PortLike>;
+  /** Conflicting options supplied by each rejected port, used to name differing keys in errors. */
+  rejectedConfigDetails?: WeakMap<PortLike, Record<string, unknown>>;
+  /** Ports refused when they arrived, by the config they sent, so a lock that later adopts it accepts them again. */
+  refusedConfigMessages?: Map<PortLike, AppConfigMessage>;
+  /** Connected app ports whose config the host accepted; when the last one goes, the config is released. */
+  configHolderPorts?: Set<PortLike>;
+  /** The config released when its last client went; a later config must keep its projectId. */
+  releasedAppOptions?: Record<string, unknown>;
+  /** The pending release of `appOptions`, cancelled when a client with the config attaches. */
+  configReleaseTimer?: ReturnType<typeof setTimeout>;
+  /** How long `appOptions` outlives its last client before release; tests shorten it. */
+  configReleaseGraceMs?: number;
   /**
    * The ONE shared auth handle for the worker — the USER POOL (who exists)
    * and the admin surface. Lazily created on first auth op or auth
@@ -244,6 +302,29 @@ export interface HostCtx {
   messagingAcknowledgments?: Map<PortLike, Map<string, (messageId: string, stage: DeliveryStage) => boolean>>;
 }
 
+/** One RTDB instance the host serves: its store's handles and its rules. */
+export interface HostRtdbInstance {
+  /** The instance name, or the registry's default key. */
+  readonly key: string;
+  /** The `getDatabase(sandbox, url)` argument that selects this instance's
+   *  store: `undefined` for the default instance, the name otherwise. */
+  readonly selector: string | undefined;
+  /** The sandbox-live handle; reads the sandbox's current user per operation. */
+  readonly live: Database;
+  /** Rules-bypass handle for the `{ mode: 'admin' }` lens. */
+  admin?: Database;
+  /** Unauthenticated handle for the `{ mode: 'anon' }` lens. */
+  anon?: Database;
+  /** Handles carrying a port session's identity, keyed by session. */
+  readonly sessions: Map<string, Database>;
+  /** Handles for the Studio impersonation lens, keyed by lens. */
+  readonly lenses: Map<string, Database>;
+  /** The instance's deployed rules, for diagnostics, revert and reset. */
+  rules?: ActiveRulesState;
+  /** Whether the notice that the instance has no deployed rules was logged. */
+  noticed?: boolean;
+}
+
 export interface ActiveRulesState {
   source: unknown;
   updatedAt: number;
@@ -256,6 +337,11 @@ export interface ActiveRulesState {
 
 export function post(port: PortLike, msg: OutboundMessage): void {
   port.postMessage(msg);
+}
+
+/** Drop every RTDB instance's session handles, so each rebuilds from its port's current session. */
+export function clearRtdbSessionHandles(ctx: HostCtx): void {
+  for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) instance.sessions.clear();
 }
 
 export function ok(port: PortLike, id: string, value: unknown): void {

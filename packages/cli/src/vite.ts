@@ -23,3 +23,4 @@ export type { AssetRequest, AssetResult, AssetSource } from './serve/assets/reso
 export { NODE_BUILTIN_RE, NODE_BUILTIN_SHIMS } from './serve/bundler.js';
 
 export type { FlowConfig } from './serve/flow-config.js';
+export type { OwnersConfig } from './serve/owners-config.js';

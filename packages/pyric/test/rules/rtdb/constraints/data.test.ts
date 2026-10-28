@@ -2,8 +2,14 @@ import { describe, test, expect } from 'bun:test';
 import {
   dataVal, newDataVal, dataExists, newDataExists,
   newDataIs, dataParentVal, newDataParentVal, newDataParentExists,
-  eq, neq, gt, lte, AUTH_UID,
+  eq, neq, gt, lte, AUTH_UID, ref,
 } from '../../../../src/rules/rtdb/constraints/data.js';
+import { all, any, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { authenticated } from '../../../../src/rules/rtdb/constraints/atoms.js';
+import { compileRtdbRules, simulateRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { ref as constraintsRef } from '../../../../src/rules/rtdb/constraints/index.js';
+import { ref as rulesRef } from '../../../../src/rules/index.js';
+import { ref as internalRtdbRef } from '../../../../src/rules/internal/rtdb.js';
 
 describe('Data template helpers', () => {
   // --- Value access ---
@@ -11,8 +17,8 @@ describe('Data template helpers', () => {
     test('no path → data.val()', () => {
       expect(dataVal()).toBe('data.val()');
     });
-    test('with path → data.child("field").val()', () => {
-      expect(dataVal('status')).toBe('data.child("status").val()');
+    test("with path → data.child('field').val()", () => {
+      expect(dataVal('status')).toBe("data.child('status').val()");
     });
   });
 
@@ -20,8 +26,8 @@ describe('Data template helpers', () => {
     test('no path → newData.val()', () => {
       expect(newDataVal()).toBe('newData.val()');
     });
-    test('with path → newData.child("field").val()', () => {
-      expect(newDataVal('host')).toBe('newData.child("host").val()');
+    test("with path → newData.child('field').val()", () => {
+      expect(newDataVal('host')).toBe("newData.child('host').val()");
     });
   });
 
@@ -30,8 +36,8 @@ describe('Data template helpers', () => {
     test('no path → data.exists()', () => {
       expect(dataExists()).toBe('data.exists()');
     });
-    test('with path → data.child("field").exists()', () => {
-      expect(dataExists('guest')).toBe('data.child("guest").exists()');
+    test("with path → data.child('field').exists()", () => {
+      expect(dataExists('guest')).toBe("data.child('guest').exists()");
     });
   });
 
@@ -39,8 +45,8 @@ describe('Data template helpers', () => {
     test('no path → newData.exists()', () => {
       expect(newDataExists()).toBe('newData.exists()');
     });
-    test('with path → newData.child("field").exists()', () => {
-      expect(newDataExists('winner')).toBe('newData.child("winner").exists()');
+    test("with path → newData.child('field').exists()", () => {
+      expect(newDataExists('winner')).toBe("newData.child('winner').exists()");
     });
   });
 
@@ -54,29 +60,52 @@ describe('Data template helpers', () => {
   // --- Parent navigation ---
   describe('dataParentVal', () => {
     test('depth 1', () => {
-      expect(dataParentVal(1, 'field')).toBe('data.parent().child("field").val()');
+      expect(dataParentVal(1, 'field')).toBe("data.parent().child('field').val()");
     });
     test('depth 2', () => {
-      expect(dataParentVal(2, 'currentTurn')).toBe('data.parent().parent().child("currentTurn").val()');
+      expect(dataParentVal(2, 'currentTurn')).toBe("data.parent().parent().child('currentTurn').val()");
+    });
+    test('rejects non-positive or non-integer depth and empty field (BLD-4)', () => {
+      expect(() => dataParentVal(0, 'field')).toThrow(/depth/);
+      expect(() => dataParentVal(-1, 'field')).toThrow(/depth/);
+      expect(() => dataParentVal(1.5, 'field')).toThrow(/depth/);
+      expect(() => dataParentVal(1, '')).toThrow();
+      expect(() => newDataParentVal(0, 'field')).toThrow(/depth/);
+      expect(() => newDataParentExists(0, 'field')).toThrow(/depth/);
+    });
+  });
+
+  describe('empty path and empty ref rejection (BLD-4)', () => {
+    test('rejects explicit empty path string on dataVal/newDataVal/dataExists/newDataExists', () => {
+      expect(() => dataVal('')).toThrow();
+      expect(() => newDataVal('')).toThrow();
+      expect(() => dataExists('')).toThrow();
+      expect(() => newDataExists('')).toThrow();
+    });
+
+    test('rejects empty ref expression in ref() and eq()/neq()', () => {
+      expect(() => ref('')).toThrow();
+      expect(() => eq(dataVal(), { $: '' })).toThrow();
+      expect(() => neq(dataVal(), { $: '' })).toThrow();
     });
   });
 
   describe('newDataParentVal', () => {
     test('depth 1', () => {
-      expect(newDataParentVal(1, 'xWins')).toBe('newData.parent().child("xWins").val()');
+      expect(newDataParentVal(1, 'xWins')).toBe("newData.parent().child('xWins').val()");
     });
   });
 
   describe('newDataParentExists', () => {
     test('depth 1', () => {
-      expect(newDataParentExists(1, 'winner')).toBe('newData.parent().child("winner").exists()');
+      expect(newDataParentExists(1, 'winner')).toBe("newData.parent().child('winner').exists()");
     });
   });
 
   // --- Comparisons ---
   describe('eq', () => {
     test('string right → quoted', () => {
-      expect(eq(dataVal(), 'X')).toBe('data.val() == "X"');
+      expect(eq(dataVal(), 'X')).toBe("data.val() == 'X'");
     });
     test('number right → unquoted', () => {
       expect(eq(newDataVal(), 0)).toBe('newData.val() == 0');
@@ -91,28 +120,59 @@ describe('Data template helpers', () => {
       expect(eq(newDataVal(), AUTH_UID)).toBe('newData.val() == auth.uid');
     });
     test('with child path', () => {
-      expect(eq(dataVal('status'), 'open')).toBe('data.child("status").val() == "open"');
+      expect(eq(dataVal('status'), 'open')).toBe("data.child('status').val() == 'open'");
     });
     test('parent val with string', () => {
-      expect(eq(dataParentVal(2, 'currentTurn'), 'X')).toBe('data.parent().parent().child("currentTurn").val() == "X"');
+      expect(eq(dataParentVal(2, 'currentTurn'), 'X')).toBe("data.parent().parent().child('currentTurn').val() == 'X'");
     });
     test('newData parent val with boolean', () => {
-      expect(eq(newDataParentVal(1, 'xWins'), true)).toBe('newData.parent().child("xWins").val() == true');
+      expect(eq(newDataParentVal(1, 'xWins'), true)).toBe("newData.parent().child('xWins').val() == true");
+    });
+    test('parenthesizes composite operands and denies matching branch in simulate (FUZ-9b)', () => {
+      const rule = eq(any(eq(newDataVal(), 1), eq(newDataVal(), 2)), false);
+      expect(rule).toBe('(newData.val() == 1 || newData.val() == 2) == false');
+
+      const compiled = compileRtdbRules({
+        rules: { x: { '.write': all(rule, authenticated()) } },
+      });
+      const writeOne = simulateRtdbRules(compiled, {
+        operation: 'write',
+        path: '/x',
+        auth: { uid: 'u', token: {} },
+        mockData: {},
+        newData: 1,
+      });
+      expect(writeOne.success && writeOne.data.allowed).toBe(false);
+
+      const writeThree = simulateRtdbRules(compiled, {
+        operation: 'write',
+        path: '/x',
+        auth: { uid: 'u', token: {} },
+        mockData: {},
+        newData: 3,
+      });
+      expect(writeThree.success && writeThree.data.allowed).toBe(true);
     });
   });
 
   describe('neq', () => {
     test('string right', () => {
-      expect(neq(newDataVal(), 'X')).toBe('newData.val() != "X"');
+      expect(neq(newDataVal(), 'X')).toBe("newData.val() != 'X'");
     });
     test('boolean right', () => {
       expect(neq(newDataVal(), true)).toBe('newData.val() != true');
     });
     test('null right', () => {
-      expect(neq(newDataParentVal(1, 'winner'), null)).toBe('newData.parent().child("winner").val() != null');
+      expect(neq(newDataParentVal(1, 'winner'), null)).toBe("newData.parent().child('winner').val() != null");
     });
     test('segment right (AUTH_UID)', () => {
-      expect(neq(dataVal('host'), AUTH_UID)).toBe('data.child("host").val() != auth.uid');
+      expect(neq(dataVal('host'), AUTH_UID)).toBe("data.child('host').val() != auth.uid");
+    });
+    test('parenthesizes composite left and right operands (FUZ-9b)', () => {
+      expect(neq(any(eq(newDataVal(), 1), eq(newDataVal(), 2)), true)).toBe(
+        '(newData.val() == 1 || newData.val() == 2) != true',
+      );
+      expect(eq(newDataVal(), ref('a || b'))).toBe('newData.val() == (a || b)');
     });
   });
 
@@ -120,11 +180,21 @@ describe('Data template helpers', () => {
     test('numeric', () => {
       expect(gt(newDataVal(), 0)).toBe('newData.val() > 0');
     });
+    test('parenthesizes composite operand (FUZ-9b)', () => {
+      expect(gt(expr("newData.hasChild('a') ? newData.child('a').val() : 0"), 5)).toBe(
+        "(newData.hasChild('a') ? newData.child('a').val() : 0) > 5",
+      );
+    });
   });
 
   describe('lte', () => {
     test('numeric', () => {
       expect(lte(newDataVal(), 200)).toBe('newData.val() <= 200');
+    });
+    test('parenthesizes composite operand (FUZ-9b)', () => {
+      expect(lte(expr("newData.hasChild('a') ? newData.child('a').val() : 0"), 200)).toBe(
+        "(newData.hasChild('a') ? newData.child('a').val() : 0) <= 200",
+      );
     });
   });
 
@@ -133,5 +203,68 @@ describe('Data template helpers', () => {
     test('is a segment marker', () => {
       expect(AUTH_UID).toEqual({ $: 'auth.uid' });
     });
+  });
+
+  // --- ref ---
+  describe('ref', () => {
+    test('wraps an expression as a segment marker and is re-exported across rule entrypoints', () => {
+      expect(ref("data.child('author').val()")).toEqual({ $: "data.child('author').val()" });
+      expect(constraintsRef).toBe(ref);
+      expect(rulesRef).toBe(ref);
+      expect(internalRtdbRef).toBe(ref);
+    });
+
+    test('emits unquoted runtime references in eq and neq', () => {
+      expect(eq(newDataVal('author'), ref("data.child('author').val()"))).toBe(
+        "newData.child('author').val() == data.child('author').val()",
+      );
+      expect(eq(dataVal('owner'), ref('$uid'))).toBe("data.child('owner').val() == $uid");
+      expect(neq(newDataVal('owner'), ref('$uid'))).toBe("newData.child('owner').val() != $uid");
+    });
+  });
+
+  // --- Quoted reference rejection ---
+  describe('eq / neq reject strings that look like rule references', () => {
+    test('rejects auth.uid passed as a string and suggests AUTH_UID / ref("auth.uid")', () => {
+      expect(() => eq(dataVal('owner'), 'auth.uid')).toThrow(/auth\.uid/);
+      expect(() => eq(dataVal('owner'), 'auth.uid')).toThrow(/AUTH_UID/);
+      expect(() => eq(dataVal('owner'), 'auth.uid')).toThrow(/ref\("auth\.uid"\)/);
+    });
+
+    test('rejects RTDB expression roots, path variables, and now passed as strings', () => {
+      expect(() => eq(newDataVal('author'), "data.child('author').val()")).toThrow(
+        /ref\("data\.child\('author'\)\.val\(\)"\)/,
+      );
+      expect(() => neq(newDataVal('status'), 'newData.val()')).toThrow(/ref\("newData\.val\(\)"\)/);
+      expect(() => eq(dataVal('role'), "root.child('admins').val()")).toThrow(
+        /ref\("root\.child\('admins'\)\.val\(\)"\)/,
+      );
+      expect(() => eq(dataVal('limit'), 'query.limitToFirst')).toThrow(
+        /ref\("query\.limitToFirst"\)/,
+      );
+      expect(() => eq(dataVal('owner'), "auth['uid']")).toThrow(/ref\("auth\['uid'\]"\)/);
+      expect(() => eq(dataVal('owner'), '$uid')).toThrow(/ref\("\$uid"\)/);
+      expect(() => neq(newDataVal('createdAt'), 'now')).toThrow(/ref\("now"\)/);
+    });
+
+    test('near misses: ordinary string literals are still quoted', () => {
+      expect(eq(dataVal('status'), 'auth')).toBe("data.child('status').val() == 'auth'");
+      expect(eq(dataVal('status'), 'data')).toBe("data.child('status').val() == 'data'");
+      expect(eq(dataVal('status'), 'nowhere')).toBe("data.child('status').val() == 'nowhere'");
+      expect(eq(dataVal('price'), '$100')).toBe("data.child('price').val() == '$100'");
+      expect(eq(dataVal('symbol'), '$')).toBe("data.child('symbol').val() == '$'");
+    });
+  });
+});
+
+describe('parent depth is bounded (LD-11)', () => {
+  test('dataParentVal and newDataParentVal refuse 1e21 with a plain Error naming the limit', () => {
+    for (const call of [() => dataParentVal(1e21, 'x'), () => newDataParentVal(1e21, 'x')]) {
+      expect(call).toThrow(/depth must be an integer from 1 to 32/);
+      expect(call).not.toThrow(RangeError);
+    }
+  });
+  test('32 levels, the documented maximum database depth, still builds', () => {
+    expect(() => dataParentVal(32, 'x')).not.toThrow();
   });
 });

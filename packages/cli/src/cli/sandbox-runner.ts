@@ -5,7 +5,8 @@
  * activated so their unchanged firebase-admin/firebase imports resolve to the
  * pyric sandbox:
  *
- *   PYRIC_SANDBOX=remote:<serve url>          (the activator)
+ *   PYRIC_SANDBOX=remote:<serve url>          (the activator, computed at launch)
+ *   PYRIC_SANDBOX_INSTANCE=<host identity>    (pins the host at that url)
  *   NODE_OPTIONS += --import @pyric/cli/register   (the substitution seam)
  *
  * Child-command precedence: `--no-run`, an explicit command, `--json`, the
@@ -17,6 +18,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { SHELL_OPERATORS } from './unsupported-runtime.js';
+import type { WorkerInitPayload } from '../serve/init-payload.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
 
@@ -163,9 +165,17 @@ export interface ChildActivation {
    *  Absent when the launcher runs no beacon receiver, as the Vite plugin's
    *  Functions runtime does; the child then reports on stderr only. */
   readonly beaconToken?: string | undefined;
+  /** Identity of the host at `serveUrl`. The child's remote client trusts the
+   *  injected url when that host answers with this identity, wherever the
+   *  child's working directory is. */
+  readonly instanceId?: string | undefined;
   /** Hosts or URLs the child's network guard permits in addition to the
    *  developer's own `PYRIC_GUARD_ALLOW`, such as the configured AI upstream. */
   readonly guardAllow?: readonly string[];
+  /** The page transport selection the host stamps into the HTML it serves.
+   *  A child that bundles pages pyric never serves (`withPyric` under
+   *  `next dev`) inlines it from `PYRIC_WORKER_INIT`. */
+  readonly workerInit?: WorkerInitPayload | undefined;
 }
 
 /**
@@ -186,6 +196,17 @@ export function buildChildEnv(
     NODE_OPTIONS: base.NODE_OPTIONS ? `${base.NODE_OPTIONS} ${importFlag}` : importFlag,
   };
   if (opts.beaconToken !== undefined) env.PYRIC_BEACON_TOKEN = opts.beaconToken;
+  // An inherited identity names an outer launcher's host, not this one.
+  delete env.PYRIC_SANDBOX_INSTANCE;
+  if (opts.instanceId !== undefined) env.PYRIC_SANDBOX_INSTANCE = opts.instanceId;
+  // The selection names the host at `serveUrl`; `withPyric` inlines it only
+  // when its rewrites target that same host.
+  delete env.PYRIC_WORKER_INIT;
+  delete env.PYRIC_WORKER_INIT_HOST;
+  if (opts.workerInit !== undefined) {
+    env.PYRIC_WORKER_INIT = JSON.stringify(opts.workerInit);
+    env.PYRIC_WORKER_INIT_HOST = opts.serveUrl;
+  }
   const guardAllow = childGuardAllow(base.PYRIC_GUARD_ALLOW, opts.guardAllow ?? []);
   if (guardAllow !== undefined) env.PYRIC_GUARD_ALLOW = guardAllow;
   return env;
@@ -210,11 +231,17 @@ function childGuardAllow(
  * Grouped in a cleanly formatted console block for easy selection and copying
  * into a separate terminal (for example, when running Next.js independently).
  *
+ * The activator printed for copying is bare `remote`: the client finds the
+ * running host through the project's `.pyric/serve.json`, so the line keeps
+ * working when the host takes another port or the project moves to another
+ * machine. The explicit url is named only for the case discovery cannot
+ * cover, a command started outside this project directory.
+ *
  * Only the spawned-child environment receives the beacon secret. Printed
  * output is safe to share; independently started commands still intercept.
  */
 export function formatStartupEnvExport(opts: ChildActivation): string {
-  const lines = [`export PYRIC_SANDBOX="remote:${opts.serveUrl}"`];
+  const lines = ['export PYRIC_SANDBOX=remote'];
   lines.push(`export NODE_OPTIONS="--import ${opts.registerUrl}"`);
   const width = Math.max(...lines.map((line) => line.length));
   const divider = '─'.repeat(width + 4);
@@ -225,6 +252,8 @@ export function formatStartupEnvExport(opts: ChildActivation): string {
     `  ${divider}\n` +
     body +
     `  ${divider}\n` +
+    '  PYRIC_SANDBOX=remote finds this host through .pyric/serve.json from this project directory.\n' +
+    `  From another directory or machine, set PYRIC_SANDBOX=remote:${opts.serveUrl} instead.\n` +
     '  Automatic interception confirmation requires launching the command through pyric.\n'
   );
 }
@@ -270,6 +299,28 @@ export interface SandboxChildHandle {
 }
 
 export type DevChildHandle = SandboxChildHandle;
+
+/**
+ * The line `pyric sandbox <word>` prints when <word> was run as a command and
+ * no such command exists: it lists the `pyric sandbox` methods, since the
+ * likely cause is a mistyped method. Null for a path (`./bin/dev`), which
+ * names a file rather than a method. The registry loads only on this path,
+ * so a normal start does not pay for it.
+ */
+export async function sandboxMethodHint(command: string): Promise<string | null> {
+  const isPath = command.length === 0 || command.includes('/') || command.includes('\\');
+  if (isPath) return null;
+  const { SERVICE_COMMANDS } = await import('./service-commands.generated.js');
+  const methods = SERVICE_COMMANDS
+    .filter(({ path }) => path[0] === 'sandbox' && path.length === 2)
+    .map(({ path }) => path[1]);
+  const isMethod = (methods as readonly string[]).includes(command);
+  if (isMethod || methods.length === 0) return null;
+  return (
+    `pyric sandbox: '${command}' is neither a command on PATH nor a \`pyric sandbox\` method. ` +
+    `Methods: ${methods.join(', ')}.\n`
+  );
+}
 
 /**
  * Spawn the child with inherited stdin and `[dev]`-prefixed stdout/stderr.
@@ -340,7 +391,18 @@ export function spawnSandboxChild(
   const exited = new Promise<number>((resolve) => {
     child.once('error', (e) => {
       process.stderr.write(`pyric sandbox: failed to run \`${plan.label}\`: ${e.message}\n`);
-      resolve(1);
+      const notFound = (e as NodeJS.ErrnoException).code === 'ENOENT';
+      if (!notFound) {
+        resolve(1);
+        return;
+      }
+      // `pyric sandbox <word>` runs <word> as a command when it is not a
+      // sandbox method, so a mistyped method lands here. Name the methods
+      // instead of guessing one: several of them replace or wipe state.
+      void sandboxMethodHint(command ?? '').then((hint) => {
+        if (hint !== null) process.stderr.write(hint);
+        resolve(1);
+      });
     });
     child.once('exit', (code, signal) => {
       out.flush();

@@ -114,8 +114,9 @@ function isKeyword(tokens: readonly Token[], index: number): boolean {
 }
 
 /** Whether the `{` at `index` opens a path capture such as `/{id}` rather than a block. */
-function opensCapture(source: string, tokens: readonly Token[], index: number): boolean {
-  return source[tokens[index]!.offset - 1] === '/';
+function opensCapture(_source: string, tokens: readonly Token[], index: number): boolean {
+  const prev = tokens[index - 1];
+  return prev !== undefined && prev.text === '/' && prev.offset === tokens[index]!.offset - 1;
 }
 
 /**

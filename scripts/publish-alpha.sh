@@ -4,15 +4,37 @@
 #   bash scripts/publish-alpha.sh 0.1.0-alpha.9
 #   bash scripts/publish-alpha.sh --dry-run 0.1.0-alpha.9
 #
-# Steps: gates (`bun run test` + `bun run test:packaging` — publishing is
-# irreversible, so the tree proves itself first; skip with
-# PYRIC_PUBLISH_SKIP_GATES=1 only when they just ran on this exact tree)
-# → pack (full rebuild) → publish each tarball under the `alpha`
-# dist-tag → point `latest` at the same version → run `compat:check`
-# against the pinned Firebase version and move the `fb<major>.<minor>`
-# compatibility certificate tag if it is green → print the dist-tags for
-# eyeball verification. Package versions must already be bumped (lockstep)
-# and merged; this script only ships what the tree builds.
+# Steps: `bun run test` → pack once (full rebuild) → the packaging gate, the
+# release smoke and the app scenarios (test/apps), all on those packed
+# tarballs → publish the same tarballs under the `alpha` dist-tag → point
+# `latest` at the same version → run `compat:check` against the pinned
+# Firebase version and move the `fb<major>.<minor>` compatibility
+# certificate tag if it is green → print the dist-tags for eyeball
+# verification.
+#
+# Publishing is irreversible, so every gate passes before the first upload,
+# and the bytes uploaded are the bytes the gates tested. pack-packages.sh
+# records each tarball's sha256 and the tree it packed in manifest.json. Once
+# every gate passes, the script stamps dist/packages/proven.json, and only if
+# the tarballs are still the pack's bytes on the pack's tree
+# (scripts/lib/proven-stamp.mjs). The upload copies the five tarballs into a
+# directory of its own, verifies the copies against the stamp, and publishes
+# the copies.
+#
+# A rerun with PYRIC_PUBLISH_SKIP_GATES=1 (after an authentication failure,
+# say) skips the gates and the pack. It uploads only when the stamp matches
+# HEAD, a clean tree and exactly the five files on disk, and refuses
+# tarballs from an earlier commit, a pack whose own checks failed, a failed
+# build's leftovers, and the leftovers of a run whose gates failed: every
+# other run removes the stamp before it starts.
+#
+# Package versions must already be bumped (lockstep) and merged; this
+# script only ships what the tree builds.
+#
+# Channels: PYRIC_PUBLISH_TAG picks the dist-tag (default `latest`).
+#  - latest: moves latest and alpha, and the fb certificate when compat:check is green.
+#  - next: moves only next, plus the fb certificate when green.
+#  - any other tag (for example `exp`): moves only that tag; no fb certificate.
 #
 # Notes:
 #  - Tarball names are npm's flattened form (`@pyric/ui` → `pyric-ui-…`),
@@ -33,6 +55,10 @@
 #    receive an `fb*` tag (it is a scaffolder, not a Firebase mirror).
 set -euo pipefail
 
+# Pin npm commands (publish, dist-tag, child consumer smokes) to public npmjs.org
+# even on machines whose .npmrc defaults to a corporate mirror or proxy.
+export NPM_CONFIG_REGISTRY="${PYRIC_NPM_REGISTRY:-https://registry.npmjs.org/}"
+
 DRY_RUN=0
 if [ "${1:-}" = "--dry-run" ]; then
   DRY_RUN=1
@@ -49,25 +75,70 @@ node "$ROOT/scripts/lib/check-publish-version.mjs" "$V" "$ROOT"
 
 cd "$ROOT"
 
+# The five tarballs the publish uploads, by npm's flattened name.
+TARBALLS=(pyric pyric-admin create-pyric pyric-cli pyric-ui)
+
+# A run that proves anything starts unproven: if it fails before the stamp,
+# no earlier stamp is left for a gate-skipping rerun to trust.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  rm -f "$ROOT/dist/packages/proven.json"
+else
+  echo "━━━ gates skipped: checking the tarballs are the ones an earlier run proved ━━━"
+  node "$ROOT/scripts/lib/proven-stamp.mjs" verify "$ROOT/dist/packages" "$V" "$ROOT" "${TARBALLS[@]}"
+fi
+
 # ─── pre-publish gates ─────────────────────────────────────────────────
 # Publishing is irreversible, so the tree must prove itself before the
 # first npm publish. compat:check runs again later only to gate the fb
-# certificate tag; these two decide whether anything ships at all.
-# PYRIC_PUBLISH_SKIP_GATES=1 skips them when they demonstrably just ran
-# on this exact tree (e.g. recovering deliberately after an authentication
-# failure before the first upload).
+# certificate tag; the unit tests here and the packaging gate and app
+# scenarios after the pack decide whether anything ships at all.
+# PYRIC_PUBLISH_SKIP_GATES=1 skips them, and the pack, when an earlier run
+# proved this exact tree (e.g. recovering deliberately after an authentication
+# failure before the first upload): the proven.json stamp is checked instead.
 if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
   echo "━━━ pre-publish gates: bun run test ━━━"
   bun run test
-  echo "━━━ pre-publish gates: bun run test:packaging ━━━"
-  bun run test:packaging
 fi
 
-bash scripts/pack-packages.sh
+# The one pack. Every gate below tests these tarballs, and the publish step
+# uploads them; nothing rebuilds or repacks in between. A gate-skipping rerun
+# keeps the tarballs the earlier run's gates proved instead of packing anew.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  bash scripts/pack-packages.sh
+fi
+
+# The packaging gate on the tarballs about to ship: manifest lint, file set,
+# consumer install, subpath resolution, the packed CLI and serve smokes.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  echo "━━━ pre-publish gates: packaging gate on the packed tarballs ━━━"
+  bash scripts/packaging-test.sh --packages dist/packages
+fi
 
 # Behavioral smoke against the exact tarballs about to ship: installed-CLI
 # can-i-use exit codes and both conformance subpaths (scripts/release-smoke.sh).
 bash scripts/release-smoke.sh "$V"
+
+# Real apps installed from the same tarballs: each runs its Vite dev server,
+# its server scripts under @pyric/cli/register, and its page in Chromium
+# (test/apps). A proof like the gates above, so the escape hatch skips it.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  echo "━━━ pre-publish gates: app scenarios on the packed tarballs ━━━"
+  bun test/apps/run.ts --packages dist/packages
+fi
+
+# Every gate passed on these tarballs: stamp them, if they are still the
+# bytes the pack wrote on the tree it packed.
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  node "$ROOT/scripts/lib/proven-stamp.mjs" write "$ROOT/dist/packages" "$V" "$ROOT" "${TARBALLS[@]}"
+fi
+
+# Upload copies, verified against the stamp, so nothing that writes to
+# dist/packages between the check and the last upload can change what ships.
+UPLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pyric-publish-XXXXXX")"
+trap 'rm -rf "$UPLOAD_DIR"' EXIT
+for t in "${TARBALLS[@]}"; do cp "$ROOT/dist/packages/${t}-${V}.tgz" "$UPLOAD_DIR/"; done
+cp "$ROOT/dist/packages/proven.json" "$UPLOAD_DIR/"
+node "$ROOT/scripts/lib/proven-stamp.mjs" verify "$UPLOAD_DIR" "$V" "$ROOT" "${TARBALLS[@]}"
 
 PUBLISH_TAG="${PYRIC_PUBLISH_TAG:-latest}"
 PUBLISH_ARGS=(--tag "$PUBLISH_TAG" --access public)
@@ -81,8 +152,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   PUBLISH_ARGS+=(--dry-run)
 fi
 
-for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
-  npm publish "dist/packages/${t}-${V}.tgz" "${PUBLISH_ARGS[@]}"
+for t in "${TARBALLS[@]}"; do
+  npm publish "$UPLOAD_DIR/${t}-${V}.tgz" "${PUBLISH_ARGS[@]}"
 done
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -93,21 +164,33 @@ if [ "$DRY_RUN" -eq 1 ]; then
 
   echo ""
   echo "Preflight complete. No packages or dist-tags were published or changed."
-  if [ "${PUBLISH_TAG}" = "next" ]; then
-    echo "A real release would move next to ${V}, and ${FB_TAG} on compatible packages."
-  else
-    echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages."
-  fi
+  case "${PUBLISH_TAG}" in
+    latest) echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages." ;;
+    next) echo "A real release would move next to ${V}, and ${FB_TAG} on compatible packages." ;;
+    *) echo "A real release would move only ${PUBLISH_TAG} to ${V}; no fb certificate." ;;
+  esac
   exit 0
 fi
 
+# Only a latest release moves latest and alpha. `next` and any other channel
+# (for example `exp`) move only their own tag.
 for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
   npm dist-tag add "${p}@${V}" "${PUBLISH_TAG}"
-  if [ "${PUBLISH_TAG}" != "next" ]; then
-    npm dist-tag add "${p}@${V}" latest
+  if [ "${PUBLISH_TAG}" = "latest" ]; then
     npm dist-tag add "${p}@${V}" alpha
   fi
 done
+
+# An experimental channel carries no compatibility certificate.
+if [ "${PUBLISH_TAG}" != "latest" ] && [ "${PUBLISH_TAG}" != "next" ]; then
+  for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
+    echo "== ${p}"; npm dist-tag ls "${p}"
+  done
+  echo ""
+  echo "Published under ${PUBLISH_TAG} only. Pin the commit so hotfixes can branch from it:"
+  echo "  git tag v${V} && git push origin v${V}"
+  exit 0
+fi
 
 # ─── fb<major>.<minor> compatibility certificate ───────────────────────
 # Tag only the currently pinned Firebase line (patch discarded), and only

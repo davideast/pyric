@@ -15,6 +15,12 @@ export interface VerifyRtdbRulesBlock {
   json: { rules: Record<string, unknown> };
 }
 
+/** One named RTDB instance in a capture: its active rules and its data. */
+export interface VerifyRtdbInstanceCapture {
+  rules: VerifyRtdbRulesBlock;
+  state: { tree: unknown };
+}
+
 export interface VerifyStorageRulesBlock {
   format: 'storage.rules';
   source: string;
@@ -39,9 +45,21 @@ export interface PyricVerifyFixture {
       state: { documents: Record<string, Record<string, unknown>> };
     };
     rtdb?: {
+      /** The default instance's rules and data. */
       rules: VerifyRtdbRulesBlock;
       state: { tree: unknown };
+      /**
+       * The default instance's URL, when the session knew its name. `pyric
+       * verify` reads the name from it, so rules `firebase.json` deploys to
+       * that name check the default instance.
+       */
       databaseUrl?: string;
+      /**
+       * Every named instance the session held, by instance name. The events
+       * of a named instance carry its name in `instance`. Absent on captures
+       * recorded before instances were captured.
+       */
+      instances?: Record<string, VerifyRtdbInstanceCapture>;
     };
     auth?: {
       state: {
@@ -67,6 +85,8 @@ export interface BuildVerifyFixtureInput {
   rtdbRules?: { rules: Record<string, unknown> } | null;
   rtdbState?: unknown;
   rtdbDatabaseUrl?: string | null;
+  /** Every named RTDB instance, by name; see `captureRtdbInstances`. */
+  rtdbInstances?: Record<string, VerifyRtdbInstanceCapture>;
   /** Currently-deployed storage rules text. RULES ONLY — there is no
    *  `storageState` input; captured storage OBJECTS are a separate,
    *  larger redesign left untouched by this fixture. */
@@ -101,9 +121,12 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
     };
   }
 
+  const rtdbInstances = input.rtdbInstances ?? {};
+  const holdsInstances = Object.keys(rtdbInstances).length > 0;
   if (
     input.rtdbRules != null ||
     input.rtdbState !== undefined ||
+    holdsInstances ||
     events.some((event) => eventService(event) === 'rtdb')
   ) {
     services.rtdb = {
@@ -113,6 +136,7 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
       },
       state: { tree: input.rtdbState ?? null },
       ...(input.rtdbDatabaseUrl ? { databaseUrl: input.rtdbDatabaseUrl } : {}),
+      ...(holdsInstances ? { instances: rtdbInstances } : {}),
     };
   }
 
@@ -194,10 +218,11 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
 
 export function fixtureVerifiableServices(
   fixture: PyricVerifyFixture,
-): Array<'firestore' | 'rtdb'> {
-  const services: Array<'firestore' | 'rtdb'> = [];
+): Array<'firestore' | 'rtdb' | 'storage'> {
+  const services: Array<'firestore' | 'rtdb' | 'storage'> = [];
   if (fixture.services.firestore) services.push('firestore');
   if (fixture.services.rtdb) services.push('rtdb');
+  if (fixture.services.storage) services.push('storage');
   return services;
 }
 
@@ -223,6 +248,23 @@ function assertRtdbService(value: unknown): void {
   if (!isVerifyFixtureObject(value.state) || !('tree' in value.state)) {
     throw new Error('fixture.services.rtdb.state.tree is required.');
   }
+  const hasInvalidUrl = value.databaseUrl !== undefined && typeof value.databaseUrl !== 'string';
+  if (hasInvalidUrl) throw new Error('fixture.services.rtdb.databaseUrl must be a string.');
+  if (value.instances === undefined) return;
+  if (!isVerifyFixtureObject(value.instances)) throw new Error('fixture.services.rtdb.instances must be an object.');
+  for (const [name, instance] of Object.entries(value.instances)) {
+    assertRtdbInstance(name, instance);
+  }
+}
+
+function assertRtdbInstance(name: string, value: unknown): void {
+  const label = `fixture.services.rtdb.instances["${name}"]`;
+  if (!isVerifyFixtureObject(value)) throw new Error(`${label} must be an object.`);
+  const rules = value.rules;
+  const hasRules = isVerifyFixtureObject(rules) && rules.format === 'rtdb.rules.json' && isRtdbRulesJson(rules.json);
+  if (!hasRules) throw new Error(`${label}.rules must contain RTDB rules JSON.`);
+  const hasTree = isVerifyFixtureObject(value.state) && 'tree' in value.state;
+  if (!hasTree) throw new Error(`${label}.state.tree is required.`);
 }
 
 function assertStorageService(value: unknown): void {

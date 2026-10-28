@@ -27,7 +27,7 @@ a separate defect:
 | `BLOB` column, read by `substr` | A ranged read costs the whole object, because `node:sqlite` has no incremental blob I/O. A download in parts reads the object once per part. | A 4 MiB read: 1.85 ms from a 10 MiB object, 45.52 ms from a 200 MiB one. |
 | `BLOB` column, finished by assembling parts | Host memory scales with the object. | A 200 MiB object: 836 MiB resident on upload, 1,124 MiB on read. |
 | `BLOB` column, deleted or replaced | Freed pages stay in the file. The database never shrinks without `VACUUM`, which locks the host and needs twice the space. | One 200 MiB upload left 200 MiB of free pages in a 420 MiB file. |
-| Base64 in one JSON document | The whole project's Storage is capped by V8's string length. | About 384 MiB in total, now refused by name at `MAX_INLINE_EXPORT_STORAGE_BYTES`. Checkpoints and branches hit the same wall with the raw error. |
+| Base64 in one JSON document | The whole project's Storage is capped by V8's string length. | About 384 MiB in total. Documents that stay inline (the in-process `storage.json`, a browser `--persist` state file, inline captures, and branch files) are refused by name past `MAX_INLINE_STORAGE_BYTES`. |
 | Base64 in RPC frames | A third more bytes on the wire, a slow encoder in the browser, and serial round trips. | Base64 writes 3 bytes as 4: a 29 MiB object crosses as 38.7 MiB. |
 | A `data:` URI from `getDownloadURL` | The page holds the whole object as a string. `<audio>` cannot stream or seek it. | A 29 MiB file becomes a 39 MiB string. |
 

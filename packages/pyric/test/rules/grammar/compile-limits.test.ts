@@ -61,6 +61,20 @@ describe('compile limits: every Rules Test API probe', () => {
     expect(violations(probe.source).map((v) => v.line)).toEqual([271, 296, 322]);
   });
 
+  test('a second recursive wildcard is rejected on the line of the declaration that holds it', () => {
+    for (const shape of ['glob-in-path', 'glob-nested'] as const) {
+      const probe = compileLimitProbes().find((p) => p.service === 'firestore' && p.shape === shape && !p.compiles)!;
+      expect(violations(probe.source).map((v) => v.line)).toEqual(probe.errorPositions.map((p) => p![0]));
+    }
+  });
+
+  test('a recursive wildcard counts across every enclosing declaration path', () => {
+    const lines = (block: string) => violations(firestore(block)).filter((v) => v.code === 'GLOB_MATCH_COUNT').map((v) => v.line);
+    expect(lines('    match /{a=**}/x/{b} {\n      match /y/{c} {\n        match /{d=**} { allow read: if true; }\n      }\n    }')).toEqual([6]);
+    expect(lines('    match /{a=**}/x/{b=**}/y/{c=**} { allow read: if true; }')).toEqual([4]);
+    expect(lines('    match /x/{a} {\n      match /{b=**} { allow read: if true; }\n    }\n    match /{c=**} { allow read: if true; }')).toEqual([]);
+  });
+
   test('a let-count rejection is at the return expression, where production reports it', () => {
     for (const service of ['firestore', 'storage'] as const) {
       const probe = compileLimitProbes().find((p) => p.service === service && p.shape === 'let-count' && !p.compiles)!;
@@ -123,5 +137,28 @@ describe('compile limits: shapes the capture does not measure', () => {
     // The list puts its element one level deeper, so the comparison reaches level 100.
     expect(condition(`[${deep}].size() > 0`)).toBe(1);
     expect(condition(`string(${deep}) == 'true'`)).toBe(1);
+  });
+
+  test('RE2-only forms compile without INVALID_REGEX_PATTERN while lookahead and backreferences are rejected', () => {
+    const valid = [
+      "'ABC'.matches('(?i)abc')",
+      "'ABC'.matches('(?i:abc)')",
+      "']a]'.matches('[]a]+')",
+      "'abc'.matches('(?P<n>abc)')",
+      "'abc'.matches('\\\\Aabc\\\\z')",
+      "'a'.matches('\\\\x{61}')",
+    ];
+    for (const expr of valid) {
+      expect(violations(firestore(`    match /p/{d} { allow read: if ${expr}; }`))).toEqual([]);
+    }
+    const invalid = [
+      ["'ab'.matches('a(?=b)b')", 'Invalid regular expression pattern. Pattern: a(?=b)b.'],
+      ["'aa'.matches('(a)\\\\1')", 'Invalid regular expression pattern. Pattern: (a)\\1.'],
+    ] as const;
+    for (const [expr, msg] of invalid) {
+      expect(
+        violations(firestore(`    match /p/{d} { allow read: if ${expr}; }`)).map((v) => [v.code, v.message]),
+      ).toEqual([['INVALID_REGEX_PATTERN', msg]]);
+    }
   });
 });

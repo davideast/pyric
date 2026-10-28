@@ -1,9 +1,14 @@
 import type { Semantics } from 'ohm-js';
 import {
+  CHAINED_TERMS_MESSAGE,
   createRtdbExpressionSemantics,
   matchRtdbExpression,
 } from '../expression-engine.js';
 import type { ParsedExpression } from '../types.js';
+import {
+  UNTERMINATED_STRING_LITERAL,
+  containsRawNewlineInRtdbString,
+} from './string-literal.js';
 
 let identifierSemantics: Semantics | undefined;
 
@@ -39,20 +44,56 @@ function getIdentifierSemantics(): Semantics {
   return semantics;
 }
 
+/** Production's text for a rule that contains `=` outside `==`, `===`, `!=`, `<=` and `>=`. */
+export const ASSIGNMENT_MESSAGE = 'Rule expressions may not contain assignments.';
+
+/** Whether expression text holds a single `=` outside a string or regular expression literal. */
+function containsAssignment(raw: string): boolean {
+  const withoutLiterals = raw.replace(
+    /'(?:\\.|[^'\\])*'?|"(?:\\.|[^"\\])*"?|\/(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+\/[a-zA-Z]*/g,
+    '""',
+  );
+  return /(^|[^=!<>])=(?!=)/.test(withoutLiterals);
+}
+
 export function parseExpression(raw: string): ParsedExpression {
+  if (containsRawNewlineInRtdbString(raw)) {
+    return {
+      raw,
+      valid: false,
+      errors: [{ code: 'PARSE_ERROR', message: UNTERMINATED_STRING_LITERAL }],
+      warnings: [],
+      referencedIdentifiers: [],
+    };
+  }
+
   const matched = matchRtdbExpression(raw);
 
   if (!matched.ok) {
     return {
       raw,
       valid: false,
-      errors: [{ code: 'PARSE_ERROR', message: matched.message }],
+      errors: [{ code: 'PARSE_ERROR', message: containsAssignment(raw) ? ASSIGNMENT_MESSAGE : matched.message }],
       warnings: [],
       referencedIdentifiers: [],
     };
   }
 
-  const referencedIdentifiers = (getIdentifierSemantics()(matched.match) as any).identifiers() as string[];
+  let referencedIdentifiers: string[];
+  try {
+    referencedIdentifiers = (getIdentifierSemantics()(matched.match) as any).identifiers() as string[];
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return {
+        raw,
+        valid: false,
+        errors: [{ code: 'PARSE_ERROR', message: CHAINED_TERMS_MESSAGE }],
+        warnings: [],
+        referencedIdentifiers: [],
+      };
+    }
+    throw error;
+  }
   const unique = [...new Set(referencedIdentifiers)];
 
   return {

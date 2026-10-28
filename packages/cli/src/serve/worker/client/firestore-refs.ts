@@ -17,9 +17,12 @@ import type {
 import { lastSegment } from './handles.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
 import { createDocumentReference } from './firestore-reference.js';
+import { FirebaseError } from 'pyric/app';
 import { encodeDocValue, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
+import { normalizeQueryOrders } from 'pyric/firestore/internal/implicit-order';
 import { generateAutoId } from 'pyric/sandbox/internal';
-import type { FirestoreDataConverter, DocumentData } from 'pyric/firestore';
+import type { DocumentData, FieldPath, FirestoreDataConverter, QueryConstraintType } from 'pyric/firestore';
+import { rawClientSnapshotForCursor, type RawCursorSnapshot } from './snapshots.js';
 
 // ─── Path factories (client-side only — no RPC) ──────────────────────────
 
@@ -133,12 +136,148 @@ export function collectionGroup(db: ClientDb, collectionId: string): QueryHandle
 
 /** Opaque query constraint — carries its descriptor for embedding in queries. */
 export interface QueryConstraintHandle {
+  readonly type: QueryConstraintType;
   readonly _descriptor: QueryConstraintDescriptor;
 }
 
-export function where(field: string, op: string, value: unknown): QueryConstraintHandle {
+type CursorConstraintKind = 'startAt' | 'startAfter' | 'endAt' | 'endBefore';
+
+interface PendingSnapshotCursor {
+  readonly __snapshotCursor: true;
+  readonly kind: CursorConstraintKind;
+  readonly snapshot: RawCursorSnapshot;
+}
+
+type RawConstraintItem = QueryConstraintDescriptor | PendingSnapshotCursor;
+
+const KEY_FIELD = '__name__';
+const INEQUALITY_OPERATORS = new Set(['<', '<=', '>', '>=', '!=', 'not-in']);
+const snapshotCursors = new WeakMap<QueryConstraintHandle, PendingSnapshotCursor>();
+const rawQueryItems = new WeakMap<QueryHandle, readonly RawConstraintItem[]>();
+
+function fieldPathString(field: string | FieldPath): string {
+  return typeof field === 'string' ? field : field._internalPath.segments.join('.');
+}
+
+function readSnapshotField(data: Record<string, unknown>, fieldPath: string): unknown {
+  if (!fieldPath.includes('.')) return data[fieldPath];
+  let current: unknown = data;
+  for (const segment of fieldPath.split('.')) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function collectInequalityFields(filter: FilterConstraintDescriptor, out: string[]): void {
+  if (filter.kind === 'where') {
+    if (INEQUALITY_OPERATORS.has(filter.op)) out.push(filter.field);
+    return;
+  }
+  for (const nested of filter.filters) collectInequalityFields(nested, out);
+}
+
+function isDocumentSnapshotArg(args: readonly unknown[]): args is [object & { data: () => Record<string, unknown> | undefined }] {
+  return args.length === 1
+    && args[0] !== null
+    && typeof args[0] === 'object'
+    && 'data' in args[0]
+    && typeof (args[0] as { data?: unknown }).data === 'function';
+}
+
+function makeCursorConstraint(kind: CursorConstraintKind, args: readonly unknown[]): QueryConstraintHandle {
+  if (!isDocumentSnapshotArg(args)) {
+    return {
+      type: kind,
+      _descriptor: { kind, values: args.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING },
+    };
+  }
+  const candidate = args[0] as {
+    id?: unknown;
+    path?: unknown;
+    ref?: { path?: string };
+    exists?: unknown;
+    data: () => Record<string, unknown> | undefined;
+  };
+  const captured: RawCursorSnapshot = rawClientSnapshotForCursor(candidate) ?? (() => {
+    const data = candidate.data();
+    const id = typeof candidate.id === 'string' ? candidate.id : '';
+    const path = typeof candidate.path === 'string'
+      ? candidate.path
+      : (typeof candidate.ref?.path === 'string' ? candidate.ref.path : id);
+    const exists = typeof candidate.exists === 'function'
+      ? Boolean((candidate.exists as () => boolean)())
+      : data !== undefined;
+    return { id, path, exists, data };
+  })();
+  const handle: QueryConstraintHandle = {
+    type: kind,
+    _descriptor: { kind, values: [], valueEncoding: DOC_VALUE_ENCODING },
+  };
+  snapshotCursors.set(handle, { __snapshotCursor: true, kind, snapshot: captured });
+  return handle;
+}
+
+function isSnapshotCursor(item: RawConstraintItem): item is PendingSnapshotCursor {
+  return '__snapshotCursor' in item;
+}
+
+function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryConstraintDescriptor[] {
+  const hasSnapshotCursor = items.some(isSnapshotCursor);
+  if (!hasSnapshotCursor) return items as QueryConstraintDescriptor[];
+
+  const explicitOrders: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
+  const inequalityFields: string[] = [];
+  for (const item of items) {
+    if (isSnapshotCursor(item)) continue;
+    if (item.kind === 'orderBy') {
+      explicitOrders.push({ field: item.field, direction: item.direction ?? 'asc' });
+    } else if (item.kind === 'where' || item.kind === 'and' || item.kind === 'or') {
+      collectInequalityFields(item, inequalityFields);
+    }
+  }
+
+  // One normalization for every plane: inequality fields in field-path
+  // order, then the document key (#1364, FL-4).
+  const normalizedOrders = normalizeQueryOrders(explicitOrders, inequalityFields);
+
+  // Place normalized `orderBy` clauses before resolved snapshot cursors so host
+  // positional cursor normalization sees every sort slot including `__name__`.
+  const resolved: QueryConstraintDescriptor[] = normalizedOrders.map((order) => ({
+    kind: 'orderBy',
+    field: order.field,
+    direction: order.direction,
+  }));
+
+  for (const item of items) {
+    if (isSnapshotCursor(item)) {
+      const { snapshot } = item;
+      if (!snapshot.exists || snapshot.data === undefined) {
+        throw new FirebaseError(
+          'not-found',
+          `Snapshot-based cursors require an existing document — got an empty snapshot for ${snapshot.id || '<unknown>'}.`,
+        );
+      }
+      const values = normalizedOrders.map((order) =>
+        order.field === KEY_FIELD
+          ? encodeDocValue(snapshot.path)
+          : encodeDocValue(readSnapshotField(snapshot.data!, order.field)),
+      );
+      resolved.push({ kind: item.kind, values, valueEncoding: DOC_VALUE_ENCODING });
+      continue;
+    }
+    if (item.kind === 'orderBy') continue;
+    resolved.push(item);
+  }
+  return resolved;
+}
+
+export function where(field: string | FieldPath, op: string, value: unknown): QueryConstraintHandle {
   const encoded = encodeDocValue(value);
-  return { _descriptor: { kind: 'where', field, op, value: encoded, valueEncoding: DOC_VALUE_ENCODING } };
+  return {
+    type: 'where',
+    _descriptor: { kind: 'where', field: fieldPathString(field), op, value: encoded, valueEncoding: DOC_VALUE_ENCODING },
+  };
 }
 
 /**
@@ -163,7 +302,7 @@ function composite(kind: 'and' | 'or', filters: QueryConstraintHandle[]): QueryC
   if (filters.length === 0) {
     throw new TypeError(`pyric worker client: ${kind}() requires at least one filter argument.`);
   }
-  return { _descriptor: { kind, filters: filters.map((f) => toFilterDescriptor(kind, f)) } };
+  return { type: kind, _descriptor: { kind, filters: filters.map((f) => toFilterDescriptor(kind, f)) } };
 }
 
 /**
@@ -180,32 +319,32 @@ export function and(...filters: QueryConstraintHandle[]): QueryConstraintHandle 
   return composite('and', filters);
 }
 
-export function orderBy(field: string, direction?: 'asc' | 'desc'): QueryConstraintHandle {
-  return { _descriptor: { kind: 'orderBy', field, direction } };
+export function orderBy(field: string | FieldPath, direction?: 'asc' | 'desc'): QueryConstraintHandle {
+  return { type: 'orderBy', _descriptor: { kind: 'orderBy', field: fieldPathString(field), direction } };
 }
 
 export function limit(n: number): QueryConstraintHandle {
-  return { _descriptor: { kind: 'limit', n } };
+  return { type: 'limit', _descriptor: { kind: 'limit', n } };
 }
 
 export function limitToLast(n: number): QueryConstraintHandle {
-  return { _descriptor: { kind: 'limitToLast', n } };
+  return { type: 'limitToLast', _descriptor: { kind: 'limitToLast', n } };
 }
 
 export function startAt(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'startAt', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
+  return makeCursorConstraint('startAt', values);
 }
 
 export function startAfter(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'startAfter', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
+  return makeCursorConstraint('startAfter', values);
 }
 
 export function endAt(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'endAt', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
+  return makeCursorConstraint('endAt', values);
 }
 
 export function endBefore(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'endBefore', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
+  return makeCursorConstraint('endBefore', values);
 }
 
 /**
@@ -221,22 +360,26 @@ export function query(
       ? (source as CollRefHandle).descriptor
       : (source as QueryHandle).descriptor;
 
-  const existingConstraints: readonly QueryConstraintDescriptor[] =
+  const existingItems: readonly RawConstraintItem[] =
     source.__kind === 'query'
-      ? (source as QueryHandle).descriptor.constraints
+      ? (rawQueryItems.get(source as QueryHandle) ?? (source as QueryHandle).descriptor.constraints)
       : [];
+
+  const allItems: RawConstraintItem[] = [
+    ...existingItems,
+    ...constraints.map((c) => snapshotCursors.get(c) ?? c._descriptor),
+  ];
 
   const descriptor: QueryDescriptor = {
     __ref: 'query',
     source: sourceDescriptor.__ref === 'query'
       ? (sourceDescriptor as QueryDescriptor).source
       : (sourceDescriptor as DocRef | CollRef | GroupRef),
-    constraints: [
-      ...existingConstraints,
-      ...constraints.map((c) => c._descriptor),
-    ],
+    constraints: resolveQueryConstraints(allItems),
   };
-  return createQueryHandle(source.port, descriptor, source.converter);
+  const handle = createQueryHandle(source.port, descriptor, source.converter);
+  rawQueryItems.set(handle, allItems);
+  return handle;
 }
 
 // ─── Sentinel factories (client-side markers) ────────────────────────────

@@ -1,0 +1,113 @@
+{
+  "name": "rules-storage-storage-lookup-path-interpolation",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#215"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"storage-lookup-path-interpolation\" (STORAGE-H2-LOOKUP-PATH-INTERPOLATION). Whether $(pathValue) in a firestore.exists() path splices the path segments, errors, or stringifies.",
+  "observedAt": "2026-10-27T02:38:04.677Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d91938dc8c47c99b86ad2a4f7b86f5e791eb83c03db8743f57eb4853be813c05"
+  },
+  "behavior": {
+    "single-segment path capture interpolates": "ALLOW",
+    "three-segment path capture interpolates to a deeper document": "ALLOW",
+    "string() of a single-segment capture interpolates": "DENY",
+    "string() of a two-segment capture": "DENY"
+  },
+  "diagnostics": {
+    "single-segment path capture interpolates": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/col/a"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 122,
+              "endOffset": 130
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "three-segment path capture interpolates to a deeper document": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/col/a/b/c"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 122,
+              "endOffset": 130
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string() of a single-segment capture interpolates": {
+      "notes": [
+        "Error: storage.rules line [8], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"col\"\n  }\n  segments {\n    simple: \"/a\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 34,
+          "currentOffset": 250,
+          "endOffset": 255
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/col/%2Fa"
+            ]
+          }
+        ]
+      }
+    },
+    "string() of a two-segment capture": {
+      "notes": [
+        "Error: storage.rules line [8], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"col\"\n  }\n  segments {\n    simple: \"/a/b\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 34,
+          "currentOffset": 250,
+          "endOffset": 255
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/col/%2Fa%2Fb"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

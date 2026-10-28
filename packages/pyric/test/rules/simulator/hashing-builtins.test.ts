@@ -98,4 +98,10 @@ describe('hashing.md5 and hashing.sha256 agree with node:crypto', () => {
       }
     });
   }
+
+  test('rejects unknown hashing methods and wrong arity with EvalError (FS-SIM-6, FS-SIM-7b)', () => {
+    expect(() => evaluateHashingMethod('sha512', ['abc'])).toThrow(/Function not found error/);
+    expect(() => evaluateHashingMethod('md5', [])).toThrow(/Incorrect number of arguments/);
+    expect(() => evaluateHashingMethod('sha256', ['a', 'b'])).toThrow(/Incorrect number of arguments/);
+  });
 });

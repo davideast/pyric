@@ -36,6 +36,7 @@ import {
   selectDenials,
   selectRuleEvaluations,
   explainDenial,
+  rtdbRuleLine,
   denialSeverity,
   projectTraceSteps,
   ruleVariables,
@@ -51,7 +52,7 @@ import {
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { RulesDebug } from './RulesDebug.js';
-import { findRtdbRuleLine } from './RulesDebug.js';
+import { stripJsonComments } from 'pyric/sandbox/database';
 
 const OWNER_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -246,6 +247,37 @@ describe('rules-debug model: RTDB denial → rule node → bindings', () => {
     expect(exp.headline).toContain('.validate');
   });
 
+  it('attributes a `.validate` runtime error (and unsupported `.validate`) to the validate phase and line (COV-4)', async () => {
+    const rulesSource = [
+      '{', // 1
+      '  "rules": {', // 2
+      '    "items": {', // 3
+      '      ".write": true,', // 4
+      '      ".validate": "newData.val().replace(\'a\', \'b\') == \'b\'"', // 5
+      '    }', // 6
+      '  }', // 7
+      '}', // 8
+    ].join('\n');
+    const sandbox = initializeSandbox();
+    const adminDb = getDatabase(sandbox);
+    rtdbSandbox.setRules(adminDb, JSON.parse(rulesSource));
+
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(db, '/items'), 123 as never).catch(() => undefined);
+
+    const d = selectDenials(events).find((x) => x.service === 'rtdb')!;
+    expect(d).toBeDefined();
+    expect(d.rules?.reason).toContain("Validation rule at '/items' failed at evaluation");
+
+    const exp = explainDenial(d);
+    expect(exp.phase).toBe('validate');
+    expect(exp.ruleNode).toBe('/items .validate');
+    expect(exp.headline).toContain('.validate');
+    expect(rtdbRuleLine(d, rulesSource)).toBe(5);
+  });
+
   it('flags RTDB implicit deny (no matching rule) distinctly', () => {
     const d: Denial = {
       result: 'deny',
@@ -261,34 +293,67 @@ describe('rules-debug model: RTDB denial → rule node → bindings', () => {
   });
 });
 
-describe('rules-debug: RTDB source line resolution (findRtdbRuleLine)', () => {
-  const SAMPLE_RTDB_JSON = `{
-  "rules": {
-    "rooms": {
-      "$roomId": {
-        ".read": "auth != null",
-        ".write": false
-      }
-    },
-    "public": {
-      ".read": true,
-      ".write": false
-    }
-  }
-}`;
+describe('rules-debug: RTDB denial highlights the deciding rule line', () => {
+  // Rule lines are noted at the end of each row; comments hold braces and a
+  // decoy rule so a text search for the expression or key would pick wrongly.
+  const COMMENTED_RULES = [
+    '// database.rules.json { decoy: ".write": "false" }', // 1
+    '{', // 2
+    '  "rules": {', // 3
+    '    ".read": false,', // 4
+    '    "public": {', // 5
+    '      ".write": "false", /* ".write": "false" */', // 6
+    '      ".read": true', // 7
+    '    },', // 8
+    '    "rooms": {', // 9
+    '      "$roomId": {', // 10
+    '        // ".write": "false"', // 11
+    '        ".write": "false",', // 12
+    '        ".validate": "newData.isString()"', // 13
+    '      }', // 14
+    '    }', // 15
+    '  }', // 16
+    '}', // 17
+  ].join('\n');
 
-  it('locates a unique rule expression and phase line number in database.rules.json', () => {
-    const line = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'read', 'auth != null', 'rooms/r1');
-    expect(line).toBe(5);
+  async function denialFor(path: string, value: unknown): Promise<Denial> {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(
+      getDatabase(sandbox),
+      JSON.parse(stripJsonComments(COMMENTED_RULES)),
+    );
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(ref(db, path), value as never).catch(() => undefined);
+    return selectDenials(events).find((x) => x.service === 'rtdb')!;
+  }
+
+  it('a .write denial resolves to the line of that rule, not an identical rule elsewhere', async () => {
+    const d = await denialFor('/rooms/r1', 'hello');
+    expect(d.rules?.matchedPath).toBe('/rooms/$roomId');
+    expect(rtdbRuleLine(d, COMMENTED_RULES)).toBe(12);
+    const pub = await denialFor('/public', 'hello');
+    expect(rtdbRuleLine(pub, COMMENTED_RULES)).toBe(6);
   });
 
-  it('disambiguates identical rules using preceding path segment context', () => {
-    // Both rooms/$roomId and public have ".write": false on lines 6 and 11
-    const lineRooms = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'write', 'false', 'rooms/r1');
-    expect(lineRooms).toBe(6);
+  it('has no line without source, and none for an implicit deny', () => {
+    const implicit: Denial = {
+      result: 'deny',
+      id: 'r3', at: 0, method: 'set', path: 'unmatched/x', service: 'rtdb',
+      rules: { engine: 'rtdb', errorCode: 'NO_MATCHING_RULE' },
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+    };
+    expect(rtdbRuleLine(implicit, COMMENTED_RULES)).toBeUndefined();
+    expect(rtdbRuleLine(implicit, undefined)).toBeUndefined();
+  });
 
-    const linePublic = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'write', 'false', 'public/data');
-    expect(linePublic).toBe(11);
+  it('the rendered denial names the deciding line', async () => {
+    const d = await denialFor('/rooms/r1', 'hello');
+    const html = renderToStaticMarkup(
+      createElement(RulesDebug, { denials: [d], rulesSource: COMMENTED_RULES }),
+    );
+    expect(html).toContain('line 12');
   });
 });
 
@@ -387,6 +452,26 @@ describe('rules-debug re-run: edited ruleset (lint + fork + diff)', () => {
   });
 });
 
+describe('rules-debug re-run: RTDB edited ruleset lint', () => {
+  it('blocks a ruleset that production would refuse as a parse failure', () => {
+    const lint = lintEditedRuleset(JSON.stringify({ rules: { '.write': "auth.uid = 'x'" } }), 'rtdb');
+    expect(lint.parseable).toBe(false);
+    expect(lint.parseError).toContain('/.write:');
+  });
+
+  it('blocks two wildcard siblings with production\'s text', () => {
+    const lint = lintEditedRuleset(JSON.stringify({ rules: { a: { $x: {}, $y: {} } } }), 'rtdb');
+    expect(lint.parseable).toBe(false);
+    expect(lint.parseError).toContain("Cannot have multiple default rules ('$x' and '$y').");
+  });
+
+  it('surfaces lint warnings of an accepted ruleset and still runs', () => {
+    const lint = lintEditedRuleset(JSON.stringify({ rules: { '.read': true } }), 'rtdb');
+    expect(lint.parseable).toBe(true);
+    expect(lint.findings.some((f) => f.message.includes('hardcoded'))).toBe(true);
+  });
+});
+
 describe('rules-debug re-run: RTDB edited ruleset simulation', () => {
   it('re-running a denied RTDB write against permissive JSON rules ALLOWS', async () => {
     const sandbox = initializeSandbox();
@@ -470,6 +555,30 @@ describe('rules-debug re-run: as the attempting user (impersonation client)', ()
     expect(res.outcome).toBe('deny');
     // Lens still restored even on the deny path.
     expect(client.lensCalls.at(-1)).toEqual({ mode: 'app-session' });
+  });
+
+  it('reports deny with the denial context reasons when an RTDB re-issue is denied', async () => {
+    const client: ImpersonationClient = {
+      setLens() {},
+      async reissue() {
+        throw Object.assign(new Error('PERMISSION_DENIED: Permission denied'), {
+          code: 'PERMISSION_DENIED',
+          denialContext: {
+            engine: 'rtdb',
+            auth: { uid: 'alice' },
+            reasons: ['/rooms/$roomId write DENY: auth.uid == $roomId evaluated to false'],
+            request: { method: 'set', path: '/rooms/bob' },
+          },
+        });
+      },
+    };
+    const res = await rerunAsUser(client, { ...denial, service: 'rtdb', method: 'set', path: 'rooms/bob' });
+    expect(res).toEqual({
+      outcome: 'deny',
+      code: 'PERMISSION_DENIED',
+      message: 'PERMISSION_DENIED: Permission denied',
+      reasons: ['/rooms/$roomId write DENY: auth.uid == $roomId evaluated to false'],
+    });
   });
 
   it('refuses an anonymous denial (no user to impersonate)', async () => {

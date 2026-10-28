@@ -237,7 +237,14 @@ const testCaseSchema = z.object({
   operation: z.enum(['get', 'list', 'create', 'update', 'delete', 'read', 'write', 'validate']),
   path: z.string(),
   uid: z.string().optional(),
-  resourceDataJson: z.string().optional(),
+  resourceDataJson: z
+    .string()
+    .optional()
+    .describe('JSON-encoded request data. Database takes any JSON value, and an update takes the patch keyed by the paths written.'),
+  queryJson: z
+    .string()
+    .optional()
+    .describe('Database read only. JSON-encoded query (orderByChild, orderByKey, orderByValue, equalTo, startAt, endAt, limitToFirst, limitToLast) so query.* rules evaluate.'),
 });
 
 export const verifySecurityRulesSchema = z.object({

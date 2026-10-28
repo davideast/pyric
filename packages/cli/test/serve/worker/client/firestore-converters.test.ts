@@ -15,7 +15,7 @@ import * as client from '../../../../src/serve/worker/client.js';
 import { readQueryAs, readDocumentAs } from '../../../../src/serve/worker/client/firestore-reads.js';
 import { refEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
 import type { CollRefHandle, DocRefHandle, QueryHandle } from '../../../../src/serve/worker/client/handles.js';
-import { connectClientToHost, sleep } from '../integration-support.js';
+import { connectClientToHost, until } from '../integration-support.js';
 
 const PERMISSIVE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -168,7 +168,7 @@ describe('worker client converters', () => {
     const stopQuery = client.onSnapshot(items as never, (snapshot: never) => {
       queryDeliveries.push(...(snapshot as { docs: Array<{ data(): unknown }> }).docs.map((d) => d.data()));
     });
-    await sleep();
+    await until(() => documentDeliveries.length >= 1 && queryDeliveries.length >= 1, 'converted document and query snapshots');
     stopDocument();
     stopQuery();
 

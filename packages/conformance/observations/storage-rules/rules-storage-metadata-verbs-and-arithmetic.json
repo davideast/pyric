@@ -4,10 +4,14 @@
   "rowIds": [
     "storage-rules#117"
   ],
-  "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-verbs-and-arithmetic\" (Coverage: metadata, granular verbs, arithmetic operators). Production must accept request.resource.size arithmetic (+/-/*/\u00f7, >=, <=), request/resource content-type + metadata, request.method/path, request.auth.token OR-branch, allow list, and a recursive {allPaths=**} read tree.",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-verbs-and-arithmetic\" (Coverage: metadata, granular verbs, arithmetic operators). Production must accept request.resource.size arithmetic (+/-/*/÷, >=, <=), request/resource content-type + metadata, request.method/path, request.auth.token OR-branch, allow list, and a recursive {allPaths=**} read tree.",
   "observedAt": "2026-07-12T02:33:30.003Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "e6c93a3458a203ee0346ce7a1203d4d18d93500c4f8e5b6042bafa881a750ae4"
+  },
   "behavior": {
     "owner uploads a valid image ALLOW": "ALLOW",
     "non-owner upload DENY": "DENY",

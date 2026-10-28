@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#219","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"int64 overflow is an error in production (MIN / -1 is MIN); pyric computes a double","issue":"ST-H1-13 / FS2-SIM-3"}

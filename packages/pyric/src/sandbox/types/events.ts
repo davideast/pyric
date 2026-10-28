@@ -74,13 +74,17 @@ export interface DenialEvent {
  * quota, no concurrent transactions to conflict). Documented divergence
  * from production; new codes can be added if a sandbox-specific
  * scenario surfaces them.
+ *
+ * A query target with `collectionGroup` set is a collection-group
+ * listener, and `collection` holds the collection id; the same holds for
+ * the delivery, suppressed and lifecycle events below.
  */
 export interface SnapshotErrorEvent {
   code: 'permission-denied';
   message: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string; query?: unknown };
+    | { kind: 'query'; collection: string; collectionGroup?: true; query?: unknown };
   auth?: AuthState;
   request?: {
     method: 'get' | 'list' | 'create' | 'update' | 'delete';
@@ -152,9 +156,15 @@ export interface RequestEvent {
    *  shapes (`{ __type: 'serverTimestamp' }`, etc.) so the replay engine
    *  can re-resolve them. The rule engine evaluated against the resolved
    *  form internally; that resolved form lives on
-   *  {@link WriteSandboxEvent.nextState}, not here. */
+   *  {@link WriteSandboxEvent.nextState}, not here.
+   *
+   *  For an update, `resourceData` holds the fields the update writes as
+   *  nested maps (`{'board.c1r1': 'x'}` reads `{ board: { c1r1: 'x' } }`),
+   *  and `updateMask` lists the update's field paths as segment vectors. A
+   *  segment may contain `.`: `new FieldPath('a.b')` is `[['a.b']]`. */
   request?: {
     resourceData?: Record<string, unknown>;
+    updateMask?: string[][];
   };
   /** Existing document state before the write (or read target for get). */
   resourceBefore?: {
@@ -223,8 +233,18 @@ export interface WriteSandboxEvent {
    *  as marker shapes (`{ __type: 'serverTimestamp' }`, etc.) so the
    *  replay engine can re-resolve them. The rule engine evaluated
    *  against the resolved form internally; the resolved form lives on
-   *  {@link nextState}. Absent on `delete`. */
+   *  {@link nextState}. Absent on `delete`. For an update, the fields the
+   *  update writes as nested maps, with the field paths in
+   *  {@link updateMask}. */
   data?: Record<string, unknown>;
+  /** An update's field paths as segment vectors; a segment may contain `.`. */
+  updateMask?: string[][];
+  /** Present when the write was a `set(..., { merge })`: `true` for
+   *  `merge: true`, or the listed `mergeFields`. Replay re-issues the write
+   *  with the same merge so it lands the same document. Absent on events
+   *  recorded before this field existed; replay then treats the write as
+   *  it always did. */
+  merge?: true | { mergeFields: string[] };
   /** State BEFORE this write. `null` for a non-existent doc. */
   priorState: Record<string, unknown> | null;
   /** State AFTER this write. `null` on `delete`. */
@@ -291,6 +311,18 @@ export interface WriteSandboxEvent {
  * event with no attribution omits the array entirely rather than carrying an
  * empty one.
  */
+/** One application stack frame kept on a `frame` owner's `stack`. */
+export interface OwnerStackFrame {
+  /** Path or URL of the application file. */
+  file: string;
+  /** 1-based line number within {@link file}. */
+  line: number;
+  /** 1-based column, when the runtime's stack format carried one. */
+  column?: number;
+  /** Enclosing function name, when the runtime's stack format named one. */
+  function?: string;
+}
+
 export type ListenerOwner =
   | {
       kind: 'frame';
@@ -302,6 +334,11 @@ export type ListenerOwner =
       column?: number;
       /** Enclosing function name, when the runtime's stack format named one. */
       function?: string;
+      /** The application frames around this one, innermost first, when more
+       *  than one was kept. This frame is one of them: the first outside the
+       *  project's skipped wrapper modules. Any skipped frames before it come
+       *  first, then up to the configured number of frames from it outward. */
+      stack?: OwnerStackFrame[];
     }
   | {
       kind: 'tag';
@@ -353,7 +390,7 @@ export interface SnapshotDeliveryEvent {
   listenerId: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string };
+    | { kind: 'query'; collection: string; collectionGroup?: true };
   auth: AuthState;
   addedCount: number;
   modifiedCount: number;
@@ -390,7 +427,7 @@ export interface SnapshotSuppressedEvent {
   listenerId: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string };
+    | { kind: 'query'; collection: string; collectionGroup?: true };
   auth: AuthState;
   /** Why this re-eval was suppressed. v1 only emits `'no-op'`. */
   reason: 'no-op';
@@ -409,7 +446,7 @@ export interface ListenerLifecycleEvent {
   listenerId: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string; query?: unknown };
+    | { kind: 'query'; collection: string; collectionGroup?: true; query?: unknown };
   auth: AuthState;
   /** Populated on `listener_errored` only. */
   error?: {
@@ -455,6 +492,9 @@ export interface SandboxOperationEvent {
   id: string;
   at: number;
   service: EventService;
+  /** RTDB only: the name of the database instance the operation hit. Absent
+   *  for the default instance, as the worker protocol's `instance` field is. */
+  instance?: string;
   method: string;
   path?: string;
   auth: AuthState;
@@ -471,6 +511,9 @@ export interface SandboxOperationEvent {
     pathVariableBindings?: Record<string, string>;
     reason?: string;
     errorCode?: string;
+    /** RTDB only: every `.read`, `.write` and `.validate` rule the engine
+     *  evaluated for the request, in evaluation order. */
+    rtdbTrace?: import('../../rules/rtdb/simulation/spec.js').RtdbRuleEvaluation[];
   };
   request?: {
     data?: unknown;
@@ -505,6 +548,9 @@ export interface SandboxCommitEvent {
   id: string;
   at: number;
   service: EventService;
+  /** RTDB only: the name of the database instance the commit changed. Absent
+   *  for the default instance, as the worker protocol's `instance` field is. */
+  instance?: string;
   method: string;
   path?: string;
   auth: AuthState;
@@ -531,6 +577,9 @@ export interface SandboxListenerEvent {
   id: string;
   at: number;
   service: EventService;
+  /** RTDB only: the name of the database instance the listener reads. Absent
+   *  for the default instance, as the worker protocol's `instance` field is. */
+  instance?: string;
   phase: 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored';
   listenerId: string;
   target: {

@@ -46,6 +46,100 @@ Query constraint proofs are separate from the evaluation of remaining conditions
 
 The sandbox keeps evidence for its latest **64 evaluated requests**, alongside the normal request history. Each snapshot retains at most **32 rules**, **128 expression checks** across those rules, **32 path matches**, and **32 query-proof failures**; text fields are capped at **256 characters**. Truncation and expired evidence are explicit. The chip retains its latest 64 Traffic rows and a separate snapshot of the request currently being inspected. Full documents and complete sign-in records are not included in the displayed checks. Individual values can still be private; review them before copying or sharing. Opening details never replays the request.
 
+## Read a Realtime Database denial
+
+Production answers a blocked Realtime Database request with `PERMISSION_DENIED: Permission denied` and nothing else. The sandbox rejects with the same error, and records the reason next to it.
+
+### Find the deciding rule in the event stream
+
+A Realtime Database operation emits an `operation` event with `service: 'rtdb'`. A denial carries the rule that decided it. This example uses the rules and the `alice` and `mallory` contexts from [the sandbox layer of a rules test suite](./write-a-rules-test-suite.md#test-the-sdk-path-with-the-sandbox):
+```ts
+sandbox.onEvent((e) => {
+  if (e.kind === 'operation' && e.service === 'rtdb' && e.result === 'deny') {
+    console.log(e.method, e.path, e.auth?.uid);
+    console.log(e.rules?.matchedPath, e.rules?.matchedRule);
+    console.log(e.rules?.reason);
+  }
+});
+```
+For a read by `mallory` of `/records/r1` that the owner-only `.read` rule refuses, the event reads:
+```
+get /records/r1 mallory
+/records/$recordId auth != null && data.child('ownerId').val() === auth.uid
+No 'read' rule grants access; the deepest, at '/records/$recordId', evaluated to false
+```
+The event also carries `resourceBefore`, the data at the path, and for a write, `request.data`, the value the request wrote. These are the values the rule evaluated against.
+
+`e.rules.rtdbTrace` lists every `.read`, `.write`, and `.validate` rule the request evaluated, root first, each with its `path`, `kind`, `conditionText`, `verdict`, and the `$` variables bound at that node. For the read above, a root `.read` of `false` is listed ahead of the `/records/$recordId` rule that decided the denial. A listener event carries the same trace. In Studio, a denial shows one row per evaluated rule with the line of its key in `database.rules.json`, and the editor marks the deciding rule's line.
+
+The rejected error carries the same evaluation. Its class, `code`, and `message` match production, and the sandbox adds a `denialContext` property:
+```ts
+import type { RtdbDenialContext } from 'pyric/sandbox';
+
+try {
+  await get(ref(mallory, 'records/r1'));
+} catch (error) {
+  const { matchedPath, reason, rtdbTrace } = (error as { denialContext: RtdbDenialContext }).denialContext;
+}
+```
+`denialContext` holds `matchedPath`, `matchedRule`, `pathVariableBindings`, `reason`, `rtdbTrace`, the `auth` the rules saw, and the `request` with its `method` and `path`.
+
+### Read the reason
+
+The same `matchedPath`, `matchedRule`, and `reason` come back from `rtdbRules(...).simulate`, so a failing case and a denial in a running app read alike. `matchedPath` is the rule's location in the ruleset, so a wildcard appears as `$recordId`, not as the concrete key.
+
+| Reason | What decided |
+|---|---|
+| `No 'read' rule grants access; the deepest, at '<path>', evaluated to false` | No rule on the path from the root granted the request. The named rule is the deepest one of that kind. |
+| `No 'read' rule grants access; the deepest, at '<path>', failed at evaluation: <error>` | As above, and the deepest rule raised a runtime error, such as a `null` operand of `>`. A rule that errors does not grant. |
+| `No 'write' rule on '<path>' or its ancestors grants access; denied by default` | No rule of that kind exists on the path. `matchedPath` and `matchedRule` are empty. |
+| `Validation rule evaluated to false` | A `.write` rule granted, and a `.validate` rule at or below the written path refused. `matchedPath` names the `.validate` location. |
+| `Validation rule at '<path>' failed at evaluation: <error>` | A `.validate` rule raised a runtime error, such as calling `toUpperCase()` on a number. |
+| `'<operation>' rule at '<path>' contains an expression the simulator cannot evaluate: ...` | The case is `UNSUPPORTED`. The simulator abstained, and production may allow or reject it. |
+
+Two causes account for most unexpected denials. A `.validate` rule never runs when `.write` denies, so a validation failure means the write rule already granted. And access cascades downward, so the deepest rule named is the last one tried, not the only one that applies. Walk each rule in the trace from the root to find which grant is missing.
+
+### Tell an index error from a denial
+
+A missing `.indexOn` is not a permission problem, and the two fail differently. Take a query ordered by a child with no matching index:
+```ts
+import { initializeSandbox } from 'pyric/sandbox';
+import { getDatabase, query, ref, orderByChild, limitToFirst, get, onValue, sandbox as databaseSandbox } from 'pyric/database';
+
+const db = getDatabase(initializeSandbox());
+databaseSandbox.setRules(db, { rules: { projects: { '.read': true } } });
+databaseSandbox.setData(db, { projects: { a: { budget: 5 }, b: { budget: 9 } } });
+
+const budgets = query(ref(db, 'projects'), orderByChild('budget'));
+await get(budgets);
+// Error: Index not defined, add ".indexOn": "budget", for path "/projects", to the rules
+
+const smallest = query(ref(db, 'projects'), orderByChild('budget'), limitToFirst(1));
+onValue(smallest, (snapshot) => console.log(snapshot.val()));
+// { a: { budget: 5 } }
+// @firebase/database: FIREBASE WARNING: Using an unspecified index. Your data will be
+// downloaded and filtered on the client. Consider adding ".indexOn": "budget" at
+// /projects to your security rules for better performance.
+```
+This matches production:
+
+- **`get()` rejects.** A `get()` on an `orderByChild` or `orderByValue` query rejects with a plain `Error`, not a `PERMISSION_DENIED`, whether or not the query has a limit or range.
+- **Listeners deliver and warn.** `onValue` and the `onChild*` listeners are not rejected. The client downloads the location, filters it locally, and delivers the filtered result. When the query has a limit or a range, it also logs the warning above. A listener on a query with neither logs nothing. Under `pyric sandbox` and the Vite plugin, the warning is logged in the page that made the call.
+- **`orderByKey` needs no index.**
+
+Add the index at the queried location in the rules, and the warning and the `get()` rejection both stop:
+```json
+{
+  "rules": {
+    "projects": {
+      ".read": true,
+      ".indexOn": ["budget"]
+    }
+  }
+}
+```
+A listener that works while the equivalent `get()` rejects points to a missing index.
+
 ## The other kind of denial bug
 
 A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.
@@ -70,6 +164,25 @@ One boundary stated plainly: the diff compares the predicates in `allow` stateme
 ## Diagnose a denial through an agent
 
 When an agent hits a denial, one `sandbox_inspect` call returns the current rules, a lint summary, and the recent denials from the event log together. [Work with an agent](../agent/work-with-an-agent.md) gives a task prompt for this exact diagnosis.
+
+For a Realtime Database denial, the agent calls the `rules` tool's `explainDenial` method with `service: 'database'`. The same method is `pyric rules explainDenial --service database` on the command line. It takes the request: `operation` (`read`, `write`, `update`, or `validate`), `path`, `uid`, `data` (the written value, or for `update` the patch keyed by paths relative to `path`), and for a read, `query`. It evaluates the rules the sandbox is running, unless you pass one of two optional texts:
+
+- **`rules`** is the text of a draft rules file. The draft is evaluated instead of the running rules. A draft that `firebase deploy` would refuse is not evaluated: the call fails with the same reason the lint errors give.
+- **`source`** is the text of the file the running rules were loaded from. It adds file lines to the result and changes nothing else. When it does not parse to the running rules, the result has no lines and `case.notes` says so.
+
+A call takes one of them, not both. The result names what it evaluated in `evaluated`, `running` or `draft`, and explains the request in `case`: `matchedPath`, `matchedRule`, `ruleKind`, `why` (`evaluated-false`, `runtime-error`, or `no-rule-grants`; `unsupported` appears only for rules installed with `sandbox.setRules` from `pyric/database`, which skips the deploy check), `reason`, and the `trace` that `simulate` returns. With file text, `case.line` is the line of the deciding rule. When a change that would allow the request can be stated, `case.fix` states it.
+
+From the command line, `--rules-file` reads the draft from a file:
+```bash
+pyric rules explainDenial --service database --operation write --path /records/r1 --uid alice --data '{"ownerId":"alice","title":5}' --rules-file database.rules.json
+```
+```
+write /records/r1 is denied for this identity.
+```
+Against the ruleset in [simulate and lint](./simulate-and-lint.md#simulate-and-lint-realtime-database-rules), `case.why` is `evaluated-false`, `case.matchedPath` is `/records/$recordId/title`, and `case.reason` reads:
+```
+The '.validate' rule at '/records/$recordId/title' evaluated to false: newData.isString() && newData.val().length <= 80. A '.write' rule granted the write, and every '.validate' rule on the path must also pass.
+```
 
 ## Where to go next
 

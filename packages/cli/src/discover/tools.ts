@@ -26,7 +26,7 @@
  * serialization across the tool boundary. `discovered` (raw refs) is
  * dropped — agents consume the finalized schemas.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { crawl, type FullCrawlResult } from './crawler.js';
 import { findCollectionGroup } from './findCollectionGroup.js';
 import { SessionStore } from './session.js';

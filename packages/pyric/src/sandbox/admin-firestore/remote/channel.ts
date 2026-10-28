@@ -4,9 +4,9 @@
  * dispatcher every read/write/query/transaction call goes through.
  *
  * IDENTITY: every op and every subscription pins an EXPLICIT `actAs` lens.
- * An ABSENT lens resolves worker-side to the browser tab's PORT SESSION —
- * whoever happens to be signed in in the tab — which is never what a
- * server-side handle means. `getAdminFirestore` pins `{ mode: 'admin' }`
+ * An absent lens resolves host-side to the connection's app session: whoever
+ * that client signed in as, or the host's shared session when the connection
+ * has none. That is never what a server-side handle means. `getAdminFirestore` pins `{ mode: 'admin' }`
  * (rules bypass); `getFirestore(ctx)` pins `{ mode: 'as', uid, token? }`
  * for a signed identity or `{ mode: 'anon' }` for `withAuth(null)`.
  */

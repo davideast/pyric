@@ -66,7 +66,12 @@ describe('lint', () => {
     const ctx = freshContext();
     await FIRESTORE_RULES.install(ctx, SIGNED_IN_ONLY_RULES);
     const result = await FIRESTORE_RULES.lint(ctx, undefined);
-    expect(result.ok).toBe(true);
+    // Per FS-LNT-1 and .agents/skills/firestore-rules-audit/SKILL.md,
+    // FIRESTORE_RULES.lint runs validateFirestoreRules(ast) alongside lintFirestoreRules,
+    // surfacing high-severity SEC-5 (recursive wildcard) and SEC-6 (unvalidated write) as errors.
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result.data)).toContain('SEC-5');
+    expect(JSON.stringify(result.data)).toContain('SEC-6');
   });
 
   it('lints a supplied source rather than the active one', async () => {
@@ -114,6 +119,39 @@ describe('install', () => {
     const result = await FIRESTORE_RULES.install(freshContext(), OPEN_RULES);
     expect(result.ok).toBe(true);
     expect(result.summary).toBe('Firestore rules installed.');
+  });
+
+  it('rejects unsupported rules_version, unresolved modules, and invalid regex literals (FS-CON-5, FS-SIM-5)', async () => {
+    const badVersion = OPEN_RULES.replace("rules_version = '2';", "rules_version = '99';");
+    const unresolvedModules = `rules_version = '2+modules';\nimport { f } from './a.rules';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} { allow read: if f(); }\n  }\n}`;
+    const badRegex = OPEN_RULES.replace('if true;', "if 'ab'.matches('a(?=b)b');");
+
+    for (const [source, expected] of [
+      [badVersion, 'Unsupported rules version 99.'],
+      [unresolvedModules, "Rules source uses '2+modules' or import statements that must be resolved before compilation."],
+      [badRegex, 'Invalid regular expression pattern. Pattern: a(?=b)b.'],
+    ] as const) {
+      const res = await FIRESTORE_RULES.install(freshContext(), source);
+      expect(res.ok).toBe(false);
+      expect(res.summary).toContain(expected);
+    }
+  });
+
+  it('rejects service firebase.storage rulesets in compileFailure and install (ST-CON-5)', async () => {
+    const storageSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    const failure = FIRESTORE_RULES.compileFailure(storageSource);
+    expect(failure).not.toBeNull();
+    expect(failure?.body).toContain("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+    const res = await FIRESTORE_RULES.install(freshContext(), storageSource);
+    expect(res.ok).toBe(false);
+    expect(res.summary).toContain("Expected 'service cloud.firestore', got 'service firebase.storage'.");
   });
 });
 

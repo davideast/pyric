@@ -24,7 +24,9 @@ function projectRequestData(
     const mergeFields = merge === true ? undefined : merge.mergeFields;
     return applyMerge(existingDoc ?? {}, data, mergeFields);
   }
-  if (method === 'update' && existingDoc) return applyUpdate(existingDoc, data);
+  // An update to a missing document still reads its keys as field paths;
+  // the write itself fails with not-found after rules.
+  if (method === 'update') return applyUpdate(existingDoc ?? {}, data);
   return partitionDeletes(data).writes;
 }
 

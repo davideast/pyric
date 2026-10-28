@@ -30,11 +30,18 @@ import { cliVersion } from '../../pkg-version.js';
 import type { WorkerSessionLease } from './worker-sessions.js';
 import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 import { sendBridgeMessage } from './socket-message.js';
+import { watchPeerLiveness } from './peer-liveness.js';
+
+export interface AttachPeerOptions {
+  /** The liveness window; defaults to `HOST_PEER_LIVENESS_TIMEOUT_MS`. Shortened only by tests. */
+  livenessTimeoutMs?: number;
+}
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
   ws: WebSocket,
   allowSandboxPeer = true,
+  options: AttachPeerOptions = {},
 ): void {
   let disconnect: (() => void) | null = null;
   /** Peer generation captured at registration — tags every inbound frame so
@@ -43,10 +50,14 @@ export function attachPeer(
   let peerGen = 0;
   let helloed = false;
   let consumer: ConsumerSession | null = null;
+  // A client that heartbeats and then goes silent, such as a page frozen in
+  // the back-forward cache, is closed so the 'close' handler below runs.
+  const liveness = watchPeerLiveness(() => ws.terminate(), options.livenessTimeoutMs);
 
   ws.on('message', (raw) => {
     const isClosingConnection = ws.readyState !== ws.OPEN;
     if (isClosingConnection) return;
+    liveness.heard();
     const parsed = parseBridgeMessage(raw.toString());
     const isInvalidMessage = parsed.kind === 'invalid';
     if (isInvalidMessage) {
@@ -66,6 +77,8 @@ export function attachPeer(
       ws.close(1002, envelopeError);
       return;
     }
+    const isHeartbeat = msg.type === 'ping';
+    if (isHeartbeat) liveness.start();
     const isAttach = msg.type === 'attach';
     if (isAttach) {
       // Worker-relay consumer (Node client). NOT a peer: attaching never
@@ -73,6 +86,8 @@ export function attachPeer(
       const isAlreadyAttached = helloed || consumer !== null;
       if (isAlreadyAttached) return;
       const ownsWorkerPort = msg.transport === 'worker-port';
+      // The worker-port client is the web hosted client, which heartbeats.
+      if (ownsWorkerPort) liveness.start();
       const requestedSessionId = ownsWorkerPort ? undefined : msg.clientSessionId ?? msg.sessionId;
       consumer = createConsumerSession(
         bridge,
@@ -151,6 +166,7 @@ export function attachPeer(
   });
 
   ws.on('close', () => {
+    liveness.stop();
     disconnect?.();
     disconnect = null;
     consumer?.detach();
@@ -195,6 +211,10 @@ export function createConsumerSession(
   let workerSession: WorkerSessionLease | null = null;
   /** consumer subId → bridge-side unsubscribe. */
   const subs = new Map<string, () => void>();
+  /** Tags the operations this socket dispatches. */
+  const socketIdentity = {};
+  let attachedFromPriorHost = false;
+  let verifiedCurrentHost = false;
 
   function detach(): void {
     const retainedSession = workerSession;
@@ -208,9 +228,15 @@ export function createConsumerSession(
     if (hasNoRegistration) return;
     for (const unsubscribe of subs.values()) unsubscribe();
     subs.clear();
-    bridge.detachConsumer(clientSessionId);
-    bridge.consumers.unregister(clientSessionId);
-    bridge.broadcastConsumerPresence();
+    // A client may already have re-attached this session on a new socket; this
+    // socket's close then settles only its own operations, and runs no
+    // onDisconnect operations the re-attached client registered (ADR-0019).
+    const ownsSession = bridge.consumers.get(clientSessionId)?.send === send;
+    if (ownsSession) {
+      bridge.interruptConsumer(clientSessionId, socketIdentity);
+      return;
+    }
+    bridge.detachConsumer(clientSessionId, socketIdentity);
   }
 
   function dispose(): void {
@@ -255,6 +281,8 @@ export function createConsumerSession(
         if (ownsWorkerPort) {
           const hasHostIdentity = typeof attachMsg.hostInstanceId === 'string' && attachMsg.hostInstanceId.length > 0;
           const changedHost = hasHostIdentity && attachMsg.hostInstanceId !== bridge.instanceId;
+          attachedFromPriorHost = changedHost;
+          verifiedCurrentHost = hasHostIdentity && attachMsg.hostInstanceId === bridge.instanceId;
           let resumeToken = attachMsg.resumeToken;
           if (changedHost) resumeToken = undefined;
           workerSession = bridge.workerSessions.attach(resumeToken);
@@ -318,7 +346,7 @@ export function createConsumerSession(
           ...msg.op,
           resumeSession: true,
         };
-        bridge.dispatchWorkerOp(opPayload, opSessionId).then(
+        bridge.dispatchWorkerOp(opPayload, opSessionId, socketIdentity).then(
           (value) => send({ type: 'worker-res', id: msg.id, clientSessionId: opSessionId, ok: true, value }),
           (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) => {
             const error: WorkerResFrame['error'] = { code: err.code ?? 'unknown', message: err.message };
@@ -343,7 +371,14 @@ export function createConsumerSession(
         const deletesApp = msg.message.t === 'disconnect';
         if (deletesApp) workerSession?.retire();
         try {
-          bridge.forwardWorkerMessage(msg.message, clientSessionId);
+          const forwarded = msg.message.t === 'appConfig'
+            ? (attachedFromPriorHost
+                ? { ...msg.message, fromPriorHost: true }
+                : verifiedCurrentHost
+                  ? { ...msg.message, hostVerified: true }
+                  : msg.message)
+            : msg.message;
+          bridge.forwardWorkerMessage(forwarded, clientSessionId);
         } catch (cause) {
           const error = serializeError(cause);
           const request = msg.message;

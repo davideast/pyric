@@ -1,18 +1,26 @@
 import type { DocumentData } from './local-state.js';
-import { makeError, type FirestoreSimError } from './errors.js';
+import { makeError, type FirestoreEvalRequest, type FirestoreSimError } from './errors.js';
 import {
   RetryableTransactionConflictError,
   TransactionAttemptsExhaustedError,
   TransactionContext,
+  TransactionReadDeniedError,
   type TransactionReader,
 } from './transaction.js';
 import type {
+  CapturedRead,
   Transaction,
   TransactionOptions,
   TransactionResult,
 } from './transaction-types.js';
 import { AtomicWritePipeline, type AtomicRuleMethod } from './atomic-write-pipeline.js';
 import { WriteRuntime } from './write-runtime.js';
+import { renderLegacyDebugMessages, projectEvaluatedRule } from 'pyric/rules/internal';
+import {
+  SimulatorUnsupportedError,
+  unsupportedMessage,
+} from './rules-evaluation.js';
+import type { EmitRequestInput } from './request-events.js';
 
 /** Adapts transaction callbacks, ordered writes, and results to the atomic pipeline. */
 export class TransactionWriteExecutor {
@@ -47,7 +55,22 @@ export class TransactionWriteExecutor {
     const versionsAtStart = new Map(
       Object.keys(snapshot).map((path) => [path, this.runtime.state.version(path)]),
     );
-    const reader: TransactionReader = (path) => snapshot[path] ?? null;
+    const txId = `tx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const txProjection = new Map<string, DocumentData | null>();
+    let readDenialError: FirestoreSimError | undefined;
+    const reader: TransactionReader = (path) => {
+      const data = snapshot[path] ?? null;
+      const shouldEvaluateRules = options.bypassRules !== true;
+      if (shouldEvaluateRules) {
+        const denial = this.evaluateTransactionRead(path, data, options, txId, txProjection);
+        const wasDenied = denial !== null;
+        if (wasDenied) {
+          readDenialError = denial;
+          throw new TransactionReadDeniedError(denial);
+        }
+      }
+      return data;
+    };
     const context = new TransactionContext(reader, (path) => {
       const captured = versionsAtStart.get(path);
       const hasCapturedVersion = captured !== undefined;
@@ -61,6 +84,12 @@ export class TransactionWriteExecutor {
     try {
       callbackResult = fn(context);
     } catch (error) {
+      if (error instanceof TransactionReadDeniedError) {
+        return this.buildReadDeniedResult(context, options, error.simError);
+      }
+      if (readDenialError !== undefined) {
+        return this.buildReadDeniedResult(context, options, readDenialError);
+      }
       this.logAbortedTransaction(context, options.auth, error as Error);
       throw error;
     }
@@ -72,19 +101,43 @@ export class TransactionWriteExecutor {
       return (callbackResult as Promise<R>).then(
         (value) => {
           try {
-            return this.commitTransaction(context, snapshot, options, value);
+            return this.commitTransaction(
+              context,
+              snapshot,
+              options,
+              value,
+              attemptVersion,
+              txId,
+              txProjection,
+              readDenialError,
+            );
           } catch (error) {
             return this.retryOrThrow(error, fn, options, attempt);
           }
         },
         (error) => {
+          if (error instanceof TransactionReadDeniedError) {
+            return this.buildReadDeniedResult(context, options, error.simError);
+          }
+          if (readDenialError !== undefined) {
+            return this.buildReadDeniedResult(context, options, readDenialError);
+          }
           this.logAbortedTransaction(context, options.auth, error as Error);
           throw error;
         },
       );
     }
     try {
-      return this.commitTransaction(context, snapshot, options, callbackResult as R);
+      return this.commitTransaction(
+        context,
+        snapshot,
+        options,
+        callbackResult as R,
+        attemptVersion,
+        txId,
+        txProjection,
+        readDenialError,
+      );
     } catch (error) {
       return this.retryOrThrow(error, fn, options, attempt);
     }
@@ -109,12 +162,41 @@ export class TransactionWriteExecutor {
     snapshot: Record<string, DocumentData>,
     options: TransactionOptions,
     returnValue: R,
+    attemptVersion: number,
+    txId: string,
+    txProjection: Map<string, DocumentData | null>,
+    readDenialError?: FirestoreSimError,
   ): TransactionResult<R> {
+    const hadReadDenial = readDenialError !== undefined;
+    if (hadReadDenial) {
+      return this.buildReadDeniedResult(context, options, readDenialError);
+    }
     const { reads, writes, readVersions } = context.consume();
     for (const [path, version] of readVersions) {
       const readChanged = this.runtime.state.version(path) !== version;
       if (readChanged) {
         throw new RetryableTransactionConflictError();
+      }
+    }
+    const shouldVerifyReadsAtCommit =
+      options.bypassRules !== true &&
+      reads.length > 0 &&
+      this.runtime.state.currentVersion() !== attemptVersion;
+    if (shouldVerifyReadsAtCommit) {
+      const commitCheckProjection = new Map(txProjection);
+      for (const read of reads) {
+        const currentData = this.runtime.state.get(read.path);
+        const denial = this.evaluateTransactionRead(
+          read.path,
+          currentData,
+          options,
+          txId,
+          commitCheckProjection,
+        );
+        const wasDenied = denial !== null;
+        if (wasDenied) {
+          return this.buildReadDeniedResult(context, options, denial, reads);
+        }
       }
     }
     const auth = options.auth;
@@ -154,7 +236,6 @@ export class TransactionWriteExecutor {
         preData: operation.data,
       };
     });
-    const txId = `tx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const prepared = this.pipeline.prepare(inputs, {
       origin: 'transaction',
       groupId: txId,
@@ -207,7 +288,7 @@ export class TransactionWriteExecutor {
       };
     }
 
-    const decision = this.pipeline.evaluateAndApply(prepared);
+    const decision = this.pipeline.evaluateAndApply(prepared, txProjection);
     const writeResults = decision.outcomes.map((outcome) => {
       const write: TransactionResult<R>['writes'][number] = {
         path: outcome.path,
@@ -285,6 +366,154 @@ export class TransactionWriteExecutor {
       byPath.set(write.path, summary);
     }
     return [...byPath.values()];
+  }
+
+  private evaluateTransactionRead(
+    path: string,
+    prior: DocumentData | null,
+    options: TransactionOptions,
+    txId: string,
+    txProjection: Map<string, DocumentData | null>,
+  ): FirestoreSimError | null {
+    const evalAt = this.runtime.clock.now();
+    const evalStart = performance.now();
+    const testCase = this.runtime.buildTestCase({
+      method: 'get',
+      path,
+      auth: options.auth,
+    });
+    const simulation = this.runtime.runSimulate(
+      [testCase],
+      options.bypassRules,
+      txProjection,
+    );
+    const evalMs = performance.now() - evalStart;
+    const priorExists = prior !== null;
+
+    const simulationFailed = !simulation.success;
+    if (simulationFailed) {
+      const failedRequest: EmitRequestInput = {
+        at: evalAt,
+        evalMs,
+        method: 'get',
+        path,
+        auth: options.auth,
+        result: 'deny',
+        debugMessages: [`Simulation error: ${simulation.error.message}`],
+        resourceBefore: { data: prior, exists: priorExists },
+        origin: 'transaction',
+        groupId: txId,
+      };
+      const hasProvenance = options.provenance !== undefined;
+      if (hasProvenance) failedRequest.provenance = options.provenance;
+      this.runtime.emitRequest(failedRequest);
+      const error = makeError('invalid-argument', simulation.error.message);
+      return error;
+    }
+
+    const evaluated = simulation.data.results[0];
+    const debugMessages = renderLegacyDebugMessages(evaluated);
+    const isUnsupported = evaluated.state === 'UNSUPPORTED';
+    if (isUnsupported) {
+      const unsupportedRequest: EmitRequestInput = {
+        at: evalAt,
+        evalMs,
+        method: 'get',
+        path,
+        auth: options.auth,
+        result: 'unsupported',
+        debugMessages,
+        resourceBefore: { data: prior, exists: priorExists },
+        origin: 'transaction',
+        groupId: txId,
+        rulesEvidence: this.runtime.captureEvidence(evaluated),
+      };
+      const hasProvenance = options.provenance !== undefined;
+      if (hasProvenance) unsupportedRequest.provenance = options.provenance;
+      this.runtime.emitRequest(unsupportedRequest);
+      throw new SimulatorUnsupportedError(
+        unsupportedMessage('get', path, debugMessages),
+        'get',
+        path,
+        debugMessages,
+      );
+    }
+
+    const isAllowed = evaluated.state === 'PASSED';
+    if (isAllowed) {
+      return null;
+    }
+
+    const deniedRequest: EmitRequestInput = {
+      at: evalAt,
+      evalMs,
+      method: 'get',
+      path,
+      auth: options.auth,
+      result: 'deny',
+      debugMessages,
+      resourceBefore: { data: prior, exists: priorExists },
+      origin: 'transaction',
+      groupId: txId,
+      rulesEvidence: this.runtime.captureEvidence(evaluated),
+    };
+    const hasProvenance = options.provenance !== undefined;
+    if (hasProvenance) deniedRequest.provenance = options.provenance;
+    this.runtime.emitRequest(deniedRequest);
+
+    const evalRule = projectEvaluatedRule(evaluated);
+    const errExtras: {
+      request: FirestoreEvalRequest;
+      resource: { data: DocumentData | null; exists: boolean };
+      rule?: FirestoreSimError['rule'];
+    } = {
+      request: {
+        method: 'get',
+        path,
+        auth: options.auth,
+      },
+      resource: { data: prior, exists: priorExists },
+    };
+    const hasRule = evalRule !== undefined;
+    if (hasRule) {
+      errExtras.rule = evalRule;
+    }
+    const simError = makeError(
+      'permission-denied',
+      `get ${path} denied by rules`,
+      errExtras,
+    );
+    this.runtime.emitDenial(simError);
+    return simError;
+  }
+
+  private buildReadDeniedResult<R>(
+    context: TransactionContext,
+    options: TransactionOptions,
+    simError: FirestoreSimError,
+    consumedReads?: readonly CapturedRead[],
+  ): TransactionResult<R> {
+    const reads = consumedReads ?? context.consume().reads;
+    const auth = options.auth;
+    const hasAuth = auth !== null;
+    const event = this.runtime.eventLog.append({
+      type: 'transaction',
+      method: 'transaction',
+      path: '',
+      auth: hasAuth ? { uid: auth.uid } : null,
+      allowed: false,
+      reads: reads.map((read) => ({ path: read.path, data: read.data })),
+      operations: [],
+      debugMessages: ['Transaction rolled back — read denied by rules'],
+    });
+    return {
+      allowed: false,
+      reads: [...reads],
+      writes: [],
+      returnValue: undefined as unknown as R,
+      event,
+      error: simError,
+    };
   }
 
   private logAbortedTransaction(

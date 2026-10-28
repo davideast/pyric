@@ -3,6 +3,7 @@
   "commands": [
     "bridge",
     "sandbox",
+    "run",
     "init",
     "vendor",
     "mcp",
@@ -18,7 +19,12 @@
     "database rules generate",
     "auth reset",
     "serve sessions",
-    "serve diagnostics"
+    "serve diagnostics",
+    "serve denials",
+    "serve repro capture",
+    "serve repro replay",
+    "verify staging init",
+    "verify staging restore"
   ],
   "derivedCommands": [
     "ai_logic clearScripts",
@@ -134,6 +140,7 @@
   "exports": [
     "./credentials/node",
     "./verify",
+    "./repro",
     "./conformance",
     "./conformance/browser",
     "./conformance/docs",
@@ -144,25 +151,40 @@
     "./discover",
     "./flow",
     "./vite",
+    "./vite/ssr-loader",
     "./next",
     "./bundler",
     "./serve/worker",
     "./remote",
     "./register",
     "./register/app-bridge",
+    "./register/app-bridge-app-check",
+    "./register/client/app",
+    "./register/client/app-bridge",
+    "./register/client/auth",
+    "./register/client/database",
+    "./register/client/firestore",
+    "./register/client/storage",
     "./next/internal/ai",
+    "./next/internal/analytics",
     "./next/internal/app",
+    "./next/internal/app-check",
     "./next/internal/auth",
     "./next/internal/firestore",
     "./next/internal/firestore-lite",
+    "./next/internal/functions",
     "./next/internal/database",
     "./next/internal/messaging",
     "./next/internal/messaging-sw",
+    "./next/internal/performance",
+    "./next/internal/remote-config",
     "./next/internal/storage",
-    "./next/internal/react-hook"
+    "./next/internal/react-hook",
+    "./package.json"
   ],
   "allowedFirebaseSdkImportEdges": [
-    "dist/register/app-bridge.js -> firebase/app",
+    "dist/register/app-bridge-app-check.js -> firebase/app-check",
+    "dist/register/app-bridge-shadow.js -> firebase/app",
     "dist/serve/entries/app-ai-passthrough.js -> firebase/app"
   ],
   "removedExports": [

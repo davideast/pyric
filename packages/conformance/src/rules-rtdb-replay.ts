@@ -1,6 +1,7 @@
 import { compileRtdbRules, simulateRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
-import type { SimulateResult, SimulationInput } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
-import type { RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
+import { checkRtdbRules } from '../../pyric/src/rules/rtdb/constraints/document.ts';
+import type { SimulateResult, SimulationInput, SimulationResult } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
+import type { RtdbCaseIdentity, RtdbDeployScenario, RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';
 export type RtdbVerdict = 'ALLOW' | 'DENY';
@@ -18,11 +19,54 @@ export interface RtdbReplayResult {
   simulator: RtdbSimulatorOutcome;
 }
 
-/** The simulator outcome of one simulate result. */
+/**
+ * True when a result's rule-by-rule trace accounts for its verdict. Replayed
+ * rulesets carry root `.read` and `.write` rules, so every replayed request
+ * evaluates at least one rule. An allow needs a granting `.read` or `.write`
+ * as the last cascade entry and no failing `.validate`. A deny needs either a
+ * failing `.validate` as the last entry or a cascade with no grant. An
+ * abstention needs an `UNSUPPORTED` entry.
+ */
+export function traceAgreesWithVerdict(result: SimulationResult): boolean {
+  const { trace } = result;
+  if (trace.length === 0) return false;
+  if (result.unsupported) return trace.some((entry) => entry.verdict === 'UNSUPPORTED');
+  const cascade = trace.filter((entry) => entry.kind !== 'validate');
+  const validateFailed = trace.some((entry) => entry.kind === 'validate' && entry.verdict !== 'ALLOW');
+  const granted = cascade.some((entry) => entry.verdict === 'ALLOW');
+  if (result.allowed) {
+    const cascadeGrants = cascade.length === 0 || cascade[cascade.length - 1].verdict === 'ALLOW';
+    return cascadeGrants && !validateFailed;
+  }
+  const last = trace[trace.length - 1];
+  const lastValidateFails = last.kind === 'validate' && last.verdict !== 'ALLOW';
+  return lastValidateFails || !granted;
+}
+
+/**
+ * The simulator outcome of one simulate result. A result whose trace does not
+ * account for its verdict is an engine error, not a verdict.
+ */
 function outcomeOf(result: SimulateResult): RtdbSimulatorOutcome {
   if (!result.success) return 'ERROR';
+  if (!traceAgreesWithVerdict(result.data)) return 'ERROR';
   if (result.data.unsupported) return 'UNSUPPORTED';
   return result.data.allowed ? 'ALLOW' : 'DENY';
+}
+
+/**
+ * The ID token claims a custom-token sign-in as `identity` carries: the
+ * developer claims, the account's email and its verification when it has an
+ * email, and `custom` as the sign-in provider.
+ */
+export function identityToken(uid: string, identity: RtdbCaseIdentity): Record<string, unknown> {
+  return {
+    ...(identity.claims ?? {}),
+    ...(identity.emailDomain
+      ? { email: `${uid}@${identity.emailDomain}`, email_verified: identity.emailVerified ?? false }
+      : {}),
+    firebase: { sign_in_provider: 'custom' },
+  };
 }
 
 function substituteUid<T>(value: T, uid: string): T {
@@ -32,7 +76,7 @@ function substituteUid<T>(value: T, uid: string): T {
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = substituteUid(child, uid);
+      out[key.replaceAll('<UID>', uid)] = substituteUid(child, uid);
     }
     return out as unknown as T;
   }
@@ -73,27 +117,48 @@ function buildSimMock(
   return root;
 }
 
-function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbSimulatorOutcome {
+/**
+ * The token production issues for the case's sign-in: an anonymous sign-in,
+ * an identity user's custom-token sign-in, or a custom-token sign-in whose
+ * token carries the case's claims beside the `firebase` claim production adds.
+ */
+function replayAuth(testCase: RtdbTestCase, uid: string): SimulationInput['auth'] {
+  if (!testCase.authPresent) return null;
+  if (testCase.identity) return { uid, token: identityToken(uid, testCase.identity) };
+  if (testCase.claims) {
+    return { uid, token: { ...testCase.claims, firebase: { sign_in_provider: 'custom' } } };
+  }
+  return { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } };
+}
+
+/** The scenario's subtree mounted under its id, compiled once per scenario. */
+function compileScenario(scenario: RtdbScenario): ReturnType<typeof compileRtdbRules> {
   const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
-  const compiled = compileRtdbRules(
-    {
-      rules: {
-        '.read': false,
-        '.write': false,
-        [scenario.id]: subtree,
-      },
+  return compileRtdbRules({
+    rules: {
+      '.read': false,
+      '.write': false,
+      [scenario.id]: subtree,
     },
-  );
+  });
+}
+
+function simulatorVerdict(
+  scenario: RtdbScenario,
+  compiled: ReturnType<typeof compileRtdbRules>,
+  testCase: RtdbTestCase,
+): RtdbSimulatorOutcome {
   const uid = testCase.authPresent ? REPLAY_UID : '';
   const opPath = substituteUid(testCase.opPath, uid);
   const simPath = `/${scenario.id}${opPath}`;
   const mockData = testCase.mockData !== undefined
     ? substituteUid(testCase.mockData, uid)
     : undefined;
-  const auth: SimulationInput['auth'] = testCase.authPresent
-    ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
-    : null;
+  const auth = replayAuth(testCase, uid);
   const simMock = buildSimMock(scenario, simPath, mockData, testCase.seed, uid);
+  // A written `{ ".sv": "timestamp" }` goes to the simulator as the client
+  // wrote it; the simulator resolves it to the `now` it is passed.
+  const now = Date.now();
   const newData = testCase.newData !== undefined
     ? substituteUid(testCase.newData, uid)
     : undefined;
@@ -107,24 +172,72 @@ function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbS
       value,
     }));
     const outcomes = updates.map((update) => outcomeOf(simulateRtdbRules(compiled, {
-      operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates,
+      operation: 'write', path: update.path, auth, mockData: simMock, newData: update.value, updates, now,
     })));
     if (outcomes.includes('ERROR')) return 'ERROR';
     if (outcomes.includes('UNSUPPORTED')) return 'UNSUPPORTED';
     return outcomes.every((outcome) => outcome === 'ALLOW') ? 'ALLOW' : 'DENY';
   }
 
+  if (testCase.operation === 'query') {
+    return outcomeOf(simulateRtdbRules(compiled, {
+      operation: 'read', path: simPath, auth, mockData: simMock, query: substituteUid(testCase.query!, uid), now,
+    }));
+  }
+
   return outcomeOf(simulateRtdbRules(compiled, {
-    operation: testCase.operation, path: simPath, auth, mockData: simMock, newData,
+    operation: testCase.operation, path: simPath, auth, mockData: simMock, newData, now,
   }));
 }
 
 export function replayRtdbScenario(scenario: RtdbScenario): RtdbReplayResult[] {
+  const compiled = compileScenario(scenario);
   return scenario.cases
     .filter((testCase) => !testCase.pendingCapture)
     .map((testCase) => ({
       caseKey: testCase.description,
       production: testCase.expectation,
-      simulator: simulatorVerdict(scenario, testCase),
+      simulator: simulatorVerdict(scenario, compiled, testCase),
     }));
+}
+
+export type RtdbDeployOutcome = 'ACCEPTED' | 'REJECTED';
+
+export interface RtdbDeployReplayResult {
+  caseKey: string;
+  construct: string;
+  production: RtdbDeployOutcome;
+  local: RtdbDeployOutcome;
+  /** The local check's error findings, as `<path> <rule>: <message>`. */
+  localErrors: string[];
+}
+
+/**
+ * Pyric's load-time answer for one deploy case: the subtree mounted under the
+ * scenario id, compiled and checked as a loaded `database.rules.json` is. Any
+ * error finding is a rejection; warnings are not.
+ */
+export function localDeployVerdict(
+  scenarioId: string,
+  rules: string,
+): { verdict: RtdbDeployOutcome; errors: string[] } {
+  const subtree = JSON.parse(rules) as unknown;
+  const result = checkRtdbRules(() => compileRtdbRules({
+    rules: { '.read': false, '.write': false, [scenarioId]: subtree },
+  }));
+  const errors = result.errors.map((finding) => `${finding.path} ${finding.rule}: ${finding.message}`);
+  return { verdict: errors.length > 0 ? 'REJECTED' : 'ACCEPTED', errors };
+}
+
+export function replayRtdbDeployScenario(scenario: RtdbDeployScenario): RtdbDeployReplayResult[] {
+  return scenario.deployCases.map((deployCase) => {
+    const local = localDeployVerdict(scenario.id, deployCase.rules);
+    return {
+      caseKey: deployCase.description,
+      construct: deployCase.construct,
+      production: deployCase.expectation.verdict,
+      local: local.verdict,
+      localErrors: local.errors,
+    };
+  });
 }

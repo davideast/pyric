@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
-import type { StorageBackend, StorageReferenceRecord, StoredMetadata } from 'pyric/storage/internal';
+import { assertPriorAt, higherGeneration, raisedMark, type GenerationIssuer, type StorageBackend, type StorageReferenceRecord, type StoredMetadata, type StoredObject } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
 import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
@@ -28,11 +28,20 @@ export interface ScopedStorageBackend extends StorageBackend {
   abortUpload(uploadId: string): Promise<void>;
   references(bucket?: string): Promise<StorageReferenceRecord[]>;
   putReference(path: string, reference: StoredBytes, mime: string, metadata: StoredMetadata): Promise<void>;
+  /** Raise each path's mark to at least the one given, as salvage copies them from another store. */
+  raiseMarks(marks: readonly StorageGenerationMark[]): Promise<void>;
   /** The file holding an object's bytes, with what a response needs to describe them. */
   objectFile(bucket: string, path: string): Promise<StoredObjectFile | undefined>;
   /** Append bytes that start at `offset`, which must be exactly what the upload has received. */
   appendUpload(uploadId: string, offset: number, bytes: Uint8Array): Promise<UploadProgress>;
   uploadProgress(uploadId: string): Promise<UploadProgress | undefined>;
+}
+
+/** A path's generation high-water mark, as salvage copies it between stores. */
+export interface StorageGenerationMark {
+  bucket: string;
+  path: string;
+  generation: string;
 }
 
 export interface StoredObjectFile {
@@ -97,6 +106,40 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   const remove = connection.prepare('DELETE FROM storage_objects WHERE bucket=? AND path=?');
   const list = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND substr(path, 1, length(?))=? ORDER BY path');
   const clearBucket = connection.prepare('DELETE FROM storage_objects WHERE bucket=?');
+  // Each path's high-water mark, the highest generation ever stored there. A
+  // delete or a reset leaves it, so no later write repeats a generation.
+  const markStmt = lazyStatement(connection, 'SELECT generation FROM storage_generations WHERE bucket=? AND path=?');
+  const raiseMarkStmt = lazyStatement(connection, `INSERT INTO storage_generations (bucket, path, generation) VALUES (?, ?, ?)
+    ON CONFLICT(bucket, path) DO UPDATE SET generation=excluded.generation`);
+
+  function markOf(bucket: string, path: string): string | undefined {
+    const row = markStmt().get(bucket, path);
+    const unmarked = row === undefined;
+    if (unmarked) return undefined;
+    return sqlText(row, 'generation');
+  }
+
+  /**
+   * Write an object's row and raise its path's mark, in one commit. With
+   * `issue`, the generation is issued inside that commit, above the path's
+   * stored generation and its mark, and set on `metadata`.
+   */
+  function writeRow(path: string, metadata: StoredMetadata, mime: string, stored: StoredBytes, issue?: GenerationIssuer): void {
+    commit(() => {
+      const mark = markOf(metadata.bucket, path);
+      const issues = issue !== undefined;
+      if (issues) metadata.generation = issue(higherGeneration(currentGeneration(metadata.bucket, path), mark));
+      put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size);
+      raiseMarkStmt().run(metadata.bucket, path, raisedMark(mark, metadata.generation));
+    });
+  }
+
+  /** Raise marks copied from another store, keeping the higher of each pair. */
+  function raiseMarks(marks: readonly StorageGenerationMark[]): void {
+    commit(() => {
+      for (const { bucket, path, generation } of marks) raiseMarkStmt().run(bucket, path, raisedMark(markOf(bucket, path), generation));
+    });
+  }
 
   // Reserve order before binary conversion yields. Reset and later uploads must
   // not overtake a pending upload and then be undone when its bytes arrive.
@@ -115,26 +158,30 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   function uploadOf(uploadId: string): Upload {
     const upload = uploads.get(uploadId);
     const missingUpload = upload === undefined;
-    if (missingUpload) throw new Error(`Upload '${uploadId}' not found or already completed.`);
+    if (missingUpload) throw new FirebaseError('storage/object-not-found', `storage/object-not-found: Upload '${uploadId}' not found.`);
     return upload;
   }
 
-  function adoptUpload(path: string, upload: Upload, mime: string, value: StoredMetadata): void {
+  /** Returns the generation the write stored. */
+  function adoptUpload(path: string, upload: Upload, mime: string, value: StoredMetadata, issue?: GenerationIssuer): string {
     const metadata = storedMetadataSchema.parse(value);
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== upload.size;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
     const stored = objects.adopt(upload.file);
-    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
+    writeRow(path, metadata, mime, stored, issue);
+    return metadata.generation;
   }
 
-  function putBytes(path: string, bytes: Uint8Array, mime: string, value: StoredMetadata): void {
+  /** Returns the generation the write stored. */
+  function putBytes(path: string, bytes: Uint8Array, mime: string, value: StoredMetadata, issue?: GenerationIssuer): string {
     const tooLarge = bytes.byteLength > MAX_STORAGE_OBJECT_BYTES;
     if (tooLarge) throw storageQuotaExceeded(bytes.byteLength, 'Storage object');
     const metadata = storedMetadataSchema.parse(value);
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== bytes.byteLength;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
     const stored = objects.write(bytes);
-    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
+    writeRow(path, metadata, mime, stored, issue);
+    return metadata.generation;
   }
 
   function putFile(path: string, source: string, stored: StoredBytes, mime: string, value: StoredMetadata): void {
@@ -144,31 +191,107 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== stored.size;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
     objects.importFile(source, stored);
-    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
+    writeRow(path, metadata, mime, stored);
   }
 
   const writes: StorageWrites = { bytes: putBytes, file: putFile };
   const referencesStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? ORDER BY path');
   const objectFileStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
+  // The bytes behind each replaced object `put` returned, so putting it back
+  // writes only its row while its file is still held.
+  const replacedBytes = new WeakMap<Blob, StoredBytes>();
+
+  /**
+   * The object at a path as one row, read inside a queued mutation. A row
+   * whose file is gone has no object to give back, so an overwrite repairs it.
+   */
+  async function objectAt(bucket: string, path: string): Promise<StoredObject | undefined> {
+    const row = objectFileStmt().get(bucket, path);
+    const missingObject = row === undefined;
+    if (missingObject) return undefined;
+    const stored = storedBytesOf(row);
+    const missingFile = objects.size(stored.sha256) !== stored.size;
+    if (missingFile) return undefined;
+    const blob = await openAsBlob(objects.path(stored.sha256), { type: sqlText(row, 'mime') });
+    replacedBytes.set(blob, stored);
+    return { blob, metadata: metadataOf(row) };
+  }
+
+  function currentGeneration(bucket: string, path: string): string | undefined {
+    const row = metadata.get(bucket, path);
+    const missingObject = row === undefined;
+    if (missingObject) return undefined;
+    return metadataOf(row).generation;
+  }
+
+  /** Put `prior` back at its path, by reference when this store still holds its bytes. */
+  async function restoreObject(path: string, prior: StoredObject): Promise<void> {
+    const stored = replacedBytes.get(prior.blob);
+    const unheld = stored === undefined || objects.size(stored.sha256) !== stored.size;
+    if (unheld) {
+      const fromThisStore = stored !== undefined;
+      if (fromThisStore) throw new Error(`The bytes of the prior Storage object at '${path}' are no longer held.`);
+      putBytes(path, new Uint8Array(await prior.blob.arrayBuffer()), prior.blob.type, prior.metadata);
+      return;
+    }
+    const value = storedMetadataSchema.parse(prior.metadata);
+    const mismatchedObject = value.fullPath !== path || value.size !== stored.size;
+    if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+    writeRow(path, value, prior.blob.type, stored);
+  }
+
   function view(scope?: string): ScopedStorageBackend {
     const defaultBucket = scope ?? 'pyric-default';
     return {
-      async put(path, blob, value) {
+      // `put` returns a replaced object as a Blob over its content-addressed
+      // file, which a later write does not remove.
+      replacedObjectsOnDisk: true,
+      async put(path, blob, value, issue) {
         const tooLarge = blob.size > MAX_STORAGE_OBJECT_BYTES;
         if (tooLarge) throw storageQuotaExceeded(blob.size, 'Storage object');
         const upload = finishedUploads.get(blob);
         const finishesUpload = upload !== undefined;
+        const bucket = value.bucket || defaultBucket;
         if (finishesUpload) {
-          await enqueue(() => adoptUpload(path, upload, blob.type, value));
-          return;
+          return enqueue(async () => {
+            const replaced = await objectAt(bucket, path);
+            value.generation = adoptUpload(path, upload, blob.type, value, issue);
+            return replaced;
+          });
         }
-        await enqueue(async () => {
+        return enqueue(async () => {
           const bytes = new Uint8Array(await blob.arrayBuffer());
-          putBytes(path, bytes, blob.type, value);
+          const replaced = await objectAt(bucket, path);
+          value.generation = putBytes(path, bytes, blob.type, value, issue);
+          return replaced;
+        });
+      },
+      async deleteIfGeneration(path, generation, bucket = defaultBucket) {
+        return enqueue(() => {
+          const replaced = currentGeneration(bucket, path) !== generation;
+          if (replaced) return false;
+          commit(() => { remove.run(bucket, path); });
+          return true;
+        });
+      },
+      async replaceIfGeneration(path, generation, prior, bucket = defaultBucket) {
+        // Every Storage mutation runs through this queue, so nothing lands
+        // between the check and the write.
+        if (prior !== undefined) assertPriorAt(prior, bucket, path);
+        return enqueue(async () => {
+          const replaced = currentGeneration(bucket, path) !== generation;
+          if (replaced) return false;
+          if (prior === undefined) {
+            commit(() => { remove.run(bucket, path); });
+            return true;
+          }
+          await restoreObject(path, prior);
+          return true;
         });
       },
       mutate: work => enqueue(() => commit(() => work(writes))),
+      raiseMarks: marks => enqueue(() => raiseMarks(marks)),
       async getBlob(path, bucket = defaultBucket) {
         await mutations;
         const row = read().get(bucket, path);
@@ -236,7 +359,12 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           const upload = uploadOf(uploadId);
           const received = upload.file.received;
           const incomplete = received !== upload.size;
-          if (incomplete) throw new Error(`Staged bytes (${received}) do not match declared size (${upload.size}).`);
+          if (incomplete) {
+            throw new FirebaseError(
+              'storage/invalid-argument',
+              `storage/invalid-argument: Uploaded bytes (${received}) did not match declared size (${upload.size}).`,
+            );
+          }
           upload.file.seal();
           const blob = await openAsBlob(upload.file.path, { type: upload.contentType });
           finishedUploads.set(blob, upload);
@@ -265,7 +393,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           const misplaced = offset !== received;
           if (misplaced) throw new UploadOffsetError(received);
           const overflows = received + bytes.byteLength > upload.size;
-          if (overflows) throw new Error(`Upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
+          if (overflows) throw new FirebaseError('storage/invalid-argument', `Upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
           upload.file.append(bytes);
           return { received: upload.file.received, size: upload.size };
         });
@@ -290,7 +418,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           const held = objects.size(reference.sha256) === reference.size;
           const missing = !held;
           if (missing) throw new Error(`Storage object '${path}' names bytes this store does not hold.`);
-          commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, reference.sha256, reference.size); });
+          writeRow(path, metadata, mime, reference);
         });
       },
       // The owning hosted database closes the shared connection after draining.

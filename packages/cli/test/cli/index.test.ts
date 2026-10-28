@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { FIREBASE_TESTED_AGAINST } from '../../src/version/compat-target.js';
-import { dispatch, parseArgs } from '../../src/cli/index.js';
+import { parseArgs } from '../../src/cli/index.js';
+import { PACKAGE_ROOT, runCli, runDispatch } from './run-cli.js';
 
-const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
-const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'cli', 'index.ts');
 const REMOVED_PROJECT_COMMANDS = [
   'login',
   'logout',
@@ -25,41 +23,6 @@ const REMOVED_BRIDGE_FLAGS = [
   ['--confirm-timeout', '5000'],
   ['--non-interactive'],
 ] as const;
-
-function runCli(args: string[], input?: string): { code: number; stdout: string; stderr: string } {
-  const result = spawnSync('bun', [CLI_ENTRY, ...args], {
-    cwd: PACKAGE_ROOT,
-    encoding: 'utf8',
-    input,
-    timeout: 30_000,
-  });
-  return {
-    code: result.status ?? -1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  };
-}
-
-async function runDispatch(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  let stdout = '';
-  let stderr = '';
-  const stdoutWrite = process.stdout.write;
-  const stderrWrite = process.stderr.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-    return true;
-  }) as typeof process.stdout.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    return { code: await dispatch(parseArgs(args)), stdout, stderr };
-  } finally {
-    process.stdout.write = stdoutWrite;
-    process.stderr.write = stderrWrite;
-  }
-}
 
 describe('retained pyric command surface', () => {
   it('advertises every local-development workflow through the CLI entry', () => {
@@ -141,6 +104,33 @@ describe('service command hierarchy', () => {
     expect(findings.map((finding) => [finding.code, finding.severity])).toContainEqual(['SEC-5', 'high']);
   });
 
+  it('rejects Firestore rules that exceed compile limits in firestore rules validate (FS-CON-2)', async () => {
+    const { runRulesValidate } = await import('../../src/cli/rules.js');
+    const nestedGlob = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{a=**}/sub/{b=**} {
+      allow read: if request.auth != null;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    let out = '';
+    const code = await runRulesValidate(
+      parseArgs(['firestore', 'rules', 'validate', 'firestore.rules']),
+      {
+        readFile: async () => nestedGlob as never,
+        stdout: { write: (s: string) => { out += s; } },
+        stderr: { write: () => {} },
+      },
+    );
+    expect(code).toBe(2);
+    const findings = JSON.parse(out) as Array<{ code: string; severity: string }>;
+    expect(findings.some((f) => f.code === 'GLOB_MATCH_COUNT' && f.severity === 'critical')).toBe(true);
+  });
+
   it('resolves Firestore rules modules through the namespaced command', async () => {
     const sourcePath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'firestore.modules.rules');
     const result = await runDispatch(['firestore', 'rules', 'resolve', sourcePath]);
@@ -191,6 +181,30 @@ describe('service command hierarchy', () => {
       expect(result.code).toBe(0);
       expect(result.stderr).toBe('');
       expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toHaveProperty('indexes');
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips an index for a dynamic collection id and says so', async () => {
+    const outputDir = mkdtempSync(join(tmpdir(), 'pyric-firestore-indexes-'));
+    const sourcePath = join(outputDir, 'queries.ts');
+    const outputPath = join(outputDir, 'firestore.indexes.json');
+    writeFileSync(sourcePath, `
+      export function listChildren(parentId: string, childCollection: string, s: string) {
+        let q = query(collection(db, 'parents', parentId, childCollection));
+        q = query(q, where('status', '==', s));
+        q = query(q, orderBy('createdAt', 'desc'));
+        return q;
+      }
+    `);
+
+    try {
+      const result = await runDispatch(['firestore', 'indexes', 'generate', sourcePath, '--out', outputPath]);
+
+      expect(result.code).toBe(0);
+      expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toEqual({ indexes: [] });
+      expect(result.stderr).toContain('index for a wildcard collection id skipped: name the collection');
     } finally {
       rmSync(outputDir, { recursive: true, force: true });
     }
@@ -261,7 +275,10 @@ describe('pyric sandbox command surface', () => {
     // Named inspection commands remain; bare `pyric serve` is still retired.
     expect(stdout).toContain('pyric serve diagnostics');
     expect(stdout).toContain('pyric serve sessions');
-    expect(stdout).not.toMatch(/pyric serve(?!(?: sessions| diagnostics)\b)/);
+    expect(stdout).toContain('pyric serve repro capture');
+    expect(stdout).toContain('pyric serve denials');
+    expect(stdout).toContain('pyric serve repro replay');
+    expect(stdout).not.toMatch(/pyric serve(?!(?: sessions| diagnostics| denials| repro capture| repro replay)\b)/);
   });
 
   it('rejects the removed serve spelling for the sandbox', async () => {

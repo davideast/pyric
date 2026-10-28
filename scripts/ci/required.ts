@@ -5,6 +5,13 @@ import type { PrCheckSet } from './check-set.ts';
 interface RequiredInput {
   checkSet: PrCheckSet;
   requirePackaging: boolean;
+  /** The plan selected the RTDB differential gate. */
+  requireRtdbDifferential?: boolean;
+  /** The plan selected the app scenarios. */
+  requireAppScenarios?: boolean;
+  /** The run is a pull request, so the test and CI job removal guard ran.
+   *  It is required whatever the check set, docs-only included. */
+  requireDeletionGuard?: boolean;
   results: Record<string, string | undefined>;
 }
 
@@ -18,6 +25,9 @@ export function requiredFailures(input: RequiredInput): string[] {
   const required = [
     ...CHECK_SET_JOBS[input.checkSet],
     ...(input.requirePackaging ? ['packaging', 'install-matrix', 'standalone', 'release-contract'] : []),
+    ...(input.requireRtdbDifferential ? ['rtdb-differential'] : []),
+    ...(input.requireAppScenarios ? ['app-scenarios'] : []),
+    ...(input.requireDeletionGuard ? ['deletion-guard'] : []),
   ];
   return required.flatMap((job) => input.results[job] === 'success'
     ? []
@@ -32,6 +42,9 @@ function main(): void {
   const failures = requiredFailures({
     checkSet,
     requirePackaging: process.env.CI_REQUIRE_PACKAGING === 'true',
+    requireRtdbDifferential: process.env.CI_REQUIRE_RTDB_DIFFERENTIAL === 'true',
+    requireAppScenarios: process.env.CI_REQUIRE_APP_SCENARIOS === 'true',
+    requireDeletionGuard: process.env.CI_REQUIRE_DELETION_GUARD === 'true',
     results,
   });
   const report = [

@@ -10,6 +10,16 @@ const row1 = defineRows({
   },
 });
 
+/** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
+const droppedConnectionRow = defineRows({
+  surface: "storage",
+  defaults: {
+    section: "Calls in flight when the hosted connection drops",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 const row2 = defineRows({
   surface: "storage",
   defaults: {
@@ -97,6 +107,21 @@ const adminRow = defineRows({
   },
 });
 
+// The admin plane's bucket listing: unit-backed, unverified until a production capture lands.
+const adminBucketRow = defineRows({
+  surface: "storage-admin",
+  defaults: {
+    section: "`pyric-admin/storage`: `Bucket` listing and prefix delete",
+    status: "unverified",
+    automation: "unit-backed",
+    conformanceTests: [
+      "packages/pyric-admin/test/storage/bucket-files.test.ts",
+      "packages/pyric-admin/test/storage/bucket-listing.test.ts",
+      "test/apps/admin-storage-delete-prefix/scenario.ts",
+    ],
+  },
+});
+
 const row10 = defineRows({
   surface: "storage",
   defaults: {
@@ -135,6 +160,16 @@ const row15 = defineRows({
     section: "Op-level rules enforcement — a denied op throws `storage/unauthorized`",
     api: "Rules enforcement",
     status: "conforms",
+  },
+});
+
+/** Client SDKs in a `node --import @pyric/cli/register` process on the Node host (#1082). */
+const serverProcessRow = defineRows({
+  surface: "storage",
+  defaults: {
+    section: "Client SDKs in a registered server process",
+    status: "diverged-documented",
+    automation: "unit-backed",
   },
 });
 
@@ -257,6 +292,20 @@ export const storageRegistry = {
           status: "diverged-documented",
           evidence: "Package resolution owns production selection. The sandbox accepts the canonical argument but does not model production multi-bucket routing; `unit:service.test.ts` pins the configured `pyric-default` bucket.",
           conformanceTests: ["packages/pyric/test/storage/service.test.ts"],
+        }),
+        row1({
+          rowRef: "117",
+          featureKeys: ["getStorageSandbox"],
+          behavior: "Pyric documents that carry Storage bytes inline as base64 in one JSON string (the in-process `storage.json`, a `--persist` state file, a fixture export, an inline state capture, and branch files) refuse a total past `MAX_INLINE_STORAGE_BYTES` with `storage/quota-exceeded`, naming the limit, the total, and the by-reference alternative, before any byte is encoded or written",
+          status: "conforms",
+          evidence: "`unit:sandbox/internal/inline-storage-limit.test.ts` pins the limit, base64 length counting with and without the Node `Buffer` global, the refusal of inline captures, and branch saves that write nothing. `packages/cli/test/serve/inline-storage-limit.test.ts` pins the in-process storage file, the `--persist` state file, a fixture export, and a fork through the `sandbox` tool. This is Pyric behavior with no production equivalent: production Storage keeps no such documents.",
+          risk: ["error-code"],
+          riskReasons: ["asserts Firebase error code(s): `storage/quota-exceeded`"],
+          conformanceTests: [
+            "packages/pyric/test/sandbox/internal/inline-storage-limit.test.ts",
+            "packages/cli/test/serve/inline-storage-limit.test.ts",
+          ],
+          exceptionReason: "Pyric behavior with no production equivalent to observe",
         }),
         row1({
           rowRef: "12",
@@ -586,6 +635,23 @@ export const storageRegistry = {
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/storage/metadata.test.ts"],
         }),
+        row3({
+          rowRef: "118",
+          behavior: "Each write of an object gets a new, larger `generation`, a numeric string, even in one millisecond, under a fixed clock, or from two sandboxes on one store",
+          evidence: "The backend issues it in the write's transaction above a per-path mark kept in the same store. Value is clock ms x 1000, not microseconds. A tab that falls back to memory (store blocked or newer) is outside this. Tests: `generation.test.ts`, `generation-high-water.test.ts`, worker, Node host and pyric-admin generation tests. Shape: oracle `storage-upload-then-getmetadata.json`",
+          risk: ["specific-value","metadata"],
+          riskScore: 3,
+          riskReasons: ["asserts 1 specific value(s)","asserts metadata shape"],
+          automation: "unit-backed",
+          oracleObservations: ["storage-upload-then-getmetadata"],
+          conformanceTests: [
+            "packages/pyric/test/storage/generation.test.ts",
+            "packages/pyric/test/storage/generation-high-water.test.ts",
+            "packages/cli/test/serve/worker/storage-generation.test.ts",
+            "packages/cli/test/serve/hosted-sqlite.test.ts",
+            "packages/pyric-admin/test/storage/generations.test.ts",
+          ],
+        }),
       ],
     },
     {
@@ -709,10 +775,20 @@ export const storageRegistry = {
         row5({
           rowRef: "50",
           behavior: "`task.cancel()` rejects the upload with `storage/canceled`",
-          evidence: "`unit:resumable-upload.test.ts` confirms cancellation rejects with `storage/canceled` and leaves no falsely completed object in storage.",
+          evidence: "`unit:resumable-upload.test.ts` confirms cancellation rejects with `storage/canceled`. A commit already sent cannot be recalled, so a cancel that races it rolls it back, then rejects and tells observers. Production never stores a canceled upload, so its rules never see the rollback: the commit takes a token bound to the client, the generation it stored, and the object it replaced, and the host, without the rules, puts that object back or deletes the new one in one generation-checked write, keeping any later write (#1157, #1159). `storage-upload-rollback.test.ts` pins the token's binding, the restore, and a cancel under rules that deny every delete; `storage-ops.test.ts` pins a commit settling after the cancel and one held while paused. The web byte route fixture in `hosted-sqlite.test.ts` and `test/apps/client-sdk-under-register` cancel under `node --import @pyric/cli/register` and read no object, or the earlier one after an overwrite; on main (8e1ee9cb4) the object stayed (#1137). A failed rollback rejects with its own code. The in-page task does the same (#1161), and `storage-cancel-parity.test.ts` compares the two.",
           risk: ["specific-value","error-code"],
           riskScore: 5,
           riskReasons: ["asserts 1 specific value(s)","asserts Firebase error code(s): `storage/canceled`"],
+          conformanceTests: [
+            "packages/pyric/test/storage/resumable-upload.test.ts",
+            "packages/pyric/test/storage/resumable-cancel-rollback.test.ts",
+            "packages/cli/test/serve/worker/storage-cancel-parity.test.ts",
+            "packages/cli/test/serve/worker/storage-ops.test.ts",
+            "packages/cli/test/serve/worker/storage-upload-rollback.test.ts",
+            "packages/cli/test/serve/hosted-sqlite.test.ts",
+            "test/apps/client-sdk-under-register/scenario.ts",
+            "test/apps/inpage-storage-cancel-rollback/scenario.ts",
+          ],
         }),
       ],
     },
@@ -1367,6 +1443,84 @@ export const storageRegistry = {
           risk: ["specific-value"],
           riskScore: 2,
           riskReasons: ["asserts 2 specific value(s)"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "## `pyric-admin/storage`: `Bucket` listing and prefix delete\n\nThe admin plane (surface `storage-admin`). firebase-admin's `Bucket.getFiles` and `Bucket.deleteFiles`, as a backend calls them to clean up an entity's objects under a prefix. The rows follow `@google-cloud/storage` 7.x and `@google-cloud/paginator` from their source and run on the in-process arm, a SharedWorker host, and the Node host. No production capture backs them yet, so they stay unverified.\n",
+      rows: [
+        adminBucketRow({
+          rowRef: "7",
+          featureKeys: ["Bucket.getFiles"],
+          api: "bucket.getFiles({ prefix, delimiter, maxResults, pageToken, autoPaginate })",
+          behavior: "Lists the files whose names start with `prefix`, in name order, as `[files, nextQuery, apiResponse]`. `delimiter` rolls names up into `apiResponse.prefixes`. `maxResults` or `autoPaginate: false` gives one page and the next page's query, or `null` on the last page; reading every page gives the call's own query in that position. `apiResponse` has no `items`, and the files carry no `metadata` until `getMetadata`",
+          evidence: "`bucket-listing.test.ts` pins prefix, delimiter, page, and result-tuple semantics as `@google-cloud/storage` 7.21 `Bucket.getFiles` and `@google-cloud/paginator` 5 `run_` define them. `bucket-files.test.ts` runs the same queries on the in-process arm and on a SharedWorker host. The app scenario `admin-storage-delete-prefix` calls `getFiles({ prefix })` from a firebase-admin backend under `pyric sandbox --hosted`. The remote arms read names with the host's `storage.listAll`, one folder at a time.",
+          risk: ["specific-value", "unobserved"],
+          riskScore: 3,
+          riskReasons: ["asserts specific listing values", "not observed in production"],
+        }),
+        adminBucketRow({
+          rowRef: "8",
+          featureKeys: ["Bucket.deleteFiles"],
+          api: "bucket.deleteFiles({ prefix, force })",
+          behavior: "Deletes every file `getFiles` would list across its pages, up to `maxResults`, ten at a time, and leaves the others. Without `force` the first failed delete rejects the call; with `force` every file is tried and the call rejects with the array of errors",
+          evidence: "`bucket-listing.test.ts` pins `force` as `@google-cloud/storage` 7.21 `Bucket.deleteFiles` defines it: the first error without it, the array of errors with it. `bucket-files.test.ts` deletes a prefix on the in-process arm and on a SharedWorker host, and leaves other prefixes and buckets. The app scenario `admin-storage-delete-prefix` deletes a prefix from a firebase-admin backend under `pyric sandbox --hosted` and finds the other objects still there.",
+          risk: ["specific-value", "unobserved"],
+          riskScore: 3,
+          riskReasons: ["asserts which objects remain", "not observed in production"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      rows: [
+        droppedConnectionRow({
+          rowRef: "HD1",
+          featureKeys: ["uploadBytesResumable", "getMetadata"],
+          api: "Operations in flight at a hosted connection drop (web hosted client)",
+          behavior: "A Storage operation (`getMetadata`, `deleteObject`, `list`, or an upload step) the web hosted client's socket had taken when it dropped fails once with `unavailable` and the message \"The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.\" It is not sent again. In production the Storage Web SDK retries a request that fails on the network with exponential backoff, for up to 2 minutes for an operation and 10 minutes for an upload, and then fails it with `storage/retry-limit-exceeded`.",
+          statusNote: "fails at once with `unavailable` where production retries, then fails with `storage/retry-limit-exceeded`",
+          evidence: "Production behavior read from `@firebase/storage` 0.14.3 `dist/index.esm.js`: `DEFAULT_MAX_OPERATION_RETRY_TIME` (2 minutes), `DEFAULT_MAX_UPLOAD_RETRY_TIME` (10 minutes), and `retryLimitExceeded()` in the request retry loop. `packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts` drops a real loopback socket with `storage.getMetadata` and `storage.deleteObject` in flight and asserts each fails once with that message and reaches the host once.",
+          conformanceTests: ["packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Client SDKs in a registered server process\n\nA server process started with `node --import @pyric/cli/register` and `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true` runs the client SDKs against the Node host (#1082): `firebase/app`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` resolve to `@pyric/cli`'s Node client, which reaches the host over its own hosted connection with the process's own signed-in session, so the host's rules apply as they do for any other client. Off the Node host every call fails instead of running against a private in-process sandbox, and the client services with no path to the host refuse. `PYRIC_SANDBOX=local` keeps the in-process sandbox. In production the client SDKs run in Node and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS1",
+          featureKeys: ["getStorage"],
+          api: "getStorage(app) in a registered server process",
+          behavior: "Under a remote register activation on the Node host, `firebase/storage` in a server process uploads and reads the host's objects under its rules, over the host's byte route. An upload issued before the process's connection has attached waits for the attachment, keeps its place in the call order, and never sends its bytes as frames to a host that takes them only over the route; it fails as a held call does if the connection is not restored within 10 seconds. A finished upload does not keep the process up. When the host is not the Node host, every call fails with `failed-precondition` and a message naming the Node host (`pyric sandbox --hosted` or `pyric({ hosted: true })`); when no host is found, with the discovery error `pyric-admin` gets. No call falls back to an in-process sandbox.",
+          statusNote: "a resumable upload issued before the connection attaches reports its progress in one step on a byte-route host",
+          evidence: "App scenario `test/apps/client-sdk-under-register` runs the client SDKs under `node --import @pyric/cli/register` against a hosted Vite dev server, reads back with `firebase-admin` and a page, and asserts an upload issued as the process's first call that firebase-admin downloads, its HTTP download URL, and that a finished upload does not hold the process. `storage-byte-route-settled.test.ts` pins the wait, the call order and the deadline. On main (942cb175) it failed: the calls ran against a private in-process sandbox, so an upload returned a `data:` URL and firebase-admin read nothing they wrote. `packages/cli/test/register/node-origin.test.ts` runs the served surfaces under a Node origin whose host is not the Node host, or cannot be found, and asserts every call fails, `useWorker` stays true, the served app entry's placeholder sandbox stays empty, and a `pyric/*` mirror resolved from the app refuses. `mapping.test.ts` pins the mapping per activation value..",
+          conformanceTests: [
+            "test/apps/client-sdk-under-register/scenario.ts",
+            "packages/cli/test/register/node-origin.test.ts",
+            "packages/cli/test/register/mapping.test.ts",
+            "packages/cli/test/register/register-child.test.ts",
+            "packages/cli/test/serve/worker/storage-byte-route-settled.test.ts",
+          ],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Server-rendered modules under `vite dev`\n\nModules Vite loads for server rendering under `vite dev` with `pyric()` (`server.ssrLoadModule`, a runnable environment, a framework's SSR entry and loaders) get the modules a registered server process gets (#1123): the client SDKs reach the dev server's own Node host as one signed-in SSR session per dev server process, and `firebase-admin` reaches it as admin. This holds with Vite's default externalization and with `ssr.noExternal`. A SharedWorker dev server refuses them, naming `pyric({ hosted: true })`, and a server environment Vite does not run in its own process (workerd) gets a module that throws when it loads. In production these modules run the Firebase SDKs in the server's runtime and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS2",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getStorage"],
+          api: "getStorage(app) in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase/storage` in a server-rendered module uploads and reads the host's objects under its rules as the SSR session's user, over the host's byte route: an upload to another user's path fails with `storage/unauthorized`, and a download URL names the host's byte route. On a SharedWorker dev server every call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`. No call reaches production or an in-process sandbox.",
+          statusNote: "one SSR session per dev server process, as one Node server process has one auth state; per-request identity (`initializeServerApp`) is unsupported",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` uploads to the SSR user's own path, reads its download URL, is denied another user's path, and downloads the object with `firebase-admin` in a process on the host. On main (ba2c0bf0a) the scenario failed: SSR sign-in rejected with `auth/network-request-failed` from the network guard, and the RTDB, Firestore and Storage writes did not settle, because the imports loaded the real SDK. `vite-module-swap.test.ts` pins the routing per specifier, AI mode and environment (Vite 5's `ssr` option, a runnable environment, a non-runnable one), `vite-ssr-activation.test.ts` the host, the restart hand-over and the SharedWorker refusal, and `vite-plugin-firestore.test.ts` runs Vite with `firebase` installed, so it takes the externalized path.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/cli/test/serve/vite-module-swap.test.ts", "packages/cli/test/serve/vite-ssr-activation.test.ts", "packages/cli/test/serve/vite-plugin-firestore.test.ts"],
         }),
       ],
     },

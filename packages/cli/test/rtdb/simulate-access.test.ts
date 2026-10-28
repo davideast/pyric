@@ -101,3 +101,55 @@ describe('rtdb_simulate_access', () => {
     expect(open).toMatchObject({ ok: true, data: { decision: 'ALLOW' } });
   });
 });
+
+describe('rtdb_simulate_access case kinds', () => {
+  const rules = {
+    rules: {
+      '.read': false,
+      '.write': false,
+      score: { '.write': 'auth != null', '.validate': 'newData.isNumber()' },
+      totals: {
+        '.write': 'auth != null',
+        '.validate': "newData.val() == newData.parent().child('score').val() + 1",
+      },
+      items: { '.read': "query.orderByChild == 'owner' && query.equalTo == auth.uid" },
+    },
+  };
+  const alice = { uid: 'alice' };
+
+  test('a scalar newData is evaluated', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, rules);
+    const dispatch = buildSandboxDispatcher(sandbox);
+    const ok = await dispatch('rtdb_simulate_access', { operation: 'write', path: '/score', auth: alice, newData: 5 });
+    expect(ok).toMatchObject({ ok: true, data: { decision: 'ALLOW' } });
+    const bad = await dispatch('rtdb_simulate_access', { operation: 'write', path: '/score', auth: alice, newData: 'x' });
+    expect(bad).toMatchObject({ ok: true, data: { decision: 'DENY' } });
+  });
+
+  test('an update evaluates every written path together', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, rules);
+    const dispatch = buildSandboxDispatcher(sandbox);
+    const ok = await dispatch('rtdb_simulate_access', {
+      operation: 'update', path: '/', auth: alice, newData: { score: 4, totals: 5 },
+    });
+    expect(ok).toMatchObject({ ok: true, data: { decision: 'ALLOW' } });
+    const bad = await dispatch('rtdb_simulate_access', {
+      operation: 'update', path: '/', auth: alice, newData: { score: 4, totals: 9 },
+    });
+    expect(bad).toMatchObject({ ok: true, data: { decision: 'DENY', matchedPath: '/totals' } });
+  });
+
+  test('a read carries its query to query.* rules', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, rules);
+    const dispatch = buildSandboxDispatcher(sandbox);
+    const ok = await dispatch('rtdb_simulate_access', {
+      operation: 'read', path: '/items', auth: alice, query: { orderByChild: 'owner', equalTo: 'alice' },
+    });
+    expect(ok).toMatchObject({ ok: true, data: { decision: 'ALLOW' } });
+    const bare = await dispatch('rtdb_simulate_access', { operation: 'read', path: '/items', auth: alice });
+    expect(bare).toMatchObject({ ok: true, data: { decision: 'DENY' } });
+  });
+});

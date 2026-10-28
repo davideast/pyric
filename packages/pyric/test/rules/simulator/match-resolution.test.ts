@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
 import {
   collectMatches,
+  getFunctionScope,
+  indexRulesetScopes,
   renderMatchBlockPath,
 } from '../../../src/rules/simulator/match-resolution.js';
 import type { PathResolutionEntry } from '../../../src/rules/test/spec.js';
@@ -26,7 +28,7 @@ function resolve(children: string, path: string) {
     ...ast.service.match.functions,
   ];
   return ast.service.match.children.flatMap((block) =>
-    collectMatches(block, path.split('/'), functions));
+    collectMatches(block, path.split('/'), functions, ast.version));
 }
 
 describe('collectMatches', () => {
@@ -72,6 +74,59 @@ describe('collectMatches', () => {
     expect(match && renderMatchBlockPath(match.block)).toBe('/{document=**}');
   });
 
+  test('a recursive wildcard followed by segments matches zero or more leading segments', () => {
+    const rule = 'match /{path=**}/items/{id} { allow read: if true; }';
+
+    expect(resolve(rule, 'items/a').map((match) => match.pathVariables)).toEqual([{ path: '', id: 'a' }]);
+    expect(resolve(rule, 'users/u1/items/a').map((match) => match.pathVariables))
+      .toEqual([{ path: 'users/u1', id: 'a' }]);
+    expect(resolve(rule, 'items/items/items/a').map((match) => match.pathVariables))
+      .toEqual([{ path: 'items/items', id: 'a' }]);
+    expect(resolve(rule, 'users/u1/items/a').map((match) => match.candidateVariables)).toEqual([['id']]);
+    expect(resolve(rule, 'users/u1/other/a')).toEqual([]);
+    expect(resolve(rule, 'users/u1/items/a/sub/b')).toEqual([]);
+    expect(resolve(rule, 'users/u1')).toEqual([]);
+  });
+
+  test('a block whose recursive wildcard is followed by segments reaches no nested match', () => {
+    const rule = `match /{group=**}/groups/{groupId} {
+      match /members/{memberId} { allow get: if true; }
+    }`;
+
+    expect(resolve(rule, 'groups/g1/members/m1')).toEqual([]);
+    expect(resolve(rule, 'orgs/o1/groups/g1/members/m1')).toEqual([]);
+  });
+
+  test('a final recursive wildcard lets a nested match continue at any depth, binding the longest prefix', () => {
+    const rule = `match /{document=**} {
+      allow read: if true;
+      match /notes/{noteId} { allow get: if true; }
+    }`;
+
+    expect(resolve(rule, 'notes/n1').map((match) => match.pathVariables)).toEqual([
+      { document: 'notes/n1' },
+      { document: '', noteId: 'n1' },
+    ]);
+    expect(resolve(rule, 'notes/n1/notes/n2').map((match) => match.pathVariables)).toEqual([
+      { document: 'notes/n1/notes/n2' },
+      { document: 'notes/n1', noteId: 'n2' },
+    ]);
+    expect(resolve(rule, 'a/1/notes/n1')[1]?.candidateVariables).toEqual(['noteId']);
+  });
+
+  test('a nested recursive wildcard matches zero segments after a block that consumed the path', () => {
+    const rule = `match /p/{gid} {
+      match /{rest=**} { allow read: if true; }
+    }`;
+    expect(resolve(rule, 'p/d1').map((match) => [renderMatchBlockPath(match.block), match.pathVariables])).toEqual([
+      ['/p/{gid}', { gid: 'd1' }],
+      ['/{rest=**}', { gid: 'd1', rest: '' }],
+    ]);
+    expect(resolve(rule, 'p/d1/q/e1').map((match) => match.pathVariables)).toEqual([
+      { gid: 'd1', rest: 'q/e1' },
+    ]);
+  });
+
   test('records literal near misses and unmatched child containers', () => {
     const ast = parse(`match /users/{userId} {
       match /items/{itemId} { allow read: if true; }
@@ -83,11 +138,34 @@ describe('collectMatches', () => {
       ast.service.match.children[0]!,
       ['users', 'alice', 'other', 'a'],
       [],
+      ast.version,
       recorder,
     )).toEqual([]);
     expect(attempts).toEqual(expect.arrayContaining([
       expect.objectContaining({ blockPath: '/items/{itemId}', reason: 'literal-mismatch' }),
       expect.objectContaining({ blockPath: '/users/{userId}', reason: 'no-matching-child' }),
     ]));
+  });
+
+  test('indexes lexical declaration scopes per function (FS-SIM-1, FS-COV-1)', () => {
+    const ast = parse(`match /users/{userId} {
+      function userHelper() { return userId == 'alice'; }
+      match /items/{itemId} {
+        function itemHelper() { return userHelper(); }
+        allow read: if itemHelper();
+      }
+    }`);
+    indexRulesetScopes(ast);
+    const globalFn = ast.functions![0]!;
+    const userBlock = ast.service.match.children[0]!;
+    const userFn = userBlock.functions[0]!;
+    const itemFn = userBlock.children[0]!.functions[0]!;
+
+    expect(getFunctionScope(globalFn)?.captures.has('database')).toBe(false);
+    expect(getFunctionScope(userFn)?.captures.has('userId')).toBe(true);
+    expect(getFunctionScope(userFn)?.captures.has('itemId')).toBe(false);
+    expect(getFunctionScope(userFn)?.functions.has('itemHelper')).toBe(false);
+    expect(getFunctionScope(itemFn)?.captures.has('itemId')).toBe(true);
+    expect(getFunctionScope(itemFn)?.functions.has('userHelper')).toBe(true);
   });
 });

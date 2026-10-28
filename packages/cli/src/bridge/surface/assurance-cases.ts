@@ -11,7 +11,12 @@
  * `replaySession` reports only the pairs that disagree, alongside the state
  * divergences the replay engine found.
  */
-import { SimulateFirestoreRulesHandler, type TestCase, type TestResult } from 'pyric/rules/internal';
+import {
+  SimulateFirestoreRulesHandler,
+  type ListQueryProofReport,
+  type TestCase,
+  type TestResult,
+} from 'pyric/rules/internal';
 
 import { deriveRulesTestCases, type PyricVerifyFixture } from '../../verify/index.js';
 
@@ -31,6 +36,8 @@ export interface CaseVerdict {
   agrees: boolean;
   /** What the engine said about the decision, when it said anything. */
   notes: string[];
+  /** Static list-query proof verdict for Firestore `list` requests (#371). */
+  queryProof?: ListQueryProofReport;
 }
 
 /** Every derived case with its verdict pair, and the counts a summary reads. */
@@ -54,6 +61,7 @@ function recordedVerdict(testCase: TestCase): Verdict {
 
 /** The verdict one local simulation reached. */
 function candidateVerdict(result: TestResult): Verdict {
+  if (result.queryProof && !result.queryProof.provable) return 'deny';
   if (result.decision === 'ALLOW') return 'allow';
   if (result.decision === 'DENY') return 'deny';
   return 'unsupported';
@@ -82,7 +90,9 @@ export function runDerivedCases(
     };
   }
 
-  const simulated = new SimulateFirestoreRulesHandler().simulate(rules, derivation.testCases);
+  const simulated = new SimulateFirestoreRulesHandler().simulate(rules, derivation.testCases, {
+    getDoc: (docPath) => fixture.services.firestore?.state?.documents?.[docPath] ?? null,
+  });
   if (!simulated.success) return { error: simulated.error.message };
 
   const cases: CaseVerdict[] = [];
@@ -91,6 +101,12 @@ export function runDerivedCases(
     if (testCase === undefined) continue;
     const recorded = recordedVerdict(testCase);
     const candidate = candidateVerdict(result);
+    const notes = [...result.notes];
+    if (result.queryProof && !result.queryProof.provable && result.queryProof.reason) {
+      if (!notes.includes(result.queryProof.reason)) {
+        notes.push(result.queryProof.reason);
+      }
+    }
     cases.push({
       path: testCase.path,
       method: testCase.method,
@@ -98,7 +114,8 @@ export function runDerivedCases(
       recorded,
       candidate,
       agrees: recorded === candidate,
-      notes: result.notes,
+      notes,
+      ...(result.queryProof !== undefined ? { queryProof: result.queryProof } : {}),
     });
   }
   return {

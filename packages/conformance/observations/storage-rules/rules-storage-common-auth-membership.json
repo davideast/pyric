@@ -1,11 +1,17 @@
 {
   "name": "rules-storage-common-auth-membership",
   "matrixRow": "Storage rules engine #125",
-  "rowIds": ["storage-rules#125"],
+  "rowIds": [
+    "storage-rules#125"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"common-auth-membership\" (STORAGE-COMMON-STDLIB). Exact auth/membership stdlib bodies under firebase.storage: auth null/uid, custom claims, explicit membership maps, and role equality.",
   "observedAt": "2026-07-21T05:45:37.586Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "39428d56fae632001946898844ab4e9e957b321a1193c8c27a44d46ea5e8f2e4"
+  },
   "behavior": {
     "isAuthenticated: signed-in caller allowed": "ALLOW",
     "isAuthenticated: anonymous caller denied": "DENY",

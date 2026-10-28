@@ -10,12 +10,16 @@
 import { z } from 'zod';
 import {
   cases,
+  checkDatabaseInstance,
   checkOneForm,
   checkOperation,
   checkRequestTime,
   data,
+  instance,
   operation,
+  checkRequestShape,
   path,
+  query,
   REQUEST_METHODS,
   RENAMES,
   service,
@@ -30,9 +34,10 @@ import type { Args, Fail, InvalidArguments, MethodRecord } from '../../method-ty
 /** One case, as the engine's request shape, from either form's fields. */
 function requestOf(
   source: Args,
-  service: string,
+  _service: string,
   rules: unknown,
   requestTime: unknown,
+  callInstance: unknown,
 ): RulesRequest {
   const request: RulesRequest = {
     operation: String(source.operation),
@@ -40,13 +45,13 @@ function requestOf(
   };
   if (source.uid !== undefined) request.uid = String(source.uid);
   if (rules !== undefined) request.rules = String(rules);
+  if (callInstance !== undefined) request.instance = String(callInstance);
   const instant = source.requestTime ?? requestTime;
   if (instant !== undefined) request.requestTime = String(instant);
-  // Storage rules read the object rather than the payload, and the evaluator
-  // takes no write value, so a data argument does not reach that engine.
-  if (source.data !== undefined && service !== 'storage') {
-    request.data = source.data as Record<string, unknown>;
+  if (source.data !== undefined) {
+    request.data = source.data;
   }
+  if (source.query !== undefined) request.query = source.query as Record<string, unknown>;
   return request;
 }
 
@@ -67,20 +72,22 @@ export default {
   method: 'simulate',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, cases?, rules?, requestTime?)`,
+  signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, query?, cases?, rules?, instance?, requestTime?)`,
   description:
-    'Evaluate one request, or many through cases, at requestTime or the sandbox clock, and report allow or deny.',
+    'Evaluate one request, or many through cases, at requestTime or the sandbox clock, and report allow or deny. For database rules, data may be any JSON value, update takes a patch keyed by the paths written, and a read may carry a query.',
   args: z.object({
     service,
     operation: operation.optional(),
     path: path.optional(),
     uid: uid.optional(),
     data: data.optional(),
+    query: query.optional(),
     cases,
     rules: z
       .string()
       .optional()
       .describe('Rules source to evaluate. Defaults to the rules the sandbox is running.'),
+    instance,
     requestTime: z
       .string()
       .optional()
@@ -95,18 +102,22 @@ export default {
   renames: RENAMES,
   example: { service: 'firestore', operation: 'get', path: 'users/alice', uid: 'alice' },
   validate: (args, { fail }) =>
-    checkOneForm(args, fail) ?? checkOperation(args, fail) ?? checkInstants(args, fail),
+    checkDatabaseInstance(args, fail) ??
+    checkOneForm(args, fail) ??
+    checkOperation(args, fail) ??
+    checkRequestShape(args, fail) ??
+    checkInstants(args, fail),
   async handler(args, ctx) {
     const target = String(args.service);
     if (Array.isArray(args.cases)) {
       const requests = args.cases.map((one) =>
-        requestOf(one as Args, target, args.rules, args.requestTime),
+        requestOf(one as Args, target, args.rules, args.requestTime, args.instance),
       );
       return simulateCases(ctx, target, requests);
     }
     return rulesEngineFor(target).simulate(
       ctx,
-      requestOf(args, target, args.rules, args.requestTime),
+      requestOf(args, target, args.rules, args.requestTime, args.instance),
     );
   },
 } satisfies MethodRecord;

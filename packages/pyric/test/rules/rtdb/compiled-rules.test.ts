@@ -70,6 +70,29 @@ describe('buildRuleExpression', () => {
     expect(result.parsed.valid).toBe(true);
     expect(result.parsed.errors.filter((error) => error.message.includes('$userId'))).toHaveLength(0);
   });
+
+  test('marks syntactically valid expressions that fail static validation as valid: false (TXT-1)', () => {
+    const nonBooleanLiteral = buildRuleExpression("'false'", 'read');
+    expect(nonBooleanLiteral.parsed.valid).toBe(false);
+    expect(nonBooleanLiteral.parsed.errors.map((e) => e.code)).toContain('NOT_BOOLEAN');
+
+    const stringExpr = buildRuleExpression('auth.uid', 'read');
+    expect(stringExpr.parsed.valid).toBe(false);
+    expect(stringExpr.parsed.errors.map((e) => e.code)).toContain('NOT_BOOLEAN');
+  });
+
+  test('does not coerce array rule values to valid expressions or traverse array children (CON-6)', () => {
+    const compiled = compileRtdbRules({
+      rules: {
+        a: { '.read': [true] },
+        b: [{ '.read': true }],
+      },
+    });
+    const nodeA = compiled.children.find((node) => node.path === '/a');
+    expect(nodeA?.read?.parsed.valid).toBe(false);
+    const nodeB = compiled.children.find((node) => node.path === '/b');
+    expect(nodeB).toBeUndefined();
+  });
 });
 
 describe('serializeRtdbRules', () => {

@@ -386,4 +386,32 @@ describe('Timestamp — request.time flip (Risk 1)', () => {
     );
     expect(r.success && r.data.passed).toBe(1);
   });
+
+  test('timestamp.date rejects out-of-range calendar dates and does not map years 1..99 to 1900s (FS-SIM-10)', () => {
+    const invalidMonth = sim.simulate(
+      rules('timestamp.date(2024, 13, 1) is timestamp'),
+      [tc('month 13 denies', 'DENY')],
+    );
+    expect(invalidMonth.success && invalidMonth.data.passed).toBe(1);
+
+    const invalidLeap = sim.simulate(
+      rules('timestamp.date(2023, 2, 29) is timestamp'),
+      [tc('non-leap Feb 29 denies', 'DENY')],
+    );
+    expect(invalidLeap.success && invalidLeap.data.passed).toBe(1);
+
+    const year50 = sim.simulate(
+      rules('timestamp.date(50, 1, 1).year() == 50'),
+      [tc('year 50 stays 50 CE', 'ALLOW')],
+    );
+    expect(year50.success && year50.data.passed).toBe(1);
+  });
+
+  test('timestamp accessor methods reject extra arguments (FS-SIM-6)', () => {
+    const r = sim.simulate(
+      rules('timestamp.date(2024, 1, 1).year(1) == 2024'),
+      [tc('year(1) denies', 'DENY')],
+    );
+    expect(r.success && r.data.passed).toBe(1);
+  });
 });

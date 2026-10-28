@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp, initializeApp } from '../../../src/app/index.js';
-import { resetAppRegistryForTests } from '../../../src/app/registry.js';
+import { bindAppRegistryRefusal, resetAppRegistryForTests } from '../../../src/app/registry.js';
+import { clientSdkRefusal, clientSdkRefusalFor } from '../../../src/app/client-sdk-refusal.js';
 import {
   TARGET_SYMBOL,
   api,
@@ -24,6 +25,17 @@ import {
   type DisconnectRulesObservation,
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
+import { getAdminDatabase, getDatabase, sandbox as rtdbSandbox } from '../../../src/database/index.js';
+import { heldDatabaseInstances } from '../../../src/database/internal.js';
+import { replay } from '../../../src/database/replay.js';
+import { stagingAuthOverrideMismatches } from '../modular/staging-auth-override.support.js';
+import {
+  UNNAMED_DEFAULT_DATABASE_INSTANCE,
+  databaseInstanceKey,
+  databaseInstanceNamed,
+  parseDatabaseUrl,
+  resolveDatabaseInstance,
+} from '../../../src/sandbox/internal/instances.js';
 
 const abruptObservation = loadObservation('rtdb-modular-ondisconnect-abrupt-exit');
 const cleanDisconnectObservation = loadObservation('rtdb-modular-ondisconnect-clean-set');
@@ -36,6 +48,7 @@ const queryValidationObservation = loadObservation('rtdb-modular-query-construct
 const priorityObservation = loadObservation('rtdb-modular-priority-contract');
 const offObservation = loadObservation('rtdb-modular-off-duplicate-registration');
 const snapshotObservation = loadObservation('rtdb-modular-get-snapshot-shape');
+const stagingAuthObservation = loadObservation('rtdb-modular-staging-auth-override');
 
 const row = (id: string, assertion: () => unknown | Promise<unknown>) => it(`rtdb-modular#${id}`, assertion);
 
@@ -268,4 +281,301 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
   });
   row('107', async () => { const { db } = setup(); expect((await api.get(api.ref(db, 'missing'))).val()).toBeNull(); });
   row('108', async () => { const { db } = setup(); const target = api.ref(db, 'x'); expect((await api.get(target)).exists()).toBe(false); await api.set(target, 0); expect((await api.get(target)).exists()).toBe(true); });
+});
+
+// The MI rows record how each Pyric path serves multiple database instances;
+// the CLI and pyric-admin suites the rows name pin each path. These
+// assertions pin the sandbox side of the boundary: the in-page sandbox keeps
+// one backend, one ruleset, and one canonical key per instance.
+describe('rtdb-modular CDD: multiple database instances', () => {
+  const FIRST = 'https://first.firebaseio.com';
+  const SECOND = 'https://second.firebaseio.com';
+
+  row('MI1', async () => {
+    const sandbox = initializeSandbox();
+    const first = api.getDatabase(sandbox, FIRST);
+    const second = api.getDatabase(sandbox, SECOND);
+    api.databaseSandbox.setDefaultPolicy(first, 'allow');
+    api.databaseSandbox.setDefaultPolicy(second, 'allow');
+    await api.set(api.ref(first, 'probe'), 'first');
+    expect((await api.get(api.ref(second, 'probe'))).exists()).toBe(false);
+    expect((await api.get(api.ref(api.getDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+
+    // The project's default instance URL opens the default instance, as
+    // `getDatabase(app)` does in production.
+    const byUrl = initializeApp({ projectId: 'cdd-mi1' }, 'cdd-mi1-url');
+    const implicit = initializeApp({ projectId: 'cdd-mi1' }, 'cdd-mi1-implicit');
+    const urlDb = api.getDatabase(byUrl, 'https://cdd-mi1-default-rtdb.firebaseio.com');
+    api.databaseSandbox.setDefaultPolicy(urlDb, 'allow');
+    await api.set(api.ref(urlDb, 'shared'), 'by url');
+    expect((await api.get(api.ref(api.getDatabase(implicit), 'shared'))).val()).toBe('by url');
+    await deleteApp(byUrl);
+    await deleteApp(implicit);
+  });
+  row('MI2', async () => {
+    const sandbox = initializeSandbox();
+    const first = api.getDatabase(sandbox, FIRST);
+    const second = api.getDatabase(sandbox, SECOND);
+    api.databaseSandbox.setRules(first, { rules: { '.read': true } });
+    api.databaseSandbox.setRules(second, { rules: { '.read': false } });
+    expect((await api.get(api.ref(first, 'probe'))).exists()).toBe(false);
+    await expect(api.get(api.ref(second, 'probe'))).rejects.toThrow('PERMISSION_DENIED');
+  });
+  row('MI3', () => {
+    expect(databaseInstanceNamed('first')).toEqual(parseDatabaseUrl(FIRST));
+    expect(parseDatabaseUrl(`${FIRST}/`)).toEqual({ name: 'first', url: `${FIRST}/` });
+    expect(databaseInstanceKey(resolveDatabaseInstance(undefined))).toBe(UNNAMED_DEFAULT_DATABASE_INSTANCE);
+  });
+  row('MI4', async () => {
+    const sandbox = initializeSandbox();
+    await api.set(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'), 'first');
+    expect((await api.get(api.ref(getAdminDatabase(sandbox, SECOND), 'probe'))).exists()).toBe(false);
+    expect((await api.get(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+  });
+  row('MI5', async () => {
+    // The database tool resolves its `instance` argument with the SDK's rules:
+    // every form of one name reaches one instance, `default` the default one,
+    // and the sandbox names each instance it holds, so an unknown one is refused.
+    for (const form of ['first', 'FIRST', FIRST, `${FIRST}/`, 'http://localhost:9000/?ns=first']) {
+      expect(resolveDatabaseInstance(form)?.name).toBe('first');
+    }
+    expect(resolveDatabaseInstance('default')).toBeUndefined();
+    expect(() => resolveDatabaseInstance(`${FIRST}/probe`)).toThrow('Database URL must point to the root');
+    const sandbox = initializeSandbox();
+    await api.set(api.ref(getAdminDatabase(sandbox), 'probe'), 'default');
+    expect(heldDatabaseInstances(sandbox)).toEqual([]);
+    await api.set(api.ref(getAdminDatabase(sandbox, 'first'), 'probe'), 'first');
+    expect(heldDatabaseInstances(sandbox)).toEqual(['first']);
+    expect((await api.get(api.ref(getAdminDatabase(sandbox, FIRST), 'probe'))).val()).toBe('first');
+  });
+  row('MI6', async () => {
+    // `pyric verify` replays each instance on its own: only the events it
+    // emitted, into its own captured tree, under its own candidate rules.
+    const open = { rules: { '.read': true, '.write': true } };
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), open);
+    rtdbSandbox.setRules(getDatabase(sandbox, FIRST), open);
+    const alice = sandbox.withAuth({ uid: 'alice' });
+    await api.set(api.ref(getDatabase(alice), 'probe'), 'default');
+    await api.set(api.ref(getDatabase(alice, FIRST), 'probe'), 'first');
+    const history = sandbox.history();
+    const firstState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox, FIRST));
+    const defaultState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
+
+    const clean = await replay(history, { rules: open, instance: 'first', capturedState: firstState });
+    expect(clean).toMatchObject({ ok: true, checkedEvents: 1, divergences: [] });
+    const locked = { rules: { '.read': true, '.write': false } };
+    const denied = await replay(history, { rules: locked, instance: FIRST, capturedState: firstState });
+    expect(denied.divergences.filter((divergence) => divergence.kind === 'now-denied')).toEqual([
+      expect.objectContaining({ path: '/probe', method: 'set' }),
+    ]);
+    const unaffected = await replay(history, { rules: open, capturedState: defaultState });
+    expect(unaffected).toMatchObject({ ok: true, checkedEvents: 1 });
+  });
+
+  row('MI7', async () => {
+    // Assurance uses the sandbox foundation to map, validate, and execute
+    // isolated target environments for named instances.
+    const sandbox = initializeSandbox();
+    const open = { rules: { '.read': true, '.write': true } };
+    const locked = { rules: { '.read': false, '.write': false } };
+    const defaultDb = getDatabase(sandbox);
+    const namedDb = getDatabase(sandbox, FIRST);
+    const namedAdmin = getAdminDatabase(sandbox, FIRST);
+    
+    rtdbSandbox.setRules(defaultDb, locked);
+    rtdbSandbox.setRules(namedDb, open);
+    rtdbSandbox.setData(namedAdmin, { probe: 'named' });
+    
+    const anon = sandbox.withAuth(null);
+    await expect(api.set(api.ref(getDatabase(anon), 'probe'), 'default-attempt')).rejects.toThrow(/Permission denied/);
+    
+    const snapshot = await api.get(api.ref(getDatabase(anon, FIRST), 'probe'));
+    expect(snapshot.val()).toBe('named');
+    await api.set(api.ref(getDatabase(anon, FIRST), 'probe'), 'named-updated');
+    expect((await api.get(api.ref(getDatabase(anon, FIRST), 'probe'))).val()).toBe('named-updated');
+  });
+});
+
+// Rows VR1 to VR4 record what `pyric verify` checks when it replays a captured
+// RTDB session; the replay and verify suites and the app scenario the rows
+// name pin the CLI path. These assertions pin the sandbox side: the events the
+// backend records and the replay verdicts on them.
+describe('rtdb-modular CDD: verifying a captured session', () => {
+  const OWNER = { rules: { profiles: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+  const OPEN = { rules: { '.read': true, '.write': true } };
+
+  async function capture(run: (db: ReturnType<typeof getDatabase>) => Promise<unknown>) {
+    const sandbox = initializeSandbox();
+    rtdbSandbox.setRules(getDatabase(sandbox), OWNER);
+    rtdbSandbox.setData(getAdminDatabase(sandbox), { '/profiles/alice': 'a', '/profiles/bob': 'b' });
+    await run(getDatabase(sandbox.withAuth({ uid: 'alice' })));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { history: sandbox.history(), state: rtdbSandbox.snapshotState(getAdminDatabase(sandbox)) };
+  }
+
+  row('VR1', async () => {
+    const { history, state } = await capture(async (db) => {
+      await api.get(api.ref(db, 'profiles/alice'));
+      const off = api.onValue(api.ref(db, 'profiles/alice'), () => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      off();
+    });
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const noReads = { rules: { profiles: { $uid: { '.write': 'auth.uid === $uid' } } } };
+    const denied = await replay(history, { rules: noReads, capturedState: state });
+    expect(denied.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-denied', method: 'get', path: '/profiles/alice' },
+      { kind: 'now-denied', method: 'listen', path: '/profiles/alice' },
+    ]);
+  });
+
+  row('VR2', async () => {
+    const { history, state } = await capture((db) => api.set(api.ref(db, 'profiles/bob'), 'mallory').catch(() => {}));
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const opened = await replay(history, { rules: OPEN, capturedState: state });
+    expect(opened.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-allowed', method: 'set', path: '/profiles/bob' },
+    ]);
+    expect(opened.replayedState).toEqual(state);
+  });
+
+  row('VR4', () => {
+    // Production decided each auth override as the sandbox's rules engine does,
+    // for every field the staging engine's override carries.
+    const { compared, mismatches } = stagingAuthOverrideMismatches(stagingAuthObservation as never);
+    expect(mismatches).toEqual([]);
+    expect(compared).toBeGreaterThan(0);
+  });
+
+  row('VR3', async () => {
+    const { history, state } = await capture(async (db) => {
+      await api.onDisconnect(api.ref(db, 'profiles/alice')).set('gone');
+    });
+    const operations = history.filter((event) => event.kind === 'operation');
+    expect(operations.map((event) => ({ method: event.method, path: event.path, result: event.result }))).toEqual([
+      { method: 'onDisconnect.set', path: '/profiles/alice', result: 'allow' },
+    ]);
+    expect((await replay(history, { rules: OWNER, capturedState: state })).divergences).toEqual([]);
+    const readOnly = { rules: { '.read': true, '.write': false } };
+    const denied = await replay(history, { rules: readOnly, capturedState: state });
+    expect(denied.divergences.map(({ kind, method, path }) => ({ kind, method, path }))).toEqual([
+      { kind: 'now-denied', method: 'onDisconnect.set', path: '/profiles/alice' },
+    ]);
+  });
+});
+
+// Row HD1 records what the web hosted client does with a call in flight when
+// its socket drops; the CLI suites and the app scenario the row names pin that
+// path. This assertion pins the sandbox side of the boundary: the in-page
+// sandbox has no socket, so a write, an onDisconnect registration and a
+// transaction issued around goOffline() and goOnline() each settle in process.
+describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => {
+  row('HD1', async () => {
+    const { db } = setup();
+    const room = api.ref(db, 'rooms/r1');
+    const write = api.set(room, 'written across the drop');
+    const arm = api.onDisconnect(api.ref(db, 'status/alice')).set('offline');
+    const counter = api.runTransaction(api.ref(db, 'counter'), (count: number | null) => (count ?? 0) + 1);
+    api.goOffline(db);
+    api.goOnline(db);
+    await expect(write).resolves.toBeUndefined();
+    await expect(arm).resolves.toBeUndefined();
+    expect((await counter).committed).toBe(true);
+    expect((await api.get(room)).val()).toBe('written across the drop');
+  });
+
+  // Row HD2 records the same drop on the Node remote client, which sends
+  // these calls again after it reconnects, as the SDK does;
+  // packages/cli/test/remote and test/apps/node-client-host-restart pin that
+  // path. The sandbox side is the one HD1 pins for a write and a get.
+  row('HD2', async () => {
+    const { db } = setup();
+    const room = api.ref(db, 'rooms/r2');
+    const write = api.set(room, 'written from Node');
+    api.goOffline(db);
+    api.goOnline(db);
+    await expect(write).resolves.toBeUndefined();
+    expect((await api.get(room)).val()).toBe('written from Node');
+  });
+  // pyric-admin and the worker bridge iterate an array value by index;
+  // their own tests pin those planes. The sandbox side is an admin handle's
+  // array read, which keeps one child per index.
+  row('AS1', async () => {
+    const target = api.ref(getAdminDatabase(initializeSandbox()), 'ticks');
+    await api.set(target, ['a', 'b', 'c']);
+    const snap = await api.get(target);
+    expect(snap.val()).toEqual(['a', 'b', 'c']);
+    expect([snap.size, snap.hasChildren(), keys(snap), snap.child('1').val()]).toEqual([3, true, ['0', '1', '2'], 'b']);
+  });
+
+  // Row RS1 records the client SDKs in a server process that
+  // @pyric/cli/register activated against the Node host (#1082): their calls
+  // run under that process's own signed-in session, and an app registry bound
+  // to the refusal stands in for any service with no path to the host. The
+  // sandbox side: rules evaluate per session as they do for the process on the
+  // host, and a refused registry opens no database handle.
+  row('RS1', async () => {
+    const sandbox = initializeSandbox();
+    const rules = { rules: { users: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+    rtdbSandbox.setRules(getDatabase(sandbox), rules);
+    const alice = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await expect(api.set(api.ref(alice, 'users/alice'), 'mine')).resolves.toBeUndefined();
+    await expect(api.set(api.ref(alice, 'users/bob'), 'theirs')).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+
+    await resetAppRegistryForTests();
+    bindAppRegistryRefusal(() => clientSdkRefusal('remote'));
+    try {
+      const app = initializeApp({ projectId: 'demo-app' });
+      for (const attempt of ['first', 'second']) {
+        let code: string | undefined;
+        try {
+          getDatabase(app);
+        } catch (error) {
+          code = (error as { code?: string }).code;
+        }
+        expect(code, attempt).toBe('failed-precondition');
+      }
+    } finally {
+      await resetAppRegistryForTests();
+    }
+  });
+
+  // Row RS2 records the client SDKs in server-rendered modules under vite dev
+  // (#1123): the dev server's in-process activation stands in for
+  // PYRIC_SANDBOX, so they run as one SSR session on its host. The sandbox
+  // side: rules evaluate per session, and the refusal a service with no path
+  // to the host gets names that activation.
+  row('RS2', async () => {
+    const sandbox = initializeSandbox();
+    const rules = { rules: { users: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+    rtdbSandbox.setRules(getDatabase(sandbox), rules);
+    const session = getDatabase(sandbox.withAuth({ uid: 'ssr-user' }));
+    await expect(api.set(api.ref(session, 'users/ssr-user/page'), 'mine')).resolves.toBeUndefined();
+    await expect(api.set(api.ref(session, 'users/someone-else/page'), 'theirs')).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+
+    await resetAppRegistryForTests();
+    const label = "the Vite dev server's server-rendered modules";
+    bindAppRegistryRefusal(() => clientSdkRefusalFor(label));
+    try {
+      const app = initializeApp({ projectId: 'demo-app' });
+      expect(() => getDatabase(app)).toThrow(label);
+    } finally {
+      await resetAppRegistryForTests();
+    }
+  });
+
+  // Row RS3 records firebase-admin in server-rendered modules under vite dev:
+  // pyric-admin bound to the dev server's host, as admin. The sandbox side:
+  // an admin handle reads and writes past the rules that deny a signed-in user.
+  row('RS3', async () => {
+    const sandbox = initializeSandbox();
+    const rules = { rules: { users: { $uid: { '.read': 'auth.uid === $uid', '.write': 'auth.uid === $uid' } } } };
+    rtdbSandbox.setRules(getDatabase(sandbox), rules);
+    const admin = getAdminDatabase(sandbox);
+    await expect(api.set(api.ref(admin, 'users/ssr-user/page'), 'from admin')).resolves.toBeUndefined();
+    expect((await api.get(api.ref(admin, 'users/ssr-user/page'))).val()).toBe('from admin');
+    const stranger = getDatabase(sandbox.withAuth({ uid: 'someone-else' }));
+    await expect(api.get(api.ref(stranger, 'users/ssr-user/page'))).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+  });
 });

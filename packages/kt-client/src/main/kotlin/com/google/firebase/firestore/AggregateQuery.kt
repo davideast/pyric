@@ -3,6 +3,7 @@ package com.google.firebase.firestore
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -14,7 +15,7 @@ class AggregateQuery internal constructor(
         val tcs = TaskCompletionSource<AggregateQuerySnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
 
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val targetDesc = query.toTargetDescriptor()
                 val isOnlyCount = fields.size == 1 && fields[0] is AggregateField.CountAggregateField

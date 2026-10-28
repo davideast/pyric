@@ -348,7 +348,7 @@ async function handleCapture(
 // dispatches through a table instead of a cascade.
 //
 // A denied listener re-fires on every auth/rules change, so printing is
-// throttled per (path, message) pair — at most one line per window, and
+// throttled per (RTDB instance, path, message) — at most one line per window, and
 // silent (no output at all) on suppression rather than a "suppressed N more"
 // line, to keep this a diagnostics side channel, not its own log noise.
 
@@ -363,30 +363,39 @@ interface DenialRelayPayload {
   /** Sibling of `denialContext` on the sandbox error — query-proof denials
    *  attach the suggested `where()` fix there; the client forwards it. */
   remediation?: unknown;
+  /** The named RTDB instance the denied request addressed, when it named one. */
+  instance?: unknown;
   denialContext?: {
+    engine?: string;
     auth?: { uid?: string } | null;
     request?: { method?: string; path?: string };
+    /** RTDB only: the rules node and expression that decided. */
+    matchedPath?: string;
+    matchedRule?: string;
     /** Fallback position, in case a denial path nests it in the context. */
     remediation?: string;
   } | null;
+  /** A denied listener's owners, as the page recorded them when it opened. */
+  owners?: unknown;
 }
 
-/** Per-dev-server-instance throttle: at most one printed line per (path,
- *  message) pair within {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
+/** Per-dev-server-instance throttle: at most one printed line per key within
+ *  {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
 export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
-  shouldPrint(key: string, now: number): boolean;
+  /** `window` overrides the throttle's window for this key; `Infinity` prints once. */
+  shouldPrint(key: string, now: number, window?: number): boolean;
 } {
   const lastPrinted = new Map<string, number>();
   return {
-    shouldPrint(key, now) {
+    shouldPrint(key, now, window = windowMs) {
       const last = lastPrinted.get(key);
-      if (last !== undefined && now - last < windowMs) return false;
+      if (last !== undefined && now - last < window) return false;
       lastPrinted.set(key, now);
       return true;
     },
   };
 }
-type DenialThrottle = ReturnType<typeof createDenialThrottle>;
+export type DenialThrottle = ReturnType<typeof createDenialThrottle>;
 
 /** Format a relayed denial into the compact terminal block: the message,
  *  then (when present) the request method/path, the auth uid, and any
@@ -397,13 +406,56 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
   const ctx = payload.denialContext;
   const request = ctx?.request;
   if (request?.method && request?.path) {
-    lines.push(`      ${request.method} ${request.path}`);
+    const instance = typeof payload.instance === 'string' ? ` (${payload.instance})` : '';
+    lines.push(`      ${request.method} ${request.path}${instance}`);
   }
   const uid = ctx?.auth?.uid;
   lines.push(`      auth: ${uid ?? 'anonymous'}`);
+  // An RTDB message names no rule, so the block names the deciding one.
+  if (ctx?.engine === 'rtdb' && typeof ctx.matchedRule === 'string') {
+    const node = typeof ctx.matchedPath === 'string' ? `${ctx.matchedPath} ` : '';
+    lines.push(`      rule: ${node}${ctx.matchedRule}`);
+  }
   const remediation = typeof payload.remediation === 'string' ? payload.remediation : ctx?.remediation;
   if (remediation) lines.push(`      ${remediation}`);
+  lines.push(...ownerLines(payload.owners));
   return lines.join('\n');
+}
+
+interface RelayedFrame {
+  file: string;
+  line: number;
+  function?: string;
+}
+
+function isRelayedFrame(value: unknown): value is RelayedFrame {
+  const frame = value as Partial<RelayedFrame> | null;
+  return typeof frame === 'object' && frame !== null
+    && typeof frame.file === 'string' && typeof frame.line === 'number';
+}
+
+/** A frame's file as a reader looks for it: a served URL loses its origin and query. */
+function frameLocation(frame: RelayedFrame): string {
+  const path = frame.file.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').replace(/[?#].*$/, '');
+  return `${path}:${frame.line}`;
+}
+
+/**
+ * The `owner:` and `stack:` lines for a denied listener: the frame its owner
+ * shows (the first outside the project's `owners.skip` modules), then the
+ * application frames around it, innermost first. Nothing when no frame owner
+ * was relayed.
+ */
+function ownerLines(owners: unknown): string[] {
+  if (!Array.isArray(owners)) return [];
+  const frame = owners.find((owner) => (owner as { kind?: unknown })?.kind === 'frame');
+  if (!isRelayedFrame(frame)) return [];
+  const name = typeof frame.function === 'string' && frame.function.length > 0 ? `${frame.function} ` : '';
+  const lines = [`      owner: ${name}${frameLocation(frame)}`];
+  const stack = (frame as { stack?: unknown }).stack;
+  const chain = Array.isArray(stack) ? stack.filter(isRelayedFrame) : [];
+  if (chain.length > 1) lines.push(`      stack: ${chain.map(frameLocation).join(' ← ')}`);
+  return lines;
 }
 
 /**
@@ -413,12 +465,33 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
  */
 const THROTTLE_KEY_SEPARATOR = '\x00';
 
-/** Handle `POST /__pyric/denials`: a rules denial, or (discriminated by
+/**
+ * Print one AI diagnostic (a broker rejection, blocked response, or model
+ * substitution) under the shared throttle. The denials route calls it for a
+ * relayed body; the hosted runtime calls it for its own broker's events,
+ * since a Node-owned broker has no page to relay from. Returns nothing and
+ * ignores a payload whose `kind` is not an AI diagnostic.
+ */
+export function noteAiDiagnostic(
+  throttle: DenialThrottle,
+  logger: ServeLogger | undefined,
+  payload: AiDiagnosticPayload,
+): void {
+  const aiBlock = aiTerminalBlockFor(payload.kind);
+  if (aiBlock === null || logger === undefined) return;
+  const key = `${aiBlock.throttleTarget(payload)}${THROTTLE_KEY_SEPARATOR}${aiBlock.throttleReason(payload)}`;
+  const window = aiBlock.printsOnce ? Number.POSITIVE_INFINITY : undefined;
+  if (throttle.shouldPrint(key, Date.now(), window)) logger.note(aiBlock.format(payload));
+}
+
+/** Handle `POST /__pyric/denials`:a rules denial, or (discriminated by
  *  `kind`) an AI broker rejection, blocked response, or model substitution
  *  relayed off the sandbox event stream. All four share the throttle map: an
  *  agent retry loop re-sends the SAME malformed (or filter-tripping) AI
  *  request exactly the way a denied listener re-fires, so one line per
- *  (target, reason) per window is the right volume for every one of them.
+ *  (target, reason) per window is the right volume for every one of them. A
+ *  rules denial's target also names its RTDB instance, so the same path
+ *  denied on two instances prints once for each.
  *  Always 204s (best-effort diagnostics: a malformed body or a caller with no
  *  logger wired must never fail the page that reported the refusal). */
 async function handleDenials(
@@ -433,22 +506,18 @@ async function handleDenials(
   }
   try {
     const payload = (await collectBody(req)) as DenialRelayPayload & AiDiagnosticPayload;
-    const aiBlock = aiTerminalBlockFor(payload.kind);
-    let target: string;
-    let reason: string;
-    let render: () => string;
-    if (aiBlock === null) {
-      target = payload.denialContext?.request?.path ?? '';
-      reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
-      render = () => formatDenialBlock(payload);
+    const isAiDiagnostic = aiTerminalBlockFor(payload.kind) !== null;
+    if (isAiDiagnostic) {
+      noteAiDiagnostic(throttle, logger, payload);
     } else {
-      target = aiBlock.throttleTarget(payload);
-      reason = aiBlock.throttleReason(payload);
-      render = () => aiBlock.format(payload);
-    }
-    const key = `${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
-    if (logger && throttle.shouldPrint(key, Date.now())) {
-      logger.note(render());
+      const target = payload.denialContext?.request?.path ?? '';
+      const reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
+      // The same path can be denied on one RTDB instance and allowed on another, so each instance prints.
+      const instance = typeof payload.instance === 'string' ? payload.instance : '';
+      const key = `${instance}${THROTTLE_KEY_SEPARATOR}${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
+      if (logger && throttle.shouldPrint(key, Date.now())) {
+        logger.note(formatDenialBlock(payload));
+      }
     }
   } catch {
     /* malformed body: drop it; this is a diagnostics side channel */

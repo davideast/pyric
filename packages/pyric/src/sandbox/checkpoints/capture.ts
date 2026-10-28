@@ -11,6 +11,7 @@
  * second time, so a listing can never disagree with the state beside it.
  */
 
+import { withDatabaseRulesPreservedOnReset } from '../../database/sandbox/backend-for.js';
 import { applyFullState, captureFullState, type FullSandboxState, type FullStateCaptureOptions } from '../full-state.js';
 import type { LocalSandbox } from '../types/service.js';
 import { getClock } from '../clock.js';
@@ -72,6 +73,8 @@ export async function restoreCheckpoint(
   checkpoint: Checkpoint,
 ): Promise<void> {
   assertCheckpointState(checkpoint.state);
-  sandbox.reset();
-  await applyFullState(sandbox, checkpoint.state);
+  await withDatabaseRulesPreservedOnReset(sandbox, async () => {
+    sandbox.reset();
+    await applyFullState(sandbox, checkpoint.state);
+  });
 }

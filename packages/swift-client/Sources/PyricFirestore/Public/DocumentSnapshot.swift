@@ -80,23 +80,25 @@ public class DocumentSnapshot: @unchecked Sendable {
     internal static func fromWire(
         firestore: Firestore,
         path: String,
-        wire: AnySendable
+        wire: AnySendable,
+        isFromCache: Bool = false
     ) -> DocumentSnapshot {
-        fromWire(firestore: firestore, path: path, wireAny: wire.toAny())
+        fromWire(firestore: firestore, path: path, wireAny: wire.toAny(), isFromCache: isFromCache)
     }
 
     internal static func fromWire(
         firestore: Firestore,
         path: String,
         wireAny: Any?,
-        includeMetadataChanges: Bool = false
+        includeMetadataChanges: Bool = false,
+        isFromCache: Bool = false
     ) -> DocumentSnapshot {
         let docRef = DocumentReference(firestore: firestore, path: path)
         guard let wireDict = wireAny as? [String: Any] else {
             return DocumentSnapshot(
                 firestore: firestore,
                 reference: docRef,
-                metadata: SnapshotMetadata(hasPendingWrites: false, isFromCache: false),
+                metadata: SnapshotMetadata(hasPendingWrites: false, isFromCache: isFromCache),
                 exists: false,
                 rawData: nil
             )
@@ -110,7 +112,7 @@ public class DocumentSnapshot: @unchecked Sendable {
             return DocumentSnapshot(
                 firestore: firestore,
                 reference: resolvedRef,
-                metadata: SnapshotMetadata(hasPendingWrites: false, isFromCache: false),
+                metadata: SnapshotMetadata(hasPendingWrites: false, isFromCache: isFromCache),
                 exists: false,
                 rawData: nil
             )
@@ -126,7 +128,7 @@ public class DocumentSnapshot: @unchecked Sendable {
             reference: resolvedRef,
             metadata: SnapshotMetadata(
                 hasPendingWrites: (wireDict["hasPendingWrites"] as? Bool) ?? false,
-                isFromCache: (wireDict["isFromCache"] as? Bool) ?? false
+                isFromCache: isFromCache || ((wireDict["isFromCache"] as? Bool) ?? false)
             ),
             exists: true,
             rawData: decoded

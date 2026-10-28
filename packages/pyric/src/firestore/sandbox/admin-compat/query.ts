@@ -7,6 +7,7 @@ import { captureIndexQuery } from '../../../rules/indexes/query-analysis.js';
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
 import { getSnapshotField } from './field-path.js';
+import { forEachDocument } from '../for-each-document.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 import { activityDisplayValue } from '../../../firestore/sandbox/activity-query-display.js';
 import { activityStructuralIdentity } from '../activity-structural-identity.js';
@@ -428,6 +429,14 @@ export class QueryImpl implements Query {
    * RULES-B11 — the read engine derives proof constraints from this same
    * execution plan, preventing proof/execution drift.
    */
+  /**
+   * Where a listener on this query gathers its documents: the collection,
+   * or for a collection group, every collection with the group's id.
+   */
+  snapshotScope(): QueryScope {
+    return this.queryScope();
+  }
+
   snapshotConstraints(): QueryConstraintPlan {
     return Object.freeze({
       execution: this.executionSpec(),
@@ -465,7 +474,7 @@ export class QueryImpl implements Query {
       size: docs.length,
       empty: docs.length === 0,
       docs,
-      forEach(cb: (snap: QueryDocumentSnapshot) => void) { docs.forEach(cb); },
+      forEach: forEachDocument(docs),
     };
   }
 

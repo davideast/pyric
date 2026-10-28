@@ -3,7 +3,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { buildVerifyFixture } from '../../../src/verify/fixture.js';
 import * as client from '../../../src/serve/worker/client.js';
-import { makeHostCtx, connectClientToHost, sleep } from './integration-support.js';
+import { makeHostCtx, connectClientToHost, until } from './integration-support.js';
 
 const rules = `rules_version = '2'; service cloud.firestore {
   match /databases/{database}/documents {
@@ -20,9 +20,12 @@ test('query-proof evidence survives worker reads, listener errors, and captured 
   const ctx = await makeHostCtx();
   const env = getInternalEnv(ctx.sandbox);
   let stop: (() => void) | undefined;
+  // Answered once the host has handled every frame the test sent, its last unsub included.
+  let drained: () => Promise<unknown> = async () => undefined;
   try {
     setRules(ctx.sandbox, rules);
     const { db } = connectClientToHost(ctx, 'worker://query-proof-diagnostics');
+    drained = () => client.getWorkerInstanceId(db).catch(() => undefined);
     const q = client.query(client.collection(db, 'meets'),
       client.where('visibility', '==', 'public'),
       client.where('status', 'in', ['scheduled', 'changed']), client.limit(100));
@@ -33,7 +36,7 @@ test('query-proof evidence survives worker reads, listener errors, and captured 
     const errors: unknown[] = [];
     let snapshots = 0;
     stop = client.onSnapshot(q, () => snapshots++, error => errors.push(error));
-    await sleep();
+    await until(() => snapshots + errors.length >= 1, 'listener error');
     expect(snapshots).toBe(0);
     expect(errors).toHaveLength(1);
     expect(JSON.parse(JSON.stringify(errors[0]))).toMatchObject(expected);
@@ -48,11 +51,11 @@ test('query-proof evidence survives worker reads, listener errors, and captured 
     expect(listener.queryProof.query.filters).toContainEqual(expect.objectContaining({
       field: 'status', op: 'in', value: { type: 'wire-value-digest', digest: expect.any(String) },
     }));
-    await sleep();
+    // The client closed the listener as its error arrived, so no later frame reaches it.
     expect(errors).toHaveLength(1);
   } finally {
     stop?.();
-    await sleep();
+    await drained();
     env.dispose();
     globalThis.SharedWorker = previousWorker;
   }
@@ -62,9 +65,12 @@ test('supported finite membership query reaches worker listeners', async () => {
   const previousWorker = globalThis.SharedWorker;
   const ctx = await makeHostCtx();
   let stop: (() => void) | undefined;
+  // Answered once the host has handled every frame the test sent, its last unsub included.
+  let drained: () => Promise<unknown> = async () => undefined;
   try {
     setRules(ctx.sandbox, rules.replace('resource.data.allowedStatuses', "['scheduled', 'changed']"));
     const { db } = connectClientToHost(ctx, 'worker://query-proof-supported');
+    drained = () => client.getWorkerInstanceId(db).catch(() => undefined);
     const q = client.query(client.collection(db, 'meets'),
       client.where('visibility', '==', 'public'),
       client.where('status', 'in', ['scheduled', 'changed']), client.limit(100));
@@ -72,12 +78,12 @@ test('supported finite membership query reaches worker listeners', async () => {
     let snapshots = 0;
     const errors: unknown[] = [];
     stop = client.onSnapshot(q, () => snapshots++, error => errors.push(error));
-    await sleep();
+    await until(() => snapshots + errors.length >= 1, 'initial listener snapshot');
     expect(snapshots).toBe(1);
     expect(errors).toHaveLength(0);
   } finally {
     stop?.();
-    await sleep();
+    await drained();
     getInternalEnv(ctx.sandbox).dispose();
     globalThis.SharedWorker = previousWorker;
   }

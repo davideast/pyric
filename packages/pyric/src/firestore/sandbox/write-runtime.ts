@@ -60,6 +60,9 @@ export class WriteRuntime {
     path: string;
     auth: Operation['auth'];
     data?: Record<string, unknown>;
+    updateMask?: string[][];
+    /** The `set(..., { merge })` option the write carried, if any. */
+    merge?: Operation['merge'];
     priorState: Record<string, unknown> | null;
     nextState: Record<string, unknown> | null;
     groupId?: string;
@@ -92,6 +95,12 @@ export class WriteRuntime {
     }
     const hasData = input.data !== undefined;
     if (hasData) event.data = input.data;
+    const hasUpdateMask = input.updateMask !== undefined;
+    if (hasUpdateMask) event.updateMask = input.updateMask;
+    // Replay re-issues a merge set with its merge (FS-MET-2).
+    const { merge } = input;
+    if (merge === true) event.merge = true;
+    else if (merge !== undefined && merge !== false) event.merge = { mergeFields: [...merge.mergeFields] };
     const hasGroupId = input.groupId !== undefined;
     if (hasGroupId) event.groupId = input.groupId;
     const hasGroupKind = input.groupKind !== undefined;
@@ -155,13 +164,10 @@ export class WriteRuntime {
   private computeProjectedUpdate(
     priorState: DocumentData | null,
     incomingData: DocumentData | undefined,
-  ): DocumentData | null {
-    const documentMissing = priorState === null;
-    if (documentMissing) {
-      return null;
-    }
+  ): DocumentData {
+    const baseState = priorState ?? {};
     const effectiveIncomingData = incomingData ?? {};
-    return applyUpdate(priorState, effectiveIncomingData);
+    return applyUpdate(baseState, effectiveIncomingData);
   }
 
   private computeProjectedOverwrite(

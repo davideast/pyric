@@ -28,14 +28,15 @@ import { listenIndexWarning } from 'pyric/database/internal';
 import type { FirestoreSubMessage, RtdbValueSubMessage, UnsubMessage } from '../protocol.js';
 import { serializeError, isRtdbSub } from '../protocol.js';
 import { activityJourneyId, type HostCtx, type PortLike, post } from '../host-context.js';
+import { reconcilePortSessions } from '../host-auth.js';
 import {
   lensDb,
-  lensRtdb,
   opProvenance,
   resolveTarget,
   serializeDocSnap,
 } from './core.js';
 import { rtdbSnapToWire, rtdbTarget } from './rtdb.js';
+import { lensRtdb } from './rtdb-instances.js';
 
 /**
  * The original data-subscription messages, including explicit lenses. State
@@ -97,14 +98,17 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
   }
 }
 
-/** Firestore replaces its environment; RTDB restores in place and already notified its listeners. */
+/** Firestore replaces its environment; RTDB restores in place and rebinds only ports whose session changed. */
 export function restoreFirestoreSubscriptions(ctx: HostCtx): void {
+  const reconciledPorts = reconcilePortSessions(ctx);
   const byPort = _subscriptionIntents.get(ctx);
   const hasNoIntents = byPort === undefined;
   if (hasNoIntents) return;
   for (const [port, intents] of [...byPort]) {
+    const portReconciled = reconciledPorts.has(port);
     for (const [subId, msg] of [...intents]) {
-      const requiresRebinding = !isRtdbSub(msg);
+      const followsAppSession = !msg.actAs || msg.actAs.mode === 'app-session';
+      const requiresRebinding = !isRtdbSub(msg) || (portReconciled && followsAppSession);
       if (requiresRebinding) restartSubscription(ctx, port, subId, msg);
     }
   }
@@ -191,7 +195,7 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
 
   try {
     const ref = rtdbTarget(
-      lensRtdb(ctx, msg.actAs, port),
+      lensRtdb(ctx, msg.actAs, port, msg.target.instance),
       msg.target.path,
       msg.target.query,
     );
@@ -238,12 +242,16 @@ function registerListener(
     // The page derived the owners where its stack and its DOM are. Handing
     // them over makes the sandbox record those instead of capturing a frame
     // out of this worker's own bundle.
-    { ...(msg.owners ? { owners: msg.owners } : {}) },
+    {
+      ...(msg.owners ? { owners: msg.owners } : {}),
+      ...(msg.includeMetadataChanges === true ? { includeMetadataChanges: true } : {}),
+    },
     (snap) => {
       const usage = firestoreReadUsage(snap, true, initial);
       initial = false;
       // Detect doc vs query snapshot by shape.
       const snapAny = snap as {
+        metadata?: { hasPendingWrites?: boolean };
         id?: string;
         path?: string;
         exists?: boolean | (() => boolean);
@@ -253,21 +261,27 @@ function registerListener(
           path?: string;
           exists: boolean | (() => boolean);
           data(): Record<string, unknown>;
+          metadata?: { hasPendingWrites?: boolean };
         }>;
       };
 
+      // The page rebuilds SnapshotMetadata from this flag. The sandbox has no
+      // offline cache, so `fromCache` is always false and is not sent.
+      const hasPendingWrites = snapAny.metadata?.hasPendingWrites === true;
       if (Array.isArray(snapAny.docs)) {
-        // Query snapshot
-        const docs = snapAny.docs.map((d) =>
-          serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
-        );
-        post(port, { t: 'snap', subId: msg.subId, value: { docs, usage } });
+        // Query snapshot. Each document sends its own pending state, which
+        // production reports per document (FP-5, #1358).
+        const docs = snapAny.docs.map((d) => ({
+          ...serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
+          hasPendingWrites: d.metadata?.hasPendingWrites === true,
+        }));
+        post(port, { t: 'snap', subId: msg.subId, value: { docs, hasPendingWrites, usage } });
       } else if (snapAny.id !== undefined) {
         // Doc snapshot
         post(port, {
           t: 'snap',
           subId: msg.subId,
-          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]), usage },
+          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]), hasPendingWrites, usage },
         });
       }
     },

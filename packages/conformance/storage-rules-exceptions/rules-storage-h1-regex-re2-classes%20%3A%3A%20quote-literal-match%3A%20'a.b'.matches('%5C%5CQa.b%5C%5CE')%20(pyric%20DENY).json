@@ -1,0 +1,1 @@
+{"kind":"verdict","rowId":"storage-rules#204","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"RE2 reads \\Q..\\E as literal quoting; pyric does not","issue":"ST-H1-3 / FS2-SIM-5d"}

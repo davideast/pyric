@@ -32,7 +32,6 @@
  * the client SDK. See `packages/conformance/docs/oracle-project-setup.md` for that and
  * the one-time project setup.
  */
-import { createSign } from 'node:crypto';
 import { initializeApp, deleteApp } from 'firebase/app';
 import * as fbAuthNs from 'firebase/auth';
 import {
@@ -162,6 +161,14 @@ import {
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mintAccessToken } from './oracle-access-token.ts';
+import {
+  OracleRulesSession,
+  firestoreOracleTarget,
+  rtdbOracleTarget,
+  runWithOracleRulesRestored,
+  storageOracleTarget,
+} from './oracle-rules-session.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
@@ -209,99 +216,9 @@ interface ServiceAccount {
 }
 
 const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
-const RULES_API = 'https://firebaserules.googleapis.com/v1';
 const RTDB_API = 'https://firebasedatabase.googleapis.com/v1beta';
-
-const ORACLE_RULE_MARKER = '@pyric/oracle';
-const ORACLE_RULE_SNIPPET = `      // @pyric/oracle - read/write under pyric_oracle/* for the conformance oracle harness
-      match /pyric_oracle/{run}/{anything=**} {
-        allow read, write: if request.auth != null;
-      }`;
-const ORACLE_FRESH_RULES = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-${ORACLE_RULE_SNIPPET}
-  }
-}
-`;
-
-// RTDB rules counterpart. RTDB rules are JSON (not the
-// `service cloud.firestore { ... }` grammar), and the API endpoint is
-// the database's own `<databaseUrl>/.settings/rules.json`. We marker
-// off the oracle namespace by checking for `pyric_oracle` as a
-// top-level key in the parsed rules JSON — much simpler than parsing
-// the Storage / Firestore rules grammar.
-const ORACLE_RTDB_NAMESPACE_KEY = 'pyric_oracle';
-// The rules-JSON that grants the oracle harness read+write on
-// `/pyric_oracle/*` while leaving the rest of the database
-// default-deny. Includes `.indexOn` declarations at the leaf list
-// level (`$probe/list`) so the query probes (orderByChild, equalTo)
-// can run without per-probe rule modifications — RTDB rejects
-// queries on un-indexed fields with `Index not defined`. The set of
-// indexed fields is the union of what every modular-SDK query probe
-// uses (`pos`, `group`).
-const ORACLE_RTDB_RULES_BODY = {
-  rules: {
-    '.read': false,
-    '.write': false,
-    [ORACLE_RTDB_NAMESPACE_KEY]: {
-      '.read': 'auth != null',
-      '.write': 'auth != null',
-      // Allow nested queries on common shapes. RTDB applies $-vars
-      // top-down; this matches `pyric_oracle/<run>/<probe>/list` and
-      // indexes that level's children on `pos` + `group`.
-      $run: {
-        $probe: {
-          list: {
-            '.indexOn': ['pos', 'group'],
-          },
-        },
-      },
-    },
-  },
-};
-
-// Storage rules counterpart. Mirrors the Firestore namespacing but
-// targets `service firebase.storage` + the `/b/{bucket}/o/...` path
-// pattern that's universal for Firebase Storage.
-const ORACLE_STORAGE_RULE_MARKER = '@pyric/oracle/storage';
-const ORACLE_STORAGE_FRESH_RULES = `rules_version = '2';
-service firebase.storage {
-  // ${ORACLE_STORAGE_RULE_MARKER} - read/write under pyric_oracle/* for the conformance oracle harness
-  match /b/{bucket}/o {
-    match /pyric_oracle/{run}/{allPaths=**} {
-      allow read, write: if request.auth != null;
-    }
-  }
-}
-`;
-
-/**
- * Mint an OAuth access token from a service account JSON, using
- * only node:crypto + fetch. Mirrors the pattern in
- * `ignored/check-sa-perms.ts`.
- */
-async function mintToken(sa: ServiceAccount, scope: string): Promise<string> {
-  const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({ iss: sa.client_email, scope, aud: tokenUri, iat: now, exp: now + 3600 }),
-  ).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  const sig = signer.sign(sa.private_key).toString('base64url');
-  const res = await fetch(tokenUri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${header}.${payload}.${sig}`,
-    }),
-  });
-  if (!res.ok) throw new Error(`token exchange failed: ${res.status} ${await res.text()}`);
-  return ((await res.json()) as { access_token: string }).access_token;
-}
+const RTDB_RULES_SCOPE =
+  'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email';
 
 /**
  * Auto-create a Web App in the project. Polls the long-running
@@ -360,204 +277,6 @@ async function fetchWebConfig(token: string, projectId: string): Promise<Firebas
 }
 
 /**
- * Idempotent rule installer: ensure the oracle-* namespace rule
- * exists alongside whatever else the project already deploys. Three
- * branches:
- *   - No release yet → deploy a fresh rules file containing only
- *     the oracle rule.
- *   - Existing rules already contain the marker → no-op.
- *   - Existing rules don't have it → inject the snippet at the top
- *     of the `documents { … }` block and redeploy.
- */
-async function ensureOracleRules(token: string, projectId: string): Promise<'fresh' | 'merged' | 'already-configured'> {
-  const releaseUrl = `${RULES_API}/projects/${encodeURIComponent(projectId)}/releases/cloud.firestore`;
-  const releaseRes = await fetch(releaseUrl, { headers: { Authorization: `Bearer ${token}` } });
-  let current: string | null = null;
-  if (releaseRes.status === 404) {
-    current = null;
-  } else if (releaseRes.ok) {
-    const release = (await releaseRes.json()) as { rulesetName: string };
-    const rulesetRes = await fetch(`${RULES_API}/${release.rulesetName}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!rulesetRes.ok) throw new Error(`fetch ruleset failed: ${rulesetRes.status} ${await rulesetRes.text()}`);
-    const ruleset = (await rulesetRes.json()) as { source: { files: { name: string; content: string }[] } };
-    const file = ruleset.source.files.find((f) => f.name.endsWith('.rules')) ?? ruleset.source.files[0];
-    if (!file) throw new Error('existing ruleset has no source files');
-    current = file.content;
-  } else {
-    throw new Error(`read release failed: ${releaseRes.status} ${await releaseRes.text()}`);
-  }
-
-  let next: string;
-  let outcome: 'fresh' | 'merged' | 'already-configured';
-  if (current === null) {
-    next = ORACLE_FRESH_RULES;
-    outcome = 'fresh';
-  } else if (current.includes(ORACLE_RULE_MARKER)) {
-    return 'already-configured';
-  } else {
-    const matchRe = /(match\s+\/databases\/\{database\}\/documents\s*\{)/;
-    const m = matchRe.exec(current);
-    if (!m) throw new Error('cannot locate `match /databases/{database}/documents` block in current rules');
-    const insertAt = m.index + m[0].length;
-    next = current.slice(0, insertAt) + '\n' + ORACLE_RULE_SNIPPET + '\n' + current.slice(insertAt);
-    outcome = 'merged';
-  }
-
-  // Two-step deploy: create ruleset, patch release to point at it.
-  const reqBody = JSON.stringify({ source: { files: [{ name: 'firestore.rules', content: next }] } });
-  const createRes = await fetch(
-    `${RULES_API}/projects/${encodeURIComponent(projectId)}/rulesets`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: reqBody,
-    },
-  );
-  if (!createRes.ok) throw new Error(`create ruleset failed: ${createRes.status} ${await createRes.text()}`);
-  const created = (await createRes.json()) as { name: string };
-
-  const releaseName = `projects/${projectId}/releases/cloud.firestore`;
-  const patchRes = await fetch(`${RULES_API}/${releaseName}`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }),
-  });
-  if (!patchRes.ok) throw new Error(`patch release failed: ${patchRes.status} ${await patchRes.text()}`);
-  return outcome;
-}
-
-/**
- * Storage-rules counterpart of `ensureOracleRules`. Firebase Storage
- * rules live on a **per-bucket** release name —
- * `projects/{p}/releases/firebase.storage/{bucketId}` — and use the
- * `service firebase.storage` grammar. Same three-branch logic as the
- * Firestore version:
- *
- *   - No release for this bucket → deploy a fresh rules file
- *     containing only the oracle Storage rule.
- *   - Existing rules contain the storage marker → no-op.
- *   - Existing rules don't have it → inject the
- *     `match /pyric_oracle/{run}/{allPaths=**}` block at the top of
- *     the `match /b/{bucket}/o { … }` block and redeploy.
- *
- * Returns `'skipped'` when the project has no Storage bucket
- * configured (Storage not enabled in the Firebase console). The
- * harness then runs Storage probes in skip-mode, recording
- * `skipped: true` observations instead of actual behaviors.
- */
-async function ensureOracleStorageRules(
-  token: string,
-  projectId: string,
-  bucketId: string | undefined,
-): Promise<'fresh' | 'merged' | 'already-configured' | 'skipped'> {
-  if (!bucketId) return 'skipped';
-  // Storage release names embed slashes inside the path segment after
-  // the trailing `/releases/`. Per the Firebase Rules API,
-  // `firebase.storage/{bucketId}` is one release name and the bucket
-  // id can be percent-encoded as a single segment — but the modern
-  // Firebase console encodes the slash literally. We follow suit so
-  // the URL matches the project's existing rules path.
-  const releaseSuffix = `firebase.storage/${bucketId}`;
-  const releaseUrl =
-    `${RULES_API}/projects/${encodeURIComponent(projectId)}/releases/${releaseSuffix}`;
-  const releaseRes = await fetch(releaseUrl, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  let current: string | null = null;
-  if (releaseRes.status === 404) {
-    current = null;
-  } else if (releaseRes.ok) {
-    const release = (await releaseRes.json()) as { rulesetName: string };
-    const rulesetRes = await fetch(`${RULES_API}/${release.rulesetName}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!rulesetRes.ok) {
-      throw new Error(`fetch storage ruleset failed: ${rulesetRes.status} ${await rulesetRes.text()}`);
-    }
-    const ruleset = (await rulesetRes.json()) as { source: { files: { name: string; content: string }[] } };
-    const file = ruleset.source.files.find((f) => f.name.endsWith('.rules')) ?? ruleset.source.files[0];
-    if (!file) throw new Error('existing storage ruleset has no source files');
-    current = file.content;
-  } else {
-    throw new Error(`read storage release failed: ${releaseRes.status} ${await releaseRes.text()}`);
-  }
-
-  let next: string;
-  let outcome: 'fresh' | 'merged' | 'already-configured';
-  if (current === null) {
-    next = ORACLE_STORAGE_FRESH_RULES;
-    outcome = 'fresh';
-  } else if (current.includes(ORACLE_STORAGE_RULE_MARKER)) {
-    return 'already-configured';
-  } else {
-    // Insert the oracle namespace block at the top of the bucket
-    // match block. Pattern targets `match /b/{bucket}/o {` which is
-    // the canonical Storage rules shape; if a project uses a custom
-    // shape we'd need a richer merge — log + bail.
-    const matchRe = /(match\s+\/b\/\{bucket\}\/o\s*\{)/;
-    const m = matchRe.exec(current);
-    if (!m) {
-      throw new Error(
-        'cannot locate `match /b/{bucket}/o` block in current storage rules — ' +
-        'use a non-default Storage rules shape? Deploy oracle rules manually ' +
-        'or extend ensureOracleStorageRules to handle this layout.',
-      );
-    }
-    const insertAt = m.index + m[0].length;
-    const inject = `\n    // ${ORACLE_STORAGE_RULE_MARKER} - read/write under pyric_oracle/* for the conformance oracle harness\n    match /pyric_oracle/{run}/{allPaths=**} {\n      allow read, write: if request.auth != null;\n    }\n`;
-    next = current.slice(0, insertAt) + inject + current.slice(insertAt);
-    outcome = 'merged';
-  }
-
-  // Two-step deploy: create ruleset, PATCH release. The release for
-  // a brand-new bucket may not exist yet, in which case PATCH 404s
-  // and we fall back to POST /releases.
-  const reqBody = JSON.stringify({
-    source: { files: [{ name: 'storage.rules', content: next }] },
-  });
-  const createRes = await fetch(
-    `${RULES_API}/projects/${encodeURIComponent(projectId)}/rulesets`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: reqBody,
-    },
-  );
-  if (!createRes.ok) {
-    throw new Error(`create storage ruleset failed: ${createRes.status} ${await createRes.text()}`);
-  }
-  const created = (await createRes.json()) as { name: string };
-
-  const releaseName = `projects/${projectId}/releases/${releaseSuffix}`;
-  const patchRes = await fetch(`${RULES_API}/${releaseName}`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }),
-  });
-  if (patchRes.ok) return outcome;
-
-  if (patchRes.status === 404) {
-    // First-time release — POST `releases.create`.
-    const createRelease = await fetch(
-      `${RULES_API}/projects/${encodeURIComponent(projectId)}/releases`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: releaseName, rulesetName: created.name }),
-      },
-    );
-    if (!createRelease.ok) {
-      throw new Error(`create storage release failed: ${createRelease.status} ${await createRelease.text()}`);
-    }
-    return outcome;
-  }
-
-  throw new Error(`patch storage release failed: ${patchRes.status} ${await patchRes.text()}`);
-}
-
-/**
  * Discover the project's default RTDB instance via the Firebase
  * Database Management API. Returns the databaseUrl or null when:
  *   - the project has no RTDB instances (404 / empty list)
@@ -603,103 +322,6 @@ async function discoverRtdbInstance(
   return def.databaseUrl ?? null;
 }
 
-/**
- * RTDB-rules counterpart of `ensureOracleRules` / `ensureOracleStorageRules`.
- * RTDB rules are deployed as JSON via the database's own REST endpoint:
- *
- *   GET   <databaseUrl>/.settings/rules.json?access_token=…
- *   PUT   <databaseUrl>/.settings/rules.json?access_token=…
- *
- * (`PATCH` is not supported — RTDB takes a full rules-JSON replacement.
- * The "PATCH" mention in some Firebase docs refers to the
- * `firebasedatabase.googleapis.com` management API, not the per-DB rules
- * endpoint.)
- *
- * Marker-based idempotency: read the current rules; if they already
- * contain a top-level `pyric_oracle` key, no-op. Otherwise inject our
- * oracle namespace into the existing `rules` object (preserving any
- * other top-level keys the project's rules already carry) and PUT the
- * merged JSON.
- *
- * Returns:
- *   - 'fresh' — no rules existed, deployed our minimal namespace.
- *   - 'merged' — existing rules merged with our namespace.
- *   - 'already-configured' — `pyric_oracle` already a top-level key, no-op.
- *   - 'skipped' — no RTDB instance on the project (`databaseUrl` null).
- *   - `error: …` — failure surfaced as a string so the caller can log
- *     and continue. RTDB probes then run against whatever rules the
- *     project currently has (likely capturing PERMISSION_DENIED for
- *     happy-path writes).
- */
-async function ensureOracleRtdbRules(
-  token: string,
-  databaseUrl: string | undefined,
-): Promise<'fresh' | 'merged' | 'already-configured' | 'skipped' | string> {
-  if (!databaseUrl) return 'skipped';
-  const rulesUrl = `${databaseUrl}/.settings/rules.json?access_token=${encodeURIComponent(token)}`;
-  // 1. Read current rules. RTDB returns the full JSON document; if the
-  //    database is brand-new it may return `{"rules":{".read":false,".write":false}}`
-  //    or similar default.
-  const readResp = await fetch(rulesUrl);
-  if (!readResp.ok) {
-    return `error: read rules failed: ${readResp.status} ${await readResp.text()}`;
-  }
-  let currentBody: unknown;
-  try {
-    currentBody = await readResp.json();
-  } catch (e) {
-    return `error: parse rules failed: ${e instanceof Error ? e.message : String(e)}`;
-  }
-  const current = (currentBody ?? {}) as Record<string, unknown>;
-  const currentRules = (current.rules ?? {}) as Record<string, unknown>;
-  // 2. Marker check: namespace already present AND the embedded
-  //    `$run/$probe/list/.indexOn` shape matches. We compare against
-  //    the live ORACLE_RTDB_RULES_BODY so adding a new indexed field
-  //    here triggers a re-deploy automatically (rather than silently
-  //    using a stale older index set).
-  const existing = currentRules[ORACLE_RTDB_NAMESPACE_KEY] as Record<string, unknown> | undefined;
-  if (existing) {
-    const desired = ORACLE_RTDB_RULES_BODY.rules[ORACLE_RTDB_NAMESPACE_KEY];
-    if (JSON.stringify(existing) === JSON.stringify(desired)) {
-      return 'already-configured';
-    }
-    // Marker present but shape drifted — fall through to merge so
-    // we update to the desired shape.
-  }
-  // 3. Decide outcome. If the rules object was empty / missing, we
-  //    deploy our minimal "fresh" body (deny-all + permissive oracle
-  //    namespace). Otherwise we MERGE — preserve every existing
-  //    top-level key and overwrite (or insert) `pyric_oracle` with the
-  //    desired shape.
-  let nextBody: { rules: Record<string, unknown> };
-  let outcome: 'fresh' | 'merged';
-  const existingKeyCount = Object.keys(currentRules).length;
-  if (existingKeyCount === 0) {
-    nextBody = ORACLE_RTDB_RULES_BODY;
-    outcome = 'fresh';
-  } else {
-    nextBody = {
-      rules: {
-        ...currentRules,
-        [ORACLE_RTDB_NAMESPACE_KEY]: ORACLE_RTDB_RULES_BODY.rules[ORACLE_RTDB_NAMESPACE_KEY],
-      },
-    };
-    outcome = 'merged';
-  }
-  // 4. Deploy. RTDB takes a full PUT of the rules JSON; `print=silent`
-  //    suppresses the (verbose) echo response body.
-  const putUrl = `${databaseUrl}/.settings/rules.json?access_token=${encodeURIComponent(token)}&print=silent`;
-  const putResp = await fetch(putUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(nextBody),
-  });
-  if (!putResp.ok) {
-    return `error: deploy rules failed: ${putResp.status} ${await putResp.text()}`;
-  }
-  return outcome;
-}
-
 // Module-level handles to the service account + RTDB admin token, set
 // after `loadConfig()` runs. Probes that need to PUT to the
 // `/.settings/rules.json` endpoint (rules round-trip, propagation
@@ -708,6 +330,10 @@ async function ensureOracleRtdbRules(
 // has no RTDB instance.
 let serviceAccount: ServiceAccount | null = null;
 let rtdbAdminToken: string | null = null;
+// The Firestore, Storage, and RTDB rules deployments, restored when the run ends.
+// `null` under `PYRIC_ORACLE_FIREBASE_CONFIG`: without a service account the
+// harness deploys nothing and restores nothing.
+let oracleRulesSession: OracleRulesSession | null = null;
 
 async function loadConfig(): Promise<FirebaseWebConfig> {
   // Manual override path (no SA needed) — paste the Web config JSON.
@@ -731,33 +357,16 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
   serviceAccount = sa;
   console.log(`[oracle] project: ${sa.project_id}`);
-  const token = await mintToken(sa, 'https://www.googleapis.com/auth/firebase');
+  const token = await mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
   const cfg = await fetchWebConfig(token, sa.project_id);
-  const ruleOutcome = await ensureOracleRules(token, sa.project_id);
-  console.log(`[oracle] oracle rules: ${ruleOutcome}`);
-  // Storage rules deployment is best-effort. If the project has
-  // Storage enabled but the SA lacks the rules-deploy permission, or
-  // the rules layout doesn't match our merge regex, the harness logs
-  // the failure and proceeds — Storage probes will then observe the
-  // existing rules' behavior (likely `storage/unauthorized`).
-  let storageRuleOutcome: string = 'skipped';
-  try {
-    storageRuleOutcome = await ensureOracleStorageRules(token, sa.project_id, cfg.storageBucket);
-  } catch (e) {
-    storageRuleOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
-  }
-  console.log(`[oracle] storage rules: ${storageRuleOutcome}`);
-  // Newly-deployed rules take a few seconds to propagate before
-  // the next setDoc sees them. Existing-configured: no wait.
-  const ruleChanged = ruleOutcome !== 'already-configured';
-  const storageRuleChanged =
-    storageRuleOutcome !== 'already-configured' &&
-    storageRuleOutcome !== 'skipped' &&
-    !storageRuleOutcome.startsWith('error');
-  if (ruleChanged || storageRuleChanged) {
-    console.log('[oracle] waiting 10s for new rules to propagate');
-    await new Promise((r) => setTimeout(r, 10_000));
-  }
+  // The Firestore, Storage, and RTDB oracle rules are deployed by `main` inside
+  // `runWithOracleRulesRestored`, so the project's rules are put back when the
+  // run ends. The session mints a fresh token for each phase because a run can
+  // outlast one token.
+  oracleRulesSession = new OracleRulesSession({
+    projectId: sa.project_id,
+    accessToken: () => mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase'),
+  });
   // Pick up the RTDB instance URL if the Web App config didn't carry
   // one. The Web App config only embeds `databaseURL` when an RTDB
   // existed at app-creation time, so we fall back to discovery via
@@ -771,36 +380,15 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
       console.log(`[oracle] no rtdb instance found on ${sa.project_id} — rtdb probes will be skipped`);
     }
   }
-  // RTDB rules — best-effort, mirrors the Firestore + Storage pattern.
   // The per-database `/.settings/rules.json` endpoint requires the
-  // `firebase.database` OAuth scope (the broader `firebase` scope used
-  // by the Firestore + Storage + Management APIs is NOT accepted here).
-  // We mint a separate token scoped to `firebase.database` +
-  // `userinfo.email` (the email scope is required by the RTDB REST API
-  // for SA auth). If the SA lacks the necessary IAM role
-  // (e.g. `roles/firebasedatabase.admin`), the deploy returns 401/403
-  // and we log the error string but proceed; RTDB probes will then
-  // observe whatever rules the project currently has.
-  let rtdbRuleOutcome: string = 'skipped';
+  // `firebase.database` and `userinfo.email` scopes; the `firebase` scope the
+  // Rules and Management APIs take is not accepted there. Probes that read or
+  // rewrite the RTDB rules use this token. `deployOracleRules` mints its own.
   if (cfg.databaseURL) {
     try {
-      const rtdbToken = await mintToken(
-        sa,
-        'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-      );
-      rtdbAdminToken = rtdbToken;
-      rtdbRuleOutcome = await ensureOracleRtdbRules(rtdbToken, cfg.databaseURL);
+      rtdbAdminToken = await mintAccessToken(sa, RTDB_RULES_SCOPE);
     } catch (e) {
-      rtdbRuleOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-    console.log(`[oracle] rtdb rules: ${rtdbRuleOutcome}`);
-    const rtdbRuleChanged =
-      rtdbRuleOutcome !== 'already-configured' &&
-      rtdbRuleOutcome !== 'skipped' &&
-      !rtdbRuleOutcome.startsWith('error');
-    if (rtdbRuleChanged) {
-      console.log('[oracle] waiting 5s for rtdb rules to propagate');
-      await new Promise((r) => setTimeout(r, 5_000));
+      console.log(`[oracle] rtdb token: error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   return cfg;
@@ -7164,7 +6752,7 @@ const probes: Probe[] = [
       }
       // Read the CURRENT rules so we can restore them afterward. The
       // RTDB rules endpoint is global per-database, so writing test
-      // rules here would clobber the harness's `ensureOracleRtdbRules`
+      // rules here would clobber the harness's `OracleRulesSession.deployRtdb`
       // configuration. We snapshot first, deploy, fetch-back, then
       // restore — all under one admin token.
       const rulesUrl = `${config.databaseURL!}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}`;
@@ -7748,7 +7336,7 @@ const probes: Probe[] = [
       const beforeRules = (beforeBody.rules ?? {}) as Record<string, unknown>;
       const putUrl = `${config.databaseURL!}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
       // The audit namespace — sub-keys per rule so we don't fight
-      // `ensureOracleRtdbRules`'s `pyric_oracle` namespace.
+      // the `pyric_oracle` namespace `OracleRulesSession.deployRtdb` merges.
       const auditKey = `pyric_oracle_simaudit_${RUN_ID.replace(/[^a-zA-Z0-9_]/g, '_')}`;
       // Sign in once for the whole audit.
       await signInAnonymously(auth);
@@ -8830,6 +8418,327 @@ const probes: Probe[] = [
       };
     },
   },
+  {
+    name: 'auth-requires-recent-login',
+    matrixRow: 'auth #176',
+    rowIds: ['auth#176', 'auth#84', 'auth#85'],
+    description: 'The recent-login gate. Signs in several independent accounts (one Auth instance each, so every session keeps its own sign-in time), waits past the documented five-minute window, and records which sensitive operations refuse a stale session with which code and message. Brackets the window length with deleteUser at fixed ages, checks whether a forced token refresh restarts the window (it reads the sign-in time, not the token issue time), and checks that reauthenticateWithCredential clears the gate. Every account is removed through the Admin SDK at the end so no arm can leak one.',
+    async observe() {
+      if (!serviceAccount) return { skipped: true, reason: 'no service account (manual config?)' };
+      const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
+      const { inMemoryPersistence, initializeAuth, updateEmail, updatePassword, updateProfile } = fbAuthNs;
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const password = 'oracle-pw-123';
+      const apps: ReturnType<typeof initializeApp>[] = [];
+      const uids: string[] = [];
+      const freshAuth = (label: string): Auth => {
+        const a = initializeApp(config, `${appName}-rrl-${label}`);
+        apps.push(a);
+        return initializeAuth(a, { persistence: inMemoryPersistence });
+      };
+      const emailUser = async (label: string): Promise<{ user: User; email: string; signedInAt: number }> => {
+        const a = freshAuth(label);
+        const email = `oracle-rrl-${label}-${stamp}@oracle.test`;
+        const cred = await createUserWithEmailAndPassword(a, email, password);
+        uids.push(cred.user.uid);
+        return { user: cred.user, email, signedInAt: Date.now() };
+      };
+      const anonUser = async (label: string): Promise<{ user: User; signedInAt: number }> => {
+        const a = freshAuth(label);
+        const cred = await signInAnonymously(a);
+        uids.push(cred.user.uid);
+        return { user: cred.user, signedInAt: Date.now() };
+      };
+      const outcome = async (step: () => Promise<unknown>): Promise<{ code: string | null; message?: string }> => {
+        try {
+          await step();
+          return { code: null };
+        } catch (e) {
+          const err = e as { code?: string; message?: string };
+          return { code: err.code ?? String(e), message: err.message };
+        }
+      };
+      const waitUntilAge = async (signedInAt: number, ageMs: number): Promise<number> => {
+        const wait = signedInAt + ageMs - Date.now();
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        return Math.round((Date.now() - signedInAt) / 1000);
+      };
+
+      // Fresh-session control: a sensitive op right after sign-in runs.
+      const fresh = await emailUser('fresh');
+      const freshUpdatePassword = await outcome(() => updatePassword(fresh.user, `${password}-fresh`));
+
+      const bracket = await Promise.all([280, 295, 305, 320].map(async (s) => {
+        const u = await emailUser(`age${s}`);
+        return { s, u };
+      }));
+      const stale = await emailUser('stale');
+      const staleUnlink = await emailUser('unlink');
+      const refreshed = await emailUser('refresh');
+      const anonLink = await anonUser('anonlink');
+      const anonDelete = await anonUser('anondelete');
+
+      // A forced refresh at 120s mints a token with a new iat but the same
+      // auth_time. If the gate still fires at 330s, it reads auth_time.
+      await waitUntilAge(refreshed.signedInAt, 120_000);
+      const refreshedIatBefore = (await refreshed.user.getIdTokenResult()).issuedAtTime;
+      await refreshed.user.getIdToken(true);
+      const refreshedTokenAfter = await refreshed.user.getIdTokenResult();
+
+      const windowBracket = await Promise.all(bracket.map(async ({ s, u }) => {
+        const ageSeconds = await waitUntilAge(u.signedInAt, s * 1000);
+        const r = await outcome(() => deleteUser(u.user));
+        return { targetAgeSeconds: s, ageSeconds, deleteUser: r.code };
+      }));
+
+      const ageStale = await waitUntilAge(stale.signedInAt, 330_000);
+      const newEmail = `oracle-rrl-new-${stamp}@oracle.test`;
+      const gated = {
+        ageSeconds: ageStale,
+        updateProfile: await outcome(() => updateProfile(stale.user, { displayName: 'rrl' })),
+        getIdTokenForced: await outcome(() => stale.user.getIdToken(true)),
+        updatePassword: await outcome(() => updatePassword(stale.user, `${password}-stale`)),
+        updateEmail: await outcome(() => updateEmail(stale.user, newEmail)),
+        verifyBeforeUpdateEmail: await outcome(() => verifyBeforeUpdateEmail(stale.user, newEmail)),
+        deleteUser: await outcome(() => deleteUser(stale.user)),
+        unlinkPassword: await outcome(async () => {
+          await waitUntilAge(staleUnlink.signedInAt, 330_000);
+          await unlink(staleUnlink.user, 'password');
+        }),
+        anonymousLinkWithCredential: await outcome(async () => {
+          await waitUntilAge(anonLink.signedInAt, 330_000);
+          await linkWithCredential(anonLink.user, EmailAuthProvider.credential(`oracle-rrl-link-${stamp}@oracle.test`, password));
+        }),
+        anonymousDeleteUser: await outcome(async () => {
+          await waitUntilAge(anonDelete.signedInAt, 330_000);
+          await deleteUser(anonDelete.user);
+        }),
+        afterForcedRefreshUpdatePassword: await outcome(async () => {
+          await waitUntilAge(refreshed.signedInAt, 330_000);
+          await updatePassword(refreshed.user, `${password}-refresh`);
+        }),
+      };
+
+      const afterReauth = {
+        reauthenticate: await outcome(() =>
+          reauthenticateWithCredential(stale.user, EmailAuthProvider.credential(stale.email, password))),
+        updatePassword: await outcome(() => updatePassword(stale.user, `${password}-after`)),
+        deleteUser: await outcome(() => deleteUser(stale.user)),
+      };
+
+      // Remove every account this probe created, whatever each arm did.
+      let cleanupLeaked = false;
+      const adminApp = adminInitializeApp({
+        credential: adminCert({
+          projectId: serviceAccount.project_id,
+          clientEmail: serviceAccount.client_email,
+          privateKey: serviceAccount.private_key,
+        }),
+      }, `oracle-rrl-${RUN_ID}`);
+      try {
+        const res = await getAdminAuth(adminApp).deleteUsers(uids);
+        cleanupLeaked = res.failureCount > 0;
+      } catch {
+        cleanupLeaked = true;
+      } finally {
+        await adminDeleteApp(adminApp);
+        for (const a of apps) await deleteApp(a);
+      }
+
+      return {
+        freshUpdatePassword,
+        windowBracket,
+        forcedRefresh: {
+          issuedAtChanged: refreshedIatBefore !== refreshedTokenAfter.issuedAtTime,
+          authTimeOlderThanIssuedAt: Date.parse(refreshedTokenAfter.authTime) < Date.parse(refreshedTokenAfter.issuedAtTime),
+        },
+        gated,
+        afterReauth,
+        cleanupLeaked,
+      };
+    },
+  },
+  {
+    name: 'auth-id-token-standard-claims',
+    matrixRow: 'auth #68b',
+    rowIds: ['auth#68b'],
+    description: 'The decoded ID token claim set per sign-in flow: anonymous, email and password (unverified, then with a display name and photo URL, then verified with a phone number set through the Admin SDK), accounts whose custom claims reuse standard claim names (one without a display name, one with every profile field, one anonymous), the Admin SDK refusal of reserved claim names, and a custom token for a new uid and for an existing email account. Records which standard claims (email, email_verified, name, picture, phone_number, user_id, provider_id) appear, which value wins when a custom claim reuses the name, and the shape of the firebase namespace (identities keyed by provider, sign_in_provider). Values that identify the test accounts are replaced by placeholders. Every account is removed through the Admin SDK at the end.',
+    async observe() {
+      if (!serviceAccount) return { skipped: true, reason: 'no service account (manual config?)' };
+      const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
+      const { inMemoryPersistence, initializeAuth, updateProfile } = fbAuthNs;
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const password = 'oracle-pw-123';
+      const email = `oracle-claims-${stamp}@oracle.test`;
+      const photoURL = `https://example.com/oracle-claims-${stamp}.png`;
+      const displayName = 'Oracle Claims';
+      const phoneNumber = `+1650555${String(Math.floor(Math.random() * 10_000)).padStart(4, '0')}`;
+      const customUid = `oracle-claims-custom-${stamp}`;
+      const apps: ReturnType<typeof initializeApp>[] = [];
+      const uids: string[] = [];
+      const freshAuth = (label: string): Auth => {
+        const a = initializeApp(config, `${appName}-claims-${label}`);
+        apps.push(a);
+        return initializeAuth(a, { persistence: inMemoryPersistence });
+      };
+      const adminApp = adminInitializeApp({
+        credential: adminCert({
+          projectId: serviceAccount.project_id,
+          clientEmail: serviceAccount.client_email,
+          privateKey: serviceAccount.private_key,
+        }),
+      }, `oracle-claims-${RUN_ID}`);
+      const adminAuth = getAdminAuth(adminApp);
+      // Values that identify this run's accounts become placeholders, and time
+      // claims become their type, so the observation records the claim shape
+      // rather than one run's data.
+      const placeholders = new Map<unknown, string>([
+        [email, '<email>'],
+        [photoURL, '<photoURL>'],
+        [displayName, '<displayName>'],
+        [phoneNumber, '<phoneNumber>'],
+        [config.projectId, '<projectId>'],
+        [`https://securetoken.google.com/${config.projectId}`, 'https://securetoken.google.com/<projectId>'],
+      ]);
+      const shape = (value: unknown, key: string | null, uid: string): unknown => {
+        if (value === uid) return '<uid>';
+        if (placeholders.has(value)) return placeholders.get(value);
+        if (key !== null && ['auth_time', 'iat', 'exp'].includes(key)) return `<${typeof value}>`;
+        if (Array.isArray(value)) return value.map((v) => shape(v, null, uid));
+        if (value !== null && typeof value === 'object') {
+          const record = value as Record<string, unknown>;
+          return Object.fromEntries(Object.keys(record).sort().map((k) => [k, shape(record[k], k, uid)]));
+        }
+        return value;
+      };
+      const claimsOf = async (user: User, force: boolean): Promise<unknown> => {
+        const result = await user.getIdTokenResult(force);
+        return { signInProvider: result.signInProvider, claims: shape(result.claims, null, user.uid) };
+      };
+      const arm = async (step: () => Promise<unknown>): Promise<unknown> => {
+        try {
+          return await step();
+        } catch (e) {
+          const err = e as { code?: string };
+          return { error: err.code ?? String(e) };
+        }
+      };
+
+      const out: Record<string, unknown> = {};
+      try {
+        out.anonymous = await arm(async () => {
+          const cred = await signInAnonymously(freshAuth('anon'));
+          uids.push(cred.user.uid);
+          return claimsOf(cred.user, false);
+        });
+
+        const passwordAuth = freshAuth('password');
+        let passwordUser: User | null = null;
+        out.passwordUnverified = await arm(async () => {
+          const cred = await createUserWithEmailAndPassword(passwordAuth, email, password);
+          passwordUser = cred.user;
+          uids.push(cred.user.uid);
+          return claimsOf(cred.user, false);
+        });
+        out.passwordWithProfile = await arm(async () => {
+          if (!passwordUser) return { skipped: true };
+          await updateProfile(passwordUser, { displayName, photoURL });
+          return claimsOf(passwordUser, true);
+        });
+        out.passwordVerifiedWithPhone = await arm(async () => {
+          if (!passwordUser) return { skipped: true };
+          await adminAuth.updateUser(passwordUser.uid, { emailVerified: true, phoneNumber });
+          return claimsOf(passwordUser, true);
+        });
+
+        // Custom claims that reuse standard claim names: setCustomUserClaims
+        // accepts them, and the observation records which value the token carries.
+        out.customClaimsOverlappingStandard = await arm(async () => {
+          const overlapEmail = `oracle-claims-overlap-${stamp}@oracle.test`;
+          placeholders.set(overlapEmail, '<email>');
+          const cred = await createUserWithEmailAndPassword(freshAuth('overlap'), overlapEmail, password);
+          uids.push(cred.user.uid);
+          const setClaims = await attemptCode(() =>
+            adminAuth.setCustomUserClaims(cred.user.uid, { email_verified: true, email: 'custom@oracle.test', name: 'custom-name' }));
+          if (setClaims !== null) return { setCustomUserClaims: setClaims };
+          return claimsOf(cred.user, true);
+        });
+        // The same overlap on an account that has every profile field, so each
+        // projected claim name meets a custom claim of that name.
+        out.customClaimsOverlappingFullProfile = await arm(async () => {
+          const fullEmail = `oracle-claims-full-${stamp}@oracle.test`;
+          const fullPhone = `+1650556${String(Math.floor(Math.random() * 10_000)).padStart(4, '0')}`;
+          placeholders.set(fullEmail, '<email>');
+          placeholders.set(fullPhone, '<phoneNumber>');
+          const record = await adminAuth.createUser({
+            email: fullEmail, password, displayName, photoURL, phoneNumber: fullPhone, emailVerified: false,
+          });
+          uids.push(record.uid);
+          const setClaims = await attemptCode(() => adminAuth.setCustomUserClaims(record.uid, {
+            email: 'custom@oracle.test', email_verified: true, name: 'custom-name', picture: 'custom-picture',
+            phone_number: 'custom-phone', user_id: 'custom-user-id', provider_id: 'custom-provider',
+          }));
+          if (setClaims !== null) return { setCustomUserClaims: setClaims };
+          const cred = await signInWithEmailAndPassword(freshAuth('overlap-full'), fullEmail, password);
+          return claimsOf(cred.user, false);
+        });
+        // An anonymous account whose custom claims reuse provider_id and user_id.
+        out.customClaimsOverlappingAnonymous = await arm(async () => {
+          const cred = await signInAnonymously(freshAuth('overlap-anon'));
+          uids.push(cred.user.uid);
+          const setClaims = await attemptCode(() => adminAuth.setCustomUserClaims(cred.user.uid, {
+            provider_id: 'custom-provider', user_id: 'custom-user-id',
+          }));
+          if (setClaims !== null) return { setCustomUserClaims: setClaims };
+          return claimsOf(cred.user, true);
+        });
+        // Reserved developer claim names: the Admin SDK refuses them before any request.
+        out.reservedClaims = await arm(async () => {
+          const target = uids[0] ?? customUid;
+          const outcome = async (claims: Record<string, unknown>): Promise<unknown> => {
+            try {
+              await adminAuth.setCustomUserClaims(target, claims);
+              return { code: null };
+            } catch (e) {
+              const err = e as { code?: string; message?: string };
+              return { code: err.code ?? String(e), message: err.message };
+            }
+          };
+          return {
+            single: await outcome({ sub: 'x' }),
+            multiple: await outcome({ firebase: {}, iat: 1 }),
+          };
+        });
+
+        out.customTokenNewUid = await arm(async () => {
+          const token = await adminAuth.createCustomToken(customUid, { role: 'oracle' });
+          uids.push(customUid);
+          const cred = await signInWithCustomToken(freshAuth('custom'), token);
+          return claimsOf(cred.user, false);
+        });
+        out.customTokenExistingEmailAccount = await arm(async () => {
+          if (!passwordUser) return { skipped: true };
+          const token = await adminAuth.createCustomToken(passwordUser.uid);
+          const cred = await signInWithCustomToken(freshAuth('custom-existing'), token);
+          return claimsOf(cred.user, false);
+        });
+      } finally {
+        // Remove every account this probe created, whatever each arm did.
+        let cleanupLeaked = false;
+        try {
+          const res = await adminAuth.deleteUsers(uids);
+          cleanupLeaked = res.failureCount > 0;
+        } catch {
+          cleanupLeaked = true;
+        } finally {
+          await adminDeleteApp(adminApp);
+          for (const a of apps) await deleteApp(a);
+        }
+        out.cleanupLeaked = cleanupLeaked;
+      }
+      return out;
+    },
+  },
 ];
 
 // ─── Runner ───────────────────────────────────────────────────────────
@@ -8854,34 +8763,117 @@ async function main(): Promise<void> {
     console.log(`[oracle] running ${probes.length} probes against real cloud services`);
   }
 
-  for (const probe of selected) {
-    process.stdout.write(`[oracle] ${probe.name} (${probe.matrixRow}) ... `);
-    const t0 = Date.now();
+  const runProbes = async (): Promise<void> => {
+    for (const probe of selected) {
+      process.stdout.write(`[oracle] ${probe.name} (${probe.matrixRow}) ... `);
+      const t0 = Date.now();
+      try {
+        const behavior = await probe.observe();
+        const obs: Observation = {
+          name: probe.name,
+          matrixRow: probe.matrixRow,
+          rowIds: probe.rowIds,
+          description: probe.description,
+          observedAt: new Date().toISOString(),
+          fbSdkVersion: FB_SDK_VERSION,
+          projectId: config.projectId,
+          behavior,
+        };
+        writeObservation(obs);
+        const dt = Date.now() - t0;
+        console.log(`OK (${dt}ms) ${JSON.stringify(behavior)}`);
+      } catch (e) {
+        console.log(`FAIL ${e instanceof Error ? e.message : String(e)}`);
+        throw e;
+      } finally {
+        await purge(probe.name.replace(/^firestore-|^auth-/, ''));
+      }
+    }
+    await deleteApp(app);
+  };
+
+  const session = oracleRulesSession;
+  if (session === null) {
+    await runProbes();
+  } else {
+    // An interrupted run restores the project's rules before it exits.
+    const interrupted = (signal: NodeJS.Signals) => {
+      console.error(`[oracle] ${signal}: restoring the project's rules before exit`);
+      session.restoreAll().then(
+        () => process.exit(130),
+        (error: unknown) => {
+          console.error(error instanceof Error ? error.message : String(error));
+          process.exit(1);
+        },
+      );
+    };
+    process.once('SIGINT', interrupted);
+    process.once('SIGTERM', interrupted);
     try {
-      const behavior = await probe.observe();
-      const obs: Observation = {
-        name: probe.name,
-        matrixRow: probe.matrixRow,
-        rowIds: probe.rowIds,
-        description: probe.description,
-        observedAt: new Date().toISOString(),
-        fbSdkVersion: FB_SDK_VERSION,
-        projectId: config.projectId,
-        behavior,
-      };
-      writeObservation(obs);
-      const dt = Date.now() - t0;
-      console.log(`OK (${dt}ms) ${JSON.stringify(behavior)}`);
-    } catch (e) {
-      console.log(`FAIL ${e instanceof Error ? e.message : String(e)}`);
-      throw e;
+      await runWithOracleRulesRestored(session, async () => {
+        await deployOracleRules(session);
+        await runProbes();
+      });
+      console.log("[oracle] the project's Firestore and Storage rules are restored and verified");
+      if (config.databaseURL) console.log('[oracle] rtdb rules restored and verified');
     } finally {
-      await purge(probe.name.replace(/^firestore-|^auth-/, ''));
+      process.off('SIGINT', interrupted);
+      process.off('SIGTERM', interrupted);
     }
   }
-
-  await deleteApp(app);
   console.log('[oracle] observations written to observations/<surface>/');
+}
+
+/**
+ * Merge the oracle namespace into the project's Firestore, Storage, and RTDB rules.
+ * `main` calls this inside `runWithOracleRulesRestored`, which puts the
+ * project's own rules back when the run ends.
+ */
+async function deployOracleRules(session: OracleRulesSession): Promise<void> {
+  const firestoreOutcome = await session.deploy(firestoreOracleTarget());
+  console.log(`[oracle] oracle rules: ${firestoreOutcome}`);
+  // Storage rules deployment is best-effort. If the project has
+  // Storage enabled but the SA lacks the rules-deploy permission, or
+  // the rules layout doesn't match the merge pattern, the harness logs
+  // the failure and proceeds. Storage probes then observe the
+  // existing rules' behavior (likely `storage/unauthorized`). The session
+  // records the release before it writes, so a partial deployment is restored.
+  let storageOutcome: string = 'skipped';
+  if (config.storageBucket) {
+    try {
+      storageOutcome = await session.deploy(storageOracleTarget(config.storageBucket));
+    } catch (e) {
+      storageOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  console.log(`[oracle] storage rules: ${storageOutcome}`);
+  // RTDB rules are best-effort in the same way: without
+  // `roles/firebasedatabase.admin` the write is refused, and the RTDB probes
+  // observe whatever rules the database already has.
+  let rtdbOutcome: string = 'skipped';
+  if (config.databaseURL && serviceAccount) {
+    const sa = serviceAccount;
+    try {
+      rtdbOutcome = await session.deployRtdb(
+        rtdbOracleTarget(config.databaseURL, () => mintAccessToken(sa, RTDB_RULES_SCOPE)),
+      );
+    } catch (e) {
+      rtdbOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  console.log(`[oracle] rtdb rules: ${rtdbOutcome}`);
+  // Newly-deployed rules take a few seconds to propagate before
+  // the next setDoc sees them. Existing-configured: no wait.
+  if (firestoreOutcome !== 'already-configured' || rulesChanged(storageOutcome) || rulesChanged(rtdbOutcome)) {
+    console.log('[oracle] waiting 10s for new rules to propagate');
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
+}
+
+/** A best-effort deployment that wrote new rules, so the run waits for them to propagate. */
+function rulesChanged(outcome: string): boolean {
+  const unchanged = outcome === 'already-configured' || outcome === 'skipped';
+  return !unchanged && !outcome.startsWith('error');
 }
 
 await main();

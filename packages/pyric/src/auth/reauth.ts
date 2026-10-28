@@ -4,25 +4,12 @@
  *
  * ─── What re-auth IS ───────────────────────────────────────────────
  * Proving, again and freshly, that the person at the keyboard is the
- * account owner — before a sensitive mutation (change the password,
- * change the email, delete the account). In production the point of it is
- * the `auth/requires-recent-login` gate: those mutations REFUSE to run on
- * a session whose sign-in is older than a few minutes, and re-auth is how
- * you clear the gate.
- *
- * ─── The divergence, stated up front ───────────────────────────────
- * The sandbox does NOT enforce `auth/requires-recent-login`. `updateEmail`
- * / `updatePassword` / `deleteUser` already run on a session of any age
- * (a pre-existing, documented divergence — see their COMPAT rows), so
- * there is no gate here for re-auth to clear, and inventing one would
- * break every existing sandbox flow while proving nothing. What re-auth
- * therefore DOES here is real but narrower: it genuinely re-verifies the
- * credential, mints a fresh token (a new `authTime`), and returns a
- * `UserCredential` with `operationType: 'reauthenticate'`. Code that
- * calls it runs unchanged against prod, where it also clears the gate.
- *
- * This is a divergence-documented row, not a conforming one. Saying so is
- * the whole job.
+ * account owner before a sensitive mutation (change the password, change
+ * the email, delete the account). Those mutations refuse a session whose
+ * last authentication is older than five minutes with
+ * `auth/requires-recent-login` (the backend's `assertRecentLogin`, timed on
+ * the sandbox clock), and a successful re-auth records a new
+ * authentication, which clears the gate and moves the token's `authTime`.
  *
  * ─── Evidence ──────────────────────────────────────────────────────
  * Not oracle-backed, and for a specific reason worth recording: the
@@ -52,9 +39,9 @@ import type { AuthFlowRequest, AuthFlowResolver, User, UserCredential } from './
  * DIFFERENT account throws `auth/user-mismatch` (the check that stops
  * "reauthenticate as someone else" from silently succeeding).
  *
- * On success mints a fresh ID token, so `getIdTokenResult(user).authTime`
- * advances — the observable trace of a fresh sign-in, and the thing prod's
- * recent-login gate reads.
+ * On success records a new authentication and mints a fresh ID token, so
+ * `getIdTokenResult(user).authTime` advances and the recent-login gate
+ * clears.
  */
 export async function reauthenticateWithCredential(
   user: User,
@@ -176,9 +163,9 @@ function completeReauth(
 ): UserCredential {
   const stored = target.backend.findByUid(user.uid);
   const claims = stored?.customClaims ?? {};
-  // Force a refresh: a successful re-auth produces a NEW token with a new
-  // authTime. That advance is the observable trace of the re-verification
-  // (and what prod's recent-login gate reads).
+  // A successful re-auth is a fresh authentication: it restarts the
+  // recent-login window and the next token carries the new authTime.
+  target.backend.recordAuthentication(user.uid);
   target.backend.getIdTokenResultFor(user.uid, claims, true, user.tenantId);
   const hasStoredUser = stored !== undefined;
   const refreshed = hasStoredUser ? target.backend.buildUserFromStored(stored) : user;

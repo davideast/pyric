@@ -66,7 +66,19 @@ export class Timestamp extends RulesValue {
 
   /** `timestamp.date(y, m, d)` — midnight UTC; month is 1-based. */
   static fromYMD(year: number, month: number, day: number): Timestamp {
-    return Timestamp.fromMillis(Date.UTC(year, month - 1, day));
+    if (
+      !Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day) ||
+      year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31
+    ) {
+      throw new RangeError(`Date is not valid. year: ${year}, month: ${month} day: ${day}.`);
+    }
+    const d = new Date(0);
+    d.setUTCFullYear(year, month - 1, day);
+    d.setUTCHours(0, 0, 0, 0);
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+      throw new RangeError(`Date is not valid. year: ${year}, month: ${month} day: ${day}.`);
+    }
+    return Timestamp.fromMillis(d.getTime());
   }
 
   /**
@@ -135,34 +147,52 @@ export class Timestamp extends RulesValue {
    * accessor rules see. Captured by rules-firestore-timestamp-component-accessors
    * and rules-storage-stdlib-timestamp-duration.
    */
-  callMethod(method: string, _args: unknown[]): unknown | NoOp {
+  callMethod(method: string, args: unknown[]): unknown | NoOp {
+    const requireZeroArgs = () => {
+      if (args.length !== 0) {
+        throw new RangeError(
+          `Incorrect number of arguments. Received: ${args.length}. Expected: timestamp.${method}().`,
+        );
+      }
+    };
     switch (method) {
       case 'seconds':
+        requireZeroArgs();
         return ((this.seconds % SECONDS_PER_MINUTE) + SECONDS_PER_MINUTE) % SECONDS_PER_MINUTE;
       case 'nanos':
+        requireZeroArgs();
         return this.nanos;
       case 'toMillis':
+        requireZeroArgs();
         return this.toMillis();
       case 'year':
+        requireZeroArgs();
         return this.asDate().getUTCFullYear();
       case 'month':
+        requireZeroArgs();
         return this.asDate().getUTCMonth() + 1;
       case 'day':
+        requireZeroArgs();
         return this.asDate().getUTCDate();
       case 'hours':
+        requireZeroArgs();
         return this.asDate().getUTCHours();
       case 'minutes':
+        requireZeroArgs();
         return this.asDate().getUTCMinutes();
       case 'dayOfWeek': {
+        requireZeroArgs();
         const jsDay = this.asDate().getUTCDay(); // 0=Sun .. 6=Sat
         return jsDay === 0 ? 7 : jsDay;
       }
       case 'dayOfYear': {
+        requireZeroArgs();
         const d = this.asDate();
         const startOfYear = Date.UTC(d.getUTCFullYear(), 0, 1);
         return Math.floor((this.toMillis() - startOfYear) / MS_PER_DAY) + 1;
       }
       case 'date':
+        requireZeroArgs();
         // Same year/month/day, time-of-day zeroed.
         return Timestamp.fromYMD(
           this.asDate().getUTCFullYear(),
@@ -170,6 +200,7 @@ export class Timestamp extends RulesValue {
           this.asDate().getUTCDate(),
         );
       case 'time': {
+        requireZeroArgs();
         // Time-of-day as Duration. Compute from seconds field directly
         // so sub-ms nanos survive (JS Date would truncate them).
         const secOfDay = ((this.seconds % SECONDS_PER_DAY) + SECONDS_PER_DAY) % SECONDS_PER_DAY;

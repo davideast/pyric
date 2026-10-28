@@ -10,7 +10,7 @@
  * the static-analysis tool without pulling in any other rules
  * machinery.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../../sandbox/internal/tool-handler.js';
 import { extractIndexes } from './extract/extractor.js';
 
 interface ExtractIndexesArgs {

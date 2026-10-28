@@ -1,5 +1,6 @@
 import { defineRows } from './define-rows.ts';
 import type { CompatibilitySurfaceRegistry } from './types.ts';
+import { sdkCaptureBlock } from './firestore-sdk-captures.ts';
 
 const row1 = defineRows({
   surface: "firestore",
@@ -8,6 +9,28 @@ const row1 = defineRows({
     section: "`getFirestore(target)` — initializer",
     api: "getFirestore(target)",
     status: "conforms",
+  },
+});
+
+/** Production gives each named database its own documents and rules
+ * evaluation context. Each row here names a Pyric path that resolves every
+ * database id to `(default)`, and the test that pins it. */
+const namedDatabaseRow = defineRows({
+  surface: "firestore",
+  defaults: {
+    section: "Named databases",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
+/** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
+const droppedConnectionRow = defineRows({
+  surface: "firestore",
+  defaults: {
+    section: "Calls in flight when the hosted connection drops",
+    status: "diverged-documented",
+    automation: "unit-backed",
   },
 });
 
@@ -206,6 +229,16 @@ const row22 = defineRows({
   },
 });
 
+/** Client SDKs in a `node --import @pyric/cli/register` process on the Node host (#1082). */
+const serverProcessRow = defineRows({
+  surface: "firestore",
+  defaults: {
+    section: "Client SDKs in a registered server process",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 export const firestoreRegistry = {
   surface: "firestore",
   label: "Firestore",
@@ -277,6 +310,48 @@ export const firestoreRegistry = {
     },
     {
       kind: 'table',
+      prefix: "## Named databases\n\nIn production `getFirestore(app, databaseId)` selects a named database with its own documents, and rules see that id in the `database` path variable. Pyric models one database per app, `(default)`. When `firebase.json` declares `firestore` as an array, pyric serves the `(default)` entry's rules and prints a startup warning for each named entry.\n",
+      rows: [
+        namedDatabaseRow({
+          rowRef: "MD1",
+          featureKeys: ["getFirestore"],
+          api: "getFirestore(app, databaseId)",
+          behavior: "In the sandbox, `getFirestore(app, databaseId)` ignores the database id and returns the app's `(default)` handle, so documents written under one id are read under every other id.",
+          statusNote: "every database id resolves to (default)",
+          evidence: "`packages/pyric/test/firestore/named-database.test.ts` asserts two database ids return the `(default)` handle and that a document written under one id reads back under another.",
+          conformanceTests: ["packages/pyric/test/firestore/named-database.test.ts"],
+        }),
+        namedDatabaseRow({
+          rowRef: "MD2",
+          featureKeys: ["getFirestore"],
+          api: "getFirestore(app, databaseId) (served mode)",
+          behavior: "The served `firebase/firestore` entry ignores the database id: the worker path returns the app's one handle and the in-page fallback delegates to the sandbox `getFirestore(app)`. The worker protocol carries no database id.",
+          statusNote: "every database id resolves to (default)",
+          evidence: "`packages/cli/test/serve/worker/composite-filters-served-entry.test.ts` imports the served entry over a worker host, asserts `getFirestore(app, 'reports')` returns the app's handle, and reads the `(default)` documents through it.",
+          conformanceTests: ["packages/cli/test/serve/worker/composite-filters-served-entry.test.ts"],
+        }),
+        namedDatabaseRow({
+          rowRef: "MD3",
+          featureKeys: ["getFirestore"],
+          api: "pyric-admin getFirestore(app, databaseId)",
+          behavior: "`pyric-admin` `getFirestore` takes no database id; a second argument is ignored and the handle reads and writes `(default)`. The Admin SDK's `getFirestore(app, databaseId)` selects the named database.",
+          statusNote: "no database id parameter; every call resolves to (default)",
+          evidence: "`packages/pyric-admin/test/firestore/named-database.test.ts` writes through `getFirestore(app, 'reports')` and reads the document through `getFirestore(app)` and `getFirestore(app, 'archive')`.",
+          conformanceTests: ["packages/pyric-admin/test/firestore/named-database.test.ts"],
+        }),
+        namedDatabaseRow({
+          rowRef: "MD4",
+          featureKeys: ["setRules"],
+          api: "Rules `match /databases/{database}/documents`",
+          behavior: "Rules evaluate the `database` path variable as `(default)` for every request, whatever database id the handle was created with. Production binds the named database's id.",
+          statusNote: "`database` is always (default)",
+          evidence: "`packages/pyric/test/firestore/named-database.test.ts` writes through a handle created for `reports`: a rule requiring `database == '(default)'` allows the write and a rule requiring `database == 'reports'` denies it.",
+          conformanceTests: ["packages/pyric/test/firestore/named-database.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
       prefix: "## Path constructors — `doc` / `collection` / `collectionGroup`\n",
       rows: [
         row2({
@@ -328,9 +403,11 @@ export const firestoreRegistry = {
         row2({
           rowRef: "13",
           featureKeys: ["collection","collectionGroup"],
-          behavior: "`collectionGroup(db, id)` returns a query spanning every collection with that id",
-          evidence: "`unit:sandbox-target.test.ts` (\"gathers documents across every parent collection\")",
-          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+          behavior: "`collectionGroup(db, id)` returns a query spanning every collection with that id; `onSnapshot` on it delivers the initial snapshot and every later write to a collection with that id at any depth",
+          evidence: "`unit:sandbox-target.test.ts` (\"gathers documents across every parent collection\"). UPDATED, 2026-10-07: oracle `packages/conformance/observations/firestore/firestore-collection-group-listener.json`, captured with the Web SDK against temporarily deployed production rules that were restored afterwards. Under `match /{path=**}/<id>/{id}`, a listener on `collectionGroup(db, id)` fired once with the existing document, once with `added` for a write in a subcollection with that id, once with `added` for a write in the root collection with that id, and not at all for a write in a sibling collection; a listener on a collection id that only a concrete match governs received `permission-denied`. `unit:firestore/oracle-conformance.test.ts` replays the capture in the sandbox; `unit:firestore/collection-group-rules.test.ts` pins the same sequence, the denial routed to the error callback, and query constraints on the listener; `cli:serve/worker/collection-group-listener.test.ts` pins the same delivery and denial through the worker bridge.",
+          automation: "oracle-backed",
+          oracleObservations: ["firestore-collection-group-listener"],
+          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/collection-group-rules.test.ts", "packages/pyric/test/firestore/oracle-conformance.test.ts", "packages/cli/test/serve/worker/collection-group-listener.test.ts"],
         }),
         row2({
           rowRef: "14",
@@ -438,6 +515,18 @@ export const firestoreRegistry = {
           exceptionReason: "playground / preview behavior — no firebase-js-sdk counterpart to observe",
         }),
         row4({
+          rowRef: "22a",
+          behavior: "`QuerySnapshot.forEach(callback, thisArg)` calls `callback.call(thisArg, doc)` once per document, in query order, with the document alone, and `DocumentSnapshot.get(fieldPath)` returns the stored field at a dotted string or `FieldPath` (`undefined` when absent), for `getDocs` (with or without a converter, and the empty `getDocsFromCache` miss), `getDoc` and listener snapshots, in the in-page sandbox and through the served worker client, which the client SDKs in a Node host server process use.",
+          status: "conforms",
+          evidence: "`unit:query-snapshot-for-each-once.test.ts` asserts the modular `getDocs` snapshot with and without a converter, a listener snapshot and the Admin-shaped query snapshot each visit every document once with `thisArg` bound and one argument, and that a write inside the callback runs once; `unit:sandbox/admin-firestore/error-translation-calls-once.test.ts` asserts the proxy calls a method once for each kind of return value; before the fix the sandbox's error-translation proxy fell back to a second call when a method returned `undefined`, so `forEach` visited every document twice. `packages/cli/test/serve/worker/query-snapshot-for-each.test.ts` asserts the served `getDocs` and listener snapshots visit the same documents in the same order and read the same fields as the in-page snapshots, and that a served `getDoc` snapshot reads a nested field and rejects an invalid field path with `invalid-argument`. App scenario `test/apps/create-pyric-node-template` scaffolds the create-pyric node template, whose `src/app.ts` calls `snap.forEach` on a `getDocs` result, and runs its `dev` script (#1203).",
+          conformanceTests: [
+            "packages/pyric/test/firestore/query-snapshot-for-each-once.test.ts",
+            "packages/pyric/test/sandbox/admin-firestore/error-translation-calls-once.test.ts",
+            "packages/cli/test/serve/worker/query-snapshot-for-each.test.ts",
+            "test/apps/create-pyric-node-template/scenario.ts",
+          ],
+        }),
+        row4({
           rowRef: "23",
           behavior: "Each `snap.docs[i].ref` is tagged for follow-up ops",
           status: "conforms",
@@ -476,10 +565,10 @@ export const firestoreRegistry = {
         }),
         row4({
           rowRef: "24c",
-          behavior: "Query-proof scope remains conservative. Equality and finite scalar in filters can pin candidate fields; array-contains proves the corresponding membership fact, not the whole array. Helpers and positive OR branches reduce to sufficient, candidate-independent residuals. Every finite combination (up to 30) must pass auth, query limits, and any lookup whose path is pinned by the query. Unpinned fields, candidate identity, dynamic document-dependent collections, unbounded range guarantees, and unsupported syntax remain deny-only gaps. Queries are never authorized by filtering stored rows. This expanded local support has unit evidence and upstream documented semantics, but no new hosted observation.",
+          behavior: "Query-proof scope remains conservative. Equality and finite scalar in filters can pin candidate fields; array-contains proves the corresponding membership fact, not the whole array. Helpers and positive OR branches reduce to sufficient, candidate-independent residuals. Every finite combination (up to 30) must pass auth, query limits, and any lookup whose path is pinned by the query. Unpinned fields, candidate identity, dynamic document-dependent collections, unbounded range guarantees, and unsupported syntax remain deny-only gaps. Queries are never authorized by filtering stored rows. A collection-group query is authorized only by a top-level `list` or `read` rule at `match /{path=**}/<collectionId>/{id}` or `match /{document=**}` whose condition reads no path binding; any other shape, including a match nested in `match /{document=**}`, denies the query. This expanded local support has unit evidence and upstream documented semantics, but no new hosted observation.",
           status: "diverged-documented",
-          evidence: "Local query support: `unit:firestore/query-proof-application.test.ts` covers finite membership, guardian array membership, pinned lookup paths, auth and limit controls, and adversarial array/lookup cases. Upstream semantics: firebase.google.com/docs/firestore/security/rules-query and firebase.google.com/docs/firestore/query-data/queries. Local diagnostic contract (#583): `unit:firestore/query-proof-diagnostics.test.ts` pins dynamic membership rejection, fallback attribution, constraint/residual distinctions, modular listener context, captured lifecycle errors, and immutable operation-summary proof metadata; this adds no production observation. `unit:rules/simulator/query-proof.test.ts` (function-inlining provable cases; full-accounting rejections for mixed equality + `in`/`get`/`hasOnly`/range/`is` shapes in inline and helper form; fail-closed classifier probes: bracket-access `resource['data']`, `exists()` keyed by `resource.data` through path-literal segments, slice access, `resource.id`, and an unrecognized node shape), `unit:firestore/query-proof-enforcement.test.ts` (seeded end-to-end denials of the demonstrated attacks: forbidden-field absence check in member and bracket form, banned-owner `exists()` lookup, slice conjunct — each returning zero documents)",
-          conformanceTests: ["packages/pyric/test/firestore/query-proof-application.test.ts","packages/pyric/test/firestore/query-proof-diagnostics.test.ts","packages/pyric/test/rules/simulator/query-proof.test.ts","packages/pyric/test/firestore/query-proof-enforcement.test.ts"],
+          evidence: "Local query support: `unit:firestore/query-proof-application.test.ts` covers finite membership, guardian array membership, pinned lookup paths, auth and limit controls, and adversarial array/lookup cases. Upstream semantics: firebase.google.com/docs/firestore/security/rules-query and firebase.google.com/docs/firestore/query-data/queries. Local diagnostic contract (#583): `unit:firestore/query-proof-diagnostics.test.ts` pins dynamic membership rejection, fallback attribution, constraint/residual distinctions, modular listener context, captured lifecycle errors, and immutable operation-summary proof metadata; this adds no production observation. `unit:rules/simulator/query-proof.test.ts` (function-inlining provable cases; full-accounting rejections for mixed equality + `in`/`get`/`hasOnly`/range/`is` shapes in inline and helper form; fail-closed classifier probes: bracket-access `resource['data']`, `exists()` keyed by `resource.data` through path-literal segments, slice access, `resource.id`, and an unrecognized node shape), `unit:firestore/query-proof-enforcement.test.ts` (seeded end-to-end denials of the demonstrated attacks: forbidden-field absence check in member and bracket form, banned-owner `exists()` lookup, slice conjunct, each returning zero documents). Collection-group scope: `unit:firestore/collection-group-rules.test.ts` authorizes `getDocs(collectionGroup(db, 'items'))` under `match /{path=**}/items/{id}`, proves a data-gated rule from the query's equality, and denies under a rule for another collection id, a rule that reads the recursive binding, and concrete collection rules; `unit:firestore/sandbox/collection-group-rule-proof.test.ts` pins the projection. Upstream semantics: firebase.google.com/docs/firestore/security/rules-query#secure_and_query_documents_based_on_collection_groups. No hosted collection-group query is captured; the production matcher verdicts for the same rule shape, from the Rules Test API, live in `oracle:rules-firestore-hierarchical-match-cascade`.",
+          conformanceTests: ["packages/pyric/test/firestore/query-proof-application.test.ts","packages/pyric/test/firestore/query-proof-diagnostics.test.ts","packages/pyric/test/rules/simulator/query-proof.test.ts","packages/pyric/test/firestore/query-proof-enforcement.test.ts","packages/pyric/test/firestore/collection-group-rules.test.ts","packages/pyric/test/firestore/sandbox/collection-group-rule-proof.test.ts"],
           rowNumber: 24,
         }),
         row4({
@@ -1102,11 +1191,12 @@ export const firestoreRegistry = {
         row12({
           rowRef: "76",
           featureKeys: ["getAggregateFromServer"],
-          behavior: "`getAggregateFromServer(query, spec)` returns `{ data: () => Record<alias, number|null> }`",
+          behavior: "`getAggregateFromServer(query, spec)` returns `{ data: () => Record<alias, number|null> }` in the in-page sandbox, on a served page and in a registered Node process",
           status: "conforms",
-          evidence: "`unit:sandbox-target.test.ts`; collectionGroup + nested paths: `unit:upstream-write-aggregate-probes.test.ts`",
-          automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts","packages/pyric/test/firestore/upstream-write-aggregate-probes.test.ts"],
+          evidence: "In-page: `unit:sandbox-target.test.ts`; collectionGroup + nested paths: `unit:upstream-write-aggregate-probes.test.ts`. Production: `oracle:firestore-aggregate-field-semantics` key `countOnly` (`{ n: 4 }`), replayed through the served surface export and through the worker client and host in `unit:cli/serve/worker/oracle-captures/firestore-served-surface.test.ts`; that scenario's other keys are pinned under FL-27, FL-28 and FL-30. A served page and a registered Node process aggregate over the host in `test/apps/client-sdk-under-register`.",
+          automation: "oracle-backed",
+          oracleObservations: ["firestore-aggregate-field-semantics"],
+          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts","packages/pyric/test/firestore/upstream-write-aggregate-probes.test.ts","packages/cli/test/serve/worker/oracle-captures/firestore-served-surface.test.ts"],
         }),
         row12({
           rowRef: "77",
@@ -1159,13 +1249,13 @@ export const firestoreRegistry = {
         row13({
           rowRef: "81",
           behavior: "`onSnapshot(query, cb)` fires on collection writes; `QuerySnapshot.docChanges()` reports `added` / `modified` / `removed` with `oldIndex` / `newIndex`",
-          evidence: "`unit:sandbox-target.test.ts`, oracle: `packages/conformance/observations/firestore/firestore-row-81-onsnapshot-query-fires-on-write.json` — listener on `query(coll)` saw 1 initial fire (empty, `size:0`), then one fire per write: `addDoc` → `size:1`, `setDoc(coll, 'known-id')` → `size:2`, `deleteDoc(addedRef)` → `size:1`. Total 4 fires, each reflecting the current collection state. Every collection-level write produces a distinct fire. (Note: this oracle used a *filterless* `query(coll)`, which masked FS-B2 — see row 81a.) Modular `docChanges` indexes: `unit:upstream-transform-txn-listener-probes.test.ts`",
+          evidence: "`unit:sandbox-target.test.ts`, oracle: `packages/conformance/observations/firestore/firestore-row-81-onsnapshot-query-fires-on-write.json` — listener on `query(coll)` saw 1 initial fire (empty, `size:0`), then one fire per write: `addDoc` → `size:1`, `setDoc(coll, 'known-id')` → `size:2`, `deleteDoc(addedRef)` → `size:1`. Total 4 fires, each reflecting the current collection state. Every collection-level write produces a distinct fire. (Note: this oracle used a *filterless* `query(coll)`, which masked FS-B2 — see row 81a.) Modular `docChanges` indexes: `unit:upstream-transform-txn-listener-probes.test.ts`. The served worker client computes `docChanges()` in the page from consecutive snapshot frames with the change computation the in-page snapshot uses (`computeDocumentChanges` and `createDocChanges` in `snapshot-listeners.ts`); `unit:query-snapshot-doc-changes.test.ts` covers added, modified and removed with `oldIndex` and `newIndex`, the initial all-`added` snapshot, a collection-group listener, and identical change lists from the served and in-page planes for the same writes and a sign-in that re-establishes the listener",
           risk: ["specific-field","listener"],
           riskScore: 3,
           riskReasons: ["asserts a specific field/property value","asserts listener semantics"],
           automation: "oracle-backed",
           oracleObservations: ["firestore-row-81-onsnapshot-query-fires-on-write"],
-          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts","packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts","packages/pyric/test/sandbox/firestore/characterization/trigger-attribution.test.ts","packages/pyric/test/sandbox/firestore/characterization/delivery-ordering.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts","packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts","packages/cli/test/serve/worker/query-snapshot-doc-changes.test.ts","packages/pyric/test/sandbox/firestore/characterization/trigger-attribution.test.ts","packages/pyric/test/sandbox/firestore/characterization/delivery-ordering.test.ts"],
         }),
         row13({
           rowRef: "81a",
@@ -1225,13 +1315,13 @@ export const firestoreRegistry = {
         row13({
           rowRef: "85",
           behavior: "`SnapshotListenOptions.includeMetadataChanges` — one write yields the pending-write local echo (`hasPendingWrites: true`) then, for metadata listeners, the settled ack fire: default listener 2 fires, metadata listener 3",
-          evidence: "Aligned via the listener delivery scheduler (`src/sandbox/firestore/local-environment.ts` + `snapshot-listeners.ts`): the write echo carries `hasPendingWrites: true` and `includeMetadataChanges` listeners receive the settled metadata-only ack, reproducing prod's recorded 2/3-fire sequences exactly. Machine-checked against `packages/conformance/observations/firestore/firestore-include-metadata-changes.json` in `oracle-conformance.test.ts` (fire counts and per-fire `hasPendingWrites` sequence asserted from the capture)",
+          evidence: "Aligned via the listener delivery scheduler (`src/sandbox/firestore/local-environment.ts` + `snapshot-listeners.ts`): the write echo carries `hasPendingWrites: true` and `includeMetadataChanges` listeners receive the settled metadata-only ack, reproducing prod's recorded 2/3-fire sequences exactly. Machine-checked against `packages/conformance/observations/firestore/firestore-include-metadata-changes.json` in `oracle-conformance.test.ts` (fire counts and per-fire `hasPendingWrites` sequence asserted from the capture). The served worker forwards `includeMetadataChanges` with the subscription and `hasPendingWrites` with each snapshot frame, so a served listener receives the same 2/3-fire sequence and metadata: `unit:query-snapshot-doc-changes.test.ts`. Known divergence in served mode: one sandbox serves every tab, Studio and every native client, and the sandbox marks every write echo pending whichever session wrote it, so a served listener reports `hasPendingWrites: true` for a write made by another tab, by Studio or by a native client, where production reports `false` for writes from other clients",
           risk: ["listener-fire-count","specific-field","listener","metadata"],
           riskScore: 6,
           riskReasons: ["asserts a specific listener fire count","asserts a specific field/property value","asserts listener semantics","asserts metadata shape"],
           automation: "oracle-backed",
           oracleObservations: ["firestore-include-metadata-changes"],
-          conformanceTests: ["packages/pyric/test/sandbox/firestore/characterization/metadata-ack.test.ts"],
+          conformanceTests: ["packages/pyric/test/sandbox/firestore/characterization/metadata-ack.test.ts","packages/cli/test/serve/worker/query-snapshot-doc-changes.test.ts"],
         }),
         row13({
           rowRef: "86",
@@ -1871,14 +1961,16 @@ export const firestoreRegistry = {
           featureKeys: ["enableIndexedDbPersistence"],
           api: "enableIndexedDbPersistence",
           behavior: "Resolves before Firestore starts and rejects with `failed-precondition` after any operation has started the service",
-          status: "conforms",
-          evidence: "Real Chromium: `firestore-browser-lifecycle.json`; replayed through the public modular API by `oracle-conformance.test.ts` and focused lifecycle coverage.",
+          status: "diverged-documented",
+          statusNote: "an accepted no-op on the served planes (FP-9)",
+          conformanceDisposition: "pending-fix",
+          evidence: "Real Chromium: `firestore-browser-lifecycle.json`; replayed through the public modular API by `oracle-conformance.test.ts` and focused lifecycle coverage. Served planes: an accepted no-op that resolves after first use (FP-9).",
           risk: ["error-code"],
           riskScore: 2,
           riskReasons: ["asserts Firebase error code(s): `failed-precondition`"],
           automation: "oracle-backed",
           oracleObservations: ["firestore-browser-lifecycle"],
-          conformanceTests: ["packages/pyric/test/firestore/oracle-conformance.test.ts","packages/pyric/test/firestore/persistence-network.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/oracle-conformance.test.ts","packages/pyric/test/firestore/persistence-network.test.ts","packages/cli/test/serve/worker/oracle-captures/firestore-served-surface.test.ts"],
           conformanceChecks: [{
             finding: "FS-140",
             observation: "firestore-browser-lifecycle",
@@ -1922,14 +2014,16 @@ export const firestoreRegistry = {
           featureKeys: ["enableNetwork","disableNetwork"],
           api: "enableNetwork / disableNetwork",
           behavior: "Disabling network exposes local mutations with cache/pending-write metadata while holding write acknowledgement until network is re-enabled",
-          status: "conforms",
-          evidence: "Real Chromium: `firestore-browser-lifecycle.json`; replayed through the public modular API by `oracle-conformance.test.ts` and focused network coverage.",
+          status: "diverged-documented",
+          statusNote: "an accepted no-op on the served planes (FP-9)",
+          conformanceDisposition: "pending-fix",
+          evidence: "Real Chromium: `firestore-browser-lifecycle.json`; replayed through the public modular API by `oracle-conformance.test.ts` and focused network coverage. Served planes: accepted no-ops, so an offline write commits at once (FP-9).",
           risk: ["specific-value"],
           riskScore: 2,
           riskReasons: ["asserts 1 specific value(s)"],
           automation: "oracle-backed",
           oracleObservations: ["firestore-browser-lifecycle"],
-          conformanceTests: ["packages/pyric/test/firestore/oracle-conformance.test.ts","packages/pyric/test/firestore/persistence-network.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/oracle-conformance.test.ts","packages/pyric/test/firestore/persistence-network.test.ts","packages/cli/test/serve/worker/oracle-captures/firestore-served-surface.test.ts"],
           conformanceChecks: [{
             finding: "FS-143",
             observation: "firestore-browser-lifecycle",
@@ -1961,8 +2055,10 @@ export const firestoreRegistry = {
           featureKeys: ["terminate"],
           api: "terminate",
           behavior: "Terminates only the selected Firestore service instance: held refs reject with `failed-precondition`, owned listeners stop, and sibling Firestore or Auth services remain usable",
-          status: "conforms",
-          evidence: "Real Chromium: `packages/conformance/observations/firestore/firestore-browser-lifecycle.json` records `failed-precondition` on the terminated instance while Auth and a sibling Firestore instance continue. Replayed by `oracle-conformance.test.ts`; focused ownership coverage in `terminate.test.ts`.",
+          status: "diverged-documented",
+          statusNote: "a no-op over the SharedWorker (FP-9)",
+          conformanceDisposition: "pending-fix",
+          evidence: "Real Chromium: `packages/conformance/observations/firestore/firestore-browser-lifecycle.json` records `failed-precondition` on the terminated instance while Auth and a sibling Firestore instance continue. Replayed by `oracle-conformance.test.ts`; focused ownership coverage in `terminate.test.ts`. SharedWorker: a no-op, so held refs keep working (FP-9).",
           risk: ["error-code","listener"],
           riskScore: 4,
           riskReasons: ["asserts Firebase error code(s): `failed-precondition`","asserts listener semantics"],
@@ -2018,14 +2114,16 @@ export const firestoreRegistry = {
           featureKeys: ["getDocFromCache","getDocsFromCache"],
           api: "getDocFromCache / getDocsFromCache",
           behavior: "Explicit cache reads distinguish cold and warm state: cold document reads reject with `unavailable`, cold queries return empty, and server/default reads populate subsequent cache reads",
-          status: "conforms",
-          evidence: "Real Chromium: `firestore-browser-lifecycle.json` captures cold and warm document and query cache behavior; `oracle-conformance.test.ts` replays it through public APIs.",
+          status: "diverged-documented",
+          statusNote: "reads the store on the served planes (FP-9)",
+          conformanceDisposition: "pending-fix",
+          evidence: "Real Chromium: `firestore-browser-lifecycle.json` captures cold and warm document and query cache behavior; `oracle-conformance.test.ts` replays it through public APIs. Served planes: reads the store, so a cold read resolves (FP-9).",
           risk: ["error-code","specific-value"],
           riskScore: 4,
           riskReasons: ["asserts Firebase error code(s): `unavailable`","asserts 1 specific value(s)"],
           automation: "oracle-backed",
           oracleObservations: ["firestore-browser-lifecycle"],
-          conformanceTests: ["packages/pyric/test/firestore/oracle-conformance.test.ts","packages/pyric/test/firestore/tier1-cache-init-align.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/oracle-conformance.test.ts","packages/pyric/test/firestore/tier1-cache-init-align.test.ts","packages/cli/test/serve/worker/oracle-captures/firestore-served-surface.test.ts"],
           conformanceChecks: [{
             finding: "FS-148",
             observation: "firestore-browser-lifecycle",
@@ -2227,7 +2325,7 @@ export const firestoreRegistry = {
         }),
         row22({
           rowRef: "136",
-          behavior: "Type-strict operators: `+` requires matching operand types (`'a' + 1` errors; `[1]+[2]` concatenates); ordered compares (`< > <= >=`) error across types; list membership uses value equality; `is map` excludes MapDiff/Set (RULES-B6 partial / B9 / B12 partial)",
+          behavior: "Type-strict operators: `+` requires supported operand types (`'a' + 1` and `[1] + [2]` error; `list.concat(list)` joins lists); ordered compares (`< > <= >=`) error across types; list membership uses value equality; `is map` excludes MapDiff/Set (RULES-B6 partial / B9 / B12 partial)",
           status: "conforms",
           evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B6 / B9 / B12 blocks)",
           automation: "unit-backed",
@@ -2253,10 +2351,11 @@ export const firestoreRegistry = {
         row22({
           rowRef: "137a",
           featureKeys: ["setRules", "updateDoc", "setDoc"],
-          behavior: "A single-document write exposes `request.resource.data` as the document the write stores. `updateDoc(ref, {'board.c1r1': 'x'})` shows rules a nested `board.c1r1` beside the existing `board` keys, not a top-level field named `\"board.c1r1\"`; a dotted `deleteField()` removes the nested leaf; `setDoc(ref, data, {merge: true})` deep-merges a nested map and keeps its sibling keys, and `{mergeFields}` writes only the listed paths. `resource.data` is unchanged by the projection.",
-          status: "unverified",
-          automation: "unverified",
-          evidence: "BORN UNVERIFIED, 2026-09-26: the sandbox builds the rule-visible document through the same field-path update and merge functions the store uses, and batched writes already evaluated the projected document. `oracle:firestore-updatedoc-dotpath-fieldpath` (row #33) pins only the stored result of a dotted update, not what rules read during it. The Firestore Rules Test API takes `request.resource.data` as input rather than deriving it from an update mask, so a rules-corpus scenario cannot observe this projection; verifying the row needs a client write against deployed rules that inspect `request.resource.data`. `unit:firestore/sandbox/rules-test-case.test.ts`, `unit:sandbox/firestore/simulator/local-environment.test.ts`, and `unit:sandbox/firestore/simulator/project-after-state.test.ts` pin the local behavior.",
+          behavior: "A single-document write exposes `request.resource.data` as the document the write stores. `updateDoc(ref, {'board.c1r1': 'x'})` shows rules a nested `board.c1r1` beside the existing `board` keys, not a top-level field named `\"board.c1r1\"`; a dotted `deleteField()` removes the nested leaf; `setDoc(ref, data, {merge: true})` deep-merges a nested map and keeps its sibling keys, and `{mergeFields}` writes only the listed paths. The field-and-value form carries each field path as literal segments: `updateDoc(ref, new FieldPath('a.b'), 'x')` writes a top-level field `'a.b'`, `new FieldPath('board', 'c1.r1')` writes a dotted key inside `board`, and a dotted string field is a nested path, through `updateDoc`, `WriteBatch.update`, `Transaction.update`, the Admin-shaped `update`, and the served worker. `resource.data` is unchanged by the projection.",
+          status: "conforms",
+          automation: "oracle-backed",
+          oracleObservations: ["firestore-write-request-resource"],
+          evidence: "`oracle:firestore-write-request-resource` (captured 2026-10-07 against deployed production rules with the Web SDK, stable across two runs). Each case is one client write to a seeded document, and each predicate over `request.resource.data` or `request.resource.data.diff(resource.data)` is a separate guarded rule, so the allow or deny of the write reads out what production built. Production exposes the stored document: `updateDoc(ref, {'board.c1r1': 'x'})` gives `request.resource.data.board.c1r1 == 'x'` with `board.c2r2` and the top-level fields kept, no `'board.c1r1'` key, and `affectedKeys()` and `changedKeys()` equal to `['board']`; a dotted `deleteField()` removes only the nested leaf; `setDoc` with `merge` deep-merges (`affectedKeys()` is `['board', 'extra']`); `mergeFields` writes only the listed path; `updateDoc(ref, {board: {c1r1: 'x'}})` replaces the whole `board` map; non-merge `setDoc` drops the unlisted top-level field (`removedKeys()` is `['keep']`); `resource.data` is unchanged by the write; the field-and-value form `updateDoc(ref, new FieldPath('a.b'), 'x')` writes a literal top-level key `'a.b'` (`'a.b' in request.resource.data`, `!('a' in request.resource.data)`, `affectedKeys() == ['a.b']`) and `new FieldPath('board', 'c1.r1')` writes a literal dotted key inside `board` (`affectedKeys() == ['board']`). The sandbox replays every verdict, the literal-dot field-path cases included (`unit:firestore/oracle-conformance.test.ts`, 58 predicates over 10 writes). Update field paths travel as segment vectors: the served worker protocol and the remote Admin arm carry `fields: [{ path: string[], value }]`, and inside the engine an update payload is keyed by a Pyric-internal encoding that backtick-quotes a segment containing `.`. That encoding stays in the engine: request events, write events, errors and denial context carry the update's fields as nested maps plus `updateMask` (its field paths as segment vectors), and replay rebuilds the update from the two. `packages/pyric-admin/test/remote/remote-firestore.test.ts` covers the remote Admin arm. `unit:firestore/update-field-paths.test.ts` covers `updateDoc`, `WriteBatch.update`, `Transaction.update`, a transform and `deleteField()` at a literal-dot path, and the Admin-shaped `DocumentReference.update`, `WriteBatch.update` and `Transaction.update`; `packages/cli/test/serve/worker/update-field-paths.test.ts` covers the served worker, including rules that read the literal key. Argument validation is client-side SDK code with no server round trip, so its messages follow the Web SDK `parseUpdateVarargs` / `fieldPathFromArgument` and the Admin SDK `WriteBatch.update` sources: an odd field-and-value count, an empty segment, a reserved character, a non-string field, and an `undefined` value each throw the SDK's message. The Rules Test API takes `request.resource` as input and cannot show any of this, so the capture uses a client write. `unit:firestore/sandbox/rules-test-case.test.ts`, `unit:sandbox/firestore/simulator/local-environment.test.ts`, and `unit:sandbox/firestore/simulator/project-after-state.test.ts` pin the local projection.",
           risk: ["specific-field", "rules-denial"],
           riskScore: 3,
           riskReasons: ["asserts a specific field/property value", "asserts rules-denial behavior"],
@@ -2264,6 +2363,10 @@ export const firestoreRegistry = {
             "packages/pyric/test/firestore/sandbox/rules-test-case.test.ts",
             "packages/pyric/test/sandbox/firestore/simulator/local-environment.test.ts",
             "packages/pyric/test/sandbox/firestore/simulator/project-after-state.test.ts",
+            "packages/pyric/test/firestore/oracle-conformance.test.ts",
+            "packages/pyric/test/firestore/update-field-paths.test.ts",
+            "packages/cli/test/serve/worker/update-field-paths.test.ts",
+            "packages/pyric-admin/test/remote/remote-firestore.test.ts",
           ],
           rowNumber: 137,
         }),
@@ -2309,6 +2412,68 @@ export const firestoreRegistry = {
         }),
       ],
     },
+    {
+      kind: 'table',
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      rows: [
+        droppedConnectionRow({
+          rowRef: "HD1",
+          featureKeys: ["setDoc", "getDoc"],
+          api: "Writes and reads in flight at a hosted connection drop (web hosted client)",
+          behavior: "A Firestore write (`setDoc`, `updateDoc`, `deleteDoc`, a batch `commit`) or read (`getDoc`, `getDocs`) the web hosted client's socket had taken when it dropped fails once with `unavailable` and the message \"The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.\" It is not sent again. In production the Firestore Web SDK keeps a write in its mutation queue and sends it again on the next write stream until the backend acknowledges it, and answers a `getDoc` from its local cache, with `fromCache`, or fails it with `unavailable` when the document is not cached.",
+          statusNote: "a write in flight fails instead of being sent again; pyric has no local cache to answer a read from",
+          evidence: "Production behavior read from `@firebase/firestore` 4.14.1, as recorded in ADR-0019 (\"Reads and writes are treated alike, unlike production\"). `packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts` drops a real loopback socket with `setDoc`, `getDoc` and `batchCommit` in flight and asserts each fails once with that message and reaches the host once. The Realtime Database follows its SDK here instead (row `rtdb-modular#HD1`, #1088).",
+          conformanceTests: ["packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Client SDKs in a registered server process\n\nA server process started with `node --import @pyric/cli/register` and `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true` runs the client SDKs against the Node host (#1082): `firebase/app`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` resolve to `@pyric/cli`'s Node client, which reaches the host over its own hosted connection with the process's own signed-in session, so the host's rules apply as they do for any other client. Off the Node host every call fails instead of running against a private in-process sandbox, and the client services with no path to the host refuse. `PYRIC_SANDBOX=local` keeps the in-process sandbox. In production the client SDKs run in Node and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS1",
+          featureKeys: ["getFirestore"],
+          api: "getFirestore(app) in a registered server process",
+          behavior: "Under a remote register activation on the Node host, `firebase/firestore` in a server process reads and writes the host's documents under its rules as the process's signed-in user. An open listener keeps the process up; a finished write releases it at once. A CommonJS `require('firebase/firestore')` resolves the same client. An app whose options differ from the host's gets each call rejected with `app/multiple-configs-not-supported`, and nothing throws past the call. When the host is not the Node host, every call fails with `failed-precondition` and a message naming the Node host (`pyric sandbox --hosted` or `pyric({ hosted: true })`); when no host is found, with the discovery error `pyric-admin` gets. No call falls back to an in-process sandbox.",
+          statusNote: "a finished write releases the process at once, where production holds it until the write stream's 60 s idle timeout; one configuration per runtime",
+          evidence: "App scenario `test/apps/client-sdk-under-register` runs the client SDKs under `node --import @pyric/cli/register` against a hosted Vite dev server, reads back with `firebase-admin` and a page, and asserts a write the page and firebase-admin read, a CommonJS require, an app with other options rejected per call, and that a listener holds the process while a finished write does not. On main (942cb175) it failed: the calls ran against a private in-process sandbox, so an upload returned a `data:` URL and firebase-admin read nothing they wrote. `packages/cli/test/register/node-origin.test.ts` runs the served surfaces under a Node origin whose host is not the Node host, or cannot be found, and asserts every call fails, `useWorker` stays true, the served app entry's placeholder sandbox stays empty, and a `pyric/*` mirror resolved from the app refuses. `mapping.test.ts` pins the mapping per activation value..",
+          conformanceTests: [
+            "test/apps/client-sdk-under-register/scenario.ts",
+            "packages/cli/test/register/node-origin.test.ts",
+            "packages/cli/test/register/mapping.test.ts",
+            "packages/cli/test/register/register-child.test.ts",
+          ],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Server-rendered modules under `vite dev`\n\nModules Vite loads for server rendering under `vite dev` with `pyric()` (`server.ssrLoadModule`, a runnable environment, a framework's SSR entry and loaders) get the modules a registered server process gets (#1123): the client SDKs reach the dev server's own Node host as one signed-in SSR session per dev server process, and `firebase-admin` reaches it as admin. This holds with Vite's default externalization and with `ssr.noExternal`. A SharedWorker dev server refuses them, naming `pyric({ hosted: true })`, and a server environment Vite does not run in its own process (workerd) gets a module that throws when it loads. In production these modules run the Firebase SDKs in the server's runtime and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS2",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getFirestore"],
+          api: "getFirestore(app) in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase/firestore` in a server-rendered module reads and writes the host's documents under its rules as the SSR session's user: a write the rules deny for that user fails with `permission-denied`. `ssrLoadModule`, the environment runner and every `ssr.noExternal` setting share one app and one session. On a SharedWorker dev server every call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`. No call reaches production or an in-process sandbox.",
+          statusNote: "one SSR session per dev server process, as one Node server process has one auth state; per-request identity (`initializeServerApp`) is unsupported",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` writes and reads the SSR user's own document, is denied another user's, reads the writes back with `firebase-admin` in SSR and in a process on the host, with each externalization setting, and refuses on a SharedWorker dev server. On main (ba2c0bf0a) the scenario failed: SSR sign-in rejected with `auth/network-request-failed` from the network guard, and the RTDB, Firestore and Storage writes did not settle, because the imports loaded the real SDK. `vite-module-swap.test.ts` pins the routing per specifier, AI mode and environment (Vite 5's `ssr` option, a runnable environment, a non-runnable one), `vite-ssr-activation.test.ts` the host, the restart hand-over and the SharedWorker refusal, and `vite-plugin-firestore.test.ts` runs Vite with `firebase` installed, so it takes the externalized path.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/cli/test/serve/vite-module-swap.test.ts", "packages/cli/test/serve/vite-ssr-activation.test.ts", "packages/cli/test/serve/vite-plugin-firestore.test.ts"],
+        }),
+        serverProcessRow({
+          rowRef: "RS3",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getFirestore"],
+          api: "firebase-admin/firestore in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase-admin/firestore` in a server-rendered module reads and writes the dev server host's documents as admin, past the rules, as a `firebase-admin` process on the host does. On a SharedWorker dev server its first call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`.",
+          statusNote: "admin reads and writes bypass the rules, as firebase-admin's do",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` reads a document the rules let only the SSR user read with `firebase-admin` in SSR through both loaders and with each externalization setting. On main (ba2c0bf0a) `firebase-admin` in SSR was the real SDK. `ambient-init.test.ts` pins the ambient binding.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/pyric-admin/test/app/ambient-init.test.ts"],
+        }),
+      ],
+    },
+    sdkCaptureBlock,
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

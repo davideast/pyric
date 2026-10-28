@@ -14,19 +14,20 @@
  *     from Firestore's lowercase `'permission-denied'`).
  *   - `.message === 'PERMISSION_DENIED: Permission denied'`.
  *
- * Default-allow stance: if no rules have been deployed, every operation
- * is permitted. Matches the live RTDB default for projects whose rules
- * have never been written (the console's "Start in test mode" template
- * is `{ ".read": "auth != null", ".write": "auth != null" }`; an
- * unconfigured DB allows everything until rules deploy).
+ * Default policy: when no rules are loaded, every client read and write is
+ * denied ("No RTDB rules loaded; default deny."), as production denies them
+ * on an instance whose rules were never deployed. `setDefaultPolicy('allow')`
+ * opens an instance without rules; the dev server's permissive mode uses it.
+ * `/.info/` paths are readable either way.
  */
 import {
   compileRtdbRules,
   simulateRtdbRules,
   type CompiledRtdbRules,
 } from '../../rules/rtdb/compiled-rules.js';
-import type { SimulationInput } from '../../rules/rtdb/simulation/spec.js';
-import type { AuthState } from 'pyric/sandbox';
+import { nodesDeclaringIndex } from '../../rules/rtdb/index-lookup.js';
+import type { RtdbRuleEvaluation, SimulationInput } from '../../rules/rtdb/simulation/spec.js';
+import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
 import type { QuerySpec } from './query.js';
 
@@ -50,21 +51,21 @@ function resolveRequiredIndexKey(
  * Convert a sandbox `QuerySpec` to the `SimulationInput['query']` shape
  * consumed by the RTDB rules simulator.
  */
-export function querySpecToSimulationQuery(spec: QuerySpec): SimulationInput['query'] {
-  const q: NonNullable<SimulationInput['query']> = {};
+export function querySpecToSimulationQuery(
+  spec: QuerySpec,
+): NonNullable<SimulationInput['query']> & { orderByPriority?: boolean } {
+  const q: NonNullable<SimulationInput['query']> & { orderByPriority?: boolean } = {
+    orderByKey: spec.orderBy?.kind === 'key',
+    orderByValue: spec.orderBy?.kind === 'value',
+    orderByPriority: spec.orderBy?.kind === 'priority',
+  };
   if (spec.orderBy?.kind === 'child') {
     q.orderByChild = spec.orderBy.path;
-  } else if (spec.orderBy?.kind === 'key') {
-    q.orderByKey = true;
-  } else if (spec.orderBy?.kind === 'value') {
-    q.orderByValue = true;
   }
   for (const bound of spec.bounds) {
     const val = toPrimitiveBoundValue(bound.value);
     if (bound.kind === 'equalTo') {
       q.equalTo = val;
-      q.startAt = val;
-      q.endAt = val;
     } else if (bound.kind === 'startAt' || bound.kind === 'startAfter') {
       q.startAt = val;
     } else if (bound.kind === 'endAt' || bound.kind === 'endBefore') {
@@ -79,26 +80,6 @@ export function querySpecToSimulationQuery(spec: QuerySpec): SimulationInput['qu
   return q;
 }
 
-function findMatchingNodesAtPath(root: CompiledRtdbRules, segments: string[]): CompiledRtdbRules[] {
-  let currentNodes: CompiledRtdbRules[] = [root];
-  for (const seg of segments) {
-    const nextNodes: CompiledRtdbRules[] = [];
-    for (const node of currentNodes) {
-      for (const child of node.children) {
-        const childSegs = child.path.split('/').filter(Boolean);
-        const lastSeg = childSegs[childSegs.length - 1];
-        if (!lastSeg) continue;
-        if (lastSeg === seg || lastSeg.startsWith('$')) {
-          nextNodes.push(child);
-        }
-      }
-    }
-    currentNodes = nextNodes;
-    if (currentNodes.length === 0) break;
-  }
-  return currentNodes;
-}
-
 /**
  * Plain-Error denial constructor. Matches the oracle observation: the
  * thrown value's `.name === 'Error'`, `.constructor.name === 'Error'`,
@@ -109,10 +90,20 @@ function findMatchingNodesAtPath(root: CompiledRtdbRules, segments: string[]): C
  * `firebase/database` SDK does. A `class PermissionDeniedError extends Error`
  * would leak its name and break the oracle's shape claim.
  */
-export function permissionDenied(): Error {
+export function permissionDenied(context: RtdbDenialContext): Error {
   const err = new Error('PERMISSION_DENIED: Permission denied') as Error & { code: string };
   err.code = 'PERMISSION_DENIED';
-  return err;
+  return withDenialContext(err, context);
+}
+
+/**
+ * Attach the sandbox's rule evaluation to a production-shaped denial as an
+ * own, enumerable `denialContext` property, the same property Firestore
+ * sandbox errors carry. The error's class, name, code and message are not
+ * touched, so the production shape claim holds.
+ */
+export function withDenialContext<E extends Error>(error: E, context: RtdbDenialContext): E {
+  return Object.assign(error, { denialContext: context });
 }
 
 /**
@@ -145,6 +136,9 @@ export interface RuleEvaluationDetails {
   matchedRule?: string;
   reason?: string;
   pathVariableBindings?: Record<string, string>;
+  /** Every rule the engine evaluated for the request, in evaluation order.
+   *  Absent when no engine evaluation ran. */
+  trace?: RtdbRuleEvaluation[];
   errorCode?: string;
   errorMessage?: string;
 }
@@ -169,6 +163,13 @@ export interface EvalContext {
   query?: SimulationInput['query'];
   /** Optional query spec from sandbox query execution; converted to `query` for `query.*` rule expressions. */
   querySpec?: QuerySpec;
+  /**
+   * The instant of the request, for the rules' `now`. A write passes the
+   * instant it resolved its server timestamps at, so `newData.val() == now`
+   * holds for a written `serverTimestamp()` as in production. Defaults to the
+   * sandbox clock.
+   */
+  now?: number;
 }
 
 export type RtdbDefaultPolicy = 'allow' | 'deny';
@@ -215,13 +216,8 @@ export class RulesEvaluator {
     if (spec.orderBy === null) return null;
     if (spec.orderBy.kind === 'key' || spec.orderBy.kind === 'priority') return null;
     const requiredIndex = resolveRequiredIndexKey(spec.orderBy);
-    const matchingNodes = findMatchingNodesAtPath(this.compiled, path.split('/').filter(Boolean));
-    const hasIndex = matchingNodes.some((node) =>
-      node.indexOn?.some(
-        (idx) => idx === requiredIndex || idx.split('/').filter(Boolean).join('/') === requiredIndex,
-      ),
-    );
-    return hasIndex ? null : requiredIndex;
+    const declaring = nodesDeclaringIndex(this.compiled, path.split('/').filter(Boolean), requiredIndex);
+    return declaring.length > 0 ? null : requiredIndex;
   }
 
   /**
@@ -311,7 +307,7 @@ export class RulesEvaluator {
       newData: ctx.newData,
       updates: ctx.updates,
       query: simulatedQuery,
-      now: this.clock.now(),
+      now: ctx.now ?? this.clock.now(),
     });
     if (!result.success) {
       // An engine error is reported as no-rule; user-mode callers fold it
@@ -331,6 +327,7 @@ export class RulesEvaluator {
         matchedRule: result.data.matchedRule,
         reason: result.data.reason,
         pathVariableBindings: result.data.pathVariableBindings,
+        trace: result.data.trace,
       };
     }
     return {
@@ -342,6 +339,7 @@ export class RulesEvaluator {
       matchedRule: result.data.matchedRule,
       reason: result.data.reason,
       pathVariableBindings: result.data.pathVariableBindings,
+      trace: result.data.trace,
     };
   }
 }

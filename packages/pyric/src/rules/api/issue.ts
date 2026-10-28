@@ -15,6 +15,7 @@ import type { ParseError } from '../grammar/FirestoreParser.js';
 import type { LintWarning } from '../linter/linter.js';
 import type { ValidationFinding } from '../grammar/FirestoreValidator.js';
 import type { RtdbRulesFinding } from '../rtdb/constraints/document.js';
+import type { RtdbSecurityFinding } from '../rtdb/grammar/ruleset-lint.js';
 import type { CompileLimitViolation } from '../grammar/compile-limits.js';
 
 /** Ordered by decreasing urgency. `info` is advisory. */
@@ -42,6 +43,9 @@ export interface RuleIssue {
   rule?: '.read' | '.write' | '.validate';
   /** 1-indexed source line, when known. */
   line?: number;
+  /** The Realtime Database rules file the issue is in, as `firebase.json`
+   *  names it, for a ruleset read with `rtdbRules.fromFirebaseJson`. */
+  file?: string;
   /** Suggested remediation, verbatim, when the producing stage offers one. */
   fix?: string;
   origin: RuleIssueOrigin;
@@ -70,12 +74,26 @@ export function compileLimitViolationToIssue(violation: CompileLimitViolation): 
   return issue;
 }
 
+const COMPILE_LIMIT_LINT_CODES: ReadonlySet<string> = new Set([
+  'LET_LIMIT',
+  'NESTING_DEPTH',
+  'SLASH_STARTS_PATH',
+  'GLOB_MATCH_COUNT',
+  'CALL_DEPTH',
+  'UNSUPPORTED_RULES_VERSION',
+  'UNRESOLVED_MODULES',
+  'INVALID_REGEX_PATTERN',
+  'FUNCTION_REDEFINED',
+]);
+
 export function lintWarningToIssue(warning: LintWarning): RuleIssue {
+  const isCompileLimit =
+    warning.severity === 'error' && COMPILE_LIMIT_LINT_CODES.has(warning.rule);
   const issue: RuleIssue = {
     code: warning.rule,
     severity: warning.severity,
     message: warning.message,
-    origin: 'lint',
+    origin: isCompileLimit ? 'parse' : 'lint',
   };
   if (warning.location?.matchPath) issue.path = warning.location.matchPath;
   if (warning.fix) issue.fix = warning.fix;
@@ -98,6 +116,15 @@ export function validationFindingToIssue(finding: ValidationFinding): RuleIssue 
     message: finding.message,
     path: finding.path,
     origin: 'validate',
+  };
+}
+
+/** An RTDB security finding is a validator finding on one rule, with a fix. */
+export function rtdbSecurityFindingToIssue(finding: RtdbSecurityFinding): RuleIssue {
+  return {
+    ...validationFindingToIssue(finding),
+    rule: finding.rule,
+    fix: finding.fix,
   };
 }
 

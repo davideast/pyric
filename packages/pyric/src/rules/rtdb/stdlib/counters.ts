@@ -1,0 +1,97 @@
+/**
+ * `counters`: numbers that move by a known step, only improve, or advance
+ * one side of a score at a time.
+ *
+ * Placement: `incrementedBy`, `changedBy` and `improved` read the node they
+ * are placed on, so they go in the counter node's `.validate`.
+ * `oneIncremented` goes in the `.validate` of the node that holds the
+ * counters, such as a score with `host` and `guest`.
+ *
+ * `.validate` runs for every node a write carries, even when the value did
+ * not change. A set of a parent that carries an unchanged counter therefore
+ * runs `incrementedBy` and is refused. Write a step-checked counter on its
+ * own, in a set of the counter or an update that names it, or use
+ * `changedBy` with a range that includes 0.
+ *
+ * `.validate` does not run on a delete, so a counter is reset by deleting it
+ * unless deletes are refused where the counter lives (with
+ * `lifecycle.noDelete()` on the counter node's `.write`), or a granting
+ * parent `.write` requires the child to remain (`newData.child('<field>').exists()`
+ * or `newData.hasChildren([...])`): `lifecycle.noDelete()` on a parent alone
+ * still lets a client delete one child counter while sibling fields exist.
+ */
+import type { Expr } from '../constraints/types.js';
+import { all, any, expr, fieldName, lit } from '../constraints/compose.js';
+import { dataVal, newDataVal } from '../constraints/data.js';
+import { isNew } from '../constraints/atoms.js';
+import { finite, sameAsBefore } from './expr.js';
+
+/**
+ * The written number is the stored one plus `n`. With `start`, a create
+ * must write `start`; without it, a create is refused. The stored value is
+ * required to be a number before it is added to, so the rule never adds to
+ * null or concatenates onto a string.
+ */
+export function incrementedBy(n: number, options: { start?: number } = {}): Expr {
+  finite('incrementedBy', 'n', n);
+  if (n === 0) throw new Error('incrementedBy: n must not be 0.');
+  const step = all(expr('data.isNumber()'), expr(`newData.val() == data.val() + ${lit(n)}`));
+  if (options.start === undefined) return step;
+  finite('incrementedBy', 'start', options.start);
+  return any(all(isNew(), expr(`newData.val() == ${lit(options.start)}`)), step);
+}
+
+/** The written number differs from the stored one by `min` to `max`, inclusive. A create is refused. */
+export function changedBy(min: number, max: number): Expr {
+  finite('changedBy', 'min', min);
+  finite('changedBy', 'max', max);
+  if (min > max) throw new Error(`changedBy: min ${min} is greater than max ${max}.`);
+  return all(
+    expr('newData.isNumber()'),
+    expr('data.isNumber()'),
+    expr(`newData.val() - data.val() >= ${lit(min)}`),
+    expr(`newData.val() - data.val() <= ${lit(max)}`),
+  );
+}
+
+/**
+ * The written number is strictly greater ('up') or smaller ('down') than the
+ * stored one. The first value written passes. Use it for a best score or a
+ * fastest time.
+ */
+export function improved(direction: 'up' | 'down'): Expr {
+  if (direction !== 'up' && direction !== 'down') {
+    throw new Error(`improved: direction must be 'up' or 'down', got '${String(direction)}'.`);
+  }
+  const op = direction === 'up' ? '>' : '<';
+  return all(
+    expr('newData.isNumber()'),
+    any(isNew(), all(expr('data.isNumber()'), expr(`newData.val() ${op} data.val()`))),
+  );
+}
+
+/**
+ * Exactly one of the child counters `fields` grows by `n` and the others keep
+ * their values. With `start`, a create writes every field as `start`.
+ */
+export function oneIncremented(fields: string[], n: number, options: { start?: number } = {}): Expr {
+  if (fields.length === 0) throw new Error('oneIncremented: pass at least one field.');
+  for (const f of fields) fieldName('oneIncremented', f);
+  if (new Set(fields).size !== fields.length) {
+    throw new Error('oneIncremented: fields must not contain duplicates.');
+  }
+  finite('oneIncremented', 'n', n);
+  if (n === 0) throw new Error('oneIncremented: n must not be 0.');
+  const steps = fields.map((f) =>
+    all(
+      expr(`data.child(${lit(f)}).isNumber()`),
+      expr(`${newDataVal(f)} == ${dataVal(f)} + ${lit(n)}`),
+      ...fields.filter((other) => other !== f).map((other) => sameAsBefore(other)),
+    ));
+  if (options.start === undefined) return any(...steps);
+  const start = lit(finite('oneIncremented', 'start', options.start));
+  return any(
+    all(isNew(), ...fields.map((f) => expr(`${newDataVal(f)} == ${start}`))),
+    ...steps,
+  );
+}

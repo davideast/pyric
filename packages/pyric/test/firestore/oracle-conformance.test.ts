@@ -27,10 +27,19 @@
  * un-checked.
  */
 import { describe, it, expect } from 'bun:test';
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
 import { FirebaseError } from '../../src/app/index.js';
+import {
+  SEED_DOCUMENT,
+  WRITE_CASES,
+  applyWrite,
+  predicateDocId,
+  writeProjectionRules,
+  type WriteSdk,
+} from '../../../../packages/conformance/src/firestore-write-request-resource-cases.ts';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
@@ -64,6 +73,7 @@ import {
   arrayUnion,
   arrayRemove,
   deleteField,
+  FieldPath,
   getCountFromServer,
   queryEqual,
   snapshotEqual,
@@ -99,10 +109,17 @@ const NOT_APPLICABLE: Record<string, string> = {
 // read so the completeness test can fail an observation that is only mentioned in
 // a comment or loaded but never asserted. See
 // `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+// SDK behavior scenarios replay in `oracle-captures/`, one file per
+// observation; the directory is the index.
+const CAPTURE_REPLAYS = join(import.meta.dir, 'oracle-captures');
+
 const obsGate = createObservationGate({
   dir: OBS_DIR,
   match: (f) => f.startsWith('firestore-'),
   notApplicable: NOT_APPLICABLE,
+  siblingSources: readdirSync(CAPTURE_REPLAYS)
+    .filter((file) => file.endsWith('.test.ts'))
+    .map((file) => join(CAPTURE_REPLAYS, file)),
 });
 
 function load(name: string): Record<string, unknown> {
@@ -483,6 +500,65 @@ describe('oracle conformance (firestore)', () => {
     expect(data.a.b).toBe(obs.nestedUpdated as number);
     expect(data.a.c).toBe(obs.siblingPreserved as number);
     expect('a.b' in data).toBe(obs.literalDotKeyPresent as boolean);
+  });
+
+  it('firestore-write-request-resource', async () => {
+    const obs = load('firestore-write-request-resource.json') as {
+      seed: Record<string, unknown>;
+      cases: Array<{
+        case: string;
+        write: unknown;
+        predicates: Array<{ id: string; expr: string; verdict: 'allow' | 'deny' }>;
+      }>;
+    };
+    expect(obs.seed).toEqual(JSON.parse(JSON.stringify(SEED_DOCUMENT)));
+    // The capture and this replay share one case table, so every recorded
+    // predicate is the rule text deployed in production.
+    expect(obs.cases.map((c) => [c.case, c.predicates.map((p) => [p.id, p.expr])])).toEqual(
+      WRITE_CASES.map((c) => [c.id, c.predicates.map((p) => [p.id, p.expr])]),
+    );
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /__pyric_firestore_cdd/t {
+${writeProjectionRules()}
+    }
+  }
+}`;
+    const sdk = { updateDoc, setDoc, deleteField, FieldPath } as unknown as WriteSdk;
+    const sandboxVerdicts = new Map<string, 'allow' | 'deny'>();
+    const db = freshDb(rules);
+    const seeds: Record<string, Record<string, unknown>> = {};
+    for (const c of WRITE_CASES) {
+      for (const p of c.predicates) {
+        seeds[`__pyric_firestore_cdd/t/wrr/${predicateDocId(c.id, p.id)}`] = JSON.parse(
+          JSON.stringify(SEED_DOCUMENT),
+        );
+      }
+    }
+    seedDb(db, seeds);
+    for (const c of WRITE_CASES) {
+      for (const p of c.predicates) {
+        const path = `__pyric_firestore_cdd/t/wrr/${predicateDocId(c.id, p.id)}`;
+        let verdict: 'allow' | 'deny' = 'allow';
+        try {
+          await applyWrite(sdk, doc(db, path), c.write);
+        } catch (e) {
+          expect((e as { code?: unknown }).code).toBe('permission-denied');
+          verdict = 'deny';
+        }
+        sandboxVerdicts.set(`${c.id}/${p.id}`, verdict);
+      }
+    }
+    // Every recorded verdict replays, including the field-and-value
+    // `updateDoc(ref, new FieldPath('a.b'), 'x')` cases whose segments
+    // contain a literal dot.
+    for (const c of obs.cases) {
+      for (const p of c.predicates) {
+        const key = `${c.case}/${p.id}`;
+        expect([key, sandboxVerdicts.get(key)]).toEqual([key, p.verdict]);
+      }
+    }
   });
 
   // ── scalar round-trips ───────────────────────────────────────────────
@@ -913,6 +989,58 @@ describe('oracle conformance (firestore)', () => {
     expect(md.hasPendingWrites).toBe(event0.hasPendingWrites);
     expect(md.fromCache).toBe(event0.fromCache);
     unsub();
+  });
+
+  it('firestore-collection-group-listener', async () => {
+    const obs = load('firestore-collection-group-listener.json') as {
+      collectionGroup: string;
+      writes: Record<'ready' | 'nested' | 'root' | 'sibling', string>;
+      fires: { paths: string[]; changes: string[] }[];
+      siblingGroupFires: number;
+      siblingGroupErrors: { code: string }[];
+    };
+    const run = 'r0';
+    const real = (path: string) => path.split('<run>').join(run);
+    const redact = (path: string) => path.split(run).join('<run>');
+    const group = real(obs.collectionGroup);
+    const sibling = `cdd_other_${run}`;
+    const sandbox = initializeSandbox();
+    seedDocuments(sandbox, { [real(obs.writes.ready)]: { ready: true } });
+    // The probe rules the capture deployed for these two collection ids.
+    setRules(sandbox, `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{path=**}/${group}/{id} { allow read, write: if request.auth != null; }
+    match /__pyric_firestore_cdd/${run}/users/{uid}/${sibling}/{id} { allow read, write: if request.auth != null; }
+  }
+}`);
+    const db = getFirestore(sandbox.withAuth({ uid: 'probe' }));
+    const fires: { paths: string[]; changes: string[] }[] = [];
+    const siblingErrors: unknown[] = [];
+    let siblingFires = 0;
+    const stops = [
+      onSnapshot(collectionGroup(db, group), (s) => {
+        const snap = s as QuerySnapshot;
+        fires.push({
+          paths: snap.docs.map((d) => redact(d.ref.path)).sort(),
+          changes: snap.docChanges().map((c) => `${c.type} ${redact(c.doc.ref.path)}`),
+        });
+      }),
+      onSnapshot(collectionGroup(db, sibling), () => { siblingFires += 1; }, (e) => siblingErrors.push(e)),
+    ];
+    try {
+      await settle();
+      for (const key of ['nested', 'root', 'sibling'] as const) {
+        await setDoc(doc(db, real(obs.writes[key])), { n: 1 });
+        await settle();
+      }
+      expect(fires).toEqual(obs.fires.map(({ paths, changes }) => ({ paths, changes })));
+      expect(siblingFires).toBe(obs.siblingGroupFires);
+      expect(siblingErrors.map((e) => (e as { code: string }).code))
+        .toEqual(obs.siblingGroupErrors.map((e) => e.code));
+    } finally {
+      for (const stop of stops) stop();
+    }
   });
 
   it('firestore-row-83-unsubscribe-stops-fires', async () => {

@@ -123,6 +123,17 @@ const ADMIN = { actAs: { mode: 'admin' } } as const;
 
 // ─── Byte ops ───────────────────────────────────────────────────────────────
 
+/** Polls `read` until it finds the object, for at most two seconds. */
+async function untilStored(read: () => Promise<unknown>): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const found = await read().then(() => true, () => false);
+    if (found) return;
+    if (Date.now() > deadline) throw new Error('the object was never stored');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 describe('storage worker ops — putBytes / getBytes / deleteObject', () => {
   it('round-trips non-UTF8 binary byte-for-byte (base64 payloads)', async () => {
     const ctx = makeCtx();
@@ -330,5 +341,117 @@ describe('storage worker ops — actAs lens against page-configured rules', () =
 
     // Admin still bypasses the owner scoping entirely.
     await opOk(ctx, { method: 'storage.getMetadata', path: 'users/ada/notes.txt', ...ADMIN });
+  });
+});
+
+describe('storage worker ops: download tokens set by an upload', () => {
+  const text = (value: string) => bytesToBase64(new TextEncoder().encode(value));
+
+  it('the admin lens creates the object with its download tokens, apart from custom metadata', async () => {
+    const ctx = makeCtx();
+    await opOk(ctx, {
+      method: 'storage.putBytes',
+      path: 'public/hello.txt',
+      dataB64: text('hello'),
+      metadata: { metadata: { note: 'kept' } },
+      downloadTokens: 'tok-1',
+      ...ADMIN,
+    });
+    const meta = (await opOk(ctx, { method: 'storage.getMetadata', path: 'public/hello.txt', ...ADMIN })) as {
+      downloadTokens?: string;
+      customMetadata?: Record<string, string>;
+      metageneration: string;
+    };
+    expect(meta.downloadTokens).toBe('tok-1');
+    expect(meta.customMetadata).toEqual({ note: 'kept' });
+    expect(meta.metageneration).toBe('1');
+    const { path } = (await opOk(ctx, { method: 'storage.getDownloadURL', path: 'public/hello.txt', ...ADMIN })) as { path: string };
+    expect(new URL(path, 'http://host').searchParams.get('token')).toBe('tok-1');
+  });
+
+  it('a chunked upload on the admin lens keeps its download tokens to finishUpload', async () => {
+    const ctx = makeCtx();
+    const { uploadId } = (await opOk(ctx, {
+      method: 'storage.beginUpload',
+      path: 'public/parts.bin',
+      size: 5,
+      downloadTokens: 'tok-parts',
+      ...ADMIN,
+    })) as { uploadId: string };
+    await opOk(ctx, { method: 'storage.putPart', uploadId, partIndex: 0, dataB64: text('hello'), ...ADMIN });
+    await opOk(ctx, { method: 'storage.finishUpload', uploadId, ...ADMIN });
+    const meta = (await opOk(ctx, { method: 'storage.getMetadata', path: 'public/parts.bin', ...ADMIN })) as { downloadTokens?: string };
+    expect(meta.downloadTokens).toBe('tok-parts');
+  });
+
+  it('refuses download tokens on any lens but admin, as no client SDK can set them', async () => {
+    const ctx = makeCtx();
+    for (const actAs of [undefined, { mode: 'anon' }, { mode: 'as', uid: 'ada' }]) {
+      const lens = actAs === undefined ? {} : { actAs };
+      const put = await opFail(ctx, { method: 'storage.putBytes', path: 'public/x.txt', dataB64: text('x'), downloadTokens: 'tok', ...lens });
+      expect(put.code).toBe('storage/unauthorized');
+      const begun = await opFail(ctx, { method: 'storage.beginUpload', path: 'public/x.txt', size: 1, downloadTokens: 'tok', ...lens });
+      expect(begun.code).toBe('storage/unauthorized');
+    }
+    expect(await opFail(ctx, { method: 'storage.getMetadata', path: 'public/x.txt', ...ADMIN })).toMatchObject({ code: 'storage/object-not-found' });
+  });
+
+  it('worker client storage honors maxDownloadSizeBytes truncation, double-slash normalization, reference.bucket, and paused-upload cancel rollback (ST-ENF-3, ST-ENF-4)', async () => {
+    const {
+      getBlob: workerGetBlob,
+      getBytes: workerGetBytes,
+      getMetadata: workerGetMetadata,
+      getStorage: workerGetStorage,
+      ref: workerRef,
+      uploadBytes: workerUploadBytes,
+      uploadBytesResumable: workerUploadBytesResumable,
+    } = await import('../../../src/serve/worker/client/storage.js');
+    const { connectClient } = await import('./integration-support.js');
+
+    const { db: clientDb } = await connectClient();
+    const storageA = workerGetStorage(clientDb, undefined, 'bucket-a');
+    const storageB = workerGetStorage(clientDb, undefined, 'bucket-b');
+
+    // ST-ENF-4a & 4b: getBytes and getBlob with maxDownloadSizeBytes truncate to prefix
+    const payloadRef = workerRef(storageA, 'ten-bytes.bin');
+    await workerUploadBytes(payloadRef, new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]));
+
+    const truncatedBuf = await workerGetBytes(payloadRef, 4);
+    expect([...new Uint8Array(truncatedBuf)]).toEqual([0, 1, 2, 3]);
+
+    const truncatedBlob = await workerGetBlob(payloadRef, 4);
+    expect(truncatedBlob.size).toBe(4);
+    expect([...new Uint8Array(await truncatedBlob.arrayBuffer())]).toEqual([0, 1, 2, 3]);
+
+    // ST-ENF-4c: ref() collapses repeated internal slashes
+    const doubleSlashRef = workerRef(storageA, '//media//clips//take.wav//');
+    expect(doubleSlashRef.fullPath).toBe('media/clips/take.wav');
+
+    // ST-ENF-4d(2): uploadBytes and getMetadata preserve reference.bucket
+    const secondaryRef = workerRef(storageB, 'only-in-b.txt');
+    const uploadedSnapshot = await workerUploadBytes(secondaryRef, new Uint8Array([42]));
+    expect(uploadedSnapshot.metadata.bucket).toBe('bucket-b');
+    const fetchedMeta = await workerGetMetadata(secondaryRef);
+    expect(fetchedMeta.bucket).toBe('bucket-b');
+
+    // ST-ENF-3d: pause() followed by cancel() rolls back the held upload.
+    // The commit is sent at the call and cannot be recalled, so the task
+    // rejects only once the object it stored is gone, whether the commit
+    // settled before the cancel or after it (#1137).
+    const pausedCancelRef = workerRef(storageA, 'paused-then-canceled.bin');
+    const workerTask = workerUploadBytesResumable(pausedCancelRef, new Uint8Array([5, 6, 7, 8]));
+    expect(workerTask.pause()).toBe(true);
+    expect(workerTask.cancel()).toBe(true);
+    await expect(Promise.resolve(workerTask)).rejects.toMatchObject({ code: 'storage/canceled' });
+    await expect(workerGetBytes(pausedCancelRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
+
+    // The same once the paused commit has stored the object and is held for resume.
+    const heldCancelRef = workerRef(storageA, 'held-then-canceled.bin');
+    const heldTask = workerUploadBytesResumable(heldCancelRef, new Uint8Array([9]));
+    expect(heldTask.pause()).toBe(true);
+    await untilStored(() => workerGetBytes(heldCancelRef));
+    expect(heldTask.cancel()).toBe(true);
+    await expect(Promise.resolve(heldTask)).rejects.toMatchObject({ code: 'storage/canceled' });
+    await expect(workerGetBytes(heldCancelRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
   });
 });

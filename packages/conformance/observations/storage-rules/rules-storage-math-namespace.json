@@ -8,6 +8,10 @@
   "observedAt": "2026-09-28T03:39:09.818Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "bcc4240dbb493adad46806b0227d639400261d702e0a51825100bc1b795c8c38"
+  },
   "behavior": {
     "math.abs(-9223372036854775807 - 1) < 0 && math.abs(-9223372036854775807 - 1) == -9223372036854775807 - 1 → ALLOW": "ALLOW",
     "math.abs(-2) == 2 && math.abs(-2) is int && math.abs(1) is int && math.abs(-2.5) == 2.5 && math.abs(-2.5) is float && math.abs(-1.0) is float → ALLOW": "ALLOW",

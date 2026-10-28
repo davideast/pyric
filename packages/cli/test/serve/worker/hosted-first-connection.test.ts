@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { getHostedFirestore, type HostedConnectionState } from '../../../src/serve/worker/client/websocket-connection.js';
 import { rawRpc, nextId } from '../../../src/serve/worker/client/core.js';
+import { setHoldDeadlineForTesting } from '../../../src/serve/worker/client/held-messages.js';
 import type { ClientDb } from '../../../src/serve/worker/client/handles.js';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
@@ -10,7 +11,10 @@ import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 // at page load and reachable afterwards.
 
 const cleanups: Array<() => void> = [];
-afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+  setHoldDeadlineForTesting(undefined);
+});
 
 function reservePort(): number {
   const probe = Bun.serve({ port: 0, fetch: () => new Response('probe') });
@@ -86,22 +90,43 @@ test('a first connection that fails is retried until the host is reachable', asy
   expect(reply).toBe('done');
 });
 
-test('operations issued before the first attach fail once and are not replayed, while subscriptions resume', async () => {
+test('operations issued before the first attach are held across failed attempts and sent once, while subscriptions resume', async () => {
+  const port = reservePort();
+  const received: BridgeMessage[] = [];
+  const { db, states } = open(port, { retryInitialConnection: true });
+  const opId = nextId();
+  const held = rawRpc(db.port, { t: 'op', id: opId, method: 'ping' } as unknown as InboundMessage);
+  db.port.postMessage({ t: 'sub', subId: 'sub-first', target: 'authState' } as unknown as InboundMessage);
+  await until(() => states.includes('interrupted'));
+  startHost(port, received);
+  expect(await held).toBe('done');
+  // The client resumes subscriptions after it reports the attach. Its socket
+  // is ordered, so once a later op is answered the host has received every
+  // message the client sent before it.
+  expect(await rawRpc(db.port, { t: 'op', id: nextId(), method: 'ping' } as unknown as InboundMessage)).toBe('done');
+  const workerMessages = received
+    .filter(message => message.type === 'worker-message')
+    .map(message => (message as { message: { t: string; id?: string; subId?: string } }).message);
+  expect(workerMessages.filter(message => message.id === opId)).toHaveLength(1);
+  expect(workerMessages.filter(message => message.t === 'sub' && message.subId === 'sub-first')).toHaveLength(1);
+});
+
+test('an operation issued before the first attach and held past the deadline fails once and is never sent', async () => {
+  setHoldDeadlineForTesting(200);
   const port = reservePort();
   const received: BridgeMessage[] = [];
   const { db, states } = open(port, { retryInitialConnection: true });
   const opId = nextId();
   const failed = rawRpc(db.port, { t: 'op', id: opId, method: 'ping' } as unknown as InboundMessage)
-    .then(() => 'resolved', (error: { code?: string }) => error.code);
-  db.port.postMessage({ t: 'sub', subId: 'sub-first', target: 'authState' } as unknown as InboundMessage);
-  expect(await failed).toBe('unavailable');
+    .then(() => 'resolved', (error: { code?: string; message: string }) => `${error.code}: ${error.message}`);
+  expect(await failed).toBe('unavailable: The hosted sandbox connection was not restored within 10 seconds. The request was not sent.');
   startHost(port, received);
   await until(() => states.includes('attached'));
+  expect(await rawRpc(db.port, { t: 'op', id: nextId(), method: 'ping' } as unknown as InboundMessage)).toBe('done');
   const workerMessages = received
     .filter(message => message.type === 'worker-message')
-    .map(message => (message as { message: { t: string; id?: string; subId?: string } }).message);
+    .map(message => (message as { message: { id?: string } }).message);
   expect(workerMessages.some(message => message.id === opId)).toBe(false);
-  expect(workerMessages.some(message => message.t === 'sub' && message.subId === 'sub-first')).toBe(true);
 });
 
 test('without retryInitialConnection the first failure closes the port', async () => {

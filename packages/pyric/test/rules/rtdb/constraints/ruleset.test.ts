@@ -1,9 +1,13 @@
 import { describe, test, expect } from 'bun:test';
+import { serializeRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
+import type { PathDef } from '../../../../src/rules/rtdb/constraints/types.js';
 import { z } from 'zod';
 import { ruleset } from '../../../../src/rules/rtdb/constraints/ruleset.js';
-import { all, any, deny, always, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { all, any, deny, always, allow, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
 import { authenticated, ownPath, ownField, isNew } from '../../../../src/rules/rtdb/constraints/atoms.js';
 import { ownerOrNew, pathOwnerOnly, hasRole, required } from '../../../../src/rules/rtdb/constraints/policies.js';
+import { defineRtdbRules } from '../../../../src/rules/rtdb/constraints/document.js';
+import { rtdbRules } from '../../../../src/rules/index.js';
 
 describe('ruleset()', () => {
   describe('declarative overload', () => {
@@ -59,14 +63,14 @@ describe('ruleset()', () => {
       const uidNode = root.children.find(c => c.path === '/users')!.children[0];
       // Parent has validate from schema
       expect(uidNode.validate?.raw).toContain('newData.hasChildren()');
-      expect(uidNode.validate?.raw).toContain('newData.hasChild("name")');
+      expect(uidNode.validate?.raw).toContain("newData.hasChild('name')");
       // Children have type checks
       const nameChild = uidNode.children.find(c => c.path.endsWith('/name'));
       expect(nameChild).toBeDefined();
       expect(nameChild!.validate?.raw).toBe('newData.isString()');
       const roleChild = uidNode.children.find(c => c.path.endsWith('/role'));
       expect(roleChild).toBeDefined();
-      expect(roleChild!.validate?.raw).toContain('newData.val() == "user"');
+      expect(roleChild!.validate?.raw).toContain("newData.val() == 'user'");
     });
 
     test('fieldConstraints merge with schema', () => {
@@ -90,6 +94,154 @@ describe('ruleset()', () => {
       expect(authorChild!.validate?.raw).toContain('newData.val() == auth.uid');
     });
 
+    test('compiles nested z.object at depth >= 3 and enforces leaf validation in simulate (FUZ-7)', () => {
+      const doc = defineRtdbRules({
+        paths: {
+          '/items/$id': {
+            write: allow(),
+            schema: z.object({
+              level1: z.object({
+                level2: z.object({
+                  level3: z.string(),
+                }),
+              }),
+            }),
+          },
+        },
+      });
+      const json = rtdbRules(doc).toJSON() as any;
+      expect(json.rules.items.$id.level1.level2.level3['.validate']).toBe('newData.isString()');
+
+      const report = rtdbRules(doc).simulate([
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { level1: { level2: { level3: 12345 } } },
+          expectation: 'DENY',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { level1: { level2: { level3: 'ok' } } },
+          expectation: 'ALLOW',
+        },
+      ]);
+      expect(report.cases.map((c) => c.decision)).toEqual(['DENY', 'ALLOW']);
+    });
+
+    test('throws when fieldConstraints is provided without schema or names unknown fields (CON-1)', () => {
+      expect(() =>
+        ruleset({
+          '/alone/$id': {
+            write: allow(),
+            fieldConstraints: { title: [expr('newData.isString()')] },
+          },
+        }),
+      ).toThrow(/fieldConstraints/);
+
+      expect(() =>
+        ruleset({
+          '/users/$uid': {
+            write: allow(),
+            schema: z.object({ name: z.string() }),
+            fieldConstraints: { unknownField: [expr('newData.isString()')] },
+          },
+        }),
+      ).toThrow(/unknownField/);
+    });
+
+    test('AND-composes schema with PathDef.validate on both parent and child paths (CON-1 / FUZ-7)', () => {
+      const doc = defineRtdbRules({
+        paths: {
+          '/items/$id': {
+            write: allow(),
+            validate: expr("newData.child('name').val() != 'forbidden'"),
+            schema: z.object({ name: z.string(), count: z.number() }),
+          },
+          '/items/$id/name': {
+            validate: expr('newData.val().length >= 2'),
+          },
+        },
+      });
+      const json = rtdbRules(doc).toJSON() as any;
+      expect(json.rules.items.$id['.validate']).toBe(
+        "newData.child('name').val() != 'forbidden' && newData.hasChildren() && newData.hasChild('name') && newData.hasChild('count')",
+      );
+      expect(json.rules.items.$id.name['.validate']).toBe(
+        'newData.isString() && newData.val().length >= 2',
+      );
+
+      const report = rtdbRules(doc).simulate([
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'ok', count: 1 },
+          expectation: 'ALLOW',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'ok' },
+          expectation: 'DENY',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'x', count: 1 },
+          expectation: 'DENY',
+        },
+        {
+          operation: 'write',
+          path: '/items/1',
+          auth: { uid: 'u1', token: {} },
+          newData: { name: 'forbidden', count: 1 },
+          expectation: 'DENY',
+        },
+      ]);
+      expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'DENY', 'DENY']);
+    });
+
+    test('normalizes schema child paths at root / so rtdbRules(doc) and rtdbRules(doc.toJSON()) agree (MET-6)', () => {
+      const rootSchemaDoc = defineRtdbRules({
+        paths: {
+          '/': {
+            write: allow(),
+            schema: z.object({ a: z.string() }),
+          },
+          '/a': {
+            read: authenticated(),
+          },
+        },
+      });
+
+      const direct = rtdbRules(rootSchemaDoc);
+      const roundTrip = rtdbRules(rootSchemaDoc.toJSON());
+
+      expect(rootSchemaDoc.toJSON()).toEqual({
+        rules: {
+          '.write': true,
+          '.validate': "newData.hasChildren() && newData.hasChild('a')",
+          a: {
+            '.read': 'auth != null',
+            '.validate': 'newData.isString()',
+          },
+        },
+      });
+
+      const cases = [
+        { operation: 'read' as const, path: '/a', auth: { uid: 'u1', token: {} }, expectation: 'ALLOW' as const },
+        { operation: 'write' as const, path: '/a', auth: { uid: 'u1', token: {} }, newData: 123, expectation: 'DENY' as const },
+        { operation: 'write' as const, path: '/a', auth: { uid: 'u1', token: {} }, newData: 'hello', expectation: 'ALLOW' as const },
+      ];
+      expect(direct.simulate(cases).cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'ALLOW']);
+      expect(roundTrip.simulate(cases).cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY', 'ALLOW']);
+    });
+
     test('indexOn propagates to the collection node', () => {
       const compiled = ruleset({
         '/': { read: deny(), write: deny() },
@@ -102,6 +254,39 @@ describe('ruleset()', () => {
       const root = compiled;
       const postsNode = root.children.find(c => c.path === '/posts');
       expect(postsNode?.indexOn).toEqual(['createdAt', 'author']);
+    });
+
+    test('indexOn on a non-wildcard path lands on that node directly', () => {
+      const compiled = ruleset({
+        '/': { read: deny(), write: deny(), indexOn: ['.value'] },
+        '/jobs': {
+          read: authenticated(),
+          write: authenticated(),
+          indexOn: ['runAt'],
+        },
+      });
+      expect(compiled.indexOn).toEqual(['.value']);
+      const jobsNode = compiled.children.find(c => c.path === '/jobs');
+      expect(jobsNode?.indexOn).toEqual(['runAt']);
+      expect(jobsNode?.children).toEqual([]);
+    });
+
+    test('identical indexOn on parent and wildcard child is idempotent', () => {
+      const compiled = ruleset({
+        '/jobs': { read: authenticated(), indexOn: ['runAt'] },
+        '/jobs/$jobId': { write: authenticated(), indexOn: ['runAt'] },
+      });
+      const jobsNode = compiled.children.find(c => c.path === '/jobs');
+      expect(jobsNode?.indexOn).toEqual(['runAt']);
+    });
+
+    test('conflicting indexOn declarations targeting the same container throw', () => {
+      expect(() =>
+        ruleset({
+          '/jobs': { read: authenticated(), indexOn: ['runAt'] },
+          '/jobs/$jobId': { write: authenticated(), indexOn: ['priority'] },
+        }),
+      ).toThrow(/Conflicting indexOn declarations for "\/jobs"/);
     });
 
     test('explicit children nest correctly', () => {
@@ -127,6 +312,54 @@ describe('ruleset()', () => {
       expect(commentNode.write?.raw).toBeDefined();
       expect(commentNode.validate?.raw).toContain('newData.hasChildren()');
     });
+
+    test('normalizes trailing and duplicate slashes so rules are applied to the normalized node', () => {
+      const trailing = ruleset({
+        '/a/': { read: authenticated(), write: deny() },
+      });
+      const trailingNode = trailing.children.find(c => c.path === '/a');
+      expect(trailingNode).toBeDefined();
+      expect(trailingNode?.read?.raw).toBe('auth != null');
+      expect(trailingNode?.write?.raw).toBe('false');
+
+      const doubleSlash = ruleset({
+        '//a': { read: authenticated(), write: deny() },
+      });
+      const doubleSlashNode = doubleSlash.children.find(c => c.path === '/a');
+      expect(doubleSlashNode).toBeDefined();
+      expect(doubleSlashNode?.read?.raw).toBe('auth != null');
+      expect(doubleSlashNode?.write?.raw).toBe('false');
+    });
+
+    test('throws on duplicate normalized keys in record form', () => {
+      expect(() =>
+        ruleset({
+          '/a': { read: deny() },
+          '/a/': { write: always() },
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a"');
+
+      expect(() =>
+        ruleset({
+          '/a': { read: deny() },
+          '//a': { write: always() },
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a"');
+    });
+
+    test('throws when nested children collide with a top-level path', () => {
+      expect(() =>
+        ruleset({
+          '/a': {
+            read: deny(),
+            children: {
+              '/b': { read: deny(), write: deny() },
+            },
+          },
+          '/a/b': { read: always() },
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a/b"');
+    });
   });
 
   describe('callback overload', () => {
@@ -143,6 +376,15 @@ describe('ruleset()', () => {
       const rootCb = compiledCallback;
       expect(rootObj.read?.raw).toBe(rootCb.read?.raw);
       expect(rootObj.children.length).toBe(rootCb.children.length);
+    });
+
+    test('throws on duplicate path declarations in callback form', () => {
+      expect(() =>
+        ruleset(({ path }) => {
+          path('/a', { read: deny(), write: deny() });
+          path('/a', { read: always() });
+        }),
+      ).toThrow('Duplicate ruleset path declaration for "/a"');
     });
   });
 
@@ -171,5 +413,31 @@ describe('ruleset()', () => {
       expect(commentNode.pathVariables).toContain('$postId');
       expect(commentNode.pathVariables).toContain('$commentId');
     });
+  });
+});
+
+describe('rule values and unknown keys (CS-2, CS-3)', () => {
+  const compile = (def: PathDef) => serializeRtdbRules(ruleset({ '/a': def })).rules as Record<string, Record<string, unknown>>;
+
+  test('validate: false, read: false and write: false are kept as boolean rules', () => {
+    const rules = compile({ read: false as never, write: false as never, validate: false as never });
+    expect(rules.a).toMatchObject({ '.read': false, '.write': false, '.validate': false });
+  });
+  test('an empty rule string is refused', () => {
+    expect(() => compile({ write: 'true', validate: '' })).toThrow(/validate/);
+  });
+  test('a boolean child definition, as validation.shape may carry, is that child\'s .validate', () => {
+    const rules = serializeRtdbRules(ruleset({ '/r': { children: { '/a': true as never } } })).rules as Record<string, Record<string, Record<string, unknown>>>;
+    expect(rules.r!.a).toMatchObject({ '.validate': true });
+  });
+  test('a child definition that is neither an object nor a boolean is refused', () => {
+    expect(() => compile({ children: { '/b': '' as never } })).toThrow(/\/a\/b/);
+  });
+  test('an unknown key is refused, naming the nearest valid key', () => {
+    expect(() => compile({ write: 'true', valdiate: 'newData.isString()' } as PathDef)).toThrow(/valdiate.*validate/);
+    expect(() => compile({ children: { '/b': { raed: 'true' } as PathDef } })).toThrow(/raed.*read/);
+  });
+  test('an unknown key with no near match is still named', () => {
+    expect(() => compile({ zzzzzzzz: 1 } as PathDef)).toThrow(/zzzzzzzz/);
   });
 });

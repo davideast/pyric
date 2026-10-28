@@ -28,7 +28,7 @@ function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
   const session = {
     summary: { rules: { firestore: { sourcePath: MAIN }, database: { sourcePath: null } } },
     firestoreRulesFiles: () => [MAIN, ...files.current],
-    databaseRulesFile: () => '/project/database.rules.json',
+    databaseRulesFiles: () => ['/project/database.rules.json'],
     storageRulesFile: () => STORAGE,
     reloadFirestoreRules: async () => {
       reloads += 1;
@@ -36,7 +36,7 @@ function fakes(files: { current: string[] }, results: ReloadKind[] = []) {
       if (kind === 'rejected') return { kind, error: new Error('module resolution failed') };
       return { kind, rulesHash: 'h', clients: 1 };
     },
-    reloadDatabaseRules: async () => ({ kind: 'not-configured' }),
+    reloadDatabaseRules: async () => [],
     reloadStorageRules: async () => ({ kind: 'not-configured' }),
   } as unknown as SandboxSession;
   return { server, session, watcher, watched, reloads: () => reloads };
@@ -132,15 +132,15 @@ function missingFilesFakes(databaseResults: DatabaseResult[]) {
   const session = {
     summary: { rules: { firestore: { sourcePath: null }, database: { sourcePath: null } } },
     firestoreRulesFiles: () => [FIRESTORE],
-    databaseRulesFile: () => DATABASE,
+    databaseRulesFiles: () => [DATABASE],
     storageRulesFile: () => STORAGE,
     reloadFirestoreRules: async () => {
       firestoreReloads += 1;
       return { kind: 'reloaded', rulesHash: 'fh', clients: 1 };
     },
-    reloadDatabaseRules: async () => {
+    reloadDatabaseRules: async (file: string) => {
       databaseReloads += 1;
-      return databaseResults.shift() ?? { kind: 'not-configured' };
+      return [{ instance: 'demo-default-rtdb', file, result: databaseResults.shift() ?? { kind: 'not-configured' } }];
     },
     reloadStorageRules: async () => ({ kind: 'not-configured' }),
   } as unknown as SandboxSession;
@@ -169,7 +169,7 @@ describe('Vite rules watching when a rules file does not exist at startup', () =
     f.watcher.emit('add', DATABASE);
     await settle();
     expect(f.databaseReloads()).toBe(1);
-    expect(f.logs.some((line) => line.includes('rtdb rules reloaded (dh)'))).toBe(true);
+    expect(f.logs.some((line) => line.includes('rtdb rules reloaded for demo-default-rtdb (dh)'))).toBe(true);
     stop?.();
   });
 
@@ -289,5 +289,33 @@ describe('Vite Storage rules watching', () => {
     expect(notice).toContain(STORAGE);
     expect(notice).toContain('DENY');
     stop();
+  });
+});
+
+describe('Vite rules watching with two database instances', () => {
+  const A = '/project/a.rules.json';
+  const B = '/project/b.rules.json';
+
+  test('editing one instance file reloads only that file', async () => {
+    const f = fakes({ current: [] });
+    const reloaded: string[] = [];
+    Object.assign(f.session, {
+      databaseRulesFiles: () => [A, B],
+      reloadDatabaseRules: async (file: string) => {
+        reloaded.push(file);
+        return [{ instance: file === A ? 'first' : 'second', file, result: { kind: 'reloaded', rulesHash: 'h', clients: 1 } }];
+      },
+    });
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    expect(f.watched.has(A)).toBe(true);
+    expect(f.watched.has(B)).toBe(true);
+    f.watcher.emit('change', B);
+    await settle();
+    expect(reloaded).toEqual([B]);
+    f.watcher.emit('change', A);
+    f.watcher.emit('change', B);
+    await settle();
+    expect(reloaded).toEqual([B, A, B]);
+    stop?.();
   });
 });

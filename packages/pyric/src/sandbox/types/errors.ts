@@ -2,7 +2,7 @@
  * Sandbox-layer error types: the error code union, the structured
  * denial-context payload, and the `SandboxError` class itself.
  */
-import type { QueryProofDiagnostic } from './query-proof.js';
+import type { QueryProofDiagnostic, QueryRepro } from './query-proof.js';
 
 import type { AuthState } from './auth-state.js';
 
@@ -42,6 +42,8 @@ export type SandboxErrorCode =
  * reference traces.
  */
 export interface DenialContext {
+  /** Engine discriminator. An RTDB denial carries {@link RtdbDenialContext} instead. */
+  engine?: 'firestore';
   queryProof?: QueryProofDiagnostic;
   /** The rule whose evaluation produced the denial (#370). */
   rule?: { line?: number; col?: number; column?: number; file?: string; citation?: string; expression?: string };
@@ -74,6 +76,8 @@ export interface DenialContext {
      * Absent for reads (no proposed write) and for `delete` (no payload).
      */
     resourceData?: Record<string, unknown>;
+    /** A non-merge update's field paths as segment vectors; a segment may contain `.`. */
+    updateMask?: string[][];
   };
   /**
    * Eval-time existing-document snapshot — what the rule saw on
@@ -101,7 +105,54 @@ export interface DenialContext {
     readonly offset?: number | null;
     readonly orderBy?: string | null;
   };
+  /**
+   * Ready-to-run repro (CLI command + fixture `TestCase`) for a rejected
+   * unprovable list query (#371).
+   */
+  repro?: QueryRepro;
 }
+
+/**
+ * Structured denial context attached to a sandbox Realtime Database
+ * permission error. Production RTDB reports only `PERMISSION_DENIED`; the
+ * sandbox adds the rule evaluation that produced the denial. The error that
+ * carries it stays a plain `Error` with production's code and message.
+ */
+export interface RtdbDenialContext {
+  engine: 'rtdb';
+  /** Auth identity the rules saw as `auth`. */
+  auth: AuthState;
+  /** Simulator reasoning lines; the same lines the sandbox event carries. */
+  reasons: string[];
+  request: {
+    method: 'get' | 'listen' | 'set' | 'remove' | 'update' | 'setPriority' | 'transaction' | 'onDisconnect';
+    /** Canonical path of the denied location, with a leading slash. */
+    path: string;
+    /** The write's payload as the operation event records it: the written
+     *  value, the value at the denied path of an update, or the priority for
+     *  `setPriority`. Absent for reads. */
+    data?: unknown;
+    /** The query spec of a denied query read or query listener, as the
+     *  operation event records it. */
+    query?: unknown;
+  };
+  /** Rules node that decided, written with its `$` wildcards. */
+  matchedPath?: string;
+  /** Rule expression that decided. */
+  matchedRule?: string;
+  /** Values the `$` wildcards bound to on the denied path. */
+  pathVariableBindings?: Record<string, string>;
+  /** Simulator explanation of the decision. */
+  reason?: string;
+  /** Simulator error code when evaluation could not decide, such as `NO_MATCHING_RULE`. */
+  errorCode?: string;
+  /** Every `.read`, `.write` and `.validate` rule evaluated for the request, in
+   *  evaluation order; the same trace the operation event carries. */
+  rtdbTrace?: import('../../rules/rtdb/simulation/spec.js').RtdbRuleEvaluation[];
+}
+
+/** A sandbox denial context from either rules engine, discriminated by `engine`. */
+export type AnyDenialContext = DenialContext | RtdbDenialContext;
 
 /**
  * Options bag for `SandboxError`. Used by call sites that want to

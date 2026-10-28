@@ -89,10 +89,19 @@ export class LatLng extends RulesValue {
   callMethod(method: string, args: unknown[]): unknown | NoOp {
     switch (method) {
       case 'latitude':
-        return this.lat;
       case 'longitude':
-        return this.lng;
+        if (args.length !== 0) {
+          throw new TypeError(
+            `Incorrect number of arguments. Received: ${args.length}. Expected: latlng.${method}().`,
+          );
+        }
+        return method === 'latitude' ? this.lat : this.lng;
       case 'distance': {
+        if (args.length !== 1) {
+          throw new TypeError(
+            `Incorrect number of arguments. Received: ${args.length}. Expected: latlng.distance(latlng).`,
+          );
+        }
         const other = args[0];
         if (!(other instanceof LatLng)) {
           // Real type error, not a sim gap — caller throws EvalError, not

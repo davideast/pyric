@@ -12,13 +12,13 @@ const parserPath = new URL(
   import.meta.resolve('pyric/rules/internal'),
 ).pathname;
 const parser = await import(parserPath);
-const parseToAST = parser.parseToAST as (source: string) => unknown;
+const parseToASTOrError = parser.parseToASTOrError as (source: string) => unknown;
 let parses = 0;
 mock.module(parserPath, () => ({
   ...parser,
-  parseToAST: (source: string) => {
+  parseToASTOrError: (source: string) => {
     parses++;
-    return parseToAST(source);
+    return parseToASTOrError(source);
   },
 }));
 
@@ -43,11 +43,18 @@ beforeEach(() => {
   parses = 0;
 });
 
+/** `setRules`, without counting the parse its lint result takes: the count is of request-path parses. */
+function installRules(sandbox: Parameters<typeof setRules>[0], source: string): void {
+  const before = parses;
+  setRules(sandbox, source);
+  parses = before;
+}
+
 describe('rules parsing', () => {
   test('50 writes after setRules parse the ruleset once', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox);
-    setRules(sandbox, RULES);
+    installRules(sandbox, RULES);
     for (let i = 0; i < 50; i++) {
       await setDoc(doc(db, `notes/n${i}`), { owner: 'p0' });
     }
@@ -57,7 +64,7 @@ describe('rules parsing', () => {
   test('a batch, document reads and list reads reuse the same parse', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox);
-    setRules(sandbox, RULES);
+    installRules(sandbox, RULES);
     const batch = writeBatch(db);
     for (let i = 0; i < 20; i++) batch.set(doc(db, `notes/b${i}`), { owner: 'p0' });
     await batch.commit();
@@ -71,9 +78,9 @@ describe('rules parsing', () => {
   test('a later setRules call replaces the parse for the next request', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox);
-    setRules(sandbox, RULES);
+    installRules(sandbox, RULES);
     await setDoc(doc(db, 'notes/r1'), { owner: 'p0' });
-    setRules(sandbox, RULES.replace("allow write: if request.resource.data.owner == 'p0';", 'allow write: if false;'));
+    installRules(sandbox, RULES.replace("allow write: if request.resource.data.owner == 'p0';", 'allow write: if false;'));
     await expect(setDoc(doc(db, 'notes/r2'), { owner: 'p0' })).rejects.toThrow();
     await expect(setDoc(doc(db, 'notes/r3'), { owner: 'p0' })).rejects.toThrow();
     expect(parses).toBe(2);

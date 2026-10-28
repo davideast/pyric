@@ -41,15 +41,31 @@ The output names each operation whose verdict changed:
 ✗ chat - rtdb: 1 failure(s)
     [rtdb] now-denied: set /rooms/r1/messages/m1 (PERMISSION_DENIED)
 ```
-`now-denied` means a write that succeeded during development would be rejected under the new rules. `now-allowed` means the reverse, a loosening. Auto-id aliases and timestamp drift are reported as informational, not failures, because replaying generated values is supposed to produce them. The exit code is 1 on any real divergence, which makes the CI gate one line:
+`now-denied` means a read, listener, `onDisconnect` registration, or write that succeeded during development would be rejected under the new rules. `now-allowed` means a loosening where a captured denial is now permitted. Auto-id aliases and timestamp drift are reported as informational, not failures, because replaying generated values is supposed to produce them. The exit code is 1 on any real divergence, which makes the CI gate one line:
 ```yaml
 - run: pyric verify journeys/ --rules firestore=firestore.rules
 ```
+If your app uses more than one Realtime Database instance, `pyric verify` checks each instance the session used against that instance's own rules, read from `firebase.json` the way `firebase deploy` reads them. To try different rules on one instance, name it with `rtdb:<instance>`; `rtdb=` stays the default instance:
+```bash
+pyric verify --rules rtdb:shard-00=shard.rules.json
+```
+```
+✗ last-session - rtdb: 1 failure(s)
+    [rtdb shard-00] now-denied: set /rooms/lobby (PERMISSION_DENIED)
+```
+If the session used an instance that has no rules in `firebase.json` and no `--rules rtdb:<instance>=<path>`, verify stops and names the instance instead of skipping it.
+
 By default verification runs on the local sandbox engine. For Firestore you can also send the derived cases to Firebase's hosted Rules Test API, or run both:
 ```bash
 pyric verify --service firestore --engine both --project my-app --rules firestore=firestore.rules
 ```
 `both` cross-checks the two engines against each other and flags any disagreement. That checks your rules and, at the same time, checks Pyric's own engine against Google's answer for your exact traffic. The Rules Test API evaluates cases only: it does not deploy rules or change a project. Hosted verification needs a project id plus `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS` (or ADC); build a `ProjectScope` programmatically with `@pyric/cli/credentials/node` (`fromServiceAccount` / `fromAdc`).
+
+For Realtime Database, run `--engine staging` to test the session against a real instance you provide, enrolled with `pyric verify staging init`:
+```bash
+pyric verify --engine sandbox --engine staging --rules rtdb=open.rules.json
+```
+This deploys the rules to your enrolled instance, replays the session via the REST API, and compares production's verdicts to the local sandbox replay.
 
 ## Deploy hosting and functions
 ```bash

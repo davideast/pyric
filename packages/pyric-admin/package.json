@@ -1,6 +1,6 @@
 {
   "name": "pyric-admin",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.30",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -91,7 +91,8 @@
     "./security-rules": {
       "types": "./dist/security-rules/index.d.ts",
       "import": "./dist/security-rules/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

@@ -51,7 +51,10 @@ import {
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
-import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import {
+  absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, realmOrigin,
+  tokenClaimAccount, withoutJwtClaims,
+} from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
 import {
@@ -96,6 +99,17 @@ export type {
 } from './sandbox-backend-types.js';
 
 /**
+ * How long after an authentication production still accepts a sensitive
+ * account operation (`deleteUser`, `updatePassword`, `updateEmail`,
+ * `verifyBeforeUpdateEmail`) on a non-anonymous account. Older sessions get
+ * `auth/requires-recent-login`. Measured against the real service: allowed
+ * at an age of 295 seconds, refused at 305. The same capture found `unlink`,
+ * `linkWithCredential` on an anonymous account, and `deleteUser` on an
+ * anonymous account allowed at 330 seconds, so those are not gated.
+ */
+const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
+
+/**
  * Per-app-session backend state. Repeated `getAuth(app)` calls are memoized;
  * sibling app backends share account/provider maps but not currentUser,
  * listeners, tokens, flow staging, or persistence mode.
@@ -103,12 +117,12 @@ export type {
 
 /**
  * The claims rules see on `auth.token` for a signed-in data context: the
- * custom claims, plus the `firebase` namespace the minted ID token carries
- * (`sign_in_provider`, and `tenant` for a tenant sign-in), as production's
- * decoded ID token does.
+ * minted ID token's claim set (custom claims, the account's standard claims,
+ * and the `firebase` namespace with `identities`, `sign_in_provider`, and
+ * `tenant` for a tenant sign-in) without the JWT registered claims.
  */
-function rulesTokenClaims(claims: Record<string, unknown>, minted: IdTokenResult): Record<string, unknown> {
-  return { ...claims, firebase: minted.claims.firebase };
+function rulesTokenClaims(minted: IdTokenResult): Record<string, unknown> {
+  return withoutJwtClaims(minted.claims);
 }
 
 export class SandboxBackend {
@@ -215,6 +229,21 @@ export class SandboxBackend {
    *  argument; `null` for identities driven directly through the
    *  test driver (`sandbox.setUser`), which has no prod analog. */
   private readonly signInProviderByUid = new Map<string, string | null>();
+
+  /** Per-uid page origin a detached session's client signed in from. The
+   *  stored photo URL stays relative; token `picture`, admin records, and
+   *  `User.photoURL` resolve it against this origin, falling back to the
+   *  realm's own origin (a page or worker). Not persisted. */
+  private readonly photoOriginByUid = new Map<string, string>();
+
+  /**
+   * Per-uid instant (sandbox-clock epoch milliseconds) at which the identity
+   * last authenticated: a sign-in, a re-authentication, or a session first
+   * established through the test driver. It is the token's `auth_time`,
+   * which a forced token refresh does not move, and the input to the
+   * recent-login gate ({@link assertRecentLogin}).
+   */
+  private readonly authenticatedAtByUid = new Map<string, number>();
 
   /**
    * Sign-in provider enablement — mirrors a real Firebase project's
@@ -1410,6 +1439,11 @@ export class SandboxBackend {
     if (isSignIn) {
       this.signInProviderByUid.set(user.uid, signInProvider);
     }
+    // A sign-in authenticates; so does the first session the test driver
+    // establishes for a uid. A same-uid update that is not a sign-in (an
+    // unlink, a profile write) keeps the earlier authentication instant.
+    const authenticates = isSignIn || !this.authenticatedAtByUid.has(user.uid);
+    if (authenticates) this.recordAuthentication(user.uid);
 
     // Look up custom claims for this uid (if we know them). Falls
     // back to the empty claims map for anonymous / freshly-minted
@@ -1437,7 +1471,7 @@ export class SandboxBackend {
     // Push to the sandbox under the guard so the synchronous subscriber
     // doesn't notify — we drive the fan-out below with the correct
     // id-token / auth-state split.
-    const signedInState: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(claims, minted.result) };
+    const signedInState: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(minted.result) };
     const hasTenant = typeof user.tenantId === 'string';
     if (hasTenant) signedInState.tenant = user.tenantId;
     const nextState: AuthState = signedInState;
@@ -1663,7 +1697,7 @@ export class SandboxBackend {
   /** Every user in the DB (seeded, created, signed-in-via-provider,
    *  anonymous), as admin records. */
   listUsers(): AuthUserRecord[] {
-    return [...this.usersByUid.values()].map((u) => this.toRecord(u));
+    return [...this.usersByUid.values()].map((u) => ({ ...this.toRecord(u), photoUrl: readPhotoUrl(u, this.photoOriginByUid) }));
   }
 
   /** Sanitize an admin-supplied linked-provider list (create + update):
@@ -1708,6 +1742,7 @@ export class SandboxBackend {
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
   createUser(req: CreateUserRequest): AuthUserRecord {
+    if (req.customClaims !== undefined) assertNoReservedCustomClaims(req.customClaims);
     const uid = req.uid ?? this.nextAvailableAdminUid();
     if (this.usersByUid.has(uid)) {
       throw makeAuthError(
@@ -1754,7 +1789,7 @@ export class SandboxBackend {
     this.notifyUsersChanged();
     const created = this.toRecord(record);
     this.emitAuthEvent('user_create', { path: uid, auth: null, after: created });
-    return created;
+    return { ...this.toRecord(record), photoUrl: readPhotoUrl(record, this.photoOriginByUid) };
   }
 
   /** Admin user update. `undefined` fields untouched; `customClaims`
@@ -1766,6 +1801,7 @@ export class SandboxBackend {
     if (!stored) {
       throw makeAuthError('auth/user-not-found', `No user found for uid ${uid}.`);
     }
+    if (update.customClaims !== undefined) assertNoReservedCustomClaims(update.customClaims);
     const before = this.toRecord(stored);
     if (update.email !== undefined) {
       validateEmailFormat(update.email);
@@ -1807,7 +1843,7 @@ export class SandboxBackend {
     this.notifyUsersChanged();
     const after = this.toRecord(stored);
     this.emitAuthEvent('user_update', { path: uid, auth: null, before, after });
-    return after;
+    return { ...this.toRecord(stored), photoUrl: readPhotoUrl(stored, this.photoOriginByUid) };
   }
 
   /** Admin user deletion. The active session (if it's this user) is
@@ -1825,6 +1861,8 @@ export class SandboxBackend {
     }
     this.tokenCache.delete(uid);
     this.signInProviderByUid.delete(uid);
+    this.photoOriginByUid.delete(uid);
+    this.authenticatedAtByUid.delete(uid);
     this.notifyUsersChanged();
     this.emitAuthEvent('user_delete', { path: uid, auth: null, before });
   }
@@ -1869,7 +1907,7 @@ export class SandboxBackend {
       // Carry the profile fields through so a rebuilt/restored user (session
       // restore, snapshot round-trip) keeps its photoURL / emailVerified /
       // phoneNumber. Additive: these were null/undefined before this landed.
-      photoURL: stored.photoUrl,
+      photoURL: readPhotoUrl(stored, this.photoOriginByUid),
       emailVerified: stored.emailVerified,
       phoneNumber: stored.phoneNumber,
       providers: stored.providerUserInfo,
@@ -1928,13 +1966,15 @@ export class SandboxBackend {
     switch (request.kind) {
       case 'anonymous':
         this.assertProviderEnabled('anonymous');
-        return this.establishDetachedSession(this.mintAnonymousUser(), 'anonymous', tenantId);
+        return this.establishDetachedSession(this.mintAnonymousUser(), 'anonymous', tenantId, true, request.origin);
       case 'password':
         this.assertProviderEnabled('password');
         return this.establishDetachedSession(
           this.buildUserFromStored(this.validatePassword(request.email, request.password)),
           'password',
           tenantId,
+          true,
+          request.origin,
         );
       case 'createPassword':
         this.assertProviderEnabled('password');
@@ -1942,6 +1982,8 @@ export class SandboxBackend {
           this.buildUserFromStored(this.createEmailPasswordUser(request.email, request.password)),
           'password',
           tenantId,
+          true,
+          request.origin,
         );
       case 'provider':
       case 'custom':
@@ -1961,7 +2003,12 @@ export class SandboxBackend {
         let providerId = isProviderSignIn ? request.providerId : restoredProvider;
         const isCustomSignIn = request.kind === 'custom';
         if (isCustomSignIn) providerId = 'custom';
-        return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId);
+        // A `uid` mint re-establishes or re-mints an existing session (a
+        // page reload, a reload(), a token re-mint after an account
+        // update). It is not an authentication, so it keeps the recorded
+        // instant the recent-login gate reads.
+        const authenticates = request.kind !== 'uid' || !this.authenticatedAtByUid.has(request.uid);
+        return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId, authenticates, request.origin);
       }
     }
   }
@@ -1973,12 +2020,17 @@ export class SandboxBackend {
     user: User,
     signInProvider: string,
     tenantId: string | null,
+    authenticates = true,
+    origin?: string,
   ): MintedSession {
     this.signInProviderByUid.set(user.uid, signInProvider);
+    if (origin !== undefined) this.photoOriginByUid.set(user.uid, origin);
+    if (authenticates) this.recordAuthentication(user.uid);
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
     const hasStoredUser = stored !== undefined;
-    if (hasStoredUser) {
+    if (hasStoredUser) (user as Mutable<User>).photoURL = readPhotoUrl(stored, this.photoOriginByUid);
+    if (hasStoredUser && authenticates) {
       stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }
@@ -1987,7 +2039,7 @@ export class SandboxBackend {
     // identity under different tenants and neither may overwrite the other.
     (user as Mutable<User>).tenantId = tenantId;
     const minted = this.mintToken(user.uid, claims, tenantId);
-    const state: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(claims, minted.result) };
+    const state: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(minted.result) };
     const hasTenant = tenantId !== null;
     if (hasTenant) state.tenant = tenantId;
     this.emitAuthEvent('sign_in', {
@@ -2048,30 +2100,38 @@ export class SandboxBackend {
     // recorded by setCurrentUser at sign-in time. Null for identities
     // driven via the test driver (no prod analog for that path).
     const signInProvider = this.signInProviderByUid.get(uid) ?? null;
+    // auth_time is the last authentication, not this mint: a forced refresh
+    // issues a new iat and keeps auth_time, as production does.
+    const authenticatedAt = new Date(this.authenticatedAtByUid.get(uid) ?? issuedAt.getTime());
+    // The account's standard claims are read from the record at mint time,
+    // so a profile or verification change reaches the token on the next
+    // refresh, as custom claims do.
+    const stored = this.usersByUid.get(uid);
     const fullClaims: Record<string, unknown> = {
       sub: uid,
       aud: 'pyric-sandbox',
       iss: 'https://sandbox.pyric.dev',
-      auth_time: Math.floor(issuedAt.getTime() / 1000),
+      auth_time: Math.floor(authenticatedAt.getTime() / 1000),
       iat: Math.floor(issuedAt.getTime() / 1000),
       exp: Math.floor(expires.getTime() / 1000),
-      ...claims,
-      // Synthesized AFTER the custom-claims spread: `firebase` is a
-      // reserved claim namespace in prod (custom claims can't shadow
-      // it), so ours always wins. Mirrors the real JWT's
-      // `firebase.sign_in_provider`.
-      firebase: { sign_in_provider: signInProvider },
+      // Custom claims, the account's standard claims over them, and the
+      // reserved `firebase` namespace last (custom claims cannot shadow it).
+      ...accountTokenClaims(
+        uid,
+        stored ? { ...tokenClaimAccount(stored), photoUrl: readPhotoUrl(stored, this.photoOriginByUid) } : null,
+        claims,
+        signInProvider,
+      ),
     };
     const identity = normalizeAuthState({ uid, tenant: tenantId ?? undefined, token: fullClaims });
     const tokenClaims = identity?.token ?? fullClaims;
-    const sessionClaims = { ...claims, firebase: tokenClaims.firebase };
-    const token = sandboxTokenFor(uid, sessionClaims, serial);
+    const token = sandboxTokenFor(uid, withoutJwtClaims(tokenClaims), serial);
     const result: IdTokenResult = {
       token,
       claims: tokenClaims,
       expirationTime: expires.toISOString(),
       issuedAtTime: issuedAt.toISOString(),
-      authTime: issuedAt.toISOString(),
+      authTime: authenticatedAt.toISOString(),
       signInProvider,
     };
     const entry = { token, result };
@@ -2118,7 +2178,7 @@ export class SandboxBackend {
         // Rules follow refreshed claims without turning a token refresh into a sign-in.
         this.applyingTransition = true;
         try {
-          this.session.currentUser = { ...current, token: rulesTokenClaims(claims, fresh.result) };
+          this.session.currentUser = { ...current, token: rulesTokenClaims(fresh.result) };
         } finally {
           this.applyingTransition = false;
         }
@@ -2346,14 +2406,42 @@ export class SandboxBackend {
     return after;
   }
 
+  /** Mark `uid` as having just authenticated, at the sandbox clock's now. */
+  recordAuthentication(uid: string): void {
+    this.authenticatedAtByUid.set(uid, this.now().getTime());
+  }
+
+  /**
+   * The recent-login gate. Production refuses a sensitive account operation
+   * when the session's last authentication is older than
+   * {@link RECENT_LOGIN_WINDOW_MS}, and a re-authentication clears it. The age
+   * is read from the sandbox clock, so advancing the clock past the window is
+   * how a test reaches the gate. Not gated: an anonymous account (production
+   * deleted one at 330 seconds) and a uid with no recorded authentication on
+   * this backend.
+   */
+  assertRecentLogin(uid: string): void {
+    const isAnonymous = this.usersByUid.get(uid)?.isAnonymous === true;
+    if (isAnonymous) return;
+    const authenticatedAt = this.authenticatedAtByUid.get(uid);
+    const neverAuthenticated = authenticatedAt === undefined;
+    if (neverAuthenticated) return;
+    const age = this.now().getTime() - authenticatedAt;
+    const stale = age > RECENT_LOGIN_WINDOW_MS;
+    // Production's SDK has no message for this code, so it reads `Error`.
+    if (stale) throw makeAuthError('auth/requires-recent-login', 'Error');
+  }
+
   /**
    * Backend for the top-level `deleteUser(user)` free function. Removes the
    * account from the store (via the same path admin {@link deleteUser} uses)
    * AND — unlike admin deletion — signs the user out if they are the current
    * user, matching `firebase/auth`'s `user.delete()` / `deleteUser(user)`,
    * which clears `auth.currentUser` and fans out `onAuthStateChanged(null)`.
+   * Refused with `auth/requires-recent-login` on a stale session.
    */
   deleteFor(user: User): void {
+    this.assertRecentLogin(user.uid);
     if (this.usersByUid.has(user.uid)) {
       this.deleteUser(user.uid);
     }
@@ -2369,13 +2457,14 @@ export class SandboxBackend {
    * against the NEW email, then mutates the passed `user` (and
    * `this.cachedUser`) in place so held references reflect the change.
    *
-   * Divergence: the sandbox applies the change directly. Real
-   * `firebase/auth.updateEmail` may require a recent login
-   * (`auth/requires-recent-login`) and, with email-enumeration protection
-   * on, is superseded by `verifyBeforeUpdateEmail`; the sandbox enforces
-   * neither.
+   * Refused with `auth/requires-recent-login` on a stale session.
+   *
+   * Divergence: with email-enumeration protection on, production refuses
+   * `updateEmail` with `auth/operation-not-allowed` and requires
+   * `verifyBeforeUpdateEmail`; the sandbox applies the change directly.
    */
   updateEmailFor(user: User, newEmail: string): void {
+    this.assertRecentLogin(user.uid);
     this.updateUser(user.uid, { email: newEmail });
     this.applyEmailToUser(user, newEmail);
     if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
@@ -2397,11 +2486,10 @@ export class SandboxBackend {
    * links the `password` provider). The sandbox DOES store + verify
    * passwords, so a subsequent `signInWithEmailAndPassword` with the new
    * password succeeds and the old one throws `auth/wrong-password`.
-   *
-   * Divergence: real `firebase/auth.updatePassword` may require a recent
-   * login (`auth/requires-recent-login`); the sandbox does not enforce it.
+   * Refused with `auth/requires-recent-login` on a stale session.
    */
   updatePasswordFor(user: User, newPassword: string): void {
+    this.assertRecentLogin(user.uid);
     this.updateUser(user.uid, { password: newPassword });
   }
 
@@ -2435,7 +2523,7 @@ export class SandboxBackend {
     const m = user as Mutable<User>;
     m.email = stored.email;
     m.displayName = stored.displayName;
-    m.photoURL = stored.photoUrl;
+    m.photoURL = readPhotoUrl(stored, this.photoOriginByUid);
     m.emailVerified = stored.emailVerified;
     m.phoneNumber = stored.phoneNumber;
   }
@@ -2551,6 +2639,12 @@ function mintsDefaultPhoto(
   if (record.isAnonymous) return false;
   if (providerId === null) return false;
   return providerId.includes('.');
+}
+
+/** A stored photo URL resolved against the uid's known page origin, or the
+ *  realm's own origin when the uid has none. */
+function readPhotoUrl(stored: StoredUser, origins: ReadonlyMap<string, string>): string | null {
+  return absolutePhotoUrl(stored.photoUrl, origins.get(stored.uid) ?? realmOrigin());
 }
 
 function refreshStoredPhoto(stored: StoredUser, photoUrl: string | null): boolean {

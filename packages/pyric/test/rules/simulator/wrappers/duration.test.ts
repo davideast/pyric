@@ -326,4 +326,18 @@ describe('Duration — through evaluator', () => {
     );
     expect(r.success && r.data.unsupported).toBe(1);
   });
+
+  test('duration.value rejects non-int magnitude and accessor methods reject extra arguments (FS-SIM-6)', () => {
+    const floatMag = sim.simulate(
+      rules("duration.value(1.5, 's').seconds() == 1"),
+      [tc('float magnitude denies', 'DENY')],
+    );
+    expect(floatMag.success && floatMag.data.passed).toBe(1);
+
+    const extraArg = sim.simulate(
+      rules("duration.value(1, 's').seconds(1) == 1"),
+      [tc('seconds(1) denies', 'DENY')],
+    );
+    expect(extraArg.success && extraArg.data.passed).toBe(1);
+  });
 });

@@ -20,10 +20,12 @@ test.beforeAll(async () => {
   }
 }`);
   await writeFile(join(directory, 'index.html'), '<!doctype html><meta name="pyric-runtime-chip" content="expanded"><div id="ready">Loading</div><script type="module" src="/app.js"></script>');
+  // The app names the project's default instance, which firebase.json's
+  // database.rules deploys to; any other instance starts locked (#917).
   await writeFile(join(directory, 'app.js'), `
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, get, query, orderByChild } from 'firebase/database';
-const db = getDatabase(initializeApp({ projectId: 'index-reload', databaseURL: 'https://index-reload.firebaseio.com' }));
+const db = getDatabase(initializeApp({ projectId: 'index-reload', databaseURL: 'https://index-reload-default-rtdb.firebaseio.com' }));
 const path = 'projects-' + new URL(location.href).searchParams.get('runtime');
 const target = ref(db, path);
 await set(target, { a: { score: 1, rank: 2 }, b: { score: 2, rank: 1 } });
@@ -60,6 +62,9 @@ for (const runtime of ['inpage', 'worker']) {
       await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
       const back = page.locator('[data-clear-traffic-source]');
       if (await back.count()) await back.click();
+      // Inspecting a request pins the list; this field's read arrives after it.
+      const resume = page.locator('[data-request-pause][aria-label^="Resume live"]');
+      if (await resume.count()) await resume.click();
       await page.locator('[data-inspect-request]').filter({ hasText: `projects-${runtime}` }).first().click();
       await expect(page.locator('[data-index-details]')).toContainText(field);
       await page.getByRole('button', { name: 'Add index', exact: true }).click();

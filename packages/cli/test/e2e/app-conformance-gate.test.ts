@@ -31,21 +31,28 @@ describe('served app conformance merge gate', () => {
     expect(mainJobEnd).toBeGreaterThan(mainJobStart);
     expect(mainJob).toContain('uses: ./.github/actions/restore-dist');
     expect(mainJob).toContain('flavor: packages');
-    expect(mainJob).toContain('bun run test:ci:cli');
+    expect(mainJob).toContain('bun scripts/ci/test-shard.ts --shard=');
     expect(mainJob).not.toContain('bun run test:ci:libraries');
     expect(libraryJobStart).toBeGreaterThanOrEqual(0);
     expect(libraryJobEnd).toBeGreaterThan(libraryJobStart);
     expect(libraryJob).toContain('uses: ./.github/actions/restore-dist');
     expect(libraryJob).toContain('flavor: packages');
     expect(libraryJob).toContain('bun run test:ci:libraries');
-    expect(libraryJob).not.toContain('bun run test:ci:cli');
-    const complete = rootPackage.scripts?.test?.split(' && ') ?? [];
+    // The library job shards packages/pyric only; the CLI shards stay in the main job.
+    const libraryShards = libraryJob.match(/bun scripts\/ci\/test-shard\.ts[^\n]*/g) ?? [];
+    expect(libraryShards.length).toBeGreaterThan(0);
+    expect(libraryShards.every((call) => call.includes('--package=pyric'))).toBe(true);
+    const complete = rootPackage.scripts?.['test:serial']?.split(' && ') ?? [];
     const split = [
       ...(rootPackage.scripts?.['test:ci:cli']?.split(' && ') ?? []),
       ...(rootPackage.scripts?.['test:ci:libraries']?.split(' && ') ?? []),
     ];
     expect(split).toHaveLength(complete.length);
     expect([...split].sort()).toEqual([...complete].sort());
+  });
+
+  test('CI runs the whole root e2e config, which holds every SharedWorker topology proof', () => {
+    expect(cliPackage.scripts?.['test:e2e']).toBe('playwright test --config test/e2e/playwright.config.ts');
   });
 
   test('the CLI script runs every SharedWorker topology proof', () => {
@@ -67,7 +74,7 @@ describe('served app conformance merge gate', () => {
     // carries Chrome's shared-library set, and reinstalling it cost 23s per
     // run. Pin the absence so it cannot silently return.
     expect(browserJob).not.toContain('bunx playwright install-deps chromium');
-    expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
+    expect(browserJob).toContain('bun run --cwd packages/cli test:e2e');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-cli');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-static');
     // The full build + composed public site now arrive through the
@@ -78,7 +85,7 @@ describe('served app conformance merge gate', () => {
     const build = browserJob.indexOf('uses: ./.github/actions/restore-dist');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
-    const proof = browserJob.indexOf('bun run --cwd packages/cli test:app-conformance');
+    const proof = browserJob.indexOf('bun run --cwd packages/cli test:e2e');
     expect(build).toBeLessThan(cache);
     expect(cache).toBeLessThan(browser);
     expect(browser).toBeLessThan(proof);

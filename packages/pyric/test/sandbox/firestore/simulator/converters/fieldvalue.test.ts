@@ -49,13 +49,16 @@ const baseCtx = (
     fieldPath: string;
     serverTime: unknown;
   }> = {},
-) => ({
-  path: 'p/x',
-  method: 'update' as const,
-  prior: null,
-  fieldPath: 'count',
-  ...overrides,
-});
+) => {
+  const ctx = {
+    path: 'p/x',
+    method: 'update' as const,
+    prior: null,
+    fieldPath: 'count',
+    ...overrides,
+  };
+  return { ...ctx, fieldSegments: [ctx.fieldPath] };
+};
 
 // ─── Converter unit tests ──────────────────────────────────────────────────
 

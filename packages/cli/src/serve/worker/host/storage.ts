@@ -22,15 +22,17 @@ import {
   getMetadata as storageGetMetadata,
   getBlob as storageGetBlob,
   getBytes as storageGetBytes,
-  uploadBytes as storageUploadBytes,
   deleteObject as storageDeleteObject,
   type FirebaseStorage,
+  type FullMetadata,
   type SettableMetadata,
 } from 'pyric/storage';
 // Host-only rules-bypass admin plane — the storage mirror of
 // `getAdminFirestore`/`getAdminDatabase`, resolved for `actAs: { mode: 'admin' }`.
 import {
+  DEFAULT_BUCKET,
   bindStorageOperationContext,
+  copyObject,
   getAdminStorageSandbox,
   getStorageService,
   patchObjectMetadata,
@@ -40,12 +42,14 @@ import {
   enforceRules,
   requestResourceFor,
   resourceFromStored,
+  uploadObject,
+  uploadObjectReplacing,
 } from 'pyric/storage/internal';
 import { FirebaseError } from 'pyric/app';
-import type { AuthLens } from 'pyric/sandbox';
+import type { AuthLens, EventProvenance } from 'pyric/sandbox';
 import { bindOperationContext, getClock } from 'pyric/sandbox/internal';
 
-import type { OpMessage } from '../protocol.js';
+import type { OpMessage, StorageBucketWire } from '../protocol.js';
 import {
   bytesToBase64,
   base64ToBytes,
@@ -64,11 +68,18 @@ import {
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
 import { portSession } from '../host-auth.js';
+import { redeemRollbackGrant, replacedForRollback, rollBackCommit, rollbackReceipt } from './upload-rollback.js';
 
 /** An upload between `storage.beginUpload` and `storage.finishUpload`. */
 interface PendingUpload {
+  /** The bucket the upload's object is stored in. */
+  bucket: string;
+  /** The name its caller knows that bucket by. */
+  bucketName: string;
   path: string;
   settable: SettableMetadata;
+  /** Download tokens the object is created with, set on the admin lens. */
+  downloadTokens?: string;
   /** Authorizes sending this upload's bytes over the byte route, and nothing else. */
   token: string;
 }
@@ -93,6 +104,162 @@ function pendingUploads(ctx: HostCtx): Map<string, PendingUpload> {
 /** The token bound to one pending upload, or undefined once it finished or was aborted. */
 export function uploadTokenOf(ctx: HostCtx, uploadId: string): string | undefined {
   return pendingUploads(ctx).get(uploadId)?.token;
+}
+
+// ─── Buckets ──────────────────────────────────────────────────────────────
+
+/** Names callers gave the host's default bucket, as their app's `storageBucket` option names it. */
+const defaultBucketNamesByHost = new WeakMap<HostCtx, Set<string>>();
+
+/**
+ * The bucket a bucket name stores its objects in. The host's default bucket
+ * answers to `DEFAULT_BUCKET`, to the page app's `storageBucket` option, and
+ * to every name a caller gave it with `defaultBucket`; every other name is
+ * a bucket of its own.
+ */
+export function storeBucketOf(ctx: HostCtx, name: string | undefined): string {
+  const unnamed = name === undefined || name === DEFAULT_BUCKET;
+  if (unnamed) return DEFAULT_BUCKET;
+  const configured = ctx.appOptions?.storageBucket;
+  const isDefault = name === configured || defaultBucketNamesByHost.get(ctx)?.has(name) === true;
+  return isDefault ? DEFAULT_BUCKET : name;
+}
+
+export function defaultBucketNames(ctx: HostCtx): ReadonlySet<string> {
+  return defaultBucketNamesByHost.get(ctx) ?? new Set();
+}
+
+export function seedDefaultBucketNames(ctx: HostCtx, names: Iterable<string>): void {
+  let target = defaultBucketNamesByHost.get(ctx);
+  for (const name of names) {
+    if (name === '' || name === DEFAULT_BUCKET) continue;
+    if (target === undefined) {
+      target = new Set();
+      defaultBucketNamesByHost.set(ctx, target);
+    }
+    target.add(name);
+  }
+}
+
+/** The bucket an op's object is stored in, after noting the caller's name for the default bucket. */
+function bucketOfOp(ctx: HostCtx, msg: StorageBucketWire): string {
+  const named = msg.defaultBucket;
+  const namesDefault = named !== undefined && named !== '' && named !== DEFAULT_BUCKET;
+  if (namesDefault) {
+    let names = defaultBucketNamesByHost.get(ctx);
+    if (names === undefined) {
+      names = new Set();
+      defaultBucketNamesByHost.set(ctx, names);
+    }
+    if (!names.has(named)) {
+      names.add(named);
+      ctx.onDefaultBucketName?.(named);
+    }
+  }
+  return storeBucketOf(ctx, msg.bucket);
+}
+
+/**
+ * The name the caller knows a bucket by: the name the op gave it, or for the
+ * default bucket, the page app's `storageBucket` option. URLs and metadata
+ * carry this name; {@link storeBucketOf} maps it back.
+ */
+function bucketNameOf(ctx: HostCtx, msg: StorageBucketWire, stored: string): string {
+  const named = msg.bucket ?? msg.defaultBucket;
+  const hasName = named !== undefined && named !== '';
+  if (hasName) return named;
+  const configured = ctx.appOptions?.storageBucket;
+  const namedByApp = stored === DEFAULT_BUCKET && typeof configured === 'string' && configured !== '';
+  return namedByApp ? configured : stored;
+}
+
+/** Object metadata under the bucket name its caller knows the bucket by. */
+function namedMetadata<T extends { bucket: string }>(ctx: HostCtx, msg: StorageBucketWire, metadata: T): T {
+  return { ...metadata, bucket: bucketNameOf(ctx, msg, metadata.bucket) };
+}
+
+// ─── Upload sessions ──────────────────────────────────────────────────────
+
+/**
+ * An upload session from `storage.createUploadSession`. Its bytes arrive over
+ * the byte route; the upload that holds them begins once their size is known,
+ * and the object is created on the admin plane when the last byte arrives.
+ */
+interface UploadSession {
+  bucket: string;
+  bucketName: string;
+  path: string;
+  settable: SettableMetadata;
+  downloadTokens?: string;
+  origin?: string;
+  token: string;
+  provenance?: EventProvenance;
+  uploadId?: string;
+}
+
+const uploadSessionsByHost = new WeakMap<HostCtx, Map<string, UploadSession>>();
+
+function uploadSessions(ctx: HostCtx): Map<string, UploadSession> {
+  let sessions = uploadSessionsByHost.get(ctx);
+  if (sessions === undefined) {
+    sessions = new Map();
+    uploadSessionsByHost.set(ctx, sessions);
+  }
+  return sessions;
+}
+
+/** What the byte route needs of a pending upload session, or undefined for any other id. */
+export function uploadSessionOf(ctx: HostCtx, sessionId: string): { token: string; origin?: string; uploadId?: string } | undefined {
+  const session = uploadSessions(ctx).get(sessionId);
+  if (session === undefined) return undefined;
+  return {
+    token: session.token,
+    ...(session.origin !== undefined ? { origin: session.origin } : {}),
+    ...(session.uploadId !== undefined ? { uploadId: session.uploadId } : {}),
+  };
+}
+
+function sessionOf(ctx: HostCtx, sessionId: string): UploadSession {
+  const session = uploadSessions(ctx).get(sessionId);
+  if (session === undefined) throw new FirebaseError('storage/object-not-found', `Upload session '${sessionId}' not found or already completed.`);
+  return session;
+}
+
+/** Begin the upload that holds a session's `size` bytes, once the first request names its size. */
+export async function openUploadSession(ctx: HostCtx, sessionId: string, size: number): Promise<string> {
+  const session = sessionOf(ctx, sessionId);
+  const begun = session.uploadId !== undefined;
+  if (begun) return session.uploadId!;
+  const tooLarge = size > MAX_STORAGE_OBJECT_BYTES;
+  if (tooLarge) throw storageQuotaExceeded(size, `the upload session for '${session.path}'`);
+  const storage = getAdminStorageSandbox(ctx.sandbox, { bucket: session.bucket });
+  const service = await getStorageService(storage);
+  if (!service.backend.beginUpload) {
+    throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
+  }
+  const contentType = session.settable.contentType ?? 'application/octet-stream';
+  session.uploadId = await service.backend.beginUpload(targetOf(storage).bucket, session.path, size, contentType, session.settable.customMetadata);
+  return session.uploadId;
+}
+
+/** Create a session's object on the admin plane from its complete upload. */
+export async function finishUploadSession(ctx: HostCtx, sessionId: string): Promise<FullMetadata> {
+  const session = sessionOf(ctx, sessionId);
+  const uploadId = session.uploadId;
+  if (uploadId === undefined) throw new FirebaseError('storage/invalid-argument', `Upload session '${sessionId}' has received no bytes.`);
+  const storage = bindStorageOperationContext(getAdminStorageSandbox(ctx.sandbox, { bucket: session.bucket }), session.provenance);
+  const service = await getStorageService(storage);
+  if (!service.backend.readUpload) {
+    throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
+  }
+  const staged = await service.backend.readUpload(uploadId);
+  const result = await uploadObject(storageRef(storage, session.path), staged, session.settable, {
+    ...(session.downloadTokens !== undefined ? { downloadTokens: session.downloadTokens } : {}),
+  });
+  uploadSessions(ctx).delete(sessionId);
+  await service.backend.abortUpload?.(uploadId);
+  await bestEffortFlush(ctx, 'storage.finishUpload');
+  return { ...result.metadata, bucket: session.bucketName };
 }
 
 /** The shared Storage handle, lazily created (Pyric Studio data browse): one per
@@ -141,7 +308,9 @@ function sessionStorage(ctx: HostCtx, port: PortLike): FirebaseStorage {
   return handle;
 }
 
-function lensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike): FirebaseStorage {
+function lensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike, bucket: string = DEFAULT_BUCKET): FirebaseStorage {
+  const namedBucket = bucket !== DEFAULT_BUCKET;
+  if (namedBucket) return bucketLensStorage(ctx, actAs, port, bucket);
   if (!actAs || actAs.mode === 'app-session') {
     return sessionStorage(ctx, port);
   }
@@ -159,6 +328,42 @@ function lensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike):
   let handle = handles.get(key);
   if (!handle) {
     handle = getStorageSandbox(ctx.sandbox.withAuth(authStateForLens(actAs)));
+    handles.set(key, handle);
+  }
+  return handle;
+}
+
+/**
+ * {@link lensStorage} for a bucket other than the default one: the same
+ * lenses, on a handle scoped to `bucket`. Each bucket's objects are its own;
+ * the ruleset is shared, as one project's buckets share `storage.rules`.
+ */
+function bucketLensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike, bucket: string): FirebaseStorage {
+  if (actAs?.mode === 'admin') return getAdminStorageSandbox(ctx.sandbox, { bucket });
+  const handles = (ctx.bucketStorages ??= new Map());
+  const session = !actAs || actAs.mode === 'app-session' ? portSession(ctx, port) : undefined;
+  let lensKey: string;
+  let open: () => FirebaseStorage;
+  if (session) {
+    lensKey = `session:${sessionCacheKey(session)}`;
+    open = () => getStorageSandbox(ctx.sandbox.withAuth(session.state), { bucket });
+  } else if (!actAs || actAs.mode === 'app-session') {
+    lensKey = 'app';
+    open = () => getStorageSandbox(bindOperationContext(ctx.sandbox.withAuth(null), {
+      source: { kind: 'app' },
+      authLens: { mode: 'app-session' },
+    }), { bucket });
+  } else if (actAs.mode === 'anon') {
+    lensKey = 'anon';
+    open = () => getStorageSandbox(ctx.sandbox.withAuth(null), { bucket });
+  } else {
+    lensKey = `as:${lensCacheKey(actAs)}`;
+    open = () => getStorageSandbox(ctx.sandbox.withAuth(authStateForLens(actAs)), { bucket });
+  }
+  const key = `${bucket}\u0000${lensKey}`;
+  let handle = handles.get(key);
+  if (!handle) {
+    handle = open();
     handles.set(key, handle);
   }
   return handle;
@@ -202,6 +407,20 @@ function toSettableMetadata(msg: {
   return settable;
 }
 
+/**
+ * The download tokens an upload creates its object with. firebase-admin's
+ * `save` sets them; no client SDK can, so they are taken on the admin lens only.
+ */
+function uploadDownloadTokens(msg: { downloadTokens?: string; actAs?: AuthLens }): string | undefined {
+  const tokens = msg.downloadTokens;
+  const setsTokens = tokens !== undefined;
+  const adminPlane = msg.actAs?.mode === 'admin';
+  if (setsTokens && !adminPlane) {
+    throw new FirebaseError('storage/unauthorized', 'An upload sets download tokens on the admin lens only (firebase-admin File.save).');
+  }
+  return tokens;
+}
+
 /** The storage op methods routed to {@link handleStorageOp}. */
 const STORAGE_METHODS = new Set<string>([
   'storage.listAll',
@@ -216,6 +435,9 @@ const STORAGE_METHODS = new Set<string>([
   'storage.finishUpload',
   'storage.abortUpload',
   'storage.deleteObject',
+  'storage.rollbackUpload',
+  'storage.copyObject',
+  'storage.createUploadSession',
 ]);
 
 /** The operations that carry an object's bytes in frames. */
@@ -250,7 +472,7 @@ export async function handleStorageOp(
       // under the op's lens (admin lens bypasses — see lensStorage).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
           opProvenance(msg),
         );
         const result = await storageListAll(storageRef(storage, msg.path));
@@ -265,14 +487,14 @@ export async function handleStorageOp(
     case 'storage.getMetadata': {
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
           opProvenance(msg),
         );
         // FullMetadata is plain JSON (bucket/fullPath/name/size/contentType/...).
         ok(
           port,
           msg.id,
-          await storageGetMetadata(storageRef(storage, msg.path)),
+          namedMetadata(ctx, msg, await storageGetMetadata(storageRef(storage, msg.path))),
         );
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -283,7 +505,7 @@ export async function handleStorageOp(
       // object's metadata, as production keeps it, and is minted on first use.
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
@@ -304,7 +526,7 @@ export async function handleStorageOp(
             updated: new Date(getClock(ctx.sandbox).now()).toISOString(),
           }, target.bucket);
         }
-        ok(port, msg.id, { path: storageObjectPath(target.bucket, r.fullPath, token) });
+        ok(port, msg.id, { path: storageObjectPath(bucketNameOf(ctx, msg, target.bucket), r.fullPath, token) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -317,10 +539,10 @@ export async function handleStorageOp(
         if (!adminPlane) {
           throw new FirebaseError('storage/unauthorized', 'storage.setMetadata is the admin plane (firebase-admin File.setMetadata) and runs only on the admin lens.');
         }
-        const storage = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port), opProvenance(msg));
+        const storage = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)), opProvenance(msg));
         const result = await patchObjectMetadata(storageRef(storage, msg.path), msg.patch);
         await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, result);
+        ok(port, msg.id, namedMetadata(ctx, msg, result));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -332,7 +554,7 @@ export async function handleStorageOp(
       // callers use `storage.getBytes` (base64) instead.
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
           opProvenance(msg),
         );
         ok(
@@ -365,18 +587,23 @@ export async function handleStorageOp(
         if (exceedsDecodedLimit) {
           throw storagePayloadTooLarge(bytes.byteLength, `storage.putBytes payload for '${msg.path}'`);
         }
+        const bucket = bucketOfOp(ctx, msg);
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucket),
           opProvenance(msg),
         );
-        const result = await storageUploadBytes(
-          storageRef(storage, msg.path),
+        const target = storageRef(storage, msg.path);
+        const { result, replaced: earlier } = await uploadObjectReplacing(
+          target,
           bytes,
           toSettableMetadata(msg),
+          { downloadTokens: uploadDownloadTokens(msg) },
         );
+        const replaced = await replacedForRollback(target, msg.rollback, earlier);
         await bestEffortFlush(ctx, msg.method);
+        const stored = { bucket, path: result.metadata.fullPath, generation: result.metadata.generation, replaced };
         // FullMetadata — plain JSON, relay-safe.
-        ok(port, msg.id, result.metadata);
+        ok(port, msg.id, { ...namedMetadata(ctx, msg, result.metadata), ...rollbackReceipt(ctx, port, msg.rollback, stored) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -392,8 +619,9 @@ export async function handleStorageOp(
         if (msg.size > MAX_STORAGE_OBJECT_BYTES) {
           throw storageQuotaExceeded(msg.size, `storage.beginUpload for '${msg.path}'`);
         }
+        const downloadTokens = uploadDownloadTokens(msg);
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
@@ -430,7 +658,7 @@ export async function handleStorageOp(
           settable.customMetadata,
         );
         const token = mintCapabilityToken();
-        pendingUploads(ctx).set(uploadId, { path: r.fullPath, settable, token });
+        pendingUploads(ctx).set(uploadId, { bucket: target.bucket, bucketName: bucketNameOf(ctx, msg, target.bucket), path: r.fullPath, settable, ...(downloadTokens !== undefined ? { downloadTokens } : {}), token });
         // A host with a byte route takes the bytes at this URL; others ignore it.
         ok(port, msg.id, { uploadId, uploadUrl: storageUploadPath(target.bucket, r.fullPath, uploadId, token) });
       } catch (e) { fail(port, msg.id, e); }
@@ -478,7 +706,7 @@ export async function handleStorageOp(
           throw new FirebaseError('storage/object-not-found', `Upload '${msg.uploadId}' not found or already completed.`);
         }
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, pending!.bucket),
           opProvenance(msg),
         );
         const service = await getStorageService(storage);
@@ -488,11 +716,14 @@ export async function handleStorageOp(
         // A Blob of the staged bytes; a backend that staged them in a file keeps
         // that file as the object instead of reading it.
         const staged = await service.backend.readUpload(msg.uploadId);
-        const result = await storageUploadBytes(storageRef(storage, pending!.path), staged, pending!.settable);
+        const target = storageRef(storage, pending!.path);
+        const { result, replaced: earlier } = await uploadObjectReplacing(target, staged, pending!.settable, { downloadTokens: pending!.downloadTokens });
+        const replaced = await replacedForRollback(target, msg.rollback, earlier);
         pendingUploads(ctx).delete(msg.uploadId);
         await service.backend.abortUpload?.(msg.uploadId);
         await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, result.metadata);
+        const stored = { bucket: pending!.bucket, path: result.metadata.fullPath, generation: result.metadata.generation, replaced };
+        ok(port, msg.id, { ...result.metadata, bucket: pending!.bucketName, ...rollbackReceipt(ctx, port, msg.rollback, stored) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -521,16 +752,21 @@ export async function handleStorageOp(
       // superseding `not-found`, matching pyric/storage).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
         const meta = await storageGetMetadata(r);
         const isRange = msg.offset !== undefined || msg.length !== undefined;
         if (isRange) {
-          if (msg.expectedGeneration !== undefined && meta.generation !== msg.expectedGeneration) {
-            throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
-          }
+          // The generation the caller expects, or the one the rules were
+          // evaluated against. The bytes are read with their metadata as one
+          // pair from the same write, and an overwrite since either generation
+          // was observed fails the read rather than mixing two writes.
+          const generation = msg.expectedGeneration ?? meta.generation;
+          const objectChanged = (): FirebaseError =>
+            new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
+          if (meta.generation !== generation) throw objectChanged();
           const offset = msg.offset ?? 0;
           const length = msg.length ?? (meta.size - offset);
           if (length > MAX_STORAGE_OP_BYTES) {
@@ -538,24 +774,17 @@ export async function handleStorageOp(
           }
           const target = targetOf(r.storage);
           const service = await getStorageService(r.storage);
-          let slice: Uint8Array | undefined;
-          if (service.backend.readRange) {
-            slice = await service.backend.readRange(target.bucket, r.fullPath, offset, length, msg.expectedGeneration);
-          } else {
-            const blob = await service.backend.getBlob(r.fullPath, target.bucket);
-            if (blob) {
-              const subBlob = blob.slice(offset, offset + length);
-              slice = new Uint8Array(await subBlob.arrayBuffer());
-            }
-          }
-          if (!slice) {
+          const object = await service.backend.getObject(r.fullPath, target.bucket);
+          if (!object) {
             throw new FirebaseError('storage/object-not-found', `object '${msg.path}' not found.`);
           }
+          if (object.metadata.generation !== generation) throw objectChanged();
+          const slice = new Uint8Array(await object.blob.slice(offset, offset + length).arrayBuffer());
           ok(port, msg.id, {
             dataB64: bytesToBase64(slice),
-            contentType: meta.contentType,
+            contentType: object.metadata.contentType,
             size: slice.byteLength,
-            generation: meta.generation,
+            generation: object.metadata.generation,
           });
         } else {
           const exceedsStoredLimit = meta.size > MAX_STORAGE_OP_BYTES;
@@ -586,12 +815,88 @@ export async function handleStorageOp(
       // explicitly (issue #84 item 3).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port),
+          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
           opProvenance(msg),
         );
         await storageDeleteObject(storageRef(storage, msg.path));
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.rollbackUpload': {
+      // A canceled upload's own commit, rolled back without evaluating rules
+      // (see upload-rollback.ts): the object it replaced is put back, or the
+      // one it created deleted, only while the path still holds that commit's
+      // generation, checked and written in one backend transaction, and only
+      // for the client the token was issued to. A failed rollback fails the call, so
+      // the client never reports storage/canceled while the upload's object stays.
+      try {
+        const committed = redeemRollbackGrant(ctx, port, msg.rollbackToken);
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs, port, committed.bucket),
+          opProvenance(msg),
+        );
+        const { deleted, restored } = await rollBackCommit(storageRef(storage, committed.path), committed, opProvenance(msg));
+        const changed = deleted || restored;
+        if (changed) await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, { deleted, restored });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.copyObject': {
+      // firebase-admin's File.copy, within a bucket or into another one.
+      try {
+        const adminPlane = msg.actAs?.mode === 'admin';
+        if (!adminPlane) {
+          throw new FirebaseError('storage/unauthorized', 'storage.copyObject is the admin plane (firebase-admin File.copy) and runs only on the admin lens.');
+        }
+        const provenance = opProvenance(msg);
+        const source = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)), provenance);
+        const destinationBucket = storeBucketOf(ctx, msg.destinationBucket);
+        const destination = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port, destinationBucket), provenance);
+        const result = await copyObject(storageRef(source, msg.path), storageRef(destination, msg.destinationPath), msg.patch ?? {}, provenance);
+        await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, namedMetadata(ctx, { bucket: msg.destinationBucket, defaultBucket: msg.defaultBucket }, result));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.createUploadSession': {
+      // firebase-admin's File.createResumableUpload. The session URL takes the
+      // bytes over the byte route, which creates the object when they are all in.
+      try {
+        const adminPlane = msg.actAs?.mode === 'admin';
+        if (!adminPlane) {
+          throw new FirebaseError('storage/unauthorized', 'storage.createUploadSession is the admin plane (firebase-admin File.createResumableUpload) and runs only on the admin lens.');
+        }
+        const routed = ctx.storageByteRoute === true;
+        if (!routed) {
+          throw new FirebaseError('storage/unsupported', 'Upload sessions need a host with an HTTP byte route. This host has none; upload with File.save() instead.');
+        }
+        if (!msg.path || msg.path.trim() === '') {
+          throw new FirebaseError('storage/invalid-root-operation', 'storage.createUploadSession cannot operate on root reference.');
+        }
+        const bucket = bucketOfOp(ctx, msg);
+        const storage = lensStorage(ctx, msg.actAs, port, bucket);
+        const r = storageRef(storage, msg.path);
+        const sessionId = crypto.randomUUID();
+        const token = mintCapabilityToken();
+        const downloadTokens = uploadDownloadTokens(msg);
+        const provenance = opProvenance(msg);
+        uploadSessions(ctx).set(sessionId, {
+          bucket,
+          bucketName: bucketNameOf(ctx, msg, bucket),
+          path: r.fullPath,
+          settable: toSettableMetadata(msg),
+          token,
+          ...(downloadTokens !== undefined ? { downloadTokens } : {}),
+          ...(msg.origin !== undefined ? { origin: msg.origin } : {}),
+          ...(provenance !== undefined ? { provenance } : {}),
+        });
+        ok(port, msg.id, { uploadUrl: storageUploadPath(bucketNameOf(ctx, msg, bucket), r.fullPath, sessionId, token) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

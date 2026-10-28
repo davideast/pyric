@@ -1,0 +1,137 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "spaces_app": {
+      "client_config": {
+        ".read": true
+      },
+      "eval_runs": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "spaces": {
+        "__playground__": {
+          ".read": true,
+          ".write": "auth != null"
+        },
+        "$spaceid": {
+          "$_": {
+            ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+            ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)"
+          },
+          "apiKeys": {
+            ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+            ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('role').val() == 'admin'"
+          },
+          "data": {
+            ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+            "$_": {
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)"
+            },
+            "contexts": {
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+              "$contextid": {
+                ".validate": "newData.child('type').val() != 'file' || (data.child('type').val() == 'file' && newData.child('value').val() == data.child('value').val()) || (newData.child('value').isString() && (newData.child('value').val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.child('value').val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.child('value').val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F')))"
+              }
+            },
+            "tabs": {
+              "$tabid": {
+                "$_": {
+                  ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)"
+                },
+                "code": {
+                  ".write": false
+                },
+                "lastMessage": {
+                  ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+                  "content": {
+                    "imageUris": {
+                      "$i": {
+                        ".validate": "newData.isString() && (newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.val().beginsWith('https://static.klipy.com/') || newData.val().beginsWith('https://static1.klipy.com/') || newData.val().beginsWith('https://static2.klipy.com/') || newData.val() == data.val())"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "log": {
+            ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+            ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+            ".indexOn": [
+              "whenNeg"
+            ],
+            "$entryid": {}
+          },
+          "metadata": {
+            ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+            "$_": {
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)"
+            },
+            "anyoneCanJoin": {
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('role').val() == 'admin'"
+            },
+            "joinPassword": {
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('role').val() == 'admin'"
+            },
+            "maxMembers": {
+              ".write": false
+            },
+            "thumbnailDataUri": {
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+              ".validate": "newData.isString() && (newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2Favatar.png?') || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2Favatar.png?') || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2Favatar.png?') || newData.val() == data.val())"
+            },
+            "members": {
+              "$uid": {
+                ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('role').val() == 'admin' || (auth.uid == $uid && newData.child('role').val() != 'admin'))"
+              }
+            }
+          },
+          "chatHistory": {
+            "$tabid": {
+              ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (!root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').exists() || root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').child(auth.uid).val() == true)",
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true) && (!root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').exists() || root.child('spaces_app').child('spaces').child($spaceid).child('data').child('tabs').child($tabid).child('members').child(auth.uid).val() == true)",
+              ".indexOn": [
+                "whenNeg"
+              ],
+              "$messageid": {
+                "content": {
+                  "imageUris": {
+                    "$i": {
+                      ".validate": "newData.isString() && (newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/digchatapp.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.val().beginsWith('https://firebasestorage.googleapis.com/v0/b/labs-spaces-staging.firebasestorage.app/o/spaces%2F' + $spaceid + '%2F') || newData.val().beginsWith('https://static.klipy.com/') || newData.val().beginsWith('https://static1.klipy.com/') || newData.val().beginsWith('https://static2.klipy.com/') || newData.val() == data.val() || newData.val() == data.parent().child('0').val() || newData.val() == data.parent().child('1').val() || newData.val() == data.parent().child('2').val() || newData.val() == data.parent().child('3').val() || newData.val() == data.parent().child('4').val() || newData.val() == data.parent().child('5').val() || newData.val() == data.parent().child('6').val() || newData.val() == data.parent().child('7').val() || newData.val() == data.parent().child('8').val() || newData.val() == data.parent().child('9').val())"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "lastSeen": {
+            "$uid": {
+              ".read": "auth != null && auth.uid == $uid",
+              ".write": "auth != null && auth.uid == $uid"
+            }
+          },
+          "tabHistory": {
+            "$tabid": {
+              ".read": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+              ".write": "auth != null && root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).exists() && !(root.child('spaces_app').child('spaces').child($spaceid).child('metadata').child('members').child(auth.uid).child('removed').val() == true)",
+              "meta": {
+                ".indexOn": [
+                  "whenNeg"
+                ],
+                "$entryid": {}
+              }
+            }
+          }
+        }
+      },
+      "userinfo": {
+        "$uid": {
+          ".read": "auth != null && auth.uid == $uid",
+          ".write": "auth != null && auth.uid == $uid"
+        }
+      }
+    }
+  }
+}

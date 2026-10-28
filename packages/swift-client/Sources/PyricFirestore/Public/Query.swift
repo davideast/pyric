@@ -280,7 +280,11 @@ public class Query: @unchecked Sendable {
 
     public func getDocuments(source: FirestoreSource = .default) async throws -> QuerySnapshot {
         let target = try QueryCompiler.compile(query: self)
-        let raw = try await firestore.bridgeClient.getDocs(source: target, actAs: firestore.effectiveAuthLens)
+        return try await getDocuments(turn: firestore.takeTurn(), target: target)
+    }
+
+    private func getDocuments(turn: OperationTurn, target: TargetDescriptor) async throws -> QuerySnapshot {
+        let raw = try await firestore.bridgeClient.getDocs(turn: turn, source: target, actAs: firestore.effectiveAuthLens)
         return QuerySnapshot.fromWire(firestore: firestore, query: self, wire: raw)
     }
 
@@ -292,19 +296,15 @@ public class Query: @unchecked Sendable {
         source: FirestoreSource,
         completion: @escaping @Sendable (QuerySnapshot?, Error?) -> Void
     ) {
-        let db = self.firestore
-        let box = CallbackBox(completion)
-        Task {
-            do {
-                let snapshot = try await self.getDocuments(source: source)
-                db.settings.dispatchQueue.async {
-                    box.callback(snapshot, nil)
-                }
-            } catch {
-                db.settings.dispatchQueue.async {
-                    box.callback(nil, error)
-                }
-            }
+        let target: TargetDescriptor
+        do {
+            target = try QueryCompiler.compile(query: self)
+        } catch {
+            firestore.settings.dispatchQueue.async { completion(nil, error) }
+            return
+        }
+        firestore.runInCallOrder(completion: completion) { turn in
+            try await self.getDocuments(turn: turn, target: target)
         }
     }
 
@@ -335,6 +335,21 @@ public class Query: @unchecked Sendable {
                     previousDocs: stateBox.previousDocs
                 )
                 stateBox.previousDocs = snapshot.documents
+                stateBox.lastWire = event
+                db.settings.dispatchCallback {
+                    box.callback(snapshot, nil)
+                }
+            },
+            onGap: {
+                // The documents last delivered, now served from cache, with no changes.
+                guard let lastWire = stateBox.lastWire else { return }
+                let snapshot = QuerySnapshot.fromWire(
+                    firestore: db,
+                    query: self,
+                    wire: lastWire,
+                    previousDocs: stateBox.previousDocs ?? [],
+                    isFromCache: true
+                )
                 db.settings.dispatchCallback {
                     box.callback(snapshot, nil)
                 }
@@ -403,4 +418,5 @@ private final class CallbackBox<T: Sendable>: @unchecked Sendable {
 
 private final class QuerySnapshotStateBox: @unchecked Sendable {
     var previousDocs: [QueryDocumentSnapshot]?
+    var lastWire: AnySendable?
 }

@@ -197,17 +197,26 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     // ── One-Shot Reads ────────────────────────────────────────────────────────
 
     public func getData() async throws -> DataSnapshot {
+        try await getData(turn: database.takeTurn())
+    }
+
+    /// Reads the location, sent in the place `turn` holds.
+    func getData(turn: OperationTurn) async throws -> DataSnapshot {
+        let client = database.bridgeClient
+        if ConnectionInfo.isInfoPath(path) {
+            // `.info` is answered here, so the turn is passed without sending anything.
+            await client.pass(turn: turn)
+            let connected = await ConnectionInfo.currentlyConnected(database)
+            return DataSnapshot(wire: ConnectionInfo.wire(at: path, connected: connected), ref: ref)
+        }
         var params: [String: AnySendable] = [
             "path": .string(path)
         ]
         if let qSpec = toQuerySpecAnySendable() {
             params["query"] = qSpec
         }
-        let wire = try await database.bridgeClient.op(
-            method: "rtdb.get",
-            params: params,
-            actAs: database.currentAuthLens()
-        )
+        let actAs = database.currentAuthLens()
+        let wire = try await client.op(turn: turn, method: "rtdb.get", params: params, actAs: actAs)
         return DataSnapshot(wire: wire, ref: ref)
     }
 
@@ -322,6 +331,9 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void,
         onCancel: (@Sendable (Error) -> Void)?
     ) -> Task<Void, Never> {
+        if ConnectionInfo.isInfoPath(path) {
+            return startInfoObserverTask(eventTypes: eventTypes, onEvent: onEvent)
+        }
         var targetDict: [String: AnySendable] = [
             "service": .string("rtdb"),
             "path": .string(path)
@@ -334,8 +346,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         let queryRef = self.ref
 
         return Task {
-            var previousChildren: [DataSnapshot] = []
-            var isFirstSnapshot = true
+            let events = SnapshotEvents(eventTypes: eventTypes, onEvent: onEvent)
 
             // Listen to authLensStream so identity changes re-evaluate subscriptions automatically.
             for await currentLens in db.authLensStream {
@@ -374,54 +385,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
                             return
                         }
 
-                        let snap = DataSnapshot(wire: wireSnap, ref: queryRef)
-
-                        if eventTypes.contains(.value) {
-                            onEvent(DatabaseChildEvent(type: .value, snapshot: snap, previousSiblingKey: nil))
-                        }
-
-                        let newChildren = snap.childrenSnapshots
-                        if isFirstSnapshot {
-                            isFirstSnapshot = false
-                            if eventTypes.contains(.childAdded) {
-                                var prevKey: String? = nil
-                                for child in newChildren {
-                                    onEvent(DatabaseChildEvent(type: .childAdded, snapshot: child, previousSiblingKey: prevKey))
-                                    prevKey = child.key
-                                }
-                            }
-                        } else {
-                            let oldByKey = Dictionary(uniqueKeysWithValues: previousChildren.compactMap { c in c.key.map { ($0, c) } })
-                            let newByKey = Dictionary(uniqueKeysWithValues: newChildren.compactMap { c in c.key.map { ($0, c) } })
-
-                            if eventTypes.contains(.childRemoved) {
-                                for oldChild in previousChildren {
-                                    if let key = oldChild.key, newByKey[key] == nil {
-                                        onEvent(DatabaseChildEvent(type: .childRemoved, snapshot: oldChild, previousSiblingKey: nil))
-                                    }
-                                }
-                            }
-
-                            var prevKey: String? = nil
-                            for newChild in newChildren {
-                                guard let key = newChild.key else { continue }
-                                if let oldChild = oldByKey[key] {
-                                    if eventTypes.contains(.childChanged) {
-                                        let oldVal = RtdbValueCodec.toAnySendable(oldChild.value)
-                                        let newVal = RtdbValueCodec.toAnySendable(newChild.value)
-                                        if oldVal != newVal {
-                                            onEvent(DatabaseChildEvent(type: .childChanged, snapshot: newChild, previousSiblingKey: prevKey))
-                                        }
-                                    }
-                                } else {
-                                    if eventTypes.contains(.childAdded) {
-                                        onEvent(DatabaseChildEvent(type: .childAdded, snapshot: newChild, previousSiblingKey: prevKey))
-                                    }
-                                }
-                                prevKey = key
-                            }
-                        }
-                        previousChildren = newChildren
+                        events.deliver(DataSnapshot(wire: wireSnap, ref: queryRef))
                     }
                 } catch {
                     if !Task.isCancelled && !lensChanged.value {
@@ -432,6 +396,103 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
                 }
                 lensMonitorTask.cancel()
             }
+        }
+    }
+}
+
+extension DatabaseQuery {
+
+    /// Serves a listener on `/.info` from the client. It never subscribes on
+    /// the bridge, so re-attach never replays it.
+    private func startInfoObserverTask(
+        eventTypes: Set<DataEventType>,
+        onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void
+    ) -> Task<Void, Never> {
+        let infoPath = path
+        let queryRef = ref
+        let db = database
+
+        return Task {
+            let events = SnapshotEvents(eventTypes: eventTypes, onEvent: onEvent)
+            var lastWire: AnySendable?
+            for await connected in ConnectionInfo.connectedValues(of: db) {
+                if Task.isCancelled { break }
+                let wire = ConnectionInfo.wire(at: infoPath, connected: connected)
+                let unchanged = wire == lastWire
+                if unchanged { continue }
+                lastWire = wire
+                events.deliver(DataSnapshot(wire: wire, ref: queryRef))
+            }
+        }
+    }
+}
+
+/// Turns each snapshot a listener receives into its value and child events,
+/// diffing the children against the previous snapshot.
+private final class SnapshotEvents {
+    private let eventTypes: Set<DataEventType>
+    private let onEvent: @Sendable (DatabaseChildEvent) -> Void
+    private var previousChildren: [DataSnapshot] = []
+    private var isFirstSnapshot = true
+
+    init(eventTypes: Set<DataEventType>, onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void) {
+        self.eventTypes = eventTypes
+        self.onEvent = onEvent
+    }
+
+    func deliver(_ snap: DataSnapshot) {
+        if eventTypes.contains(.value) {
+            onEvent(DatabaseChildEvent(type: .value, snapshot: snap, previousSiblingKey: nil))
+        }
+        let newChildren = snap.childrenSnapshots
+        if isFirstSnapshot {
+            isFirstSnapshot = false
+            deliverInitialChildren(newChildren)
+        } else {
+            deliverChildChanges(from: previousChildren, to: newChildren)
+        }
+        previousChildren = newChildren
+    }
+
+    private func deliverInitialChildren(_ children: [DataSnapshot]) {
+        guard eventTypes.contains(.childAdded) else { return }
+        var prevKey: String? = nil
+        for child in children {
+            onEvent(DatabaseChildEvent(type: .childAdded, snapshot: child, previousSiblingKey: prevKey))
+            prevKey = child.key
+        }
+    }
+
+    private func deliverChildChanges(from oldChildren: [DataSnapshot], to newChildren: [DataSnapshot]) {
+        let oldByKey = Dictionary(uniqueKeysWithValues: oldChildren.compactMap { c in c.key.map { ($0, c) } })
+        let newByKey = Dictionary(uniqueKeysWithValues: newChildren.compactMap { c in c.key.map { ($0, c) } })
+
+        if eventTypes.contains(.childRemoved) {
+            for oldChild in oldChildren {
+                if let key = oldChild.key, newByKey[key] == nil {
+                    onEvent(DatabaseChildEvent(type: .childRemoved, snapshot: oldChild, previousSiblingKey: nil))
+                }
+            }
+        }
+
+        var prevKey: String? = nil
+        for newChild in newChildren {
+            guard let key = newChild.key else { continue }
+            if let oldChild = oldByKey[key] {
+                deliverChangeIfDifferent(old: oldChild, new: newChild, previousSiblingKey: prevKey)
+            } else if eventTypes.contains(.childAdded) {
+                onEvent(DatabaseChildEvent(type: .childAdded, snapshot: newChild, previousSiblingKey: prevKey))
+            }
+            prevKey = key
+        }
+    }
+
+    private func deliverChangeIfDifferent(old: DataSnapshot, new: DataSnapshot, previousSiblingKey: String?) {
+        guard eventTypes.contains(.childChanged) else { return }
+        let oldVal = RtdbValueCodec.toAnySendable(old.value)
+        let newVal = RtdbValueCodec.toAnySendable(new.value)
+        if oldVal != newVal {
+            onEvent(DatabaseChildEvent(type: .childChanged, snapshot: new, previousSiblingKey: previousSiblingKey))
         }
     }
 }

@@ -36,10 +36,20 @@
  * with "Missing 'match' keyword before path." while `1 / 0` compiles and
  * errors at evaluation with "Divide by zero error." (the `slash-divisor`
  * probes, identical for Firestore and Storage).
+ *
+ * A match declaration path holds at most one recursive wildcard, counted
+ * across the path of the block and every block it is nested in:
+ * `match /{a=**}/items/{b=**}`, and `match /{rest=**}` nested in
+ * `match /{g=**}/p/{gid}`, are rejected with "Invalid glob match expression.
+ * Only one glob match is permitted in a match declaration path." on the line
+ * of the declaration that holds the second one, while one recursive wildcard
+ * in either position compiles (the `glob-in-path` and `glob-nested` probes,
+ * identical for Firestore and Storage).
  */
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 import { parenthesizedGroups } from './paren-groups.js';
 import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
+import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
 
 /** Most functions one call stack may hold; 22 is rejected. */
 export const CALL_DEPTH_LIMIT = 21;
@@ -56,6 +66,7 @@ export const NESTING_LEVEL_LIMIT = 99;
 export const LET_LIMIT_MESSAGE = 'Maximum allowed variable count of 10 for a given function has been reached.';
 export const NESTING_MESSAGE = 'Expression is too complex to evaluate safely.';
 export const SLASH_STARTS_PATH_MESSAGE = "Missing 'match' keyword before path.";
+export const GLOB_MATCH_MESSAGE = 'Invalid glob match expression. Only one glob match is permitted in a match declaration path.';
 
 /** Production's call depth message for a stack of {@link CALL_DEPTH_LIMIT} function names. */
 export function callDepthMessage(stack: readonly string[]): string {
@@ -67,7 +78,9 @@ export function duplicateFunctionMessage(name: string): string {
   return `Function ${name} is already defined.`;
 }
 
-export type CompileLimitCode = 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH';
+export type CompileLimitCode =
+  | 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH' | 'GLOB_MATCH_COUNT'
+  | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_REGEX_PATTERN';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {
@@ -93,6 +106,12 @@ export interface CompileLimitViolation {
 export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolation[] {
   const graph = buildCallGraph(ast);
   const out: CompileLimitViolation[] = [];
+  const isFirestore = ast.service.name !== 'firebase.storage';
+  if (ast.version !== '1' && ast.version !== '2' && ast.version !== '2+modules') {
+    out.push({ code: 'UNSUPPORTED_RULES_VERSION', message: `Unsupported rules version ${ast.version}.`, line: ast.loc?.line ?? 1 });
+  } else if (isFirestore && (ast.version === '2+modules' || (ast.imports?.length ?? 0) > 0)) {
+    out.push({ code: 'UNRESOLVED_MODULES', message: "Rules source uses '2+modules' or import statements that must be resolved before compilation.", line: ast.loc?.line ?? 1 });
+  }
   for (const node of graph) {
     const fn = node.fn;
     if (fn.lets.length > LET_LIMIT) {
@@ -108,22 +127,39 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
     }
     for (const binding of fn.lets) {
       pushNesting(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
-      pushSlashPaths(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
+      pushExpressionViolations(out, binding.value, binding.loc?.line ?? fn.loc?.line, isFirestore, fn.name);
     }
     pushNesting(out, fn.body, fn.loc?.line, fn.name);
-    pushSlashPaths(out, fn.body, fn.returnLoc?.line ?? fn.loc?.line, fn.name);
+    pushExpressionViolations(out, fn.body, fn.returnLoc?.line ?? fn.loc?.line, isFirestore, fn.name);
   }
   const visitRules = (match: MatchBlock) => {
     for (const rule of match.allows) {
       pushNesting(out, rule.condition, rule.loc?.line);
-      pushSlashPaths(out, rule.condition, rule.loc?.line);
+      pushExpressionViolations(out, rule.condition, rule.loc?.line, isFirestore);
     }
     for (const child of match.children) visitRules(child);
   };
   visitRules(ast.service.match);
   out.push(...callDepthViolations(graph));
   out.push(...redefinedFunctions(ast));
+  out.push(...secondGlobMatches(ast.service.match, 0));
   return out.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+}
+
+/**
+ * One rejection per match block whose own path holds a recursive wildcard
+ * that is not the first on the full path from the service root: a second
+ * one in the block's own path, or one in a block nested under a block whose
+ * path already holds one. Reported on the block's line, where production
+ * reports it.
+ */
+function secondGlobMatches(match: MatchBlock, enclosing: number): CompileLimitViolation[] {
+  const own = match.path.segments.filter((segment) => segment.type === 'recursive').length;
+  const out: CompileLimitViolation[] = own > 0 && enclosing + own > 1
+    ? [{ code: 'GLOB_MATCH_COUNT', message: GLOB_MATCH_MESSAGE, ...lineOf(match.loc) }]
+    : [];
+  for (const child of match.children) out.push(...secondGlobMatches(child, enclosing + own));
+  return out;
 }
 
 function redefinedFunctions(ast: FirestoreRules): CompileLimitViolation[] {
@@ -189,7 +225,13 @@ function pushNesting(out: CompileLimitViolation[], expr: Expression, line: numbe
  * such as "Unexpected '/0'." and "mismatched input ')' expecting {'{', '/',
  * PATH_SEGMENT}"; only the first issue is reported here.
  */
-function pushSlashPaths(out: CompileLimitViolation[], expr: Expression, line: number | undefined, functionName?: string): void {
+function pushExpressionViolations(
+  out: CompileLimitViolation[],
+  expr: Expression,
+  line: number | undefined,
+  isFirestore: boolean,
+  functionName?: string,
+): void {
   if (expr.type === 'binaryOp' && expr.slashStartsPath) {
     out.push({
       code: 'SLASH_STARTS_PATH',
@@ -198,7 +240,19 @@ function pushSlashPaths(out: CompileLimitViolation[], expr: Expression, line: nu
       ...(functionName === undefined ? {} : { functionName }),
     });
   }
-  for (const child of children(expr)) pushSlashPaths(out, child, line, functionName);
+  if (isFirestore && expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
+    const arg = expr.args[0];
+    const problem = arg?.type === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
+    if (problem !== null) {
+      out.push({
+        code: 'INVALID_REGEX_PATTERN',
+        message: problem,
+        ...(line === undefined ? {} : { line }),
+        ...(functionName === undefined ? {} : { functionName }),
+      });
+    }
+  }
+  for (const child of children(expr)) pushExpressionViolations(out, child, line, isFirestore, functionName);
 }
 
 // ── Nesting ─────────────────────────────────────────────────────────────
@@ -251,6 +305,20 @@ export interface SourceNestingFailure {
   expected: string;
 }
 
+/** A closed bracket span whose interior was replaced to bound nesting depth. */
+export interface ElidedSpan {
+  offset: number;
+  text: string;
+}
+
+function isBlankSlice(source: string, from: number, to: number): boolean {
+  for (let i = from; i < to; i++) {
+    const c = source.charCodeAt(i);
+    if (c !== 32 && c !== 9 && c !== 10 && c !== 13) return false;
+  }
+  return true;
+}
+
 /**
  * The source for the parser to match, with the content of every bracket
  * nested past the nesting limit replaced, or where it nests past the
@@ -274,11 +342,13 @@ export interface SourceNestingFailure {
  * and blocks, whose production limit is not measured, so the bound is this
  * parser's own.
  */
-export function boundSourceNesting(source: string): { source: string } | SourceNestingFailure {
+export function boundSourceNesting(source: string): { source: string; elided?: ElidedSpan[] } | SourceNestingFailure {
   const spans = scanBrackets(source, { comments: true, regexLiterals: false, multilineStrings: false });
   let rewritten: string[] | undefined;
+  let elided: ElidedSpan[] | undefined;
   let emptiedUntil = -1;
-  for (const span of spans) {
+  for (let idx = 0; idx < spans.length; idx++) {
+    const span = spans[idx]!;
     if (span.open < emptiedUntil) continue;
     if (span.depth > MAX_BRACKET_DEPTH) {
       return { offset: span.open, expected: `brackets nested at most ${MAX_BRACKET_DEPTH} levels deep` };
@@ -295,10 +365,28 @@ export function boundSourceNesting(source: string): { source: string } | SourceN
     rewritten ??= [];
     rewritten.push(source.slice(Math.max(emptiedUntil, 0), span.open + 1), filled);
     emptiedUntil = end === source.length ? Infinity : end;
+    if (span.close !== -1) {
+      let cur = idx;
+      while (cur + 1 < spans.length) {
+        const parent = spans[cur]!;
+        const nextSpan = spans[cur + 1]!;
+        const isWrapper = (parent.kind === 'group' || parent.kind === 'list') && parent.items === 1;
+        const isEnclosed = nextSpan.close !== -1 && nextSpan.open > parent.open && nextSpan.close < parent.close;
+        const nextValid = (nextSpan.kind === 'group' || nextSpan.kind === 'list' || nextSpan.kind === 'map') && nextSpan.items >= 1;
+        if (!isWrapper || !isEnclosed || !nextValid) break;
+        if (!isBlankSlice(source, parent.open + 1, nextSpan.open) || !isBlankSlice(source, nextSpan.close + 1, parent.close)) break;
+        cur++;
+      }
+      const target = spans[cur]!;
+      let text = source.slice(target.open, target.close + 1);
+      if (target.kind === 'call') text = `[${source.slice(target.open + 1, target.close)}]`;
+      elided ??= [];
+      elided.push({ offset: target.open, text });
+    }
   }
   if (rewritten === undefined) return { source };
   if (emptiedUntil !== Infinity) rewritten.push(source.slice(emptiedUntil));
-  return { source: rewritten.join('') };
+  return { source: rewritten.join(''), ...(elided === undefined ? {} : { elided }) };
 }
 
 function countTooComplex(expr: Expression, level: number): number {

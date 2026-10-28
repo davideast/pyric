@@ -1,11 +1,12 @@
 import type { AuthState } from 'pyric/sandbox';
 import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
-import type { ChildListener, ChildParentSnapshot } from './listener-types.js';
-import { denyResultFor } from './operation-events.js';
+import type { ChildEventSnapshot, ChildListener, ChildParentSnapshot } from './listener-types.js';
+import type { PriorityRecord } from './priority-state.js';
+import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import {
-  compareValues, executeQuery, extractOrderValue,
-  type QueryRow, type QuerySpec,
+  executeQuery, extractOrderValue,
+  type Priority, type QueryRow, type QuerySpec,
 } from './query.js';
 import { permissionDenied } from './rules-eval.js';
 import { listenerPermissionDenied, ownersFor } from './value-listeners.js';
@@ -13,7 +14,18 @@ import { listenerAttachOwners } from '../../sandbox/attribution/listener-owners.
 import { recordEffectRegions } from '../../sandbox/attribution/effect-regions.js';
 
 type ChildEvent = ChildListener['event'];
-type ChildSnapshot = { key: string; val: JsonValue; previousChildName: string | null };
+type ChildSnapshot = ChildEventSnapshot;
+
+/** The priorities of the subtree at `path`, from a record taken before a write. */
+function prioritiesAt(record: PriorityRecord, path: string): PriorityRecord {
+  const canonical = joinPath(pathSegments(path));
+  const prefix = canonical === '/' ? '/' : `${canonical}/`;
+  const out: PriorityRecord = {};
+  for (const [key, priority] of Object.entries(record)) {
+    if (key === canonical || key.startsWith(prefix)) out[key] = priority;
+  }
+  return out;
+}
 
 function previousName(rows: QueryRow[], key: string): string | null {
   const index = rows.findIndex((row) => row.key === key);
@@ -23,15 +35,6 @@ function previousName(rows: QueryRow[], key: string): string | null {
 function previousValueName(rows: Array<{ key: string; val: JsonValue }>, key: string): string | null {
   const index = rows.findIndex((row) => row.key === key);
   return index > 0 ? rows[index - 1]!.key : null;
-}
-
-function directChildKey(parentPath: string, changedPath?: string): string | null {
-  if (changedPath === undefined) return null;
-  const parent = pathSegments(parentPath);
-  const changed = pathSegments(changedPath);
-  if (changed.length !== parent.length + 1) return null;
-  if (!parent.every((segment, index) => changed[index] === segment)) return null;
-  return changed[changed.length - 1] ?? null;
 }
 
 export class ChildListeners {
@@ -48,24 +51,18 @@ export class ChildListeners {
   ): () => void {
     const at = this.state.clock.now();
     const id = this.state.events.nextListenerId();
-    const attachOwners = listenerAttachOwners();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
-      mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      mockData: this.state.rulesSnapshot(),
       querySpec: spec,
     });
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: this.state.clock.now() - at, origin: 'listener', detail: { event },
+        request: spec ? { query: spec } : undefined,
       });
-      const rulesObj = {
-        engine: 'rtdb' as const,
-        matchedPath: evaluation.matchedPath,
-        matchedRule: evaluation.matchedRule,
-        pathVariableBindings: evaluation.pathVariableBindings,
-        reason: evaluation.reason,
-        errorCode: evaluation.errorCode,
-      };
+      const rulesObj = rtdbRulesDetail(evaluation);
+      const denial = rtdbDenialContext(evaluation, auth, 'listen', path);
       this.state.events.listener('errored', { id, path }, auth, {
         event, result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },
@@ -73,21 +70,83 @@ export class ChildListeners {
         rules: rulesObj,
       });
       if (cancelCallback) {
+        if (onCanceled) {
+          onCanceled();
+        }
         queueMicrotask(() => {
-          if (onCanceled) {
-            onCanceled();
-          }
-          cancelCallback(listenerPermissionDenied(path));
+          cancelCallback(listenerPermissionDenied(path, denial));
         });
         return () => {};
       }
-      throw permissionDenied();
+      throw permissionDenied(denial);
     }
     this.state.warnOnUnspecifiedIndex(path, spec);
-    this.state.events.operation(auth, 'listen', path, 'allow', evaluation, {
-      at, durationMs: this.state.clock.now() - at, origin: 'listener', detail: { event },
+    return this.attach(
+      id,
+      auth,
+      event,
+      path,
+      cb,
+      spec,
+      { origin: 'listener', result: 'allow', evaluation, at },
+      cancelCallback,
+      onCanceled,
+    );
+  }
+
+  adminOnChild(
+    event: ChildEvent,
+    path: string,
+    cb: ChildListener['cb'],
+    spec?: QuerySpec,
+  ): () => void {
+    this.state.warnOnUnspecifiedIndex(path, spec);
+    return this.attach(
+      this.state.events.nextListenerId(),
+      null,
+      event,
+      path,
+      cb,
+      spec,
+      { origin: 'admin', result: 'not-applicable', evaluation: undefined, at: this.state.clock.now() },
+    );
+  }
+
+  private attach(
+    id: string,
+    auth: AuthState,
+    event: ChildEvent,
+    path: string,
+    cb: ChildListener['cb'],
+    spec: QuerySpec | undefined,
+    provenance: {
+      origin: 'listener' | 'admin';
+      result: 'allow' | 'not-applicable';
+      evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined;
+      at: number;
+    },
+    cancelCallback?: (error: Error) => void,
+    onCanceled?: () => void,
+  ): () => void {
+    const attachOwners = listenerAttachOwners();
+    this.state.events.operation(auth, 'listen', path, provenance.result, provenance.evaluation, {
+      at: provenance.at,
+      durationMs: this.state.clock.now() - provenance.at,
+      request: spec ? { query: spec } : undefined,
+      origin: provenance.origin,
+      detail: { event },
     });
-    const listener: ChildListener = { id, auth, event, path, cb, spec, cancelCallback, onCanceled };
+    const listener: ChildListener = {
+      id,
+      auth,
+      event,
+      path,
+      cb,
+      spec,
+      cancelCallback,
+      onCanceled,
+      admin: provenance.origin === 'admin',
+    };
     this.state.childListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {
       event, result: 'allow', detail: spec ? { query: spec } : undefined,
@@ -97,6 +156,7 @@ export class ChildListeners {
     if (spec) {
       const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
       listener.lastWindow = rows;
+      listener.lastPriorities = this.state.priorities.atOrBelow(path);
       if (event === 'child_added') {
         for (const { key, value } of rows) {
           this.deliver(listener, {
@@ -134,17 +194,17 @@ export class ChildListeners {
     for (const listener of this.state.childListeners) {
       const path = joinPath(pathSegments(listener.path));
       if (result.has(path)) continue;
-      result.set(path, new Map(this.directChildren(path).map(({ key, val }) => [key, val])));
+      result.set(path, { children: this.childStates(path), priorities: this.state.priorities.atOrBelow(path) });
     }
     return result;
   }
 
-  fanOut(priorByParent: ChildParentSnapshot, priorityChangedPath?: string): void {
+  fanOut(priorByParent: ChildParentSnapshot): void {
     if (this.state.childListeners.size === 0) return;
     const byParent = new Map<string, ChildListener[]>();
     for (const listener of this.state.childListeners) {
       if (listener.spec) {
-        this.fanOutQuery(listener, priorityChangedPath);
+        this.fanOutQuery(listener);
         continue;
       }
       const path = joinPath(pathSegments(listener.path));
@@ -153,27 +213,32 @@ export class ChildListeners {
       byParent.set(path, listeners);
     }
     for (const [parentPath, listeners] of byParent) {
-      const prior = priorByParent.get(parentPath) ?? new Map<string, JsonValue>();
-      const next = new Map(this.directChildren(parentPath).map(({ key, val }) => [key, val]));
-      const nextRows = [...next].map(([key, val]) => ({ key, val }));
-      const priorRows = [...prior].map(([key, val]) => ({ key, val }));
+      const priorParent = priorByParent.get(parentPath);
+      const prior = priorParent?.children ?? new Map<string, { val: JsonValue; priority: Priority }>();
+      const priorPriorities = priorParent?.priorities ?? {};
+      const next = this.childStates(parentPath);
+      const nextRows = [...next].map(([key, { val }]) => ({ key, val }));
+      const priorRows = [...prior].map(([key, { val }]) => ({ key, val }));
       const events: Record<ChildEvent, ChildSnapshot[]> = {
         child_added: [], child_changed: [], child_removed: [], child_moved: [],
       };
-      for (const [key, val] of next) {
-        if (!prior.has(key)) events.child_added.push({ key, val, previousChildName: previousValueName(nextRows, key) });
-        else if (!jsonValuesEqual(prior.get(key)!, val)) {
-          events.child_changed.push({ key, val, previousChildName: previousValueName(nextRows, key) });
+      for (const [key, { val, priority }] of next) {
+        const before = prior.get(key);
+        if (before === undefined) {
+          events.child_added.push({ key, val, previousChildName: previousValueName(nextRows, key) });
+          continue;
         }
+        const previousChildName = previousValueName(nextRows, key);
+        if (!jsonValuesEqual(before.val, val)) events.child_changed.push({ key, val, previousChildName });
+        // A plain reference orders by priority: a child moves when its own
+        // priority changes, whatever happens to its neighbors or descendants.
+        if (before.priority !== priority) events.child_moved.push({ key, val, previousChildName });
       }
-      for (const [key, val] of prior) {
-        if (!next.has(key)) events.child_removed.push({ key, val, previousChildName: previousValueName(priorRows, key) });
-      }
-      const movedKey = directChildKey(parentPath, priorityChangedPath);
-      if (movedKey !== null && prior.has(movedKey) && next.has(movedKey)) {
-        events.child_moved.push({
-          key: movedKey, val: next.get(movedKey)!,
-          previousChildName: previousValueName(nextRows, movedKey),
+      for (const [key, { val }] of prior) {
+        if (next.has(key)) continue;
+        events.child_removed.push({
+          key, val, previousChildName: previousValueName(priorRows, key),
+          priorities: prioritiesAt(priorPriorities, joinPath([...pathSegments(parentPath), key])),
         });
       }
       for (const listener of listeners) {
@@ -195,13 +260,21 @@ export class ChildListeners {
     ).map(({ key, value: val }) => ({ key, val }));
   }
 
-  private fanOutQuery(listener: ChildListener, priorityChangedPath?: string): void {
+  /** A parent's children in priority order, each with its value and own priority. */
+  private childStates(path: string): Map<string, { val: JsonValue; priority: Priority }> {
+    const priorityOf = this.state.priorities.forChild(path);
+    return new Map(this.directChildren(path).map(({ key, val }) => [key, { val, priority: priorityOf(key) }]));
+  }
+
+  private fanOutQuery(listener: ChildListener): void {
     const prior = listener.lastWindow ?? [];
     const next = executeQuery(
       this.state.tree.read(listener.path), listener.spec!,
       this.state.priorities.forChild(listener.path),
     );
     listener.lastWindow = next;
+    const priorPriorities = listener.lastPriorities ?? {};
+    listener.lastPriorities = this.state.priorities.atOrBelow(listener.path);
     const priorByKey = new Map(prior.map((row) => [row.key, row.value]));
     const nextByKey = new Map(next.map((row) => [row.key, row.value]));
     const events: ChildSnapshot[] = [];
@@ -215,29 +288,22 @@ export class ChildListeners {
       }
     } else if (listener.event === 'child_removed') {
       for (const row of prior) if (!nextByKey.has(row.key)) {
-        events.push({ key: row.key, val: row.value, previousChildName: previousName(prior, row.key) });
+        events.push({
+          key: row.key, val: row.value, previousChildName: previousName(prior, row.key),
+          priorities: prioritiesAt(priorPriorities, joinPath([...pathSegments(listener.path), row.key])),
+        });
       }
     } else if (listener.spec?.orderBy && listener.spec.orderBy.kind !== 'key') {
-      const priorityKey = listener.spec.orderBy.kind === 'priority'
-        ? directChildKey(listener.path, priorityChangedPath) : null;
-      let handledPriorityMove = false;
-      if (priorityKey !== null) {
-        const row = next.find((candidate) => candidate.key === priorityKey);
-        if (row && priorByKey.has(priorityKey)) {
+      // A child moves when its indexed value changes, as production's index
+      // compares it: by equality, so a change that keeps its rank still moves.
+      const priorRows = new Map(prior.map((row) => [row.key, row]));
+      for (const row of next) {
+        const beforeRow = priorRows.get(row.key);
+        if (!beforeRow) continue;
+        const before = extractOrderValue(listener.spec.orderBy, beforeRow.key, beforeRow.value, beforeRow.priority);
+        const after = extractOrderValue(listener.spec.orderBy, row.key, row.value, row.priority);
+        if (!jsonValuesEqual(before, after)) {
           events.push({ key: row.key, val: row.value, previousChildName: previousName(next, row.key) });
-          handledPriorityMove = true;
-        }
-      }
-      if (!handledPriorityMove) {
-        const priorRows = new Map(prior.map((row) => [row.key, row]));
-        for (const row of next) {
-          const beforeRow = priorRows.get(row.key);
-          if (!beforeRow) continue;
-          const before = extractOrderValue(listener.spec.orderBy, beforeRow.key, beforeRow.value, beforeRow.priority);
-          const after = extractOrderValue(listener.spec.orderBy, row.key, row.value, row.priority);
-          if (compareValues(before, after) !== 0) {
-            events.push({ key: row.key, val: row.value, previousChildName: previousName(next, row.key) });
-          }
         }
       }
     }
@@ -261,7 +327,10 @@ export class ChildListeners {
       }
     });
     this.state.events.listener('delivery', listener, listener.auth, {
-      event: listener.event, size: 1, sample: detail.query ? { key: snapshot.key, val: snapshot.val } : snapshot,
+      event: listener.event, size: 1,
+      sample: detail.query
+        ? { key: snapshot.key, val: snapshot.val }
+        : { key: snapshot.key, val: snapshot.val, previousChildName: snapshot.previousChildName },
       detail, owners: ownersFor(regions),
     });
     if (!caught) return;

@@ -23,7 +23,7 @@ import { getAdminDatabase, get as databaseGet, ref as databaseRef } from 'pyric/
 import { getAdminStorageSandbox, getStorageRulesResolution } from 'pyric/storage/internal';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { exportStorage } from './storage-state.js';
+import { FIXTURE_EXPORT_DOCUMENT, exportStorage } from './storage-state.js';
 import {
   applyData,
   applyRules,
@@ -41,7 +41,7 @@ export async function buildFixture(
   const database = (await databaseGet(databaseRef(getAdminDatabase(sandbox)))).val() as
     | Record<string, unknown>
     | null;
-  const storage = await exportStorage(getAdminStorageSandbox(sandbox));
+  const storage = await exportStorage(getAdminStorageSandbox(sandbox), FIXTURE_EXPORT_DOCUMENT);
   const users: SeedUserEntry[] = authSandbox.exportUsers(getAuth(sandbox)).map((user) => {
     const record: SeedUserEntry = { uid: user.uid };
     if (user.email !== undefined) record.email = user.email;

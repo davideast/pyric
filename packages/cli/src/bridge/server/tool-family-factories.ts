@@ -9,7 +9,7 @@ import { createCaptureTools } from './capture-tools.js';
  * derived from the generated aggregate makes a missing or surplus entry a
  * compile error.
  */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import {
   createFirestoreSimulatorTools,
   createFirestoreRulesTools,

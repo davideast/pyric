@@ -2,8 +2,10 @@
 // (this runtime ships to the browser, so the Node-only `internal/rtdb` entry is
 // not reachable from here):
 //
-//   rulesSourceRejection — production's load check, the one every CLI load
-//   path runs: the source parses and is within the compile limits.
+//   rulesSourceRejection — production's Firestore load check, the one every
+//   CLI load path runs: the source parses, its service is cloud.firestore,
+//   and it is within the compile limits. rulesGrammarRejection is its parse
+//   and compile-limit half, for Storage, which checks its own service.
 //
 //   parseToASTOrError / MatchBlock / PathSegment — the public API exposes
 //   lint/simulate but no parsed AST, and the overlapping-match analysis below
@@ -16,11 +18,14 @@
 import {
   parseToASTOrError,
   parseRtdbExpression,
+  rulesGrammarRejection,
   rulesSourceRejection,
   type MatchBlock,
   type PathSegment,
 } from "pyric/rules/internal";
-import { parseStorageRules } from "pyric/storage";
+import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
+import { resolveDatabaseInstance } from "pyric/sandbox/internal";
+import { compileStorageRules } from "pyric/storage/internal";
 import {
   CONFORMANCE_VERDICTS,
   type ConformanceVerdict,
@@ -94,31 +99,60 @@ function requirement(
  * Why production would refuse to load the rules a service runs under, in
  * production's words (`Firestore rules did not compile: Line 4: Expression is
  * too complex to evaluate safely.`), or undefined when it would load them.
- * RTDB targets carry compiled rules JSON and have no source to check.
  */
 export function rulesLoadRefusal(
   target: LocalFirebaseTarget,
   service: AssuranceProbe["control"]["service"],
 ): string | undefined {
+  if (service === "rtdb") {
+    if (target.rules.rtdb) {
+      const rejection = rtdbRulesSourceRejection(target.rules.rtdb);
+      if (rejection !== null) return rejection.message;
+    }
+    if (target.rules.rtdbInstances) {
+      for (const [instanceName, instanceRules] of Object.entries(target.rules.rtdbInstances)) {
+        const rejection = rtdbRulesSourceRejection(instanceRules as any);
+        if (rejection !== null) return `instance '${instanceName}': ${rejection.message}`;
+      }
+    }
+    return undefined;
+  }
   const source =
     service === "firestore"
       ? target.rules.firestore
-      : service === "storage"
-        ? target.rules.storage
-        : undefined;
+      : target.rules.storage;
   if (typeof source !== "string" || source.trim().length === 0) return undefined;
-  const rejection = rulesSourceRejection(source);
-  if (rejection === null) return undefined;
-  return `${service === "firestore" ? "Firestore" : "Storage"} ${rejection.message}`;
+  if (service === "firestore") {
+    const rejection = rulesSourceRejection(source);
+    return rejection === null ? undefined : `Firestore ${rejection.message}`;
+  }
+  // Storage checks its own service in `compileStorageRules`; the shared
+  // check here is the parse and compile-limit half only.
+  const rejection = rulesGrammarRejection(source);
+  if (rejection !== null) return `Storage ${rejection.message}`;
+  try {
+    compileStorageRules(source);
+    return undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.startsWith("Storage ")
+      ? message
+      : `Storage rules did not compile: ${message}`;
+  }
 }
 
 /** The requirement that production would load a service's rules source. */
 function rulesLoadRequirement(
   target: LocalFirebaseTarget,
-  service: "firestore" | "storage",
+  service: "firestore" | "rtdb" | "storage",
 ): CapabilityRequirement {
   const refusal = rulesLoadRefusal(target, service);
-  const name = service === "firestore" ? "Firestore" : "Storage";
+  const name =
+    service === "firestore"
+      ? "Firestore"
+      : service === "rtdb"
+        ? "RTDB"
+        : "Storage";
   return requirement(
     `${service}.rules-load`,
     refusal === undefined,
@@ -251,31 +285,54 @@ function compatibleRtdbPrefix(
   return true;
 }
 
+function rtdbOperationTargetSegmentLists(
+  operation: AssuranceProbe["control"],
+): string[][] {
+  if (operation.service !== "rtdb") return [];
+  const baseSegments = operation.path.split("/").filter(Boolean);
+  if (
+    operation.method === "update" &&
+    operation.data &&
+    typeof operation.data === "object" &&
+    !Array.isArray(operation.data)
+  ) {
+    const keys = Object.keys(operation.data as Record<string, unknown>);
+    if (keys.length > 0) {
+      return keys.map((relKey) => [
+        ...baseSegments,
+        ...relKey.split("/").filter(Boolean),
+      ]);
+    }
+  }
+  return [baseSegments];
+}
+
 function rtdbRuleAppliesToOperation(
   rule: RtdbRuleSource,
   operation: AssuranceProbe["control"],
 ): boolean {
   if (operation.service !== "rtdb") return false;
-  const segments = operation.path.split("/").filter(Boolean);
   const isRead = operation.method === "get";
-  if (rule.kind === ".read") {
-    return (
-      isRead &&
-      rule.segments.length <= segments.length &&
-      compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
-    );
-  }
-  if (rule.kind === ".write") {
-    return (
-      !isRead &&
-      rule.segments.length <= segments.length &&
-      compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
-    );
-  }
-  if (isRead) return false;
+  return rtdbOperationTargetSegmentLists(operation).some((segments) => {
+    if (rule.kind === ".read") {
+      return (
+        isRead &&
+        rule.segments.length <= segments.length &&
+        compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
+      );
+    }
+    if (rule.kind === ".write") {
+      return (
+        !isRead &&
+        rule.segments.length <= segments.length &&
+        compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
+      );
+    }
+    if (isRead) return false;
 
-  const overlapLength = Math.min(rule.segments.length, segments.length);
-  return compatibleRtdbPrefix(rule.segments, segments, overlapLength);
+    const overlapLength = Math.min(rule.segments.length, segments.length);
+    return compatibleRtdbPrefix(rule.segments, segments, overlapLength);
+  });
 }
 
 function firestoreRequirements(
@@ -337,7 +394,16 @@ function rtdbRequirements(
   target: LocalFirebaseTarget,
   probe: AssuranceProbe,
 ): CapabilityRequirement[] {
-  const rules = target.rules.rtdb;
+  let rules = target.rules.rtdb;
+  if (probe.control.service === "rtdb" && probe.control.instance && probe.control.instance !== "default") {
+    const resolvedName = resolveDatabaseInstance(probe.control.instance)?.name;
+    if (resolvedName && target.rules.rtdbInstances) {
+      const declaredEntry = Object.entries(target.rules.rtdbInstances).find(([k]) => resolveDatabaseInstance(k)?.name === resolvedName);
+      if (declaredEntry) {
+        rules = declaredEntry[1] as any;
+      }
+    }
+  }
   const operations = [probe.control, probe.mutation.operation];
   const ruleSources = rules
     ? collectRtdbRuleSources(rules.rules).filter((rule) =>
@@ -346,17 +412,35 @@ function rtdbRequirements(
         ),
       )
     : [];
-  const serialized = ruleSources.map((item) => item.source).join("\n");
-  const invalidExpressions = ruleSources
-    .filter((item) => !item.source || !parseRtdbExpression(item.source).valid)
-    .map((item) => item.path);
-  const queryDependent = /\bquery\b/.test(serialized);
+  const parsedRules = ruleSources.map((rule) => ({
+    rule,
+    parsed: rule.source ? parseRtdbExpression(rule.source) : undefined,
+  }));
+  const invalidExpressions = parsedRules
+    .filter(({ parsed }) => !parsed || !parsed.valid)
+    .map(({ rule }) => rule.path);
+  const queryDependent = parsedRules.some(
+    ({ parsed }) => parsed?.referencedIdentifiers.includes("query") ?? false,
+  );
+  const ancestorDataDependent = parsedRules.some(({ rule, parsed }) => {
+    const usesDataOrNewData =
+      (parsed?.referencedIdentifiers.includes("data") ?? false) ||
+      (parsed?.referencedIdentifiers.includes("newData") ?? false);
+    if (!usesDataOrNewData) return false;
+    return operations.some((operation) => {
+      if (!rtdbRuleAppliesToOperation(rule, operation)) return false;
+      return rtdbOperationTargetSegmentLists(operation).some(
+        (opSegments) => rule.segments.length < opSegments.length,
+      );
+    });
+  });
   const requirements = [
     requirement(
       "rtdb.rules-present",
       !!rules,
       "RTDB probes require an explicit rules JSON document.",
     ),
+    ...(rules ? [rulesLoadRequirement(target, "rtdb")] : []),
     requirement(
       "rtdb.rules-parse",
       invalidExpressions.length === 0,
@@ -373,8 +457,8 @@ function rtdbRequirements(
     ),
     requirement(
       "rtdb.rule-location-data",
-      !/\b(?:data|newData)\b/.test(serialized),
-      /\b(?:data|newData)\b/.test(serialized)
+      !ancestorDataDependent,
+      ancestorDataDependent
         ? "The current evaluator cannot prove ancestor rule-location data/newData merged-tree semantics."
         : "The rules used by this probe do not depend on data/newData.",
     ),
@@ -424,7 +508,7 @@ function storageRequirements(
   requirements.push(load);
   if (!load.supported) return requirements;
   try {
-    parseStorageRules(rules);
+    compileStorageRules(rules);
     requirements.push(
       requirement(
         "storage.rules-subset",

@@ -76,4 +76,27 @@ describe('cloud-only agent dependency inspection', () => {
       'npm dependency inspection returned a malformed tree',
     );
   });
+  test("isMain detects symlinked execution", async () => {
+    const { mkdirSync, symlinkSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { spawnSync } = await import("node:child_process");
+    
+    const tmp = join(import.meta.dir, "tmp-symlink-test");
+    rmSync(tmp, { recursive: true, force: true });
+    mkdirSync(tmp, { recursive: true });
+    
+    const scriptPath = join(import.meta.dir, "lib/check-cloud-only-agent-install.mjs");
+    const linkPath = join(tmp, "check.mjs");
+    symlinkSync(scriptPath, linkPath);
+    
+    const { status, stdout, stderr } = spawnSync("bun", [linkPath, "0"], {
+      input: JSON.stringify({ name: "consumer", version: "0.0.0" }),
+      encoding: "utf8"
+    });
+    
+    rmSync(tmp, { recursive: true, force: true });
+    
+    console.log(stderr); expect(stdout).toContain("neither @huggingface/transformers nor onnxruntime-node is installed");
+    expect(status).toBe(0);
+  });
 });

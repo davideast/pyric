@@ -36,12 +36,36 @@ test('Node persists isolated record namespaces across a database restart', async
   expect(await runNodeFixture('records')).toBe('Record restart passed');
 });
 
+test('a heartbeating page that goes silent is closed after the liveness window, its onDisconnect runs, and its listener is released with the session (#965)', async () => {
+  expect(await runNodeFixture('peer-liveness', 30_000)).toBe('Peer liveness passed');
+}, 45_000);
+
+test('over a real ws socket, the host terminates a page that pinged then went silent, and the asynchronous close still runs its onDisconnect (#965)', async () => {
+  expect(await runNodeFixture('peer-liveness-socket', 30_000)).toBe('Peer liveness socket passed');
+}, 45_000);
+
+test('over a real ws socket, a native or remote client\'s onDisconnect runs on a clean close and after the host closes it for silence, and its session keeps its user for re-attach (#973)', async () => {
+  expect(await runNodeFixture('relay-ondisconnect', 30_000)).toBe('Relay onDisconnect passed');
+}, 45_000);
+
 test('a failed batch rolls back updates and deletions together', async () => {
   expect(await runNodeFixture('rollback')).toBe('Rollback passed');
 });
 
 test('Storage retains binary bytes, metadata and bucket isolation after restart', async () => {
   expect(await runNodeFixture('storage')).toBe('Storage restart passed');
+});
+
+test('Node issues increasing Storage generations under a fixed clock and across a restart', async () => {
+  expect(await runNodeFixture('storage-generation')).toBe('Storage generations passed');
+});
+
+test('Node checks Storage generations and writes in one mutation for rollbacks', async () => {
+  expect(await runNodeFixture('storage-conditional')).toBe('Storage conditional writes passed');
+});
+
+test('Node keeps Storage generation marks across sandboxes, a reopen with a restore, and a reset', async () => {
+  expect(await runNodeFixture('storage-high-water')).toBe('Storage high-water marks passed');
 });
 
 test('unsupported database versions refuse startup without replacing data', async () => {
@@ -78,6 +102,10 @@ test('pyric-admin on the Node host replays the production admin metadata and dow
   expect(await runNodeFixture('admin-metadata-oracle', 30_000)).toBe('Admin metadata oracle replay passed');
 }, 60_000);
 
+test('pyric-admin on the Node host saves a file with firebaseStorageDownloadTokens, and that token grants its byte route URL', async () => {
+  expect(await runNodeFixture('admin-save-download-tokens', 30_000)).toBe('Admin save download tokens passed');
+}, 60_000);
+
 test('the Node host replays the production download URL observations', async () => {
   expect(await runNodeFixture('download-url-oracle', 30_000)).toBe('Download URL oracle replay passed');
 }, 60_000);
@@ -106,6 +134,30 @@ test('the Node host recovers acknowledged writes without modifying existing JSON
 
 test('the Node host replaces and removes Storage rules that a rules file reload deploys', async () => {
   expect(await runNodeFixture('storage-rules')).toBe('Hosted Storage rules reload passed');
+});
+
+test('the Node host keeps each RTDB instance\'s data and rules apart, keeps the data across a restart, and shares one Auth', async () => {
+  expect(await runNodeFixture('rtdb-instances')).toBe('Hosted RTDB instances passed');
+});
+
+test('a pyric-admin write through getDatabaseWithUrl reaches a client on that instance of the Node host, and not the default instance', async () => {
+  expect(await runNodeFixture('admin-rtdb-instances', 30_000)).toBe('Admin RTDB instances passed');
+});
+
+test('the database tool selects an RTDB instance on the Node host by name, URL or default, under that instance\'s rules, and refuses one the project lacks (#967)', async () => {
+  expect(await runNodeFixture('database-tool-instances')).toBe('Hosted database tool instances passed');
+});
+
+test('the Node host loads each instance of a firebase.json database array with its own rules', async () => {
+  expect(await runNodeFixture('rtdb-firebase-json')).toBe('Hosted RTDB firebase.json instances passed');
+});
+
+test('a permissive Node host opens an RTDB instance without rules as it opens the default instance', async () => {
+  expect(await runNodeFixture('rtdb-permissive')).toBe('Hosted RTDB permissive instances passed');
+});
+
+test('the Node host reads the root of an empty database as a missing snapshot', async () => {
+  expect(await runNodeFixture('rtdb-empty-root')).toBe('Hosted RTDB empty root passed');
 });
 
 test('malformed Auth state refuses hosted startup instead of losing accounts', async () => {
@@ -191,9 +243,11 @@ test('a Storage size that disagrees with the stored bytes is repaired instead of
   expect(await runNodeFixture('storage-size-repair')).toBe('Storage size repair passed');
 }, 15_000);
 
+// 240 durable uploads: alone on a WSL2 ext4 disk the file took 12.6 to 17.8 s
+// (2026-10-17, CPU about 1.4 s of it), past both default limits.
 test('racing uploads to one path leave the recorded size equal to the stored bytes', async () => {
-  expect(await runNodeFixture('storage-upload-race')).toBe('Storage upload race passed');
-});
+  expect(await runNodeFixture('storage-upload-race', 60_000)).toBe('Storage upload race passed');
+}, 75_000);
 
 test('hosted startup names every Storage object repaired from its stored bytes', async () => {
   const { formatStorageRepairs } = await import('../../src/serve/hosted/persistence.js');
@@ -203,3 +257,24 @@ test('hosted startup names every Storage object repaired from its stored bytes',
     '    • pyric-default/notes/timings.json: recorded size 18, actual size 11',
   ]);
 });
+
+test('the Node host prints its own broker model substitution to the terminal once', async () => {
+  // The broker's construction line also lands on stdout.
+  expect(await runNodeFixture('ai-diagnostics')).toEndWith('Hosted AI diagnostics passed');
+});
+
+test('a repro recorded on a multi-instance host replays on the Node and worker hosts and reports a corrupted result', async () => {
+  expect(await runNodeFixture('repro', 60_000)).toBe('Repro passed');
+}, 90_000);
+
+test('a repro replays with Messaging on when the captured session had it, and off for a file without the setting', async () => {
+  expect(await runNodeFixture('repro-messaging', 60_000)).toBe('Repro messaging passed');
+}, 90_000);
+
+test('the denials a multi-instance host recorded list by instance, with their counts and page loads', async () => {
+  expect(await runNodeFixture('denials')).toBe('Denials passed');
+});
+
+test('an onDisconnect re-armed on the session an interruption just drained survives the drain, and a later interruption runs it (#990)', async () => {
+  expect(await runNodeFixture('rearm-after-interrupt', 30_000)).toBe('Re-arm after interrupt passed');
+}, 45_000);

@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#199","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"RE2 reads \\Q..\\E as literal quoting; pyric does not","issue":"FS2-SIM-5d"}

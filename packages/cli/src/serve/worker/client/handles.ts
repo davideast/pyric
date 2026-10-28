@@ -23,6 +23,11 @@ export interface ClientPort {
   observeConnection?(listener: (connected: boolean) => void): () => void;
   /** Last reported Messaging visibility, replayed with observers after reconnect. */
   messagingVisibility?: Extract<OpMessage, { method: 'messaging.setVisibility' }>;
+  /**
+   * Forgets a subscription's `sub` frame that the transport holds unsent. True
+   * when one was held, so a cancel sends nothing (ADR-0019, 2026-10-17, D10).
+   */
+  withdrawSubscription?(subId: string): boolean;
   /** Restore this app's Auth state before a replacement host receives data operations. */
   restoreAuth?(request: (message: OpMessage) => Promise<unknown>): Promise<void>;
   /**
@@ -30,6 +35,12 @@ export interface ClientPort {
    * origin that serves it, and the page's session token for its own reads.
    */
   byteRoute?: ByteRouteAccess;
+  /**
+   * Until the transport knows whether {@link byteRoute} applies, a promise
+   * that settles when it does: at the first attachment, or when the connection
+   * ends. Undefined once known. Absent on transports that never have a byte route.
+   */
+  byteRouteSettled?(): Promise<void> | undefined;
 }
 
 /** How a client reaches the host's HTTP byte route. */
@@ -44,14 +55,28 @@ export interface ClientDb {
   readonly port: ClientPort;
 }
 
+/** The RTDB instance a served handle reads and writes. */
+export interface ClientRtdbInstance {
+  /** The instance name the protocol's `instance` field carries; absent is
+   *  the host's default instance. */
+  readonly name?: string;
+  /** The instance's root URL as the SDK reports it (`RepoInfo.toURLString()`). */
+  readonly url: string;
+}
+
 export interface ClientRtdb {
   readonly __kind: 'client-rtdb';
   readonly port: ClientPort;
+  /** Absent for a handle that names no URL, such as Studio's; it reads and
+   *  writes the default instance. */
+  readonly instance?: ClientRtdbInstance;
 }
 
 export interface RtdbRefHandle {
   readonly __kind: 'rtdb-ref';
   readonly port: ClientPort;
+  /** The instance the reference belongs to; see {@link ClientRtdb.instance}. */
+  readonly instance?: ClientRtdbInstance;
   readonly path: string;
   /** Firebase-mirror internal path consumed by the pure query builder. */
   readonly _path: string;

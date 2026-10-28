@@ -19,6 +19,7 @@
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { getJsonWithin } from '../bounded-request.js';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -92,15 +93,18 @@ export function basesForPort(port: number): string[] {
   return [`http://127.0.0.1:${port}`, `http://[::1]:${port}`];
 }
 
+/** How long one health probe may take, connect included. Loopback answers in
+ *  milliseconds; a port that has not answered in a second is not going to. */
+const HEALTH_PROBE_DEADLINE_MS = 1000;
+
+/** A sandbox bridge's health at `base`, or `null`. Bounded by
+ *  {@link HEALTH_PROBE_DEADLINE_MS} and leaves no socket behind (#1162). */
 export async function probeHealth(base: string): Promise<HealthLite | null> {
-  try {
-    const res = await fetch(`${base}/__pyric/health`, { signal: AbortSignal.timeout(1000) });
-    if (res.status !== 200) return null;
-    const body = (await res.json()) as HealthLite;
-    return body.mode === 'sandbox' ? body : null;
-  } catch {
-    return null;
-  }
+  const response = await getJsonWithin(`${base}/__pyric/health`, HEALTH_PROBE_DEADLINE_MS);
+  if (response === null) return null;
+  const body = response.body as HealthLite | null;
+  const isSandbox = typeof body === 'object' && body !== null && body.mode === 'sandbox';
+  return isSandbox ? body : null;
 }
 
 /**
@@ -171,6 +175,168 @@ export function selectProjectHost(
       '.pyric/serve.json in this project names it, so it is not attached to. Start `pyric serve` ' +
       'from this project to write the pointer, or ignore the server if it belongs to another project.',
   );
+  return null;
+}
+
+/** A host that answered a health probe: the base it answered on and its identity. */
+export interface AnsweringHost {
+  base: string;
+  instanceId: string | null;
+}
+
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Health-probe an explicit host URL. A loopback URL is probed on both loopback
+ * families by port, as discovery does, because `localhost` resolves to
+ * different families under different runtimes. Any other URL is probed as given.
+ */
+export async function probeHostUrl(url: string): Promise<AnsweringHost | null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const isLoopback = LOOPBACK_HOSTNAMES.has(parsed.hostname);
+  if (isLoopback) {
+    const defaultPort = parsed.protocol === 'https:' ? 443 : 80;
+    const port = parsed.port === '' ? defaultPort : Number(parsed.port);
+    return healthyBase(port);
+  }
+  const base = `${parsed.protocol}//${parsed.host}`;
+  const health = await probeHealth(base);
+  if (health === null) return null;
+  return { base, instanceId: health.instanceId ?? null };
+}
+
+/** How an explicit `PYRIC_SANDBOX=remote:<url>` resolves. */
+export type ExplicitHostChoice =
+  /** The URL answers as this project's host: attach there. */
+  | { kind: 'explicit'; serveUrl: string; base: string }
+  /** The URL is stale or names another host, and this project has a running
+   *  host: attach to that one, after showing `notice` once. */
+  | { kind: 'project'; host: Discovered; notice: string }
+  /** Nothing answers at the URL and this project has no running host. */
+  | { kind: 'stale'; message: string }
+  /** A host answers at the URL, but nothing ties it to this project. */
+  | { kind: 'refused'; message: string };
+
+/**
+ * Resolve an explicit host URL against the project's own host.
+ *
+ * The URL is used when the host answering there is the one this project's
+ * `.pyric/serve.json` names, or the one the launcher that set the URL pinned
+ * (`launcherInstanceId`, from `PYRIC_SANDBOX_INSTANCE`). Otherwise the URL is
+ * stale or belongs to another project: the project's own host is used when one
+ * is running, and the result says why the URL was passed over. A host found
+ * only at the URL is never attached to, by the same rule as
+ * {@link selectProjectHost}.
+ */
+export async function selectExplicitHost(input: {
+  url: string;
+  cwd: string;
+  launcherInstanceId?: string;
+  discover?: (cwd: string) => Promise<Discovered | null>;
+  probe?: (url: string) => Promise<AnsweringHost | null>;
+}): Promise<ExplicitHostChoice> {
+  const serveUrl = input.url.replace(/\/$/, '');
+  const setting = `PYRIC_SANDBOX=remote:${serveUrl}`;
+  const answered = await (input.probe ?? probeHostUrl)(serveUrl);
+  const answeredId = answered?.instanceId ?? null;
+  const launcherId = input.launcherInstanceId;
+  const isLauncherHost = answered !== null && launcherId !== undefined && launcherId !== '' && answeredId === launcherId;
+  if (isLauncherHost) return { kind: 'explicit', serveUrl, base: answered.base };
+
+  const project = selectProjectHost(await (input.discover ?? discoverServe)(input.cwd), () => {});
+  const isProjectHost = answered !== null && project !== null && answeredId !== null && answeredId === project.instanceId;
+  if (isProjectHost) return { kind: 'explicit', serveUrl, base: answered.base };
+
+  const portable = 'Set PYRIC_SANDBOX=remote to find this project\'s host through .pyric/serve.json.';
+  if (project !== null) {
+    const why = answered === null
+      ? 'nothing answers there'
+      : 'the host answering there is not the host this project\'s .pyric/serve.json names';
+    return {
+      kind: 'project',
+      host: project,
+      notice: `${setting} is stale: ${why}. Using this project's running host at ${project.url}. ${portable}`,
+    };
+  }
+  if (answered === null) {
+    return {
+      kind: 'stale',
+      message:
+        `${setting} is stale: nothing answers there, and no running \`pyric sandbox\` for this ` +
+        `project was found through .pyric/serve.json in ${input.cwd}. Start \`pyric sandbox\` ` +
+        `in this project. ${portable}`,
+    };
+  }
+  return {
+    kind: 'refused',
+    message:
+      `${setting} names a running sandbox host, but no .pyric/serve.json in ${input.cwd} names it, ` +
+      'so it is not attached to: it may belong to another project. Start `pyric sandbox` in this ' +
+      `project. ${portable}`,
+  };
+}
+
+/** Whether the process a pointer names is still running. A pointer without a
+ *  pid cannot be checked and counts as live. */
+function isPointerProcessAlive(pid: unknown): boolean {
+  const hasPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
+  if (!hasPid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: the process exists but belongs to another user.
+    return (error as { code?: string }).code === 'EPERM';
+  }
+}
+
+/**
+ * Whether a project's `.pyric/serve.json` names another host that is still
+ * running, so a server starting in the same project must not replace it.
+ * The pointer is held only when it names a different instance and a live pid
+ * other than this process: a pointer without a pid, or one this process wrote
+ * for an earlier mount (a Vite restart), can be replaced, so a stale pointer
+ * never locks discovery out.
+ */
+export function pointerHeldByAnotherHost(pointer: { pid?: unknown; instanceId?: unknown }, instanceId: string): boolean {
+  if (pointer.instanceId === instanceId) return false;
+  const pid = pointer.pid;
+  const hasPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
+  if (!hasPid || pid === process.pid) return false;
+  return isPointerProcessAlive(pid);
+}
+
+/**
+ * The display URL the project's `.pyric/serve.json` records, read without a
+ * health probe, for callers that must resolve synchronously. A pointer whose
+ * writing process has exited is skipped. `null` when no live pointer is found
+ * from `cwd`.
+ */
+export function readProjectPointerUrl(cwd: string): string | null {
+  for (const pointerPath of candidatePointerPaths(cwd)) {
+    const hasPointerFile = existsSync(pointerPath);
+    if (!hasPointerFile) continue;
+    try {
+      const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
+        url?: string;
+        mcpUrl?: string;
+        port?: number;
+        pid?: number;
+      };
+      const isLeftOver = !isPointerProcessAlive(p.pid);
+      if (isLeftOver) continue;
+      const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
+      const hasPort = port !== null && Boolean(port);
+      if (hasPort) return canonicalServeUrl(port, p.url);
+    } catch {
+      /* corrupt pointer: try the next candidate */
+    }
+  }
   return null;
 }
 

@@ -76,7 +76,7 @@ export default {
   ],
 };
 ```
-Each field wins over its environment variable, which wins over firebase files, which win over the default. `region` beats `PYRIC_FUNCTIONS_RTDB_REGION` (default `us-central1`). `instance` replaces the derived `<projectId>-default-rtdb` name, where the project id comes from `PYRIC_PROJECT`, then `.firebaserc`, then `demo-project`.
+Each field wins over its environment variable, which wins over firebase files, which win over the default. `region` beats `PYRIC_FUNCTIONS_RTDB_REGION` (default `us-central1`). `instance` replaces the derived `<projectId>-default-rtdb` name. The project id is the one the server resolved, as [Vite development setup](../get-started/vite.md#choose-the-firebase-project) describes, else `demo-project`.
 
 Under the plugin, saving a file in the functions source directory restarts the process, like a redeploy: `↻ [pyric] functions reloaded`. In-flight executions in the old process can drop. Writes that land during the swap are treated as existing data by the new process and do not fire. A save that fails to load takes functions down until the next good save. Unlike rules, there is no last-good process to keep serving. `functions: { watch: false }` turns the reload off, matching `pyric sandbox`, where editing a function needs a server restart.
 
@@ -93,6 +93,15 @@ sandbox swap.
 ## And from an agent
 
 Ask an MCP-connected agent to inventory the reads your application performs, then inspect the local tree with `rtdb_crawl_structure`. [Work with an agent](../agent/work-with-an-agent.md) gives a complete RTDB task prompt, and [Set up your agent](../agent/set-up-your-agent.md) explains the browser bridge.
+
+When `firebase.json` declares more than one database instance, pass `--instance` to `pyric database`, or `instance` to the MCP `database` tool, with the instance name or its URL. Without it, a call reads and writes the default instance. `<projectId>` and `https://<projectId>.firebaseio.com`, the default instance of a project created before about 2020, also select the default instance.
+
+```sh
+pyric database get --instance shard-00 --path rooms/lobby
+pyric database set --instance https://shard-00.firebaseio.com --path rooms/lobby --value '{"name":"Lobby"}'
+```
+
+An instance that `firebase.json` does not declare, and that holds no data yet, is refused with the list of instances the project has.
 
 ## Where to go next
 

@@ -177,6 +177,9 @@ export class DataTree {
       if (!Object.hasOwn(obj, seg)) return null;
       node = obj[seg]!;
     }
+    // A node with no children holds no value. Deletes trim empty objects
+    // below the root, but the root itself is stored as `{}` when empty.
+    if (isJsonObject(node) && Object.keys(node).length === 0) return null;
     return cloneJson(node);
   }
 

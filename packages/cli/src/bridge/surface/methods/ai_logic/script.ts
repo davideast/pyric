@@ -10,7 +10,7 @@
  * two disagree is refused naming the accepted form.
  *
  * This reaches only the scripted engine. When the project's AI Logic engine
- * is configured for production pass-through (gemini) or a local loopback
+ * is configured for the Gemini API (gemini) or a local loopback
  * (openai), this call is refused; `ai_logic`'s `status` method names which
  * engine is actually resolved.
  */

@@ -59,13 +59,10 @@ describe('Realtime Database Query Rule Expressions & .indexOn Sandbox Enforcemen
       }
     });
 
-    it('validates query identifier in .read rules but rejects in .write and .validate rules', () => {
-      const readErrors = validateExpression("query.orderByChild == 'timestamp'", 'read', []);
-      expect(readErrors).toHaveLength(0);
-
-      const writeErrors = validateExpression("query.orderByChild == 'timestamp'", 'write', []);
-      expect(writeErrors.length).toBeGreaterThan(0);
-      expect(writeErrors[0]?.code).toBe('UNKNOWN_IDENTIFIER');
+    it('accepts the query identifier in .read, .write and .validate rules, as production deploy does', () => {
+      for (const kind of ['read', 'write', 'validate'] as const) {
+        expect(validateExpression("query.orderByChild == 'timestamp'", kind, [])).toHaveLength(0);
+      }
     });
 
     it('forwards query constraints from RTDB sandbox get(query(...)) into .read rule evaluation', async () => {

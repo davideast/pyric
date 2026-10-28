@@ -3,20 +3,25 @@
  */
 import type { PyricNextOptions } from './types.js';
 
-const PRODUCTION_ENVIRONMENT = 'production';
 const FORCED_SANDBOX_FLAG = '1';
 
+/** Next phases that compile or serve a production build. */
+const PRODUCTION_PHASES: ReadonlySet<string> = new Set([
+  'phase-production-build',
+  'phase-production-server',
+  'phase-export',
+]);
+
 /**
- * Check whether the active environment requires production build passthrough
- * without Pyric sandbox module substitution.
+ * Check whether the Next phase requires production passthrough without Pyric
+ * sandbox module substitution. The phase is what Next is doing; NODE_ENV can
+ * be exported by the shell and disagree with it.
  */
-export function isProductionPassthrough(): boolean {
-  const isProductionEnv = process.env.NODE_ENV === PRODUCTION_ENVIRONMENT;
-  const isForcedOverride = process.env.PYRIC_SANDBOX_FORCE === FORCED_SANDBOX_FLAG;
-  if (!isProductionEnv) {
+export function isProductionPassthrough(phase: string): boolean {
+  if (!PRODUCTION_PHASES.has(phase)) {
     return false;
   }
-  return !isForcedOverride;
+  return process.env.PYRIC_SANDBOX_FORCE !== FORCED_SANDBOX_FLAG;
 }
 
 /**
@@ -55,7 +60,7 @@ export function enforceSandboxGuard(options?: PyricNextOptions): void {
     '[Pyric] Next.js development server started without active Pyric sandbox environment variables.\n' +
     'To prevent accidental connections to production Firebase databases, launch this server using:\n' +
     '  pyric sandbox -- next dev\n' +
-    'or source environment keys via `pyric env`.\n' +
+    'or start the host alone with `pyric sandbox --no-run` and paste the printed export lines into the terminal that runs next dev.\n' +
     'To disable this guard, pass { guard: false } to withPyric(config, options).';
   throw new Error(errorMessage);
 }

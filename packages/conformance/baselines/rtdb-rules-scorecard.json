@@ -3,8 +3,8 @@
   "generatedNote": "Exact Realtime Database Rules conformance ratchet. Update only with reviewed evidence or implementation changes.",
   "universe": {
     "hashAlgorithm": "sha256",
-    "hash": "71f68b73015bf898fe670df10a0578f3701ebf8c4c366ace6e3dde606e4f852e",
-    "denominator": 56,
+    "hash": "057460e3fb5954aac3251803823bc0f501fd4c66e3e439002ca40519d7fcf2a1",
+    "denominator": 91,
     "constructIds": [
       "rtdb.binding.auth",
       "rtdb.binding.auth.uid",
@@ -61,44 +61,80 @@
       "rtdb.semantic.write-cascade",
       "rtdb.semantic.validate-non-cascade",
       "rtdb.semantic.deny-by-default",
-      "rtdb.semantic.regex-literal"
+      "rtdb.semantic.regex-literal",
+      "rtdb.binding.query",
+      "rtdb.binding.query.orderByChild",
+      "rtdb.binding.query.orderByKey",
+      "rtdb.binding.query.orderByValue",
+      "rtdb.binding.query.orderByPriority",
+      "rtdb.binding.query.equalTo",
+      "rtdb.binding.query.startAt",
+      "rtdb.binding.query.endAt",
+      "rtdb.binding.query.limitToFirst",
+      "rtdb.binding.query.limitToLast",
+      "rtdb.binding.query.unknown-field",
+      "rtdb.binding.auth.token.custom-claim",
+      "rtdb.binding.unknown-variable",
+      "rtdb.binding.unbound-path-variable",
+      "rtdb.binding.newData-in-read",
+      "rtdb.method.snapshot.unknown",
+      "rtdb.method.snapshot.arity",
+      "rtdb.method.string.unknown",
+      "rtdb.method.string.length-call",
+      "rtdb.operator.member.snapshot-property",
+      "rtdb.operator.member.auth-unknown-property",
+      "rtdb.operator.snapshot-operand",
+      "rtdb.operator.type-mismatch",
+      "rtdb.operator.dynamic-operand",
+      "rtdb.rule-kind.sibling-wildcards",
+      "rtdb.rule-kind.unknown-key",
+      "rtdb.rule-kind.non-expression-value",
+      "rtdb.rule-kind.indexOn-non-string",
+      "rtdb.rule-kind.invalid-key",
+      "rtdb.rule-kind.non-object-child",
+      "rtdb.rule-kind.non-boolean-result",
+      "rtdb.semantic.method-wrong-receiver",
+      "rtdb.semantic.method-argument-type",
+      "rtdb.semantic.parse-error",
+      "rtdb.semantic.rules-size-limit"
     ]
   },
   "score": {
-    "numerator": 56,
-    "denominator": 56,
+    "numerator": 91,
+    "denominator": 91,
     "ratio": 1,
     "percent": 100
   },
   "axes": {
     "productionAcceptance": {
       "unprobed": 0,
-      "accepted": 56,
-      "rejected": 0,
+      "accepted": 70,
+      "rejected": 21,
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 56,
-      "rejected": 0,
+      "accepted": 70,
+      "rejected": 21,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 56,
+      "implemented": 70,
       "unsupported": 0,
-      "error": 0,
+      "error": 21,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 55,
+      "verified": 90,
       "diverged": 0,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 56,
+    "conformant": 91,
     "diverged": 0,
     "unknown": 0,
+    "acceptance-mismatch": 0,
     "local-unsupported": 0,
     "local-error": 0,
     "unprobeable": 0
@@ -128,9 +164,25 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r30-query-rules",
+        "r31-token-claims",
+        "r32-method-argument-types",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
+        "r40-auth-token-dynamic-index",
+        "r42-custom-token-standard-claims",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -149,10 +201,19 @@
       "verifiedBy": [
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r30-query-rules",
+        "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
+        "r42-custom-token-standard-claims",
+        "r49-value-edges",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#41"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.auth.token": {
@@ -163,9 +224,19 @@
       "classification": "conformant",
       "verifiedBy": [
         "r12-server-time-and-token",
-        "r16-auth-provider-and-tenant"
+        "r16-auth-provider-and-tenant",
+        "r31-token-claims",
+        "r34-stdlib-auth-membership-quota",
+        "r40-auth-token-dynamic-index",
+        "r42-custom-token-standard-claims",
+        "r49-value-edges"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#25",
+        "rtdb-rules#31",
+        "rtdb-rules#32",
+        "rtdb-rules#41"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.data": {
@@ -179,7 +250,18 @@
         "r23-validate-sibling-scope",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r32-method-argument-types",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r38-div-mod-by-zero",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r48-object-equality",
+        "r49-value-edges",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -206,7 +288,22 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
         "r4-validate-structure",
+        "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -220,9 +317,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r14-root-lookup"
+        "r14-root-lookup",
+        "r39-root-parent-runtime"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#30"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.now": {
@@ -232,7 +332,10 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r12-server-time-and-token"
+        "r12-server-time-and-token",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -246,6 +349,9 @@
       "verifiedBy": [
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [],
@@ -267,6 +373,22 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -288,10 +410,19 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
+        "r38-div-mod-by-zero",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r49-value-edges",
         "r8-combined-check"
       ],
       "verifiedByRows": [
-        "rtdb-rules#18"
+        "rtdb-rules#18",
+        "rtdb-rules#41"
       ],
       "divergedByRows": []
     },
@@ -303,9 +434,16 @@
       "classification": "conformant",
       "verifiedBy": [
         "r10-snapshot-type-guards",
-        "r23-validate-sibling-scope"
+        "r23-validate-sibling-scope",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
+        "r39-root-parent-runtime",
+        "r43-deploy-expression-and-structure-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#30"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.snapshot.hasChild": {
@@ -315,9 +453,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r10-snapshot-type-guards"
+        "r10-snapshot-type-guards",
+        "r32-method-argument-types",
+        "r49-value-edges"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#41"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.snapshot.hasChildren": {
@@ -329,6 +471,9 @@
       "verifiedBy": [
         "r15-validate-ancestor-scope",
         "r21-validate-on-delete",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
         "r4-validate-structure",
         "r8-combined-check"
       ],
@@ -345,7 +490,13 @@
         "r14-root-lookup",
         "r18-child-dot-segments",
         "r23-validate-sibling-scope",
-        "r3-data-exists"
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r3-data-exists",
+        "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
+        "r39-root-parent-runtime",
+        "r49-value-edges"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -378,6 +529,10 @@
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
+        "r52-prototype-named-keys",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -394,7 +549,14 @@
         "r11-string-validation",
         "r17-validate-runtime-error",
         "r21-validate-on-delete",
-        "r23-validate-sibling-scope"
+        "r23-validate-sibling-scope",
+        "r27-stdlib-core-patterns",
+        "r34-stdlib-auth-membership-quota",
+        "r47-regex-runtime",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -406,7 +568,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r10-snapshot-type-guards"
+        "r10-snapshot-type-guards",
+        "r28-stdlib-presence-timing"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -418,7 +581,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -430,7 +594,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -442,7 +607,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r34-stdlib-auth-membership-quota"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -454,9 +620,18 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r27-stdlib-core-patterns",
+        "r47-regex-runtime",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#34",
+        "rtdb-rules#43",
+        "rtdb-rules#45"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.string.replace": {
@@ -466,7 +641,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r32-method-argument-types"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -492,7 +668,8 @@
       "verifiedBy": [
         "r11-string-validation",
         "r17-validate-runtime-error",
-        "r26-rule-runtime-error"
+        "r26-rule-runtime-error",
+        "r41-error-and-false-short-circuit"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -505,9 +682,16 @@
       "classification": "conformant",
       "verifiedBy": [
         "r11-string-validation",
-        "r17-validate-runtime-error"
+        "r17-validate-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r37-runtime-comparison-and-length-types",
+        "r39-root-parent-runtime",
+        "r49-value-edges"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#28",
+        "rtdb-rules#41"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.strictEq": {
@@ -523,11 +707,14 @@
         "r14-root-lookup",
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r48-object-equality",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#40"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.strictNeq": {
@@ -557,9 +744,31 @@
         "r23-validate-sibling-scope",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
-        "r9-quota-arithmetic"
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r30-query-rules",
+        "r31-token-claims",
+        "r32-method-argument-types",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r42-custom-token-standard-claims",
+        "r45-not-operator-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r9-quota-arithmetic",
+        "r44-deploy-string-and-regex-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#33",
+        "rtdb-rules#40"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.looseNeq": {
@@ -586,14 +795,30 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r32-method-argument-types",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r39-root-parent-runtime",
         "r4-validate-structure",
+        "r42-custom-token-standard-claims",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#40"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.lt": {
@@ -604,9 +829,16 @@
       "classification": "conformant",
       "verifiedBy": [
         "r24-deny-without-rule",
+        "r27-stdlib-core-patterns",
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
+        "r37-runtime-comparison-and-length-types",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.gt": {
@@ -617,9 +849,18 @@
       "classification": "conformant",
       "verifiedBy": [
         "r17-validate-runtime-error",
-        "r9-quota-arithmetic"
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r33-null-operands",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r9-quota-arithmetic",
+        "r43-deploy-expression-and-structure-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.lte": {
@@ -631,9 +872,17 @@
       "verifiedBy": [
         "r11-string-validation",
         "r12-server-time-and-token",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r30-query-rules",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r49-value-edges",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.gte": {
@@ -644,9 +893,17 @@
       "classification": "conformant",
       "verifiedBy": [
         "r11-string-validation",
+        "r27-stdlib-core-patterns",
+        "r31-token-claims",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r37-runtime-comparison-and-length-types",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.add": {
@@ -657,9 +914,17 @@
       "classification": "conformant",
       "verifiedBy": [
         "r23-validate-sibling-scope",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
+        "r37-runtime-comparison-and-length-types",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.sub": {
@@ -669,9 +934,15 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.mul": {
@@ -681,9 +952,15 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.div": {
@@ -693,9 +970,17 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r33-null-operands",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r38-div-mod-by-zero",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28",
+        "rtdb-rules#29"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.mod": {
@@ -705,9 +990,18 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
+        "r33-null-operands",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r38-div-mod-by-zero",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28",
+        "rtdb-rules#29"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.and": {
@@ -725,6 +1019,17 @@
         "r22-strict-equality-types",
         "r24-deny-without-rule",
         "r25-loose-equality-types",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r30-query-rules",
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
+        "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -740,9 +1045,24 @@
       "classification": "conformant",
       "verifiedBy": [
         "r26-rule-runtime-error",
-        "r9-quota-arithmetic"
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r48-object-equality",
+        "r9-quota-arithmetic",
+        "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#39"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.not": {
@@ -753,7 +1073,19 @@
       "classification": "conformant",
       "verifiedBy": [
         "r26-rule-runtime-error",
-        "r3-data-exists"
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r3-data-exists",
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
+        "r41-error-and-false-short-circuit",
+        "r45-not-operator-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -765,9 +1097,15 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r27-stdlib-core-patterns",
+        "r35-operator-precedence",
+        "r36-runtime-arithmetic-types",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#22",
+        "rtdb-rules#28"
+      ],
       "divergedByRows": []
     },
     "rtdb.operator.ternary": {
@@ -777,6 +1115,9 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r35-operator-precedence",
+        "r39-root-parent-runtime",
+        "r41-error-and-false-short-circuit",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -795,6 +1136,18 @@
         "r17-validate-runtime-error",
         "r2-own-uid",
         "r22-strict-equality-types",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r30-query-rules",
+        "r31-token-claims",
+        "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
+        "r37-runtime-comparison-and-length-types",
+        "r39-root-parent-runtime",
+        "r40-auth-token-dynamic-index",
+        "r42-custom-token-standard-claims",
+        "r45-not-operator-runtime",
+        "r49-value-edges",
         "r7-pathvar-binding",
         "r8-combined-check"
       ],
@@ -808,9 +1161,14 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r12-server-time-and-token"
+        "r12-server-time-and-token",
+        "r40-auth-token-dynamic-index",
+        "r43-deploy-expression-and-structure-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#31",
+        "rtdb-rules#33"
+      ],
       "divergedByRows": []
     },
     "rtdb.rule-kind.read": {
@@ -835,13 +1193,27 @@
         "r22-strict-equality-types",
         "r24-deny-without-rule",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r30-query-rules",
+        "r32-method-argument-types",
+        "r34-stdlib-auth-membership-quota",
+        "r35-operator-precedence",
+        "r39-root-parent-runtime",
         "r4-validate-structure",
+        "r40-auth-token-dynamic-index",
+        "r41-error-and-false-short-circuit",
+        "r42-custom-token-standard-claims",
+        "r45-not-operator-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
         "r6-deny-everything",
         "r7-pathvar-binding",
         "r8-combined-check",
-        "r9-quota-arithmetic"
+        "r9-quota-arithmetic",
+        "r29-deploy-rejections"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -872,9 +1244,26 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
         "r3-data-exists",
+        "r31-token-claims",
+        "r32-method-argument-types",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
+        "r36-runtime-arithmetic-types",
+        "r37-runtime-comparison-and-length-types",
+        "r38-div-mod-by-zero",
         "r4-validate-structure",
+        "r41-error-and-false-short-circuit",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
         "r5-cascade-root-grant",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r6-deny-everything",
         "r7-pathvar-binding",
         "r8-combined-check",
@@ -906,7 +1295,19 @@
         "r24-deny-without-rule",
         "r25-loose-equality-types",
         "r26-rule-runtime-error",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r32-method-argument-types",
+        "r33-null-operands",
+        "r34-stdlib-auth-membership-quota",
         "r4-validate-structure",
+        "r47-regex-runtime",
+        "r48-object-equality",
+        "r49-value-edges",
+        "r50-regex-unsupported-semantics",
+        "r52-prototype-named-keys",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
@@ -922,9 +1323,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r13-priority-and-index-directive"
+        "r13-priority-and-index-directive",
+        "r30-query-rules",
+        "r51-deploy-anchor-index-and-length-probes"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#38"
+      ],
       "divergedByRows": []
     },
     "rtdb.rule-kind.location-wildcard": {
@@ -942,10 +1347,15 @@
         "r22-strict-equality-types",
         "r23-validate-sibling-scope",
         "r24-deny-without-rule",
+        "r27-stdlib-core-patterns",
+        "r28-stdlib-presence-timing",
+        "r34-stdlib-auth-membership-quota",
+        "r52-prototype-named-keys",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
-        "rtdb-rules#19"
+        "rtdb-rules#19",
+        "rtdb-rules#37"
       ],
       "divergedByRows": []
     },
@@ -1010,9 +1420,541 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r27-stdlib-core-patterns",
+        "r47-regex-runtime",
+        "r50-regex-unsupported-semantics",
+        "r54-regex-alternation-runtime",
+        "r56-regex-classes-runtime",
+        "r44-deploy-string-and-regex-probes",
+        "r46-deploy-regex-constructs",
+        "r51-deploy-anchor-index-and-length-probes",
+        "r53-deploy-regex-paren",
+        "r55-deploy-regex-empty",
+        "r57-deploy-regex-operators",
+        "r58-deploy-regex-count-past-int",
+        "r59-deploy-regex-count-100000",
+        "r60-deploy-regex-repeat-of-repeat"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#33",
+        "rtdb-rules#34",
+        "rtdb-rules#35",
+        "rtdb-rules#42",
+        "rtdb-rules#43",
+        "rtdb-rules#44",
+        "rtdb-rules#45",
+        "rtdb-rules#46",
+        "rtdb-rules#47",
+        "rtdb-rules#48",
+        "rtdb-rules#49"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules",
+        "r45-not-operator-runtime",
+        "r49-value-edges"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24",
+        "rtdb-rules#36"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.orderByChild": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.orderByKey": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules",
+        "r45-not-operator-runtime",
+        "r49-value-edges"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#26",
+        "rtdb-rules#36"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.orderByValue": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.orderByPriority": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#26"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.equalTo": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.startAt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.endAt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.limitToFirst": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules",
+        "r49-value-edges"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.limitToLast": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r30-query-rules"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#24"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.query.unknown-field": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.auth.token.custom-claim": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r31-token-claims",
+        "r34-stdlib-auth-membership-quota",
+        "r49-value-edges"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#25",
+        "rtdb-rules#32"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.unknown-variable": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.unbound-path-variable": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.binding.newData-in-read": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.method.snapshot.unknown": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.method.snapshot.arity": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.method.string.unknown": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.method.string.length-call": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.operator.member.snapshot-property": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.operator.member.auth-unknown-property": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.operator.snapshot-operand": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.operator.type-mismatch": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.operator.dynamic-operand": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.sibling-wildcards": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.unknown-key": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections",
+        "r43-deploy-expression-and-structure-probes"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27",
+        "rtdb-rules#33"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.non-expression-value": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections",
+        "r43-deploy-expression-and-structure-probes"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27",
+        "rtdb-rules#33"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.indexOn-non-string": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.invalid-key": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.non-object-child": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections",
+        "r43-deploy-expression-and-structure-probes"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27",
+        "rtdb-rules#33"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.rule-kind.non-boolean-result": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.semantic.method-wrong-receiver": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.semantic.method-argument-type": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#27"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.semantic.parse-error": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
+      "divergedByRows": []
+    },
+    "rtdb.semantic.rules-size-limit": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "r29-deploy-rejections"
+      ],
+      "verifiedByRows": [
+        "rtdb-rules#23"
+      ],
       "divergedByRows": []
     }
   }

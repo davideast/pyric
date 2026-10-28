@@ -334,6 +334,7 @@ function resolveApp(app?: PyricAdminApp): PyricAdminApp {
         [ADMIN_APP_TARGET]: 'sandbox',
         sandbox: initializeSandbox(),
         name: '[pyric-messaging-climb]',
+        options: {},
       };
       return climbDefaultApp;
     }

@@ -9,7 +9,8 @@ import {
   ref,
   type QueryConstraint,
 } from 'pyric/database';
-import { checkPath, RENAMES } from '../../arguments/database.js';
+import { checkReference, instanceArgument, RENAMES } from '../../arguments/database.js';
+import { instanceSelector, onInstance } from '../../database-instance.js';
 import { databaseFor } from '../../service-handles.js';
 import { quoted } from '../../closest-name.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -19,7 +20,7 @@ export default {
   method: 'query',
   sdkOrigin: 'firebase-js',
   effect: 'read',
-  signature: 'query(path, orderByChild?, equalTo?, limitToFirst?)',
+  signature: 'query(path, orderByChild?, equalTo?, limitToFirst?, instance?)',
   description: 'Read the children of one path under an ordering, a filter, and a limit.',
   args: z.object({
     path: z.string().describe('Root-relative path whose children are queried.'),
@@ -32,12 +33,13 @@ export default {
       .number()
       .optional()
       .describe('Return at most this many children from the start.'),
+    instance: instanceArgument,
   }),
   operation: 'query_database_values',
   renames: RENAMES,
   example: { path: 'rooms', orderByChild: 'owner', equalTo: 'alice', limitToFirst: 10 },
   validate: (args, { fail }) => {
-    const path = checkPath('query', args, fail);
+    const path = checkReference('query', args, fail);
     if (path !== null) return path;
     if (args.equalTo !== undefined && args.orderByChild === undefined) {
       return fail(
@@ -55,9 +57,10 @@ export default {
     if (args.equalTo !== undefined) constraints.push(equalTo(args.equalTo as string));
     if (args.limitToFirst !== undefined) constraints.push(limitToFirst(Number(args.limitToFirst)));
 
-    const snapshot = await get(query(ref(databaseFor(ctx), path), ...constraints));
+    const selector = await instanceSelector(ctx, args.instance);
+    const snapshot = await get(query(ref(databaseFor(ctx, selector), path), ...constraints));
     const value = snapshot.val();
     const matches = value !== null && typeof value === 'object' ? Object.keys(value).length : 0;
-    return { ok: true, summary: `${matches} children under ${path}`, data: { value } };
+    return { ok: true, summary: onInstance(`${matches} children under ${path}`, selector), data: { value } };
   },
 } satisfies MethodRecord;

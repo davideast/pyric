@@ -14,6 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type { ToolResult } from 'pyric/sandbox/internal';
 import type {
   BridgeMessage,
   HealthReport,
@@ -37,12 +38,8 @@ import { createConsumerRegistry, type ConsumerRegistry } from './consumer-regist
 import { createWorkerSessions } from './worker-sessions.js';
 import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
 
-/** Subset of `@inbrowser/agent`'s `ToolResult` shape the bridge emits. */
-export interface BridgeToolResult {
-  ok: boolean;
-  summary: string;
-  data?: unknown;
-}
+/** The tool result shape the bridge emits. */
+export type BridgeToolResult = ToolResult;
 
 /** Function the bridge calls to send a message to the current sandbox peer. */
 export type SendToPeer = (msg: BridgeMessage) => void;
@@ -195,7 +192,7 @@ export interface Bridge {
    * Relay a generic worker op to the peer's SharedWorker. Resolves with the
    * worker's `res.value`; rejects with an Error carrying `.code`.
    */
-  dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown>;
+  dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string, socket?: object): Promise<unknown>;
 
   /**
    * Register a worker subscription. Survives peer churn and is re-issued.
@@ -207,8 +204,20 @@ export interface Bridge {
     clientSessionId?: string,
   ): () => void;
 
-  /** Detach an in-flight consumer's pending ops without notifying peer or tombstoning session. */
-  detachConsumer(clientSessionId: string): void;
+  /**
+   * Detach an in-flight consumer's pending ops without notifying peer or tombstoning session.
+   * With `socket`, only the ops that socket dispatched are rejected.
+   */
+  detachConsumer(clientSessionId: string, socket?: object): void;
+
+  /**
+   * A consumer's socket was lost while its session lives on for re-attach:
+   * fail the socket's operations in flight, drop it from presence, and tell a
+   * host that owns worker ports the session was interrupted, so the host runs
+   * its RTDB onDisconnect operations (ADR-0019). With `socket`, only the
+   * operations that socket dispatched fail.
+   */
+  interruptConsumer(clientSessionId: string, socket?: object): void;
 
   /** Tear down consumer subscriptions, cancel pending ops, and notify peer. */
   disconnectConsumer(clientSessionId: string): void;
@@ -247,6 +256,8 @@ interface PendingWorkerOp {
   timer: ReturnType<typeof setTimeout>;
   method: string;
   clientSessionId?: string;
+  /** The consumer socket that dispatched the op; one session can span sockets across a re-attach. */
+  socket?: object;
 }
 
 interface WorkerSubEntry {
@@ -291,12 +302,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
   const workerSubs = new Map<string, WorkerSubEntry>();
   const consumers = createConsumerRegistry();
   const workerSessions = createWorkerSessions({
-    detach(clientSessionId) {
-      detachConsumer(clientSessionId);
-      consumers.unregister(clientSessionId);
-      broadcastConsumerPresence();
-      peer?.send({ type: 'worker-client-interrupted', clientSessionId });
-    },
+    detach: interruptConsumer,
     close: disconnectConsumer,
   });
   const callerIdentity = createCallerIdentity();
@@ -509,7 +515,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     return createOperationBudget();
   }
 
-  function dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown> {
+  function dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string, socket?: object): Promise<unknown> {
     const currentPeer = peer;
     const hasNoPeer = currentPeer === null;
     if (hasNoPeer) return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
@@ -528,7 +534,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
           reject(workerOpError('deadline-exceeded', `sandbox worker op timed out after ${callTimeoutMs}ms (op: ${op.method})`));
         }
       }, callTimeoutMs);
-      workerPending.set(id, { resolve, reject, timer, method: op.method, clientSessionId, budget });
+      workerPending.set(id, { resolve, reject, timer, method: op.method, clientSessionId, socket, budget });
       try {
         currentPeer.send(request);
       } catch (err) {
@@ -575,15 +581,26 @@ export function createBridge(opts: BridgeOptions): Bridge {
     try { entry?.onSnap({ __error: error }); } catch {}
   }
 
-  function detachConsumer(clientSessionId: string): void {
+  function detachConsumer(clientSessionId: string, socket?: object): void {
     for (const [id, op] of workerPending) {
-      const belongsToConsumer = op.clientSessionId === clientSessionId;
+      const belongsToSocket = socket === undefined || op.socket === socket;
+      const belongsToConsumer = op.clientSessionId === clientSessionId && belongsToSocket;
       if (belongsToConsumer) {
         clearTimeout(op.timer);
         workerPending.delete(id);
         op.reject(workerOpError('unavailable', 'consumer socket detached'));
       }
     }
+  }
+
+  function interruptConsumer(clientSessionId: string, socket?: object): void {
+    detachConsumer(clientSessionId, socket);
+    consumers.unregister(clientSessionId);
+    broadcastConsumerPresence();
+    // Only the Node host accepts the interruption; the in-page peer does not.
+    const hostOwnsWorkerPorts = peer?.capabilities.has(WORKER_PORT_CAPABILITY) === true;
+    if (!hostOwnsWorkerPorts) return;
+    try { peer?.send({ type: 'worker-client-interrupted', clientSessionId }); } catch {}
   }
 
   function disconnectConsumer(clientSessionId: string): void {
@@ -784,6 +801,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     dispatchWorkerOp,
     subscribeWorker,
     detachConsumer,
+    interruptConsumer,
     disconnectConsumer,
     handleSandboxMessage,
     health,

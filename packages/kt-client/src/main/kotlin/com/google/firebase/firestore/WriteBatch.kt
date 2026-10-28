@@ -1,11 +1,13 @@
 package com.google.firebase.firestore
 
+import dev.pyric.codecs.PojoCodec
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import dev.pyric.codecs.SentinelValidator
 import dev.pyric.codecs.ValueCodec
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -28,7 +30,7 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
         checkNotCommitted()
         val map = when (data) {
             is Map<*, *> -> data as Map<String, Any?>
-            else -> throw IllegalArgumentException("Custom object serialization not yet supported in set()")
+            else -> PojoCodec.serialize(data)
         }
         SentinelValidator.validateNoDelete(map, options.isMerge)
         operations.add(Mutation.Set(documentRef, map, options))
@@ -88,7 +90,9 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
         }
 
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        // Undispatched, so the frame is sent or held on the caller's thread and
+        // back-to-back writes reach the host in call order (#1032).
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 firestore.bridgeClient.op(
                     method = "batchCommit",

@@ -21,13 +21,16 @@ import type {
   DocumentSnapshot,
   Query,
   QuerySnapshot,
+  SetOptions,
   Transaction,
 } from 'pyric/sandbox/admin-compat';
 import { READ_AFTER_WRITE_MESSAGE } from '../../../firestore/sandbox/transaction-types.js';
 import { armOp, type RemoteArm } from './channel.js';
-import { encodeWriteData } from './value-codec.js';
+import { encodeUpdateFields, encodeWriteData } from './value-codec.js';
+import { parseAdminUpdateArguments } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import { makeDocumentSnapshot, makeQuerySnapshot } from './snapshots.js';
 import { buildDescriptor, queryStateOf, validateExecutable, type QueryState } from './query.js';
+import { toWireSetOptions } from './batch.js';
 import type { WireDocSnap, WireQuerySnap, WireTxnRead, WireWrite } from './wire-types.js';
 
 /** Matches the worker client's retry cap (and the Firestore SDK default). */
@@ -66,12 +69,21 @@ export async function runRemoteTransaction<R>(
         }
         return txGetDoc(refOrQuery as DocumentReference) as Promise<never>;
       },
-      set(ref: DocumentReference, data: DocumentData): Transaction {
-        writes.push({ method: 'set', path: ref.path, data: encodeWriteData(data) });
+      create(ref: DocumentReference, data: DocumentData): Transaction {
+        writes.push({ method: 'create', path: ref.path, data: encodeWriteData(data) });
         return tx;
       },
-      update(ref: DocumentReference, data: DocumentData): Transaction {
-        writes.push({ method: 'update', path: ref.path, data: encodeWriteData(data) });
+      set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction {
+        const write: WireWrite = { method: 'set', path: ref.path, data: encodeWriteData(data) };
+        const wireOptions = toWireSetOptions(options);
+        const hasWireOptions = wireOptions !== undefined;
+        if (hasWireOptions) write.options = wireOptions;
+        writes.push(write);
+        return tx;
+      },
+      update(ref: DocumentReference, dataOrField: unknown, ...preconditionOrValues: unknown[]): Transaction {
+        const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
+        writes.push({ method: 'update', path: ref.path, fields: encodeUpdateFields(fields) });
         return tx;
       },
       delete(ref: DocumentReference): Transaction {
@@ -121,6 +133,14 @@ export async function runRemoteTransaction<R>(
     }
   }
 
+  // Production check (2026-10-17, @google-cloud/firestore 7.11.2, the client
+  // firebase-admin 13 wraps): concurrent server transactions that run out of
+  // attempts reject with gRPC code 10 ABORTED ("Aborted due to
+  // cross-transaction contention"), at maxAttempts 1 and 2 alike. The Web SDK
+  // surfaces `failed-precondition` instead (see
+  // observations/firestore/firestore-transaction-contention-retries.json), so
+  // the Admin arm keeps `aborted`. pyric reports the string form of the code,
+  // as it does for every Admin error, not the numeric gRPC status.
   throw new SandboxError(
     'aborted',
     `Transaction failed after ${maxAttempts} attempts due to repeated conflicts. ` +

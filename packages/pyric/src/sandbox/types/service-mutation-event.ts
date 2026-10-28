@@ -56,6 +56,12 @@ export interface ServiceMutationEventOf<Service extends MutationEventService> {
    *              multi-path `update` the ref path the call targeted.
    */
   path?: string;
+  /**
+   * RTDB only: the name of the database instance the mutation changed, as the
+   * RTDB operation and commit events carry it. Absent for the default
+   * instance, as the worker protocol's `instance` field is.
+   */
+  instance?: Service extends 'rtdb' ? string : never;
   /** Identity in effect when the op ran (the service's `request.auth`
    *  equivalent). `null` for admin/anonymous-driven mutations (e.g.
    *  `sandbox.createUser`, an unauthenticated RTDB write). */

@@ -1,0 +1,98 @@
+{
+  "name": "rules-firestore-unknown-function-names-runtime-error",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#203"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"unknown-function-names-runtime-error\" (Coverage: unknown function names). An unknown function or method name compiles and fails at evaluation; the error denies alone and is absorbed by || true and by && false.",
+  "observedAt": "2026-10-27T02:08:03.848Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "dfec64cac4be59ebb931ea58aa6aaab9431803310f248679ba218020db712eca"
+  },
+  "behavior": {
+    "debug() call DENY (function not found)": "DENY",
+    "debug() || true ALLOW (error absorbed)": "ALLOW",
+    "map.hasAny DENY (function not found)": "DENY",
+    "map.hasAny || true ALLOW (error absorbed)": "ALLOW",
+    "map.hasOnly DENY (function not found)": "DENY",
+    "map.hasOnly || true ALLOW (error absorbed)": "ALLOW",
+    "!(map.hasOnly && false) ALLOW (error absorbed by && false)": "ALLOW",
+    "unknown method || true ALLOW (error absorbed)": "ALLOW",
+    "unknown global || true ALLOW (error absorbed)": "ALLOW"
+  },
+  "diagnostics": {
+    "debug() call DENY (function not found)": {
+      "notes": [
+        "Error: firestore.rules line [5], column [21]. Function not found error: Name: [debug]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 21,
+          "currentOffset": 133,
+          "endOffset": 137
+        },
+        "functionCalls": [
+          {
+            "function": "debug",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "map.hasAny DENY (function not found)": {
+      "notes": [
+        "Error: firestore.rules line [11], column [21]. Function not found error: Name: [hasAny]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 11,
+          "column": 21,
+          "currentOffset": 308,
+          "endOffset": 315
+        },
+        "functionCalls": [
+          {
+            "function": "hasAny",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "map.hasOnly DENY (function not found)": {
+      "notes": [
+        "Error: firestore.rules line [17], column [21]. Function not found error: Name: [hasOnly]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 17,
+          "column": 21,
+          "currentOffset": 485,
+          "endOffset": 492
+        },
+        "functionCalls": [
+          {
+            "function": "hasOnly",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

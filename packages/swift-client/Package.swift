@@ -47,7 +47,9 @@ let package = Package(
         ),
         .testTarget(
             name: "PyricFirestoreTests",
-            dependencies: ["PyricFirestore", "FirebaseAuth"]
+            // PyricDatabase lets the reconnect tests drive `.info/connected`
+            // on the fake reconnecting bridge kept in this target.
+            dependencies: ["PyricFirestore", "FirebaseAuth", "PyricDatabase"]
         ),
         .testTarget(
             name: "PyricAuthTests",
@@ -61,7 +63,9 @@ let package = Package(
         .testTarget(
             name: "PyricDebugUITests",
             dependencies: ["PyricDebugUI", "PyricFirestore", "FirebaseAuth"],
-            path: "Tests/PyricDebugUITests"
+            path: "Tests/PyricDebugUITests",
+            // Captured wire envelopes, read from disk by path.
+            exclude: ["Fixtures"]
         ),
     ]
 )

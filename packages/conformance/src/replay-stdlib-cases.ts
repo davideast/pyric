@@ -26,10 +26,10 @@
  * Output: packages/pyric/test/rules/modules/fixtures/stdlib-replay-<module>.json,
  * with `/` in the module name written as `-`.
  *
- * Credentials: as in `measure-stdlib-cost.ts`. PARITY_SA_BASE64 or
- * PARITY_SA_PATH selects a service account; otherwise the firebase-tools
- * login is used with PARITY_PROJECT_ID (default digame-mas). The Rules Test
- * API evaluates the submitted ruleset without deploying it.
+ * Credentials: as in `measure-stdlib-cost.ts`. GOOGLE_APPLICATION_CREDENTIALS
+ * selects an ADC credential; otherwise the firebase-tools login is used with
+ * PARITY_PROJECT_ID (default digame-mas). The Rules Test API evaluates the
+ * submitted ruleset without deploying it.
  *
  * Usage:
  *   bun run packages/conformance/src/replay-stdlib-cases.ts <module>
@@ -55,9 +55,6 @@ if (!moduleName) {
   throw new Error('usage: replay-stdlib-cases.ts <module>');
 }
 const storage = moduleName.startsWith('storage/');
-if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
-  process.env.PARITY_SA_BASE64 = Buffer.from(readFileSync(process.env.PARITY_SA_PATH)).toString('base64');
-}
 
 const source = readFileSync(join(STDLIB_DIR, `${moduleName}.rules`), 'utf8');
 const exports = [...source.matchAll(/^export function (\w+)\s*\(/gm)].map((m) => m[1]!);

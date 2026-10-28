@@ -4,6 +4,7 @@
  * and the ESM-only exports walker behind the CJS require() fallback.
  */
 import { describe, it, expect } from 'bun:test';
+import { join } from 'node:path';
 import { mapFirebaseSpecifier } from '../../src/register/mapping.js';
 import { resolveEsmOnlySubpath } from '../../src/register/esm-exports.js';
 
@@ -54,9 +55,24 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase/firestore', undefined, { aiMode: 'production' })).toBe('pyric/firestore');
   });
 
+  const cliRoot = join(import.meta.dir, '..', '..');
+
   it('leaves firebase/app unmapped when importer is the shadow app bridge', () => {
-    expect(mapFirebaseSpecifier('firebase/app', '/cli/dist/register/app-bridge.js', { aiMode: 'production' })).toBeNull();
-    expect(mapFirebaseSpecifier('firebase/app', '/cli/src/serve/entries/app-ai-passthrough.ts', { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'dist/register/app-bridge.js'), { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', `file://${join(cliRoot, 'dist/register/client/app-bridge.js')}`, { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'src/serve/entries/app-ai-passthrough.ts'), { aiMode: 'production' })).toBeNull();
+  });
+
+  it('maps firebase/app-check to the App Check bridge in production AI mode, and the bridge reaches the SDK', () => {
+    expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge-app-check');
+    expect(mapFirebaseSpecifier('firebase/app-check', join(cliRoot, 'dist/register/app-bridge-app-check.js'), { aiMode: 'production', sandbox: '' })).toBeNull();
+  });
+
+  it('swaps an app file that is merely named like a bridge', () => {
+    for (const userFile of ['/home/me/app/src/register/app-bridge.js', '/home/me/app/dist/register/app-bridge.js', '/home/me/app/app-ai-passthrough.ts']) {
+      expect(mapFirebaseSpecifier('firebase/app-check', userFile, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app-check');
+      expect(mapFirebaseSpecifier('firebase/app', userFile, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge');
+    }
   });
 });
 
@@ -92,5 +108,40 @@ describe('resolveEsmOnlySubpath', () => {
   it('handles missing exports fields', () => {
     expect(resolveEsmOnlySubpath(undefined, './app')).toBeNull();
     expect(resolveEsmOnlySubpath(null, '.')).toBeNull();
+  });
+});
+
+describe('mapFirebaseSpecifier under a remote activation (#1082)', () => {
+  const remoteSettings = ['remote', 'remote:http://127.0.0.1:5173', '1', 'true'];
+
+  it('sends the client SDKs the Node host serves to its Node client', () => {
+    for (const sandbox of remoteSettings) {
+      expect(mapFirebaseSpecifier('firebase/app', undefined, { sandbox }), sandbox).toBe('@pyric/cli/register/client/app');
+      for (const service of ['database', 'firestore', 'auth', 'storage']) {
+        expect(mapFirebaseSpecifier(`firebase/${service}`, undefined, { sandbox }), `${sandbox} ${service}`)
+          .toBe(`@pyric/cli/register/client/${service}`);
+      }
+    }
+  });
+
+  it('keeps the mirrors for client SDKs with no path to the host, and for firebase-admin', () => {
+    const sandbox = 'remote';
+    expect(mapFirebaseSpecifier('firebase/ai', undefined, { sandbox })).toBe('pyric/ai');
+    expect(mapFirebaseSpecifier('firebase/messaging', undefined, { sandbox })).toBe('pyric/messaging');
+    expect(mapFirebaseSpecifier('firebase/functions', undefined, { sandbox })).toBe('pyric/functions');
+    expect(mapFirebaseSpecifier('firebase/firestore/lite', undefined, { sandbox })).toBe('pyric/firestore/lite');
+    expect(mapFirebaseSpecifier('firebase-admin/database', undefined, { sandbox })).toBe('pyric-admin/database');
+  });
+
+  it('routes app through the Node client bridge when production AI pass-through is on', () => {
+    expect(mapFirebaseSpecifier('firebase/app', undefined, { sandbox: 'remote', aiMode: 'production' }))
+      .toBe('@pyric/cli/register/client/app-bridge');
+  });
+
+  it('keeps the in-process adapter under local, an empty remote url, or no activation', () => {
+    for (const sandbox of ['local', 'remote:', '']) {
+      expect(mapFirebaseSpecifier('firebase/app', undefined, { sandbox }), sandbox).toBe('pyric/app/register');
+      expect(mapFirebaseSpecifier('firebase/database', undefined, { sandbox }), sandbox).toBe('pyric/database');
+    }
   });
 });

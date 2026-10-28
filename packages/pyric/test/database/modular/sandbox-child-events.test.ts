@@ -528,3 +528,23 @@ describe('child events — rules check at subscribe time', () => {
     expect(err.constructor.name).toBe('Error');
   });
 });
+
+describe('onChildRemoved — the removed child as it was', () => {
+  it('keeps the removed child\'s own priority', async () => {
+    const { db } = setup();
+    const removed: Array<{ priority: unknown; exported: unknown }> = [];
+    onChildRemoved(ref(db, 'items'), (snap) => removed.push({ priority: snap.priority, exported: snap.exportVal() }));
+    await setWithPriority(ref(db, 'items/b'), 5, 50);
+    await remove(ref(db, 'items/b'));
+    expect(removed).toEqual([{ priority: 50, exported: { '.value': 5, '.priority': 50 } }]);
+  });
+
+  it('keeps its descendants\' priorities on a query listener', async () => {
+    const { db } = setup();
+    const removed: unknown[] = [];
+    onChildRemoved(query(ref(db, 'items'), orderByChild('n'), limitToLast(3)), (snap) => removed.push(snap.exportVal()));
+    await set(ref(db, 'items/c'), { n: 1, d: { x: 2, '.priority': 7 } });
+    await remove(ref(db, 'items/c'));
+    expect(removed).toEqual([{ n: 1, d: { x: 2, '.priority': 7 } }]);
+  });
+});

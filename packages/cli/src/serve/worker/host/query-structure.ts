@@ -1,6 +1,35 @@
 import { FirebaseError } from 'pyric/app';
+import { FieldPath } from 'pyric/firestore';
 
 const MAX_QUERY_LAYERS = 64;
+
+const VALID_WHERE_OPS = new Set([
+  '<',
+  '<=',
+  '==',
+  '!=',
+  '>=',
+  '>',
+  'array-contains',
+  'in',
+  'array-contains-any',
+  'not-in',
+]);
+
+function isValidFieldReference(field: unknown): boolean {
+  if (typeof field === 'string') return field.length > 0;
+  if (field instanceof FieldPath) return true;
+  if (field !== null && typeof field === 'object' && !Array.isArray(field)) {
+    const internal = (field as { _internalPath?: unknown })._internalPath;
+    if (internal !== null && typeof internal === 'object' && !Array.isArray(internal)) {
+      const segments = (internal as { segments?: unknown }).segments;
+      return Array.isArray(segments)
+        && segments.length > 0
+        && segments.every((segment) => typeof segment === 'string' && segment.length > 0);
+    }
+  }
+  return false;
+}
 
 function invalidStructure(message = 'Invalid Firestore query structure.'): never {
   throw new FirebaseError('invalid-argument', message);
@@ -67,11 +96,33 @@ function assertConstraintStructure(constraint: unknown, depth: number, requiresF
     return;
   }
   switch (constraint.kind) {
-    case 'where':
-    case 'orderBy':
-    case 'limit':
-    case 'limitToLast':
+    case 'where': {
+      const hasValidField = isValidFieldReference(constraint.field);
+      const hasValidOp = typeof constraint.op === 'string' && VALID_WHERE_OPS.has(constraint.op);
+      const hasValidValue = Object.hasOwn(constraint, 'value') && constraint.value !== undefined;
+      if (!hasValidField || !hasValidOp || !hasValidValue) {
+        invalidStructure('Invalid Firestore where constraint.');
+      }
       return;
+    }
+    case 'orderBy': {
+      const hasValidField = isValidFieldReference(constraint.field);
+      const hasValidDirection = constraint.direction === undefined
+        || constraint.direction === 'asc'
+        || constraint.direction === 'desc';
+      if (!hasValidField || !hasValidDirection) {
+        invalidStructure('Invalid Firestore orderBy constraint.');
+      }
+      return;
+    }
+    case 'limit':
+    case 'limitToLast': {
+      const hasValidLimit = typeof constraint.n === 'number' && Number.isInteger(constraint.n) && constraint.n > 0;
+      if (!hasValidLimit) {
+        invalidStructure('Invalid Firestore limit constraint.');
+      }
+      return;
+    }
     case 'startAt':
     case 'startAfter':
     case 'endAt':

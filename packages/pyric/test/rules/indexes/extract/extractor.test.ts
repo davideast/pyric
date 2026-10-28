@@ -4,6 +4,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { extractIndexes } from '../../../../src/rules/indexes/extract/extractor.js';
+import { analyzeIndexQuery, readIndexConfig } from '../../../../src/rules/indexes/query-analysis.js';
 
 function extract(source: string) {
   const result = extractIndexes({ files: [{ name: 'test.js', source }] });
@@ -182,6 +183,54 @@ describe('extractIndexes — output flows into deploy handler shape', () => {
       expect(typeof field.fieldPath).toBe('string');
       expect(field.order).toMatch(/^(ASCENDING|DESCENDING)$/);
     }
+  });
+
+  test('array-contains + orderBy produces a valid CONTAINS index covered by analyzeIndexQuery', () => {
+    const data = extract(`
+      function getTaggedRestaurants() {
+        let q = query(collection(db, "restaurants"));
+        q = query(q, where("tags", "array-contains", "vegan"));
+        q = query(q, orderBy("rating", "desc"));
+        return q;
+      }
+    `);
+    expect(data.config.indexes).toHaveLength(1);
+    expect(data.config.indexes[0].fields).toEqual([
+      { fieldPath: 'tags', arrayConfig: 'CONTAINS' },
+      { fieldPath: 'rating', order: 'DESCENDING' },
+    ]);
+    const validated = readIndexConfig(data.config);
+    const finding = analyzeIndexQuery({
+      collectionGroup: 'restaurants',
+      queryScope: 'COLLECTION',
+      filters: [{ field: 'tags', op: 'array-contains' }],
+      orders: [{ field: 'rating', direction: 'desc' }],
+    }, validated);
+    expect(finding).toEqual({ status: 'covered', basis: 'configured' });
+  });
+
+  test('two-sided range on one field needs no composite index, and equality + two-sided range deduplicates the range field', () => {
+    const singleFieldRange = extract(`
+      function getByPriceBand() {
+        let q = query(collection(db, "restaurants"));
+        q = query(q, where("price", ">=", 10), where("price", "<=", 100));
+        return q;
+      }
+    `);
+    expect(singleFieldRange.config.indexes).toHaveLength(0);
+
+    const compositeRange = extract(`
+      function getCategoryByPriceBand() {
+        let q = query(collection(db, "restaurants"));
+        q = query(q, where("category", "==", "Mexican"), where("price", ">=", 10), where("price", "<=", 100));
+        return q;
+      }
+    `);
+    expect(compositeRange.config.indexes).toHaveLength(1);
+    expect(compositeRange.config.indexes[0].fields).toEqual([
+      { fieldPath: 'category', order: 'ASCENDING' },
+      { fieldPath: 'price', order: 'ASCENDING' },
+    ]);
   });
 });
 
@@ -493,5 +542,37 @@ describe('extractIndexes — Layer 2.5 annotation propagation', () => {
     const budget = data.warnings.find(w => w.code === 'budget-exceeded');
     expect(budget).toBeDefined();
     expect(budget!.message).toContain('1');
+  });
+});
+
+describe('extractIndexes — dynamic collection id', () => {
+  const twoConstraints = `
+        q = query(q, where("status", "==", s));
+        q = query(q, orderBy("createdAt", "desc"));
+        return q;`;
+
+  test('a query whose collection id is dynamic emits no index and warns once', () => {
+    const data = extract(`
+      function listChildren(parentId, childCollection) {
+        let q = query(collection(db, "parents", parentId, childCollection));${twoConstraints}
+      }
+    `);
+    expect(data.config.indexes).toEqual([]);
+    expect(data.signals.map(s => s.collectionGroup)).not.toContain('{*}');
+    const skipped = data.warnings.filter(w => w.code === 'dynamic-collection-id');
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].message).toContain('index for a wildcard collection id skipped: name the collection');
+    expect(skipped[0].message).toContain('listChildren');
+  });
+
+  test('a literal collection id under a dynamic parent still emits its index', () => {
+    const data = extract(`
+      function listPosts(uid) {
+        let q = query(collection(db, "users", uid, "posts"));${twoConstraints}
+      }
+    `);
+    expect(data.config.indexes).toHaveLength(1);
+    expect(data.config.indexes[0].collectionGroup).toBe('posts');
+    expect(data.warnings.filter(w => w.code === 'dynamic-collection-id')).toEqual([]);
   });
 });

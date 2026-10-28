@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "13.6.0"
+  }
+}

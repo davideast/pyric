@@ -20,6 +20,7 @@ import { EventHistory, type EventHistoryLimits } from './event-history.js';
  */
 
 import { LocalEnvironment } from '../../firestore/sandbox/local-environment.js';
+import { recordedAdminDelete, recordedAdminSet } from '../../firestore/sandbox/admin-writes.js';
 import { SandboxClock, SANDBOX_CLOCK } from '../clock.js';
 import type { AuthState } from '../types/auth-state.js';
 import type { SandboxContext } from '../types/context.js';
@@ -241,7 +242,11 @@ export class SandboxImpl implements LocalSandbox {
           target:
             target.kind === 'doc'
               ? { kind: 'doc', path: target.path }
-              : { kind: 'query', collection: target.collection },
+              : {
+                  kind: 'query',
+                  collection: target.collection,
+                  ...(target.collectionGroup ? { collectionGroup: true as const } : {}),
+                },
           auth: err.request?.auth ?? null,
           error: {
             code: 'permission-denied',
@@ -395,14 +400,17 @@ export class SandboxImpl implements LocalSandbox {
   /**
    * Admin-plane access. Identity-agnostic: admin reads aren't gated on
    * auth, so they're a sandbox property — not something contexts carry.
+   * Writes bypass rules but are recorded as `detail.admin` events, so
+   * `history()` and `replay()` see the seed (#1058, FS-MET-2 case 3).
+   * Restore paths call the quiet `LocalEnvironment.admin*` methods instead.
    */
   get admin(): SandboxAdmin {
     return {
       getDocument: (path: string) => this._env.getDocument(path),
       listDocuments: (prefix: string) => this._env.listDocuments(prefix),
       setDocument: (path: string, data: Record<string, unknown>) =>
-        this._env.adminSetDocument(path, data),
-      deleteDocument: (path: string) => this._env.adminDeleteDocument(path),
+        recordedAdminSet(this._env, path, data),
+      deleteDocument: (path: string) => recordedAdminDelete(this._env, path),
     };
   }
 

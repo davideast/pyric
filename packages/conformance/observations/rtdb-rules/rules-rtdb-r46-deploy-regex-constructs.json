@@ -1,0 +1,43 @@
+{
+  "name": "rules-rtdb-r46-deploy-regex-constructs",
+  "matrixRow": "rtdb-rules#35",
+  "rowIds": [
+    "rtdb-rules#35"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r46-deploy-regex-constructs\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. regex constructs outside the documented set (lookahead, backreference, \\b, lazy quantifiers, \\p{..}, mid-pattern anchors) load in pyric and are evaluated with JavaScript RegExp semantics; production may refuse them at deploy.",
+  "observedAt": "2026-10-26T21:46:49.868Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "SP-2: lookahead (?=...)": {
+      "verdict": "ACCEPTED"
+    },
+    "SP-2: negative lookahead (?!...)": {
+      "verdict": "ACCEPTED"
+    },
+    "SP-2: backreference \\1": {
+      "verdict": "ACCEPTED"
+    },
+    "SP-2: word boundary \\b": {
+      "verdict": "ACCEPTED"
+    },
+    "SP-2: lazy quantifier +?": {
+      "verdict": "ACCEPTED"
+    },
+    "SP-2: Unicode property class \\p{L}": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, integer expected at position 3"
+    },
+    "SP-1: ^ and $ inside an alternation (/^red$|^blue$/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, unescaped ^, ^ can only appear at the end of regular expressions"
+    },
+    "SP-1: ^ inside a group (/(^a)/)": {
+      "verdict": "REJECTED",
+      "error": "Illegal regular expression, unescaped ^, ^ can only appear at the end of regular expressions"
+    },
+    "control: documented anchored class (/^[a-z0-9-]+$/)": {
+      "verdict": "ACCEPTED"
+    }
+  }
+}

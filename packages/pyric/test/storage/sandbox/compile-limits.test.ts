@@ -24,7 +24,7 @@ function rejection(source: string): string {
 describe('Storage evaluator: production compile limits', () => {
   test('the capture holds the rejected shapes and the 21-function control', () => {
     const shapes = new Set(probes.filter((p) => !p.compiles).map((p) => p.shape));
-    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'let-count', 'list-nesting', 'paren-nesting', 'slash-divisor']);
+    expect([...shapes].sort()).toEqual(['and-nesting', 'call-depth', 'call-depth-uncalled', 'glob-in-path', 'glob-nested', 'let-count', 'list-nesting', 'paren-nesting', 'slash-divisor']);
     expect(probes.some((p) => p.shape === 'call-depth' && p.n === 21 && p.compiles && !p.range)).toBe(true);
   });
 

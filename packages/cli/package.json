@@ -1,6 +1,6 @@
 {
   "name": "@pyric/cli",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.30",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -27,6 +27,10 @@
     "./verify": {
       "types": "./dist/verify/index.d.ts",
       "import": "./dist/verify/index.js"
+    },
+    "./repro": {
+      "types": "./dist/serve/repro/index.d.ts",
+      "import": "./dist/serve/repro/index.js"
     },
     "./conformance": {
       "types": "./dist/conformance/index.d.ts",
@@ -73,11 +77,20 @@
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
+    "./vite/ssr-loader": {
+      "types": "./dist/serve/vite-ssr-loader.d.ts",
+      "node": {
+        "types": "./dist/serve/vite-ssr-loader.d.ts",
+        "import": "./dist/serve/vite-ssr-loader.js"
+      }
     },
     "./next": {
       "types": "./dist/next/index.d.ts",
-      "import": "./dist/next/index.js"
+      "import": "./dist/next/index.js",
+      "default": "./dist/next/index.js"
     },
     "./bundler": {
       "types": "./dist/bundler/index.d.ts",
@@ -98,7 +111,8 @@
       "types": "./dist/register/index.d.ts",
       "node": {
         "types": "./dist/register/index.d.ts",
-        "import": "./dist/register/index.js"
+        "import": "./dist/register/index.js",
+        "default": "./dist/register/index.js"
       }
     },
     "./register/app-bridge": {
@@ -108,6 +122,55 @@
         "import": "./dist/register/app-bridge.js"
       }
     },
+    "./register/app-bridge-app-check": {
+      "types": "./dist/register/app-bridge-app-check.d.ts",
+      "node": {
+        "types": "./dist/register/app-bridge-app-check.d.ts",
+        "import": "./dist/register/app-bridge-app-check.js"
+      }
+    },
+    "./register/client/app": {
+      "types": "./dist/register/client/app.d.ts",
+      "node": {
+        "types": "./dist/register/client/app.d.ts",
+        "import": "./dist/register/client/app.js"
+      }
+    },
+    "./register/client/app-bridge": {
+      "types": "./dist/register/client/app-bridge.d.ts",
+      "node": {
+        "types": "./dist/register/client/app-bridge.d.ts",
+        "import": "./dist/register/client/app-bridge.js"
+      }
+    },
+    "./register/client/auth": {
+      "types": "./dist/register/client/auth.d.ts",
+      "node": {
+        "types": "./dist/register/client/auth.d.ts",
+        "import": "./dist/register/client/auth.js"
+      }
+    },
+    "./register/client/database": {
+      "types": "./dist/register/client/database.d.ts",
+      "node": {
+        "types": "./dist/register/client/database.d.ts",
+        "import": "./dist/register/client/database.js"
+      }
+    },
+    "./register/client/firestore": {
+      "types": "./dist/register/client/firestore.d.ts",
+      "node": {
+        "types": "./dist/register/client/firestore.d.ts",
+        "import": "./dist/register/client/firestore.js"
+      }
+    },
+    "./register/client/storage": {
+      "types": "./dist/register/client/storage.d.ts",
+      "node": {
+        "types": "./dist/register/client/storage.d.ts",
+        "import": "./dist/register/client/storage.js"
+      }
+    },
     "./flow": {
       "types": "./dist/serve/runtime/flow-treatments/types.d.ts",
       "import": "./dist/serve/runtime/flow-treatments/types.js"
@@ -115,8 +178,14 @@
     "./next/internal/ai": {
       "import": "./dist/serve/entries/ai.js"
     },
+    "./next/internal/analytics": {
+      "import": "./dist/serve/entries/analytics.js"
+    },
     "./next/internal/app": {
       "import": "./dist/serve/entries/app.js"
+    },
+    "./next/internal/app-check": {
+      "import": "./dist/serve/entries/app-check.js"
     },
     "./next/internal/auth": {
       "import": "./dist/serve/entries/auth.js"
@@ -127,6 +196,9 @@
     "./next/internal/firestore-lite": {
       "import": "./dist/serve/entries/firestore-lite.js"
     },
+    "./next/internal/functions": {
+      "import": "./dist/serve/entries/functions.js"
+    },
     "./next/internal/database": {
       "import": "./dist/serve/entries/database.js"
     },
@@ -136,12 +208,19 @@
     "./next/internal/messaging-sw": {
       "import": "./dist/serve/entries/messaging-sw.js"
     },
+    "./next/internal/performance": {
+      "import": "./dist/serve/entries/performance.js"
+    },
+    "./next/internal/remote-config": {
+      "import": "./dist/serve/entries/remote-config.js"
+    },
     "./next/internal/storage": {
       "import": "./dist/serve/entries/storage.js"
     },
     "./next/internal/react-hook": {
       "import": "./dist/next/react-hook-entry.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "pyric": "./dist/cli/index.js"
@@ -159,6 +238,7 @@
     "test": "bun test",
     "eval": "bun eval/run.ts",
     "eval:report": "bun eval/report.ts",
+    "test:e2e": "playwright test --config test/e2e/playwright.config.ts",
     "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts served-firestore-converters.pw.ts --config test/e2e/playwright.config.ts",
     "test:identity-conformance": "playwright test identity-switch.pw.ts auth-popup.pw.ts auth-avatars.pw.ts auth-avatars-disabled.pw.ts auth-take-mail-hosted.pw.ts --config test/e2e/playwright.config.ts",
     "test:flow-treatments": "playwright test flow-treatment.pw.ts overview-initial-render.pw.ts --config test/e2e/playwright.config.ts",
@@ -175,7 +255,6 @@
     "smoke:vendor": "bun scripts/standalone-vendor-smoke.ts"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "create-pyric": "workspace:*",
     "esbuild": "^0.28.0",

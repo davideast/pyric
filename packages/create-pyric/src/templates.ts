@@ -19,6 +19,7 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FIREBASE_PIN } from './firebase-pins.js';
 import { NEXTJS_TEMPLATE } from './template-nextjs.js';
 
 export const TEMPLATE_NAMES = ['web', 'node', 'static', 'chat', 'nextjs'] as const;
@@ -182,8 +183,9 @@ const WEB_INDEX_HTML = (name: string): string => `<!doctype html>
 `;
 
 const WEB_APP_JS = `// Canonical firebase/* imports. Under \`pyric sandbox\` they are served by the
-// in-page pyric sandbox (the config below is ignored); under any standard
-// bundler/pipeline the same imports resolve to the real \`firebase\` package.
+// in-page pyric sandbox (no request reaches the project the config names);
+// under any standard bundler/pipeline the same imports resolve to the real
+// \`firebase\` package.
 // Graduation changes where you run this code, never the code itself.
 import { initializeApp } from 'firebase/app';
 import {
@@ -347,7 +349,8 @@ const FIRESTORE_INDEXES = `{
 // ─── node template (init v1 scaffold, carried over) ───────────────────
 
 const NODE_APP_TS = `// Canonical Firebase imports stay unchanged between sandbox and production.
-// \`bun run dev\` activates @pyric/cli/register; \`bun start\` loads Firebase.
+// \`bun run dev\` runs this file against the Node-hosted Pyric sandbox
+// (\`pyric sandbox --hosted\`); \`bun start\` loads Firebase.
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs } from 'firebase/firestore';
 import { seed } from './seed.ts';
@@ -371,15 +374,17 @@ snap.forEach((doc) => console.log(\`  \${doc.id}:\`, doc.data()));
 // Production: fill .env, deploy firestore.rules, then \`bun start\`.
 `;
 
-const NODE_SEED_TS = `import { collection, addDoc, type Firestore } from 'firebase/firestore';
+const NODE_SEED_TS = `import { doc, setDoc, type Firestore } from 'firebase/firestore';
 
+// Fixed ids: the hosted sandbox keeps its data between runs, so each
+// \`bun run dev\` rewrites the same two posts instead of adding two more.
 export async function seed(db: Firestore): Promise<void> {
-  await addDoc(collection(db, 'posts'), {
+  await setDoc(doc(db, 'posts', 'hello'), {
     title: 'Hello, Pyric',
     author: 'sandbox',
     createdAt: new Date(),
   });
-  await addDoc(collection(db, 'posts'), {
+  await setDoc(doc(db, 'posts', 'local-first'), {
     title: 'Local-first by default',
     author: 'sandbox',
     createdAt: new Date(),
@@ -432,7 +437,7 @@ real Firebase in production. No application-code switch is required.
 
 \`\`\`bash
 bun install
-bun run dev        # Pyric sandbox through the Node package swap
+bun run dev        # Pyric sandbox hosted in Node (pyric sandbox --hosted)
 bun start          # production: real Firebase
 \`\`\`
 
@@ -516,10 +521,11 @@ const VITE_INDEX_HTML = (name: string): string => `<!doctype html>
 </html>
 `;
 
-const VITE_MAIN_TS = `// Canonical firebase/* imports — UNCHANGED between dev and prod.
+const VITE_MAIN_TS = `// Canonical firebase/* imports, the same in dev and prod.
 // In \`vite dev\` the \`@pyric/cli/vite\` plugin swaps these to an in-process
-// sandbox (the config below is accepted but ignored). \`vite build\` ships the
-// real \`firebase\` package and uses the SAME config. Graduation is a build, not
+// sandbox: no request reaches the project the config below names, and the
+// sandbox reads its projectId the way Firebase does. \`vite build\` ships the
+// real \`firebase\` package with the same config. Graduation is a build, not
 // a code edit.
 import { initializeApp } from 'firebase/app';
 import {
@@ -557,7 +563,7 @@ if (hasProjectId) {
 
 const app = initializeApp({
   // Filled from .env (see .env.example) at \`vite build\` time for production.
-  // Ignored in \`vite dev\` — the pyric sandbox stands in for Firebase.
+  // In \`vite dev\` the pyric sandbox stands in for Firebase and reads projectId.
   apiKey,
   authDomain,
   projectId,
@@ -820,7 +826,7 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
     },
     // The real firebase package ships day one so the production `vite build`
     // resolves the same canonical imports against it — no code edit at graduation.
-    dependencies: { firebase: '^12.12.0' },
+    dependencies: { firebase: FIREBASE_PIN },
     devDependencies: { '@pyric/cli': '*', vite: '^6.0.0', typescript: '^5.7.0' },
     dirs: ['src'],
     files: (name) => [
@@ -845,10 +851,10 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
   node: {
     scripts: {
       start: 'node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
-      dev: 'pyric sandbox --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
+      dev: 'pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
      bridge: 'pyric bridge',
     },
-    dependencies: { firebase: '^12.12.0' },
+    dependencies: { firebase: FIREBASE_PIN },
     devDependencies: { '@pyric/cli': '*', '@types/node': '^22.0.0', typescript: '^5.7.0' },
     dirs: ['src'],
     files: (name) => [
@@ -871,7 +877,7 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
       dev: 'pyric sandbox --seed seed.json',
      'dev:agent': 'pyric sandbox --bridge --seed seed.json',
     },
-    dependencies: { firebase: '^12.12.0' },
+    dependencies: { firebase: FIREBASE_PIN },
     devDependencies: { '@pyric/cli': '*' },
     dirs: ['public'],
     files: (name) => [

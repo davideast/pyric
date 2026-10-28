@@ -1,0 +1,25 @@
+{
+  "name": "rules-rtdb-r31-token-claims",
+  "matrixRow": "rtdb-rules#25",
+  "rowIds": [
+    "rtdb-rules#25"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r31-token-claims\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). role and tenant gates read custom claims from auth.token, so the simulator must expose the claims a custom token carries with their types, and read an absent claim the way production does.",
+  "observedAt": "2026-10-07T06:33:03.776Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "a true boolean claim is allowed": "ALLOW",
+    "a false boolean claim is denied": "DENY",
+    "a string claim with the expected value is allowed": "ALLOW",
+    "a string claim with another value is denied": "DENY",
+    "a number claim over the bound is allowed": "ALLOW",
+    "a number claim under the bound is denied": "DENY",
+    "a nested object claim reads by dotted path": "ALLOW",
+    "a claim the token does not carry reads null": "ALLOW",
+    "a custom-token sign-in reads sign_in_provider as custom": "ALLOW",
+    "a custom-token sign-in reads auth.provider as custom": "ALLOW",
+    "an anonymous user carries no admin claim": "DENY",
+    "signed out, a claim gate is denied": "DENY"
+  }
+}

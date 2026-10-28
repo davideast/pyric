@@ -1,6 +1,6 @@
 {
   "name": "pyric",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.30",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -54,6 +54,14 @@
       "types": "./dist/firestore/internal/value-codec.d.ts",
       "import": "./dist/firestore/internal/value-codec.js"
     },
+    "./firestore/internal/implicit-order": {
+      "types": "./dist/firestore/internal/implicit-order.d.ts",
+      "import": "./dist/firestore/internal/implicit-order.js"
+    },
+    "./firestore/internal/update-fields": {
+      "types": "./dist/firestore/internal/update-fields.d.ts",
+      "import": "./dist/firestore/internal/update-fields.js"
+    },
     "./firestore/lite": {
       "types": "./dist/firestore/lite.d.ts",
       "import": "./dist/firestore/lite.js"
@@ -93,6 +101,10 @@
     "./storage/internal": {
       "types": "./dist/storage/internal.d.ts",
       "import": "./dist/storage/internal.js"
+    },
+    "./storage/sw": {
+      "types": "./dist/storage/sw.d.ts",
+      "import": "./dist/storage/sw.js"
     },
     "./messaging": {
       "types": "./dist/messaging/index.d.ts",
@@ -181,7 +193,8 @@
     "./remote-config": {
       "types": "./dist/remote-config/index.d.ts",
       "import": "./dist/remote-config/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -195,21 +208,21 @@
     "prebuild": "(bun run inline-grammar 2>/dev/null || true) && bun run inline-stdlib",
     "build": "tsc && bun run scripts/copy-assets.ts 2>/dev/null || tsc",
     "test": "bun test",
-    "typecheck": "bun x tsc -p tsconfig.json --noEmit",
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit && bun x tsc -p tsconfig.types.json",
     "bench:rules": "bun bench/rules/run.ts",
     "bench:rules:capture": "bun bench/rules/capture.ts"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.2",
     "fake-indexeddb": "^6.0.0",
     "ohm-js": "^17.1.0",
+    "typescript": "^5.7.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@inbrowser/agent": "0.4.2",
     "@types/bun": "1.3.14",
     "firebase": "^12.12.0",
-    "firebase-admin": "^13.0.0",
-    "typescript": "^5.7.0"
+    "firebase-admin": "^13.0.0"
   },
   "engines": {
     "node": ">=22"

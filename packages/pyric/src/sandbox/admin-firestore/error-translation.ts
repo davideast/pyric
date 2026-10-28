@@ -89,6 +89,8 @@ export function registerOnSnapshotImpl(fn: OnSnapshotImpl): void {
  *   keeps `collectionPath` as a TypeScript-protected field on the
  *   underlying `QueryImpl`. Protected is a TS-only restriction; at
  *   runtime the field is readable, so the lookup matches.
+ * - A collection-group `Query` has an empty `collectionPath`; it is
+ *   recognized by the `snapshotScope()` method every `QueryImpl` carries.
  *
  * Snapshots, batches, transactions, and the Firestore handle itself
  * carry neither, so the shim correctly skips them.
@@ -107,9 +109,10 @@ function isModularValue(value: object): boolean {
 }
 
 function isRefLike(obj: object): boolean {
-  const o = obj as { path?: unknown; collectionPath?: unknown };
+  const o = obj as { path?: unknown; collectionPath?: unknown; snapshotScope?: unknown };
   return (typeof o.path === 'string' && o.path.length > 0)
-      || (typeof o.collectionPath === 'string' && o.collectionPath.length > 0);
+      || (typeof o.collectionPath === 'string' && o.collectionPath.length > 0)
+      || typeof o.snapshotScope === 'function';
 }
 
 /**
@@ -159,6 +162,7 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
   }
 
   const denialContext: DenialContext = {
+    engine: 'firestore',
     auth: ctx.auth,
     reasons: recoverReasons(err.message),
   };
@@ -177,6 +181,8 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
       if (hasResourceData) {
         denialContext.request.resourceData = r.resourceData;
       }
+      const hasUpdateMask = r.updateMask !== undefined;
+      if (hasUpdateMask) denialContext.request.updateMask = r.updateMask;
     }
     const hasResource = sim!.resource !== undefined;
     if (hasResource) {
@@ -189,6 +195,9 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
     const hasRule = sim!.rule !== undefined;
     if (hasRule) {
       denialContext.rule = sim!.rule;
+    }
+    if (sim!.repro !== undefined) {
+      denialContext.repro = sim!.repro;
     }
     const hasRemediation = sim!.remediation !== undefined;
     if (hasRemediation) {
@@ -260,10 +269,13 @@ export function wrapWithErrorTranslation<T extends object>(
         let result: unknown;
         try {
           const invoke = () => (value as (...a: unknown[]) => unknown).apply(t, args);
-          result = ctx.sandbox.runWithProvenance?.(
-            provenanceForOperationContext(ctx.operationContext),
-            invoke,
-          ) ?? invoke();
+          // Branch on the window, not on the result: a method that returns
+          // undefined (`QuerySnapshot.forEach`) must run once, not again
+          // through a `?? invoke()` fallback (#1203).
+          const hasProvenanceWindow = typeof ctx.sandbox.runWithProvenance === 'function';
+          result = hasProvenanceWindow
+            ? ctx.sandbox.runWithProvenance!(provenanceForOperationContext(ctx.operationContext), invoke)
+            : invoke();
         } catch (e) {
           throw toSandboxError(e, ctx);
         }

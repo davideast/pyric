@@ -1,13 +1,13 @@
 /** Node register adapter for canonical `firebase/app` imports. */
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from './types.js';
-import { setRules } from 'pyric/sandbox/firestore';
 import { initializeSandbox } from '../sandbox/index.js';
+import { loadProjectRules } from './register-rules.js';
 import {
+  bindAppRegistryRefusal,
   bindAppRegistrySandbox,
   initializeApp as initializeRegistryApp,
 } from './registry.js';
+import { clientSdkRefusal, isRemoteSandboxActivation } from './client-sdk-refusal.js';
 
 export * from './index.js';
 
@@ -16,24 +16,14 @@ let prepared = false;
 function prepareNodeSandbox(): void {
   if (prepared) return;
   prepared = true;
+  const setting = process.env.PYRIC_SANDBOX;
+  if (isRemoteSandboxActivation(setting)) {
+    bindAppRegistryRefusal(() => clientSdkRefusal(setting ?? ''));
+    return;
+  }
   const sandbox = initializeSandbox();
   bindAppRegistrySandbox(sandbox);
-
-  const firebaseJsonPath = resolve(process.cwd(), 'firebase.json');
-  if (!existsSync(firebaseJsonPath)) return;
-  try {
-    const config = JSON.parse(readFileSync(firebaseJsonPath, 'utf8')) as {
-      firestore?: { rules?: unknown };
-    };
-    if (typeof config.firestore?.rules !== 'string') return;
-    const rulesPath = resolve(process.cwd(), config.firestore.rules);
-    if (!existsSync(rulesPath)) return;
-    setRules(sandbox, readFileSync(rulesPath, 'utf8'));
-  } catch (error) {
-    process.stderr.write(
-      `pyric/app/register: could not load firestore.rules: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
-  }
+  loadProjectRules(sandbox, process.cwd());
 }
 
 export function initializeApp(

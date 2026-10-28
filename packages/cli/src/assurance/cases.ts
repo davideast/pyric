@@ -38,6 +38,7 @@ export function runSecurityCases(
       invariantId: item.invariant.id,
       control: item.control,
       mutation: item.mutation,
+      ...(item.requires ? { requires: item.requires } : {}),
     })),
   });
 }

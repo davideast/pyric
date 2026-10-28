@@ -208,7 +208,9 @@ describe('ObjectBrowser', () => {
   describe('rules gate affordances (M7)', () => {
     // Owner-only tree, deployed onto a REAL sandbox the way every
     // pyric storage rules test deploys it: first factory call wins.
-    const OWNER_RULES = `
+    // Version 2, so the folder rows `users/alice` and `users/bob` match
+    // `{allPaths=**}` with zero segments; version 1 needs one.
+    const OWNER_RULES = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /users/{uid}/{allPaths=**} {

@@ -57,7 +57,7 @@ describe('CI dist cache', () => {
     for (const included of ["'packages/'", "'scripts/build.sh'", "'bun.lock'"]) {
       expect(keyScript).toContain(included);
     }
-    for (const excluded of ["':!packages/*/test'", "':!packages/playground'"]) {
+    for (const excluded of ["':(glob,exclude)packages/*/test/**'", "':!packages/playground'"]) {
       expect(keyScript).toContain(excluded);
     }
     // The site flavor's key must also see the compose pipeline.

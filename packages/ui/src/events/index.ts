@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * `@pyric/ui/events` — headless activity view over the unified
  * `SandboxEvent` stream (Pyric Studio's keystone). Aggregates the whole

@@ -78,7 +78,9 @@ const moduleApi = Module as unknown as {
  */
 function resolveEsmOnlyForRequire(mapped: string): string | null {
   if (typeof moduleApi.findPackageJSON !== 'function') return null;
-  const slash = mapped.indexOf('/');
+  // A scoped name (`@pyric/cli/register/client/app`) spans its first slash.
+  const isScoped = mapped.startsWith('@');
+  const slash = mapped.indexOf('/', isScoped ? mapped.indexOf('/') + 1 : 0);
   const pkgName = slash === -1 ? mapped : mapped.slice(0, slash);
   const subpath = slash === -1 ? '.' : `.${mapped.slice(slash)}`;
   let pkgJsonPath: string | undefined;
@@ -109,7 +111,7 @@ function activate(): void {
   // the factory global pulls in the remote sandbox) and any of it could open
   // a socket. Installing the guard first leaves no window in which
   // sandbox-substituted code runs unguarded. The reverse ordering buys
-  // nothing: the guard mutates globals only (`undici.globalDispatcher.1`,
+  // nothing: the guard mutates globals only (`undici.globalDispatcher.*`,
   // `net`/`tls` connect, the Agent and Socket prototypes) and depends on
   // nothing the hooks establish.
   //
@@ -161,9 +163,12 @@ function activate(): void {
   }
 
   // The factory global — exact contract shared with pyric-admin's ambient
-  // init: synchronous, returns the lazy branded handle.
+  // init: synchronous, returns the lazy branded handle. The url comes from
+  // PYRIC_SANDBOX=remote:<url> and may be stale, so it is checked against
+  // this project's host. A launcher that sets the url also pins the identity
+  // of the host it started, so that url holds from any working directory.
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
-    remoteSandbox(opts);
+    remoteSandbox({ configuredUrl: opts?.url, instanceId: process.env.PYRIC_SANDBOX_INSTANCE });
 
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +

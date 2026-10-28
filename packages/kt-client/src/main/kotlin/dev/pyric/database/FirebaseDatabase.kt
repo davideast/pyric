@@ -7,6 +7,7 @@ import dev.pyric.auth.AuthLens
 import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +28,10 @@ class FirebaseDatabase(
         credentialsProvider?.getEffectiveLens() ?: AuthLens.Anon
     )
     val authLensFlow: StateFlow<AuthLens> = _effectiveAuthLensFlow.asStateFlow()
+
+    /** Off between goOffline() and goOnline(); `.info/connected` is false while it is off. */
+    private val _networkEnabled = MutableStateFlow(true)
+    internal val networkEnabled: StateFlow<Boolean> = _networkEnabled.asStateFlow()
 
     init {
         databaseScope.launch {
@@ -74,7 +79,8 @@ class FirebaseDatabase(
     }
 
     fun goOffline() {
-        databaseScope.launch {
+        _networkEnabled.value = false
+        databaseScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 bridgeClient.op(
                     method = "rtdb.goOffline",
@@ -86,7 +92,8 @@ class FirebaseDatabase(
     }
 
     fun goOnline() {
-        databaseScope.launch {
+        _networkEnabled.value = true
+        databaseScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 bridgeClient.op(
                     method = "rtdb.goOnline",

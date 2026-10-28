@@ -10,7 +10,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import type { Bridge, BridgeToolResult } from './bridge.js';
 import type { ToolMetadata } from './tool-metadata.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';

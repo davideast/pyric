@@ -1,117 +1,97 @@
-/** Canonical Firebase Firestore imports executed through real Vite resolution. */
-import 'fake-indexeddb/auto';
+/**
+ * Server-rendered `firebase/*` imports through real Vite resolution, with the
+ * Firebase SDK installed in the app (#1123).
+ *
+ * An installed `firebase` is what Vite externalizes for SSR before any plugin
+ * resolves it. This test used to run in a fixture without one, so the plugin
+ * always saw the import and the externalized path went untested.
+ */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ViteDevServer } from 'vite';
 
-import {
-  bundleWorker,
-  defaultSdkEntries,
-  workerSourceHash,
-} from '../../src/serve/bundler.js';
+import { resetAppRegistryForTests } from 'pyric/app/internal';
+import { bundleWorker, defaultSdkEntries, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
+
+const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const workspaceRoot = resolve(cliRoot, '../..');
 
 let server: ViteDevServer | undefined;
 let fixtureRoot: string | undefined;
 
+/** An app with `firebase` and `@pyric/cli` installed, as a user's project has them. */
+function createFixture(): string {
+  const root = mkdtempSync(join(tmpdir(), 'pyric-vite-firestore-'));
+  mkdirSync(join(root, 'node_modules', '@pyric'), { recursive: true });
+  symlinkSync(realpathSync(join(workspaceRoot, 'node_modules', 'firebase')), join(root, 'node_modules', 'firebase'), 'dir');
+  symlinkSync(cliRoot, join(root, 'node_modules', '@pyric', 'cli'), 'dir');
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module', private: true }));
+  writeFileSync(
+    join(root, 'firestore-smoke.ts'),
+    `import { initializeApp, getApps } from 'firebase/app';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+
+export async function run() {
+  const app = getApps()[0] ?? initializeApp({ apiKey: 'ignored', projectId: 'vite-firestore-smoke' });
+  try {
+    await setDoc(doc(getFirestore(app), 'package-resolution/firestore'), { selected: 'sandbox' });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, code: error.code, message: String(error.message) };
+  }
+}
+`,
+  );
+  return root;
+}
+
 beforeAll(async () => {
+  await resetAppRegistryForTests();
   await bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) });
+  fixtureRoot = createFixture();
+  const { createServer } = await import('vite');
+  server = await createServer({
+    appType: 'custom',
+    configFile: false,
+    logLevel: 'silent',
+    root: fixtureRoot,
+    plugins: [pyric({ ui: false })],
+    server: { port: 0, host: '127.0.0.1' },
+    optimizeDeps: { noDiscovery: true },
+  });
+  await server.listen();
 }, 180_000);
 
 afterAll(async () => {
   await server?.close();
+  await resetAppRegistryForTests();
   if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
-describe('canonical Firestore operation through Vite', () => {
-  it('writes and reads through the package-selected sandbox mirror', async () => {
-    fixtureRoot = mkdtempSync(join(tmpdir(), 'pyric-vite-firestore-'));
-    expect(existsSync(join(fixtureRoot, 'node_modules/firebase'))).toBe(false);
-    writeFileSync(
-      join(fixtureRoot, 'firestore-smoke.ts'),
-      `import { initializeApp } from 'firebase/app';
-import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
+describe('server-rendered firebase/firestore through Vite', () => {
+  it('runs in a fixture where Vite externalizes the installed SDK', () => {
+    expect(existsSync(join(fixtureRoot!, 'node_modules/firebase/package.json'))).toBe(true);
+  });
 
-export async function run() {
-  const app = initializeApp(
-    { apiKey: 'ignored', projectId: 'vite-firestore-smoke' },
-    'vite-firestore-smoke',
-  );
-  const db = getFirestore(app);
-  const ref = doc(db, 'package-resolution/firestore');
-  await setDoc(ref, { selected: 'sandbox' });
-  let selected;
-  for (let index = 0; index < 5; index += 1) {
-    selected = (await getDoc(ref)).data()?.selected;
-  }
-  return selected;
-}
-`,
-    );
+  it('keeps the browser swap and routes the server import to the Node client', async () => {
+    const container = server!.pluginContainer;
+    const importer = join(fixtureRoot!, 'firestore-smoke.ts');
+    const client = await container.resolveId('firebase/firestore', importer);
+    expect(client?.id).toBe(defaultSdkEntries().firestore);
+    const ssr = await container.resolveId('firebase/firestore', importer, { ssr: true });
+    expect(ssr?.id).toBe('\0pyric-ssr-target:@pyric/cli/register/client/firestore');
+  });
 
-    const originalFetch = globalThis.fetch;
-    const activityRequests: RequestInit[] = [];
-    const runtimeGlobal = globalThis as typeof globalThis & {
-      __PYRIC_FORCE_INPAGE__?: boolean;
+  it('refuses a server call on a SharedWorker dev server, naming hosted: true', async () => {
+    const fixture = await server!.ssrLoadModule('/firestore-smoke.ts') as {
+      run(): Promise<{ ok: boolean; code?: string; message?: string }>;
     };
-    const originalForceInPage = runtimeGlobal.__PYRIC_FORCE_INPAGE__;
-    runtimeGlobal.__PYRIC_FORCE_INPAGE__ = true;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === '/__pyric/init.json') {
-        return Response.json({
-          rules: null,
-          rulesHash: null,
-          bridgeUrl: null,
-          seed: null,
-          persist: false,
-          activityToken: 'vite-activity-token',
-        });
-      }
-      if (String(input) === '/__pyric/activity') {
-        activityRequests.push(init ?? {});
-        return new Response(null, { status: 204 });
-      }
-      return originalFetch(input, init);
-    }) as typeof fetch;
-
-    const { createServer } = await import('vite');
-    try {
-      server = await createServer({
-        appType: 'custom',
-        configFile: false,
-        logLevel: 'silent',
-        root: fixtureRoot,
-        plugins: [pyric({ ui: false })],
-        server: { middlewareMode: true },
-        optimizeDeps: { noDiscovery: true },
-      });
-      const initEntry = defaultSdkEntries().init;
-      const runtimeEntry = join(
-        dirname(initEntry),
-        initEntry.endsWith('.js') ? 'runtime.js' : 'runtime.ts',
-      );
-      await server.ssrLoadModule(runtimeEntry);
-      const fixture = await server.ssrLoadModule('/firestore-smoke.ts') as {
-        run(): Promise<string | undefined>;
-      };
-      await expect(fixture.run()).resolves.toBe('sandbox');
-      expect(activityRequests).toHaveLength(1);
-      expect(new Headers(activityRequests[0]?.headers).get('x-pyric-activity-token'))
-        .toBe('vite-activity-token');
-      expect(JSON.parse(String(activityRequests[0]?.body))).toMatchObject({
-        pattern: 'repeated-read',
-        method: 'get',
-        count: 5,
-      });
-    } finally {
-      globalThis.fetch = originalFetch;
-      if (originalForceInPage === undefined) {
-        delete runtimeGlobal.__PYRIC_FORCE_INPAGE__;
-      } else {
-        runtimeGlobal.__PYRIC_FORCE_INPAGE__ = originalForceInPage;
-      }
-    }
+    const outcome = await fixture.run();
+    expect(outcome).toMatchObject({ ok: false, code: 'failed-precondition' });
+    expect(outcome.message).toContain('pyric({ hosted: true })');
   }, 60_000);
 });

@@ -5,6 +5,7 @@
  * Subcommands:
  *   pyric bridge [--port N] [--project ID]
  *   pyric sandbox [flags] [--] [command...]
+ *   pyric run [--sandbox URL] [--wait[=SECONDS]] -- <command...>
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out DIR] [--port N] [--force] [--json] [--include-passwords]
@@ -13,10 +14,13 @@
  *   pyric firestore rules resolve <path> [--out <path>]
  *   pyric firestore indexes generate <path...> [--out <path>]
  *   pyric storage rules resolve <path> [--out <path>]
- *   pyric database rules validate <path>
- *   pyric database rules generate [--config <path>] [--out <path>]
+ *   pyric database rules validate <path> [--fail-on <critical|high|medium>]
+ *   pyric database rules generate [--config <path>] [--out <path>] [--fail-on <critical|high|medium>]
  *   pyric serve diagnostics [--url URL] [--json]
  *   pyric serve sessions [--json]
+ *   pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
+ *   pyric serve repro capture [--out FILE]
+ *   pyric serve repro replay <file> [--plane node|worker] [--json]
  *   pyric --help
  *   pyric --version
  *
@@ -57,20 +61,26 @@ clients (Claude Code, Cursor, ...).
 USAGE
   pyric bridge [flags]
   pyric sandbox [flags] [--] [command...]
+  pyric run [--sandbox URL] [--wait[=SECONDS]] -- <command...>
   pyric init [dir] [--template=web|node]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
   pyric snapshot [--out=DIR]
-  pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
+  pyric verify [fixture|dir] [--engine sandbox|rules-test-api|staging|both]
   pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
+  pyric verify staging init
+  pyric verify staging restore [--force]
   pyric firestore rules validate <path>
   pyric firestore rules resolve <path> [--out <path>]
   pyric firestore indexes generate <path...> [--out <path>]
   pyric storage rules resolve <path> [--out <path>]
-  pyric database rules validate <path>
-  pyric database rules generate [--config <path>] [--out <path>]
+  pyric database rules validate <path> [--fail-on <critical|high|medium>]
+  pyric database rules generate [--config <path>] [--out <path>] [--fail-on <critical|high|medium>]
   pyric serve diagnostics [--url URL] [--json]
   pyric serve sessions [--json]
+  pyric serve denials [--json] [--since <ms|duration>] [--service rtdb|firestore]
+  pyric serve repro capture [--out FILE]
+  pyric serve repro replay <file> [--plane node|worker] [--json]
   pyric <tool> <method> [--<arg> <value>...]
   pyric --help
   pyric --version
@@ -83,6 +93,15 @@ COMMANDS
                              configured in pyric.json; if none is configured, runs the sandbox host only.
                              A firebase.json Functions source is discovered automatically;
                              supported RTDB onValueCreated exports run in isolated Node.
+  run [--sandbox URL]        Run a command against a sandbox host that is already
+                             running (a Vite dev server with the pyric plugin, or
+                             \`pyric sandbox\`), with the environment \`pyric sandbox\`
+                             gives its child. --sandbox URL names the host; without
+                             it, PYRIC_SANDBOX=remote:<url>, then .pyric/serve.json.
+                             The register module is passed by absolute file URL, so
+                             the command can run outside pyric's install tree.
+                             --wait[=SECONDS] polls the host's health until it
+                             answers (default 30s) before starting the command.
   init [dir]                 Scaffold a pyric project. --template=web (default; Vite app
                              on \`@pyric/cli/vite\`), static (\`pyric sandbox\`), or node.
                              --name=NAME --force (overwrite scaffold files) --json (machine
@@ -104,17 +123,28 @@ COMMANDS
                              for the Firestore/RTDB services present in the fixture.
                              No arg replays the latest \`pyric sandbox\` capture
                              (.pyric/last-session.json). --service filters services.
-                             --engine sandbox (default), rules-test-api, or both.
+                             --engine sandbox (default), rules-test-api, staging, or both.
                              Hosted Rules Test API verification is Firestore-only
                              and uses --project plus the configured Google credentials.
+                             --engine staging replays RTDB against your own dedicated
+                             instance (pyric.json verify.staging) so production decides
+                             each operation; repeat --engine to compare with sandbox.
                              --rules service=path overrides firebase.json resolution
-                             (repeat for mixed captures). --json. Exit 1 on divergence.
+                             (repeat for mixed captures). Each RTDB instance the session
+                             used is checked against its own rules; --rules
+                             rtdb:<instance>=path names one. --json. Exit 1 on divergence.
   can-i-use <feature>        Report Pyric availability, behavior fidelity, and assurance
                              eligibility from the canonical conformance model. A surface
                              prefix such as firestore-rules/getAfter disambiguates names.
                              Exact and fuzzy queries use the same model as MCP. --json.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
+  verify staging init        Enroll the empty RTDB instance pyric.json verify.staging
+                             names ({ project, rtdb }) for --engine staging. Refuses an
+                             instance that holds data or that firebase.json deploys to.
+  verify staging restore     Put the staging instance back after an interrupted run, from
+                             the rules kept in .pyric/staging-restore.json; --force
+                             deploys deny-all rules with the marker when none were kept.
   firestore rules validate   Validate Firestore rules structure against a file.
   firestore rules resolve    Resolve Firestore 2+modules imports to one ruleset.
   firestore indexes generate Generate firestore.indexes.json from application source.
@@ -126,7 +156,20 @@ COMMANDS
   serve sessions             List the clients connected to the running bridge with
                              their target ids, platforms, and the identity each
                              acts as. Requires a running bridge. --json.
-  auth reset                 Follow the application session again. --target <id>
+  serve denials              List the RTDB and Firestore rules denials the running
+                             Node host recorded, grouped by service, instance and the
+                             rule that decided, with counts, page loads, times,
+                             identities, denied paths and the rule trace.
+                             --since <ms|duration>, --service, --json.
+  serve repro capture        Write the running Node host's repro file: its starting
+                             state, rules, signed-in ports, and the operations and
+                             listener events since. --out FILE (default
+                             pyric-repro.json), --force. Tokens keep only their claims.
+  serve repro replay <file>  Replay a repro file on a fresh Node host and a fresh
+                             worker host; report the first divergence on each and
+                             where they disagree. --plane node|worker, --json.
+                             Exit 1 on divergence.
+  auth reset                Follow the application session again. --target <id>
                              resets another connected client instead of you;
                              \`pyric serve sessions\` lists the ids.
                              Requires a running bridge. --json.
@@ -150,7 +193,11 @@ CORE FLAGS (sandbox)
   --bridge           Also mount the MCP bridge on the serve origin. Agents point
                      at http://<host>:<port>/__pyric/mcp and drive the sandbox
                      living in the served page. --project labels health/audit.
-  --ui               Open Studio instead of the served page. Studio and docs
+  --project ID       Firebase project id or .firebaserc alias. Names the default
+                     RTDB instance and selects .firebaserc deploy targets.
+                     Without it: PYRIC_PROJECT, pyric.json project, the
+                     \`firebase use\` project, then .firebaserc projects.
+  --ui              Open Studio instead of the served page. Studio and docs
                      are served by default at <url>/__pyric/ui/.
   --no-ui            Do not serve Studio, docs, workspace, or project routes.
   --seed FILE        JSON map of "collection/doc" to fields, loaded with admin access.
@@ -184,7 +231,7 @@ CORE FLAGS (sandbox)
                      browser store in Studio under Settings, Reset, or use an
                      incognito window) for a full reset.
   [command...]       Run a command once the host is up, with PYRIC_SANDBOX set and
-                     NODE_OPTIONS extended with --import @pyric/cli/register
+                     NODE_OPTIONS extended with --import <register module URL>
                      so firebase-admin/firebase resolve to the sandbox. Put
                      Pyric flags before the command. A bare -- separates the
                      command and its flags. When omitted, pyric.json#command
@@ -364,6 +411,9 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       }
       const { runServe } = await import('./serve.js');
       return runServe(parsed);
+    case 'run':
+      const { runRun } = await import('./run.js');
+      return runRun(parsed);
     case 'snapshot':
       return await runSnapshot(parsed);
     case 'verify':

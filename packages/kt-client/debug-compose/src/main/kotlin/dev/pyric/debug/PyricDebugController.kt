@@ -10,6 +10,7 @@ import dev.pyric.debug.model.RulesDenialContext
 import dev.pyric.debug.model.RulesDenialRecord
 import dev.pyric.debug.model.SandboxUser
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,7 +94,7 @@ class PyricDebugController(
     }
 
     fun refreshUsers() {
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             _isLoadingUsers.value = true
             try {
                 val rawUsers = BridgeAuthOperations.listUsers(bridgeClient)

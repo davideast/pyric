@@ -9,6 +9,15 @@ import type { ClientPort, DocRefHandle } from './handles.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
 import type { DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotMetadata } from 'pyric/firestore';
+import {
+  computeDocumentChanges,
+  createDocChanges,
+  forEachDocument,
+  getSnapshotField,
+  type DocChangesOptions,
+  type DocumentChange,
+  type SnapshotFieldPath,
+} from 'pyric/sandbox/internal';
 
 // ─── Rehydration (class instance restoration) ─────────────────────────────
 
@@ -25,20 +34,54 @@ export interface RawDocResult {
   path?: string;
   exists: boolean;
   data?: SerializedDocData;
+  /** Query listener frames only: this document's own `metadata.hasPendingWrites`. */
+  hasPendingWrites?: boolean;
 }
 
-export function makeDocSnapshot<T = DocumentData>(raw: RawDocResult, port: ClientPort, reference?: DocRefHandle<T>): ClientDocSnapshot<T> {
+const SETTLED_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: false });
+const PENDING_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: true });
+
+/** The snapshot frame's `hasPendingWrites` as Firestore `SnapshotMetadata`.
+ * The sandbox has no offline cache, so `fromCache` is always `false`. */
+function frameMetadata(raw: { hasPendingWrites?: unknown }): SnapshotMetadata {
+  return raw.hasPendingWrites === true ? PENDING_METADATA : SETTLED_METADATA;
+}
+
+export interface RawCursorSnapshot {
+  readonly id: string;
+  readonly path: string;
+  readonly exists: boolean;
+  readonly data: Record<string, unknown> | undefined;
+}
+
+const rawCursorSnapshots = new WeakMap<object, RawCursorSnapshot>();
+
+/** Converter-free raw document state recorded on worker client snapshots for cursor bounds. */
+export function rawClientSnapshotForCursor(snapshot: object): RawCursorSnapshot | undefined {
+  return rawCursorSnapshots.get(snapshot);
+}
+
+export function makeDocSnapshot<T = DocumentData>(
+  raw: RawDocResult,
+  port: ClientPort,
+  reference?: DocRefHandle<T>,
+  metadata: SnapshotMetadata = SETTLED_METADATA,
+): ClientDocSnapshot<T> {
   const isMalformed = !isDocumentResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed document result.');
-  let data: Record<string, unknown> | undefined;
   const serialized = raw.data;
-  const hasData = raw.exists && serialized !== undefined;
-  if (hasData) data = rehydrateDocData(serialized, port);
+  // Production builds a new object on every read, so a caller that mutates
+  // one result never changes the next (FP-13). The copy kept here is for
+  // cursor bounds only and is never handed out.
+  const freshData = (): Record<string, unknown> | undefined => {
+    const hasData = raw.exists && serialized !== undefined;
+    return hasData ? rehydrateDocData(serialized, port) : undefined;
+  };
+  const data = freshData();
   const path = raw.path ?? raw.id;
   const ref = reference ?? createDocumentReference<T>(port, path);
-  const metadata = { fromCache: false, hasPendingWrites: false };
   const read = (): T | undefined => {
-    const document = data;
+    const document = freshData();
     const isMissing = document === undefined;
     if (isMissing) return undefined;
     const converter = ref.converter;
@@ -55,7 +98,7 @@ export function makeDocSnapshot<T = DocumentData>(raw: RawDocResult, port: Clien
     }
     return document as T;
   };
-  return {
+  const docSnapshot: ClientDocSnapshot<T> = {
     id: raw.id,
     path,
     // Query snapshot refs are real worker handles, not path-only lookalikes:
@@ -64,11 +107,44 @@ export function makeDocSnapshot<T = DocumentData>(raw: RawDocResult, port: Clien
     exists: () => raw.exists,
     metadata,
     data: read,
+    // Production reads the stored field without the converter, as the in-page snapshot does.
+    get: (fieldPath) => readField(freshData(), fieldPath),
   };
+  rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
+  return docSnapshot;
+}
+
+/**
+ * `DocumentSnapshot.get` of the client SDK: an invalid field path is a
+ * `FirebaseError` with code `invalid-argument`, not a plain `Error`.
+ */
+function readField(data: Record<string, unknown> | undefined, fieldPath: SnapshotFieldPath): unknown {
+  try {
+    return getSnapshotField(data, fieldPath);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new FirebaseError('invalid-argument', `Function DocumentSnapshot.get() called with invalid data. ${reason}`);
+  }
 }
 
 export interface RawQueryResult {
   docs: RawDocResult[];
+  /** Listener frames only: the sandbox snapshot's `metadata.hasPendingWrites`. */
+  hasPendingWrites?: boolean;
+}
+
+/**
+ * Per-listener state for `docChanges()` and re-establishment deduplication:
+ * the previous query or document result the listener delivered, and whether it
+ * subscribed with `includeMetadataChanges`. A listener passes the same state
+ * to every {@link makeSnapshot} call, so each snapshot's changes are computed
+ * against the one before it.
+ */
+export interface QueryChangeBaseline {
+  readonly excludesMetadataChanges: boolean;
+  previous?: RawDocResult[];
+  previousDocument?: RawDocResult;
+  previousHasPendingWrites?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -82,44 +158,109 @@ function isDocumentResult(value: unknown): value is RawDocResult {
   const data = value.data;
   const hasValidData = data === undefined || (isRecord(data) && typeof data.json === 'string');
   const hasValidPath = value.path === undefined || typeof value.path === 'string';
-  return typeof value.id === 'string' && typeof value.exists === 'boolean' && hasValidPath && hasValidData;
+  return typeof value.id === 'string' && typeof value.exists === 'boolean' && hasValidPath && hasValidData
+    && hasValidPendingWrites(value);
+}
+
+function hasValidPendingWrites(value: Record<string, unknown>): boolean {
+  return value.hasPendingWrites === undefined || typeof value.hasPendingWrites === 'boolean';
 }
 
 function isQueryResult(value: unknown): value is RawQueryResult {
-  return isRecord(value) && Array.isArray(value.docs) && value.docs.every(isDocumentResult);
+  return isRecord(value) && Array.isArray(value.docs) && value.docs.every(isDocumentResult)
+    && hasValidPendingWrites(value);
 }
 
-/** Decode a listener delivery before invoking application code. */
+/**
+ * Decode a listener delivery before invoking application code.
+ *
+ * Returns `null` for a query frame that changes nothing the listener would
+ * observe: no document changes, and either the same `hasPendingWrites` or a
+ * listener that did not request metadata changes. The
+ * host sends such a frame when it re-establishes a listener (an auth change,
+ * a state replacement); the in-page sandbox re-evaluates in place and
+ * delivers nothing in that case.
+ */
 export function makeSnapshot(
   raw: unknown,
   port: ClientPort,
-  converter: FirestoreDataConverter<unknown> | null = null,
-): ClientDocSnapshot | ClientQuerySnapshot {
+  converter: FirestoreDataConverter<unknown> | null,
+  baseline: QueryChangeBaseline,
+): ClientDocSnapshot | ClientQuerySnapshot | null {
   const isQuery = isQueryResult(raw);
-  if (isQuery) return makeQuerySnapshot(raw, port, converter);
+  if (isQuery) {
+    const snapshot = makeQuerySnapshot(raw, port, converter, baseline);
+    const isUnchanged = baseline.previous !== undefined
+      && snapshot.docChanges().length === 0
+      && (baseline.excludesMetadataChanges
+        || snapshot.metadata.hasPendingWrites === baseline.previousHasPendingWrites);
+    if (isUnchanged) return null;
+    baseline.previous = raw.docs;
+    baseline.previousHasPendingWrites = snapshot.metadata.hasPendingWrites;
+    return snapshot;
+  }
   const isDocument = isDocumentResult(raw);
   if (isDocument) {
-    return makeDocSnapshot(raw, port, createDocumentReference(port, raw.path ?? raw.id, converter));
+    const metadata = frameMetadata(raw as { hasPendingWrites?: unknown });
+    const previous = baseline.previousDocument;
+    const isSameDocument = previous !== undefined
+      && previous.exists === raw.exists
+      && (!raw.exists || previous.data?.json === raw.data?.json);
+    const isUnchanged = isSameDocument
+      && (baseline.excludesMetadataChanges
+        || metadata.hasPendingWrites === baseline.previousHasPendingWrites);
+    if (isUnchanged) return null;
+    baseline.previousDocument = raw;
+    baseline.previousHasPendingWrites = metadata.hasPendingWrites;
+    return makeDocSnapshot(
+      raw,
+      port,
+      createDocumentReference(port, raw.path ?? raw.id, converter),
+      metadata,
+    );
   }
   throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed Firestore snapshot.');
 }
 
+/**
+ * Rehydrate a query result. A listener passes its {@link QueryChangeBaseline}
+ * so `docChanges()` reports the difference from its previous snapshot; a
+ * one-shot read passes none, and every document is `added`.
+ */
 export function makeQuerySnapshot(
   raw: RawQueryResult,
   port: ClientPort,
   converter: FirestoreDataConverter<unknown> | null = null,
+  baseline: QueryChangeBaseline = { excludesMetadataChanges: false },
 ): ClientQuerySnapshot {
   const isMalformed = !isQueryResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed query result.');
-  const docs = raw.docs.map((doc) => makeDocSnapshot(
+  const metadata = frameMetadata(raw);
+  // Each document carries its own pending state: production marks only the
+  // documents with a pending write, not every document in the snapshot (FP-5).
+  const snapshotOf = (doc: RawDocResult) => makeDocSnapshot(
     doc,
     port,
     createDocumentReference(port, doc.path ?? doc.id, converter),
-  ));
+    frameMetadata(doc),
+  );
+  const docs = raw.docs.map(snapshotOf);
+  const rows = raw.docs.map((doc) => ({ path: doc.path ?? doc.id, doc }));
+  const previous = baseline.previous?.map((doc) => ({ path: doc.path ?? doc.id, doc }));
+  const changes = computeDocumentChanges(
+    previous,
+    rows,
+    docs,
+    (before, after) => before.doc.data?.json === after.doc.data?.json,
+    (row) => snapshotOf(row.doc),
+  );
   return {
+    metadata,
     size: docs.length,
     empty: docs.length === 0,
     docs,
+    forEach: forEachDocument(docs),
+    docChanges: createDocChanges(changes, baseline.excludesMetadataChanges),
   };
 }
 
@@ -133,10 +274,18 @@ export interface ClientDocSnapshot<T = DocumentData> {
   readonly metadata: SnapshotMetadata;
   exists(): boolean;
   data(): T | undefined;
+  /** Production's `DocumentSnapshot.get`: the stored field at `fieldPath`, or `undefined`. */
+  get(fieldPath: SnapshotFieldPath): unknown;
 }
 
 export interface ClientQuerySnapshot {
+  readonly metadata: SnapshotMetadata;
   readonly size: number;
   readonly empty: boolean;
   readonly docs: ClientDocSnapshot[];
+  /** Production's `QuerySnapshot.forEach`: calls `callback` once per document, in query order. */
+  forEach(callback: (doc: ClientDocSnapshot) => void, thisArg?: unknown): void;
+  /** Production's `QuerySnapshot.docChanges`: the changes since the
+   * listener's previous snapshot, or every document `added` on the first. */
+  docChanges(options?: DocChangesOptions): DocumentChange<ClientDocSnapshot>[];
 }

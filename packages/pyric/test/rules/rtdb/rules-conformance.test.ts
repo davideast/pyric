@@ -27,18 +27,27 @@
  * divergences" test so it can never hide.
  *
  * CURRENT STATE: the in-process simulator agrees with every captured
- * production verdict. The r15 ancestor-validate false ALLOW is resolved: the
+ * production verdict. The 2026-10-26 hunt (#1247) pins are all resolved,
+ * so KNOWN_DIVERGENCES is empty. The r15 ancestor-validate false ALLOW is
+ * resolved too: the
  * simulator now evaluates the full root-to-write validation path against the
  * merged post-write tree.
+ *
+ * DEPLOY SCENARIOS (`deployCases`) record whether production's rules endpoint
+ * accepts a ruleset. Their captures are cross-checked against the corpus here;
+ * whether Pyric's load-time check agrees with production is measured by the
+ * RTDB rules scorecard, construct by construct.
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { compileRtdbRules } from '../../../src/rules/rtdb/compiled-rules.js';
 import {
+  ALL_RULES_RTDB_DEPLOY_SCENARIOS,
   ALL_RULES_RTDB_SCENARIOS,
   RULES_RTDB_OBSERVATION_PREFIX,
   rtdbObservationName,
+  type RtdbDeployScenario,
   type RtdbScenario,
 } from '../../../../../packages/conformance/rules-corpus/rtdb/index.ts';
 import { replayRtdbScenario } from '../../../../../packages/conformance/src/rules-rtdb-replay.ts';
@@ -53,15 +62,16 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 
  * Each entry pins BOTH sides so the suite stays green today but fails loudly the
  * moment either side's actual behavior changes, forcing a revisit.
  *
- * Empty today. A regression or new divergence fails the replay assertion and
- * the enumerator below until it is fixed or pinned with both sides.
+ * A regression or new divergence fails the replay assertion and the
+ * enumerator below until it is fixed or pinned with both sides.
  *
  * Keyed by `${scenarioId} :: ${caseDescription}`.
  */
 const KNOWN_DIVERGENCES: Record<
   string,
-  { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string }
-> = {};
+  { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY' | 'UNSUPPORTED'; reason: string }
+> = {
+};
 
 interface RulesObservation {
   name: string;
@@ -70,6 +80,9 @@ interface RulesObservation {
 
 const SCENARIO_BY_OBSERVATION = new Map<string, RtdbScenario>(
   ALL_RULES_RTDB_SCENARIOS.map((scenario) => [rtdbObservationName(scenario), scenario]),
+);
+const DEPLOY_SCENARIO_BY_OBSERVATION = new Map<string, RtdbDeployScenario>(
+  ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((scenario) => [rtdbObservationName(scenario), scenario]),
 );
 
 function loadObservation(file: string): RulesObservation {
@@ -148,6 +161,16 @@ describe('oracle conformance (rules-rtdb)', () => {
   const files = capturedObservationFiles();
   for (const file of files) {
     const obs = loadObservation(file);
+    const deployScenario = DEPLOY_SCENARIO_BY_OBSERVATION.get(obs.name);
+    if (deployScenario) {
+      it(`${obs.name}: corpus deploy verdicts match captured production verdicts`, () => {
+        const expected = Object.fromEntries(
+          deployScenario.deployCases.map((deployCase) => [deployCase.description, deployCase.expectation]),
+        );
+        expect(obs.behavior).toEqual(expected);
+      });
+      continue;
+    }
     const scenario = SCENARIO_BY_OBSERVATION.get(obs.name);
     it(`${obs.name}: corpus expectations match captured production verdicts`, () => {
       expect(scenario, `observation "${obs.name}" has no matching corpus scenario — coverage gap`).toBeDefined();
@@ -164,7 +187,7 @@ describe('oracle conformance (rules-rtdb)', () => {
   it('every captured rules-rtdb observation maps to a corpus scenario', () => {
     const uncovered = capturedObservationFiles()
       .map((f) => f.replace(/\.json$/, ''))
-      .filter((name) => !SCENARIO_BY_OBSERVATION.has(name));
+      .filter((name) => !SCENARIO_BY_OBSERVATION.has(name) && !DEPLOY_SCENARIO_BY_OBSERVATION.has(name));
     expect(uncovered).toEqual([]);
   });
 });

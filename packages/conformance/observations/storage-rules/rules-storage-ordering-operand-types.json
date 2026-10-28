@@ -8,6 +8,10 @@
   "observedAt": "2026-09-27T18:47:59.989Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "3d10ba803b37b1a9b6b40fd33977f3c5d6e630067f83de0c55d7f7558e30db91"
+  },
   "behavior": {
     "resource.size < 3.5 && 2.5 <= resource.size && resource.size >= 3 (int and float) → ALLOW": "ALLOW",
     "fileId < 'b' && fileId >= 'a' (string and string) → ALLOW": "ALLOW",

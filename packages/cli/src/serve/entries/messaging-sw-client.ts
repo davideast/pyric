@@ -29,6 +29,7 @@ export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | nu
         url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'),
         projectKey,
         retryInitialConnection: isServiceWorkerRealm(),
+        initialHostInstanceId: globalThis.__PYRIC_HOST_INSTANCE_ID__ ?? globalThis.__PYRIC_WORKER_INIT__?.instanceId,
       });
     } else if (isServiceWorkerRealm()) {
       client = getServiceWorkerFirestore(app.name);

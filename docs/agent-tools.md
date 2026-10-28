@@ -331,6 +331,20 @@ database or requires a rules-loading tool call first.
 
 `rtdb_simulate_access` · `rtdb_crawl_structure`
 
+## Realtime Database deployed rules — `createRtdbInspectRulesTool` (`@pyric/cli`)
+
+`rtdb_inspect_rules` — the Realtime Database counterpart of
+`firestore_inspect_rules`. It sends one `GET` of
+`<databaseURL>/.settings/rules.json` with credentials from the scope
+(`FIREBASE_SA_BASE64`, `GOOGLE_APPLICATION_CREDENTIALS`, or Application Default
+Credentials) and returns the deployed rules plus a node-level diff against the
+local `database.rules.json`: expressions added, removed or changed, by path and
+kind (`.read`, `.write`, `.validate`, `.indexOn`). Comments are allowed in both
+rulesets. It is strictly read-only: it never issues `PUT`, `PATCH`, `POST` or
+`DELETE`, never deploys, and never writes data. A 401 or 403 names the
+credential sources and the role the principal needs. Library only; **not** on
+the default MCP bridge.
+
 ## Sandbox auth users — `createAuthUsersTools` (`@pyric/cli` bridge)
 
 `auth_create_user` · `auth_import_users` · `auth_get_user` ·

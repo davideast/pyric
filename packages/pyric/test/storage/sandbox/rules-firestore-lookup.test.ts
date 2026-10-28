@@ -165,9 +165,22 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
     ).toBe(false);
   });
 
-  it('allows firestore.get with dynamic string-concatenated path expression', () => {
+  it('denies firestore.get with a bare string argument (requires Path) and absorbs via || true', () => {
     const r = evalFs(
       "firestore.get('/databases/(default)/documents/users/' + request.auth.uid).data.role == 'admin'",
+      { 'users/alice': { role: 'admin' } },
+    );
+    expect(r.allowed).toBe(false);
+    const absorbed = evalFs(
+      "firestore.get('/databases/(default)/documents/users/' + request.auth.uid).data.role == 'admin' || true",
+      { 'users/alice': { role: 'admin' } },
+    );
+    expect(absorbed.allowed).toBe(true);
+  });
+
+  it('allows firestore.get with path() constructor expression', () => {
+    const r = evalFs(
+      "firestore.get(path('/databases/(default)/documents/users/' + request.auth.uid)).data.role == 'admin'",
       { 'users/alice': { role: 'admin' } },
     );
     expect(r.allowed).toBe(true);

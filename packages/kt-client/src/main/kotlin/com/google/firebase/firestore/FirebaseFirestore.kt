@@ -9,6 +9,7 @@ import dev.pyric.auth.AuthLens
 import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +38,10 @@ class FirebaseFirestore(
     private val rulesDenialListeners = CopyOnWriteArrayList<RulesDenialListener>()
 
     init {
-        firestoreScope.launch {
+        // UNDISPATCHED runs the collector up to its first suspension on this thread, which
+        // registers the subscription before the constructor returns. The flow does not replay,
+        // so a denial emitted before the subscription exists would otherwise be dropped.
+        firestoreScope.launch(start = CoroutineStart.UNDISPATCHED) {
             bridgeClient.denialEvents.collect { exception ->
                 notifyRulesDenial(exception)
             }
@@ -135,6 +139,7 @@ class FirebaseFirestore(
                     return@launch
                 } catch (e: Exception) {
                     lastException = e
+                    if (!isRetryableTransactionError(e)) break
                 }
             }
             tcs.setException(
@@ -165,18 +170,39 @@ class FirebaseFirestore(
         return ListenerRegistration {}
     }
 
+    /**
+     * The contention codes Android's TransactionRunner retries. Its rule also retries
+     * every non-permanent code, but in pyric those come from the bridge itself (a lost
+     * connection, a timeout, a close): a commit already sent may have been applied, so
+     * it is never sent again (delivery contract D4). An app exception is never retried.
+     */
+    private fun isRetryableTransactionError(e: Exception): Boolean {
+        val code = (e as? FirebaseFirestoreException)?.code ?: return false
+        return code in RETRYABLE_TRANSACTION_CODES
+    }
+
     companion object {
+        private val RETRYABLE_TRANSACTION_CODES = setOf(
+            FirebaseFirestoreException.Code.ABORTED,
+            FirebaseFirestoreException.Code.ALREADY_EXISTS,
+            FirebaseFirestoreException.Code.FAILED_PRECONDITION
+        )
+
         private val instances = ConcurrentHashMap<Pair<String, String>, FirebaseFirestore>()
 
+        @JvmStatic
         fun getInstance(): FirebaseFirestore =
             getInstance(FirebaseApp.getInstance(), "(default)")
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp): FirebaseFirestore =
             getInstance(app, "(default)")
 
+        @JvmStatic
         fun getInstance(database: String): FirebaseFirestore =
             getInstance(FirebaseApp.getInstance(), database)
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp, database: String): FirebaseFirestore {
             return instances.computeIfAbsent(Pair(app.name, database)) {
                 val bridge = PyricBridgeClient.createDefault()
@@ -185,6 +211,7 @@ class FirebaseFirestore(
             }
         }
 
+        @JvmStatic
         fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient, database: String = "(default)"): FirebaseFirestore {
             return instances.computeIfAbsent(Pair(app.name, database)) {
                 val auth = runCatching { FirebaseAuth.getInstance(app, bridgeClient) }.getOrNull()
@@ -192,6 +219,7 @@ class FirebaseFirestore(
             }
         }
 
+        @JvmStatic
         fun clearInstancesForTest() {
             instances.clear()
         }

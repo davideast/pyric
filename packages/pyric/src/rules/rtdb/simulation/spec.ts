@@ -1,9 +1,13 @@
 import { z } from 'zod';
+import type { Bound, OrderBy } from '../../../database/internal/query-projection.js';
+import { validateOrderByChildPath, validateQuerySpec } from '../../../database/query-validation.js';
+import { thrownMessage } from './thrown-message.js';
 
 export const SimulationQuerySchema = z.object({
   orderByChild: z.string().nullable().optional(),
   orderByKey: z.boolean().nullable().optional(),
   orderByValue: z.boolean().nullable().optional(),
+  orderByPriority: z.boolean().nullable().optional(),
   equalTo: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
   limitToFirst: z.number().nullable().optional(),
   limitToLast: z.number().nullable().optional(),
@@ -11,6 +15,67 @@ export const SimulationQuerySchema = z.object({
   endAt: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
 });
 export type SimulationQuery = z.infer<typeof SimulationQuerySchema>;
+
+function orderByOf(q: SimulationQuery): OrderBy | null {
+  if (q.orderByChild != null) return { kind: 'child', path: q.orderByChild };
+  if (q.orderByKey === true) return { kind: 'key' };
+  if (q.orderByValue === true) return { kind: 'value' };
+  if (q.orderByPriority === true) return { kind: 'priority' };
+  return null;
+}
+
+/** The query's bounds as the SDK builds them. A null bound reads as no
+ *  bound, as rules read an absent one. */
+function boundsOf(q: SimulationQuery): Bound[] {
+  const named = [['startAt', q.startAt], ['endAt', q.endAt], ['equalTo', q.equalTo]] as const;
+  return named.flatMap(([kind, value]) => (value == null ? [] : [{ kind, value }]));
+}
+
+/**
+ * The reason a query cannot be a single Realtime Database query, or null when
+ * it can. The SDK allows one `orderBy*` and one limit per query, and a limit is
+ * a positive integer. It refuses a reserved or invalid `orderByChild` path, and
+ * a bound of the wrong type for the ordering, with the texts capture
+ * rtdb-modular-query-construction-validation records (orderByChild.reserved,
+ * orderByChild.invalid, orderByKeyEndpoints, byIndex.defaultPriority). A caller
+ * that builds a query from loose input checks it here so a shape the SDK would
+ * refuse is not evaluated as if it were a read.
+ */
+export function simulationQueryProblem(query: unknown): string | null {
+  const parsed = SimulationQuerySchema.strict().safeParse(query);
+  if (!parsed.success) {
+    return `query is not a Realtime Database query: ${parsed.error.issues.map((i) => i.message).join('; ')}`;
+  }
+  const q = parsed.data;
+  const childPath = q.orderByChild;
+  const childPathProblem = childPath == null ? null : thrownMessage(() => validateOrderByChildPath(childPath));
+  if (childPathProblem !== null) return childPathProblem;
+  if (q.orderByChild != null && q.orderByChild.split('/').filter(Boolean).length === 0) {
+    return 'orderByChild: cannot pass in empty path. Use orderByValue() instead.';
+  }
+  const orderings = [
+    q.orderByChild != null,
+    q.orderByKey === true,
+    q.orderByValue === true,
+    q.orderByPriority === true,
+  ].filter(Boolean).length;
+  if (orderings > 1) return 'query names more than one of orderByChild, orderByKey and orderByValue.';
+  if (q.equalTo !== undefined && q.startAt !== undefined) {
+    return 'equalTo: Starting point was already set (by another call to startAt, startAfter, or equalTo).';
+  }
+  if (q.equalTo !== undefined && q.endAt !== undefined) {
+    return 'equalTo: Ending point was already set (by another call to endAt, endBefore, or equalTo).';
+  }
+  if (q.limitToFirst != null && q.limitToLast != null) {
+    return 'query names both limitToFirst and limitToLast.';
+  }
+  for (const [name, n] of [['limitToFirst', q.limitToFirst], ['limitToLast', q.limitToLast]] as const) {
+    if (n != null && (!Number.isInteger(n) || n <= 0)) {
+      return `query.${name} must be a positive integer.`;
+    }
+  }
+  return thrownMessage(() => validateQuerySpec({ orderBy: orderByOf(q), bounds: boundsOf(q), limit: null }));
+}
 
 export const SimulationInputSchema = z.object({
   operation: z.enum(['read', 'write', 'validate']),
@@ -53,6 +118,41 @@ export const SimulateErrorCode = z.enum([
   'EVALUATION_ERROR',
 ]);
 
+/**
+ * One rule the simulator evaluated for a request, in evaluation order. A
+ * `.read` or `.write` entry is one step of the root-first cascade, which
+ * stops at the first rule that grants. A `.validate` entry is one node of the
+ * validation walk over the write paths and the written value, which stops at
+ * the first rule that fails.
+ *
+ * `verdict`, `conditionText` and `message` mean what they mean on the
+ * Firestore simulator's `RuleEvaluation`. For a `.validate` rule, `ALLOW`
+ * means the rule holds and `DENY` means it rejects the write.
+ */
+export const RtdbRuleEvaluationSchema = z.object({
+  /** The rule node's path in the ruleset, with wildcard segments as written,
+   *  such as `/rooms/$roomId`. */
+  path: z.string(),
+  /** The rule kind evaluated at that node. */
+  kind: z.enum(['read', 'write', 'validate']),
+  /** The rule expression as written in the ruleset. */
+  conditionText: z.string(),
+  /** `ALLOW` when the expression evaluated to true, `DENY` when it evaluated
+   *  to false, `ERROR` when it raised a runtime error that production also
+   *  raises, `UNSUPPORTED` when the simulator cannot evaluate it. */
+  verdict: z.enum(['ALLOW', 'DENY', 'ERROR', 'UNSUPPORTED']),
+  /** The runtime error's message on `ERROR`; what the simulator could not
+   *  evaluate on `UNSUPPORTED`. */
+  message: z.string().optional(),
+  /** The `$` wildcards bound at this node, keyed with the `$`. */
+  pathVariableBindings: z.record(z.string()),
+  /** The database instance whose tree the rule read as `root` and `data`.
+   *  Set when the case named an instance or the ruleset holds rules per
+   *  instance. */
+  instance: z.string().optional(),
+});
+export type RtdbRuleEvaluation = z.infer<typeof RtdbRuleEvaluationSchema>;
+
 export const SimulationResultSchema = z.object({
   allowed: z.boolean(),
   /** True when this outcome is a simulator gap — an unparseable/unevaluable
@@ -63,8 +163,11 @@ export const SimulationResultSchema = z.object({
   matchedRule: z.string(),
   reason: z.string(),
   pathVariableBindings: z.record(z.string()),
+  /** Every rule evaluated for the request, in evaluation order. Empty when no
+   *  rule of the requested kind exists on the path. */
+  trace: z.array(RtdbRuleEvaluationSchema),
 });
-export type SimulationResult = z.infer<typeof SimulationResultSchema>;
+export type SimulationResult= z.infer<typeof SimulationResultSchema>;
 
 export type SimulateResult =
   | { success: true; data: SimulationResult }

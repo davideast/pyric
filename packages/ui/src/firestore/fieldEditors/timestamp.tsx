@@ -16,6 +16,27 @@ function coerceDate(value: unknown): Date {
   return new Date(NaN);
 }
 
+/** Rebuild a Timestamp from a serialized `{ seconds, nanoseconds }` value. */
+function toTimestamp(value: unknown): Timestamp {
+  const o = value as Record<string, number>;
+  return new Timestamp(o.seconds ?? o._seconds ?? 0, o.nanoseconds ?? o._nanoseconds ?? 0);
+}
+
+/**
+ * Convert the input's local `YYYY-MM-DDTHH:MM[:SS[.mmm]]` string to a
+ * Timestamp. When the edit leaves the millisecond unchanged, the original
+ * value is returned so its sub-millisecond nanoseconds survive.
+ */
+export function timestampFromInput(next: string, original: unknown): Timestamp | null {
+  const edited = new Date(next);
+  if (Number.isNaN(edited.getTime())) return null;
+  const before = coerceDate(original);
+  if (!Number.isNaN(before.getTime()) && before.getTime() === edited.getTime()) {
+    return original instanceof Timestamp ? original : toTimestamp(original);
+  }
+  return Timestamp.fromDate(edited);
+}
+
 function TimestampDisplay({ value, path }: FieldDisplayProps<Timestamp>) {
   const date = coerceDate(value);
   const iso = Number.isNaN(date.getTime()) ? '' : date.toISOString();
@@ -37,14 +58,13 @@ function TimestampDisplay({ value, path }: FieldDisplayProps<Timestamp>) {
  * timezone-correct.
  */
 function TimestampEdit({ value, onChange, error, path }: FieldEditProps<Timestamp>) {
-  // Convert the value to the `YYYY-MM-DDTHH:MM` shape <input
-  // datetime-local> wants. Seconds and millis aren't part of the
-  // native input precision; round-trips through this editor lose
-  // sub-minute resolution intentionally — consumers needing higher
-  // fidelity should swap the editor out via the registry.
+  // The native input speaks `YYYY-MM-DDTHH:MM:SS.mmm`; `step="0.001"` keeps
+  // seconds and milliseconds editable. Sub-millisecond nanoseconds cannot be
+  // shown, so an edit that leaves the millisecond unchanged returns the
+  // original value untouched.
   const dt = coerceDate(value);
   const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60_000);
-  const inputValue = Number.isNaN(local.getTime()) ? '' : local.toISOString().slice(0, 16);
+  const inputValue = Number.isNaN(local.getTime()) ? '' : local.toISOString().slice(0, 23);
 
   return (
     <label
@@ -54,12 +74,13 @@ function TimestampEdit({ value, onChange, error, path }: FieldEditProps<Timestam
     >
       <input
         type="datetime-local"
+        step="0.001"
         value={inputValue}
         onChange={(e) => {
           const next = e.target.value;
           if (!next) return;
-          const localDate = new Date(next);
-          onChange(Timestamp.fromDate(localDate));
+          const edited = timestampFromInput(next, value);
+          if (edited) onChange(edited);
         }}
         aria-invalid={error ? 'true' : undefined}
       />

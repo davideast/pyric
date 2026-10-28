@@ -5,8 +5,8 @@ import type { RigManifestRecord } from './types.ts';
  * Firestore rules conformance corpus (`packages/conformance/rules-corpus/firestore/`)
  * against the production Firestore Rules Test API and captures a per-case
  * ALLOW/DENY/UNSUPPORTED verdict table as `rules-firestore-` observations.
- * Without PARITY_SA_BASE64 the runner makes no network calls at all — it
- * prints the capture plan and exits 0 (see the script's header comment).
+ * Without a credential the runner makes no network calls at all; it prints
+ * the capture plan and exits 0 (see the script's header comment).
  */
 export const rig: RigManifestRecord = {
   description:
@@ -18,9 +18,9 @@ export const rig: RigManifestRecord = {
   requires: {
     env: [
       {
-        name: 'PARITY_SA_BASE64',
+        name: 'GOOGLE_APPLICATION_CREDENTIALS',
         description:
-          'Base64-encoded service-account JSON scoped to firebaserules.rulesets.test only. The project the service account belongs to is the project rules are tested against.',
+          'Application Default Credentials file for an identity scoped to firebaserules.rulesets.test only. CI writes it through Workload Identity Federation. Without it the runner uses a firebase-tools login or the gcloud ADC file. PARITY_PROJECT_ID names the project rules are tested against.',
         permission: 'firebaserules.rulesets.test',
       },
     ],

@@ -2,7 +2,7 @@ import { assertQueryStructure } from '../host/query-structure.js';
 import { assertAiArguments } from './operation-arguments.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { assertListenerOwners } from './listener-owners.js';
-import { requireRecord, requireShape, requireString, requireOptionalString } from './fields.js';
+import { requireRecord, requireShape, requireString, requireOptionalString, requireOptionalBoolean } from './fields.js';
 
 /** Check target routing and adapter fields before retaining listener intent. */
 export function assertSubscription(message: Record<string, unknown>): void {
@@ -25,6 +25,7 @@ export function assertSubscription(message: Record<string, unknown>): void {
   switch (target.service) {
     case 'rtdb':
       requireString(target.path, 'target.path');
+      requireOptionalString(target.instance, 'target.instance');
       assertRtdbQuery(target.query);
       return;
     case 'ai': {
@@ -34,6 +35,7 @@ export function assertSubscription(message: Record<string, unknown>): void {
       return;
     }
     default:
+      requireOptionalBoolean(message.includeMetadataChanges, 'includeMetadataChanges');
       assertQueryStructure(target);
   }
 }

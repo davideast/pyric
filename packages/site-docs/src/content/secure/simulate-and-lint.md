@@ -85,6 +85,215 @@ if (errors.length > 0) process.exit(1);
 ```
 A hallucinated method is always an error, because the named method literally does not exist. Blocking on it is never a false alarm.
 
+## Simulate and lint Realtime Database rules
+
+Realtime Database rules use the same two steps with a different entry point. `rtdbRules` accepts the text of `database.rules.json`, its `{ rules }` JSON, or a ruleset you wrote in TypeScript. See [write Realtime Database rules in TypeScript](./rtdb-rules-in-typescript.md) for the authoring side.
+
+To test the file you deploy, pass its text. `rtdbRules` reads it as the sandbox and `firebase deploy` do, so comments, rule strings broken across lines, and trailing commas are accepted:
+```ts
+import { readFileSync } from 'node:fs';
+import { rtdbRules } from 'pyric/rules';
+
+const rules = rtdbRules(readFileSync('database.rules.json', 'utf8'));
+```
+Text that is not JSON after those allowances, or that has no top-level `rules` object, throws a `RulesCompileError` that says which.
+
+### Simulate a request
+```ts
+import { rtdbRules } from 'pyric/rules';
+
+const rules = rtdbRules({
+  rules: {
+    '.read': false,
+    '.write': false,
+    records: {
+      $recordId: {
+        '.read': "auth != null && data.child('ownerId').val() === auth.uid",
+        '.validate': "newData.hasChildren(['ownerId', 'title'])",
+        '.write': 'auth != null',
+        title: { '.validate': 'newData.isString() && newData.val().length <= 80' },
+      },
+    },
+  },
+});
+
+const { cases } = rules.simulate([
+  {
+    description: 'a title over 80 characters is rejected',
+    expectation: 'DENY',
+    operation: 'write',
+    path: '/records/r1',
+    auth: 'alice',
+    newData: { ownerId: 'alice', title: 'x'.repeat(81) },
+  },
+]);
+```
+Each result carries the `decision` (`ALLOW`, `DENY`, or `UNSUPPORTED`), whether it `passed`, and three fields that name what decided it:
+```
+matchedPath: /records/$recordId/title
+matchedRule: newData.isString() && newData.val().length <= 80
+reason:      Validation rule evaluated to false
+```
+`matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the simulator did not evaluate the case, and `reason` says why. Either the case reached an expression the simulator cannot evaluate, and it abstains rather than guesses, or no client could send the request. The second covers a path with `.`, `#`, `$`, `[` or `]` in it, update paths that overlap, a write under `/.info`, a query the SDK refuses to build, `updates` that leave out the case's `path` or give it a value other than `newData`, and a ruleset that does not compile. For a request the SDK refuses, `reason` is the SDK's own error text.
+
+The result also carries a `trace` with every rule the simulator ran, in order:
+```ts
+for (const step of cases[0].trace) {
+  console.log(`${step.path} .${step.kind} -> ${step.verdict}: ${step.conditionText}`);
+}
+```
+```
+/ .write -> DENY: false
+/records/$recordId .write -> ALLOW: auth != null
+/records/$recordId .validate -> ALLOW: newData.hasChildren(['ownerId', 'title'])
+/records/$recordId/title .validate -> DENY: newData.isString() && newData.val().length <= 80
+```
+The cascade shows the root `.write` denying before the deeper rule grants, and the validate walk stops at the first failure. Each step also carries `pathVariableBindings`, here `{ $recordId: 'r1' }`. A rule that raises a runtime error has the verdict `ERROR` and the error in `message`.
+
+The same simulation is on the command line. It reads the rules from a file and evaluates one request:
+```bash
+pyric rules simulate --service database --rules-file database.rules.json --operation read --path /records/r1 --uid alice
+```
+It prints the `decision`, `matchedPath`, `matchedRule`, `reason`, and `trace`, and each trace step carries the `line` of its rule key in the file. Pass the written value as JSON with `--data`. Without `--rules-file`, it evaluates against the rules the sandbox is running.
+
+### Simulate rules across database instances
+
+A project that splits its data across Realtime Database instances lists them in `firebase.json`. `rtdbRules.fromFirebaseJson` reads that list as `firebase deploy` does and applies each instance the rules file deployed to it. A case names the `instance` its request goes to, and its `data` holds one tree per instance:
+```ts
+import { rtdbRules } from 'pyric/rules';
+
+// firebase.json:
+// { "database": [
+//   { "instance": "demo-app-default-rtdb", "rules": "database.rules.json" },
+//   { "instance": "demo-app-shard-1", "rules": "database.rules.json" }
+// ] }
+const rules = rtdbRules.fromFirebaseJson('firebase.json', { projectId: 'demo-app' });
+
+const { cases } = rules.simulate([
+  {
+    description: 'chat read on the instance without the members list is denied',
+    expectation: 'DENY',
+    operation: 'read',
+    instance: 'demo-app-default-rtdb',
+    path: '/rooms/r1/chat',
+    auth: 'alice',
+    data: { instances: { 'demo-app-shard-1': { rooms: { r1: { members: { alice: true } } } } } },
+  },
+]);
+```
+A rule's `root` and `data` read only the tree of the case's instance, as in production, so a membership check against `members` on another instance denies. Each result and each `trace` step carries the `instance` it ran on.
+
+A case without `instance` runs on the default instance, `<projectId>-default-rtdb`. A project created before about 2020 names its default instance `<projectId>`, so a case on `<projectId>` or `https://<projectId>.firebaseio.com` runs on the default instance too. The project id is `projectId`, or `projects.default` in the `.firebaserc` beside `firebase.json`, which also maps a `target` entry to its instances. A case on an instance `firebase.json` deploys no rules to, or data on one it does not declare, is `UNSUPPORTED` with a reason naming the instances it declares. An `instance` is written as `getDatabase` takes it: a name, a database URL, or `default`. `lint()` and `coverage` report each rules file once, under its name, and `toJSON()` returns the default instance's rules.
+
+`rtdbRules(...)` applies its one ruleset on whichever instance a case names, so the same cases run against a single rules file.
+
+### Lint a ruleset
+```bash
+pyric rules lint --service database --rules-file database.rules.json
+```
+Or in code:
+```ts
+const issues = rules.lint();
+```
+Each issue has a `code`, a `severity`, a `message`, and the `path` it applies to. An issue about one rule also names its `rule` (`.read`, `.write`, or `.validate`). An issue about the shape of the ruleset has no `rule`.
+
+The errors in the first group are the ones `firebase deploy` refuses, and each message is the text the deploy reports:
+
+| Code | What it reports |
+|---|---|
+| `PARSE_ERROR` | The expression does not parse. |
+| `NOT_BOOLEAN` | The rule does not evaluate to a boolean, such as a `.read` of `auth.uid`. |
+| `INVALID_OPERAND` | An operator gets an operand type it does not take, such as `data.val() > true`, or `!` on a string. |
+| `INVALID_ARGUMENT` | A method gets the wrong number or type of arguments, such as `child(1)`, or `matches()` with anything other than a regular expression literal. |
+| `INVALID_REGEX` | A regular expression literal production refuses: a flag other than `i`, a `^` that is not the first character or a `$` that is not the last, or an unclosed group, repeat count or character set. A repeat count above 2,147,483,647 and a pattern too large to determinize, such as `a{100000}`, fail with production's texts. A pattern past pyric's own limits (more than 200,000 matcher states, or nesting deeper than 1,000 levels) reports here too, with a message that names the limit. |
+| `NO_SUCH_MEMBER` | The value has no such method or property, such as `data.nope()`. |
+| `NOT_AN_OBJECT` | A property access on a number, boolean, null, or regular expression. |
+| `NOT_A_FUNCTION` | A call on something that is not a method, such as `auth.uid()`. |
+| `INVALID_PROPERTY_ACCESS` | An index with a computed key, `x[expr]`, on anything other than `auth`. |
+| `UNEXPECTED_ARRAY` | An array literal anywhere other than the argument of `hasChildren()`. |
+| `UNKNOWN_IDENTIFIER` | The variable is not available, such as a `$name` that no enclosing key declares. |
+| `NEWDATA_IN_READ` | A `.read` rule uses `newData`, which exists only for writes. |
+| `MULTIPLE_WILDCARDS` | One location has two `$` children. |
+| `RULE_NOT_EXPRESSION` | A `.read`, `.write`, or `.validate` value is a number or a plain object rather than a boolean or a string. |
+| `INDEX_ON_SHAPE` | `.indexOn` is a number. |
+| `INVALID_KEY` | A key contains `#`, an unknown key that starts with `.` holds an object, or an `.indexOn` entry other than `.value` contains `.`. |
+| `EXPECTED_OBJECT` | An unknown key that starts with `.`, or a child key, holds a string. |
+
+`INDEX_ON_SHAPE` and `INVALID_KEY` are warnings, not errors, for related forms: any other `.indexOn` that is not a string or an array of strings, a key that contains `.`, `/`, `[`, `]`, or an inner `$` but no `#`, and an `.indexOn` entry that contains `#`, `$`, `[` or `]`. Their text comes from the deploy's message for the related form, and no deploy of these forms has been recorded.
+
+The second group is the rest of the per-rule checks:
+
+| Code | Severity | What it means |
+|---|---|---|
+| `COMPILE_ERROR` | error | A TypeScript definition could not compile to rules JSON. |
+| `HARDCODED_TRUE` | warning | A `.read` or `.write` rule is the literal `true`, so it grants every request at that location. |
+| `HARDCODED_FALSE` | warning | A `.read` or `.write` rule is the literal `false`. This is often intentional, as in a locked root. |
+| `DATA_IN_WRITE` | warning | A `.write` rule reads `data` but never `newData`, so it may not check the incoming value. |
+| `CONSTANT_COMPARISON` | warning | A comparison between two literals, such as `'a' == 'b'`, which always has the same value. |
+
+The third group reads the whole ruleset, because the common RTDB mistakes come from how rules at different depths combine. Each finding names the rule it sits on and carries a `fix`. Findings at the `critical` and `high` levels are reported as errors, and `medium` as warnings.
+
+| Code | What it reports |
+|---|---|
+| `RTDB-SEC-1` | A `.write` of `true`, or one true for every request signed in or not (such as `auth != null \|\| true`), so anyone can write, replace, or delete values under that path. |
+| `RTDB-SEC-2` | A `.read` of `true`, or one true for every request, so anyone can read everything under that path. At the root, this exposes the entire database. |
+| `RTDB-SEC-3` | A conditional `.write` that never reads `auth`, so a signed-out client can write whenever the condition holds. |
+| `RTDB-SEC-4` | A rule that tries to restrict access that an ancestor already grants, such as `auth.uid == $uid` under an ancestor's `auth != null`. A deeper rule cannot revoke an ancestor's grant, so the deeper rule restricts nothing. |
+| `RTDB-SEC-5` | A `.validate` that a delete skips. `.validate` runs only on a non-null new value, so a client that can write `null` at an ancestor bypasses it. |
+| `RTDB-SEC-6` | A `.write` that accepts any value: no `.validate` that reads its own new value sits at or below it, and the write rule does not check `newData`. |
+| `RTDB-SEC-7` | A node that names children in `.validate` but has no `$other` rule, so a write can add any other key under it. |
+
+For a ruleset that names children in `.validate`, `"$other": { ".validate": false }` rejects the keys it does not name.
+
+Lint a ruleset before you simulate it. `simulate` does not run the deploy check. A case that reaches an expression that does not parse comes back `UNSUPPORTED`, and a rule the deploy refuses can still evaluate: a `.read` of `auth.uid` grants any signed-in reader in the simulator, and production never loads that ruleset at all.
+
+`pyric database rules validate database.rules.json` prints the errors in a file and exits with status 2 when it finds any. A finding about one rule includes the `line` and `column` of its rule key in the file, and comments in the file do not shift them.
+
+### Know how the simulator evaluates rules
+
+Three behaviors decide most surprising verdicts.
+
+**Equality is strict.** `==` and `!=` compare without converting types, as the production rules engine does. `5 == '5'` and `1 == true` are both false, and `==` and `===` give the same answer. A `.validate` rule such as `newData.val() == '5'` accepts the string `'5'` and rejects the number `5`:
+```
+write /scores/a  newData '5'  ->  ALLOW
+write /scores/a  newData 5    ->  DENY   Validation rule evaluated to false
+```
+A rule written against a loose-equality habit fails here the way it fails in production.
+
+**A rule that errors does not grant.** A runtime error fails that rule. Calling `toUpperCase()` on a number is one. A `null` operand of an ordering or arithmetic operator is another, such as `data.child('n').val() > 1` when `n` does not exist. A `.validate` rule that errors rejects the write, and the reason names the error:
+```
+Validation rule at '/names/$id' failed at evaluation: Method 'toUpperCase' is not defined on number.
+```
+A `.read` or `.write` rule that errors does not grant access, and evaluation continues to the next rule on the path, as it does after a rule that evaluates to false. If no other rule grants, the request is denied. The case is a `DENY`, not `UNSUPPORTED`.
+
+**Access cascades and validation does not.** The first `.read` or `.write` rule on the path from the root that evaluates to true grants the request, and a deeper rule cannot revoke it. A write also needs every `.validate` rule at and below the written path to pass.
+
+### Keep the running sandbox in step with the file
+
+`pyric sandbox` and the Vite plugin read `firebase.json` `database` the way `firebase deploy` reads it, so each database instance gets its own rules:
+
+- **One object.** `{ "rules": "database.rules.json" }` deploys to the default instance, `<projectId>-default-rtdb`. An app whose `databaseURL` is `https://<projectId>.firebaseio.com`, the default instance of a project created before about 2020, uses these rules too. An array entry for `<projectId>` deploys to the default instance, so entries for `<projectId>` and `<projectId>-default-rtdb` with different rules files are refused.
+- **An array of instances.** Each entry pairs an `instance` name with its `rules` file, for example `[{ "instance": "my-app-default-rtdb", "rules": "main.rules.json" }, { "instance": "my-app-logs", "rules": "logs.rules.json" }]`.
+- **Deploy targets.** An entry can name a `target` instead, which `.firebaserc` maps to one or more instances for each project (`firebase target:apply database <target> <instance>`). When an entry names both, `target` wins.
+
+The project id resolves the way the Firebase CLI resolves it. The first of these that is set wins: `--project` for `pyric sandbox` or the `project` option of the Vite plugin, then `PYRIC_PROJECT`, then the `pyric.json` `project`, then the project `firebase use` made active for this directory or a parent directory, then the only `.firebaserc` alias, else `.firebaserc` `projects.default`. A value that names a `.firebaserc` alias resolves to that alias's project id.
+
+When no project resolves, or the project does not map a target, startup continues where `firebase deploy` would stop. The log names each such target, the reason, the sources tried, and the ways to set the project: the plugin `project` option or `--project`, `PYRIC_PROJECT`, or `firebase use <alias>`. The target's instances deny every client request, or allow them with `--permissive`, until the app's Firebase config names a project `.firebaserc` maps the target for. The sandbox then applies the target's rules to those instances and logs that it did. Editing the target's rules file reloads it before and after that point.
+
+An entry with neither `instance` nor `target` stops startup with the Firebase CLI's error, `Must supply either "target" or "instance" in database config`. Two entries that deploy different files to one instance stop startup too: `firebase deploy` would deploy both at once, and which one production keeps is not determined. Without a `database` key, `database.rules.json` loads into the default instance when it exists.
+
+The in-page sandbox applies each instance its own rules. Under the SharedWorker and the Node sandbox, every database URL reads and writes the default instance, which runs the default instance's rules.
+
+They watch each instance's rules file and reload it when it changes. Editing one instance's file reloads only that instance. They watch each file whether or not it exists yet:
+
+- **Created.** A rules file you add after startup loads. Until then, that instance follows the default policy: deny every client request, or allow when you start with `--permissive`.
+- **Changed.** Saving the file loads the new rules and logs `rtdb rules reloaded` with the instance name. A file that is not valid rules JSON, or that has a lint error from the first group above, does not replace the running rules. The last good ruleset stays live and the log reads `rtdb rules NOT reloaded (last-good stays live)` with the reason.
+- **Deleted.** That instance returns to the default policy, and the log reads `rtdb rules removed` with the path and the instance. A deleted Firestore rules file behaves differently: the last good Firestore rules stay in force and the log reports the deletion.
+
+At startup, a rules file the deploy would refuse stops `pyric sandbox` with the same reason, naming the instance and the file. The other load paths refuse it too: `pyric rules set --service database`, a seed's database rules, `pyric verify`, and `pyric database rules generate`, which writes nothing and exits with status 2. `sandbox.setRules` from `pyric/database` installs a ruleset as given, without this check.
+
+Pass `--no-watch` to `pyric sandbox` to turn hot reload off for Firestore, Realtime Database, and Storage rules.
+
 ## Correct Rules through an agent
 
 This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. [Work with an agent](../agent/work-with-an-agent.md) shows the task prompts that drive this loop.

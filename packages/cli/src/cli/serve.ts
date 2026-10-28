@@ -14,7 +14,8 @@ import { randomBytes } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
-import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
+import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
@@ -30,6 +31,10 @@ import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { workerInitPayload } from '../serve/runtime/hosted-target.js';
+import type { WorkerInitPayload } from '../serve/init-payload.js';
+import { resolveOwnersConfig } from '../serve/owners-config.js';
+import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
@@ -66,6 +71,7 @@ import {
   type SandboxSession,
 } from '../serve/sandbox-session.js';
 import { resolveAvatarsConfig } from '../serve/avatars-config.js';
+import { createVerifyHint } from '../serve/verify-hint.js';
 
 interface HostingConfig {
   public?: string;
@@ -107,6 +113,13 @@ export interface ServeRuntime {
   /** The per-launch secret a beacon must present, placed in every child's
    *  `PYRIC_BEACON_TOKEN`. */
   beaconToken: string;
+  /** The bridge's host identity, the `instanceId` its `.pyric/serve.json`
+   *  records; placed in every child's `PYRIC_SANDBOX_INSTANCE`. Undefined
+   *  without the bridge mount. */
+  instanceId: string | undefined;
+  /** The transport selection this host stamps into the HTML it serves; placed
+   *  in every child's `PYRIC_WORKER_INIT` for pages it does not serve. */
+  workerInit: WorkerInitPayload;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -167,8 +180,12 @@ async function startServeRuntime(opts: {
   bridge?: boolean;
   /** Run the authoritative sandbox in this Node process. */
   hosted?: boolean;
-  /** Project label for the bridge health/audit surfaces. */
+  /** The explicit project (`--project`), and the label for the bridge
+   *  health/audit surfaces. */
   project?: string;
+  /** The resolved project. Absent, `project` is resolved with
+   *  `resolveFirebaseProject` as its explicit option. */
+  firebaseProject?: FirebaseProjectResolution;
   /** Disable the bridge audit writer (tests). */
   disableAuditLog?: boolean;
   /** Path to a seed JSON file (path → fields map), applied at page init. */
@@ -226,21 +243,25 @@ async function startServeRuntime(opts: {
   }
 
   const pyricConfig = await readPyricConfig(opts.cwd);
+  const owners = resolveOwnersConfig(pyricConfig.owners);
   const ruleOverrides = pyricConfig.rules;
   const hasRuleOverrides = ruleOverrides !== undefined && ruleOverrides !== '';
   if (hasRuleOverrides) {
     config ??= {};
     const isFirestorePath = typeof ruleOverrides === 'string';
     if (isFirestorePath) {
-      config.firestore = { ...config.firestore, rules: ruleOverrides };
+      config.firestore = withDefaultFirestoreRules(config.firestore, ruleOverrides);
     } else {
-      const hasFirestoreOverride = Boolean(ruleOverrides.firestore);
+      const firestoreOverride = ruleOverrides.firestore;
+      const hasFirestoreOverride = firestoreOverride !== undefined && firestoreOverride !== '';
       if (hasFirestoreOverride) {
-        config.firestore = { ...config.firestore, rules: ruleOverrides.firestore };
+        config.firestore = withDefaultFirestoreRules(config.firestore, firestoreOverride);
       }
       const hasDatabaseOverride = Boolean(ruleOverrides.database);
       if (hasDatabaseOverride) {
-        config.database = { ...config.database, rules: ruleOverrides.database };
+        // The override names one rules file, so it deploys to the default
+        // instance in place of any per-instance configuration.
+        config.database = { rules: ruleOverrides.database };
       }
       const hasStorageOverride = Boolean(ruleOverrides.storage);
       if (hasStorageOverride) {
@@ -380,6 +401,7 @@ async function startServeRuntime(opts: {
   const usesPersistence = Boolean(opts.persist || opts.hosted);
   const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
   const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
+  const aiMode = resolveAiMode(undefined, process.env);
   const usesHostedSandbox = opts.hosted === true;
   let session: SandboxSession;
   try {
@@ -408,7 +430,9 @@ async function startServeRuntime(opts: {
         logger.note(formatBeaconReceipt(report));
       },
       permissive: opts.permissive,
+      project: opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project }),
       hosted: opts.hosted,
+      hostInstanceId: () => mount?.instanceId,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
       logger,
     });
@@ -457,7 +481,7 @@ async function startServeRuntime(opts: {
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted }),
+      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode, owners }),
       allowedHosts: opts.allowedHosts,
       logger,
     });
@@ -530,6 +554,8 @@ async function startServeRuntime(opts: {
   // a failed reload asked for, so fixing or creating one reloads. The source
   // is the path the rules load from, watched whether or not it exists at
   // startup, so a rules file created later loads.
+  const getVerifyHint = createVerifyHint();
+
   const isWatchEnabled = opts.watch ?? true;
   if (isWatchEnabled) {
     let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -545,7 +571,10 @@ async function startServeRuntime(opts: {
             const isReloaded = result.kind === 'reloaded';
             const isRejected = result.kind === 'rejected';
             if (isReloaded) {
-              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
+              if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
+                for (const line of result.fixtureCheck.lines) logger.note(line);
+              }
             } else if (isRejected) {
               logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${result.error.message}`);
             }
@@ -564,27 +593,39 @@ async function startServeRuntime(opts: {
       rulesFiles.close();
     });
   }
-  // The Realtime Database rules file is watched the same way: created, changed,
-  // and deleted files all reload. A deleted file returns RTDB to the default
-  // policy, the state the server starts in without the file.
+  // Each Realtime Database instance's rules file is watched the same way:
+  // created, changed, and deleted files all reload, and only the instances
+  // that deploy the changed file reload. A deleted file returns its instances
+  // to the default policy, the state the server starts in without the file.
   if (isWatchEnabled) {
     let debounceDb: ReturnType<typeof setTimeout> | null = null;
+    const changedDatabaseFiles = new Set<string>();
     const dbRulesFiles = watchRulesFiles(
-      () => [session.databaseRulesFile()],
-      () => {
+      () => session.databaseRulesFiles(),
+      (file) => {
+        changedDatabaseFiles.add(file);
         const pendingReload = debounceDb;
         const hasPendingReload = pendingReload !== null;
         if (hasPendingReload) clearTimeout(pendingReload);
         debounceDb = setTimeout(() => {
-          void session.reloadDatabaseRules().then((result) => {
-            if (result.kind === 'reloaded') {
-              logger.note(`  ↻ rtdb rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
-            } else if (result.kind === 'rejected') {
-              logger.note(`  ⚠ rtdb rules NOT reloaded (last-good stays live): ${result.error.message}`);
-            } else if (result.kind === 'removed') {
-              logger.note(`  ⚠ ${formatDatabaseRulesRemoved(session.databaseRulesFile(), result.policy)} → ${result.clients} page(s)`);
-            }
-          });
+          const files = [...changedDatabaseFiles];
+          changedDatabaseFiles.clear();
+          for (const changed of files) {
+            void session.reloadDatabaseRules(changed).then((results) => {
+              for (const { instance, file: source, result } of results) {
+                if (result.kind === 'reloaded') {
+                  logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
+                  if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
+                    for (const line of result.fixtureCheck.lines) logger.note(line);
+                  }
+                } else if (result.kind === 'rejected') {
+                  logger.note(`  ⚠ rtdb rules NOT reloaded for ${instance} (last-good stays live): ${result.error.message}`);
+                } else if (result.kind === 'removed') {
+                  logger.note(`  ⚠ ${formatDatabaseRulesRemoved(source, result.policy, instance)} → ${result.clients} page(s)`);
+                }
+              }
+            });
+          }
         }, 150);
       },
       (error) => {
@@ -613,7 +654,7 @@ async function startServeRuntime(opts: {
         debounceStorage = setTimeout(() => {
           void session.reloadStorageRules().then((result) => {
             if (result.kind === 'reloaded') {
-              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+              logger.note(`  ↻ storage rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
             } else if (result.kind === 'rejected') {
               logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}`);
             } else if (result.kind === 'removed') {
@@ -654,9 +695,12 @@ async function startServeRuntime(opts: {
   } else {
     logger.info('• rules    no firestore.rules — sandbox runs with default rules');
   }
-  const hasDatabaseRules = Boolean(session.payload().databaseRules);
+  const loadedDatabaseRules = session.summary.rules.database;
+  const hasDatabaseRules = loadedDatabaseRules.length > 0;
   if (hasDatabaseRules) {
-    logger.info(`✔ rules    ${session.summary.rules.database.sourcePath} → deployed to the RTDB sandbox (hash ${session.summary.rules.database.hash})`);
+    for (const loaded of loadedDatabaseRules) {
+      logger.info(`✔ rules    ${loaded.sourcePath} → deployed to RTDB instance ${loaded.instance} (hash ${loaded.hash})`);
+    }
   } else {
     logger.info('• rules    no database.rules — RTDB sandbox runs with default rules');
   }
@@ -683,7 +727,7 @@ async function startServeRuntime(opts: {
   // choice (resolved lazily in the browser, since nothing here instantiates a
   // broker to find out); what this server does decide is where the proxy
   // forwards, and that is what the line reports.
-  logger.info(formatAiStatusLine({ hosted: usesHostedSandbox }));
+  logger.info(formatAiStatusLine({ hosted: usesHostedSandbox, mode: aiMode }));
   let persistSummary: ServeRuntime['persist'] = null;
   const persistence = session.summary.persistence;
   const hasPersistence = persistence !== null;
@@ -732,7 +776,9 @@ async function startServeRuntime(opts: {
   if (isWatchEnabled) {
     const [firestoreRulesFile] = session.firestoreRulesFiles();
     logger.info(`✔ watch    hot-reloading ${firestoreRulesFile} over /__pyric/events`);
-    logger.info(`✔ watch    hot-reloading ${session.databaseRulesFile()} over /__pyric/events`);
+    for (const databaseRulesFile of session.databaseRulesFiles()) {
+      logger.info(`✔ watch    hot-reloading ${databaseRulesFile} over /__pyric/events`);
+    }
     logger.info(`✔ watch    hot-reloading ${session.storageRulesFile()} over /__pyric/events`);
   }
   // Browser-honesty: the sandbox is browser-resident — firestore/auth and
@@ -748,7 +794,11 @@ async function startServeRuntime(opts: {
   }
   let mcpUrl: string | null = null;
   if (hasBridge) mcpUrl = mount.mcpUrl(origin);
-  return { handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken };
+  const workerInit = workerInitPayload(hosted?.projectKey, owners);
+  return {
+    handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken,
+    instanceId: mount?.instanceId, workerInit,
+  };
 }
 
 /**
@@ -820,19 +870,6 @@ function resolveServePort(flagPort: unknown, configPort?: number): number {
   return 3473;
 }
 
-function resolveProjectIdentifier(
-  flagProject?: unknown,
-  envProject?: string,
-  configProject?: string,
-  rcDefault?: string,
-): string {
-  if (typeof flagProject === 'string' && flagProject.length > 0) return flagProject;
-  if (typeof envProject === 'string' && envProject.length > 0) return envProject;
-  if (typeof configProject === 'string' && configProject.length > 0) return configProject;
-  if (typeof rcDefault === 'string' && rcDefault.length > 0) return rcDefault;
-  return 'demo-project';
-}
-
 function resolveExplicitCommand(parsed: ParsedArgs): string[] | null {
   if (parsed.passthrough && parsed.passthrough.length > 0) {
     return parsed.passthrough;
@@ -886,29 +923,25 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // Resolve the child plan BEFORE the server starts: a planned child implies
   // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
   // is useless without the /__pyric/sandbox WS mount.
+  // One project for the database rules, deploy targets and functions child.
   let discoveredFunctionsProject: FunctionsRtdbProject | null;
-  let resolvedFunctionsProjectId: string | null = null;
+  let firebaseProject: FirebaseProjectResolution;
   try {
-    const discovered = discoverFunctionsRtdbProject(cwd);
-    discoveredFunctionsProject = discovered;
-    const hasFunctionsProject = discovered !== null;
-    if (hasFunctionsProject) {
-      const flagProject = parsed.flags.get('project');
-      const rc = await readFirebaseRc(cwd);
-      resolvedFunctionsProjectId = resolveProjectIdentifier(
-        flagProject,
-        process.env.PYRIC_PROJECT,
-        pyricConfig.project,
-        rc?.projects?.default,
-      );
-    }
+    discoveredFunctionsProject = discoverFunctionsRtdbProject(cwd);
+    const flagProject = parsed.flags.get('project');
+    firebaseProject = resolveFirebaseProject({
+      projectDir: cwd,
+      option: typeof flagProject === 'string' ? flagProject : undefined,
+      configProject: pyricConfig.project,
+      rc: await readFirebaseRc(cwd),
+    });
   } catch (error) {
     const message = serveErrorMessage(error);
     process.stderr.write(`${message}\n`);
     return 2;
   }
   const functionsProject = discoveredFunctionsProject;
-  const functionsProjectId = resolvedFunctionsProjectId;
+  const functionsProjectId = functionsProject === null ? null : firebaseProject.projectId ?? 'demo-project';
 
   const explicitCommand = resolveExplicitCommand(parsed);
 
@@ -934,22 +967,6 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     if (hasAllowedHostsFlag) {
       allowedHosts = flagAllowedHosts.split(',').map((hostname) => hostname.trim()).filter(Boolean);
     }
-    const flagProject = parsed.flags.get('project');
-    const hasProjectFlag = typeof flagProject === 'string';
-    const environmentProject = process.env.PYRIC_PROJECT;
-    const hasEnvironmentProject = environmentProject !== undefined;
-    const configuredProject = pyricConfig.project;
-    const hasConfiguredProject = configuredProject !== undefined;
-    let project: string | undefined;
-    if (hasProjectFlag) {
-      project = flagProject;
-    } else if (hasEnvironmentProject) {
-      project = environmentProject;
-    } else if (hasConfiguredProject) {
-      project = configuredProject;
-    } else {
-      project = functionsProjectId ?? undefined;
-    }
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
     runtime = await startServe({
@@ -971,7 +988,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       // mirrors --no-open: default is true, one flag inverts it.
       capture,
       allowedHosts,
-      project,
+      project: firebaseProject.projectId,
+      firebaseProject,
     });
   } catch (e) {
     const message = serveErrorMessage(e);
@@ -1092,6 +1110,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
+      hostInstanceId: runtime.instanceId,
       instance: `${functionsProjectId}-default-rtdb`,
       location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: functionsProjectId ?? 'demo-project',
@@ -1174,7 +1193,9 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
+      instanceId: runtime.instanceId,
       guardAllow: aiGuardAllow,
+      workerInit: runtime.workerInit,
     });
     // What we are handing the child, stated before it starts: the interlock
     // line and the unsupported-runtime check.

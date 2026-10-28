@@ -3,14 +3,20 @@ package dev.pyric.database
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import dev.pyric.auth.AuthLens
+import dev.pyric.database.internal.infoValue
+import dev.pyric.database.internal.infoValues
+import dev.pyric.database.internal.isConnected
+import dev.pyric.database.internal.isInfoPath
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
@@ -163,7 +169,11 @@ open class Query(
 
     fun get(): Task<DataSnapshot> {
         val tcs = TaskCompletionSource<DataSnapshot>()
-        queryScope.launch {
+        if (isInfoPath(path)) {
+            tcs.setResult(DataSnapshot(ref, infoValue(path, currentlyConnected())))
+            return tcs.task
+        }
+        queryScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val params = mutableMapOf<String, Any?>("path" to path)
                 if (!querySpec.isEmpty()) {
@@ -241,9 +251,20 @@ open class Query(
     fun removeEventListener(listener: ChildEventListener) {
         childListeners.remove(listener)?.cancel()
     }
+
+    private fun currentlyConnected(): Boolean =
+        isConnected(database.bridgeClient.connectionState, database.networkEnabled.value)
 }
 
-fun Query.snapshots(): Flow<DataSnapshot> = callbackFlow {
+/** Paths under `/.info` are served by the client; every other path is a host subscription. */
+fun Query.snapshots(): Flow<DataSnapshot> =
+    if (isInfoPath(path)) infoSnapshots() else hostSnapshots()
+
+private fun Query.infoSnapshots(): Flow<DataSnapshot> =
+    infoValues(path, database.bridgeClient.connectionStates, database.networkEnabled)
+        .map { value -> DataSnapshot(ref, value) }
+
+private fun Query.hostSnapshots(): Flow<DataSnapshot> = callbackFlow {
     val target = mutableMapOf<String, Any?>(
         "service" to "rtdb",
         "path" to path

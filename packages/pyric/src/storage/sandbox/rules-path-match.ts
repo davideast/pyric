@@ -1,4 +1,8 @@
 import type { PathSegment } from './rules.js';
+import { StoragePath } from './rules-path.js';
+import { recursiveWildcardMinimum } from '../../rules/grammar/recursive-wildcard-minimum.js';
+
+export type PathParamValue = string | string[] | StoragePath;
 
 // ═══════════════════════════════════════════════════════════════
 // Evaluation helpers
@@ -21,24 +25,34 @@ export function formatPath(segments: PathSegment[]): string {
   );
 }
 
+export { recursiveWildcardMinimum };
+
 /**
- * Match `segments` against the head of `remaining`. Returns the
- * leftover path (if any) and the accumulated params, or `null` on
- * failure. A wildcard segment must be the LAST entry in the block's
- * segments — it consumes everything that remains.
+ * Match `segments` against `remaining` under the ruleset's `rules_version`.
+ * Returns the leftover path (if any) and the accumulated params, or `null` on
+ * failure. A recursive wildcard segment (`{name=**}`) binds a `StoragePath`
+ * and may be followed by trailing literal or single-segment wildcard segments
+ * (`match /{path=**}/items/{id}`).
  */
 export function matchSegments(
   segments: PathSegment[],
   remaining: string[],
-  params: Record<string, string | string[]>,
-): { left: string[]; params: Record<string, string | string[]> } | null {
+  params: Record<string, PathParamValue>,
+  rulesVersion: string,
+): { left: string[]; params: Record<string, PathParamValue> } | null {
   let i = 0;
-  const next = { ...params };
+  const next: Record<string, PathParamValue> = { ...params };
+  const minimum = recursiveWildcardMinimum(rulesVersion);
   for (let s = 0; s < segments.length; s++) {
     const seg = segments[s];
     if (seg.kind === 'wildcard') {
-      next[seg.name] = remaining.slice(i);
-      return { left: [], params: next };
+      const trailing = segments.length - 1 - s;
+      const length = remaining.length - i - trailing;
+      if (length < minimum) return null;
+      const captured = remaining.slice(i, i + length);
+      next[seg.name] = new StoragePath('/' + captured.join('/'));
+      i += length;
+      continue;
     }
     if (i >= remaining.length) return null;
     if (seg.kind === 'literal') {

@@ -1,0 +1,20 @@
+{
+  "name": "rules-firestore-service-root-match-path",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#201"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"service-root-match-path\" (Coverage: service root match path). The literal segments of the root match path must match the request path; a root that names one collection grants nothing in another.",
+  "observedAt": "2026-10-27T02:37:20.114Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "0e5f136f3fb939e295d50da8c7f5a3b19748cdd5ab7af08ecbdd25dd9d180dba"
+  },
+  "behavior": {
+    "get outside the root collection DENY": "DENY",
+    "create outside the root collection DENY": "DENY",
+    "get inside the root collection ALLOW (control)": "ALLOW"
+  }
+}

@@ -41,6 +41,9 @@ function assertInboundFields(message: Record<string, unknown>): void {
       return;
     case 'appConfig':
       requireRecord(message.options, 'options');
+      requireOptionalBoolean(message.fromPriorHost, 'fromPriorHost');
+      requireOptionalBoolean(message.hostVerified, 'hostVerified');
+      requireOptionalString(message.origin, 'origin');
       return;
     case 'clock-subscribe':
       return;

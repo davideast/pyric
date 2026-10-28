@@ -42,10 +42,15 @@ public final class AggregateQuery: @unchecked Sendable {
     public func getAggregation(
         source: AggregateSource = .server
     ) async throws -> AggregateQuerySnapshot {
+        try await getAggregation(turn: query.firestore.takeTurn())
+    }
+
+    private func getAggregation(turn: OperationTurn) async throws -> AggregateQuerySnapshot {
         let target = query.compileTarget()
 
         if aggregateFields.count == 1 && aggregateFields[0].isCount {
             let countResult = try await query.firestore.bridgeClient.count(
+                turn: turn,
                 source: target,
                 actAs: query.firestore.effectiveAuthLens
             )
@@ -62,6 +67,7 @@ public final class AggregateQuery: @unchecked Sendable {
         }
 
         let results = try await query.firestore.bridgeClient.aggregate(
+            turn: turn,
             source: target,
             spec: spec,
             actAs: query.firestore.effectiveAuthLens
@@ -79,17 +85,8 @@ public final class AggregateQuery: @unchecked Sendable {
         source: AggregateSource = .server,
         completion: @escaping @Sendable (AggregateQuerySnapshot?, Error?) -> Void
     ) {
-        Task {
-            do {
-                let snap = try await getAggregation(source: source)
-                query.firestore.settings.dispatchQueue.async {
-                    completion(snap, nil)
-                }
-            } catch {
-                query.firestore.settings.dispatchQueue.async {
-                    completion(nil, error)
-                }
-            }
+        query.firestore.runInCallOrder(completion: completion) { turn in
+            try await self.getAggregation(turn: turn)
         }
     }
 }

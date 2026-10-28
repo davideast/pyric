@@ -1,0 +1,13 @@
+{
+  "description": "Cancelling an onDisconnect below a queued serverTimestamp set leaves the set queued; at disconnect it writes the resolved timestamp. The sandbox writes the raw sentinel and the served planes write nothing.",
+  "sequence": {
+    "seed": 2250,
+    "instances": 2,
+    "initialRules": [0, 0],
+    "steps": [
+      { "op": "onDisconnectSet", "db": 0, "path": "items", "value": { "$ts": true } },
+      { "op": "onDisconnectCancel", "db": 0, "path": "items/c" },
+      { "op": "reconnect", "db": 0 }
+    ]
+  }
+}

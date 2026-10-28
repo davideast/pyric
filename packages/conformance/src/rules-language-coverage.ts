@@ -1,6 +1,7 @@
 import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
 import { surfaceRegistries } from '../registry/index.ts';
 import { assertFirestoreRulesOracleReplay } from './firestore-rules-oracle-replay.ts';
+import { assertStorageRulesOracleReplay } from './storage-rules-oracle-replay.ts';
 import { analyze } from './rules-language-analyzer.ts';
 import { loadRulesLanguageScenarios } from './rules-language-scenarios.ts';
 import {
@@ -43,6 +44,7 @@ const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'];
 /** Derive production-backed construct coverage after replaying current evidence. */
 export async function computeCoverageReport(): Promise<CoverageReport> {
   await assertFirestoreRulesOracleReplay();
+  assertStorageRulesOracleReplay();
   const engines: EngineCoverage[] = [];
   const scopes = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {
@@ -62,7 +64,9 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
     }
     const unresolved: EngineCoverage['unresolved'] = [];
     for (const scenario of scenarios) {
-      const result = analyze(engine, scenario.rules);
+      const result = scenario.constructs
+        ? { ids: new Set(scenario.constructs), unresolved: [] }
+        : analyze(engine, scenario.rules);
       const verified = twinIds.has(scenario.id);
       for (const id of result.ids) {
         const entry = coverage.get(id);

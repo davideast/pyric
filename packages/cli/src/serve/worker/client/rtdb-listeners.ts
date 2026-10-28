@@ -1,25 +1,26 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage } from '../protocol.js';
-import { executeQuery, logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
+import { logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
   closeSubscription,
-  isDisconnectedPort,
   nextSubId,
   openSnapshotSubscription,
   stampIssuer,
   subscribeLens,
 } from './core.js';
-import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
+import type { ClientPort, ClientRtdbInstance, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
-import { observeRtdbConnection } from './rtdb-connection-lifecycle.js';
+import { observeInfo, servesInfoLocally } from './rtdb-info.js';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import type { SdkActivityHandle } from 'pyric/sandbox/internal';
 import {
+  instanceField,
   isRtdbQuery,
   rtdbChild,
+  sameRtdbInstance,
   targetParts,
   type RtdbTarget,
 } from './rtdb-references.js';
@@ -40,6 +41,7 @@ export type RtdbEventType =
 
 interface ListenerRegistration {
   readonly port: ClientPort;
+  readonly instance?: ClientRtdbInstance;
   readonly path: string;
   readonly scope?: string;
   readonly eventType: RtdbEventType;
@@ -67,6 +69,12 @@ function targetScope(target: RtdbTarget): string {
  * travel with the subscribe message.
  */
 type ValueListenOptions = { readonly onlyOnce?: boolean; readonly owner?: unknown };
+
+/** What a value snapshot shows the page: whether it exists, and its data with priorities. */
+function deliveredContent(wire: unknown): string {
+  const snapshot = wire as Partial<RtdbWireSnapshot> | null;
+  return JSON.stringify([snapshot?.exists ?? null, snapshot?.exportValue ?? null, snapshot?.entries?.map((entry) => entry.key) ?? null]);
+}
 
 function removeRegistration(registration: ListenerRegistration): void {
   const index = registrations.indexOf(registration);
@@ -97,17 +105,25 @@ function openValueSubscription(
 
   const makeSubMsg = (subId: string, lens: typeof _defaultLens): InboundMessage =>
     lens
-      ? { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, actAs: lens, ...ownerFields }
-      : { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, ...ownerFields };
+      ? { t: 'sub', subId, target: { service: 'rtdb', ...instanceField(ref), path: ref.path, ...(query ? { query } : {}) }, actAs: lens, ...ownerFields }
+      : { t: 'sub', subId, target: { service: 'rtdb', ...instanceField(ref), path: ref.path, ...(query ? { query } : {}) }, ...ownerFields };
 
   let unsubLens: () => void = () => {};
+  // The host re-registers a listener when the port's session or the page's
+  // lens changes, and the new registration sends the current data again. An
+  // identity change does not change data, so a snapshot equal to the last
+  // one delivered is not a new event.
+  let delivered: string | undefined;
 
   const subHandler = {
     port: ref.port,
     next: (wire: unknown) => {
+      if (listenOptions?.onlyOnce && fired) return;
+      const content = deliveredContent(wire);
+      if (fired && content === delivered) return;
       const warning = (wire as RtdbWireSnapshot | null)?.warning;
       if (typeof warning === 'string') logDatabaseWarning(warning);
-      if (listenOptions?.onlyOnce && fired) return;
+      delivered = content;
       fired = true;
       // Reported on the subscription id the sandbox also records as the
       // listener id, immediately before the application's callback runs.
@@ -164,6 +180,7 @@ function registerListener(
   let closed = false;
   const registration: ListenerRegistration = {
     port: ref.port,
+    ...(ref.instance === undefined ? {} : { instance: ref.instance }),
     path: ref.path,
     scope: targetScope(target),
     eventType,
@@ -191,79 +208,40 @@ export function rtdbOnValue(
     ? options
     : cancelCallbackOrOptions;
   const activity = beginWorkerDatabaseActivity(target, 'onValue', 'subscription', pageListenerOwners(listenOptions));
-  let unsubscribe: Unsubscribe = () => {};
+  const isOnce = listenOptions?.onlyOnce === true;
+  let unsubscribe: Unsubscribe | undefined;
+  let deliveredOnce = false;
   const deliver = (snapshot: RtdbDataSnapshot): void => {
+    // Set before the callback runs: a callback that changes the value, such
+    // as one calling goOffline() on .info/connected, is not called again (D10).
+    if (isOnce && deliveredOnce) return;
+    if (isOnce) deliveredOnce = true;
     try {
       activity.delivered(snapshot);
       deliverWithRegions(activity.id, () => next(snapshot));
     } catch {
       // Firebase isolates listener exceptions from sibling deliveries.
     } finally {
-      const isOnce = listenOptions?.onlyOnce === true;
-      if (isOnce) queueMicrotask(() => unsubscribe());
+      // A delivery before the listener is registered stops it as it registers, below.
+      if (isOnce) unsubscribe?.();
     }
   };
-  const { ref, query } = targetParts(target);
-  const isActivePort = !isDisconnectedPort(ref.port);
-  const isConnectionValue = ref.path === '/.info/connected';
-  const isMetadataRoot = ref.path === '/.info';
-  const observesConnection = isActivePort && (isConnectionValue || isMetadataRoot);
-  let rawUnsubscribe: Unsubscribe;
-  if (observesConnection) {
-    let previousRows: RtdbWireEntry[] | undefined;
-    rawUnsubscribe = observeRtdbConnection(ref.port, (connected) => {
-      const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
-      const filtersChildren = isMetadataRoot && query !== undefined;
-      if (filtersChildren) {
-        const rows = executeQuery(value, query);
-        const isUnchangedSelection = sameRtdbValue(previousRows, rows);
-        if (isUnchangedSelection) return;
-        previousRows = rows;
-        const hasRows = rows.length > 0;
-        const projection = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
-        const selectedValue = hasRows ? projection : null;
-        deliver(makeRtdbSnapshot(ref, selectedValue, hasRows, null, rows));
-        return;
-      }
-      deliver(makeRtdbSnapshot(ref, value));
-    });
-  } else {
-    rawUnsubscribe = openValueSubscription(target, deliver, cancelCallbackOrOptions, options, activity);
-  }
+  const { ref } = targetParts(target);
+  const rawUnsubscribe = servesInfoLocally(ref)
+    ? observeInfo(target, deliver)
+    : openValueSubscription(target, deliver, cancelCallbackOrOptions, options, activity);
   unsubscribe = registerListener(
     target,
     'value',
     registryCallback,
     () => { activity.close(); rawUnsubscribe(); },
   );
+  const deliveredBeforeRegistration = isOnce && deliveredOnce;
+  if (deliveredBeforeRegistration) unsubscribe();
   return unsubscribe;
 }
 
 type ChildEventKind = 'added' | 'changed' | 'removed' | 'moved';
-
-function directChildren(value: unknown): Record<string, unknown> {
-  if (Array.isArray(value)) {
-    return Object.fromEntries(
-      value.flatMap((child, index) => child == null ? [] : [[String(index), child]]),
-    );
-  }
-  if (value === null || typeof value !== 'object') return {};
-  return value as Record<string, unknown>;
-}
-
-function rtdbKeyCompare(left: string, right: string): number {
-  const integerKey = (key: string): number | null => {
-    if (!/^(0|[1-9]\d*)$/.test(key)) return null;
-    const value = Number(key);
-    return Number.isSafeInteger(value) && value <= 2_147_483_647 ? value : null;
-  };
-  const leftInteger = integerKey(left);
-  const rightInteger = integerKey(right);
-  if (leftInteger !== null && rightInteger !== null) return leftInteger - rightInteger;
-  if (leftInteger !== null) return -1;
-  if (rightInteger !== null) return 1;
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 function onChildEvent(
   target: RtdbTarget,
@@ -276,7 +254,10 @@ function onChildEvent(
   const { ref, query } = targetParts(target);
   let initialized = false;
   let previous: RtdbWireEntry[] = [];
-  return openValueSubscription(target, (parent) => {
+  const observeParent = (deliver: (parent: RtdbDataSnapshot) => void): Unsubscribe => servesInfoLocally(ref)
+    ? observeInfo(target, deliver)
+    : openValueSubscription(target, deliver, error, undefined, activity);
+  return observeParent((parent) => {
     const current: RtdbWireEntry[] = [];
     parent.forEach((childSnap) => {
       if (childSnap.key !== null) {
@@ -288,11 +269,6 @@ function onChildEvent(
         });
       }
     });
-    if (current.length === 0) {
-      for (const key of Object.keys(directChildren(parent.val())).sort(rtdbKeyCompare)) {
-        current.push({ key, value: directChildren(parent.val())[key] });
-      }
-    }
     const emit = (entry: RtdbWireEntry, previousChildName: string | null): void => {
       try {
         next(makeRtdbSnapshot(
@@ -351,7 +327,7 @@ function onChildEvent(
       }
     }
     previous = current;
-  }, error, undefined, activity);
+  });
 }
 
 function subscribeChild(
@@ -425,6 +401,7 @@ export function rtdbOff(target: RtdbTarget, eventType?: RtdbEventType, callback?
   const allViews = !isRtdbQuery(target);
   const matches = (registration: ListenerRegistration): boolean =>
     registration.port === ref.port
+      && sameRtdbInstance(registration, ref)
       && registration.path === ref.path
       && (allViews || registration.scope === scope)
       && (eventType === undefined || registration.eventType === eventType)

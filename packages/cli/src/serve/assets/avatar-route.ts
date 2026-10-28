@@ -76,7 +76,11 @@ export function avatarUidFromPath(pathname: string): string | null {
  * invokes the configured source, which may cost money and writes a cache
  * file. `Sec-Fetch-Site` is set by the browser, not the page, so a
  * `cross-site` value is a reliable statement that the application under
- * development did not make this request.
+ * development did not start the source. Such a request is still answered
+ * from the cache, the pool, or the generated fallback, because the
+ * application's own opaque-origin documents (a sandboxed blob-URL or srcdoc
+ * iframe showing `user.photoURL`) are cross-site too, and a production photo
+ * URL loads anywhere.
  *
  * Absence means allow: native clients, `curl`, and older browsers send no
  * such header, and this route is not the place to break them.
@@ -123,15 +127,10 @@ export async function handleAvatar(
       .end('method not allowed');
     return;
   }
-  if (isCrossSiteRequest(req)) {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
-      .end('cross-site avatar requests are refused');
-    return;
-  }
-
   const assetRequest: AssetRequest = {
     key: uid,
     seed: seedFor(uid, url.searchParams.get('d')),
+    ...(isCrossSiteRequest(req) ? { sourceAllowed: false } : {}),
     context: {
       uid,
       displayName: url.searchParams.get('n'),

@@ -28,6 +28,7 @@ class Blob private constructor(private val bytes: ByteArray) : Comparable<Blob> 
     override fun toString(): String = "Blob(size=${bytes.size})"
 
     companion object {
+        @JvmStatic
         fun fromBytes(bytes: ByteArray): Blob = Blob(bytes.clone())
     }
 }

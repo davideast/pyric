@@ -33,7 +33,31 @@ Pyric selects what to run in this order:
 
 A Functions source declared in `firebase.json` can still run when the child application command is skipped.
 
-The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/register`. This routes supported `firebase/*` and `firebase-admin/*` imports to the local sandbox. A `firebase-admin/*` subpath the sandbox does not mirror, such as `firebase-admin/remote-config`, still resolves, so the child loads, and calling any of its exports throws `PyricDeferredApiError`. The import never reaches the real `firebase-admin`.
+The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/register`. This routes supported `firebase-admin/*` imports to the sandbox host. With `--hosted`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` in the child reach the Node host as the child's own signed-in user; other client SDKs, and client SDKs against the browser-hosted sandbox, fail with `failed-precondition`. A `firebase-admin/*` subpath the sandbox does not mirror, such as `firebase-admin/remote-config` or `firebase-admin/security-rules`, still resolves and returns an `App`-bound handle from `get<Service>(app)`, so module-level initialization loads cleanly while calling a method on that handle fails with `PyricDeferredApiError`. The import never reaches the real `firebase-admin`.
+
+## Run a command on a running host
+
+```text
+pyric run [--sandbox <url>] [--wait[=<seconds>]] -- <command...>
+```
+
+`pyric run` starts one command against a host that is already running, such as a Vite dev server with the Pyric plugin or a `pyric sandbox` in another terminal. The command gets the environment `pyric sandbox` gives its child: `PYRIC_SANDBOX=remote:<url>`, `PYRIC_SANDBOX_INSTANCE` naming that host, and a `NODE_OPTIONS` import of `@pyric/cli/register`. `--sandbox` names the host. Without it, `pyric run` uses an inherited `PYRIC_SANDBOX=remote:<url>`, then the `.pyric/serve.json` that the host wrote in the project directory. With `--wait`, it polls the host's `/__pyric/health` until the host answers, for 30 seconds or the number of seconds given (`--wait=60`), so a command started alongside the dev server does not race it. It exits with the command's exit code, or `2` when no host answers in time.
+
+The register module is passed by absolute `file:` URL, resolved from the `pyric` install that runs the command, as `pyric sandbox` passes it. So the command can run from a directory where `@pyric/cli` does not resolve by name, such as a backend beside a `tools/` folder that pins Pyric:
+
+```bash
+cd backend && ../tools/node_modules/.bin/pyric run --sandbox http://localhost:5173 -- node dist/index.js
+```
+
+A Vite config in another folder loads the plugin from that install the same way:
+
+```js
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+const { pyric } = await import(pathToFileURL(createRequire(new URL("../tools/package.json", import.meta.url)).resolve("@pyric/cli/vite")).href);
+```
+
+`@pyric/cli/vite`, `@pyric/cli/register` and `@pyric/cli/next` resolve through `require.resolve` as well as `import`.
 
 ## Flags
 
@@ -53,7 +77,7 @@ The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/r
 | `--no-cache` | Rebuild browser SDK bundles. |
 | `--no-run` | Do not run an explicit or configured child command. |
 | `--json` | Print one machine-readable readiness line. A configured command is skipped unless it is also supplied explicitly. |
-| `--project <id>` | Set the project label. |
+| `--project <id>` | Set the Firebase project, a project id or a `.firebaserc` alias. It names the default Realtime Database instance, selects `.firebaserc` deploy targets, and labels the bridge. |
 | `--permissive` | Allow unauthenticated RTDB access when no RTDB rules file exists. Use only for local prototypes. |
 | `--allowed-host <host>` | Add allowed Host headers. Use commas for multiple hosts. |
 | `--only hosting` | Accepted for Firebase CLI compatibility. Hosting is the only supported value. |
@@ -108,15 +132,21 @@ Create `pyric.json` in the project root to define defaults:
 
 `rules` can also be a string when only one rules file is needed.
 
-Command-line values override `pyric.json`. `--project` overrides `PYRIC_PROJECT`, and `PYRIC_PROJECT` overrides the configured project.
+`owners` sets which application frames Pyric records for each listener and SDK call: `skip` lists globs for the app's data-layer wrapper modules, whose frames are never shown first, and `frames` is how many application frames to keep (default `3`). See [Name the code behind a data-layer wrapper](../build/inspect-activity.md#name-the-code-behind-a-data-layer-wrapper).
+
+Command-line values override `pyric.json`. `--project` overrides `PYRIC_PROJECT`, and `PYRIC_PROJECT` overrides the configured project. Without any of them, the project is the one `firebase use` made active for this directory or a parent directory, then the only `.firebaserc` alias, else `.firebaserc` `projects.default`, as the Firebase CLI resolves it.
 
 ## Environment variables
 
-`PYRIC_GUARD` selects what the network guard does when a Pyric-launched process opens a connection to a live Google or Firebase endpoint. A sandboxed app routes its Firebase traffic to the local `/__pyric/*` namespace, so such a connection reaches production: the process may be doing that on purpose, alongside the sandbox, or by accident. The value is `warn` (the default: report the connection on stderr, naming the service it reached, and let it through), `block` (report it and fail the request), or `off` (install no hooks at all and print one notice saying so). An unset, empty, or unrecognized value means `warn`. Under `block`, each refusal names the two ways to let that host through: add it to `PYRIC_GUARD_ALLOW`, or set `PYRIC_GUARD=warn`, and the GCE metadata server is refused whatever `PYRIC_GUARD_ALLOW` says.
+`PYRIC_GUARD` selects what the network guard does when a Pyric-launched process opens a connection to a live Google or Firebase endpoint. A sandboxed app routes its Firebase traffic to the local `/__pyric/*` namespace, so such a connection reaches production: the process may be doing that on purpose, alongside the sandbox, or by accident. The value is `warn` (the default: report the connection on stderr, naming the service it reached, and let it through), `block` (report it and fail the request), or `off` (install no hooks at all and print one notice saying so). An unset, empty, or unrecognized value means `warn`, except in the Vite plugin's dev server process, where an unset or empty value means `block`: nothing in that process is meant to reach live Firebase, and Firebase code the plugin does not swap there, such as a package that imports `firebase` itself, would ([#1123](https://github.com/davideast/pyric/issues/1123)). Under `block`, each refusal names the two ways to let that host through: add it to `PYRIC_GUARD_ALLOW`, or set `PYRIC_GUARD=warn`, and the GCE metadata server is refused whatever `PYRIC_GUARD_ALLOW` says.
 
 `PYRIC_GUARD_ALLOW` permits specific hosts that the guard would otherwise flag, so they are reported as permitted, and pass under `block`. It takes a comma-separated or whitespace-separated list of hostnames or URLs, matched on label boundaries, so `cloudfunctions.net` also permits `us-central1-demo.cloudfunctions.net`. Set it when a project deliberately calls a Google endpoint that Pyric does not mirror, such as a Vertex AI base URL. `pyric sandbox` appends the host of `PYRIC_AI_PROXY_UPSTREAM` to the value it passes to the command it runs, and the Vite plugin permits the AI upstream in its own options, so a Vertex AI upstream set either way needs no separate entry. An allowed host is still reported once. Under `block`, the GCE metadata server cannot be allowed.
 
-`PYRIC_BEACON_TOKEN` is set by `pyric sandbox` on every child it starts. A child that has loaded `@pyric/cli/register` presents it when it reports that interception is installed, and the server rejects a report without it. Export it alongside `PYRIC_SANDBOX` when you start a process yourself, using the block `pyric sandbox` prints for that purpose.
+`PYRIC_SANDBOX` activates `@pyric/cli/register` in a process and says which sandbox host it uses. Set it to `remote` in `.env` files, package scripts, and agent configuration. With `remote`, the process finds the running host through the `.pyric/serve.json` file that `pyric sandbox` and the Vite plugin write in the project directory, so it follows the host to whatever port it takes, on any machine. `pyric sandbox` prints `export PYRIC_SANDBOX=remote` for a command you start yourself. Use `remote:<url>` only for a process that runs outside the project directory, where `.pyric/serve.json` cannot be found. If nothing answers at that url, or a different host answers there, the process warns once and uses this project's running host when `.pyric/serve.json` names one. Otherwise it fails and says the url is stale. It never attaches to a host that no `.pyric/serve.json` in the project names.
+
+`PYRIC_SANDBOX_INSTANCE` is set by `pyric sandbox` and the Vite plugin's Functions runtime on every child they start, beside `PYRIC_SANDBOX=remote:<url>`. It names the host at that url, so the child attaches there from any working directory. You do not set it yourself.
+
+`PYRIC_BEACON_TOKEN` is set by `pyric sandbox` on every child it starts. A child that has loaded `@pyric/cli/register` presents it when it reports that interception is installed, and the server rejects a report without it. A process you start yourself has no token, so the server does not count its report.
 
 `PYRIC_AVATARS` selects the profile-photo source for provider-created auth users. Unset, provider sign-ins get a deterministic generated avatar. `0` and `false` disable avatars, matching Firebase's own behaviour for a provider that supplies no photo. Any other value names a pre-built avatar set directory, resolved from the project root. There is no `--avatars` flag; `pyric sandbox` reads this variable only, one tier short of the Vite plugin's `avatars` option, which also accepts a custom generation source. See [Assign default avatars to sandbox users](../build/default-avatars.md).
 

@@ -3,23 +3,168 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getDatabase, ref, get, set, query, orderByChild } from 'pyric/database';
 import { createDatabaseRulesDeployment } from '../../src/serve/entries/database-rules.js';
 
+const OPEN = { rules: { '.read': true, '.write': true } };
+
 test('serves current rules to existing and later database URLs while keeping their data isolated', async () => {
   const sandbox = initializeSandbox();
   const deployment = createDatabaseRulesDeployment(sandbox);
   const first = getDatabase(sandbox, 'https://first.firebaseio.com');
   const second = getDatabase(sandbox, 'https://second.firebaseio.com');
   deployment.register('https://first.firebaseio.com');
-  deployment.deploy({ rules: { '.read': true, '.write': true } });
+  deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { first: OPEN, second: OPEN } });
   deployment.register('https://second.firebaseio.com');
   await set(ref(first, 'projects/a'), { score: 1, rank: 2 });
   expect((await get(ref(second, 'projects'))).exists()).toBe(false);
   await expect(get(query(ref(first, 'projects'), orderByChild('score')))).rejects.toThrow('Index not defined');
   for (const index of ['score', 'rank']) {
-    deployment.deploy({ rules: { '.read': true, '.write': true, projects: { '.indexOn': index } } });
+    const indexed = { rules: { '.read': true, '.write': true, projects: { '.indexOn': index } } };
+    deployment.deployInstance('first', indexed);
+    deployment.deployInstance('second', indexed);
     expect((await get(query(ref(first, 'projects'), orderByChild(index)))).exists()).toBe(true);
     expect((await get(query(ref(second, 'projects'), orderByChild(index)))).exists()).toBe(false);
   }
   deployment.deploy(null);
   await expect(get(ref(first))).rejects.toThrow('PERMISSION_DENIED');
   await expect(get(ref(second))).rejects.toThrow('PERMISSION_DENIED');
+});
+
+// Production deploys each firebase.json entry's rules to its own instance.
+test('applies each instance its own ruleset', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  deployment.register('https://first.firebaseio.com');
+  deployment.deploy({
+    defaultInstance: 'demo-default-rtdb',
+    rules: {
+      first: { rules: { first: { '.read': true } } },
+      second: { rules: { second: { '.read': true } } },
+    },
+  });
+  deployment.register('https://second.firebaseio.com');
+  const first = getDatabase(sandbox, 'https://first.firebaseio.com');
+  const second = getDatabase(sandbox, 'https://second.firebaseio.com');
+  expect((await get(ref(first, 'first'))).exists()).toBe(false);
+  await expect(get(ref(first, 'second'))).rejects.toThrow('PERMISSION_DENIED');
+  expect((await get(ref(second, 'second'))).exists()).toBe(false);
+  await expect(get(ref(second, 'first'))).rejects.toThrow('PERMISSION_DENIED');
+
+  // Replacing one instance's rules leaves the other's in force.
+  deployment.deployInstance('second', { rules: { first: { '.read': true } } });
+  expect((await get(ref(second, 'first'))).exists()).toBe(false);
+  await expect(get(ref(first, 'second'))).rejects.toThrow('PERMISSION_DENIED');
+  expect((await get(ref(first, 'first'))).exists()).toBe(false);
+});
+
+test('serves the default instance rules to a database opened without a URL', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  deployment.deploy({
+    defaultInstance: 'demo-default-rtdb',
+    rules: { 'demo-default-rtdb': OPEN, other: { rules: { '.read': false } } },
+  });
+  await set(ref(getDatabase(sandbox), 'a'), 1);
+  expect((await get(ref(getDatabase(sandbox), 'a'))).val()).toBe(1);
+});
+
+/** The Pyric RTDB notices `console.warn` writes while `run` runs. */
+async function notices(run: () => Promise<void>): Promise<string[]> {
+  const lines: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+  try {
+    await run();
+  } finally {
+    console.warn = warn;
+  }
+  return lines.filter((line) => line.startsWith('pyric: RTDB'));
+}
+
+test('an instance firebase.json deploys no rules to is locked, and its first use says how to deploy them', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  const logged = await notices(async () => {
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'deny');
+    deployment.register('https://undeclared.firebaseio.com');
+    const undeclared = getDatabase(sandbox, 'https://undeclared.firebaseio.com');
+    await expect(get(ref(undeclared, 'x'))).rejects.toThrow('PERMISSION_DENIED');
+    await expect(set(ref(undeclared, 'x'), 1)).rejects.toThrow('PERMISSION_DENIED');
+    // A declared instance whose rules file is missing follows the default policy.
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { undeclared: null } }, 'allow');
+    expect((await get(ref(undeclared, 'x'))).exists()).toBe(false);
+  });
+  expect(logged).toEqual([
+    'pyric: RTDB instance "undeclared" has no rules in firebase.json; it denies all reads and writes. Add {"instance": "undeclared", "rules": "<file>"} to the database array.',
+  ]);
+});
+
+test('under permissive mode, an instance firebase.json deploys no rules to allows everything, and its first use says so', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  const logged = await notices(async () => {
+    deployment.deploy({ defaultInstance: 'demo-default-rtdb', rules: { declared: OPEN } }, 'allow');
+    deployment.register('https://undeclared.firebaseio.com');
+    const undeclared = getDatabase(sandbox, 'https://undeclared.firebaseio.com');
+    await set(ref(undeclared, 'x'), 1);
+    expect((await get(ref(undeclared, 'x'))).val()).toBe(1);
+  });
+  expect(logged).toEqual([
+    'pyric: RTDB instance "undeclared" has no rules in firebase.json; permissive mode allows all reads and writes. Add {"instance": "undeclared", "rules": "<file>"} to the database array.',
+  ]);
+});
+
+test('serves the array\'s default instance rules to the default store once the app names its project', async () => {
+  // firebase.json names `p-default-rtdb`; without .firebaserc or --project
+  // the loader cannot tell that name is the default instance's.
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  deployment.deploy({ defaultInstance: '(default)', rules: { 'p-default-rtdb': OPEN } });
+  deployment.register(undefined, 'p');
+  await set(ref(getDatabase(sandbox), 'a'), 1);
+  expect((await get(ref(getDatabase(sandbox), 'a'))).val()).toBe(1);
+});
+
+test('applies an unresolved deploy target\'s rules once the app names a project .firebaserc maps it for', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  const info = console.info;
+  const warn = console.warn;
+  const notices: string[] = [];
+  console.info = (...args: unknown[]) => { notices.push(args.map(String).join(' ')); };
+  console.warn = () => {};
+  try {
+    deployment.deploy({
+      defaultInstance: '(default)',
+      rules: {},
+      pendingTargets: [{ target: 'main', rules: OPEN, instancesByProject: { p: ['main-a'] } }],
+    });
+    const mainA = getDatabase(sandbox, 'https://main-a.firebaseio.com');
+    deployment.register('https://main-a.firebaseio.com');
+    await expect(set(ref(mainA, 'a'), 1)).rejects.toThrow('PERMISSION_DENIED');
+    deployment.register(undefined, 'p');
+    await set(ref(mainA, 'a'), 1);
+    expect((await get(ref(mainA, 'a'))).val()).toBe(1);
+    deployment.deployTarget('main', { rules: { '.read': true, '.write': false } });
+    await expect(set(ref(mainA, 'b'), 1)).rejects.toThrow('PERMISSION_DENIED');
+  } finally {
+    console.info = info;
+    console.warn = warn;
+  }
+  expect(notices).toContain('[pyric sandbox] RTDB deploy target "main" resolved with the app config project "p": its rules now apply to instance main-a.');
+});
+
+test('a refused ruleset names its instance, and the other instances still get theirs', async () => {
+  const sandbox = initializeSandbox();
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  deployment.register('https://good.firebaseio.com');
+  deployment.register('https://refused.firebaseio.com');
+  expect(() => deployment.deploy({
+    defaultInstance: 'demo-default-rtdb',
+    rules: { good: OPEN, refused: { rules: { '.read': 'newData.exists()' } } },
+  })).toThrow('database instance "refused"');
+  expect((await get(ref(getDatabase(sandbox, 'https://good.firebaseio.com'), 'x'))).exists()).toBe(false);
+  await expect(get(ref(getDatabase(sandbox, 'https://refused.firebaseio.com')))).rejects.toThrow('PERMISSION_DENIED');
+
+  // A refused reload leaves that instance's rules in force.
+  expect(() => deployment.deployInstance('good', { rules: { '.read': 'newData.exists()' } })).toThrow('database instance "good"');
+  expect((await get(ref(getDatabase(sandbox, 'https://good.firebaseio.com'), 'x'))).exists()).toBe(false);
 });

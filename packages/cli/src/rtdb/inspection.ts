@@ -1,8 +1,9 @@
 /** Local RTDB inspection tools bound to one authoritative sandbox. */
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import { getClock, type LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules, snapshotState } from 'pyric/sandbox/database';
+import { projectIdentity } from '../bridge/surface/identity.js';
 import { countDescendantObjects, crawlSnapshot } from './crawl-snapshot.js';
 
 export interface RtdbInspectionToolDeps {
@@ -10,13 +11,21 @@ export interface RtdbInspectionToolDeps {
 }
 
 interface SimulateAccessArgs {
-  operation: 'read' | 'write' | 'validate';
+  operation: 'read' | 'write' | 'update' | 'validate';
   path: string;
-  auth?: { uid: string; claims?: Record<string, unknown> } | null;
+  auth?: { uid: string; tenant?: string; claims?: Record<string, unknown> } | null;
+  /** The value written: any JSON value, or for `update` the patch keyed by the paths written. */
   newData?: unknown;
+  /** The query a `read` carries, in the members rules read as `query.*`. */
+  query?: RtdbCase['query'];
   /** The instant `now` evaluates at, in epoch milliseconds. Defaults to the sandbox clock's own instant. */
   now?: number;
 }
+
+/** A query bound is a JSON scalar. */
+const QUERY_BOUND_SCHEMA = {
+  anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }],
+};
 
 interface CrawlStructureArgs {
   path?: string;
@@ -31,13 +40,13 @@ export function createRtdbInspectionTools(
     {
       name: 'rtdb_simulate_access',
       description:
-        'Simulate one read, write, or validate operation against the RTDB rules and data currently loaded in the local sandbox. No production database is contacted and no prior rules-loading tool call is required.',
+        'Simulate one read, write, update, or validate operation against the RTDB rules and data currently loaded in the local sandbox. newData may be any JSON value, such as 5 or true; for update it is the patch keyed by the paths written, relative to path. A read may carry a query so query.* rules evaluate. No production database is contacted and no prior rules-loading tool call is required.',
       parameters: {
         type: 'object',
         properties: {
           operation: {
             type: 'string',
-            enum: ['read', 'write', 'validate'],
+            enum: ['read', 'write', 'update', 'validate'],
           },
           path: { type: 'string' },
           auth: {
@@ -47,6 +56,7 @@ export function createRtdbInspectionTools(
                 type: 'object',
                 properties: {
                   uid: { type: 'string' },
+                  tenant: { type: 'string' },
                   claims: { type: 'object' },
                 },
                 required: ['uid'],
@@ -54,6 +64,20 @@ export function createRtdbInspectionTools(
             ],
           },
           newData: {},
+          query: {
+            type: 'object',
+            properties: {
+              orderByChild: { type: 'string' },
+              orderByKey: { type: 'boolean', enum: [true] },
+              orderByValue: { type: 'boolean', enum: [true] },
+              equalTo: QUERY_BOUND_SCHEMA,
+              startAt: QUERY_BOUND_SCHEMA,
+              endAt: QUERY_BOUND_SCHEMA,
+              limitToFirst: { type: 'integer' },
+              limitToLast: { type: 'integer' },
+            },
+            additionalProperties: false,
+          },
           now: { type: 'number' },
         },
         required: ['operation', 'path'],
@@ -83,7 +107,8 @@ export function createRtdbInspectionTools(
         }
         let identity: RtdbCase['auth'] = null;
         if (args.auth) {
-          identity = { uid: args.auth.uid, token: args.auth.claims ?? {} };
+          const projected = projectIdentity(args.auth.uid, args.auth.tenant, args.auth.claims);
+          identity = { uid: projected.uid, token: projected.token };
         }
         const oneCase: RtdbCase = {
           expectation: 'ALLOW',
@@ -95,6 +120,9 @@ export function createRtdbInspectionTools(
         };
         if (args.newData !== undefined) {
           oneCase.newData = args.newData;
+        }
+        if (args.query !== undefined) {
+          oneCase.query = args.query;
         }
         const result = rtdbRules(rules).simulate([oneCase]).cases[0];
 
@@ -110,6 +138,7 @@ export function createRtdbInspectionTools(
             matchedPath: result.matchedPath,
             matchedRule: result.matchedRule,
             reason: result.reason,
+            trace: result.trace,
           },
         };
       },

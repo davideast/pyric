@@ -32,6 +32,7 @@ import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
@@ -47,7 +48,18 @@ import { setupFirebaseActivityGuard } from './activity-bootstrap.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
+import { defaultInstanceNameOf, rtdbInstance } from './host/rtdb-instances.js';
+import {
+  databaseInstanceRulesHost,
+  deployFirestoreRulesToHost,
+  firestoreRuleMessages,
+  resolvePendingDatabaseTargets,
+  setDatabaseRules,
+  setDatabaseTargetRules,
+} from './host/rules.js';
+import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../database-instance-rules-host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
+import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 
 const CAPTURE_MAX_DELAY_MS = 2_000;
 
@@ -86,10 +98,9 @@ export function setupWorkerHotReload(
     try {
       const { rules } = JSON.parse(ev.data) as { rules: string; rulesHash?: string };
       // The check every rules load path runs; a refused source leaves the
-      // active rules in force.
-      const rejection = rulesSourceRejection(rules);
-      if (rejection !== null) throw new Error(`Firestore ${rejection.message}`);
-      setRules(ctx.sandbox, rules);
+      // active rules in force while updating `ctx.activeRules.firestore` error status.
+      const deployed = deployFirestoreRulesToHost(ctx, rules);
+      if (deployed.rejectionMessage !== null) throw new Error(deployed.rejectionMessage);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[pyric worker] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
@@ -97,40 +108,43 @@ export function setupWorkerHotReload(
   });
   events.addEventListener('rtdb-rules-update', (ev) => {
     try {
-      const { rules, policy } = JSON.parse(ev.data) as {
+      const { instance: name, target, rules, policy } = JSON.parse(ev.data) as {
+        instance?: string;
+        target?: string;
         rules: { rules: Record<string, unknown> } | null;
         rulesHash?: string | null;
         policy?: 'allow' | 'deny';
       };
-      const isRtdbMissing = ctx.rtdb === undefined;
-      if (isRtdbMissing) {
-        ctx.rtdb = getDatabase(ctx.sandbox);
+      // An unresolved deploy target's rules apply to its instances once the
+      // app config resolved it, and are kept for that resolution until then.
+      if (target !== undefined) {
+        const deployed = setDatabaseTargetRules(ctx, target, rules);
+        if (!deployed.ok) throw new Error(`Realtime Database rules not loaded: ${deployed.messages.map((message) => message.text).join('; ')}`);
+        // eslint-disable-next-line no-console
+        console.info(`[pyric worker] Realtime Database rules of deploy target "${target}" ${rules === null ? 'removed' : 'hot-reloaded'}`);
+        return;
       }
-      const rtdb = ctx.rtdb as ReturnType<typeof getDatabase>;
+      // The event names the instance whose rules file changed; absent is the
+      // default instance. Each instance is its own store with its own rules.
+      const label = name === undefined ? 'the default instance' : `instance "${name}"`;
       // Null rules mean the rules file was deleted: `policy` then governs
       // every read and write, as it does when the worker starts without rules.
       const isRemoved = rules === null;
       if (isRemoved) {
-        rtdbSandbox.setDefaultPolicy(rtdb, policy ?? 'deny');
-        rtdbSandbox.setRules(rtdb, null);
-        if (ctx.activeRules) delete ctx.activeRules.database;
+        const instance = rtdbInstance(ctx, name);
+        rtdbSandbox.setDefaultPolicy(instance.live, policy ?? 'deny');
+        rtdbSandbox.setRules(instance.live, null);
+        delete instance.rules;
         // eslint-disable-next-line no-console
-        console.info(`[pyric worker] database.rules.json removed; RTDB reads/writes default to ${policy ?? 'deny'}`);
+        console.info(`[pyric worker] Realtime Database rules of ${label} removed; reads/writes default to ${policy ?? 'deny'}`);
         return;
       }
-      rtdbSandbox.setRules(rtdb, rules);
-      const isActiveRulesMissing = ctx.activeRules === undefined;
-      if (isActiveRulesMissing) {
-        ctx.activeRules = {};
+      const deployed = setDatabaseRules(ctx, name, rules);
+      if (!deployed.ok) {
+        throw new Error(`Realtime Database rules not loaded: ${deployed.messages.map((message) => message.text).join('; ')}`);
       }
-      (ctx.activeRules as Record<string, unknown>).database = {
-        source: rules,
-        updatedAt: Date.now(),
-        status: 'active',
-        messages: [],
-      };
       // eslint-disable-next-line no-console
-      console.info('[pyric worker] database.rules.json hot-reloaded');
+      console.info(`[pyric worker] Realtime Database rules of ${label} hot-reloaded`);
     } catch (err) {
       const isErrorInstance = err instanceof Error;
       let errorMessage = String(err);
@@ -217,7 +231,7 @@ function sandboxHasExistingData(ctx: HostCtx): boolean {
 export function applyServeInit(
   ctx: HostCtx,
   payload: InitPayload,
-  env: ServeInitEnv,
+  env: ServeInitEnv = { fetch: globalThis.fetch },
 ): ServeInitResult {
   const result: ServeInitResult = {
     rulesDeployed: false,
@@ -263,35 +277,52 @@ export function applyServeInit(
         result.rulesParseError,
       );
     } else {
-      setRules(ctx.sandbox, payload.rules);
+      const lint = setRules(ctx.sandbox, payload.rules);
       result.rulesDeployed = true;
-      // Record the deployed source on ctx (mirrors the database branch below)
+      // Record the deployed source + lint findings on ctx (mirrors the database branch below)
       // so diagnostics report it AND the `resetAll` op can re-deploy it —
       // `sandbox.resetAll()` swaps the env, which wipes env-owned Firestore
       // rules; a data reset must not silently de-govern writes.
       ctx.activeRules ??= {};
       ctx.activeRules.firestore = {
         source: payload.rules,
+        lastKnownGood: payload.rules,
         updatedAt: Date.now(),
         status: 'active',
-        messages: [],
+        messages: firestoreRuleMessages(lint),
       };
     }
   }
-  const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
-  if (payload.databaseRules) {
-    rtdbSandbox.setRules(rtdb, payload.databaseRules);
-    ctx.activeRules ??= {};
-    ctx.activeRules.database = {
+  // Each RTDB instance `firebase.json` declares gets its own rules. An
+  // instance with no rules of its own takes the runtime's policy for
+  // unconfigured rules.
+  ctx.rtdbDefaultPolicy = payload.permissive ? 'allow' : 'deny';
+  const instances = payload.databaseInstances;
+  if (instances) ctx.defaultRtdbInstance = instances.defaultInstance;
+  if (instances?.projectId) ctx.rtdbProjectId = instances.projectId;
+  if (instances?.rulesFiles) ctx.rtdbRulesFiles = instances.rulesFiles;
+  const rtdb = rtdbInstance(ctx);
+  rtdbSandbox.setDefaultPolicy(rtdb.live, ctx.rtdbDefaultPolicy);
+  if (instances) {
+    // Deploy targets no project resolved at server start wait for the first
+    // app port's project id; an app port that connected first resolves them now.
+    ctx.pendingDatabaseTargets = createPendingDatabaseTargets(instances.pendingTargets);
+    try {
+      connectDatabaseInstanceRules(databaseInstanceRulesHost(ctx), instances);
+    } catch (error) {
+      throw new Error(`database rules not loaded in the sandbox: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    resolvePendingDatabaseTargets(ctx);
+  } else if (payload.databaseRules) {
+    const refusal = rtdbRulesSourceRejection(payload.databaseRules);
+    if (refusal !== null) throw new Error(`database.rules.json not loaded in the sandbox: ${refusal.message}`);
+    rtdbSandbox.setRules(rtdb.live, payload.databaseRules);
+    rtdb.rules = {
       source: payload.databaseRules,
       updatedAt: Date.now(),
       status: 'active',
       messages: [],
     };
-  } else if (payload.permissive) {
-    rtdbSandbox.setDefaultPolicy(rtdb, 'allow');
-  } else {
-    rtdbSandbox.setDefaultPolicy(rtdb, 'deny');
   }
 
   // 1b. Storage rules — deployed here, before any storage op can run.
@@ -372,18 +403,22 @@ export function applyServeInit(
     let disposed = false;
 
     const postCapture = async (): Promise<void> => {
-      const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
+      // The default instance at the top of the RTDB block, each named
+      // instance under `instances`: verify replays each one into its own tree.
+      const rtdb = rtdbInstance(ctx).live;
       const rtdbState =
         payload.databaseRules || ctx.sandbox.history().some((event) => event.service === 'rtdb')
           ? rtdbSandbox.snapshotState(rtdb)
           : undefined;
+      const defaultInstance = defaultInstanceNameOf(ctx);
       const auth = ensureAuth(ctx);
       const body = JSON.stringify(buildVerifyFixture({
         sandbox: ctx.sandbox,
         firestoreRules: payload.rules,
         rtdbRules: payload.databaseRules ?? null,
         rtdbState,
-        rtdbDatabaseUrl: payload.databaseUrl ?? null,
+        rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
+        rtdbInstances: captureRtdbInstances(ctx.sandbox, defaultInstance),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: ctx.sandbox.currentUser,
@@ -668,7 +703,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // auth above: `getDatabase(sandbox)` calls `registerPersistableService`,
   // which makes the persisted tree ride the controller blob AND (via the
   // controller's late-registration hook) applies the restored tree NOW. The
-  // worker otherwise creates RTDB handles lazily (`ctx.rtdb ??= ...`), so a
+  // worker otherwise creates RTDB handles lazily (`rtdbInstance(ctx)`), so a
   // Studio RTDB-tab read that arrives before any RTDB op would see an empty
   // tree even though a prior session's data was persisted. Eager registration
   // makes the restored tree queryable immediately.

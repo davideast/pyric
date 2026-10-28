@@ -82,6 +82,18 @@ export function attachSandboxApp(
   return runtime;
 }
 
+/**
+ * Attach an app whose sandbox and session refuse every read with `refusal()`,
+ * so the first service call on it fails instead of opening a private store.
+ */
+export function attachRefusedSandboxApp(app: FirebaseApp, refusal: () => Error): void {
+  const runtime = attachSandboxApp(app, null as unknown as Sandbox, createAppSession());
+  const refuse = (): never => {
+    throw refusal();
+  };
+  Object.defineProperties(runtime, { sandbox: { get: refuse }, session: { get: refuse } });
+}
+
 export async function markSandboxAppDeleted(app: FirebaseApp): Promise<void> {
   const runtime = runtimes.get(app);
   if (!runtime) return;

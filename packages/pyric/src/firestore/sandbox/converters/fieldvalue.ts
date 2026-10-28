@@ -23,10 +23,9 @@
  *   helpers are the canonical constructors.
  *
  * Prior lookup:
- *   `ctx.fieldPath` and `ctx.prior` together identify what value to
- *   read from the existing doc. {@link readPrior} walks the dotted
- *   path with bracketed array indices ("tags[0]", "user.profile.name"),
- *   returning `undefined` for any missing segment.
+ *   `ctx.fieldSegments` and `ctx.prior` together identify what value to
+ *   read from the existing doc. {@link readPrior} walks the literal
+ *   segments, returning `undefined` for any missing segment.
  *
  * Idempotency:
  *   Each converter only claims its own sentinel shape. The output —
@@ -87,33 +86,24 @@ export const DELETE_FIELD: DeleteFieldSentinel = { __type: 'deleteField' };
 // ═══ Prior lookup ═══
 
 /**
- * Read `ctx.prior.<fieldPath>` where fieldPath uses dot+bracket
- * notation as set by value-resolver.ts (`users.profile.name`,
- * `tags[0]`). Returns `undefined` for any missing segment so callers
+ * Read the prior value at `ctx.fieldSegments` (field names, then array
+ * indices as numbers; a field name may contain `.`). Returns `undefined`
+ * for any missing segment so callers
  * can apply "missing prior" defaults (e.g., increment treats absent
  * as 0; arrayUnion treats absent as []).
  */
 function readPrior(ctx: ResolveContext): unknown {
   if (ctx.prior === null) return undefined;
-  if (ctx.fieldPath === '') return ctx.prior;
   let cursor: unknown = ctx.prior;
-  // Split on '.' but keep bracketed indices attached. Then for each
-  // segment, peel any [n] suffixes after the dotted name.
-  for (const segment of ctx.fieldPath.split('.')) {
-    // segment may be like "tags[0][1]" — pull out the name first.
-    const nameMatch = /^([^\[]*)/.exec(segment);
-    const name = nameMatch ? nameMatch[1] : segment;
-    if (name) {
-      if (typeof cursor !== 'object' || cursor === null) return undefined;
-      cursor = (cursor as Record<string, unknown>)[name];
-    }
-    // Then walk any bracket indices.
-    const bracketRE = /\[(\d+)\]/g;
-    let m: RegExpExecArray | null;
-    while ((m = bracketRE.exec(segment)) !== null) {
+  for (const segment of ctx.fieldSegments) {
+    if (typeof segment === 'number') {
       if (!Array.isArray(cursor)) return undefined;
-      cursor = cursor[Number(m[1])];
+      cursor = cursor[segment];
+      continue;
     }
+    if (typeof cursor !== 'object' || cursor === null || Array.isArray(cursor)) return undefined;
+    if (!Object.hasOwn(cursor, segment)) return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor;
 }

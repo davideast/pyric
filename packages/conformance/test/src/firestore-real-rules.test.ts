@@ -32,6 +32,13 @@ describe('Firestore real-probe rules lifecycle', () => {
     expect(next).toContain("rules_version = '2';");
   });
 
+  test('scopes the collection-group listener rules to collection ids that carry the run id', () => {
+    const next = injectFirestoreProbeRules(selectFirestoreRulesFile(ruleset).content, 'run123');
+
+    expect(next).toContain('match /{path=**}/cdd_items_run123/{id}');
+    expect(next).toContain('match /__pyric_firestore_cdd/run123/users/{uid}/cdd_other_run123/{id}');
+  });
+
   test('preserves every non-Firestore source file byte-for-byte', () => {
     const selected = selectFirestoreRulesFile(ruleset);
     const files = replaceSelectedRulesFile(

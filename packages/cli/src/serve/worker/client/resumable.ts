@@ -9,11 +9,18 @@ import { storageTaskProgress, storageTaskResult } from 'pyric/storage/internal';
  */
 import type { FullMetadata } from 'pyric/storage';
 import { sandboxNow } from './clock.js';
-import type { ClientStorageReference, ClientSettableMetadata, RouteUpload } from './storage.js';
+import type { ClientStorageReference, ClientSettableMetadata, CommittedUpload, RouteUpload } from './storage.js';
 import {
-  abortRouteUpload, beginRouteUpload, byteRouteOf, deleteObject, finishRouteUpload, routeUploadOffset,
-  sendRouteSlice, uploadBlobOf, uploadBytes,
+  abortRouteUpload, beginRouteUpload, byteRouteOf, commitUpload, finishRouteUpload, routeUploadOffset,
+  sendRouteSlice, uploadBlobOf,
 } from './storage.js';
+import type { CommitOutcome } from './upload-rollback.js';
+import { commitOutcomeOf, removeStoredObject, storedUpload } from './upload-rollback.js';
+
+function asError(value: unknown): Error {
+  if (value instanceof Error) return value;
+  return new Error(String(value));
+}
 
 export type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
 
@@ -81,6 +88,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   private _observers: ClientTaskObserver[] = [];
   private _didIntermediateProgress = false;
   private _committing = false;
+  /** The commit's outcome when it settled while paused; resuming reports it. */
+  private _heldOutcome: CommitOutcome | undefined;
+  /** The commit once it is sent; it cannot be recalled, so a cancel waits on it. */
+  private _sentCommit: Promise<CommitOutcome> | undefined;
   private _error: Error | undefined;
   private readonly _ref: ClientStorageReference;
   private readonly _data: Blob | Uint8Array | ArrayBuffer;
@@ -130,7 +141,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     const initialMetadata: FullMetadata = {
       fullPath: ref.fullPath,
       name: ref.name,
-      bucket: 'default',
+      bucket: ref.bucket || 'default',
       generation: '1',
       metageneration: '1',
       timeCreated: now,
@@ -155,9 +166,21 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       task: this,
     };
 
+    // The first frame goes out at the call (D1, D2); progress reports follow on a microtask.
+    this._start();
     queueMicrotask(() => {
       this._runStep();
     });
+  }
+
+  private _start(): void {
+    // Before the first attachment the transport cannot say whether the host
+    // has a byte route. `uploadBytes` then keeps this upload's place in the
+    // call order until it can, and sends it over the route or as frames (#1082).
+    const routeUnknown = this._ref.port.byteRouteSettled?.() !== undefined;
+    const routed = !routeUnknown && byteRouteOf(this._ref) !== undefined;
+    if (routed) void this._sendOverRoute();
+    else void this._commitUpload();
   }
 
   get snapshot(): ClientUploadTaskSnapshot {
@@ -219,16 +242,64 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     }
 
     if (canCancel) {
-      this._error = createCanceledError();
+      const canceled = createCanceledError();
       this._updateSnapshot('canceled', this._snapshot.bytesTransferred);
       this._inFlight?.abort();
-      const upload = this._upload;
-      if (upload !== undefined) void abortRouteUpload(upload);
-      this._notifyObservers('error');
-      this._reject(this._error);
+      // A failed rollback rejects with the error removeStoredObject words.
+      void this._rollBackCanceled().then(
+        () => this._settleCanceled(canceled),
+        (failure: unknown) => this._settleCanceled(asError(failure)),
+      );
       return true;
     }
     return false;
+  }
+
+  /**
+   * End a canceled task once its rollback is done: error observers, later
+   * subscribers, and the promise all get the same error, as Firebase settles
+   * them together, so an observer that reads the path finds it as the cancel
+   * leaves it. A failed rollback's error replaces `storage/canceled`.
+   */
+  private _settleCanceled(error: Error): void {
+    this._error = error;
+    this._notifyObservers('error');
+    this._reject(error);
+  }
+
+  /**
+   * Undo what a canceled upload left on the host: wait for a sent commit,
+   * discard the staged route upload, then delete the object if the commit
+   * stored it, whether it settled while paused or settles after the cancel.
+   * The commit settles first, so the discard never drops staged bytes that a
+   * finish in flight is still storing.
+   */
+  private async _rollBackCanceled(): Promise<void> {
+    const held = this._heldOutcome;
+    this._heldOutcome = undefined;
+    const sent = this._sentCommit;
+    const outcome = held ?? (sent === undefined ? undefined : await sent);
+    const upload = this._upload;
+    if (upload !== undefined) await abortRouteUpload(upload);
+    const stored = storedUpload(outcome);
+    if (stored !== undefined) await removeStoredObject(this._ref, stored);
+  }
+
+  /** Send the commit, asking the host for the token that rolls it back. */
+  private _sendCommit(commit: Promise<CommittedUpload>): Promise<CommitOutcome> {
+    const sent = commitOutcomeOf(commit);
+    this._sentCommit = sent;
+    return sent;
+  }
+
+  /** Report the outcome a commit held while paused; false when there is none. */
+  private _releaseHeldOutcome(): boolean {
+    const held = this._heldOutcome;
+    if (held === undefined) return false;
+    this._heldOutcome = undefined;
+    if ('result' in held) this._succeed(held.result.metadata);
+    else this._fail(held.error);
+    return true;
   }
 
   on(
@@ -493,12 +564,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         this._notifyObservers('next');
       }
       if (!running()) return;
-      const metadata = await finishRouteUpload(upload);
-      if (!running()) return;
-      this._updateSnapshot('success', upload.size, metadata);
-      this._notifyObservers('next');
-      this._notifyObservers('complete');
-      this._resolve(this._snapshot);
+      const outcome = await this._sendCommit(finishRouteUpload(upload, true));
+      const finishFailedWhileRunning = 'error' in outcome && running();
+      if (finishFailedWhileRunning) throw outcome.error;
+      this._settleCommit(outcome);
     } catch (error: unknown) {
       this._inFlight = undefined;
       // A pause or a cancel aborts the slice in flight; neither is a failure.
@@ -521,9 +590,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     if (isNotRunning) {
       return;
     }
-    const routed = byteRouteOf(this._ref) !== undefined;
+    const routed = byteRouteOf(this._ref) !== undefined && !this._committing;
     if (routed) {
-      void this._sendOverRoute();
+      const reported = this._releaseHeldOutcome();
+      if (!reported) void this._sendOverRoute();
       return;
     }
 
@@ -537,57 +607,52 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       }
       this._updateSnapshot('running', middleBytes);
       this._notifyObservers('next');
-      queueMicrotask(() => {
-        this._runStep();
-      });
-      return;
     }
 
-    this._commitUpload();
+    const reported = this._releaseHeldOutcome();
+    if (!reported) void this._commitUpload();
   }
 
+  private _succeed(metadata: FullMetadata): void {
+    this._updateSnapshot('success', this._snapshot.totalBytes, metadata);
+    this._notifyObservers('next');
+    this._notifyObservers('complete');
+    this._resolve(this._snapshot);
+  }
+
+  private _fail(err: unknown): void {
+    this._error = err instanceof Error ? err : new Error(String(err));
+    this._updateSnapshot('error', this._snapshot.bytesTransferred);
+    this._notifyObservers('error');
+    this._reject(this._error);
+  }
+
+  /**
+   * Upload the object in one call. It is sent once: a pause cannot recall a
+   * sent frame, so an outcome that arrives while paused is held for resume,
+   * and a cancel waits on it to roll the object back.
+   */
   private async _commitUpload(): Promise<void> {
-    if (this._committing) return;
     const isNotRunning = this._snapshot.state !== 'running';
-    if (isNotRunning) {
+    const hasStarted = this._committing || this._heldOutcome !== undefined;
+    if (isNotRunning || hasStarted) return;
+    this._committing = true;
+    const outcome = await this._sendCommit(commitUpload(this._ref, this._data, this._metadata, true));
+    this._committing = false;
+    this._settleCommit(outcome);
+  }
+
+  /** Report a settled commit, or hold it while paused; a cancel rolls it back itself. */
+  private _settleCommit(outcome: CommitOutcome): void {
+    const state = this._snapshot.state;
+    const isRunning = state === 'running';
+    if (isRunning) {
+      if ('result' in outcome) this._succeed(outcome.result.metadata);
+      else this._fail(outcome.error);
       return;
     }
-
-    this._committing = true;
-    try {
-      const result = await uploadBytes(this._ref, this._data, this._metadata);
-      const isStillRunning = this._snapshot.state === 'running';
-      if (isStillRunning) {
-        this._updateSnapshot('success', this._snapshot.totalBytes, result.metadata);
-        this._notifyObservers('next');
-        this._notifyObservers('complete');
-        this._resolve(this._snapshot);
-      } else {
-        try {
-          await deleteObject(this._ref);
-        } catch {
-          // Best-effort rollback
-        }
-      }
-    } catch (err: unknown) {
-      const isStillRunning = this._snapshot.state === 'running';
-      if (isStillRunning) {
-        let errObj: Error;
-        const isInstanceOfError = err instanceof Error;
-        if (isInstanceOfError) {
-          errObj = err as Error;
-        } else {
-          errObj = new Error(String(err));
-        }
-        this._error = errObj;
-        this._updateSnapshot('error', this._snapshot.bytesTransferred);
-        this._notifyObservers('error');
-        this._reject(this._error);
-      }
-    } finally {
-      this._committing = false;
-      if (this._snapshot.state === 'running') queueMicrotask(() => this._runStep());
-    }
+    const isPaused = state === 'paused';
+    if (isPaused) this._heldOutcome = outcome;
   }
 }
 

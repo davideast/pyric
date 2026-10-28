@@ -1,6 +1,7 @@
 /**
  * Scaffold template definition for Next.js (`npm create pyric -- --template nextjs`).
  */
+import { FIREBASE_ADMIN_PIN, FIREBASE_PIN } from './firebase-pins.js';
 import type { ScaffoldTemplate } from './templates.js';
 
 const NEXTJS_CONFIG_MJS = `import { fileURLToPath } from 'node:url';
@@ -491,8 +492,8 @@ export const NEXTJS_TEMPLATE: ScaffoldTemplate = {
     start: 'next start',
   },
   dependencies: {
-    firebase: '^12.12.0',
-    'firebase-admin': '^13.0.0',
+    firebase: FIREBASE_PIN,
+    'firebase-admin': FIREBASE_ADMIN_PIN,
     next: '^15.0.0',
     react: '^19.0.0',
     'react-dom': '^19.0.0',

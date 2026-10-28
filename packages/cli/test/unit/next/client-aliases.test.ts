@@ -26,11 +26,32 @@ describe('client aliases', () => {
     }
   });
 
-  it('sends firebase/firestore/lite to the deferred lite entry, not the full Firestore entry', async () => {
+  it('sends all deferred client subpaths to their deferred entries instead of the real Firebase SDK', async () => {
     const aliases = getClientAliases();
-    expect(aliases['firebase/firestore/lite']).toBe('@pyric/cli/next/internal/firestore-lite');
-    const lite = (await import(aliases['firebase/firestore/lite']!)) as Record<string, () => unknown>;
-    expect(() => lite.getFirestore!()).toThrow("pyric: 'firebase/firestore/lite' is not yet mirrored by the local sandbox.");
+    const cases: ReadonlyArray<readonly [specifier: string, entry: string, exportName: string]> = [
+      ['firebase/analytics', 'analytics', 'getAnalytics'],
+      ['firebase/firestore/lite', 'firestore-lite', 'getFirestore'],
+      ['firebase/functions', 'functions', 'getFunctions'],
+      ['firebase/performance', 'performance', 'getPerformance'],
+      ['firebase/remote-config', 'remote-config', 'getRemoteConfig'],
+    ];
+    for (const [specifier, entry, exportName] of cases) {
+      expect(aliases[specifier]).toBe(`@pyric/cli/next/internal/${entry}`);
+      const mod = (await import(aliases[specifier]!)) as Record<string, () => unknown>;
+      expect(() => mod[exportName]!()).toThrow(
+        `pyric: '${specifier}' is not yet mirrored by the local sandbox.`,
+      );
+    }
+  });
+
+  it('sends firebase/app-check to the App Check mirror', async () => {
+    const aliases = getClientAliases();
+    expect(aliases['firebase/app-check']).toBe('@pyric/cli/next/internal/app-check');
+    const mod = (await import(aliases['firebase/app-check']!)) as Record<string, unknown>;
+    expect(Object.keys(mod).sort()).toEqual([
+      'CustomProvider', 'ReCaptchaEnterpriseProvider', 'ReCaptchaV3Provider', 'getLimitedUseToken',
+      'getToken', 'initializeAppCheck', 'onTokenChanged', 'setTokenAutoRefreshEnabled',
+    ]);
   });
 
   it('aliases no @firebase/* package', () => {

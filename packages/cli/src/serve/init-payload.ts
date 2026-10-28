@@ -1,16 +1,64 @@
 import type { AiEngineConfigWire } from './worker/protocol.js';
+import type { OwnersConfig } from './owners-config.js';
+
+/** A Realtime Database ruleset as `database.rules.json` holds it. */
+export type RtdbRulesJson = { rules: Record<string, unknown> };
+
+/** The Realtime Database instances a project deploys rules to, read as the Firebase CLI reads `firebase.json`. */
+export interface DatabaseInstancesRules {
+  /** The instance `getDatabase()` selects without a URL. */
+  defaultInstance: string;
+  /**
+   * The project the server resolved, when one is set. `<projectId>` names the
+   * default instance as `<projectId>-default-rtdb` does, so the sandbox
+   * recognizes it before an app names its project.
+   */
+  projectId?: string;
+  /** Each declared instance's rules, keyed by instance name; null while its rules file does not exist. */
+  rules: Record<string, RtdbRulesJson | null>;
+  /** Each declared instance's rules file, relative to the project directory, for messages that name it. */
+  rulesFiles?: Record<string, string>;
+  /** `firebase.json` target entries no project resolved when the server started. */
+  pendingTargets?: PendingDatabaseTargetRules[];
+}
+
+/** Where a database ruleset deploys: an instance name, absent for the
+ *  default instance, or an unresolved deploy target. */
+export type DatabaseRulesDestination = string | { target: string };
+
+/**
+ * A `firebase.json` deploy target the server could not map to instances,
+ * because no project was set or the project does not map it. The sandbox
+ * applies its rules once the page's app config names a project.
+ */
+export interface PendingDatabaseTargetRules {
+  /** The deploy target name. */
+  target: string;
+  /** The target's rules; null while its rules file does not exist. */
+  rules: RtdbRulesJson | null;
+  /** The instance names `.firebaserc` maps the target to, by project id. */
+  instancesByProject: Record<string, string[]>;
+}
 
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
 export interface InitPayload {
+  /**
+   * This host boot's identity, on a Node host. A Node process presents it on
+   * attach, as a page presents the one stamped into its HTML, so the host
+   * knows the process is verified against this boot.
+   */
+  instanceId?: string;
   /** Per-server capability for the warning-only activity report endpoint. */
   activityToken?: string;
   /** Per-boot session capability token required on workspace and project endpoints. */
   sessionToken?: string;
   rules: string | null;
   rulesHash: string | null;
-  databaseRules?: { rules: Record<string, unknown> } | null;
+  /** The default instance's Realtime Database rules, for consumers that serve one database. */
+  databaseRules?: RtdbRulesJson | null;
   databaseRulesHash?: string | null;
-  databaseUrl?: string | null;
+  /** Every Realtime Database instance `firebase.json` deploys rules to, with its rules. */
+  databaseInstances?: DatabaseInstancesRules | null;
   /** Explicit opt-in to permissive default access when rules are unconfigured. */
   permissive?: boolean;
   /** Storage rules installed before the first Storage operation. A dev server
@@ -67,9 +115,17 @@ export interface InitPayload {
   ai?: { engine?: AiEngineConfigWire } | null;
 }
 
-/** Synchronous page transport selection, injected before application modules. */
-export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy'>;
+/**
+ * Synchronous page transport selection, injected before application modules.
+ * It also carries the project's listener-owner settings, which must be in
+ * force before the application opens its first listener.
+ */
+export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy' | 'instanceId'> & {
+  /** `owners` from `pyric.json` or the Vite plugin; absent when neither sets it. */
+  owners?: OwnersConfig;
+};
 
 declare global {
   var __PYRIC_WORKER_INIT__: WorkerInitPayload | undefined;
+  var __PYRIC_HOST_INSTANCE_ID__: string | undefined;
 }

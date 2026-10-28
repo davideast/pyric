@@ -17,7 +17,7 @@
  *   - exists / delete / idempotent re-delete; `No such object` parity
  *   - cross-visibility with an independent direct worker port (one store)
  *   - 8 MiB cap: client-side rejection before send + host-side rejection
- *   - non-default bucket and resumable remediating throws; streams as frames
+ *   - named buckets kept apart; createResumableUpload rejects without a byte route; streams as frames
  *   - getSignedUrl stub byte-identical to the local arm
  *   - deny-all page rules bypassed by the pinned admin lens
  *   - no-peer fail-fast through the storage API
@@ -319,14 +319,33 @@ describe('pyric-admin remote dispatch — Storage data plane', () => {
 // ─── Remediating throws + caps ──────────────────────────────────────────────
 
 describe('pyric-admin remote dispatch — Storage remediating throws', () => {
-  it('throws loudly on non-default bucket names (single-bucket worker store)', () => {
-    const { app } = makeStack();
+  it('keeps each named bucket apart on the host, and names the default bucket by storageBucket', async () => {
+    const { ctx, remote } = makeStack();
+    const app = initializeApp({ sandbox: remote, storageBucket: 'demo-app.appspot.com' }, 'configured');
     const storage = getStorage(app);
-    expect(() => storage.bucket('my-other-bucket')).toThrow(/single bucket/);
-    expect(() => storage.bucket('my-other-bucket')).toThrow(/my-other-bucket/);
-    // The default bucket — named or unnamed — is fine.
-    expect(storage.bucket().name).toBe('pyric-default');
-    expect(storage.bucket('pyric-default').name).toBe('pyric-default');
+    expect(storage.bucket().name).toBe('demo-app.appspot.com');
+    expect(getStorage(initializeApp({ sandbox: remote }, 'unconfigured')).bucket().name).toBe('pyric-default');
+
+    await storage.bucket().file('shared/a.txt').save('default');
+    await storage.bucket('demo-app-upload-staging').file('shared/a.txt').save('staging');
+    expect((await storage.bucket().file('shared/a.txt').download())[0].toString()).toBe('default');
+    expect((await storage.bucket('demo-app-upload-staging').file('shared/a.txt').download())[0].toString()).toBe('staging');
+    expect((await storage.bucket().file('shared/a.txt').getMetadata())[0].bucket).toBe('demo-app.appspot.com');
+
+    // The configured default bucket is the host's default bucket, which the page reads.
+    const page = (await workerOp(ctx, { method: 'storage.getMetadata', path: 'shared/a.txt' })) as { size: number };
+    expect(page.size).toBe('default'.length);
+    // Its configured name and 'pyric-default' reach the same objects.
+    expect((await storage.bucket('pyric-default').file('shared/a.txt').download())[0].toString()).toBe('default');
+    const named = (await workerOp(ctx, { method: 'storage.getMetadata', bucket: 'demo-app.appspot.com', path: 'shared/a.txt' })) as { size: number };
+    expect(named.size).toBe('default'.length);
+    await expect(workerOp(ctx, { method: 'storage.getMetadata', bucket: 'demo-app-upload-staging', path: 'missing' })).rejects.toThrow(/object-not-found/);
+  });
+
+  it('createResumableUpload rejects on a host without an HTTP byte route', async () => {
+    const { app } = makeStack();
+    await expect(getStorage(app).bucket().file('x/y').createResumableUpload({ metadata: { contentType: 'image/png' } }))
+      .rejects.toThrow(/not implemented .* without an HTTP byte route/);
   });
 
   it('rejects an over-cap save CLIENT-SIDE if exceeding MAX_STORAGE_OBJECT_BYTES (512 MiB)', async () => {
@@ -366,12 +385,9 @@ describe('pyric-admin remote dispatch — Storage remediating throws', () => {
     expect(back.byteLength).toBe(MAX_STORAGE_OP_BYTES + 1);
   });
 
-  it('resumable saves throw; streams move bytes as frames on a SharedWorker host', async () => {
+  it('streams move bytes as frames on a SharedWorker host', async () => {
     const { app } = makeStack();
     const file = getStorage(app).bucket().file('x/y');
-    await expect(file.save(Buffer.from('x'), { resumable: true })).rejects.toThrow(
-      /resumable uploads/,
-    );
     const bytes = Buffer.from(Array.from({ length: 5 * 1024 * 1024 + 9 }, (_, index) => index % 251));
     await pipeline(Readable.from([bytes.subarray(0, 1000), bytes.subarray(1000)]), file.createWriteStream({ contentType: 'audio/wav' }));
     const chunks: Buffer[] = [];
@@ -491,7 +507,28 @@ describe('pyric-admin storage conformance — same assertions, both arms', () =>
         'pyric-sandbox-storage://pyric-default/conformance/data.json?expires=1800000000000&action=read',
       );
 
-      await expect(file.save(Buffer.from('x'), { resumable: true })).rejects.toThrow(/resumable/);
+      // `resumable` chooses a transport only; the object is the same.
+      await file.save(Buffer.from('{"n":3}'), { resumable: true });
+      expect((await file.download())[0].toString('utf8')).toBe('{"n":3}');
+
+      // A named bucket holds its own objects; copy reaches across buckets.
+      const staging = storage.bucket('conformance-staging');
+      const staged = staging.file('conformance/data.json');
+      expect(await staged.exists()).toEqual([false]);
+      await staged.save('staged', { metadata: { contentType: 'text/plain', metadata: { owner: 'u1' } } });
+      expect((await file.download())[0].toString('utf8')).toBe('{"n":3}');
+      expect((await staged.getMetadata())[0].bucket).toBe('conformance-staging');
+      const [copy, copied] = await staged.copy(bucket.file('conformance/copied.txt'), {
+        metadata: { firebaseStorageDownloadTokens: 'tok-copy' },
+      });
+      expect(copy.bucket.name).toBe(bucket.name);
+      expect(copied).toMatchObject({ name: 'conformance/copied.txt', contentType: 'text/plain', size: '6' });
+      expect(copied.metadata).toEqual({ owner: 'u1', firebaseStorageDownloadTokens: 'tok-copy' });
+      expect((await copy.download())[0].toString('utf8')).toBe('staged');
+      expect(await bucket.file('conformance/copied.txt').exists()).toEqual([true]);
+      expect(await staging.file('conformance/copied.txt').exists()).toEqual([false]);
+      await staged.delete();
+      await copy.delete();
 
       await file.delete();
       await file.delete(); // idempotent

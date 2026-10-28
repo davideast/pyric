@@ -23,6 +23,7 @@ import type {
   MatchBlock,
 } from '../grammar/FirestoreAST.js';
 import type { LintWarning } from './linter.js';
+import { stripCommentsAndStrings } from './ast-utils.js';
 
 // ─── Known-bad sets ───────────────────────────────────────────────────
 
@@ -111,22 +112,44 @@ export const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqr
  * identifiers in the rules language — there's no way the user has
  * shadowed them.
  */
-interface WrongPath { receiver: string; property: string; suggestion: string }
+interface WrongPath {
+  receiver: string;
+  property: string;
+  suggestion: string;
+  storageSuggestion?: string;
+  storageOnly?: boolean;
+}
 const WRONG_CONTEXT_PATHS: WrongPath[] = [
   { receiver: 'request',  property: 'data',
-    suggestion: 'Use `request.resource.data` (the incoming write payload)' },
+    suggestion: 'Use `request.resource.data` (the incoming write payload)',
+    storageSuggestion: 'Use `request.resource` (e.g. `request.resource.size`, `request.resource.contentType`, or `request.resource.metadata`)' },
   { receiver: 'request',  property: 'uid',
     suggestion: 'Use `request.auth.uid`' },
   { receiver: 'request',  property: 'token',
     suggestion: 'Use `request.auth.token`' },
   { receiver: 'request',  property: 'user',
     suggestion: 'Use `request.auth` (or `request.auth.uid` for the user id)' },
+  { receiver: 'request.auth', property: 'id',
+    suggestion: 'Use `request.auth.uid`' },
   { receiver: 'resource', property: 'path',
     suggestion: '`resource.path` is not available — bind path captures in the match pattern' },
   { receiver: 'resource', property: 'exists',
-    suggestion: 'Use `resource != null` (or `exists()` for cross-document checks)' },
+    suggestion: 'Use `resource != null` (or `exists()` for cross-document checks)',
+    storageSuggestion: 'Use `resource != null` (or `firestore.exists()` for cross-service document checks)' },
   { receiver: 'resource', property: 'id',
     suggestion: '`resource.id` is not available — capture the document id with `/{docId}` in the match path' },
+  { receiver: 'resource', property: 'data',
+    suggestion: '`resource.data` does not exist in Storage rules — use `resource.size`, `resource.contentType`, or `resource.metadata`',
+    storageOnly: true },
+  { receiver: 'request.resource', property: 'data',
+    suggestion: '`request.resource.data` does not exist in Storage rules — use `request.resource.size`, `request.resource.contentType`, or `request.resource.metadata`',
+    storageOnly: true },
+  { receiver: 'resource', property: 'timeUpdated',
+    suggestion: 'Use `resource.updated` instead of `resource.timeUpdated`',
+    storageOnly: true },
+  { receiver: 'request.resource', property: 'timeUpdated',
+    suggestion: 'Use `request.resource.updated` instead of `request.resource.timeUpdated`',
+    storageOnly: true },
 ];
 
 /**
@@ -180,14 +203,13 @@ const SYNTAX_HINTS: Array<{ pattern: RegExp; message: string }> = [
 ];
 
 /**
- * Pre-parse syntactic check. Strips comments, scans the source for the
- * SYNTAX_HINTS patterns, emits one `INVALID_OPERATOR` per distinct hit.
+ * Pre-parse syntactic check. Strips comments and string literal contents,
+ * scans the source for the SYNTAX_HINTS patterns, emits one `INVALID_OPERATOR`
+ * per distinct hit.
  */
 export function checkSyntaxHints(source: string): LintWarning[] {
   const warnings: LintWarning[] = [];
-  const stripped = source
-    .replace(/\/\/[^\n]*/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const stripped = stripCommentsAndStrings(source);
   for (const hint of SYNTAX_HINTS) {
     if (hint.pattern.test(stripped)) {
       warnings.push({
@@ -208,51 +230,68 @@ interface Loc {
   ruleIndex?: number;
 }
 
+type ExprVisitor = (
+  expr: Expression,
+  loc: Loc,
+  scope: ReadonlySet<string>,
+  localVars: ReadonlySet<string>,
+) => void;
+
 /**
  * Visit every expression in the match tree, carrying the set of
- * user-defined function names visible where the expression sits. Scope
- * accumulates outward-in: a block sees its own declarations plus every
- * enclosing scope's, which is the resolution order the simulator
- * implements in `simulator/match-resolution.ts`.
+ * user-defined function names and local variables/captures visible where the
+ * expression sits.
  */
 function walkAllExpressions(
   match: MatchBlock,
   inheritedScope: ReadonlySet<string>,
-  visit: (expr: Expression, loc: Loc, scope: ReadonlySet<string>) => void,
+  inheritedVars: ReadonlySet<string>,
+  visit: ExprVisitor,
 ) {
   const path = match.path.raw;
   const scope = new Set(inheritedScope);
   for (const fn of match.functions) scope.add(fn.name);
+  const matchVars = new Set(inheritedVars);
+  for (const seg of match.path.segments) {
+    if (seg.type !== 'literal') matchVars.add(seg.name);
+  }
   for (const fn of match.functions) {
     const loc: Loc = { matchPath: path, functionName: fn.name };
-    walkExpr(fn.body, loc, scope, visit);
-    for (const b of fn.lets) walkExpr(b.value, loc, scope, visit);
+    const fnVars = new Set([...matchVars, ...fn.parameters]);
+    for (const b of fn.lets) {
+      walkExpr(b.value, loc, scope, fnVars, visit);
+      fnVars.add(b.name);
+    }
+    walkExpr(fn.body, loc, scope, fnVars, visit);
   }
   for (let i = 0; i < match.allows.length; i++) {
-    walkExpr(match.allows[i].condition, { matchPath: path, ruleIndex: i }, scope, visit);
+    walkExpr(match.allows[i].condition, { matchPath: path, ruleIndex: i }, scope, matchVars, visit);
   }
-  for (const child of match.children) walkAllExpressions(child, scope, visit);
+  for (const child of match.children) walkAllExpressions(child, scope, matchVars, visit);
 }
 
 function walkExpr(
   expr: Expression,
   loc: Loc,
   scope: ReadonlySet<string>,
-  visit: (expr: Expression, loc: Loc, scope: ReadonlySet<string>) => void,
+  localVars: ReadonlySet<string>,
+  visit: ExprVisitor,
 ) {
-  visit(expr, loc, scope);
+  visit(expr, loc, scope, localVars);
   switch (expr.type) {
-    case 'binaryOp': walkExpr(expr.left, loc, scope, visit); walkExpr(expr.right, loc, scope, visit); break;
-    case 'unaryOp': walkExpr(expr.operand, loc, scope, visit); break;
-    case 'methodCall': walkExpr(expr.object, loc, scope, visit); expr.args.forEach(a => walkExpr(a, loc, scope, visit)); break;
-    case 'memberAccess': walkExpr(expr.object, loc, scope, visit); break;
-    case 'bracketAccess': walkExpr(expr.object, loc, scope, visit); walkExpr(expr.index, loc, scope, visit); break;
-    case 'ternary': walkExpr(expr.condition, loc, scope, visit); walkExpr(expr.consequent, loc, scope, visit); walkExpr(expr.alternate, loc, scope, visit); break;
-    case 'inExpr': walkExpr(expr.element, loc, scope, visit); walkExpr(expr.collection, loc, scope, visit); break;
-    case 'isExpr': walkExpr(expr.value, loc, scope, visit); break;
-    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, loc, scope, visit)); break;
-    case 'mapLiteral': expr.entries.forEach(en => { walkExpr(en.key, loc, scope, visit); walkExpr(en.value, loc, scope, visit); }); break;
-    case 'functionCall': expr.args.forEach(a => walkExpr(a, loc, scope, visit)); break;
+    case 'binaryOp': walkExpr(expr.left, loc, scope, localVars, visit); walkExpr(expr.right, loc, scope, localVars, visit); break;
+    case 'unaryOp': walkExpr(expr.operand, loc, scope, localVars, visit); break;
+    case 'methodCall': walkExpr(expr.object, loc, scope, localVars, visit); expr.args.forEach(a => walkExpr(a, loc, scope, localVars, visit)); break;
+    case 'memberAccess': walkExpr(expr.object, loc, scope, localVars, visit); break;
+    case 'bracketAccess': walkExpr(expr.object, loc, scope, localVars, visit); walkExpr(expr.index, loc, scope, localVars, visit); break;
+    case 'sliceAccess': walkExpr(expr.object, loc, scope, localVars, visit); walkExpr(expr.start, loc, scope, localVars, visit); walkExpr(expr.end, loc, scope, localVars, visit); break;
+    case 'ternary': walkExpr(expr.condition, loc, scope, localVars, visit); walkExpr(expr.consequent, loc, scope, localVars, visit); walkExpr(expr.alternate, loc, scope, localVars, visit); break;
+    case 'inExpr': walkExpr(expr.element, loc, scope, localVars, visit); walkExpr(expr.collection, loc, scope, localVars, visit); break;
+    case 'isExpr': walkExpr(expr.value, loc, scope, localVars, visit); break;
+    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, loc, scope, localVars, visit)); break;
+    case 'mapLiteral': expr.entries.forEach(en => { walkExpr(en.key, loc, scope, localVars, visit); walkExpr(en.value, loc, scope, localVars, visit); }); break;
+    case 'functionCall': expr.args.forEach(a => walkExpr(a, loc, scope, localVars, visit)); break;
+    case 'pathLiteral': expr.segments.forEach(s => { if (typeof s !== 'string') walkExpr(s, loc, scope, localVars, visit); }); break;
   }
 }
 
@@ -280,7 +319,7 @@ function isUnresolvedDebugCall(
 }
 
 function isHallucinatedMethodCall(expr: Expression): boolean {
-  return expr.type === 'methodCall' && Boolean(HALLUCINATED_METHODS[expr.method]);
+  return expr.type === 'methodCall' && Object.hasOwn(HALLUCINATED_METHODS, expr.method);
 }
 
 function isUnsupportedMathMethodCall(expr: Expression): boolean {
@@ -297,25 +336,46 @@ function isBareMapMembershipCall(expr: Expression): boolean {
   return isKnownMap;
 }
 
-function isHallucinatedGlobalMethodCall(expr: Expression): boolean {
+function isHallucinatedGlobalMethodCall(expr: Expression, localVars: ReadonlySet<string>): boolean {
   if (expr.type !== 'methodCall') return false;
   if (expr.object.type !== 'identifier') return false;
-  return Boolean(HALLUCINATED_GLOBALS[expr.object.name]);
+  if (localVars.has(expr.object.name)) return false;
+  return Object.hasOwn(HALLUCINATED_GLOBALS, expr.object.name);
 }
 
-function isHallucinatedGlobalFunctionCall(expr: Expression): boolean {
-  return expr.type === 'functionCall' && Boolean(HALLUCINATED_GLOBALS[expr.name]);
+function isHallucinatedGlobalFunctionCall(expr: Expression, scope: ReadonlySet<string>): boolean {
+  if (expr.type !== 'functionCall') return false;
+  if (scope.has(expr.name)) return false;
+  return Object.hasOwn(HALLUCINATED_GLOBALS, expr.name);
 }
 
-function isHallucinatedGlobalIdentifier(expr: Expression): boolean {
-  return expr.type === 'identifier' && Boolean(HALLUCINATED_GLOBALS[expr.name]);
+function isHallucinatedGlobalIdentifier(expr: Expression, localVars: ReadonlySet<string>): boolean {
+  if (expr.type !== 'identifier') return false;
+  if (localVars.has(expr.name)) return false;
+  return Object.hasOwn(HALLUCINATED_GLOBALS, expr.name);
 }
 
-function isWrongContextPath(expr: Expression): { suggestion: string } | undefined {
-  if (expr.type !== 'memberAccess' || expr.object.type !== 'identifier') return undefined;
-  const recv = expr.object.name;
+function isWrongContextPath(
+  expr: Expression,
+  isStorage = false,
+): { path: string; suggestion: string } | undefined {
+  if (expr.type !== 'memberAccess') return undefined;
+  let recv: string | undefined;
+  if (expr.object.type === 'identifier') {
+    recv = expr.object.name;
+  } else if (expr.object.type === 'memberAccess' && expr.object.object.type === 'identifier') {
+    recv = `${expr.object.object.name}.${expr.object.property}`;
+  }
+  if (!recv) return undefined;
   const prop = expr.property;
-  return WRONG_CONTEXT_PATHS.find(p => p.receiver === recv && p.property === prop);
+  const match = WRONG_CONTEXT_PATHS.find(
+    p => p.receiver === recv && p.property === prop && (!p.storageOnly || isStorage),
+  );
+  if (!match) return undefined;
+  return {
+    path: `${recv}.${prop}`,
+    suggestion: isStorage && match.storageSuggestion ? match.storageSuggestion : match.suggestion,
+  };
 }
 
 /** Is `expr` a member access spelling exactly `request.auth.token.<claim>`
@@ -353,8 +413,18 @@ function isLengthPropertyAccessOnMethod(expr: Expression): boolean {
   return expr.type === 'memberAccess' && expr.property === 'length' && expr.object.type === 'methodCall';
 }
 
-function isMethodMissingParens(expr: Expression): boolean {
+function isMethodMissingParens(expr: Expression, isStorage = false): boolean {
   if (expr.type !== 'memberAccess' || !KNOWN_BUILTIN_METHODS.has(expr.property)) return false;
+  if (isStorage && expr.property === 'size') {
+    const isResourceSize =
+      expr.object.type === 'identifier' && expr.object.name === 'resource';
+    const isRequestResourceSize =
+      expr.object.type === 'memberAccess' &&
+      expr.object.property === 'resource' &&
+      expr.object.object.type === 'identifier' &&
+      expr.object.object.name === 'request';
+    if (isResourceSize || isRequestResourceSize) return false;
+  }
   const isLikelyData =
     (expr.object.type === 'identifier' &&
       (expr.object.name === 'request' || expr.object.name === 'resource')) ||
@@ -367,6 +437,7 @@ function isMethodMissingParens(expr: Expression): boolean {
 export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?: boolean } = {}): LintWarning[] {
   const warnings: LintWarning[] = [];
   const seen = new Set<string>();
+  const isStorage = ast.service?.name === 'firebase.storage';
 
   function emit(rule: string, key: string, loc: Loc, w: LintWarning) {
     const dedup = `${rule}|${key}|${loc.matchPath || ''}|${loc.functionName || ''}|${loc.ruleIndex ?? ''}`;
@@ -377,11 +448,16 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
 
   // Functions declared above `service` and directly inside it are visible
   // everywhere below, so they seed the scope the walk carries down.
-  const outerScope = new Set<string>();
-  for (const fn of ast.functions ?? []) outerScope.add(fn.name);
+  const globalScope = new Set<string>();
+  for (const imp of ast.imports ?? []) {
+    const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
+    for (const name of names) globalScope.add(name);
+  }
+  for (const fn of ast.functions ?? []) globalScope.add(fn.name);
+  const outerScope = new Set<string>(globalScope);
   for (const fn of ast.service.functions ?? []) outerScope.add(fn.name);
 
-  walkAllExpressions(ast.service.match, outerScope, (expr, loc, scope) => {
+  const visitNode: ExprVisitor = (expr, loc, scope, localVars) => {
     if (isUnresolvedDebugCall(expr, scope, options.allowDebug)) {
       emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
@@ -431,7 +507,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isHallucinatedGlobalMethodCall(expr)) {
+    if (isHallucinatedGlobalMethodCall(expr, localVars)) {
       if (expr.type === 'methodCall' && expr.object.type === 'identifier') {
         const name = expr.object.name;
         emit('HALLUCINATED_GLOBAL', `${name}.${expr.method}`, loc, {
@@ -444,7 +520,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isHallucinatedGlobalFunctionCall(expr)) {
+    if (isHallucinatedGlobalFunctionCall(expr, scope)) {
       if (expr.type === 'functionCall') {
         emit('HALLUCINATED_GLOBAL', expr.name, loc, {
           rule: 'HALLUCINATED_GLOBAL',
@@ -456,7 +532,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isHallucinatedGlobalIdentifier(expr)) {
+    if (isHallucinatedGlobalIdentifier(expr, localVars)) {
       if (expr.type === 'identifier') {
         emit('HALLUCINATED_GLOBAL', `ref:${expr.name}`, loc, {
           rule: 'HALLUCINATED_GLOBAL',
@@ -468,19 +544,15 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    const wrongContextMatch = isWrongContextPath(expr);
+    const wrongContextMatch = isWrongContextPath(expr, isStorage);
     if (wrongContextMatch) {
-      if (expr.type === 'memberAccess' && expr.object.type === 'identifier') {
-        const recv = expr.object.name;
-        const prop = expr.property;
-        emit('WRONG_CONTEXT_PATH', `${recv}.${prop}`, loc, {
-          rule: 'WRONG_CONTEXT_PATH',
-          severity: 'error',
-          message: `\`${recv}.${prop}\` is not a valid Firestore rules path. ${wrongContextMatch.suggestion}`,
-          location: loc,
-          fix: wrongContextMatch.suggestion,
-        });
-      }
+      emit('WRONG_CONTEXT_PATH', wrongContextMatch.path, loc, {
+        rule: 'WRONG_CONTEXT_PATH',
+        severity: 'error',
+        message: `\`${wrongContextMatch.path}\` is not a valid ${isStorage ? 'Storage' : 'Firestore'} rules path. ${wrongContextMatch.suggestion}`,
+        location: loc,
+        fix: wrongContextMatch.suggestion,
+      });
     }
 
     const boolClaim = boolTokenClaimStringComparison(expr);
@@ -528,7 +600,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       }
     }
 
-    if (isMethodMissingParens(expr)) {
+    if (isMethodMissingParens(expr, isStorage)) {
       if (expr.type === 'memberAccess') {
         emit('METHOD_MISSING_PARENS', expr.property, loc, {
           rule: 'METHOD_MISSING_PARENS',
@@ -539,7 +611,29 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
         });
       }
     }
-  });
+  };
+
+  for (const fn of ast.functions ?? []) {
+    const loc: Loc = { functionName: fn.name };
+    const fnVars = new Set(fn.parameters);
+    for (const b of fn.lets) {
+      walkExpr(b.value, loc, globalScope, fnVars, visitNode);
+      fnVars.add(b.name);
+    }
+    walkExpr(fn.body, loc, globalScope, fnVars, visitNode);
+  }
+
+  for (const fn of ast.service.functions ?? []) {
+    const loc: Loc = { functionName: fn.name };
+    const fnVars = new Set(fn.parameters);
+    for (const b of fn.lets) {
+      walkExpr(b.value, loc, outerScope, fnVars, visitNode);
+      fnVars.add(b.name);
+    }
+    walkExpr(fn.body, loc, outerScope, fnVars, visitNode);
+  }
+
+  walkAllExpressions(ast.service.match, outerScope, new Set(), visitNode);
 
   return warnings;
 }

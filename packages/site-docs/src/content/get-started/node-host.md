@@ -40,13 +40,17 @@ Pass `--hosted` to `pyric sandbox`:
 
 ```bash
 # Run host-only
-pyric sandbox --hosted
+npx pyric sandbox --hosted
 
 # Run host and execute your application command with automatic interception
-pyric sandbox --hosted -- npm run dev
+npx pyric sandbox --hosted -- npm run dev
 ```
 
-When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` and `firebase` imports in your child command resolve directly to the local sandbox.
+When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` imports in your child command connect to the Node host.
+
+Client Firebase SDKs in the child connect to the Node host too. `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` run as the process's own signed-in user, so your rules apply to server code as they do in production. The app must use the same Firebase options as your pages. `firebase/ai` and `firebase/messaging` in a server process fail with `failed-precondition`; use `firebase-admin` for those. Against the browser-hosted sandbox (`pyric sandbox` without `--hosted`), client SDKs in a server process fail with `failed-precondition` and name the Node host.
+
+A process that used `firebase/database` stays running until it calls `goOffline()` or `deleteApp()`, as the production SDK keeps it running.
 
 ### Vite plugin: `pyric({ hosted: true })`
 
@@ -72,7 +76,7 @@ When `hosted: true` is set, Vite starts the Node host internally, mounting both 
 ## System requirements
 
 - **Node.js**: Version **22.15** or later is required for native `node:sqlite` support.
-- **Experimental Warning**: Node emits `ExperimentalWarning: SQLite is an experimental feature`. This warning is expected and normal.
+- **Experimental Warning**: Some Node versions print `ExperimentalWarning: SQLite is an experimental feature`. The warning is harmless.
 - **Unsupported runtimes**: Node host mode requires Node's built-in SQLite engine. It is not currently supported under Bun or in the standalone single-executable binary.
 
 ---
@@ -101,7 +105,7 @@ An in-process MCP server (`pyric mcp --in-process`) uses a separate lock (`in-pr
 To archive existing state and start with an empty database, pass `--fresh` (or `fresh: true` in Vite):
 
 ```bash
-pyric sandbox --hosted --fresh -- npm run dev
+npx pyric sandbox --hosted --fresh -- npm run dev
 ```
 
 Pyric moves the existing database directory to `.pyric/state/hosted.archive-<timestamp>-<uuid>` and opens a brand-new database.
@@ -111,7 +115,7 @@ Pyric moves the existing database directory to `.pyric/state/hosted.archive-<tim
 If the database is damaged by an abrupt OS shutdown or corrupted filesystem:
 
 ```bash
-pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recovered
+npx pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recovered
 ```
 
 `salvage` copies and inspects readable records without altering the original database, producing an offline report.
@@ -130,6 +134,7 @@ pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recovered
 ### With the Vite plugin
 - Your application, Pyric Studio, docs, and MCP endpoints all share Vite's single port (default 5173).
 - Studio is served at `/__pyric/ui/studio`.
+- Server-rendered modules use this host too: their `firebase/*` and `firebase-admin/*` calls land in the same sandbox ([Vite plugin](./vite.md#server-rendered-code)).
 
 ---
 
@@ -143,20 +148,20 @@ Inspect and manipulate data directly from the command line:
 
 ```bash
 # List users on the running host
-pyric auth listUsers
+npx pyric auth listUsers
 
 # Inspect documents
-pyric firestore getDoc --collection users --id alice
+npx pyric firestore getDoc --path users/alice
 
 # Create user
-pyric auth createUser --email dev@example.com --password Secret123!
+npx pyric auth createUser --email dev@example.com --password Secret123!
 ```
 
 ### Backend scripts with `firebase-admin`
 Run backend scripts against the host by starting them through Pyric:
 
 ```bash
-pyric sandbox --hosted -- node seed-data.js
+npx pyric sandbox --hosted -- node seed-data.js
 ```
 
 The script's `firebase-admin` imports are intercepted and connect to the local sandbox without credentials or network access.
@@ -167,8 +172,19 @@ The script's `firebase-admin` imports are intercepted and connect to the local s
 
 - **HTTP byte route**: Storage bytes move over HTTP at `/__pyric/storage/v0/b/<bucket>/o/<path>`, never over the WebSocket. The web SDK, `pyric-admin`, and the Node remote client all use it. Objects can be up to **512 MiB**.
 - **Ranges and streams**: A `GET` supports `Range`, so an `<audio>` or `<video>` element streams and seeks an object by its download URL. `pyric-admin` downloads honor `start` and `end`, and `createReadStream` and `createWriteStream` work.
-- **Download URLs**: `getDownloadURL` from `firebase-admin/storage` returns the host's URL for a file, minting a token into its `firebaseStorageDownloadTokens` metadata when it has none. `file.setMetadata({ metadata: { firebaseStorageDownloadTokens: null } })` revokes the URL, as it does in production.
-- **References from URLs**: `ref(storage, url)` takes the host's download URL, a `gs://` URL, or a production download URL and gives the reference at the URL's path, so `deleteObject(ref(storage, url))` deletes the object an app kept the URL for. The host serves one bucket, so the reference is on that bucket whichever bucket the URL names.
+- **Download URLs**: `getDownloadURL` from `firebase-admin/storage` returns the host's URL for a file, minting a token into its `firebaseStorageDownloadTokens` metadata when it has none. A token you set yourself, with `file.save(data, { metadata: { metadata: { firebaseStorageDownloadTokens: token } } })` or `file.setMetadata`, grants `/__pyric/storage/v0/b/<bucket>/o/<path>?alt=media&token=<token>` the same way. `file.setMetadata({ metadata: { firebaseStorageDownloadTokens: null } })` revokes the URL, as it does in production.
+- **Buckets**: `storage.bucket()` is the bucket your app's `storageBucket` option names, and the page's `getStorage(app)` names it the same way. That bucket is the host's default bucket, so its byte route URLs work under either name. `storage.bucket('<name>')` is a bucket of its own: its objects stay apart from the default bucket's, and `file.copy()` copies between buckets with the object's metadata.
+- **Resumable upload sessions**: `file.createResumableUpload({ metadata, origin })` returns a session URL on the byte route. A browser sends the bytes with one `PUT`, or with `Content-Range` slices whose first slice names the total size. The object is created with `metadata` when the last byte arrives. The URL accepts cross-origin requests from `origin`. A slice whose total is `*` is refused with `400`, because the session needs its size up front.
+- **References from URLs**: `ref(storage, url)` takes the host's download URL, a `gs://` URL, or a production download URL and gives the reference at the URL's path, so `deleteObject(ref(storage, url))` deletes the object an app kept the URL for. In the page, the reference is on the default bucket whichever bucket the URL names.
+- **Production download URLs**: A server that stored download URLs from production can turn each one into the host's URL for the same object with `localStorageUrl` from `@pyric/cli/remote`. It accepts `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>?alt=media&token=<token>` and `https://storage.googleapis.com/<bucket>/<path>`, keeps the bucket, the path and the token, and returns `undefined` for any other URL. The host serves the local URL when the object exists in that bucket with that token in its `firebaseStorageDownloadTokens` metadata. The URL's bucket is the host's default bucket only when your app's `storageBucket` names it. A `storage.googleapis.com` URL carries no token, so the host refuses its local URL with `403` unless you add `token=<token>` to it.
+
+  ```js
+  import { localStorageUrl } from "@pyric/cli/remote";
+
+  const stored = "https://firebasestorage.googleapis.com/v0/b/demo-app.appspot.com/o/public%2Fhello.txt?alt=media&token=tok-1";
+  localStorageUrl(stored, "http://localhost:5173");
+  // "http://localhost:5173/__pyric/storage/v0/b/demo-app.appspot.com/o/public%2Fhello.txt?alt=media&token=tok-1"
+  ```
 - **Resumable uploads**: An upload is a `PUT` that continues from an offset with `Content-Range`, so `uploadBytesResumable` reports real progress and can pause and resume.
 
 ### Storage metadata repair warning
@@ -181,6 +197,49 @@ This warning indicates that Pyric's automated self-healing synchronized the byte
 
 ---
 
+## Capture and share a repro
+
+When the host misbehaves, capture a repro file instead of describing the problem. The Node host keeps a bounded log of the recent operations on every connection, so you can capture after the problem appears without restarting anything.
+
+1. Reproduce the problem in your app while the host runs.
+2. In the project directory, write the repro file:
+   ```bash
+   npx pyric serve repro capture --out repro.json
+   ```
+3. Check that it reproduces on a fresh host:
+   ```bash
+   npx pyric serve repro replay repro.json
+   ```
+4. Attach `repro.json` to your bug report.
+
+A repro file contains:
+
+- The starting state: Firestore documents, the tree of every RTDB instance, Storage objects with their bytes, and Auth accounts.
+- The rules each service and each RTDB instance enforced.
+- The user each connection was signed in as, and the listeners it held.
+- Every operation since, with its RTDB instance, path, arguments, and result or error, and every listener event each connection received.
+
+`replay` runs the file on a fresh Node host and on a fresh SharedWorker host. For each, it reports the first result or listener event that differs from the recording. It also reports every frame where the two hosts disagree. It exits with code 1 on any difference. Pass `--json` for the full report.
+
+To keep a repro as a regression test, replay it in a test that runs on Node 22.15 or later:
+
+```ts
+import { readFileSync } from 'node:fs';
+import { replayRepro } from '@pyric/cli/repro';
+
+const report = await replayRepro(JSON.parse(readFileSync('repro.json', 'utf8')));
+assert.ok(report.ok, JSON.stringify(report.planes, null, 2));
+```
+
+Keep these limits in mind:
+
+- **Secrets**: A JSON Web Token keeps its header and claims and loses its signature. Private keys and service account records are removed. Sandbox account passwords and your data are included, so share the file only where your test data may go.
+- **Bounded log**: The log holds the most recent 1,000 to 2,000 entries. When older entries are dropped, the file starts from a later state and says so.
+- **Not replayed**: Changes made by `pyric <tool> <method>` commands are listed as warnings and are not replayed. Storage bytes that an app uploads over the HTTP byte route are not in the log.
+- **Order**: Replay sends operations one at a time in the order the host handled them. A problem that depends on two connections' operations running at the same moment appears as the first operation whose result differs.
+
+---
+
 ## Migrating from SharedWorker
 
 To migrate an existing Pyric project to Node host mode:
@@ -188,7 +247,7 @@ To migrate an existing Pyric project to Node host mode:
 1. **Verify Node version**: Ensure `node --version` is 22.15 or later.
 2. **Export existing data (optional)**:
    ```bash
-   pyric snapshot --out pyric-carryover.json
+   npx pyric snapshot --out pyric-carryover.json
    ```
 3. **Update configuration**:
    - In `vite.config.ts`, change `pyric()` to `pyric({ hosted: true, seed: 'pyric-carryover.json' })`.

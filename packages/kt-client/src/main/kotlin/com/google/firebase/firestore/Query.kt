@@ -2,18 +2,20 @@ package com.google.firebase.firestore
 
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
+import dev.pyric.bridge.BridgeSubscriptionGap
 import dev.pyric.codecs.Cursor
 import dev.pyric.codecs.DocumentDataEnvelope
 import dev.pyric.codecs.OrderBy
 import dev.pyric.codecs.QueryCompiler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 
 open class Query internal constructor(
@@ -182,7 +184,7 @@ open class Query internal constructor(
     fun get(source: Source = Source.DEFAULT): Task<QuerySnapshot> {
         val tcs = TaskCompletionSource<QuerySnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val targetDesc = toTargetDescriptor()
                 val res = firestore.bridgeClient.op(
@@ -231,36 +233,51 @@ open class Query internal constructor(
         val target = toTargetDescriptor()
         val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
         return firestore.authLensFlow.flatMapLatest { lens ->
+            var lastRaw: Any? = null
+            var hasRaw = false
             firestore.bridgeClient.subscribe(
                 target = target,
                 actAs = lens.toMap(),
                 includeMetadataChanges = includeMetadata
-            ).map { rawMsg ->
-                @Suppress("UNCHECKED_CAST")
-                val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
-                @Suppress("UNCHECKED_CAST")
-                val rawDocs = (resMap["docs"] as? List<Map<String, Any?>>) ?: emptyList()
-
-                val docs = rawDocs.map { docMap ->
-                    val docId = docMap["id"] as String
-                    val docPath = docMap["path"] as String
-                    val unpackedData = DocumentDataEnvelope.unpack(docMap["data"]) { p -> firestore.document(p) }
-                    QueryDocumentSnapshot(
-                        id = docId,
-                        reference = firestore.document(docPath),
-                        dataMap = unpackedData,
-                        metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
-                    )
+            ).mapNotNull { rawMsg ->
+                if (rawMsg === BridgeSubscriptionGap) {
+                    // The documents last delivered, now served from cache.
+                    if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
+                } else {
+                    lastRaw = rawMsg
+                    hasRaw = true
+                    snapshotFromWire(rawMsg, isFromCache = false)
                 }
-
-                QuerySnapshot(
-                    query = this@Query,
-                    documents = docs,
-                    documentChanges = emptyList(),
-                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
-                )
             }
         }
+    }
+
+    private fun snapshotFromWire(rawMsg: Any?, isFromCache: Boolean): QuerySnapshot {
+        @Suppress("UNCHECKED_CAST")
+        val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
+        @Suppress("UNCHECKED_CAST")
+        val rawDocs = (resMap["docs"] as? List<Map<String, Any?>>) ?: emptyList()
+        // Listener frames carry the sandbox snapshot's pending-write state.
+        val metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = isFromCache)
+
+        val docs = rawDocs.map { docMap ->
+            val docId = docMap["id"] as String
+            val docPath = docMap["path"] as String
+            val unpackedData = DocumentDataEnvelope.unpack(docMap["data"]) { p -> firestore.document(p) }
+            QueryDocumentSnapshot(
+                id = docId,
+                reference = firestore.document(docPath),
+                dataMap = unpackedData,
+                metadata = metadata
+            )
+        }
+
+        return QuerySnapshot(
+            query = this@Query,
+            documents = docs,
+            documentChanges = emptyList(),
+            metadata = metadata
+        )
     }
 
     fun addSnapshotListener(listener: EventListener<QuerySnapshot>): ListenerRegistration =

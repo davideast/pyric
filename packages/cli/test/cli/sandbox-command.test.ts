@@ -180,11 +180,11 @@ describe('pyric sandbox command execution', () => {
       });
 
       const start = Date.now();
-      while (!stdout.includes('export PYRIC_SANDBOX="remote:http://localhost:4933"') && Date.now() - start < 10_000) {
+      while (!stdout.includes('export PYRIC_SANDBOX=remote\n') && Date.now() - start < 10_000) {
         await new Promise((r) => setTimeout(r, 50));
       }
 
-      expect(stdout).toContain('export PYRIC_SANDBOX="remote:http://localhost:4933"');
+      expect(stdout).toContain('export PYRIC_SANDBOX=remote\n');
       child.kill('SIGINT');
       const code = await new Promise<number>((resolve) => {
         child.once('exit', (exit) => resolve(exit ?? 0));

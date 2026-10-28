@@ -1,10 +1,16 @@
 import Foundation
 import PyricFirestore
 
-/// Structured representation of a Security Rules evaluation rejection (CEL denial).
+/// Structured representation of a Security Rules denial.
+///
+/// `engine` names the rules engine: `"firestore"` (the default when a denial
+/// context names none) or `"rtdb"`. An RTDB denial carries the deciding rules
+/// node (`matchedPath`), its expression (`matchedRule`), the `$` wildcard
+/// bindings, and the proposed value (`proposedValue`) in place of a line citation.
 public struct RulesDenialReport: Identifiable, Sendable, Equatable {
     public let id: UUID
     public let timestamp: Date
+    public let engine: String
     public let file: String
     public let line: Int?
     public let col: Int?
@@ -20,11 +26,20 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
     public let existingData: [String: AnySendable]?
     public let failedFields: [String]
     public let query: AnySendable?
+    public let matchedPath: String?
+    public let matchedRule: String?
+    public let pathVariableBindings: [String: String]?
+    public let reason: String?
+    public let errorCode: String?
+    public let proposedValue: AnySendable?
     public let errorMessage: String
+
+    public var isRtdb: Bool { engine == "rtdb" }
 
     public init(
         id: UUID = UUID(),
         timestamp: Date = Date(),
+        engine: String = "firestore",
         file: String = "firestore.rules",
         line: Int? = nil,
         col: Int? = nil,
@@ -40,10 +55,17 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
         existingData: [String: AnySendable]? = nil,
         failedFields: [String] = [],
         query: AnySendable? = nil,
+        matchedPath: String? = nil,
+        matchedRule: String? = nil,
+        pathVariableBindings: [String: String]? = nil,
+        reason: String? = nil,
+        errorCode: String? = nil,
+        proposedValue: AnySendable? = nil,
         errorMessage: String = "Missing or insufficient permissions."
     ) {
         self.id = id
         self.timestamp = timestamp
+        self.engine = engine
         self.file = file
         self.line = line
         self.col = col
@@ -55,6 +77,8 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
             } else {
                 self.citation = "\(file):\(line)"
             }
+        } else if let matchedPath {
+            self.citation = "\(file) \(matchedPath)"
         } else {
             self.citation = file
         }
@@ -69,17 +93,27 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
         self.existingData = existingData
         self.failedFields = failedFields
         self.query = query
+        self.matchedPath = matchedPath
+        self.matchedRule = matchedRule
+        self.pathVariableBindings = pathVariableBindings
+        self.reason = reason
+        self.errorCode = errorCode
+        self.proposedValue = proposedValue
         self.errorMessage = errorMessage
     }
 
     /// Constructs a `RulesDenialReport` from raw wire `denialContext` payload and error message.
     public static func from(denialContext: AnySendable, message: String = "Missing or insufficient permissions.") -> RulesDenialReport {
+        let engine = denialContext["engine"]?.stringValue ?? "firestore"
+        let isRtdb = engine == "rtdb"
+        let matchedRule = denialContext["matchedRule"]?.stringValue
+
         let ruleObj = denialContext["rule"]
-        let rawFile = ruleObj?["file"]?.stringValue ?? "firestore.rules"
+        let rawFile = ruleObj?["file"]?.stringValue ?? (isRtdb ? "database.rules.json" : "firestore.rules")
         let line = ruleObj?["line"]?.intValue.map { Int($0) }
         let col = (ruleObj?["col"]?.intValue ?? ruleObj?["column"]?.intValue).map { Int($0) }
         let citation = ruleObj?["citation"]?.stringValue
-        let expression = ruleObj?["expression"]?.stringValue
+        let expression = ruleObj?["expression"]?.stringValue ?? matchedRule
 
         var reasons: [String] = []
         if let reasonsArray = denialContext["reasons"]?.arrayValue {
@@ -93,11 +127,14 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
         let authUid = authObj?["uid"]?.stringValue
         let authClaims = authObj?["token"]?.dictionaryValue
         let authTenant = authObj?["token"]?["firebase"]?["tenant"]?.stringValue
+            ?? authObj?["tenant"]?.stringValue
 
         let reqObj = denialContext["request"]
         let reqMethod = reqObj?["method"]?.stringValue
         let reqPath = reqObj?["path"]?.stringValue
-        let proposedData = reqObj?["resourceData"]?.dictionaryValue
+        // RTDB writes may propose any JSON value, so the raw value is kept too.
+        let proposedValue = isRtdb ? reqObj?["data"] : reqObj?["resourceData"]
+        let proposedData = proposedValue?.dictionaryValue
 
         let resObj = denialContext["resource"]
         let existingData = resObj?["data"]?.dictionaryValue
@@ -109,7 +146,11 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
 
         let query = denialContext["query"]
 
+        let bindings = denialContext["pathVariableBindings"]?.dictionaryValue?
+            .compactMapValues { $0.stringValue }
+
         return RulesDenialReport(
+            engine: engine,
             file: rawFile,
             line: line,
             col: col,
@@ -125,6 +166,12 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
             existingData: existingData,
             failedFields: failedFields,
             query: query,
+            matchedPath: denialContext["matchedPath"]?.stringValue,
+            matchedRule: matchedRule,
+            pathVariableBindings: bindings,
+            reason: denialContext["reason"]?.stringValue,
+            errorCode: denialContext["errorCode"]?.stringValue,
+            proposedValue: proposedValue,
             errorMessage: message
         )
     }

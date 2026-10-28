@@ -1,0 +1,51 @@
+{
+  "name": "rules-firestore-re2-pattern-semantics",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#199"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"re2-pattern-semantics\" (Coverage: RE2 pattern semantics). matches(), split() and replace() use RE2: \\s is ASCII whitespace only, . matches \\r, \\pL, [[:alpha:]] and \\Q..\\E are classes and quoting, split() does not return capture groups, and (?i) applies in split() and replace().",
+  "observedAt": "2026-10-28T03:35:12.801Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "44a0911b777622a35376e3e9e290c75e3f5d2545ba1e96725cdd4d560f08bc25"
+  },
+  "behavior": {
+    "split on a capturing group returns two pieces": "ALLOW",
+    "split on a capturing group has size two": "ALLOW",
+    "split on a capturing dash hasOnly the pieces": "ALLOW",
+    "split on a non-capturing group (control)": "ALLOW",
+    "NBSP is not \\s": "ALLOW",
+    "em space is not \\s": "ALLOW",
+    "vertical tab is not \\s": "ALLOW",
+    "NBSP counts as a non-space char": "ALLOW",
+    "dot matches carriage return": "ALLOW",
+    "space is \\s (control)": "ALLOW",
+    "a is \\pL": "ALLOW",
+    "literal pL is not \\pL": "ALLOW",
+    "a is [[:alpha:]]": "ALLOW",
+    "a] is not [[:alpha:]]": "ALLOW",
+    "quoted a.b matches a.b": "ALLOW",
+    "quoted a.b does not match axb": "ALLOW",
+    "split with (?i) splits both cases": "ALLOW",
+    "replace with (?i) replaces uppercase": "ALLOW",
+    "replace \\s leaves NBSP": "ALLOW",
+    "matches with (?i) (control)": "ALLOW",
+    "nbsp escape has size one": "ALLOW",
+    "nbsp escape is not literal text": "ALLOW",
+    "nbsp escape equals a real nbsp from data": "ALLOW",
+    "other escapes have size one": "ALLOW",
+    "carriage return escape has size one": "ALLOW",
+    "C0 escape has size one": "ALLOW",
+    "real nbsp from data is not \\s": "ALLOW",
+    "real nbsp from data has size one": "ALLOW",
+    "split dot matches carriage return": "ALLOW",
+    "replace dot matches carriage return": "ALLOW",
+    "replace dot does not match newline (control)": "ALLOW",
+    "replace (?s) dot matches newline": "ALLOW",
+    "split (?i)k splits on the Kelvin sign": "ALLOW",
+    "replace (?i)k replaces the Kelvin sign": "ALLOW"
+  }
+}

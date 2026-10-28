@@ -1,13 +1,17 @@
 import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
 import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { HOSTED_CLIENT_LIVENESS_TIMEOUT_MS, HOSTED_HEARTBEAT_INTERVAL_MS, isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
-import { _pending, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { _pending, failInFlightStreams, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { endFailedPort } from './disconnect.js';
 import type { ClientDb, ClientPort } from './handles.js';
+import { createHeldMessages } from './held-messages.js';
+import { settleInFlightAtDrop } from './in-flight-at-drop.js';
+import { closeSendOrder, waitsToSend } from './send-order.js';
 
 /** The HTTP origin that serves a WebSocket endpoint. */
 function httpOriginOf(socketUrl: string): string {
@@ -17,11 +21,29 @@ function httpOriginOf(socketUrl: string): string {
 }
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
-const HEARTBEAT_INTERVAL_MS = 15_000;
-const LIVENESS_TIMEOUT_MS = 45_000;
+const CONNECTION_CLOSED = 'The hosted sandbox connection is closed.';
 const utf8 = new TextEncoder();
 
 export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
+
+/**
+ * How a hosted connection behaves outside a page. A page leaves it out and
+ * gets the global `WebSocket`, timers that keep the page as browsers do, and
+ * `clientInfo.platform: 'browser'`. A Node process the register bootstrap
+ * activated (#1082) supplies one, so the connection's own socket and timers do
+ * not keep the process alive by themselves, and the realm decides from the
+ * traffic when the process should stay up.
+ */
+export interface HostedSocketRealm {
+  readonly platform: 'node';
+  createSocket(url: string): WebSocket;
+  /** Every timer the connection arms; the realm may stop it holding the process. */
+  releaseTimer(timer: ReturnType<typeof setTimeout>): void;
+  /** After a frame is sent or delivered, and when the connection closes or drops. */
+  traffic(port: ClientPort, event: { sent?: InboundMessage; closed?: boolean }): void;
+  /** The host's attach acknowledgment, for its version stamp. */
+  attached?(ack: { serveVersion?: unknown }): void;
+}
 
 /** Own one app's physical connections while retaining its logical SDK port. */
 export function getHostedFirestore(target: {
@@ -32,17 +54,28 @@ export function getHostedFirestore(target: {
   onError?: (error: FirebaseError) => void;
   /** The page's session token, which authorizes its own reads on the host's byte route. */
   sessionToken?: () => Promise<string | null>;
+  /** Present outside a page; see {@link HostedSocketRealm}. */
+  realm?: HostedSocketRealm;
+  /** Host boot identity baked into the served HTML / module at compile time. */
+  initialHostInstanceId?: string;
+  /**
+   * Reads the boot id of the host now serving the url, before a reattach. A
+   * Node process passes it: it reads init.json again, so after a host restart
+   * it presents the new boot and the host holds its config as verified. A page
+   * passes nothing and presents the boot it was served by (#1153).
+   */
+  currentHostInstanceId?: () => Promise<string | undefined>;
 }, existingPort?: ClientPort): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
     recordDiagnostic({ phase, connectionId, endpoint: target.url, code });
   };
-  const queued: InboundMessage[] = [];
   const connectionListeners = new Set<(connected: boolean) => void>();
   let state: HostedConnectionState = 'connecting';
   let socket: WebSocket | undefined;
   let resumeToken: string | undefined;
-  let hostInstanceId: string | undefined;
+  let hostInstanceId: string | undefined = target.initialHostInstanceId;
+  let fromPriorHost = false;
   let appConfig: Extract<InboundMessage, { t: 'appConfig' }> | undefined;
   let needsSessionRestore = false;
   let hasEverAttached = false;
@@ -52,35 +85,60 @@ export function getHostedFirestore(target: {
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   let lastReceivedAt = 0;
+  const realm = target.realm;
+  // Settles once the first attachment says whether the host has a byte route,
+  // or the connection ends without one; Storage waits on it before choosing.
+  let byteRouteKnown = false;
+  let resolveByteRoute: () => void = () => {};
+  const byteRouteSettled = new Promise<void>(resolve => { resolveByteRoute = resolve; });
+  const settleByteRoute = (): void => {
+    byteRouteKnown = true;
+    resolveByteRoute();
+  };
+  const armed = <T extends ReturnType<typeof setTimeout>>(timer: T): T => {
+    realm?.releaseTimer(timer);
+    return timer;
+  };
+  const noteTraffic = (event: { sent?: InboundMessage; closed?: boolean }): void => {
+    realm?.traffic(port, event);
+  };
 
   const port: ClientPort = Object.assign(existingPort ?? {}, {
     onmessage: existingPort?.onmessage ?? null,
     postMessage(message) {
       const isClosed = state === 'closed';
-      if (isClosed) throw new FirebaseError('unavailable', 'The hosted sandbox connection is closed.');
+      if (isClosed) throw new FirebaseError('unavailable', CONNECTION_CLOSED);
       const configuresApp = message.t === 'appConfig';
       if (configuresApp) appConfig = message;
+      noteTraffic({ sent: message });
       const isAttached = state === 'attached';
-      const cancelsStartup = !isAttached && message.t === 'disconnect';
-      if (cancelsStartup) {
-        queued.length = 0;
+      const cancelsWhileDetached = !isAttached && message.t === 'disconnect';
+      if (cancelsWhileDetached) {
+        // The app is being deleted; its teardown fails the held operations.
+        held.drop();
         deliver({ t: 'res', id: message.id, ok: true, value: undefined });
         return;
       }
-      const isInitialStartup = !hasEverAttached;
-      const cancelsSubscription = !isAttached && message.t === 'unsub';
-      const canQueue = isInitialStartup || cancelsSubscription;
-      if (canQueue) {
+      const isDetached = !isAttached;
+      if (isDetached) {
+        const isSettledOperation = (message.t === 'op' || message.t === 'tool') && !_pending.has(message.id);
+        if (isSettledOperation) return;
         encodeRequest({ type: 'worker-message', message });
-        queued.push(message);
+        held.hold(message);
         return;
       }
       const activeSocket = socket;
-      const isUnavailable = !isAttached || activeSocket === undefined;
-      if (isUnavailable) throw new FirebaseError('unavailable', 'The hosted sandbox connection is closed.');
+      const hasNoSocket = activeSocket === undefined;
+      if (hasNoSocket) throw new FirebaseError('unavailable', CONNECTION_CLOSED);
       send(activeSocket, { type: 'worker-message', message });
     },
     start() {},
+    withdrawSubscription(subId) {
+      return held.forgetSubscription(subId);
+    },
+    byteRouteSettled() {
+      return byteRouteKnown ? undefined : byteRouteSettled;
+    },
     observeConnection(listener) {
       connectionListeners.add(listener);
       queueMicrotask(() => {
@@ -93,31 +151,44 @@ export function getHostedFirestore(target: {
       return () => { connectionListeners.delete(listener); };
     },
     close() {
-      state = 'closed';
-      notifyConnectionChange();
-      connectionListeners.clear();
-      queued.length = 0;
-      resumeToken = undefined;
-      interruptedAt = undefined;
-      hostInstanceId = undefined;
-      appConfig = undefined;
-      port.restoreAuth = undefined;
-      port.messagingVisibility = undefined;
-      clearTimeout(attachDeadline);
-      clearTimeout(reconnectTimer);
-      clearTimeout(heartbeatTimer);
-      const closingSocket = socket;
-      socket = undefined;
-      const canNotifyHost = closingSocket?.readyState === WebSocket.OPEN;
-      try {
-        if (canNotifyHost) send(closingSocket, { type: 'worker-message', message: { t: 'disconnect', id: nextId() } });
-      } catch {
-        // A socket may close before the final notification can be sent.
-      }
-      closingSocket?.close();
-      port.onmessage = null;
+      closePort(new FirebaseError('unavailable', CONNECTION_CLOSED));
     },
   } satisfies ClientPort);
+  const held = createHeldMessages(port);
+
+  function closePort(error: FirebaseError): void {
+    const isAlreadyClosed = state === 'closed';
+    if (isAlreadyClosed) return;
+    state = 'closed';
+    notifyConnectionChange();
+    connectionListeners.clear();
+    closeSendOrder(port);
+    held.fail(error);
+    rejectPendingRequests(port, error);
+    endFailedPort(port, error);
+    resumeToken = undefined;
+    interruptedAt = undefined;
+    hostInstanceId = undefined;
+    fromPriorHost = false;
+    appConfig = undefined;
+    port.restoreAuth = undefined;
+    port.messagingVisibility = undefined;
+    clearTimeout(attachDeadline);
+    clearTimeout(reconnectTimer);
+    clearTimeout(heartbeatTimer);
+    const closingSocket = socket;
+    socket = undefined;
+    const canNotifyHost = closingSocket?.readyState === WebSocket.OPEN;
+    try {
+      if (canNotifyHost) send(closingSocket, { type: 'worker-message', message: { t: 'disconnect', id: nextId() } });
+    } catch {
+      // A socket may close before the final notification can be sent.
+    }
+    closingSocket?.close();
+    port.onmessage = null;
+    settleByteRoute();
+    noteTraffic({ closed: true });
+  }
 
   function notifyConnectionChange(): void {
     report(state);
@@ -139,15 +210,16 @@ export function getHostedFirestore(target: {
 
   function deliver(message: OutboundMessage): void {
     port.onmessage?.(new MessageEvent('message', { data: message }));
+    noteTraffic({});
   }
 
   function failConnection(message: string): void {
     const isClosed = state === 'closed';
     if (isClosed) return;
-    port.close();
     const error = new FirebaseError('unavailable', message);
+    // Held, in-flight, and subscription listeners all end once with this error (D6).
+    closePort(error);
     target.onError?.(error);
-    rejectPendingRequests(port, error);
   }
 
   function isCurrent(connection: WebSocket): boolean {
@@ -163,28 +235,26 @@ export function getHostedFirestore(target: {
     state = 'interrupted';
     socket = undefined;
     notifyConnectionChange();
-    // A request settled here must not be sent by a later attach. Subscriptions stay
-    // queued, so an app that started offline observes the host once it is reachable.
-    const dropsSettledRequests = !hasEverAttached;
-    if (dropsSettledRequests) {
-      const awaitingReply = queued.filter(message => !('id' in message && _pending.has(message.id)));
-      queued.splice(0, queued.length, ...awaitingReply);
-    }
-    rejectPendingRequests(port, new FirebaseError('unavailable', CONNECTION_LOST));
+    // Only requests already handed to the socket are settled; held ones wait for the next attach.
+    const lost = new FirebaseError('unavailable', CONNECTION_LOST);
+    settleInFlightAtDrop(port, held, lost, id => !held.holdsRequest(id) && !waitsToSend(port, id));
+    // An AI stream is not restored, so one the socket took fails like an operation in flight.
+    failInFlightStreams(port, lost, subId => held.holdsSubscription({ t: 'unsub', subId }));
+    noteTraffic({});
     connection.close();
     const delay = Math.min(5_000, 250 * 2 ** reconnectAttempt);
     reconnectAttempt += 1;
     const jitter = Math.random() * Math.min(250, delay / 10);
-    reconnectTimer = setTimeout(connect, Math.min(5_000, delay + jitter));
+    reconnectTimer = armed(setTimeout(connect, Math.min(5_000, delay + jitter)));
   }
 
   function scheduleHeartbeat(connection: WebSocket): void {
-    const remainingLiveness = LIVENESS_TIMEOUT_MS - (performance.now() - lastReceivedAt);
-    const delay = Math.max(0, Math.min(HEARTBEAT_INTERVAL_MS, remainingLiveness));
-    heartbeatTimer = setTimeout(() => {
+    const remainingLiveness = HOSTED_CLIENT_LIVENESS_TIMEOUT_MS - (performance.now() - lastReceivedAt);
+    const delay = Math.max(0, Math.min(HOSTED_HEARTBEAT_INTERVAL_MS, remainingLiveness));
+    heartbeatTimer = armed(setTimeout(() => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
-      const hasLostLiveness = performance.now() - lastReceivedAt >= LIVENESS_TIMEOUT_MS;
+      const hasLostLiveness = performance.now() - lastReceivedAt >= HOSTED_CLIENT_LIVENESS_TIMEOUT_MS;
       if (hasLostLiveness) {
         interruptConnection(connection);
         return;
@@ -196,7 +266,7 @@ export function getHostedFirestore(target: {
         return;
       }
       scheduleHeartbeat(connection);
-    }, delay);
+    }, delay));
   }
 
   async function finishAttachment(connection: WebSocket, isResume: boolean): Promise<void> {
@@ -206,17 +276,25 @@ export function getHostedFirestore(target: {
       if (isStaleConnection) throw new FirebaseError('unavailable', CONNECTION_LOST);
       send(connection, { type: 'worker-message', message });
     };
+    // A subscription opened while detached is sent once, from the held messages.
+    const replay = (message: InboundMessage): void => {
+      const isHeldSubscription = held.holdsSubscription(message);
+      if (isHeldSubscription) return;
+      postMessage(message);
+    };
     if (needsSessionRestore) {
       state = 'restoring';
       report(state);
       target.onConnection?.(state);
       const configuration = appConfig;
       const hasConfiguration = configuration !== undefined;
-      if (hasConfiguration) postMessage(configuration);
+      if (hasConfiguration) {
+        postMessage(fromPriorHost ? { ...configuration, fromPriorHost: true } : configuration);
+      }
       await port.restoreAuth?.(message => rawRpc(port, message, postMessage));
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
-      restoreAuthSubscriptions(port, postMessage);
+      restoreAuthSubscriptions(port, replay);
       needsSessionRestore = false;
     }
     clearTimeout(attachDeadline);
@@ -227,13 +305,26 @@ export function getHostedFirestore(target: {
     lastReceivedAt = performance.now();
     clearTimeout(heartbeatTimer);
     scheduleHeartbeat(connection);
-    for (const request of queued.splice(0)) port.postMessage(request);
     if (isResume) {
       postMessage({ t: 'clock-subscribe' });
-      restoreObservationSubscriptions(port, postMessage);
+      restoreObservationSubscriptions(port, replay);
     }
-    if (needsMessagingRestore) restoreMessagingSubscriptions(port, postMessage);
+    if (needsMessagingRestore) restoreMessagingSubscriptions(port, replay);
+    // Held messages follow the whole restore, in the order the app issued them.
+    held.flush(postMessage);
     notifyConnectionChange();
+  }
+
+  /** The boot to present on attach: the current one when it can be read on a reattach, else the last one attached. */
+  async function presentHostIdentity(): Promise<string | undefined> {
+    const readCurrent = target.currentHostInstanceId;
+    const readsCurrentBoot = hasEverAttached && readCurrent !== undefined;
+    if (!readsCurrentBoot) return hostInstanceId;
+    try {
+      return (await readCurrent()) ?? hostInstanceId;
+    } catch {
+      return hostInstanceId;
+    }
   }
 
   function connect(): void {
@@ -247,27 +338,36 @@ export function getHostedFirestore(target: {
     if (retentionExpired) resumeToken = undefined;
     const requestsFreshSession = resumeToken === undefined;
     let connection: WebSocket;
-    try { connection = new WebSocket(target.url); }
+    try { connection = realm ? realm.createSocket(target.url) : new WebSocket(target.url); }
     catch (error) { report('socket-error'); throw error; }
     socket = connection;
-    attachDeadline = setTimeout(() => {
+    attachDeadline = armed(setTimeout(() => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
       report('timeout');
       const shouldRetry = hasEverAttached || target.retryInitialConnection === true;
       if (shouldRetry) interruptConnection(connection);
       else failConnection('Timed out connecting to the hosted sandbox.');
-    }, 5_000);
+    }, 5_000));
 
     connection.addEventListener('error', () => {
       const isActiveConnection = isCurrent(connection);
       if (isActiveConnection) report('socket-error');
     });
+    let presentedHostInstanceId = hostInstanceId;
     connection.addEventListener('open', () => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
       report('transport-open');
-      send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId, clientInfo: { platform: 'browser' } });
+      void presentHostIdentity().then(presented => {
+        const isStale = !isCurrent(connection);
+        if (isStale) return;
+        presentedHostInstanceId = presented;
+        // A grant from another boot cannot resume on this one; attach for a fresh session.
+        const presentsOtherBoot = presented !== hostInstanceId;
+        if (presentsOtherBoot) resumeToken = undefined;
+        send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform: realm?.platform ?? 'browser' } });
+      });
     });
     connection.addEventListener('message', (event: MessageEvent<string>) => {
       const isStaleConnection = !isCurrent(connection);
@@ -314,6 +414,8 @@ export function getHostedFirestore(target: {
           const usesByteRoute = offersByteRoute && sessionToken !== undefined;
           if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(target.url), sessionToken };
           else delete port.byteRoute;
+          settleByteRoute();
+          realm?.attached?.(message);
           const isDifferentProject = message.projectKey !== target.projectKey;
           if (isDifferentProject) {
             failConnection('The selected hosted sandbox belongs to a different project.');
@@ -327,6 +429,8 @@ export function getHostedFirestore(target: {
           const isResume = hasEverAttached;
           const hasHostIdentity = typeof message.hostInstanceId === 'string' && message.hostInstanceId.length > 0;
           const changedHost = isResume && hostInstanceId !== undefined && hasHostIdentity && message.hostInstanceId !== hostInstanceId;
+          const presentedThisHost = hasHostIdentity && message.hostInstanceId === presentedHostInstanceId;
+          if (changedHost && !presentedThisHost) fromPriorHost = true;
           const attemptsResume = isResume && !requestsFreshSession;
           const receivedDifferentGrant = message.resumeToken !== resumeToken;
           const changedSessionUnexpectedly = attemptsResume && receivedDifferentGrant && !changedHost;

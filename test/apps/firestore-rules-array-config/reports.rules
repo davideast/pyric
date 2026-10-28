@@ -1,0 +1,12 @@
+// The named database's rules. Pyric does not serve them yet (#1314).
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /open/{id} {
+      allow read, write: if true;
+    }
+    match /locked/{id} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -1,5 +1,6 @@
 import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
 import { beginFirestoreGroupActivity } from './sdk-activity.js';
+import { withFirestoreFirebaseError } from './errors.js';
 /**
  * `pyric/firestore` — transactions + batched writes.
  *
@@ -21,6 +22,8 @@ import {
 } from './state.js';
 import { applyConverterToDocSnap, tagSnapshotRefs, wrapSandboxDocSnap } from './snapshots.js';
 import { requireDocumentData } from './internal/document-data.js';
+import { registerAtomicWriterCreate } from './internal/atomic-create.js';
+import { parseChainUpdate } from './chain-update.js';
 import type { DocumentData, DocumentReference, DocumentSnapshot, Firestore, FirestoreDataConverter, Transaction, TransactionOptions, WriteBatch } from './types.js';
 
 // ─── Transactions + batches ───────────────────────────────────────────
@@ -43,25 +46,32 @@ export async function runTransaction<R>(
   // For sandbox-live, the transaction runs under the auth captured at
   // `runTransaction` start and stays identity-stable until completion.
   const database = sandboxDb(target);
-  return runSdkWrite(beginFirestoreGroupActivity(target, 'runTransaction'), () => database.runTransaction((backing) => {
-    const transaction: Transaction = {
-      get: modularTransactionRead(backing.get.bind(backing), database, target),
-      set(ref, data, options) {
+  return runSdkWrite(
+    beginFirestoreGroupActivity(target, 'runTransaction'),
+    () => withFirestoreFirebaseError(() => database.runTransaction((backing) => {
+      const transaction: Transaction = {
+        get: modularTransactionRead(backing.get.bind(backing), database, target),
+        set(ref, data, options) {
+          const payload = convertSetData(ref, data);
+          backing.set(database.doc(ref.path), payload, options);
+          return transaction;
+        },
+        update(ref, dataOrField: unknown, ...rest: unknown[]) {
+          backing.update(database.doc(ref.path), ...parseChainUpdate('Transaction.update', ref.path, dataOrField, rest));
+          return transaction;
+        },
+        delete(ref) {
+          backing.delete(database.doc(ref.path));
+          return transaction;
+        },
+      };
+      registerAtomicWriterCreate(transaction, (ref, data) => {
         const payload = convertSetData(ref, data);
-        backing.set(database.doc(ref.path), payload, options);
-        return transaction;
-      },
-      update(ref, data) {
-        backing.update(database.doc(ref.path), data);
-        return transaction;
-      },
-      delete(ref) {
-        backing.delete(database.doc(ref.path));
-        return transaction;
-      },
-    };
-    return fn(transaction);
-  }, options));
+        backing.create(database.doc(ref.path), payload);
+      });
+      return fn(transaction);
+    }, options)),
+  );
 }
 
 /** Normalize document results without moving reads outside the transaction. */
@@ -70,8 +80,8 @@ function modularTransactionRead(read: ChainTransaction['get'], database: ReturnT
   function get(query: ChainQuery): Promise<AdminQuerySnapshot>;
   async function get<T>(reference: DocumentReference<T> | ChainQuery): Promise<(DocumentSnapshot<T> & { exists(): boolean }) | AdminQuerySnapshot> {
     const readsQuery = 'where' in reference;
-    if (readsQuery) return read(reference);
-    const snapshot = await read(database.doc(reference.path));
+    if (readsQuery) return withFirestoreFirebaseError(() => read(reference));
+    const snapshot = await withFirestoreFirebaseError(() => read(database.doc(reference.path)));
     const converter = converterOf(reference);
     const hasConverter = converter !== undefined && converter !== null;
     if (hasConverter) {
@@ -96,8 +106,8 @@ export function writeBatch(db: Firestore): WriteBatch {
       writes++;
       return batch;
     },
-    update(ref, data) {
-      backing.update(database.doc(ref.path), data);
+    update(ref, dataOrField: unknown, ...rest: unknown[]) {
+      backing.update(database.doc(ref.path), ...parseChainUpdate('WriteBatch.update', ref.path, dataOrField, rest));
       writes++;
       return batch;
     },
@@ -107,10 +117,17 @@ export function writeBatch(db: Firestore): WriteBatch {
       return batch;
     },
     commit(options) {
-      return runSdkWrite(beginFirestoreGroupActivity(target, 'writeBatch.commit'),
-        () => backing.commit(options),
-        () => ({ documentWrites: writes, documentDeletes: deletes }));
+      return runSdkWrite(
+        beginFirestoreGroupActivity(target, 'writeBatch.commit'),
+        () => withFirestoreFirebaseError(() => backing.commit(options)),
+        () => ({ documentWrites: writes, documentDeletes: deletes }),
+      );
     },
   };
+  registerAtomicWriterCreate(batch, (ref, data) => {
+    const payload = convertSetData(ref, data);
+    backing.create(database.doc(ref.path), payload);
+    writes++;
+  });
   return tag(batch, target);
 }

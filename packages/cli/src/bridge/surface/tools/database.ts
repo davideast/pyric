@@ -4,5 +4,5 @@ import type { ToolRecord } from '../method-types.js';
 export default {
   order: 20,
   intro:
-    'Realtime Database in the sandbox, called with the modular SDK method names and argument names. A reference is a root-relative path string.',
+    'Realtime Database in the sandbox, called with the modular SDK method names and argument names. A reference is a root-relative path string. instance selects another database: a name such as shard-00, or a URL.',
 } satisfies ToolRecord;

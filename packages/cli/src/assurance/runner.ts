@@ -51,19 +51,26 @@ import {
   uploadBytes,
   type FirebaseStorage,
 } from "pyric/storage";
-import { getAdminStorageSandbox } from "pyric/storage/internal";
+import {
+  arrayBufferToBase64,
+  getAdminStorageSandbox,
+} from "pyric/storage/internal";
+import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import {
   initializeSandbox,
   type AuthState,
   type LocalSandbox,
+  type SandboxContext,
   type SandboxEvent,
 } from "pyric/sandbox";
+import { getInternalEnv, resolveDatabaseInstance } from "pyric/sandbox/internal";
 import { qualifyProbe, rulesLoadRefusal } from "./capabilities.js";
 import {
   assertActor,
   assertInvariant,
   assertProbe,
   assertTarget,
+  assertCampaign,
 } from "./validation.js";
 import {
   ASSURANCE_CAMPAIGN_SCHEMA,
@@ -91,9 +98,12 @@ interface ActorRuntime {
   auth: AuthState | null;
 }
 
+
+
 interface ServiceRuntime {
   sandbox: LocalSandbox;
   actor: ActorRuntime;
+  context: SandboxContext;
   firestore?: Firestore;
   rtdb?: Database;
   rtdbAdmin?: Database;
@@ -108,56 +118,6 @@ interface ExecutedOperation {
 }
 
 let storageRunSequence = 0;
-
-function assertCampaign(spec: AuthorizationCampaignSpec): void {
-  if (spec.schema !== ASSURANCE_CAMPAIGN_SCHEMA) {
-    throw new AssuranceInputError(
-      `campaign schema must be '${ASSURANCE_CAMPAIGN_SCHEMA}'.`,
-    );
-  }
-  if (!spec.id.trim())
-    throw new AssuranceInputError("campaign id is required.");
-  assertTarget(spec.target);
-  if (!Array.isArray(spec.actors)) {
-    throw new AssuranceInputError("campaign actors must be an array.");
-  }
-  if (!Array.isArray(spec.invariants)) {
-    throw new AssuranceInputError("campaign invariants must be an array.");
-  }
-  if (!Array.isArray(spec.probes)) {
-    throw new AssuranceInputError("campaign probes must be an array.");
-  }
-  for (const actor of spec.actors) assertActor(actor);
-  for (const invariant of spec.invariants) assertInvariant(invariant);
-  for (const probe of spec.probes) assertProbe(probe);
-  uniqueIds(spec.actors, "actor");
-  uniqueIds(spec.invariants, "invariant");
-  uniqueIds(spec.probes, "probe");
-
-  for (const probe of spec.probes) {
-    const actor = spec.actors.find((item) => item.id === probe.actorId);
-    const invariant = spec.invariants.find(
-      (item) => item.id === probe.invariantId,
-    );
-    if (!actor)
-      throw new AssuranceInputError(
-        `probe '${probe.id}' references unknown actor '${probe.actorId}'.`,
-      );
-    if (!invariant) {
-      throw new AssuranceInputError(
-        `probe '${probe.id}' references unknown invariant '${probe.invariantId}'.`,
-      );
-    }
-    if (
-      invariant.service !== "cross-service" &&
-      invariant.service !== probe.control.service
-    ) {
-      throw new AssuranceInputError(
-        `probe '${probe.id}' service does not match invariant '${invariant.id}'.`,
-      );
-    }
-  }
-}
 
 function uniqueIds(items: ReadonlyArray<{ id: string }>, label: string): void {
   const seen = new Set<string>();
@@ -175,6 +135,7 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
     .join(",")}}`;
@@ -193,10 +154,25 @@ function targetHash(target: LocalFirebaseTarget): string {
 function authUsers(target: LocalFirebaseTarget): SeedUser[] {
   return (target.state.auth?.users ?? []).map((user) => ({
     uid: user.uid,
-    email: user.email ?? `${user.uid}@fixture.pyric.invalid`,
-    password: user.password ?? "__pyric_fixture_password__",
+    ...(typeof user.email === "string" ? { email: user.email } : {}),
+    ...(user.password !== undefined ? { password: user.password } : {}),
     ...(user.customClaims ? { customClaims: user.customClaims } : {}),
   }));
+}
+
+function normalizeFirestorePath(path: string): string {
+  return path.replace(/^\/+|\/+$/g, "");
+}
+
+function normalizeFirestoreDocuments(
+  docs: Record<string, Record<string, unknown>> | undefined,
+): Record<string, Record<string, unknown>> {
+  if (!docs) return {};
+  const normalized: Record<string, Record<string, unknown>> = {};
+  for (const [path, data] of Object.entries(docs)) {
+    normalized[normalizeFirestorePath(path)] = data;
+  }
+  return normalized;
 }
 
 function seedAuth(
@@ -316,21 +292,51 @@ async function createRuntime(
   const sandbox = initializeSandbox();
   seedAuth(sandbox, target);
   const context = sandbox.withAuth(actorRuntime.auth);
-  const runtime: ServiceRuntime = { sandbox, actor: actorRuntime };
+  const runtime: ServiceRuntime = { sandbox, actor: actorRuntime, context };
 
   if (service === "firestore") {
     const firestore = getFirestore(context);
     setRules(sandbox, target.rules.firestore!);
-    seedDocuments(sandbox, target.state.firestore ?? {});
+    seedDocuments(sandbox, normalizeFirestoreDocuments(target.state.firestore));
     runtime.firestore = firestore;
   } else if (service === "rtdb") {
     const rtdb = getDatabase(context);
     const admin = getAdminDatabase(sandbox);
-    rtdbSandbox.setRules(rtdb, target.rules.rtdb!);
-    rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
+    if (target.rules.rtdb) {
+      const refusal = rtdbRulesSourceRejection(target.rules.rtdb as any);
+      if (refusal !== null) throw new Error(`The assurance target's database rules would not deploy. ${refusal.message}`);
+      rtdbSandbox.setRules(rtdb, target.rules.rtdb as any);
+      rtdbSandbox.setData(admin, { "/": target.state.rtdb ?? {} });
+    }
     runtime.rtdb = rtdb;
     runtime.rtdbAdmin = admin;
+
+    if (target.rules.rtdbInstances) {
+      const stateByResolved = new Map<string, unknown>();
+      if (target.state.rtdbInstances) {
+         for (const [k, v] of Object.entries(target.state.rtdbInstances)) {
+            stateByResolved.set(resolveDatabaseInstance(k)!.name, v);
+         }
+      }
+      for (const [instanceName, instanceValue] of Object.entries(target.rules.rtdbInstances)) {
+        const instanceRefusal = rtdbRulesSourceRejection(instanceValue);
+        if (instanceRefusal !== null) throw new Error(`The assurance target's database rules for instance '${instanceName}' would not deploy. ${instanceRefusal.message}`);
+        
+        const resolved = resolveDatabaseInstance(instanceName)!;
+        const instDb = getDatabase(context, resolved.url);
+        const instAdmin = getAdminDatabase(sandbox, resolved.url);
+        rtdbSandbox.setRules(instDb, instanceValue as { rules: Record<string, unknown> });
+        const instData = stateByResolved.get(resolved.name);
+        rtdbSandbox.setData(instAdmin, { "/": instData ?? {} });
+      }
+    }
   } else {
+    if (target.state.firestore) {
+      seedDocuments(
+        sandbox,
+        normalizeFirestoreDocuments(target.state.firestore),
+      );
+    }
     const dbName = [
       "pyric-assurance",
       campaignId,
@@ -425,12 +431,14 @@ function errorDecision(error: unknown): {
 async function executeFirestore(
   operation: FirebaseOperation,
   db: Firestore,
+  runtime: ServiceRuntime,
 ): Promise<unknown> {
   if (operation.service !== "firestore")
     throw new Error("Expected a Firestore operation.");
+  const path = normalizeFirestorePath(operation.path);
   switch (operation.method) {
     case "get": {
-      const snapshot = await getDoc(doc(db, operation.path));
+      const snapshot = await getDoc(doc(db, path));
       const exists =
         typeof snapshot.exists === "function"
           ? snapshot.exists()
@@ -448,28 +456,43 @@ async function executeFirestore(
       if (operation.query?.limit !== undefined)
         constraints.push(limit(operation.query.limit));
       const source = constraints.length
-        ? query(collection(db, operation.path), ...constraints)
-        : collection(db, operation.path);
+        ? query(collection(db, path), ...constraints)
+        : collection(db, path);
       const snapshot = await getDocs(source as Query);
       return snapshot.docs.map((item) => ({
-        path: `${operation.path.replace(/\/$/, "")}/${item.id}`,
+        path: `${path}/${item.id}`,
         data: item.data(),
       }));
     }
-    case "create":
+    case "create": {
+      doc(db, path);
+      const result = getInternalEnv(runtime.sandbox).execute({
+        method: "create",
+        path,
+        data: operation.data ?? {},
+        auth: runtime.actor.auth,
+      });
+      if (!result.allowed) {
+        throw (
+          result.error ??
+          new Error(result.debugMessages.join("; ") || "create denied")
+        );
+      }
+      return null;
+    }
     case "set":
-      await setDoc(doc(db, operation.path), operation.data ?? {});
+      await setDoc(doc(db, path), operation.data ?? {});
       return null;
     case "merge":
-      await setDoc(doc(db, operation.path), operation.data ?? {}, {
+      await setDoc(doc(db, path), operation.data ?? {}, {
         merge: true,
       });
       return null;
     case "update":
-      await updateDoc(doc(db, operation.path), operation.data ?? {});
+      await updateDoc(doc(db, path), operation.data ?? {});
       return null;
     case "delete":
-      await deleteDoc(doc(db, operation.path));
+      await deleteDoc(doc(db, path));
       return null;
   }
 }
@@ -559,15 +582,23 @@ async function executeStorage(
   const target = storageRef(storage, operation.path);
   switch (operation.method) {
     case "get": {
-      const [blob, metadata] = await Promise.all([
-        getBlob(target),
-        getMetadata(target),
-      ]);
-      return {
-        text: await blob.text(),
-        contentType: metadata.contentType,
-        customMetadata: metadata.customMetadata ?? {},
-      };
+      try {
+        const [blob, metadata] = await Promise.all([
+          getBlob(target),
+          getMetadata(target),
+        ]);
+        const buffer = await blob.arrayBuffer();
+        return {
+          dataBase64: arrayBufferToBase64(buffer),
+          text: new TextDecoder().decode(buffer),
+          contentType: metadata.contentType,
+          customMetadata: metadata.customMetadata ?? {},
+        };
+      } catch (error) {
+        const code = (error as { code?: string } | null)?.code;
+        if (code === "storage/object-not-found") return null;
+        throw error;
+      }
     }
     case "list": {
       const result = await listAll(target);
@@ -614,16 +645,22 @@ async function readState(
 ): Promise<unknown> {
   if (operation.service === "firestore") {
     const state = snapshotDocuments(runtime.sandbox);
+    const normalizedPath = normalizeFirestorePath(operation.path);
     if (operation.method === "list") {
-      const prefix = `${operation.path.replace(/\/$/, "")}/`;
+      const prefix = `${normalizedPath}/`;
       return Object.fromEntries(
         Object.entries(state).filter(([path]) => path.startsWith(prefix)),
       );
     }
-    return state[operation.path] ?? null;
+    return state[normalizedPath] ?? null;
   }
   if (operation.service === "rtdb") {
-    return (await getRtdb(rtdbRef(runtime.rtdbAdmin!, operation.path))).val();
+    let admin = runtime.rtdbAdmin!;
+    if (operation.instance && operation.instance !== "default") {
+      const url = resolveDatabaseInstance(operation.instance)!.url;
+      admin = getAdminDatabase(runtime.sandbox, url);
+    }
+    return (await getRtdb(rtdbRef(admin, operation.path))).val();
   }
   return readStorageState(operation, runtime.storageAdmin!);
 }
@@ -645,8 +682,10 @@ async function readStorageState(
       getBlob(target),
       getMetadata(target),
     ]);
+    const buffer = await blob.arrayBuffer();
     return {
-      text: await blob.text(),
+      dataBase64: arrayBufferToBase64(buffer),
+      text: new TextDecoder().decode(buffer),
       contentType: metadata.contentType,
       customMetadata: metadata.customMetadata ?? {},
     };
@@ -681,9 +720,9 @@ async function executeOperation(
   try {
     output =
       operation.service === "firestore"
-        ? await executeFirestore(operation, runtime.firestore!)
+        ? await executeFirestore(operation, runtime.firestore!, runtime)
         : operation.service === "rtdb"
-          ? await executeRtdb(operation, runtime.rtdb!)
+          ? await executeRtdb(operation, operation.instance && operation.instance !== "default" ? getDatabase(runtime.context, resolveDatabaseInstance(operation.instance)!.url) : runtime.rtdb!)
           : await executeStorage(operation, runtime.storage!);
   } catch (error) {
     const result = errorDecision(error);
@@ -716,6 +755,25 @@ function skippedEvidence(
   return { operation, decision, events: [] };
 }
 
+const READ_METHODS = new Set(["get", "list"]);
+
+function hasReadImpact(
+  operation: FirebaseOperation,
+  output: unknown,
+): boolean {
+  if (output === undefined || output === null) return false;
+  if (operation.method === "list") {
+    if (Array.isArray(output)) return output.length > 0;
+    if (typeof output === "object") {
+      const listing = output as { items?: unknown[]; prefixes?: unknown[] };
+      if (Array.isArray(listing.items) && Array.isArray(listing.prefixes)) {
+        return listing.items.length > 0 || listing.prefixes.length > 0;
+      }
+    }
+  }
+  return true;
+}
+
 function classify(
   actor: ActorEvidence,
   invariant: SecurityInvariant,
@@ -729,9 +787,10 @@ function classify(
     return "invalid-probe";
   if (mutation.decision === invariant.expected) return "no-counterexample";
   if (invariant.expected === "DENY" && mutation.decision === "ALLOW") {
-    const hasImpact =
-      stateDiff.changed ||
-      (mutation.output !== undefined && mutation.output !== null);
+    const isRead = READ_METHODS.has(mutation.operation.method);
+    const hasImpact = isRead
+      ? hasReadImpact(mutation.operation, mutation.output)
+      : stateDiff.changed;
     return actor.reachability === "reachable" &&
       invariant.confidence !== "tentative" &&
       hasImpact

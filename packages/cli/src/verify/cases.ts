@@ -26,6 +26,7 @@ export interface DeriveRulesTestCasesOptions {
   service?: 'firestore';
   includeAllowed?: boolean;
   includeDenied?: boolean;
+  includeListenerReads?: boolean;
   mockReads?: 'strict' | 'omit';
 }
 
@@ -50,6 +51,7 @@ export function deriveRulesTestCases(
   const fixture = parseVerifyFixture(fixtureInput);
   const includeAllowed = opts.includeAllowed ?? true;
   const includeDenied = opts.includeDenied ?? true;
+  const includeListenerReads = opts.includeListenerReads ?? true;
   const mockReads = opts.mockReads ?? 'strict';
   const derived: DerivedRulesTestCase[] = [];
   const warnings: VerifyFixtureWarning[] = [];
@@ -57,7 +59,13 @@ export function deriveRulesTestCases(
 
   for (const event of fixture.events) {
     if (!isFirestoreRequestEvent(event)) continue;
-    if (event.origin === 'listener') continue;
+    if (event.origin === 'listener') {
+      const isInitialListenerRead =
+        includeListenerReads &&
+        (event.method === 'get' || event.method === 'list') &&
+        (event as { triggeredBy?: unknown }).triggeredBy === undefined;
+      if (!isInitialListenerRead) continue;
+    }
     if (event.detail?.admin === true) continue;
     if (event.result === 'allow' && !includeAllowed) continue;
     if (event.result === 'deny' && !includeDenied) continue;
@@ -85,7 +93,7 @@ export function deriveRulesTestCases(
       continue;
     }
 
-    const functionMocks = extractFunctionMocks(event);
+    const functionMocks = extractFunctionMocks(event, fixture);
     if (mockReads === 'strict' && functionMocks === null) {
       unsupportedEvents.push({
         service: 'firestore',
@@ -97,7 +105,7 @@ export function deriveRulesTestCases(
       });
       continue;
     }
-    if (mockReads === 'omit' && eventMayNeedFunctionMocks(event)) {
+    if (mockReads === 'omit' && eventMayNeedFunctionMocks(event, fixture)) {
       warnings.push({
         service: 'firestore',
         eventId: event.id,
@@ -161,10 +169,18 @@ function buildTestCase(
 
   if (isWriteMethod(method)) {
     if (method !== 'delete') {
-      const data = event.resourceAfter?.data ?? event.request?.resourceData;
+      const hasResolvedAfter =
+        event.result === 'allow' && isFirestoreWriteData(event.resourceAfter?.data);
+      const data = hasResolvedAfter
+        ? event.resourceAfter?.data
+        : (event.request?.resourceData ?? event.resourceAfter?.data);
       if (isFirestoreWriteData(data)) testCase.data = data;
+      if (!hasResolvedAfter || method !== 'update') {
+        testCase.writeMode = writeModeFor(method);
+      }
+    } else {
+      testCase.writeMode = writeModeFor(method);
     }
-    testCase.writeMode = writeModeFor(method);
   }
 
   if (functionMocks.length > 0) {
@@ -190,12 +206,17 @@ function isWriteMethod(method: FirestoreMethod): boolean {
   return method === 'create' || method === 'update' || method === 'delete';
 }
 
-function extractFunctionMocks(event: RequestEvent): FunctionMock[] | null {
+const RULE_LOOKUP_PATTERN = /\b(get|exists|getAfter|existsAfter)\s*\(/;
+
+function extractFunctionMocks(
+  event: RequestEvent,
+  fixture?: PyricVerifyFixture,
+): FunctionMock[] | null {
   const detail = event.detail as { functionMocks?: unknown } | undefined;
   if (Array.isArray(detail?.functionMocks)) {
     return detail.functionMocks.filter(isFunctionMock);
   }
-  return eventMayNeedFunctionMocks(event) ? null : [];
+  return eventMayNeedFunctionMocks(event, fixture) ? null : [];
 }
 
 function isFunctionMock(value: unknown): value is FunctionMock {
@@ -206,14 +227,67 @@ function isFunctionMock(value: unknown): value is FunctionMock {
 
 function isListQuery(value: unknown): value is NonNullable<TestCase['query']> {
   if (!isListQueryCandidate(value)) return false;
+  if ('where' in value && value.where !== undefined) {
+    if (!Array.isArray(value.where)) return false;
+    for (const clause of value.where) {
+      if (typeof clause !== 'object' || clause === null || Array.isArray(clause)) return false;
+      const c = clause as Record<string, unknown>;
+      if (typeof c.field !== 'string' || typeof c.op !== 'string' || !('value' in c)) return false;
+    }
+  }
   if ('limit' in value && value.limit !== undefined && typeof value.limit !== 'number') return false;
   if ('offset' in value && value.offset !== undefined && typeof value.offset !== 'number') return false;
   if ('orderBy' in value && value.orderBy !== undefined && typeof value.orderBy !== 'string') return false;
   return true;
 }
 
-function eventMayNeedFunctionMocks(event: RequestEvent): boolean {
-  return event.reasons.some((reason) => /\b(get|exists)\s*\(/.test(reason));
+function eventMayNeedFunctionMocks(
+  event: RequestEvent,
+  fixture?: PyricVerifyFixture,
+): boolean {
+  if (event.reasons.some((reason) => RULE_LOOKUP_PATTERN.test(reason))) {
+    return true;
+  }
+  if (
+    typeof event.evaluatedRule?.expression === 'string' &&
+    RULE_LOOKUP_PATTERN.test(event.evaluatedRule.expression)
+  ) {
+    return true;
+  }
+  if (
+    event.evaluatedRule?.expressionTrace?.some((entry) => {
+      const exprText =
+        typeof entry.source === 'string'
+          ? entry.source
+          : typeof (entry as { expression?: unknown }).expression === 'string'
+            ? ((entry as { expression?: string }).expression ?? '')
+            : '';
+      return exprText.length > 0 && RULE_LOOKUP_PATTERN.test(exprText);
+    })
+  ) {
+    return true;
+  }
+  if (
+    event.rulesEvidence?.rules?.some(
+      (rule) =>
+        RULE_LOOKUP_PATTERN.test(rule.expression) ||
+        rule.checks.some((check) => RULE_LOOKUP_PATTERN.test(check.expression)),
+    )
+  ) {
+    return true;
+  }
+  const rulesObj = (event as { rules?: { expression?: unknown; reason?: unknown } }).rules;
+  if (
+    (typeof rulesObj?.expression === 'string' && RULE_LOOKUP_PATTERN.test(rulesObj.expression)) ||
+    (typeof rulesObj?.reason === 'string' && RULE_LOOKUP_PATTERN.test(rulesObj.reason))
+  ) {
+    return true;
+  }
+  const rulesSource = fixture?.services.firestore?.rules?.source;
+  if (typeof rulesSource === 'string' && RULE_LOOKUP_PATTERN.test(rulesSource)) {
+    return true;
+  }
+  return false;
 }
 
 function isCapturedRequestEvent(value: unknown): value is Record<string, unknown> {

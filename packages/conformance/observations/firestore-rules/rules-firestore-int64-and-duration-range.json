@@ -1,0 +1,153 @@
+{
+  "name": "rules-firestore-int64-and-duration-range",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#198"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"int64-and-duration-range\" (Coverage: int64 and duration range). Integers are 64-bit: values above 2^53 keep every bit, overflow is an evaluation error except MIN / -1, unary minus applies to durations, and timestamp or duration results out of range are errors.",
+  "observedAt": "2026-10-27T02:31:53.148Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "2e9274d32af86cf3d61c95ce18f39af600459dc8e1f7a8c94444f14a826de36c"
+  },
+  "behavior": {
+    "neg duration equals duration.value(-1, 's')": "ALLOW",
+    "neg duration is less than zero": "ALLOW",
+    "request.time minus a negated hour is later": "ALLOW",
+    "int64 max is greater than max minus one": "ALLOW",
+    "int64 max differs from max minus one": "ALLOW",
+    "2^53 plus one differs from 2^53": "ALLOW",
+    "2^53 plus one minus 2^53 is one": "ALLOW",
+    "int() of 2^53 plus one keeps the low bit": "ALLOW",
+    "string() of 2^53 plus one": "ALLOW",
+    "string() of int64 max": "ALLOW",
+    "control below 2^53": "ALLOW",
+    "max plus one wraps to min": "DENY",
+    "max plus one is positive": "DENY",
+    "max times two wraps to minus two": "DENY",
+    "negated min is min": "DENY",
+    "min divided by minus one is min": "ALLOW",
+    "overflow or true": "ALLOW",
+    "epoch plus 315576000000 s has year 11970": "DENY",
+    "max timestamp plus 1 ms is later": "DENY",
+    "duration past the protobuf bound is positive": "DENY",
+    "duration at the protobuf bound is positive": "ALLOW",
+    "timestamp.value past year 9999 (control)": "DENY"
+  },
+  "diagnostics": {
+    "max plus one wraps to min": {
+      "notes": [
+        "Error: firestore.rules line [38], column [41]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 38,
+          "column": 41,
+          "currentOffset": 1213,
+          "endOffset": 1213
+        }
+      }
+    },
+    "max plus one is positive": {
+      "notes": [
+        "Error: firestore.rules line [41], column [41]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 41,
+          "column": 41,
+          "currentOffset": 1315,
+          "endOffset": 1315
+        }
+      }
+    },
+    "max times two wraps to minus two": {
+      "notes": [
+        "Error: firestore.rules line [44], column [41]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 44,
+          "column": 41,
+          "currentOffset": 1393,
+          "endOffset": 1393
+        }
+      }
+    },
+    "negated min is min": {
+      "notes": [
+        "Error: firestore.rules line [47], column [21]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 47,
+          "column": 21,
+          "currentOffset": 1453,
+          "endOffset": 1453
+        }
+      }
+    },
+    "epoch plus 315576000000 s has year 11970": {
+      "notes": [
+        "Error: firestore.rules line [56], column [41]. Timestamp is not valid. Seconds must be in range [-62,135,596,800, +253,402,300,799]. Nanos must be in range [0, +999,999,999]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 56,
+          "column": 41,
+          "currentOffset": 1779,
+          "endOffset": 1779
+        }
+      }
+    },
+    "max timestamp plus 1 ms is later": {
+      "notes": [
+        "Error: firestore.rules line [59], column [54]. Timestamp is not valid. Seconds must be in range [-62,135,596,800, +253,402,300,799]. Nanos must be in range [0, +999,999,999]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 59,
+          "column": 54,
+          "currentOffset": 1917,
+          "endOffset": 1917
+        }
+      }
+    },
+    "duration past the protobuf bound is positive": {
+      "notes": [
+        "Error: firestore.rules line [62], column [30]. Duration is not valid. Seconds must be in range [-315,576,000,000, +315,576,000,000]. Nanos must be in range [-999,999,999, +999,999,999]. Nanos must have the same sign as seconds."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 62,
+          "column": 30,
+          "currentOffset": 2025,
+          "endOffset": 2029
+        }
+      }
+    },
+    "timestamp.value past year 9999 (control)": {
+      "notes": [
+        "Error: firestore.rules line [68], column [31]. Timestamp is not valid. Seconds must be in range [-62,135,596,800, +253,402,300,799]. Nanos must be in range [0, +999,999,999]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 68,
+          "column": 31,
+          "currentOffset": 2248,
+          "endOffset": 2252
+        }
+      }
+    }
+  }
+}

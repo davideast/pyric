@@ -1,4 +1,6 @@
 import { describe, test, expect } from 'bun:test';
+import { compileRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { checkRtdbRules } from '../../../../src/rules/rtdb/constraints/document.js';
 import { lintExpression } from '../../../../src/rules/rtdb/grammar/linter.js';
 
 describe('lintExpression', () => {
@@ -75,5 +77,63 @@ describe('lintExpression', () => {
     expect(first.map(w => w.code)).toContain('DATA_IN_WRITE');
     expect(second).toHaveLength(0);
     expect(third.map(w => w.code)).toContain('DATA_IN_WRITE');
+  });
+
+  test('LNT-7: member names .data and .newData do not count as root data or newData', () => {
+    const claimData = lintExpression('auth.token.data == true', 'write');
+    expect(claimData.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+
+    const claimNewData = lintExpression('data.val() != null && auth.token.newData == true', 'write');
+    expect(claimNewData.map(w => w.code)).toContain('DATA_IN_WRITE');
+  });
+
+  test('LNT-7: data.parent()...child() and (data).child() suppress DATA_IN_WRITE', () => {
+    const parentChild = lintExpression("data.parent().child('owner').val() == auth.uid", 'write');
+    expect(parentChild.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+
+    const r34Pattern = lintExpression(
+      "auth != null && data.parent().parent().child('members').child(auth.uid).exists()",
+      'write',
+    );
+    expect(r34Pattern.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+
+    const parenDataChild = lintExpression("(data).child('owner').val() == auth.uid", 'write');
+    expect(parenDataChild.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+  });
+
+  test('crash guards: catches SyntaxError from string literals and RangeError from deeply chained terms', () => {
+    for (const expr of ['"\\\'" == "\\\'"', '"\\x41" == "\\x41"']) {
+      expect(lintExpression(expr, 'read').map(w => w.code)).toEqual(['HARDCODED_TRUE']);
+    }
+    expect(lintExpression('auth.uid == "a\nb"', 'read')).toEqual([
+      {
+        code: 'PARSE_ERROR',
+        message: 'unterminated string literal',
+      },
+    ]);
+    for (const expr of ['auth.uid == "\\\'"', 'auth.uid == "\\x41"', 'auth.uid == "a\tb"']) {
+      expect(lintExpression(expr, 'read')).toEqual([]);
+      const checkResult = checkRtdbRules(() =>
+        compileRtdbRules({ rules: { p: { '.read': expr } } }),
+      );
+      expect(checkResult.ok).toBe(true);
+      expect(checkResult.errors).toEqual([]);
+      expect(checkResult.warnings).toEqual([]);
+    }
+
+    // A 6,000-term chain used to overflow the stack and lint as PARSE_ERROR.
+    // Production deploys a 2,000-term || chain (r51, "LD-7: a 2000-term ||
+    // chain": ACCEPTED), and && and || chains now read at any length (LD-7, #1247).
+    const deeplyChained = Array.from({ length: 6000 }, () => 'auth != null').join(' && ');
+    expect(lintExpression(deeplyChained, 'read')).toEqual([]);
+    // A long chain of another binary operator still overflows, and is still a parse error.
+    const deeplyAdded = `${Array.from({ length: 20_000 }, () => '1').join(' + ')} > 0`;
+    expect(() => lintExpression(deeplyAdded, 'read')).not.toThrow();
+    expect(lintExpression(deeplyAdded, 'read')).toEqual([
+      {
+        code: 'PARSE_ERROR',
+        message: 'The expression chains more terms than the rules parser reads.',
+      },
+    ]);
   });
 });

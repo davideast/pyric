@@ -29,18 +29,26 @@ import { DOCUMENT_LOOKUP_LIMIT, LookupBudget } from './lookup-budget.js';
 import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from './expression-budget.js';
 import { ExpressionLimitError, ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
-import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
+import { documentRelativePath } from './request-path.js';
+import { normalizeDocumentPath } from './document-lookups.js';
 import {
   requestQuery,
   resolveServerTimestamps,
   reviveFirestoreNumbers,
 } from './firestore-values.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
+import { collectRootMatches, noMatchNotes } from './root-match.js';
 import {
-  collectMatches,
+  indexRulesetScopes,
   renderMatchBlockPath,
   type MatchResult,
 } from './match-resolution.js';
+import {
+  listQueryToConstraints,
+  proveListQuery,
+  renderQueryRemediation,
+  type ListQueryProofReport,
+} from './list-query-proof.js';
 
 type Decision = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 
@@ -294,19 +302,21 @@ function buildContext(
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
 
+  // `get` and `exists` are separate Rules Test API functions with separate
+  // mocks (FS-CON-6): a get mock seeds get()'s document, an exists mock only
+  // answers exists(). Both key on the normalized document path, the form
+  // lookups resolve and `buildFunctionMock` sends to production, so mock
+  // order and path spelling do not change the verdict.
   const mockDocs = new Map<string, Record<string, unknown>>();
   const identitylessFunctionMocks = new Set<string>();
-  if (tc.functionMocks) {
-    for (const mock of tc.functionMocks) {
-      if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
-        mockDocs.set(mock.path, reviveFirestoreNumbers(mock.result) as Record<string, unknown>);
-        identitylessFunctionMocks.add(mock.path);
-      } else if (mock.function === 'exists') {
-        if (mock.result === true) {
-          mockDocs.set(mock.path, {});
-          identitylessFunctionMocks.add(mock.path);
-        }
-      }
+  const existsMocks = new Map<string, boolean>();
+  for (const mock of tc.functionMocks ?? []) {
+    const mockPath = normalizeDocumentPath(mock.path);
+    if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
+      mockDocs.set(mockPath, reviveFirestoreNumbers(mock.result) as Record<string, unknown>);
+      identitylessFunctionMocks.add(mockPath);
+    } else if (mock.function === 'exists') {
+      existsMocks.set(mockPath, mock.result === true);
     }
   }
 
@@ -384,21 +394,34 @@ function buildContext(
     ? reviveFirestoreNumbers(resolveServerTimestamps(afterState, serverTime)) as Record<string, unknown>
     : null;
 
-  // request.resource.data: for non-write methods (get/list) Firestore exposes
-  // null. For writes, it's the projected after-state. We keep the legacy
-  // shape (`{}` when tc.data is absent) for backwards-compat — the parity
-  // scenarios that exercise this surface explicitly set tc.data.
-  const reqResourceData = projectedAfter ?? {};
+  // request.resource is populated on create/update (from projectedAfter ?? {})
+  // and on get/list/delete only when the caller explicitly supplied `tc.data`
+  // (matching the Rules Test API wire format `if (tc.data) request.resource = { data }`).
+  // On normal get, list, and delete requests (no `tc.data`), `resource` is absent
+  // from `request` ("Property resource is undefined on object.").
+  let reqResource: { data: Record<string, unknown> } | undefined;
+  if (tc.method === 'create' || tc.method === 'update') {
+    reqResource = { data: projectedAfter ?? {} };
+  } else if (tc.data !== undefined) {
+    const revivedTcData = reviveFirestoreNumbers(
+      resolveServerTimestamps(tc.data, serverTime),
+    ) as Record<string, unknown>;
+    reqResource = { data: revivedTcData };
+  }
+
+  const request: SimulationContext['request'] = {
+    auth: tc.auth ? { uid: tc.auth.uid, token: tc.auth.token ?? {} } : null,
+    method: tc.method,
+    path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
+    ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
+    time: serverTime,
+  } as SimulationContext['request'];
+  if (reqResource !== undefined) {
+    request.resource = reqResource;
+  }
 
   return {
-    request: {
-      auth: tc.auth ? { uid: tc.auth.uid, token: tc.auth.token ?? {} } : null,
-      resource: { data: reqResourceData },
-      method: tc.method,
-      path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
-      ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
-      time: serverTime,
-    },
+    request,
     // `resource` is the PRE-WRITE stored document. When the request target does
     // not exist, production makes `resource` a null error value — reading or
     // comparing it then errors → DENY. Synthesizing a resource here (the
@@ -422,6 +445,7 @@ function buildContext(
       : { data: reviveFirestoreNumbers(existing) as Record<string, unknown> },  // NOT resolved — resource is pre-write, no sentinels
     mockDocuments: mockDocs,
     identitylessFunctionMocks,
+    existsMocks,
     getDoc,
     pathVariables,
     functions: fnMap,
@@ -522,52 +546,128 @@ export class SimulateFirestoreRulesHandler {
     opts?: SimulateOptions & {
       /** The source map read from `source`, when the caller keeps it. */
       sourceMap?: AuthoredSourceMap;
+      /** Internal flag to skip re-running static query proof during residual evaluation. */
+      skipQueryProof?: boolean;
     },
   ): TestFirestoreRulesResult {
+    indexRulesetScopes(ast);
     const sourceMap = opts?.sourceMap ?? readAuthoredSourceMap(source);
     const results: TestResult[] = [];
     let passed = 0;
     let failed = 0;
     let unsupported = 0;
 
-    // Resolve any wildcards on the root match (typically just one for
-    // the database segment) and bind each to '(default)'. The root
-    // wildcard can be named anything in production — `database`, `db`,
-    // `dbId` are all valid — and `get(/databases/$(name)/...)` paths
-    // inside rules expect that exact name to resolve. Previously we
-    // hardcoded `database` only, so any other name silently became
-    // `undefined` inside path interpolation and broke every `get()` /
-    // `exists()` call.
-    //
-    // `database` stays seeded as a default so rules that don't use a
-    // wildcard on the root match (or that hardcode `$(database)` in a
-    // `get()` path) still work.
+    // The root match is compared with each request below
+    // (`collectRootMatches`), and its wildcard bindings reach every block it
+    // resolves. `database` stays seeded so a rule that hardcodes
+    // `$(database)` in a `get()` path still resolves under a root that names
+    // its wildcard `db` or `dbId`.
     const rootBindings: Record<string, string> = { database: '(default)' };
-    for (const seg of ast.service.match.path.segments) {
-      if (seg.type === 'wildcard') {
-        rootBindings[seg.name] = '(default)';
-      }
-    }
 
     for (const tc of testCases) {
-      // Resolve the match block for this path.
-      // The root match is /databases/{database}/documents — skip it,
-      // start matching from its children directly.
+      // Resolve the match blocks for this path. The root match is compared
+      // with the request's full resource name first, and its children match
+      // what it leaves (FS2-ENF-1).
       // Both the document-relative form and the full resource name the
       // console shows mean the same request, so the full form is reduced
       // before a block is resolved against it and every message about this
       // case names the reduced form.
       const requestPath = documentRelativePath(tc.path);
       const pathSegments = requestPath.split('/').filter(Boolean);
+      const isListMethod = tc.method === 'list';
+      const isCollectionPath = pathSegments.length % 2 === 1;
+
+      // Static list-query provability (#371): for `list` cases, run
+      // `proveListQuery` and report the proof verdict separately from
+      // document-evaluation (`decision` / `state`).
+      let queryProof: ListQueryProofReport | undefined;
+      let evalAst = ast;
+      let evalTc = tc;
+      if (isListMethod && !opts?.skipQueryProof) {
+        const proofPath = pathSegments.length === 0
+          ? '__listPlaceholder__'
+          : (isCollectionPath ? `${requestPath}/__listPlaceholder__` : requestPath);
+        const constraints = listQueryToConstraints(tc.query);
+        const rawProof = proveListQuery(ast, proofPath, tc.auth ?? null, constraints, source);
+        if (rawProof.kind === 'no-rule') {
+          queryProof = {
+            verdict: 'NO_RULE',
+            provable: false,
+            kind: 'no-rule',
+            failures: [],
+          };
+        } else if (rawProof.kind === 'unprovable') {
+          const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
+          const remediation = renderQueryRemediation(primary.residual);
+          queryProof = {
+            verdict: 'UNPROVABLE',
+            provable: false,
+            kind: primary.kind,
+            failures: rawProof.failures,
+            reason: primary.reason,
+            residual: primary.residual,
+            ...(remediation ? { remediation } : {}),
+            ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+          };
+        } else {
+          // `rawProof.kind === 'provable'`. When some rules were rejected by
+          // static proof (`rawProof.failures.length > 0`) and only a subset
+          // (such as a fallback `allow read: if false;` or an admin rule) was
+          // statically doc-independent, check whether those provable rules
+          // actually grant for this request. If they deny, no provable rule
+          // granted and the query failed because of `rawProof.failures`.
+          let fallbackDenied = false;
+          if (rawProof.failures.length > 0) {
+            const residualCheck = this.simulateParsed(
+              rawProof.evaluationAst,
+              source,
+              [{ ...tc, path: proofPath, resource: rawProof.syntheticResource, expectation: 'ALLOW' }],
+              { ...opts, sourceMap, skipQueryProof: true },
+            );
+            if (residualCheck.success && residualCheck.data.results[0]?.decision !== 'ALLOW') {
+              fallbackDenied = true;
+            }
+          }
+          if (fallbackDenied) {
+            const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
+            const remediation = renderQueryRemediation(primary.residual);
+            queryProof = {
+              verdict: 'UNPROVABLE',
+              provable: false,
+              kind: primary.kind,
+              failures: rawProof.failures,
+              reason: primary.reason,
+              residual: primary.residual,
+              ...(remediation ? { remediation } : {}),
+              ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+            };
+          } else {
+            queryProof = {
+              verdict: 'PROVABLE',
+              provable: true,
+              kind: 'provable',
+              failures: rawProof.failures,
+            };
+          }
+          // When the caller did not mock a single document (`tc.resource === undefined`)
+          // and supplied `query.where` constraints that proved the query, evaluate
+          // the residual rules against the query-pinned synthetic resource.
+          if (tc.resource === undefined && (tc.query?.where?.length ?? 0) > 0) {
+            evalAst = rawProof.evaluationAst;
+            evalTc = { ...tc, resource: rawProof.syntheticResource };
+          }
+        }
+      }
+
       // Functions declared at GLOBAL scope (above `service`) and SERVICE
       // scope (inside `service`, outside the documents match) seed the walk
       // alongside the documents-match's own (#346). Declaration order
       // global → service → match preserves inner-shadows-outer resolution,
       // since a later same-named entry wins in the evaluation context.
       const rootFunctions = [
-        ...(ast.functions ?? []),
-        ...(ast.service.functions ?? []),
-        ...ast.service.match.functions,
+        ...(evalAst.functions ?? []),
+        ...(evalAst.service.functions ?? []),
+        ...evalAst.service.match.functions,
       ];
       // Collect EVERY match block that resolves this path (not just the
       // first). Production OR-combines allows across all overlapping
@@ -577,9 +677,7 @@ export class SimulateFirestoreRulesHandler {
       // Fresh recorder per test case so each `TestResult.pathResolution`
       // captures only its own resolution attempts.
       const pathRecorder = new PathResolutionRecorder();
-      for (const child of ast.service.match.children) {
-        matches.push(...collectMatches(child, pathSegments, rootFunctions, pathRecorder));
-      }
+      matches.push(...collectRootMatches(evalAst, requestPath, rootFunctions, pathRecorder));
       // `list` targets a COLLECTION, but rules match blocks are document-
       // level: real Firestore evaluates a query against the doc block with
       // the document wildcard hypothetical (and `resource` undefined). When
@@ -588,19 +686,24 @@ export class SimulateFirestoreRulesHandler {
       // `match /menuItems/{id}` exactly like the emulator does. Doc-style
       // list paths (`menuItems/any`) keep resolving on the first attempt,
       // so existing call sites are unaffected. (RULES-LIST parity scenario.)
+      //
+      // A collection path (odd segment count) always widens, not only when
+      // nothing matched: a `{document=**}` block also matches the bare
+      // collection path, and evaluating only that block let a sibling
+      // recursive deny shadow `match /menuItems/{id}`'s list grant
+      // (FS-COV-6b). The widened path's blocks are the ones the document-path
+      // form `list menuItems/<id>` resolves, which production ORs (corpus
+      // `simcase-mock-and-path-fidelity`). When the widened path matches
+      // nothing, the direct matches stand.
       let syntheticListDoc = false;
-      const isMatchesZero = matches.length === 0;
-      const isListMethod = tc.method === 'list';
-      if (isMatchesZero) {
-        if (isListMethod) {
-          const widened = [...pathSegments, '__hypothetical_doc__'];
-          for (const child of ast.service.match.children) {
-            matches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
-          }
-          const isMatchesNonZero = matches.length > 0;
-          if (isMatchesNonZero) {
-            syntheticListDoc = true;
-          }
+      const shouldWiden = isListMethod && (isCollectionPath || matches.length === 0);
+      if (shouldWiden) {
+        const widened = [...pathSegments, '__hypothetical_doc__'];
+        const widenedMatches = collectRootMatches(evalAst, widened.join('/'), rootFunctions, pathRecorder);
+        const isWidenedNonZero = widenedMatches.length > 0;
+        if (isWidenedNonZero) {
+          matches = widenedMatches;
+          syntheticListDoc = true;
         }
       }
       const pathResolution: PathResolutionTrace = {
@@ -621,11 +724,9 @@ export class SimulateFirestoreRulesHandler {
           decision: 'DENY',
           evaluatedExpressions: 0,
           trace: [],
-          notes: [
-            `No match block found for path '${requestPath}', so the request is denied by default.`,
-            DOCUMENT_PATH_FORM,
-          ],
+          notes: noMatchNotes(evalAst, requestPath),
           pathResolution,
+          ...(queryProof ? { queryProof } : {}),
         });
         continue;
       }
@@ -635,7 +736,7 @@ export class SimulateFirestoreRulesHandler {
       // first-match-wins and no way for one block to revoke another's
       // grant. So we evaluate each block independently and short-circuit on
       // the first ALLOW. Each block builds its OWN context with its OWN
-      // wildcard bindings (`rootBindings` carries the root-match wildcards
+      // wildcard bindings (each match carries the root-match wildcards
       // like `db`/`database` so `$(name)` interpolation inside
       // get()/exists() paths resolves; the block's own bindings override on
       // collision). Every rule-evaluation entry is tagged with its block's
@@ -668,7 +769,7 @@ export class SimulateFirestoreRulesHandler {
       const expressionBudget = new ExpressionBudget((message, position) => new ExpressionLimitError(message, position));
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget);
+        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
@@ -755,6 +856,7 @@ export class SimulateFirestoreRulesHandler {
         decision,
         evaluatedExpressions: expressionBudget.evaluated,
         ...(resourceLimit ? { resourceLimit } : {}),
+        ...(queryProof ? { queryProof } : {}),
         trace,
         notes,
         pathResolution,

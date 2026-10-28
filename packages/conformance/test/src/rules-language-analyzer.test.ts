@@ -8,6 +8,7 @@ import {
 } from '../../src/rules-language-analyzer.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
+import { loadStorageRulesExceptions } from '../../src/storage-rules-exceptions.ts';
 import { ALL_RULES_RTDB_SCENARIOS } from '../../rules-corpus/rtdb/index.ts';
 
 describe('rules-language analyzer', () => {
@@ -85,11 +86,55 @@ service firebase.storage {
     }
   });
 
-  it('analyzes every storage corpus scenario without error', () => {
+  it('analyzes every storage corpus scenario without error but those pinned as parse divergences', () => {
     const known = new Set(loadSnapshot('storage').constructs.map((c) => c.id));
+    const parsePinned = new Map([...loadStorageRulesExceptions()]
+      .flatMap(([name, pin]) => (pin.kind === 'parse' ? [[name, pin.localError] as const] : [])));
+    // These probes call methods that do not exist (row storage-rules#211).
+    const unknownMethodProbes = new Set(['h1-unknown-method-absorption']);
     for (const pack of ALL_RULES_STORAGE_SCENARIOS) {
+      const pinnedError = parsePinned.get(`rules-storage-${pack.id}`);
+      if (pinnedError !== undefined) {
+        expect(() => analyze('storage', pack.rules)).toThrow(pinnedError);
+        continue;
+      }
       const res = analyze('storage', pack.rules);
       for (const id of res.ids) expect(known.has(id)).toBe(true);
+      if (unknownMethodProbes.has(pack.id)) continue;
+      expect(res.unresolved).toEqual([]);
+    }
+  });
+
+  it('attributes storage ternary, slice, in, is, modulo, unary-minus, namespaces, and methods without false-crediting not', () => {
+    const sampleRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileId} {
+      allow read: if (request.auth == null ? false : firestore.exists(/databases/(default)/documents/u/$(request.auth.uid)))
+        && (-1 % 2 == -1)
+        && (fileId is string)
+        && (fileId in ['a', 'b'])
+        && (fileId[0:1].split('/')).size() == 1
+        && math.abs(-5) == 5;
+    }
+  }
+}`;
+    const res = analyzeStorage(sampleRules);
+    expect(res.unresolved).toEqual([]);
+    expect(res.ids.has('storage.operator.not')).toBe(false);
+    for (const id of [
+      'storage.operator.ternary',
+      'storage.function.firestore.exists',
+      'storage.operator.unary-minus',
+      'storage.operator.mod',
+      'storage.operator.is',
+      'storage.operator.in',
+      'storage.operator.slice',
+      'storage.method.string.split',
+      'storage.method.size',
+      'storage.function.math.abs',
+    ]) {
+      expect(res.ids.has(id)).toBe(true);
     }
   });
 
@@ -226,5 +271,23 @@ service cloud.firestore {
     const res = analyzeFirestore(rules("request.auth != null && request.auth.uid == 'x'"));
     expect(res.ids).not.toContain('firestore.semantic.error-absorption-and');
     expect(res.ids).not.toContain('firestore.semantic.error-absorption-or');
+  });
+});
+
+describe('rtdb analyzer: query fields and custom claims', () => {
+  it('names each query field a rule reads, and the query binding', () => {
+    const ids = analyzeRtdb(JSON.stringify({ a: { '.read': "query.orderByChild == 'x' && query.limitToFirst <= 2" } })).ids;
+    expect(ids).toContain('rtdb.binding.query');
+    expect(ids).toContain('rtdb.binding.query.orderByChild');
+    expect(ids).toContain('rtdb.binding.query.limitToFirst');
+  });
+
+  it('names a custom claim read from auth.token, and not a standard token field', () => {
+    expect(analyzeRtdb(JSON.stringify({ a: { '.read': 'auth.token.admin == true' } })).ids)
+      .toContain('rtdb.binding.auth.token.custom-claim');
+    expect(analyzeRtdb(JSON.stringify({ a: { '.read': "auth.token.firebase.sign_in_provider == 'x'" } })).ids)
+      .not.toContain('rtdb.binding.auth.token.custom-claim');
+    expect(analyzeRtdb(JSON.stringify({ a: { '.read': 'auth.token.email_verified == true' } })).ids)
+      .not.toContain('rtdb.binding.auth.token.custom-claim');
   });
 });

@@ -31,16 +31,16 @@ export class RtdbConnectionLifecycle {
     try {
       const requiresRules = !this.admin;
       if (requiresRules) {
-        const isUpdate = operation.kind === 'update';
-        if (isUpdate) {
-          this.backend.validateUpdate(this.auth(), operation.path, operation.values);
+        // Decided when registered, as production decides it, and recorded as
+        // an `onDisconnect.*` operation so a captured session carries it.
+        if (operation.kind === 'update') {
+          this.backend.registerDisconnect(this.auth(), { kind: 'update', path: operation.path, values: operation.values });
+        } else if (operation.kind === 'remove') {
+          this.backend.registerDisconnect(this.auth(), { kind: 'remove', path: operation.path });
         } else {
-          const isRemove = operation.kind === 'remove';
-          this.backend.validateSet(
-            this.auth(),
-            operation.path,
-            isRemove ? null : operation.value,
-          );
+          this.backend.registerDisconnect(this.auth(), {
+            kind: 'set', path: operation.path, value: operation.value, priority: operation.priority ?? null,
+          });
         }
       }
       this.operations.set(operation);
@@ -110,19 +110,25 @@ export class RtdbConnectionLifecycle {
             const isRemove = operation.kind === 'remove';
             const value = isRemove ? null : operation.value;
             const isSet = operation.kind === 'set';
+            const priority = isSet ? operation.priority : undefined;
+            const hasPriority = priority !== undefined;
             const mergesAfterChildRegistration = isSet && operation.mergeAfterChildRegistration === true;
             const hasObjectValue = value !== null && typeof value === 'object';
             const mergesObjectChildren = mergesAfterChildRegistration && hasObjectValue && !Array.isArray(value);
             if (mergesObjectChildren) {
               if (isAdmin) {
                 this.backend.adminUpdate(operation.path, value as Record<string, JsonValue>);
+                if (hasPriority) {
+                  this.backend.adminSetPriority(operation.path, priority);
+                }
               } else {
                 this.backend.update(this.auth(), operation.path, value as Record<string, JsonValue>);
+                if (hasPriority) {
+                  this.backend.setPriority(this.auth(), operation.path, priority);
+                }
               }
               continue;
             }
-            const priority = isSet ? operation.priority : undefined;
-            const hasPriority = priority !== undefined;
             if (isAdmin) {
               if (hasPriority) {
                 this.backend.adminSetWithPriority(operation.path, value as JsonValue, priority);

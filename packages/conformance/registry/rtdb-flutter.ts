@@ -1,7 +1,8 @@
 import { defineRows } from './define-rows.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/flutter-client/test/rtdb_conformance_test.dart';
+const RECONNECT_SUITE = 'packages/flutter-client/test/rtdb_info_connected_reconnect_test.dart';
 
 const buildRow = defineRows({
   surface: 'rtdb-flutter',
@@ -14,18 +15,23 @@ interface FlutterRtdbRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
+  /** Overrides the default `conforms` status. */
+  status?: CompatStatus;
+  statusNote?: string;
+  /** Suites beyond the conformance suite that back this row. */
+  extraTests?: string[];
 }
 
 function row(seed: FlutterRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, ...rest } = seed;
+  const { ref, evidence, status, extraTests, ...rest } = seed;
   const resolvedEvidence =
     evidence ?? 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart.';
   return buildRow({
     ...rest,
     rowRef: ref,
-    status: 'conforms',
+    status: status ?? 'conforms',
     automation: 'unit-backed',
-    conformanceTests: [CONFORMANCE_SUITE],
+    conformanceTests: [CONFORMANCE_SUITE, ...(extraTests ?? [])],
     risk: [],
     riskScore: 0,
     riskReasons: [],
@@ -43,7 +49,7 @@ const SEC_QUERY = 'Query Ordering, Filtering & Limits';
 const SEC_TX = 'Transactions & OnDisconnect';
 
 export const rtdbFlutterRows: CompatibilityRow[] = [
-  // ── 1. Database Instance & Connection (5 rows) ────────────────────────────
+  // ── 1. Database Instance & Connection (7 rows) ────────────────────────────
   row({
     ref: 'instance-default',
     section: SEC_INSTANCE,
@@ -55,8 +61,11 @@ export const rtdbFlutterRows: CompatibilityRow[] = [
     ref: 'instance-url',
     section: SEC_INSTANCE,
     api: 'PyricDatabase.instanceFor(databaseURL)',
-    behavior: 'Returns an isolated Realtime Database instance targeting a specific database URL.',
+    behavior: 'Returns a distinct Realtime Database handle for each database URL; production isolates the data and rules of each URL\'s database.',
     featureKeys: ['instanceFor'],
+    status: 'diverged-documented',
+    statusNote: 'each URL yields a distinct handle, but data and rules are not isolated: the bridge does not carry the instance, so every handle reaches the default database',
+    evidence: 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart, which asserts the handle carries its URL; bridge operations carry no instance field.',
   }),
   row({
     ref: 'ref-root',
@@ -76,8 +85,26 @@ export const rtdbFlutterRows: CompatibilityRow[] = [
     ref: 'connection-toggle',
     section: SEC_INSTANCE,
     api: 'PyricDatabase.goOffline() / goOnline()',
-    behavior: 'Suspends and resumes the Realtime Database connection to the Pyric worker.',
+    behavior: 'Suspends and resumes the Realtime Database connection to the Pyric worker; `.info/connected` reports false after goOffline() and true again after goOnline() once the bridge is attached.',
     featureKeys: ['goOffline', 'goOnline'],
+  }),
+  row({
+    ref: 'info-connected',
+    section: SEC_INSTANCE,
+    api: "ref('.info/connected').onValue",
+    behavior: 'Served by the client from its bridge connection. It reports false until the client attaches and false whenever the connection is interrupted, closed or taken offline with goOffline(), and true once the client re-attaches. An onDisconnect registered when it turns true reaches the host on the new connection, after the restore.',
+    featureKeys: ['infoConnected'],
+    extraTests: [RECONNECT_SUITE],
+    evidence: 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart, which follows goOffline() and goOnline(), and packages/flutter-client/test/rtdb_info_connected_reconnect_test.dart, which drives a drop, a re-attach and a replaced host over a fake bridge and asserts that no `.info` frame reaches the host.',
+  }),
+  row({
+    ref: 'info-root-offset',
+    section: SEC_INSTANCE,
+    api: "ref('.info') / ref('.info/serverTimeOffset')",
+    behavior: 'Served by the client: `.info` is `{ connected, serverTimeOffset: 0 }`, `.info/serverTimeOffset` is 0, and any other path under `.info` is null.',
+    featureKeys: ['infoRoot', 'serverTimeOffset'],
+    status: 'diverged-documented',
+    statusNote: 'the offset is always 0: the bridge handshake carries no server timestamp, and production delivers no offset until its first handshake',
   }),
 
   // ── 2. DatabaseReference Navigation & Properties (7 rows) ────────────────
@@ -344,6 +371,7 @@ export const rtdbFlutterRows: CompatibilityRow[] = [
     api: 'OnDisconnect.set(value) / remove()',
     behavior: 'Registers server-side write or removal operations to execute upon client disconnect.',
     featureKeys: ['onDisconnectSetRemove'],
+    evidence: 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart. The Node host runs the operations when the client socket closes, by a close frame or after the host closes a socket that pinged and went silent, and keeps the session signed in for re-attach (ADR-0019): `packages/cli/test/serve/fixtures/hosted-sqlite-relay-ondisconnect.ts`. The app scenario `test/apps/host-closes-silent-consumer` sends the same `rtdb.onDisconnectSet` from a paused `node --import @pyric/cli/register` process on a real dev server, and the host runs it once the liveness window passes.',
   }),
   row({
     ref: 'ondisconnect-cancel',

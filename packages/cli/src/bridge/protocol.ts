@@ -146,7 +146,7 @@ export interface ToolCallResponse {
   id: string;
   /** When `ok===false`, `error` is populated and `result` is omitted. */
   ok: boolean;
-  /** Tool result (matches `ToolResult` shape from `@inbrowser/agent`). */
+  /** Tool result (the `ToolResult` shape from `pyric/sandbox/internal`). */
   result?: {
     ok: boolean;
     summary: string;
@@ -184,6 +184,22 @@ export const WORKER_PORT_CAPABILITY = 'worker-port';
 
 /** After this interruption window a client must request a fresh logical session. */
 export const WORKER_SESSION_RETENTION_MS = 60_000;
+/** How often every bridge client sends `ping` while attached (ADR-0019). */
+export const HOSTED_HEARTBEAT_INTERVAL_MS = 15_000;
+/**
+ * How long a client waits without any frame from the host before it treats
+ * its socket as dropped and reconnects (ADR-0019). Checked before each
+ * heartbeat, so three heartbeats go unanswered first.
+ */
+export const HOSTED_CLIENT_LIVENESS_TIMEOUT_MS = 3 * HOSTED_HEARTBEAT_INTERVAL_MS;
+/**
+ * How long the host waits without any frame from a heartbeating client before
+ * it closes that client's socket. A page frozen in the back-forward cache, a
+ * killed tab, or a sleeping laptop never sends a close frame, so this bound is
+ * what runs its RTDB onDisconnect operations. Six heartbeat intervals tolerate
+ * a hidden tab whose timers the browser throttles to about one per minute.
+ */
+export const HOST_PEER_LIVENESS_TIMEOUT_MS = 6 * HOSTED_HEARTBEAT_INTERVAL_MS;
 /** A recognized released grant requires fresh admission and Auth restoration. */
 export const WORKER_SESSION_EXPIRED_CLOSE_CODE = 4004;
 

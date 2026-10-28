@@ -1,4 +1,4 @@
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { createCanIUseTool } from './can-i-use-tool.js';
 import { canIUse } from './can-i-use.js';
 

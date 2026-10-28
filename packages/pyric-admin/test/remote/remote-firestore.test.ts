@@ -342,6 +342,36 @@ describe('pyric-admin remote Firestore — arm selection', () => {
 
 // ─── CRUD + value fidelity ─────────────────────────────────────────────────
 
+describe('pyric-admin remote Firestore: update field paths cross the wire as segment vectors', () => {
+  it('writes literal-dot FieldPaths through update, WriteBatch.update and Transaction.update', async () => {
+    const { ctx, remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    await db.doc('rooms/fp').set({ board: { c1r1: 'a' }, n: 1 });
+
+    await db.doc('rooms/fp').update(new FieldPath('a.b'), 'x', 'board.c1r1', 'y');
+    await db.batch().update(db.doc('rooms/fp'), new FieldPath('board', 'c1.r1'), 'z').commit();
+    await db.runTransaction(async (tx) => {
+      await tx.get(db.doc('rooms/fp'));
+      tx.update(db.doc('rooms/fp'), new FieldPath('n.m'), FieldValue.increment(2));
+    });
+
+    expect(JSON.parse((await workerGetDocRaw(ctx, 'rooms/fp')).json!)).toEqual({
+      board: { c1r1: 'y', 'c1.r1': 'z' },
+      n: 1,
+      'a.b': 'x',
+      'n.m': 2,
+    });
+  });
+
+  it('throws argument errors synchronously, as the Admin SDK does', () => {
+    const { remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    expect(() => db.doc('rooms/fp').update('a..b', 1)).toThrow(
+      'Element at index 1 is not a valid field path. Paths must not contain ".." in them.',
+    );
+  });
+});
+
 describe('pyric-admin remote Firestore — CRUD + typed-value fidelity', () => {
   it('set / get / update / delete round-trip through the worker', async () => {
     const { ctx, remote } = makeStack();
@@ -719,6 +749,8 @@ describe('pyric-admin remote Firestore — batch + transactions', () => {
     }
     expect(attempts).toBe(5);
     expect(caught).toBeInstanceOf(SandboxError);
+    // Admin SDK production behaviour: exhaustion rejects with ABORTED (gRPC 10),
+    // checked 2026-10-17 against Firestore with @google-cloud/firestore 7.11.2.
     expect(caught!.code).toBe('aborted');
   });
 
@@ -972,24 +1004,42 @@ describe('pyric-admin remote Firestore — onSnapshot', () => {
   });
 
   it('a denied listener routes to onError with the local arm error shape', async () => {
-    const { remote } = makeStack({ rules: MATRIX_RULES });
+    const { ctx, remote } = makeStack({ rules: MATRIX_RULES });
     const db = getFirestore(remote.withAuth({ uid: 'bob' }));
+    const localDb = getFirestore(ctx.sandbox.withAuth({ uid: 'bob' }));
 
     const errors: WireError[] = [];
+    const localErrors: WireError[] = [];
     const fires: unknown[] = [];
     onSnapshot(
       db.doc('locked/x'),
       (snap) => fires.push(snap),
       (err) => errors.push(err as WireError),
     );
+    onSnapshot(
+      localDb.doc('locked/x'),
+      () => {},
+      (err) => localErrors.push(err as WireError),
+    );
     await tick();
     expect(fires).toHaveLength(0);
     expect(errors).toHaveLength(1);
+    expect(localErrors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(SandboxError);
     expect(errors[0]!.code).toBe('permission-denied');
-    // Parity with the LOCAL arm: the sandbox does not populate
-    // denialContext on snapshot-listener denials (only on op denials).
-    expect(errors[0]!.denialContext).toBeUndefined();
+    // Parity with the LOCAL arm (FS-ENF-3a): both arms translate denied
+    // document listener errors through toSandboxError and carry structured
+    // denialContext with the denied operation and path.
+    const denialContext = errors[0]!.denialContext as {
+      engine?: string;
+      auth?: { uid?: string } | null;
+      request?: { method?: string; path?: string };
+    } | undefined;
+    expect(denialContext?.engine).toBe('firestore');
+    expect(denialContext?.auth?.uid).toBe('bob');
+    expect(denialContext?.request?.method).toBe('get');
+    expect(denialContext?.request?.path).toBe('locked/x');
+    expect(errors[0]!.denialContext).toEqual(localErrors[0]!.denialContext);
   });
 });
 
@@ -1216,6 +1266,96 @@ function conformanceSuite(name: string, makeDb: () => Promise<SandboxFirestore> 
       );
       // The write buffered before the violation must NOT have committed.
       expect((await db.doc('rw/x').get()).data()).toEqual({ v: 1 });
+    });
+
+    it('create() parity across DocumentReference, WriteBatch, and Transaction (including concurrent invite race)', async () => {
+      const db = await makeDb();
+
+      // 1. DocumentReference.create: succeeds when absent, fails with already-exists when present.
+      await db.doc('creates/d1').create({ owner: 'alice', createdAt: FieldValue.serverTimestamp() });
+      const created = (await db.doc('creates/d1').get()).data()!;
+      expect(created.owner).toBe('alice');
+      expect(created.createdAt).toBeInstanceOf(Timestamp);
+
+      let dupErr: (Error & { code?: string }) | undefined;
+      try {
+        await db.doc('creates/d1').create({ owner: 'mallory' });
+      } catch (e) {
+        dupErr = e as Error & { code?: string };
+      }
+      expect(dupErr?.code).toBe('already-exists');
+      expect((await db.doc('creates/d1').get()).data()!.owner).toBe('alice');
+
+      // 2. WriteBatch.create: atomic rollback on collision + delete-then-create on same doc.
+      let batchErr: (Error & { code?: string }) | undefined;
+      try {
+        await db
+          .batch()
+          .set(db.doc('creates/rollback-canary'), { leaked: true })
+          .create(db.doc('creates/d1'), { owner: 'mallory' })
+          .commit();
+      } catch (e) {
+        batchErr = e as Error & { code?: string };
+      }
+      expect(batchErr?.code).toBe('already-exists');
+      expect((await db.doc('creates/rollback-canary').get()).exists).toBe(false);
+
+      await db
+        .batch()
+        .delete(db.doc('creates/d1'))
+        .create(db.doc('creates/d1'), { owner: 'bob' })
+        .commit();
+      expect((await db.doc('creates/d1').get()).data()).toEqual({ owner: 'bob' });
+
+      // 3. Transaction.create: reads-before-writes, atomic collision rollback, and concurrent get-or-create contention retry.
+      let rawErr: (Error & { code?: string }) | undefined;
+      try {
+        await db.runTransaction(async (tx) => {
+          tx.create(db.doc('creates/raw-canary'), { v: 1 });
+          await tx.get(db.doc('creates/d1'));
+        });
+      } catch (e) {
+        rawErr = e as Error & { code?: string };
+      }
+      expect(rawErr?.code).toBe('failed-precondition');
+      expect((await db.doc('creates/raw-canary').get()).exists).toBe(false);
+
+      let txCollisionErr: (Error & { code?: string }) | undefined;
+      try {
+        await db.runTransaction(async (tx) => {
+          tx.set(db.doc('creates/tx-rollback-canary'), { leaked: true });
+          tx.create(db.doc('creates/d1'), { owner: 'mallory' });
+        });
+      } catch (e) {
+        txCollisionErr = e as Error & { code?: string };
+      }
+      expect(txCollisionErr?.code).toBe('already-exists');
+      expect((await db.doc('creates/tx-rollback-canary').get()).exists).toBe(false);
+
+      let seq = 0;
+      const getOrCreateSpaceInvite = (uid: string, spaceId: string) =>
+        db.runTransaction(async (tx) => {
+          const userDoc = db.collection('userInvites').doc(uid);
+          const data = (await tx.get(userDoc)).data() as { codes?: Record<string, string> } | undefined;
+          const existing = data?.codes?.[spaceId];
+          if (existing) return { code: existing };
+          const code = `CODE_${++seq}`;
+          tx.create(db.collection('spaceInvites').doc(code), {
+            spaceId,
+            inviterUid: uid,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          tx.set(userDoc, { codes: { [spaceId]: code } }, { merge: true });
+          return { code };
+        });
+
+      const [resA, resB] = await Promise.all([
+        getOrCreateSpaceInvite('alice', 'space-07'),
+        getOrCreateSpaceInvite('alice', 'space-07'),
+      ]);
+      expect(resA.code).toBe(resB.code);
+      const invitesSnap = await db.collection('spaceInvites').get();
+      expect(invitesSnap.docs.map((d) => d.id)).toEqual([resA.code]);
     });
   });
 }

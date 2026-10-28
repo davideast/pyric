@@ -1,4 +1,16 @@
-/** RTDB worker-client value and child listener behavior. */
+/**
+ * RTDB worker-client value and child listener behavior.
+ *
+ * A check that nothing more was delivered waits on an answered call, never on
+ * a delay. The host runs each message's RTDB work synchronously as the message
+ * arrives (`dispatchMessage` in host/dispatch.ts): a `sub` posts its initial
+ * snapshot from `handleRtdbSub`, and a write fans out to every listener inside
+ * the sandbox write (`changed()` in pyric's write-plane) before `handleRtdbOp`
+ * posts its reply. Each fake port delivers in FIFO order, and the client hands
+ * a snapshot to its listener synchronously in `wirePort`'s onmessage. So once
+ * a write or a later read is answered, every snapshot an earlier call caused
+ * has already reached the application's callbacks.
+ */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   getDatabase,
@@ -9,7 +21,7 @@ import {
   query as buildRtdbQuery,
 } from 'pyric/database';
 import * as client from '../../../../src/serve/worker/index.js';
-import { connectClient, sleep } from '../integration-support.js';
+import { connectClient, until } from '../integration-support.js';
 
 describe('RTDB worker listeners', () => {
   let restoreSW: () => void;
@@ -34,29 +46,30 @@ describe('RTDB worker listeners', () => {
     const unsubscribeChanged = client.rtdbOnChildChanged(scores, (snap) => {
       changed.push({ key: snap.key, value: snap.val() });
     });
-    await sleep();
+    await until(() => added.length === 1, 'initial child_added');
+    await client.rtdbGet(scores); // answered after the child_changed listener's initial snapshot
 
     expect(added).toEqual([{ key: 'ada', value: { value: 7 } }]);
     expect(changed).toEqual([]);
 
     await client.rtdbSet(client.rtdbChild(scores, 'grace'), { value: 9 });
-    await sleep();
+    await until(() => added.length === 2, 'grace child_added');
     expect(added.at(-1)).toEqual({ key: 'grace', value: { value: 9 } });
     expect(changed).toEqual([]);
 
     await client.rtdbSet(client.rtdbChild(scores, 'ada'), { value: 8 });
-    await sleep();
+    await until(() => changed.length >= 1, 'ada child_changed');
     expect(changed).toEqual([{ key: 'ada', value: { value: 8 } }]);
 
     await client.rtdbRemove(client.rtdbChild(scores, 'grace'));
-    await sleep();
+    // Nothing to wait for: the awaited write's reply follows its fan-out (see the header).
     expect(changed).toEqual([{ key: 'ada', value: { value: 8 } }]);
 
     unsubscribeAdded();
     unsubscribeChanged();
     await client.rtdbSet(client.rtdbChild(scores, 'lin'), { value: 10 });
     await client.rtdbSet(client.rtdbChild(scores, 'ada'), { value: 11 });
-    await sleep();
+    // Unsubscribing removed both listeners on the client synchronously; no snapshot reaches them.
     expect(added).toHaveLength(2);
     expect(changed).toHaveLength(1);
   });
@@ -71,14 +84,14 @@ describe('RTDB worker listeners', () => {
     const changed: unknown[] = [];
     const unsubscribeAdded = client.rtdbOnChildAdded(rows, (snap) => added.push(snap.key ?? ''));
     const unsubscribeChanged = client.rtdbOnChildChanged(rows, (snap) => changed.push(snap.val()));
-    await sleep();
+    await until(() => added.length >= 3, 'initial numeric child_added');
     expect(added).toEqual(['0', '1', '2']);
 
     await client.rtdbSet(client.rtdbChild(rows, '1'), { a: 1, b: 2 });
-    await sleep();
+    await until(() => changed.length >= 1, 'row 1 child_changed');
     expect(changed).toEqual([{ a: 1, b: 2 }]);
     await client.rtdbSet(client.rtdbChild(rows, '1'), { b: 2, a: 1 });
-    await sleep();
+    // Nothing to wait for: the awaited write's reply follows its fan-out (see the header).
     expect(changed).toHaveLength(1);
 
     unsubscribeAdded();
@@ -93,9 +106,9 @@ describe('RTDB worker listeners', () => {
 
     const seen: string[] = [];
     client.rtdbOnChildAdded(rows, (snapshot) => seen.push(snapshot.key!), { onlyOnce: true });
-    await sleep();
+    await until(() => seen.length >= 2, 'initial onlyOnce child_added batch');
     await client.rtdbSet(client.rtdbChild(rows, 'c'), 3);
-    await sleep();
+    // Nothing to wait for: the awaited write's reply follows its fan-out (see the header).
 
     expect(seen).toEqual(['b', 'a']);
     expect(seen).not.toContain('c');
@@ -105,7 +118,7 @@ describe('RTDB worker listeners', () => {
       deliveredDespiteThrow.push(snapshot.key!);
       throw new Error('listener failure');
     }, { onlyOnce: true });
-    await sleep();
+    await until(() => deliveredDespiteThrow.length >= 3, 'throwing onlyOnce child_added batch');
     expect(deliveredDespiteThrow).toEqual(['c', 'b', 'a']);
   });
 
@@ -119,9 +132,9 @@ describe('RTDB worker listeners', () => {
       throw new Error('listener failure');
     });
     const stopControl = client.rtdbOnValue(target, (snapshot) => delivered.push(snapshot.val()));
-    await sleep();
+    await until(() => delivered.length >= 1, 'initial control value');
     await client.rtdbSet(target, 1);
-    await sleep();
+    await until(() => delivered.length >= 2, 'control value after set');
 
     expect(delivered).toEqual([0, 1]);
     stopThrowing();
@@ -137,15 +150,15 @@ describe('RTDB worker listeners', () => {
     const callback = (snapshot: client.RtdbDataSnapshot) => values.push(snapshot.val());
     client.rtdbOnValue(target, callback);
     client.rtdbOnValue(target, callback);
-    await sleep();
+    await until(() => values.length >= 2, 'initial duplicate values');
     await client.rtdbSet(target, 1);
-    await sleep();
+    await until(() => values.length >= 4, 'duplicate values after set');
     client.rtdbOff(target, 'value', callback);
     await client.rtdbSet(target, 2);
-    await sleep();
+    await until(() => values.length >= 5, 'remaining registration value');
     client.rtdbOff(target, 'value', callback);
     await client.rtdbSet(target, 3);
-    await sleep();
+    // Nothing to wait for: the awaited write's reply follows its fan-out (see the header).
     expect(values).toEqual([0, 0, 1, 1, 2]);
 
     const rows = client.rtdbRef(rtdb, 'off-semantics/rows');
@@ -156,23 +169,23 @@ describe('RTDB worker listeners', () => {
     const orderedValues: unknown[] = [];
     client.rtdbOnValue(rows, (snapshot) => defaultValues.push(snapshot.val()));
     client.rtdbOnValue(ordered as never, (snapshot) => orderedValues.push(snapshot.val()));
-    await sleep();
+    await until(() => defaultValues.length >= 1 && orderedValues.length >= 1, 'initial default and ordered values');
     client.rtdbOff(reorderedEquivalent as never);
     await client.rtdbSet(client.rtdbChild(rows, 'c'), { rank: 3 });
-    await sleep();
+    await until(() => defaultValues.length >= 2, 'default value after set');
     expect(defaultValues).toHaveLength(2);
     expect(orderedValues).toHaveLength(1);
 
     const defaultQuery = buildRtdbQuery(rows as never);
     client.rtdbOnValue(rows, (snapshot) => defaultValues.push(snapshot.val()));
-    await sleep();
+    await until(() => defaultValues.length >= 3, 'second default listener initial value');
     client.rtdbOff(defaultQuery as never);
     await client.rtdbSet(client.rtdbChild(rows, 'default-query-control'), true);
-    await sleep();
+    // Nothing to wait for: the awaited write's reply follows its fan-out (see the header).
     expect(defaultValues).toHaveLength(3);
     client.rtdbOff(rows);
     await client.rtdbSet(client.rtdbChild(rows, 'd'), { rank: 4 });
-    await sleep();
+    // Nothing to wait for: the awaited write's reply follows its fan-out (see the header).
     expect(defaultValues).toHaveLength(3);
   });
 
@@ -201,22 +214,22 @@ describe('RTDB worker listeners', () => {
     const stopRemoved = client.rtdbOnChildRemoved(scores, (snapshot, previous) => removed.push({
       key: snapshot.key, value: snapshot.val(), previous,
     }));
-    await sleep();
+    await until(() => valueWindows.length >= 1, 'initial priority window');
 
     await client.rtdbSetPriority(client.rtdbChild(scores, 'ada'), 5);
-    await sleep();
+    await until(() => moved.length >= 1, 'ada child_moved');
     expect(valueWindows.at(-1)).toEqual(['ada', 'grace']);
     expect(moved).toEqual([{ key: 'ada', previous: null }]);
 
     await client.rtdbSetPriority(client.rtdbChild(scores, 'lin'), 25);
-    await sleep();
+    await until(() => moved.length >= 2, 'lin child_moved');
     expect(moved).toEqual([
       { key: 'ada', previous: null },
       { key: 'lin', previous: 'grace' },
     ]);
 
     await client.rtdbRemove(client.rtdbChild(scores, 'grace'));
-    await sleep();
+    await until(() => removed.length >= 1, 'grace child_removed');
     expect(removed).toEqual([{ key: 'grace', value: { score: 9 }, previous: null }]);
 
     stopValue();
@@ -246,9 +259,9 @@ describe('RTDB worker listeners', () => {
         snap.forEach((child) => { keys.push(child.key!); return false; });
         windows.push(keys);
       });
-      await sleep();
+      await until(() => windows.length >= 1, 'initial limited window');
       await client.rtdbSet(client.rtdbChild(scores, 'ada'), { pos: 0 });
-      await sleep();
+      await until(() => windows.length >= 2, 'limited window after set');
       stopLimited();
       expect(windows).toEqual([['grace', 'lin'], ['ada', 'grace']]);
       expect(warnings).toHaveLength(1);
@@ -256,8 +269,10 @@ describe('RTDB worker listeners', () => {
       expect(warnings[0]![1]).toBe('FIREBASE WARNING: Using an unspecified index. Your data will be downloaded and filtered on the client. Consider adding ".indexOn": "pos" at /scores to your security rules for better performance. ');
 
       warnings.length = 0;
-      const stopUnlimited = client.rtdbOnValue(buildRtdbQuery(scores as never, rtdbOrderByChild('pos')) as never, () => {});
-      await sleep();
+      let unlimitedDeliveries = 0;
+      const stopUnlimited = client.rtdbOnValue(buildRtdbQuery(scores as never, rtdbOrderByChild('pos')) as never, () => { unlimitedDeliveries += 1; });
+      // The warning rides on the listener's first snapshot and is logged before its callback runs.
+      await until(() => unlimitedDeliveries >= 1, 'unlimited listener first snapshot');
       stopUnlimited();
       expect(warnings).toEqual([]);
     } finally {

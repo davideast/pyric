@@ -5,7 +5,7 @@
  * the design rationale section 5 and round-3 track P3). The 12 scenarios
  * are byte-identical to the originals; only the bootstrap changed:
  * `initializeAgentApp({ credentialEnvVar })` (died with packages/sdk) →
- * `parityScope()` (firebase-admin cert credential from PARITY_SA_BASE64).
+ * `parityScope()` (credential.ts).
  *
  * The scenario corpus MOVED (conformance-chain consolidation, staging): the 12
  * scenarios now live as one authored record per file under
@@ -23,17 +23,17 @@
  *
  * The test passes if the run completes; the per-scenario tally is the artifact.
  *
- * Requires: PARITY_SA_BASE64 in env — a minimal service account that
- * holds only `firebaserules.rulesets.test` (no need for the broad
- * FIREBASE_SA_BASE64 the live-integration tests use). Skips cleanly
- * when the secret is absent (external PRs, unit-suite CI).
+ * Requires: a Rules Test API credential (credential.ts); the CI identity
+ * holds only `firebaserules.rulesets.test`. Skips cleanly when no
+ * credential resolves (external PRs, unit-suite CI), and fails when
+ * PARITY_REQUIRE_CREDENTIAL=1 is set and none resolves.
  */
 import { describe, test, beforeAll, afterAll } from 'bun:test';
 import type { ProjectScope } from '../../../src/project-scope.js';
 import {
   type Scenario,
   type CaseRow,
-  hasParitySecret,
+  hasParityCredential,
   parityScope,
   runScenario,
   reportParity,
@@ -44,7 +44,7 @@ const SCENARIOS: Scenario[] = STRESS_SCENARIOS;
 
 // ─── Test ──────────────────────────────────────────────────────────────────
 
-const HAS_SA = hasParitySecret();
+const HAS_SA = hasParityCredential();
 let scope: ProjectScope;
 const allRows: CaseRow[] = [];
 

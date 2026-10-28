@@ -65,7 +65,10 @@ final class AdversarialMockHarness: WebSocketTransport, @unchecked Sendable {
             return (nil, nil)
         }
 
-        sentMessages.append(dict)
+        // Heartbeat pings are answered but not recorded with the frames tests drive.
+        if dict["type"]?.stringValue != "ping" {
+            sentMessages.append(dict)
+        }
 
         let type = dict["type"]?.stringValue
         var responseString: String? = nil

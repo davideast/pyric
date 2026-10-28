@@ -124,6 +124,26 @@ describe('/__pyric/denials', () => {
     expect(notes[1]).toContain('anonymous'); // no auth.uid → anonymous
   });
 
+  it('prints the same path denied on two RTDB instances once each within the window', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const onInstance = (instance: string) => denialBody({
+      message: 'PERMISSION_DENIED',
+      instance,
+      denialContext: { engine: 'rtdb', auth: null, request: { method: 'listen', path: '/rooms/r1' } },
+    });
+    for (const instance of ['demo-app-default-rtdb', 'demo-app-shard-1', 'demo-app-shard-1']) {
+      await fetch(`${h.url}/__pyric/denials`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(onInstance(instance)),
+      });
+    }
+    expect(notes.length).toBe(2);
+    expect(notes[0]).toContain('listen /rooms/r1 (demo-app-default-rtdb)');
+    expect(notes[1]).toContain('listen /rooms/r1 (demo-app-shard-1)');
+  });
+
   it('rejects non-POST with 405', async () => {
     const { logger } = recordingLogger();
     const h = await startServe(logger);
@@ -184,6 +204,34 @@ describe('createDenialThrottle', () => {
 });
 
 describe('formatDenialBlock', () => {
+  it('names the deciding rule of an RTDB denial', () => {
+    const block = formatDenialBlock({
+      message: 'PERMISSION_DENIED: Permission denied',
+      denialContext: {
+        engine: 'rtdb',
+        auth: { uid: 'alice' },
+        request: { method: 'set', path: '/rooms/bob' },
+        matchedPath: '/rooms/$roomId',
+        matchedRule: 'auth.uid == $roomId',
+      },
+    });
+    expect(block.split('\n')).toEqual([
+      '  ⚠ [pyric] denied: PERMISSION_DENIED: Permission denied',
+      '      set /rooms/bob',
+      '      auth: alice',
+      '      rule: /rooms/$roomId auth.uid == $roomId',
+    ]);
+  });
+
+  it('names the RTDB instance the denied request addressed', () => {
+    const block = formatDenialBlock({
+      message: 'PERMISSION_DENIED',
+      instance: 'demo-app-shard-1',
+      denialContext: { engine: 'rtdb', auth: { uid: 'alice' }, request: { method: 'listen', path: '/rooms/r1' } },
+    });
+    expect(block.split('\n')[1]).toBe('      listen /rooms/r1 (demo-app-shard-1)');
+  });
+
   it('renders a compact multi-line block: message, request, auth, remediation', () => {
     const block = formatDenialBlock({
       message: 'get tickets/T-1 denied by rules',
@@ -199,6 +247,41 @@ describe('formatDenialBlock', () => {
     expect(lines[1]).toContain('get tickets/T-1');
     expect(lines[2]).toContain('user-1');
     expect(lines[3]).toContain('grant read access in firestore.rules');
+  });
+
+  it('names the code that opened a denied listener and the frames around it', () => {
+    const block = formatDenialBlock({
+      message: 'PERMISSION_DENIED: Permission denied',
+      denialContext: { auth: { uid: 'alice' }, request: { method: 'onValue', path: '/rooms/r1' } },
+      owners: [{
+        kind: 'frame',
+        file: 'http://localhost:5173/src/room-list.js?t=1712',
+        line: 5,
+        column: 22,
+        function: 'listRooms',
+        stack: [
+          { file: 'http://localhost:5173/src/db.js', line: 5, column: 10, function: 'watch' },
+          { file: 'http://localhost:5173/src/room-list.js?t=1712', line: 5, column: 22, function: 'listRooms' },
+          { file: 'http://localhost:5173/src/main.js', line: 14, column: 3 },
+        ],
+      }, { kind: 'tag', name: 'room-list' }],
+    });
+    expect(block.split('\n')).toEqual([
+      '  ⚠ [pyric] denied: PERMISSION_DENIED: Permission denied',
+      '      onValue /rooms/r1',
+      '      auth: alice',
+      '      owner: listRooms /src/room-list.js:5',
+      '      stack: /src/db.js:5 ← /src/room-list.js:5 ← /src/main.js:14',
+    ]);
+  });
+
+  it('names a single-frame owner without a stack line', () => {
+    const block = formatDenialBlock({
+      message: 'denied',
+      denialContext: { auth: null },
+      owners: [{ kind: 'frame', file: '/home/me/app/src/room-list.ts', line: 5 }],
+    });
+    expect(block.split('\n').slice(2)).toEqual(['      owner: /home/me/app/src/room-list.ts:5']);
   });
 
   it('falls back to "anonymous" auth and omits missing fields', () => {

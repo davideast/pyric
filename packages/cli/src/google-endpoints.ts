@@ -45,6 +45,9 @@ export interface GoogleEndpoint {
   readonly fingerprint: boolean;
 }
 
+/** The host the Firebase AI Logic SDK (`firebase/ai`) calls. */
+export const FIREBASE_AI_LOGIC_HOST = 'firebasevertexai.googleapis.com';
+
 export const GOOGLE_ENDPOINT_CATALOG: readonly GoogleEndpoint[] = [
   // Identity. Both are reached by the Auth SDK and by nothing else.
   { host: 'identitytoolkit.googleapis.com', service: 'Firebase Authentication', fingerprint: true },
@@ -94,7 +97,7 @@ export const GOOGLE_ENDPOINT_CATALOG: readonly GoogleEndpoint[] = [
   },
   // AI. The Firebase AI Logic host is SDK-only; raw Vertex AI is reachable
   // from any HTTP client.
-  { host: 'firebasevertexai.googleapis.com', service: 'Firebase AI Logic', fingerprint: true },
+  { host: FIREBASE_AI_LOGIC_HOST, service: 'Firebase AI Logic', fingerprint: true },
   { host: 'aiplatform.googleapis.com', service: 'Vertex AI', fingerprint: false },
   // Credential exfiltration target. Never a false positive on the wire, and
   // never evidence that an SDK was inlined.

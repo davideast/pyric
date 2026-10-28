@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-import { createSign } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getDatabase, ref, set, get, remove } from 'firebase/database';
+import { mintAccessToken } from '../../oracle-access-token.ts';
 
 interface ServiceAccount {
   client_email: string;
@@ -29,27 +29,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-async function mintToken(sa: ServiceAccount, scope: string): Promise<string> {
-  const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({
-    iss: sa.client_email, scope, aud: tokenUri, iat: now, exp: now + 3600,
-  })).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  const signature = signer.sign(sa.private_key).toString('base64url');
-  const response = await fetch(tokenUri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${header}.${payload}.${signature}`,
-    }),
-  });
-  if (!response.ok) throw new Error(`token exchange failed: ${response.status}`);
-  return ((await response.json()) as { access_token: string }).access_token;
-}
 
 async function discoverConfig(token: string, projectId: string): Promise<FirebaseWebConfig> {
   const appsResponse = await fetch(
@@ -86,14 +65,14 @@ async function main(): Promise<void> {
   const saPath = process.env.PYRIC_ORACLE_SA_PATH;
   if (!saPath || !existsSync(saPath)) throw new Error('PYRIC_ORACLE_SA_PATH does not name a readable file');
   const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
-  const firebaseToken = await mintToken(serviceAccount, 'https://www.googleapis.com/auth/firebase');
+  const firebaseToken = await mintAccessToken(serviceAccount, 'https://www.googleapis.com/auth/firebase');
   const config = await discoverConfig(firebaseToken, serviceAccount.project_id);
   if (config.projectId !== serviceAccount.project_id) throw new Error('discovered Web App belongs to a different project');
 
   console.log(`[oracle:rtdb-disconnect:preflight] project: ${config.projectId}`);
   console.log(`[oracle:rtdb-disconnect:preflight] database: ${config.databaseURL}`);
 
-  const databaseToken = await mintToken(
+  const databaseToken = await mintAccessToken(
     serviceAccount,
     'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
   );

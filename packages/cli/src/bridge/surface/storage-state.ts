@@ -14,11 +14,11 @@
 import {
   ref as storageRef,
   uploadBytes,
-  getBytes,
-  getMetadata,
   listAll,
   type FirebaseStorage,
 } from 'pyric/storage';
+import { getStorageService, targetOf } from 'pyric/storage/internal';
+import { BY_REFERENCE_ALTERNATIVE, assertInlineStorageFits, type InlineStorageDocument } from 'pyric/sandbox/internal';
 
 /** One stored object, in the shape a capture holds it. */
 export interface StorageObjectRecord {
@@ -45,15 +45,45 @@ export async function listStoredPaths(storage: FirebaseStorage): Promise<string[
   return paths;
 }
 
-/** Read every object out of the bucket into records. */
-export async function exportStorage(storage: FirebaseStorage): Promise<StorageObjectRecord[]> {
+/** Where a fixture export's Storage ends up, and what to use past the inline limit. */
+export const FIXTURE_EXPORT_DOCUMENT: InlineStorageDocument = {
+  document: 'A fixture export',
+  instead: BY_REFERENCE_ALTERNATIVE,
+};
+
+/**
+ * Read every object out of the bucket into records. Each object's bytes and
+ * metadata are read as one pair from the same write, so an overwrite during
+ * the export cannot pair one write's content type with another's bytes. An
+ * object deleted after the listing is left out.
+ *
+ * The records carry their bytes inline, so the total is checked against the
+ * inline limit from the listed sizes before a byte is read, and again as the
+ * bytes are read, refused in the name of `target`.
+ */
+export async function exportStorage(
+  storage: FirebaseStorage,
+  target: InlineStorageDocument,
+): Promise<StorageObjectRecord[]> {
+  const backend = (await getStorageService(storage)).backend;
+  const { bucket } = targetOf(storage);
+  const paths = await listStoredPaths(storage);
+  let listedBytes = 0;
+  for (const path of paths) listedBytes += (await backend.getMetadata(path, bucket))?.size ?? 0;
+  assertInlineStorageFits(listedBytes, target);
   const records: StorageObjectRecord[] = [];
-  for (const path of await listStoredPaths(storage)) {
-    const metadata = await getMetadata(storageRef(storage, path));
-    const bytes = await getBytes(storageRef(storage, path));
+  let readBytes = 0;
+  for (const path of paths) {
+    const object = await backend.getObject(path, bucket);
+    const deletedSinceListing = object === undefined;
+    if (deletedSinceListing) continue;
+    const { blob, metadata } = object;
+    readBytes += blob.size;
+    // An overwrite after the listing can grow an object; refuse before encoding it.
+    assertInlineStorageFits(readBytes, target);
     const record: StorageObjectRecord = {
       path,
-      contentBase64: Buffer.from(new Uint8Array(bytes)).toString('base64'),
+      contentBase64: Buffer.from(await blob.arrayBuffer()).toString('base64'),
       metadata: metadata.customMetadata ?? {},
     };
     if (metadata.contentType !== undefined) record.contentType = metadata.contentType;

@@ -165,6 +165,7 @@ export function attachViteFunctionsDevelopment(
       baseEnv: options.baseEnv,
       serveUrl: url,
       registerUrl: options.registerUrl,
+      hostInstanceId: bridge.instanceId,
       instance: options.instance ?? `${options.projectId}-default-rtdb`,
       location: options.region ?? options.baseEnv.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: options.projectId,

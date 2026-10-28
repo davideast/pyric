@@ -343,7 +343,7 @@ function firestoreEvaluate(
   const rootFunctions = [...(ast.functions ?? []), ...(ast.service.functions ?? []), ...ast.service.match.functions];
   const match = timeSync(() => {
     const recorder = { entries: [] as unknown[], push(entry: unknown) { this.entries.push(entry); } };
-    for (const child of ast.service.match.children) matchResolution.collectMatches(child, segments, rootFunctions, recorder);
+    for (const child of ast.service.match.children) matchResolution.collectMatches(child, segments, rootFunctions, ast.version, recorder);
   });
 
   record(subject, 'evaluate', total, 'simulateParsed for one request');

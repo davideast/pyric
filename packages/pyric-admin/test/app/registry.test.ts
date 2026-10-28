@@ -36,6 +36,7 @@ import { getAuth } from '../../src/auth/index.js';
 import { getFirestore } from '../../src/firestore/index.js';
 import { getStorage } from '../../src/storage/index.js';
 import { getMessaging } from '../../src/messaging/index.js';
+import admin from '../../src/admin.js';
 
 // The registry is module-global (mirror of firebase-admin's
 // defaultAppStore) — start every test from an empty registry, and make
@@ -78,6 +79,17 @@ describe('app registry — register / get', () => {
     // getApps returns a copy — mutating it must not touch the registry.
     getApps().pop();
     expect(getApps()).toHaveLength(2);
+  });
+
+  it('the default export reads the registry: admin.app(name?) and a live admin.apps', () => {
+    expect(admin.apps).toEqual([]);
+    expectAppError(() => admin.app(), 'app/no-app', /^The default Firebase app does not exist\./);
+    if (!admin.apps.length) admin.initializeApp({ sandbox: initializeSandbox() });
+    const other = admin.initializeApp({ sandbox: initializeSandbox() }, 'other');
+    expect(admin.app()).toBe(getApp());
+    expect(admin.app('other')).toBe(other);
+    expect(admin.apps).toEqual(getApps());
+    expect(admin.apps).toHaveLength(2);
   });
 
   it('getApp throws app/no-app with the exact firebase-admin message (default)', () => {

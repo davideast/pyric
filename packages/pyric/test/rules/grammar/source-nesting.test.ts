@@ -8,6 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import { parseExpression, parseRulesFile, parseToASTOrError } from '../../../src/rules/grammar/FirestoreParser.js';
 import { MAX_BRACKET_DEPTH } from '../../../src/rules/grammar/bracket-scan.js';
 import { NESTING_MESSAGE, compileLimitViolations } from '../../../src/rules/grammar/compile-limits.js';
+import { checkRulesSource } from '../../../src/rules/grammar/source-compile-limits.js';
 import { lintFirestoreRules } from '../../../src/rules/linter/linter.js';
 import { firestoreRules } from '../../../src/rules/api/firestore.js';
 import { RulesCompileError } from '../../../src/rules/api/errors.js';
@@ -172,5 +173,86 @@ describe('engines and the linter on 300 nested groups', () => {
   test('the linter reports NESTING_DEPTH', () => {
     const result = lintFirestoreRules(firestore(groups(300)));
     expect(result.warnings.filter((w) => w.rule === 'NESTING_DEPTH')).toHaveLength(1);
+  });
+});
+
+describe('parser: keyword-named fields, path segments, and syntax inside elided brackets (FS-FUZ-1)', () => {
+  test('indexing after a keyword-named field (.in[0], .is[0], .let[0]) is subscripting, not a list literal', () => {
+    const source = firestore(`${'('.repeat(96)}resource.data.in[0] == false && request.auth.uid == 'admin'${')'.repeat(96)}`);
+    const rules = firestoreRules(source);
+    const out = rules.simulate([
+      {
+        description: 'non-admin denied',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'p/d1',
+        auth: { uid: 'intruder' },
+        existingData: { in: [false] },
+      },
+    ]);
+    expect(out.cases[0]?.decision).toBe('DENY');
+  });
+
+  test('98 parenthesized groups around .in[0] == false inside match /a/in still report NESTING_DEPTH', () => {
+    const cmp98 = `${'('.repeat(98)}resource.data.in[0] == false${')'.repeat(98)}`;
+    let body = `allow read: if ${cmp98};`;
+    for (let i = 0; i < 10; i++) body = `match /a/in { ${body} }`;
+    const source = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    ${body}\n  }\n}\n`;
+    expect(nesting(source)).toBeGreaterThan(0);
+    expect(() => firestoreRules(source)).toThrow(RulesCompileError);
+  });
+
+  test('match path segments ending in a keyword (/a/in, /a/sign-in) do not count as map literals', () => {
+    let body = `allow read: if ${'('.repeat(96)}request.auth.uid == 'admin'${')'.repeat(96)};`;
+    for (let i = 0; i < 6; i++) {
+      body = `match /seg${i}/in {\n${body}\n}`;
+    }
+    const source = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /auth/sign-in {\n      ${body}\n    }\n  }\n}\n`;
+    expect(nesting(source)).toBe(0);
+    const rules = firestoreRules(source);
+    const path = 'auth/sign-in/seg5/in/seg4/in/seg3/in/seg2/in/seg1/in/seg0/in';
+    const out = rules.simulate([
+      { description: 'intruder denied', expectation: 'DENY', method: 'get', path, auth: { uid: 'intruder' } },
+    ]);
+    expect(out.cases[0]?.decision).toBe('DENY');
+  });
+
+  test('syntax errors inside >=99 nested brackets are rejected as parse errors', () => {
+    const bad = firestore(`${'('.repeat(100)}1 + * 2${')'.repeat(100)}`);
+    expect(parseRulesFile(bad).valid).toBe(false);
+    expect(parseToASTOrError(bad).ok).toBe(false);
+    expect(checkRulesSource(bad).ok).toBe(false);
+  });
+
+  test('96 parens around a ternary inside match /users/in + .in[.is[...]] == 1 compiles and evaluates to DENY', () => {
+    const inner96 = `${'('.repeat(95)}(request.auth.uid == "admin" ? 0 : 0)${')'.repeat(95)}`;
+    const source = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /users/in {\n      allow read: if resource.data.in[resource.data.is[${inner96}]] == 1;\n    }\n  }\n}\n`;
+    const sim = firestoreRules(source).simulate([
+      {
+        description: 'attacker read denied',
+        expectation: 'DENY',
+        method: 'get',
+        path: '/users/in',
+        auth: { uid: 'attacker' },
+        resource: { in: [0, 1], is: [0, 1] },
+      },
+    ]);
+    expect(sim.cases[0]?.decision).toBe('DENY');
+  });
+});
+
+describe('parser: {ident} capture in expression path literals compiles and is flagged by linter (FS-FUZ-6)', () => {
+  const PATH_CAPTURE_RULE = firestore('exists(/databases/$(database)/documents/users/{uid})');
+
+  test('parseExpression, parseRulesFile, and checkRulesSource accept {uid} inside an expression path literal', () => {
+    expect(parseExpression('/databases/$(database)/documents/users/{uid}').valid).toBe(true);
+    expect(parseExpression('/databases/{database}/documents/users/$(uid)').valid).toBe(true);
+    expect(parseRulesFile(PATH_CAPTURE_RULE).valid).toBe(true);
+    expect(checkRulesSource(PATH_CAPTURE_RULE).ok).toBe(true);
+  });
+
+  test('lintFirestoreRules reports INVALID_PATH_INTERPOLATION', () => {
+    const lint = lintFirestoreRules(PATH_CAPTURE_RULE);
+    expect(lint.warnings.some((w) => w.rule === 'INVALID_PATH_INTERPOLATION')).toBe(true);
   });
 });

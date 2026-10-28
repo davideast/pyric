@@ -19,6 +19,7 @@ import type {
   DocValueEncoding,
   AggregateSpecDescriptor,
   WriteDescriptor,
+  UpdatePayload,
   TxnReadEntry,
   FirestoreSubMessage,
 } from './protocol/firestore.js';
@@ -33,7 +34,7 @@ import type {
   ListenerOwner,
   SandboxClockState,
   SandboxEvent,
-  DenialContext,
+  AnyDenialContext,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
 import type {
@@ -76,6 +77,17 @@ export interface AiErrorEnvelopeWire {
  * All one-shot operation messages share the `t:'op'` discriminator and a
  * correlation `id` that the worker echoes back in the `res` reply.
  */
+/**
+ * The bucket a Storage object op names. Without `bucket`, the op is on the
+ * host's default bucket. `defaultBucket` is the caller's name for that default
+ * bucket, as its app's `storageBucket` option names it: the op then reaches the
+ * default bucket under that name too, and so do byte route URLs that carry it.
+ */
+export interface StorageBucketWire {
+  bucket?: string;
+  defaultBucket?: string;
+}
+
 /** A metadata change from the admin plane, as `pyric/storage/internal`'s `patchObjectMetadata` takes it. */
 export interface StorageMetadataPatchWire {
   settable?: {
@@ -99,7 +111,7 @@ export type OpMessage = (
     }
   | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor }
   | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
-  | { t: 'op'; id: string; method: 'updateDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
+  | ({ t: 'op'; id: string; method: 'updateDoc'; path: string; valueEncoding?: DocValueEncoding } & UpdatePayload)
   | { t: 'op'; id: string; method: 'deleteDoc'; path: string }
   | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor }
@@ -108,38 +120,48 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'txnCommit'; reads: TxnReadEntry[]; writes: WriteDescriptor[] }
   | { t: 'op'; id: string; method: 'setRules'; source: string }
   | { t: 'op'; id: string; method: 'setFirestoreRules'; source: string }
-  | { t: 'op'; id: string; method: 'setDatabaseRules'; source: unknown }
-  | { t: 'op'; id: string; method: 'getActiveRules'; service?: 'firestore' | 'database' }
-  | { t: 'op'; id: string; method: 'getRulesStatus'; service?: 'firestore' | 'database' }
+  // `instance` names an RTDB instance (the SDK's namespace) on the RTDB ops,
+  // RTDB subscriptions and the database rules ops. Absent is the default
+  // instance.
+  | { t: 'op'; id: string; method: 'setDatabaseRules'; source: unknown; instance?: string }
+  | { t: 'op'; id: string; method: 'getActiveRules'; service?: 'firestore' | 'database'; instance?: string }
+  | { t: 'op'; id: string; method: 'getRulesStatus'; service?: 'firestore' | 'database'; instance?: string }
   | { t: 'op'; id: string; method: 'admin.getDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.listDocuments'; path: string }
   | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown }
   | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
-  | { t: 'op'; id: string; method: 'rtdb.get'; path: string; query?: RtdbQuerySpec }
-  | { t: 'op'; id: string; method: 'rtdb.set'; path: string; value: unknown }
-  | { t: 'op'; id: string; method: 'rtdb.setPriority'; path: string; priority: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; path: string; value: unknown; priority: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.update'; path: string; values: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'rtdb.remove'; path: string }
+  | {
+      t: 'op'; id: string; method: 'rtdb.get'; instance: string | undefined; path: string; query?: RtdbQuerySpec;
+      /** A transaction's read of its current value: the sandbox's transaction
+       *  engine reads it without evaluating read rules, so this read does not
+       *  either. The commit evaluates the write rules. */
+      transaction?: true;
+    }
+  | { t: 'op'; id: string; method: 'rtdb.set'; instance: string | undefined; path: string; value: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.setPriority'; instance: string | undefined; path: string; priority: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; instance: string | undefined; path: string; value: unknown; priority: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.update'; instance: string | undefined; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.remove'; instance: string | undefined; path: string }
   // `key` is the client's when the client needed it synchronously (the page's
   // `push()` returns a reference before the write lands). A caller that can
   // wait omits it, and the host mints one from the sandbox clock.
-  | { t: 'op'; id: string; method: 'rtdb.push'; path: string; key?: string; value?: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.push'; instance: string | undefined; path: string; key?: string; value?: unknown }
   // Read the sandbox clock. For a caller in another process, which cannot
   // mirror the stream a page port gets and can afford the round trip.
   | { t: 'op'; id: string; method: 'sandbox.clock' }
-  | { t: 'op'; id: string; method: 'rtdb.adminSnapshot' }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; path: string; value: unknown; priority?: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; path: string; values: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.goOffline' }
-  | { t: 'op'; id: string; method: 'rtdb.goOnline' }
+  | { t: 'op'; id: string; method: 'rtdb.adminSnapshot'; instance: string | undefined }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; instance: string | undefined; path: string; value: unknown; priority?: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; instance: string | undefined; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; instance: string | undefined; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; instance: string | undefined; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance: string | undefined }
+  | { t: 'op'; id: string; method: 'rtdb.goOnline'; instance: string | undefined }
   | {
       t: 'op';
       id: string;
       method: 'rtdb.transactionCommit';
+      instance: string | undefined;
       path: string;
       expected: unknown;
       value: unknown;
@@ -218,21 +240,54 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
   | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
   | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }
-  // Storage ops
-  | { t: 'op'; id: string; method: 'storage.listAll'; path: string }
-  | { t: 'op'; id: string; method: 'storage.getMetadata'; path: string }
+  // Storage ops. An object op names its bucket with `bucket`, or the host's
+  // default bucket without one (see StorageBucketWire).
+  | ({ t: 'op'; id: string; method: 'storage.listAll'; path: string } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.getMetadata'; path: string } & StorageBucketWire)
   /** The object's download path on the byte route, carrying its persistent download token. */
-  | { t: 'op'; id: string; method: 'storage.getDownloadURL'; path: string }
-  | { t: 'op'; id: string; method: 'storage.getBlob'; path: string }
+  | ({ t: 'op'; id: string; method: 'storage.getDownloadURL'; path: string } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.getBlob'; path: string } & StorageBucketWire)
   /** firebase-admin's `File.setMetadata`, on the admin lens only: custom keys merge, `null` removes one. */
-  | { t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire }
-  | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string }
-  | { t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown> }
+  | ({ t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire } & StorageBucketWire)
+  /**
+   * An upload. `downloadTokens`, as firebase-admin's `save` sets them, is taken on the admin lens only.
+   * With `rollback`, the reply's metadata carries a `rollbackToken` for `storage.rollbackUpload`,
+   * and `replacedObject: true` when the commit replaced an object;
+   * a host that predates it ignores the field and sends neither.
+   */
+  | ({ t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string; rollback?: boolean } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } & StorageBucketWire)
   | { t: 'op'; id: string; method: 'storage.putPart'; uploadId: string; partIndex: number; dataB64: string }
-  | { t: 'op'; id: string; method: 'storage.finishUpload'; uploadId: string }
+  /** Commit a staged upload. `rollback` asks for a `rollbackToken`, as on `storage.putBytes`. */
+  | { t: 'op'; id: string; method: 'storage.finishUpload'; uploadId: string; rollback?: boolean }
   | { t: 'op'; id: string; method: 'storage.abortUpload'; uploadId: string }
-  | { t: 'op'; id: string; method: 'storage.deleteObject'; path: string }
+  | ({ t: 'op'; id: string; method: 'storage.deleteObject'; path: string } & StorageBucketWire)
+  /**
+   * Roll back a canceled upload's own commit without evaluating rules: puts
+   * back the object that commit replaced, or deletes the one it created, and
+   * does nothing if a later write replaced the commit's generation. Replies
+   * `{ deleted, restored }`; a host before #1159 replies `{ deleted }` and
+   * always deletes. Refused (`storage/unauthorized`) for a token this client
+   * was not issued, an expired one, or one used already. Any other failure
+   * is the rollback's own, and the commit's object may still be there.
+   */
+  | { t: 'op'; id: string; method: 'storage.rollbackUpload'; rollbackToken: string }
+  /**
+   * firebase-admin's `File.copy`, on the admin lens only. The copy keeps the
+   * source's metadata; `patch` changes it on the copy. `destinationBucket`
+   * names the copy's bucket as `bucket` names the source's.
+   */
+  | ({ t: 'op'; id: string; method: 'storage.copyObject'; path: string; destinationBucket?: string; destinationPath: string; patch?: StorageMetadataPatchWire } & StorageBucketWire)
+  /**
+   * firebase-admin's `File.createResumableUpload`, on the admin lens only, on a
+   * host with an HTTP byte route. Answers `{ uploadUrl }`, a byte route path
+   * that takes the object's bytes in one `PUT`, or in `Content-Range` slices
+   * whose first one names the total size. The object is created with this
+   * metadata when its last byte arrives. `origin` is the page origin the URL
+   * answers cross-origin requests from.
+   */
+  | ({ t: 'op'; id: string; method: 'storage.createUploadSession'; path: string; contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string; origin?: string } & StorageBucketWire)
   // AI ops
   | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
   | { t: 'op'; id: string; method: 'ai.countTokens'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
@@ -304,7 +359,7 @@ export interface EventSubMessage {
 export interface RtdbValueSubMessage {
   t: 'sub';
   subId: string;
-  target: { service: 'rtdb'; path: string; query?: RtdbQuerySpec };
+  target: { service: 'rtdb'; instance: string | undefined; path: string; query?: RtdbQuerySpec };
   actAs?: AuthLens;
   /** The listener's owners, derived on the page. See {@link FirestoreSubMessage}. */
   owners?: ListenerOwner[];
@@ -412,6 +467,12 @@ export interface DisconnectMessage {
 export interface AppConfigMessage {
   t: 'appConfig';
   options: Record<string, unknown>;
+  /** Set when a long-lived client re-attaches from an earlier host instance without reloading. */
+  fromPriorHost?: boolean;
+  /** Set when the attaching client proved compile-time/HTML origin from this running host instance. */
+  hostVerified?: boolean;
+  /** The page's `location.origin`; the host resolves relative photo URLs against it. */
+  origin?: string;
 }
 
 /**
@@ -495,8 +556,11 @@ export type OutboundMessage = (
 export interface SerializedError {
   aiEvidence?: Partial<AiEvidence>;
   code: string;
+  /** The source error had no `code`, so the page's error has none either; `code` is then `unknown`. */
+  codeless?: true;
   message: string;
-  denialContext?: DenialContext;
+  /** Structured rules denial frame; `engine` tells an RTDB frame from a Firestore one. */
+  denialContext?: AnyDenialContext;
   aiEnvelope?: AiErrorEnvelopeWire;
   envelope?: FcmErrorEnvelope;
 }
@@ -523,13 +587,18 @@ function serializeErrorValue(err: unknown): SerializedError {
       };
     }
     const e = err as { code?: unknown; message?: unknown; denialContext?: unknown };
+    // A denied RTDB transaction and an unindexed RTDB query reject with a
+    // codeless Error, as production does; the page rebuilds it without a
+    // `code`. A denial still carries the sandbox's denial context.
+    const denial = e.denialContext !== null && typeof e.denialContext === 'object'
+      ? { denialContext: e.denialContext as AnyDenialContext }
+      : {};
     if (typeof e.code === 'string' && typeof e.message === 'string') {
-      return e.denialContext !== null && typeof e.denialContext === 'object'
-        ? { code: e.code, message: e.message, denialContext: e.denialContext as DenialContext }
-        : { code: e.code, message: e.message };
+      return { code: e.code, message: e.message, ...denial };
     }
     if (err instanceof Error) {
-      return { code: 'unknown', message: err.message };
+      const codeless = e.code === undefined ? { codeless: true as const } : {};
+      return { code: 'unknown', ...codeless, message: err.message, ...denial };
     }
   }
   return { code: 'unknown', message: String(err) };

@@ -162,6 +162,25 @@ describe('runVerify', () => {
     expect(await verifyIn(dir, ['session.json'])).toBe(0);
   });
 
+  // #1315: the (default) entry of an array, not a firestore.rules the array does not name.
+  it('resolves the (default) entry of a firestore array in firebase.json', async () => {
+    const dir = tmp();
+    writeFirebaseJson(dir, {
+      firestore: [
+        { database: '(default)', rules: 'firestore.default.rules' },
+        { database: 'reports', rules: 'reports.rules' },
+      ],
+    });
+    writeFileSync(join(dir, 'firestore.default.rules'), DENY_ALL_FIRESTORE_RULES);
+    writeFileSync(join(dir, 'reports.rules'), ALICE_RULES);
+    writeFileSync(join(dir, 'firestore.rules'), ALICE_RULES);
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureFirestoreFixture()));
+    expect(await verifyIn(dir, ['session.json'])).toBe(1);
+
+    writeFileSync(join(dir, 'firestore.default.rules'), ALICE_RULES);
+    expect(await verifyIn(dir, ['session.json'])).toBe(0);
+  });
+
   it('exit 1 when Firestore candidate rules would change captured writes', async () => {
     const dir = tmp();
     writeFirebaseJson(dir, { firestore: { rules: 'firestore.rules' } });
@@ -328,5 +347,62 @@ describe('runVerify', () => {
     );
 
     expect(code).toBe(2);
+  });
+
+  it('loads candidate storage.rules from firebase.json and supports --service storage / --rules storage=<path> (AV-VER-1)', async () => {
+    const dir = tmp();
+    const permissiveStorageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+    const denyingStorageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const storageFixture: PyricVerifyFixture = {
+      schema: 'pyric.verify.fixture.v1',
+      events: [
+        {
+          kind: 'operation',
+          id: 'op-1',
+          at: 1000,
+          service: 'storage',
+          method: 'get',
+          path: 'uploads/secret.txt',
+          auth: { uid: 'alice' },
+          result: 'allow',
+          origin: 'user',
+        },
+      ],
+      services: {
+        storage: {
+          rules: { format: 'storage.rules', source: permissiveStorageRules },
+          state: null,
+        },
+      },
+    };
+    writeFirebaseJson(dir, { storage: { rules: 'storage.rules' } });
+    writeFileSync(join(dir, 'storage.rules'), denyingStorageRules);
+    writeFileSync(join(dir, 'allow.storage.rules'), permissiveStorageRules);
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(storageFixture));
+
+    // Implicit service selection loads candidate storage.rules and reports regression (exit 1).
+    expect(await verifyIn(dir, ['session.json'])).toBe(1);
+
+    // Explicit --service storage --rules storage=<path>
+    expect(
+      await verifyIn(dir, ['session.json', '--service', 'storage', '--rules', 'storage=storage.rules']),
+    ).toBe(1);
+    expect(
+      await verifyIn(dir, ['session.json', '--service', 'storage', '--rules', 'storage=allow.storage.rules']),
+    ).toBe(0);
   });
 });

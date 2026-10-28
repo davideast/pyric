@@ -23,6 +23,7 @@ import { readSseDataLines } from '@inbrowser/relay';
 import type { NormalizedRequest } from '@inbrowser/relay';
 import type { InferenceEvent } from './openrouter-page';
 import { assertSafeServerBaseUrl, SsrfBlockedError, type HostResolver } from './ollama-ssrf';
+import type { PinnedFetch } from './ollama-pinned-fetch';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
@@ -119,171 +120,203 @@ function resolveBaseUrl(raw: string | undefined, fallback: string): string {
  * comes from `req.apiKey`; per-call values (messages, tools, sampling)
  * from the `NormalizedRequest`.
  */
-export const ollamaProvider = async function* (
-  req: NormalizedRequest,
-): AsyncIterable<InferenceEvent> {
-  const signal = req.signal;
-  const base = resolveBaseUrl(req.apiKey, DEFAULT_BASE_URL);
-  const endpoint = `${base}/v1/chat/completions`;
+export interface OllamaProviderDeps {
+  isServer: boolean;
+  resolver: HostResolver;
+  /** Connects to `address` instead of resolving the URL's hostname. */
+  fetchPinned: PinnedFetch;
+}
 
-  // Defense-in-depth (#766): if this page-direct provider is ever
-  // reached in a SERVER runtime, the base URL is attacker-controlled and
-  // becomes an SSRF primitive. Reject internal targets (loopback /
-  // link-local / RFC1918 / metadata) before we fetch. In the browser the
-  // base URL is the end-user's own machine, so we skip the guard there.
-  if (IS_SERVER) {
-    const resolver: HostResolver = nodeHostResolver;
-    try {
-      await assertSafeServerBaseUrl(base, resolver);
-    } catch (e) {
-      if (e instanceof SsrfBlockedError) {
-        yield { kind: 'error', message: 'ollama: base URL not permitted' };
+const defaultDeps: OllamaProviderDeps = {
+  isServer: IS_SERVER,
+  resolver: nodeHostResolver,
+  fetchPinned: async (url, init, address) =>
+    (await import('./ollama-pinned-fetch')).pinnedFetch(url, init, address),
+};
+
+export function createOllamaProvider(
+  deps: OllamaProviderDeps,
+): (req: NormalizedRequest) => AsyncIterable<InferenceEvent> {
+  return async function* (req: NormalizedRequest): AsyncIterable<InferenceEvent> {
+    const signal = req.signal;
+    const base = resolveBaseUrl(req.apiKey, DEFAULT_BASE_URL);
+    const endpoint = `${base}/v1/chat/completions`;
+
+    // If this page-direct provider is ever reached in a SERVER runtime,
+    // the base URL is attacker-controlled and becomes an SSRF primitive.
+    // Reject internal targets (loopback / link-local / RFC1918 / metadata)
+    // before we fetch, then connect to the address that was vetted rather
+    // than resolving the name again (DNS rebinding). In the browser the
+    // base URL is the end-user's own machine, so the guard is skipped.
+    let pinnedAddress: string | undefined;
+    if (deps.isServer) {
+      try {
+        pinnedAddress = await assertSafeServerBaseUrl(base, deps.resolver);
+      } catch (e) {
+        if (e instanceof SsrfBlockedError) {
+          yield { kind: 'error', message: 'ollama: base URL not permitted' };
+          return;
+        }
+        yield { kind: 'error', message: 'ollama: base URL validation failed' };
         return;
       }
-      yield { kind: 'error', message: 'ollama: base URL validation failed' };
-      return;
     }
-  }
-  const body = {
-    model: req.model,
-    messages: toOaiMessages(req.messages),
-    stream: true,
-    ...(typeof req.temperature === 'number' ? { temperature: req.temperature } : {}),
-    ...(typeof req.topP === 'number' ? { top_p: req.topP } : {}),
-    ...(typeof req.topK === 'number' ? { top_k: req.topK } : {}),
-    ...(req.tools.length > 0
-      ? { tools: toOaiTools(req.tools), tool_choice: 'auto' as const }
-      : {}),
-  };
-
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      // Block redirect-based SSRF bypass — a benign-looking public base
-      // URL must not 30x the server onto an internal host.
-      redirect: 'error',
-      ...(signal ? { signal } : {}),
-    });
-  } catch (e) {
-    if (signal?.aborted) return;
-    const msg = e instanceof Error ? e.message : String(e);
-    yield {
-      kind: 'error',
-      message:
-        `Ollama fetch failed (${msg}). Confirm \`ollama serve\` is running at ${base} ` +
-        `and that OLLAMA_ORIGINS permits this origin.`,
+    const body = {
+      model: req.model,
+      messages: toOaiMessages(req.messages),
+      stream: true,
+      ...(typeof req.temperature === 'number' ? { temperature: req.temperature } : {}),
+      ...(typeof req.topP === 'number' ? { top_p: req.topP } : {}),
+      ...(typeof req.topK === 'number' ? { top_k: req.topK } : {}),
+      ...(req.tools.length > 0
+        ? { tools: toOaiTools(req.tools), tool_choice: 'auto' as const }
+        : {}),
     };
-    return;
-  }
 
-  if (!response.ok) {
-    // In the browser the upstream is the user's own server, so echoing a
-    // snippet of its error body is helpful debugging. Server-side the
-    // upstream is attacker-chosen — never reflect its bytes back (they
-    // could exfiltrate an internal endpoint's response), just the status.
-    if (IS_SERVER) {
-      yield { kind: 'error', message: `Ollama upstream error (${response.status})` };
-      return;
-    }
-    const text = await response.text().catch(() => response.statusText);
-    yield { kind: 'error', message: `Ollama ${response.status}: ${text.slice(0, 240)}` };
-    return;
-  }
-
-  let promptTokens = 0;
-  let completionTokens = 0;
-  let cachedTokens: number | undefined;
-  const pending = new Map<number, PendingToolCall>();
-
-  try {
-    for await (const payload of readSseDataLines(response.body)) {
-      if (payload === '[DONE]') break;
-      if (signal?.aborted) return;
-      let evt: unknown;
-      try {
-        evt = JSON.parse(payload);
-      } catch {
-        continue;
-      }
-      const e = evt as {
-        choices?: {
-          delta?: {
-            content?: string;
-            reasoning?: string;
-            reasoning_content?: string;
-            tool_calls?: {
-              index: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
-            }[];
-          };
-        }[];
-        usage?: {
-          prompt_tokens?: number;
-          completion_tokens?: number;
-          prompt_tokens_details?: { cached_tokens?: number };
-        };
-      };
-      const delta = e.choices?.[0]?.delta;
-      const reasoning = delta?.reasoning ?? delta?.reasoning_content;
-      if (reasoning) {
-        yield { kind: 'thinking', chunk: reasoning };
-      }
-      if (delta?.content) {
-        yield { kind: 'text', chunk: delta.content };
-      }
-      if (delta?.tool_calls) {
-        for (const d of delta.tool_calls) {
-          let pc = pending.get(d.index);
-          if (!pc) {
-            pc = { id: d.id ?? '', name: '', args: '', emitted: false };
-            pending.set(d.index, pc);
-          }
-          if (d.id) pc.id = d.id;
-          if (d.function?.name) pc.name = d.function.name;
-          if (d.function?.arguments) pc.args += d.function.arguments;
-        }
-      }
-      if (e.usage) {
-        promptTokens = e.usage.prompt_tokens ?? promptTokens;
-        completionTokens = e.usage.completion_tokens ?? completionTokens;
-        if (typeof e.usage.prompt_tokens_details?.cached_tokens === 'number') {
-          cachedTokens = e.usage.prompt_tokens_details.cached_tokens;
-        }
-      }
-    }
-  } catch (e) {
-    if (signal?.aborted) return;
-    yield { kind: 'error', message: e instanceof Error ? e.message : String(e) };
-    return;
-  }
-
-  // Tool calls stream argument-by-argument; emit once after the stream
-  // closes so we don't fire on half-parsed JSON.
-  for (const pc of pending.values()) {
-    if (pc.emitted) continue;
-    let parsedArgs: unknown = {};
+    let response: Response;
     try {
-      parsedArgs = pc.args ? JSON.parse(pc.args) : {};
-    } catch {
-      parsedArgs = { _raw: pc.args };
+      const headers = { 'Content-Type': 'application/json' };
+      response =
+        pinnedAddress === undefined
+          ? await fetch(endpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(body),
+              redirect: 'error',
+              ...(signal ? { signal } : {}),
+            })
+          : // Redirects are refused by the pinned fetch: a benign-looking
+            // public base URL must not 30x the server onto an internal host.
+            await deps.fetchPinned(
+              endpoint,
+              {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+                ...(signal ? { signal } : {}),
+              },
+              pinnedAddress,
+            );
+    } catch (e) {
+      if (signal?.aborted) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      yield {
+        kind: 'error',
+        message:
+          `Ollama fetch failed (${msg}). Confirm \`ollama serve\` is running at ${base} ` +
+          `and that OLLAMA_ORIGINS permits this origin.`,
+      };
+      return;
     }
-    yield {
-      kind: 'tool_call',
-      callId: pc.id || `oll_${Math.random().toString(36).slice(2, 10)}`,
-      name: pc.name,
-      args: parsedArgs,
-    };
-    pc.emitted = true;
-  }
 
-  yield {
-    kind: 'usage',
-    promptTokens,
-    outputTokens: completionTokens,
-    ...(typeof cachedTokens === 'number' ? { cachedTokens } : {}),
+    if (!response.ok) {
+      // In the browser the upstream is the user's own server, so echoing a
+      // snippet of its error body is helpful debugging. Server-side the
+      // upstream is attacker-chosen — never reflect its bytes back (they
+      // could exfiltrate an internal endpoint's response), just the status.
+      if (deps.isServer) {
+        yield { kind: 'error', message: `Ollama upstream error (${response.status})` };
+        return;
+      }
+      const text = await response.text().catch(() => response.statusText);
+      yield { kind: 'error', message: `Ollama ${response.status}: ${text.slice(0, 240)}` };
+      return;
+    }
+
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let cachedTokens: number | undefined;
+    const pending = new Map<number, PendingToolCall>();
+
+    try {
+      for await (const payload of readSseDataLines(response.body)) {
+        if (payload === '[DONE]') break;
+        if (signal?.aborted) return;
+        let evt: unknown;
+        try {
+          evt = JSON.parse(payload);
+        } catch {
+          continue;
+        }
+        const e = evt as {
+          choices?: {
+            delta?: {
+              content?: string;
+              reasoning?: string;
+              reasoning_content?: string;
+              tool_calls?: {
+                index: number;
+                id?: string;
+                function?: { name?: string; arguments?: string };
+              }[];
+            };
+          }[];
+          usage?: {
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            prompt_tokens_details?: { cached_tokens?: number };
+          };
+        };
+        const delta = e.choices?.[0]?.delta;
+        const reasoning = delta?.reasoning ?? delta?.reasoning_content;
+        if (reasoning) {
+          yield { kind: 'thinking', chunk: reasoning };
+        }
+        if (delta?.content) {
+          yield { kind: 'text', chunk: delta.content };
+        }
+        if (delta?.tool_calls) {
+          for (const d of delta.tool_calls) {
+            let pc = pending.get(d.index);
+            if (!pc) {
+              pc = { id: d.id ?? '', name: '', args: '', emitted: false };
+              pending.set(d.index, pc);
+            }
+            if (d.id) pc.id = d.id;
+            if (d.function?.name) pc.name = d.function.name;
+            if (d.function?.arguments) pc.args += d.function.arguments;
+          }
+        }
+        if (e.usage) {
+          promptTokens = e.usage.prompt_tokens ?? promptTokens;
+          completionTokens = e.usage.completion_tokens ?? completionTokens;
+          if (typeof e.usage.prompt_tokens_details?.cached_tokens === 'number') {
+            cachedTokens = e.usage.prompt_tokens_details.cached_tokens;
+          }
+        }
+      }
+    } catch (e) {
+      if (signal?.aborted) return;
+      yield { kind: 'error', message: e instanceof Error ? e.message : String(e) };
+      return;
+    }
+
+    // Tool calls stream argument-by-argument; emit once after the stream
+    // closes so we don't fire on half-parsed JSON.
+    for (const pc of pending.values()) {
+      if (pc.emitted) continue;
+      let parsedArgs: unknown = {};
+      try {
+        parsedArgs = pc.args ? JSON.parse(pc.args) : {};
+      } catch {
+        parsedArgs = { _raw: pc.args };
+      }
+      yield {
+        kind: 'tool_call',
+        callId: pc.id || `oll_${Math.random().toString(36).slice(2, 10)}`,
+        name: pc.name,
+        args: parsedArgs,
+      };
+      pc.emitted = true;
+    }
+
+    yield {
+      kind: 'usage',
+      promptTokens,
+      outputTokens: completionTokens,
+      ...(typeof cachedTokens === 'number' ? { cachedTokens } : {}),
+    };
   };
-};
+}
+
+export const ollamaProvider = createOllamaProvider(defaultDeps);

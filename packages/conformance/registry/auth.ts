@@ -10,6 +10,16 @@ const row1 = defineRows({
   },
 });
 
+/** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
+const droppedConnectionRow = defineRows({
+  surface: "auth",
+  defaults: {
+    section: "Calls in flight when the hosted connection drops",
+    status: "diverged-documented",
+    automation: "unit-backed",
+  },
+});
+
 const row2 = defineRows({
   surface: "auth",
   defaults: {
@@ -181,6 +191,16 @@ const row20 = defineRows({
   surface: "auth",
   defaults: {
     section: "Constants, credentials, and inert config tokens",
+  },
+});
+
+/** Client SDKs in a `node --import @pyric/cli/register` process on the Node host (#1082). */
+const serverProcessRow = defineRows({
+  surface: "auth",
+  defaults: {
+    section: "Client SDKs in a registered server process",
+    status: "diverged-documented",
+    automation: "unit-backed",
   },
 });
 
@@ -1054,7 +1074,7 @@ export const authRegistry = {
           rowRef: "58a",
           featureKeys: ["User"],
           api: "User` methods",
-          behavior: "`user.photoURL` / `user.phoneNumber` — present (prod passes through, no longer stripped). A user created under a federated provider id (one containing a dot, such as `google.com`) with no photo of its own is assigned a generated `photoURL` at creation, matching prod, where a federated sign-in always returns one; `password`, `phone`, email-link, and anonymous users stay `null`. An identity-supplied photo always wins, and `phoneNumber` defaults to `null`",
+          behavior: "`user.photoURL` / `user.phoneNumber` — present (prod passes through, no longer stripped). A user created under a federated provider id (one containing a dot, such as `google.com`) with no photo of its own is assigned a generated `photoURL` at creation, matching prod, where a federated sign-in always returns one; `password`, `phone`, email-link, and anonymous users stay `null`. An identity-supplied photo always wins, and `phoneNumber` defaults to `null`. A served host stores the generated photo as a relative path and reads it back absolute, as prod's always is: `user.photoURL` on the page's origin, and the ID token `picture` claim and admin user records on the origin the client signed in from",
           status: "conforms",
           evidence: "`unit:sandbox-provider-photo.test.ts` (federated mint, identity photo wins, password / anonymous / email-link stay null); `unit:auth-gap-surface.test.ts` (phoneNumber presence)",
           automation: "unit-backed",
@@ -1094,13 +1114,33 @@ export const authRegistry = {
           api: "User` methods",
           behavior: "`IdTokenResult.signInProvider` reflects the session's provider per flow (`'anonymous'` / `'password'` / `'google.com'` / …); claims include the reserved `firebase.sign_in_provider` (custom claims can't shadow it)",
           status: "conforms",
-          evidence: "`unit:sandbox-user-admin.test.ts` (\"IdTokenResult.signInProvider\") — prod shape is documented SDK behavior; no oracle capture yet",
+          evidence: "`unit:sandbox-user-admin.test.ts` (\"IdTokenResult.signInProvider\"), `oracle:auth-signinprovider-per-flow`",
           risk: ["specific-value"],
           riskScore: 2,
           riskReasons: ["asserts 3 specific value(s)"],
           automation: "oracle-backed",
           oracleObservations: ["auth-signinprovider-per-flow"],
           conformanceTests: ["packages/pyric/test/auth/sandbox-user-admin.test.ts"],
+        }),
+        row14({
+          rowRef: "68b",
+          featureKeys: ["User"],
+          api: "User` methods",
+          behavior: "ID token claims project the account record: `email` with `email_verified`, `name`, `picture` and `phone_number` each only when the account has the field, `user_id`, `provider_id: 'anonymous'` for anonymous accounts, and `firebase.identities` keyed by identity type (`email`, `phone`, federated provider ID; `{}` when none). For a custom claim of the same name, the account value wins for `user_id`, `email`, `email_verified`, `phone_number`, and `provider_id` on an anonymous account; the custom value wins for `name`, `picture`, and `provider_id` on any other account. Custom claims with a reserved name (`sub`, `iat`, `firebase`, and the other JWT and OIDC names) are refused with `auth/reserved-claim`. Rules read the same claims on `auth.token` / `request.auth.token` in Firestore, Realtime Database and Storage: in process, through the served worker (including after reauthentication), and under the MCP agent identity",
+          status: "conforms",
+          evidence: "`oracle:auth-id-token-standard-claims` replayed per sign-in flow; `unit:standard-token-claims.test.ts` (rules in all three services allow a verified password user and deny an unverified one); `unit:auth-standard-claims.test.ts` (worker port session, RTDB and Storage, reauthentication); `unit:identity-standard-claims.test.ts` (MCP agent identity); `unit:auth.test.ts` (Admin `setCustomUserClaims` reserved names). `aud` and `iss` name the sandbox issuer rather than a project. A federated identity lists the uid, since the sandbox records no provider-side account ID",
+          risk: ["specific-value"],
+          riskScore: 2,
+          riskReasons: ["asserts the claim set per sign-in flow"],
+          automation: "oracle-backed",
+          oracleObservations: ["auth-id-token-standard-claims"],
+          conformanceTests: [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/standard-token-claims.test.ts",
+            "packages/cli/test/serve/worker/auth-standard-claims.test.ts",
+            "packages/cli/test/bridge/surface/identity-standard-claims.test.ts",
+            "packages/pyric-admin/src/auth/auth.test.ts",
+          ],
         }),
         row14({
           rowRef: "75",
@@ -1225,7 +1265,7 @@ export const authRegistry = {
           rowRef: "83",
           featureKeys: ["deleteUser"],
           api: "deleteUser(user)",
-          behavior: "Deletes the account from the user store AND signs the user out if they are current (fires `onAuthStateChanged(null)`), matching prod where deleting the signed-in user clears `auth.currentUser`. Real behavior: a subsequent `signInWithEmailAndPassword` for that identity throws `auth/user-not-found`; `reload(user)` after delete rejects with `auth/user-token-expired`",
+          behavior: "Deletes the account from the user store AND signs the user out if they are current (fires `onAuthStateChanged(null)`), matching prod where deleting the signed-in user clears `auth.currentUser`. Real behavior: a subsequent `signInWithEmailAndPassword` for that identity throws `auth/user-not-found`; `reload(user)` after delete rejects with `auth/user-token-expired`. A non-anonymous session older than five minutes is refused with `auth/requires-recent-login` (oracle capture `auth-requires-recent-login`)",
           status: "conforms",
           evidence: "`unit:fruit-aliases.test.ts` — user removed from the store, sign-out fired, re-sign-in throws `auth/user-not-found`; post-delete `reload` → `auth/user-token-expired`: `unit:upstream-auth-probes.test.ts`",
           risk: ["error-code"],
@@ -1237,24 +1277,26 @@ export const authRegistry = {
           rowRef: "84",
           featureKeys: ["updateEmail"],
           api: "updateEmail(user, newEmail)",
-          behavior: "Changes the stored email (via the same path as `sandbox.updateUser`, rejecting `auth/email-already-in-use` / `auth/invalid-email`) and mutates the held `user` in place, so the next sign-in resolves against the new email. Leniency vs prod: the sandbox does NOT enforce `auth/requires-recent-login` and is not routed through `verifyBeforeUpdateEmail` (which the real SDK requires when email-enumeration protection is on)",
+          behavior: "Changes the stored email (via the same path as `sandbox.updateUser`, rejecting `auth/email-already-in-use` / `auth/invalid-email`) and mutates the held `user` in place, so the next sign-in resolves against the new email. A session older than five minutes is refused with `auth/requires-recent-login`. Leniency vs prod: the sandbox is not routed through `verifyBeforeUpdateEmail`; with email-enumeration protection on, production refuses `updateEmail` with `auth/operation-not-allowed` (`Please verify the new email before changing email.`)",
           status: "diverged-documented",
-          statusNote: "email really changes; no requires-recent-login / verifyBeforeUpdateEmail enforcement",
-          evidence: "`unit:fruit-aliases.test.ts` — stored email changes; re-sign-in works with the new email, fails with the old",
-          conformanceTests: ["packages/pyric/test/auth/fruit-aliases.test.ts"],
+          statusNote: "email really changes and the recent-login gate applies; email-enumeration protection is not modeled",
+          evidence: "`unit:fruit-aliases.test.ts`: stored email changes; re-sign-in works with the new email, fails with the old. Recent-login gate: `unit:requires-recent-login.test.ts`. Oracle capture `auth-requires-recent-login` recorded `auth/operation-not-allowed` for updateEmail on the oracle project, which has email-enumeration protection on.",
+          oracleObservations: ["auth-requires-recent-login"],
+          conformanceTests: ["packages/pyric/test/auth/fruit-aliases.test.ts","packages/pyric/test/auth/requires-recent-login.test.ts"],
         }),
         row16({
           rowRef: "85",
           featureKeys: ["updatePassword"],
           api: "updatePassword(user, newPassword)",
-          behavior: "Sets the stored password (validated for strength). The sandbox DOES store and verify passwords, so this is a real mutation: a subsequent `signInWithEmailAndPassword` with the new password succeeds and the old one throws `auth/wrong-password`. Leniency vs prod: no `auth/requires-recent-login` enforcement",
-          status: "diverged-documented",
-          statusNote: "password really changes + is verified; no requires-recent-login enforcement",
-          evidence: "`unit:fruit-aliases.test.ts` — new password signs in, old password throws `auth/wrong-password`",
+          behavior: "Sets the stored password (validated for strength). The sandbox DOES store and verify passwords, so this is a real mutation: a subsequent `signInWithEmailAndPassword` with the new password succeeds and the old one throws `auth/wrong-password`. A session older than five minutes is refused with `auth/requires-recent-login` until it signs in again or re-authenticates",
+          status: "conforms",
+          evidence: "`unit:fruit-aliases.test.ts`: new password signs in, old password throws `auth/wrong-password`. Recent-login gate: oracle capture `auth-requires-recent-login` (refused at 330 seconds, allowed right after sign-in and after reauthentication), replayed in `unit:oracle-conformance.test.ts`",
+          automation: "oracle-backed",
           risk: ["error-code"],
           riskScore: 2,
-          riskReasons: ["asserts Firebase error code(s): `auth/wrong-password`"],
-          conformanceTests: ["packages/pyric/test/auth/fruit-aliases.test.ts"],
+          riskReasons: ["asserts Firebase error code(s): `auth/wrong-password`, `auth/requires-recent-login`"],
+          oracleObservations: ["auth-requires-recent-login"],
+          conformanceTests: ["packages/pyric/test/auth/fruit-aliases.test.ts","packages/pyric/test/auth/oracle-conformance.test.ts","packages/pyric/test/auth/requires-recent-login.test.ts"],
         }),
         row16({
           rowRef: "86",
@@ -1395,7 +1437,7 @@ export const authRegistry = {
           rowRef: "157",
           featureKeys: ["verifyBeforeUpdateEmail"],
           api: "verifyBeforeUpdateEmail(user, newEmail)",
-          behavior: "Mails a code to the NEW address and returns. The account's email does NOT change until that code is redeemed — the single guarantee separating this API from a bare `updateEmail`: the user must prove control of the new address before it becomes theirs. On redemption the account moves and the new address arrives `emailVerified: true`. `checkActionCode` on the code reports `data.email` = the new address and `data.previousEmail` = the old one.",
+          behavior: "Mails a code to the NEW address and returns. The account's email does NOT change until that code is redeemed. That is the single guarantee separating this API from a bare `updateEmail`: the user must prove control of the new address before it becomes theirs. On redemption the account moves and the new address arrives `emailVerified: true`. `checkActionCode` on the code reports `data.email` = the new address and `data.previousEmail` = the old one. A session older than five minutes is refused with `auth/requires-recent-login` (oracle capture `auth-requires-recent-login`).",
           status: "conforms",
           evidence: "UNIT-BACKED, not oracle-backed, and the reason is recorded rather than hidden: the probe (`auth-verifybeforeupdateemail-shape`) ran against the real project and came back `auth/operation-not-allowed` on every arm, because the oracle project has the Email/Password provider DISABLED and the probe could not even create the user whose email it would change. The capture is committed showing exactly that. Behavior is proven end to end against the sandbox in `unit:sandbox-email-link.test.ts`.",
           automation: "unit-backed",
@@ -1505,10 +1547,13 @@ export const authRegistry = {
         row19({
           rowRef: "176",
           featureKeys: ["reauthenticateWithCredential","reauthenticateWithPopup","reauthenticateWithRedirect","updateEmail","updatePassword","deleteUser"],
-          api: "reauthenticate* — `auth/requires-recent-login` is NOT enforced",
-          behavior: "In production the POINT of re-authentication is the `auth/requires-recent-login` gate: `updateEmail` / `updatePassword` / `deleteUser` refuse to run on a session whose sign-in is older than a few minutes, and re-auth is how you clear it. The sandbox does NOT enforce that gate — those three mutations already run on a session of any age (a pre-existing documented divergence), so there is no gate here for re-auth to clear. What re-auth DOES do here is real but narrower: it genuinely re-verifies the credential, mints a fresh token, and returns `operationType: 'reauthenticate'`. Code that calls it runs unchanged against prod, where it also clears the gate.",
-          status: "diverged-documented",
-          evidence: "Declared divergence, not a bug: inventing a recent-login gate would break every existing sandbox flow (which never re-authenticates) while proving nothing. `unit:sandbox-linking-reauth.test.ts` pins the behavior that IS provided (real credential re-verification + a fresh token).",
+          api: "reauthenticate* and the `auth/requires-recent-login` gate",
+          behavior: "`updatePassword`, `updateEmail`, `verifyBeforeUpdateEmail` and `deleteUser` refuse a non-anonymous session whose last authentication is more than five minutes old with `auth/requires-recent-login` (message `Firebase: Error (auth/requires-recent-login).`). The age is measured on the sandbox clock, so advancing the clock reaches the gate. A sign-in or a successful re-authentication restarts the window; a forced token refresh, a `reload` and a served-session restore do not, and a refreshed token keeps its `auth_time`. Not gated: `updateProfile`, `getIdToken(true)`, `unlink`, and `linkWithCredential` and `deleteUser` on an anonymous account. Enforced in the in-page sandbox and in the served worker's port sessions.",
+          status: "conforms",
+          evidence: "Oracle capture `auth-requires-recent-login`: deleteUser allowed at ages 280 and 295 seconds and refused at 305 and 320; at 330 seconds updatePassword, verifyBeforeUpdateEmail and deleteUser refused, updateProfile, forced refresh, unlink, anonymous link and anonymous delete allowed; a refresh at 120 seconds left the gate in place at 330; reauthenticateWithCredential cleared it. Replayed against the sandbox in `unit:oracle-conformance.test.ts`; served-worker parity in `unit:auth-requires-recent-login.test.ts`.",
+          automation: "oracle-backed",
+          oracleObservations: ["auth-requires-recent-login"],
+          conformanceTests: ["packages/pyric/test/auth/oracle-conformance.test.ts","packages/pyric/test/auth/requires-recent-login.test.ts","packages/cli/test/serve/worker/auth-requires-recent-login.test.ts"],
         }),
         row19({
           rowRef: "177",
@@ -1643,6 +1688,57 @@ export const authRegistry = {
           evidence: "Was a BUG until this climb, and worth naming as one: the array was fabricated, not read. Now fixed and locked. `unit:sandbox-linking-reauth.test.ts` now pins that a Google link surfaces `google.com` in `providerData`, that `unlink` shrinks it, and that unlinking the last provider leaves it empty rather than falling back to a synthesized `'password'` entry.",
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/auth/sandbox-linking-reauth.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Calls in flight when the hosted connection drops\n\nThe web hosted client talks to the Node host over one WebSocket. When that socket drops, a call the socket had already taken is in flight: the host may or may not have run it (ADR-0019 decision 7). Each row here states what becomes of such a call, against what the production Web SDK does when its own connection drops.\n",
+      rows: [
+        droppedConnectionRow({
+          rowRef: "HD1",
+          featureKeys: ["signInWithEmailAndPassword"],
+          api: "Operations in flight at a hosted connection drop (web hosted client)",
+          behavior: "An Auth operation (a sign-in, a profile update, a token refresh) the web hosted client's socket had taken when it dropped fails once with `unavailable` and the message \"The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.\" It is not sent again. In production the Auth Web SDK fails a request whose network call fails with `auth/network-request-failed` and does not retry it.",
+          statusNote: "fails with `unavailable` where production fails with `auth/network-request-failed`",
+          evidence: "Production behavior read from `@firebase/auth` 1.13.1 `dist/esm`: a failed `fetch` is reported through `_fail(auth, \"network-request-failed\")`, and the request is not retried. `packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts` drops a real loopback socket with `auth.signInEmail` in flight and asserts it fails once with that message and reaches the host once.",
+          conformanceTests: ["packages/cli/test/serve/worker/hosted-reconnect-hold.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Client SDKs in a registered server process\n\nA server process started with `node --import @pyric/cli/register` and `PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or `true` runs the client SDKs against the Node host (#1082): `firebase/app`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` resolve to `@pyric/cli`'s Node client, which reaches the host over its own hosted connection with the process's own signed-in session, so the host's rules apply as they do for any other client. Off the Node host every call fails instead of running against a private in-process sandbox, and the client services with no path to the host refuse. `PYRIC_SANDBOX=local` keeps the in-process sandbox. In production the client SDKs run in Node and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS1",
+          featureKeys: ["getAuth"],
+          api: "getAuth(app) in a registered server process",
+          behavior: "Under a remote register activation on the Node host, `firebase/auth` in a server process signs in to the host: the session belongs to that process, the user is visible to `firebase-admin`, and its identity applies to the process's RTDB, Firestore and Storage calls. The session lasts as long as the process. When the host is not the Node host, every call fails with `failed-precondition` and a message naming the Node host (`pyric sandbox --hosted` or `pyric({ hosted: true })`); when no host is found, with the discovery error `pyric-admin` gets. No call falls back to an in-process sandbox.",
+          statusNote: "one configuration per runtime; the session is not persisted across processes",
+          evidence: "App scenario `test/apps/client-sdk-under-register` runs the client SDKs under `node --import @pyric/cli/register` against a hosted Vite dev server, reads back with `firebase-admin` and a page, and asserts a user the process created that firebase-admin finds, and rules that allow that user's own path and deny another's. On main (942cb175) it failed: the calls ran against a private in-process sandbox, so an upload returned a `data:` URL and firebase-admin read nothing they wrote. `packages/cli/test/register/node-origin.test.ts` runs the served surfaces under a Node origin whose host is not the Node host, or cannot be found, and asserts every call fails, `useWorker` stays true, the served app entry's placeholder sandbox stays empty, and a `pyric/*` mirror resolved from the app refuses. `mapping.test.ts` pins the mapping per activation value..",
+          conformanceTests: [
+            "test/apps/client-sdk-under-register/scenario.ts",
+            "packages/cli/test/register/node-origin.test.ts",
+            "packages/cli/test/register/mapping.test.ts",
+            "packages/cli/test/register/register-child.test.ts",
+          ],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "### Server-rendered modules under `vite dev`\n\nModules Vite loads for server rendering under `vite dev` with `pyric()` (`server.ssrLoadModule`, a runnable environment, a framework's SSR entry and loaders) get the modules a registered server process gets (#1123): the client SDKs reach the dev server's own Node host as one signed-in SSR session per dev server process, and `firebase-admin` reaches it as admin. This holds with Vite's default externalization and with `ssr.noExternal`. A SharedWorker dev server refuses them, naming `pyric({ hosted: true })`, and a server environment Vite does not run in its own process (workerd) gets a module that throws when it loads. In production these modules run the Firebase SDKs in the server's runtime and reach the project.\n",
+      rows: [
+        serverProcessRow({
+          rowRef: "RS2",
+          section: "Server-rendered modules under vite dev",
+          featureKeys: ["getAuth"],
+          api: "getAuth(app) in a server-rendered module under vite dev",
+          behavior: "On a hosted dev server, `firebase/auth` in a server-rendered module signs in to the host. The session belongs to the dev server process: every SSR request, both of Vite's SSR loaders and a module reloaded after an edit see the same `currentUser`, and its identity applies to the SSR RTDB, Firestore and Storage calls. Browser sessions are separate. On a SharedWorker dev server every call fails with `failed-precondition` and a message naming `pyric({ hosted: true })`. No call reaches production or an in-process sandbox.",
+          statusNote: "one SSR session per dev server process, as one Node server process has one auth state; per-request identity (`initializeServerApp`) is unsupported",
+          evidence: "App scenario `test/apps/vite-ssr-client-sdk` signs in through `ssrLoadModule`, then finds the same user through the environment runner, and checks that the rules allow that user's paths and deny another's. On main (ba2c0bf0a) the scenario failed: SSR sign-in rejected with `auth/network-request-failed` from the network guard, and the RTDB, Firestore and Storage writes did not settle, because the imports loaded the real SDK. `vite-module-swap.test.ts` pins the routing per specifier, AI mode and environment (Vite 5's `ssr` option, a runnable environment, a non-runnable one), `vite-ssr-activation.test.ts` the host, the restart hand-over and the SharedWorker refusal, and `vite-plugin-firestore.test.ts` runs Vite with `firebase` installed, so it takes the externalized path.",
+          conformanceTests: ["test/apps/vite-ssr-client-sdk/scenario.ts", "packages/cli/test/serve/vite-module-swap.test.ts", "packages/cli/test/serve/vite-ssr-activation.test.ts", "packages/cli/test/serve/vite-plugin-firestore.test.ts"],
         }),
       ],
     },

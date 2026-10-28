@@ -1,4 +1,4 @@
-import type { AuthState } from 'pyric/sandbox';
+import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { ListenerOwner } from '../../sandbox/types/events.js';
 import { recordEffectRegions } from '../../sandbox/attribution/effect-regions.js';
 import {
@@ -8,9 +8,9 @@ import {
 import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
 import type { ValueListener, ValueListenerSnapshot } from './listener-types.js';
-import { denyResultFor } from './operation-events.js';
+import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import { executeQuery, type QueryRow, type QuerySpec } from './query.js';
-import { permissionDenied, type RuleEvaluationDetails } from './rules-eval.js';
+import { permissionDenied, withDenialContext, type RuleEvaluationDetails } from './rules-eval.js';
 
 function rowsToVal(rows: QueryRow[]): JsonValue {
   if (rows.length === 0) return null;
@@ -26,12 +26,12 @@ function windowsEqual(left: QueryRow[], right: QueryRow[]): boolean {
   });
 }
 
-export function listenerPermissionDenied(path: string): Error {
+export function listenerPermissionDenied(path: string, context: RtdbDenialContext): Error {
   const error = new Error(
     `permission_denied at ${joinPath(pathSegments(path))}: Client doesn't have permission to access the desired data.`,
   ) as Error & { code: string };
   error.code = 'PERMISSION_DENIED';
-  return error;
+  return withDenialContext(error, context);
 }
 
 export class ValueListeners {
@@ -49,7 +49,7 @@ export class ValueListeners {
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
-      mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      mockData: this.state.rulesSnapshot(),
       querySpec: query,
     });
     if (evaluation.check !== 'allow') {
@@ -60,14 +60,8 @@ export class ValueListeners {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: this.state.clock.now() - at, request: requestVal, origin: 'listener',
       });
-      const rulesObj = {
-        engine: 'rtdb' as const,
-        matchedPath: evaluation.matchedPath,
-        matchedRule: evaluation.matchedRule,
-        pathVariableBindings: evaluation.pathVariableBindings,
-        reason: evaluation.reason,
-        errorCode: evaluation.errorCode,
-      };
+      const rulesObj = rtdbRulesDetail(evaluation);
+      const denial = rtdbDenialContext(evaluation, auth, 'listen', path, requestVal);
       this.state.events.listener('errored', { id: this.state.events.nextListenerId(), path }, auth, {
         event: 'value', result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },
@@ -75,15 +69,15 @@ export class ValueListeners {
         rules: rulesObj,
       });
       if (cancelCallback) {
+        if (onCanceled) {
+          onCanceled();
+        }
         queueMicrotask(() => {
-          if (onCanceled) {
-            onCanceled();
-          }
-          cancelCallback(listenerPermissionDenied(path));
+          cancelCallback(listenerPermissionDenied(path, denial));
         });
         return () => {};
       }
-      throw permissionDenied();
+      throw permissionDenied(denial);
     }
     this.state.warnOnUnspecifiedIndex(path, query);
     return this.attach(auth, path, cb, query, {
@@ -92,6 +86,7 @@ export class ValueListeners {
   }
 
   adminOnValue(path: string, cb: (snap: ValueListenerSnapshot) => void, query?: QuerySpec): () => void {
+    this.state.warnOnUnspecifiedIndex(path, query);
     return this.attach(null, path, cb, query, {
       origin: 'admin', result: 'not-applicable', evaluation: undefined, at: this.state.clock.now(),
     });

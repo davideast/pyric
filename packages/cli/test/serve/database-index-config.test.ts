@@ -62,7 +62,7 @@ test('built-in orderings are automatic; nested child and value indexes remain di
   }
   expect(analyzeServiceIndex(captureDatabaseIndexQuery('/projects', { orderBy: { kind: 'child', path: 'name' } }), config).status).toBe('missing');
 });
-test('string index becomes an array without changing unrelated rules; multi-database selection stays manual', () => fixture(async root => {
+test('string index becomes an array without changing unrelated rules; a database list with a rules file per entry is edited by hand', () => fixture(async root => {
   const path = join(root, 'database.rules.json');
   await writeFile(path, '{"rules":{"teams":{"$uid":{"projects":{".indexOn":"name",".write":"auth != null"}}}}}');
   const store = createIndexConfigStore(root);
@@ -70,5 +70,5 @@ test('string index becomes an array without changing unrelated rules; multi-data
   await store.apply(query, preview.revision);
   expect(readDatabaseIndexConfig(await readFile(path, 'utf8'))).toEqual({ rules: { teams: { '$uid': { projects: { '.indexOn': ['name', 'budget'], '.write': 'auth != null' } } } } });
   await writeFile(join(root, 'firebase.json'), JSON.stringify({ database: [{ rules: 'database.rules.json' }, { rules: 'other.rules.json' }] }));
-  await expect(store.preview(query)).rejects.toThrow('single database');
+  await expect(store.preview(query)).rejects.toThrow('different rules files (database.rules.json, other.rules.json)');
 }));

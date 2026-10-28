@@ -2,6 +2,7 @@ import type { FlowConfig } from './flow-config.js';
 import { existsSync } from 'node:fs';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
+import { resolveFirebaseProject } from '../cli/firebase-project.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
   discoverFunctionsRtdbProject,
@@ -42,7 +43,7 @@ import {
 } from './vite-generation-functions.js';
 import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
-import { claimProjectState } from './hosted/project-ownership.js';
+import { claimProjectState, type ProjectStateScope } from './hosted/project-ownership.js';
 
 export interface ViteSandboxGenerationOptions {
   hosted?: boolean;
@@ -56,6 +57,8 @@ export interface ViteSandboxGenerationOptions {
   ui: boolean;
   functions: false | { region?: string; instance?: string; watch?: boolean };
   avatars: PyricAvatarsOptions | undefined;
+  /** The plugin's `project` option: the first source `resolveFirebaseProject` tries. */
+  project?: string;
 }
 
 export interface ViteSandboxGenerationInput {
@@ -68,13 +71,31 @@ export interface ViteSandboxGenerationInput {
 }
 
 export interface ViteSandboxGeneration {
+  readonly instanceId?: string;
   close(): Promise<void>;
+}
+
+/**
+ * The project state a generation with these options claims, or null when it
+ * keeps no state on disk. A hosted generation keeps its state in
+ * `.pyric/state/hosted`; a persisting browser generation writes `state.json`.
+ */
+export function generationStateScope(
+  options: { hosted?: boolean; persist?: boolean },
+): ProjectStateScope | null {
+  const usesHostedSandbox = options.hosted === true;
+  if (usesHostedSandbox) return 'host';
+  const persistsBrowserState = options.persist === true;
+  if (persistsBrowserState) return 'browser-state';
+  return null;
 }
 
 /** Internal adapters used to force lifecycle failures through the module interface. */
 export interface ViteSandboxGenerationDependencies {
   readFirebaseJson: typeof readFirebaseJson;
   readFirebaseRc: typeof readFirebaseRc;
+  /** Environment for project resolution. */
+  env: NodeJS.ProcessEnv;
   resolveRulesConfig: typeof resolveViteRulesConfig;
   resolveAvatarsConfig: typeof resolveAvatarsConfig;
   prepareWorker(runtime: ViteWorkerRuntime, epochSalt: string): Promise<void>;
@@ -91,6 +112,7 @@ export interface ViteSandboxGenerationDependencies {
 const DEFAULT_DEPENDENCIES: ViteSandboxGenerationDependencies = {
   readFirebaseJson,
   readFirebaseRc,
+  env: process.env,
   resolveRulesConfig: resolveViteRulesConfig,
   resolveAvatarsConfig,
   prepareWorker: (runtime, epochSalt) => runtime.prepare(epochSalt),
@@ -143,10 +165,10 @@ export async function createViteSandboxGeneration(
     if (lacksHttpServer) {
       throw new Error('@pyric/cli/vite: hosted requires Vite’s HTTP server; middleware mode is unsupported.');
     }
-    const persistsState = options.persist === true || usesHostedSandbox;
-    // A hosted generation keeps its state in `.pyric/state/hosted`; a persisting
-    // browser generation writes `state.json`. Each holds only its own files.
-    if (persistsState) stateOwner = await claimProjectState(cwd, usesHostedSandbox ? 'host' : 'browser-state');
+    // Each generation holds only the state files of its own scope.
+    const stateScope = generationStateScope(options);
+    const persistsState = stateScope !== null;
+    if (persistsState) stateOwner = await claimProjectState(cwd, stateScope);
     let firebaseConfig: FirebaseJson | null = null;
     try {
       firebaseConfig = await dependencies.readFirebaseJson(cwd);
@@ -173,13 +195,19 @@ export async function createViteSandboxGeneration(
       }
     }
 
-    const functionsInput = {
+    // One project for the database rules, deploy targets and functions child.
+    const firebaseProject = resolveFirebaseProject({
+      projectDir: cwd,
+      option: options.project,
+      env: dependencies.env,
+      rc: await dependencies.readFirebaseRc(cwd),
+    });
+    const functions = resolveViteGenerationFunctions({
       projectDir: cwd,
       options: options.functions,
       discover: dependencies.discoverFunctionsProject,
-      readFirebaseRc: dependencies.readFirebaseRc,
-    };
-    const functions = await resolveViteGenerationFunctions(functionsInput);
+      firebaseProject,
+    });
     const bridgeInput = {
       server,
       projectDir: cwd,
@@ -239,12 +267,14 @@ export async function createViteSandboxGeneration(
       deployHostedRules: usesHostedSandbox ? bridge?.deployHostedRules : undefined,
       flow: options.flow,
       firebaseConfig: rulesConfig,
+      project: firebaseProject,
       sdk,
       seedFile: options.seed,
       persistence,
       capture: options.capture,
       studio,
       bridgeUrl,
+      hostInstanceId: () => bridge?.instanceId,
       ai: aiOptions,
       avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,
@@ -336,7 +366,7 @@ export async function createViteSandboxGeneration(
       listenerDisposers.push(() => httpServer.removeListener('close', onServerClose));
     }
 
-    return { close };
+    return { instanceId: bridge?.instanceId, close };
   } catch (error) {
     await close();
     throw error;

@@ -8,6 +8,10 @@
   "observedAt": "2026-09-28T04:28:24.512Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "26748721d228aa58b73b4a3c7d4383e47d9034a2be99c79dd41c9f96d1d814ca"
+  },
   "behavior": {
     "get: resource.name ends in .png → allow (extension guard)": "ALLOW",
     "get: resource.name ends in .txt → deny (extension guard)": "DENY",

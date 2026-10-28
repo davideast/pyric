@@ -54,6 +54,15 @@ THE SHAPE:
    discovered, what they declined to do, collapse it. The reviewer opens it if they want
    it. It is not the story.
 
+8. REMOVING TESTS OR CI JOBS IS DECLARED. The "Test and CI job removals acknowledged"
+   job fails when, relative to the merge base, this PR deletes a file under a `test/`,
+   `tests/`, `__tests__/` or `fixtures/` directory, deletes a `*.test.*`, `*.spec.*` or
+   `*.pw.*` file, or removes a job from `.github/workflows/*.yml`. If the removal is
+   intended, put a line of its own in the body that starts with `Removes tests:` and
+   gives the reason, for example `Removes tests: the harness moved to test/apps`, then
+   re-run the job. If it is not intended, a rebase probably reverted merged work:
+   restore the files instead.
+
 WHAT THIS IS NOT: a report of what an agent did. Nobody is reviewing the work session.
 They are reviewing the change.
 

@@ -36,6 +36,19 @@ function fakeResponse(opts: {
   } as unknown as Response;
 }
 
+/** A source's release point: the source awaits `opened`, so it is still running
+ *  past any deadline until the test calls `open()`. */
+function gate(): { opened: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => { open = resolve; });
+  return { opened, open };
+}
+
+/** Run every callback a released source queued. What follows a source (the cache
+ *  write, the announcement, the in-flight cleanup) waits on no timer or I/O, so it
+ *  is done once the next macrotask runs. */
+const drain = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 describe('createAssetResolver: keyed cache', () => {
   it.each(['data', 'url'] as const)('retains every concurrent %s download across resolver restarts', async (kind) => {
     const dir = tmp();
@@ -196,6 +209,29 @@ describe('createAssetResolver: source, { data } result', () => {
   });
 });
 
+describe('createAssetResolver: source not allowed', () => {
+  it('serves the cached image or the fallback and never starts the source', async () => {
+    const dir = tmp();
+    let calls = 0;
+    const source: AssetSource = () => {
+      calls++;
+      return { data: new TextEncoder().encode('generated'), contentType: 'image/png' };
+    };
+    const resolver = createAssetResolver({ dir, source, fallback: () => fallbackBytes('alice') });
+
+    const refused = await resolver.resolve({ ...req('alice'), sourceAllowed: false });
+    expect(refused.origin).toBe('fallback');
+    expect(new TextDecoder().decode(refused.data)).toBe('fallback:alice');
+    expect(calls).toBe(0);
+
+    await resolver.resolve(req('alice'));
+    const cached = await resolver.resolve({ ...req('alice'), sourceAllowed: false });
+    expect(cached.origin).toBe('cache');
+    expect(new TextDecoder().decode(cached.data)).toBe('generated');
+    expect(calls).toBe(1);
+  });
+});
+
 describe('createAssetResolver: source, { url } result', () => {
   it('fetches via the injected fetchImpl and caches the result', async () => {
     const dir = tmp();
@@ -274,14 +310,13 @@ describe('createAssetResolver: source, { url } result', () => {
 });
 
 describe('createAssetResolver: source deadline', () => {
-  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
   it('serves interim fallback bytes past the deadline, then upgrades to the cached result', async () => {
     const dir = tmp();
     let calls = 0;
+    const release = gate();
     const source: AssetSource = async () => {
       calls++;
-      await sleep(40);
+      await release.opened;
       return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
     };
     const resolver = createAssetResolver({
@@ -295,7 +330,8 @@ describe('createAssetResolver: source deadline', () => {
     expect(first.origin).toBe('interim');
     expect(Buffer.from(first.data)).toEqual(Buffer.from(fallbackBytes('interim').data));
 
-    await sleep(60); // let the background generation land in the cache
+    release.open(); // the background generation lands in the cache
+    await drain();
     const second = await resolver.resolve(req('slow'));
     expect(second.origin).toBe('cache');
     expect(Buffer.from(second.data)).toEqual(Buffer.from(new TextEncoder().encode('portrait')));
@@ -305,9 +341,10 @@ describe('createAssetResolver: source deadline', () => {
   it('a concurrent request during generation also gets interim, and the source still runs once', async () => {
     const dir = tmp();
     let calls = 0;
+    const release = gate();
     const source: AssetSource = async () => {
       calls++;
-      await sleep(40);
+      await release.opened;
       return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
     };
     const resolver = createAssetResolver({
@@ -321,15 +358,18 @@ describe('createAssetResolver: source deadline', () => {
     expect(a.origin).toBe('interim');
     expect(b.origin).toBe('interim');
     expect(calls).toBe(1);
+    release.open();
   });
 
   it('a source failure after an interim response caches nothing, and the next resolve retries', async () => {
     const dir = tmp();
     let calls = 0;
+    const releases = [gate(), gate()];
     const source: AssetSource = async () => {
       calls++;
-      await sleep(20);
-      if (calls === 1) throw new Error('quota');
+      const attempt = calls;
+      await releases[attempt - 1]!.opened;
+      if (attempt === 1) throw new Error('quota');
       return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
     };
     const resolver = createAssetResolver({
@@ -342,12 +382,14 @@ describe('createAssetResolver: source deadline', () => {
     const first = await resolver.resolve(req('flaky'));
     expect(first.origin).toBe('interim');
 
-    await sleep(40); // failed attempt settles; nothing may be cached
+    releases[0]!.open(); // the failed attempt settles; nothing may be cached
+    await drain();
     expect(existsSync(join(dir, 'manifest.json'))).toBe(false);
 
     const second = await resolver.resolve(req('flaky'));
     expect(second.origin).toBe('interim'); // retry kicked off, still slow
-    await sleep(40);
+    releases[1]!.open();
+    await drain();
     const third = await resolver.resolve(req('flaky'));
     expect(third.origin).toBe('cache');
     expect(calls).toBe(2);
@@ -355,19 +397,20 @@ describe('createAssetResolver: source deadline', () => {
 
   it('by default an asynchronous source yields an instant interim rather than blocking', async () => {
     const dir = tmp();
+    const release = gate();
     const source: AssetSource = async () => {
-      await sleep(40);
+      await release.opened;
       return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
     };
-    // No sourceDeadlineMs: the default must not make the first paint wait.
+    // No sourceDeadlineMs: the default must not make the first paint wait. The
+    // source cannot finish until the gate opens, so an answer now is an interim.
     const resolver = createAssetResolver({ dir, source, fallback: () => fallbackBytes('interim') });
 
-    const started = Date.now();
     const first = await resolver.resolve(req('slow'));
     expect(first.origin).toBe('interim');
-    expect(Date.now() - started).toBeLessThan(20);
 
-    await sleep(60);
+    release.open();
+    await drain();
     expect((await resolver.resolve(req('slow'))).origin).toBe('cache');
   });
 
@@ -379,11 +422,13 @@ describe('createAssetResolver: source deadline', () => {
       return fallbackBytes(kind);
     };
 
+    const release = gate();
     const slow: AssetSource = async () => {
-      await sleep(40);
+      await release.opened;
       return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
     };
     await createAssetResolver({ dir, source: slow, fallback }).resolve(req('slow'));
+    release.open();
 
     const failing: AssetSource = () => {
       throw new Error('boom');
@@ -579,19 +624,18 @@ describe('createAssetResolver: fallback only', () => {
 });
 
 describe('createAssetResolver: materialisation signal', () => {
-  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-  const slowSource = (label: string): AssetSource => async () => {
-    await sleep(20);
+  const slowSource = (label: string, release: Promise<void>): AssetSource => async () => {
+    await release;
     return { data: new TextEncoder().encode(label), contentType: 'image/png' };
   };
 
   it('announces a key exactly once after its interim was superseded by the cached result', async () => {
     const dir = tmp();
     const announced: string[] = [];
+    const release = gate();
     const resolver = createAssetResolver({
       dir,
-      source: slowSource('portrait'),
+      source: slowSource('portrait', release.opened),
       fallback: () => fallbackBytes('interim'),
       onMaterialised: (key) => announced.push(key),
     });
@@ -599,7 +643,8 @@ describe('createAssetResolver: materialisation signal', () => {
     expect((await resolver.resolve(req('slow'))).origin).toBe('interim');
     expect(announced).toEqual([]);
 
-    await sleep(60);
+    release.open();
+    await drain();
     expect(announced).toEqual(['slow']);
 
     // The cached read that follows announces nothing more.
@@ -610,8 +655,9 @@ describe('createAssetResolver: materialisation signal', () => {
   it('announces a fetched { url } result the same way', async () => {
     const dir = tmp();
     const announced: string[] = [];
+    const release = gate();
     const source: AssetSource = async () => {
-      await sleep(20);
+      await release.opened;
       return { url: 'https://example.test/face.png' };
     };
     const resolver = createAssetResolver({
@@ -629,7 +675,8 @@ describe('createAssetResolver: materialisation signal', () => {
     });
 
     expect((await resolver.resolve(req('remote'))).origin).toBe('interim');
-    await sleep(60);
+    release.open();
+    await drain();
     expect(announced).toEqual(['remote']);
   });
 
@@ -648,15 +695,16 @@ describe('createAssetResolver: materialisation signal', () => {
     });
 
     expect((await resolver.resolve(req('fast'))).origin).toBe('source');
-    await sleep(20);
+    await drain();
     expect(announced).toEqual([]);
   });
 
   it('stays silent when the source fails, because nothing superseded the placeholder', async () => {
     const dir = tmp();
     const announced: string[] = [];
+    const release = gate();
     const source: AssetSource = async () => {
-      await sleep(20);
+      await release.opened;
       throw new Error('quota');
     };
     const resolver = createAssetResolver({
@@ -667,15 +715,17 @@ describe('createAssetResolver: materialisation signal', () => {
     });
 
     expect((await resolver.resolve(req('broken'))).origin).toBe('interim');
-    await sleep(60);
+    release.open();
+    await drain();
     expect(announced).toEqual([]);
   });
 
   it('a throwing callback does not break the resolve or the cache write', async () => {
     const dir = tmp();
+    const release = gate();
     const resolver = createAssetResolver({
       dir,
-      source: slowSource('portrait'),
+      source: slowSource('portrait', release.opened),
       fallback: () => fallbackBytes('interim'),
       onMaterialised: () => {
         throw new Error('listener exploded');
@@ -683,7 +733,8 @@ describe('createAssetResolver: materialisation signal', () => {
     });
 
     expect((await resolver.resolve(req('slow'))).origin).toBe('interim');
-    await sleep(60);
+    release.open();
+    await drain();
 
     const second = await resolver.resolve(req('slow'));
     expect(second.origin).toBe('cache');

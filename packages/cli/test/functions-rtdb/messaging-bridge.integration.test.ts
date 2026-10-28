@@ -152,6 +152,7 @@ describe('Functions RTDB messaging bridge integration (#403)', () => {
         registerUrl: registerModuleUrl(),
       }),
       instance: 'demo-project-default-rtdb',
+      projectId: 'demo-project',
       location: 'us-central1',
       onEvent: (event) => events.push(event),
     });

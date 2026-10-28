@@ -17,7 +17,7 @@ import { capTerminalText } from './ai-terminal-text.js';
  *     throws anywhere and the app simply renders nothing.
  *   - `model_substituted`: not a refusal at all. The answer arrives, from a
  *     model the developer never asked for (an openai `modelMap` entry or
- *     catch-all `model`, a gemini experimental alias). Same shape of problem:
+ *     catch-all `model`). Same shape of problem:
  *     the sandbox quietly did something other than what the code said, and
  *     only the terminal can say so.
  *
@@ -104,11 +104,11 @@ interface AiModelSubstitutionRelayPayload {
   effectiveModel: string;
   /** Which engine substituted (`openai` | `gemini` | ...). */
   engine?: string;
-  /** Why it differs, e.g. `engine modelMap`, `experimental alias`. */
+  /** Why it differs, e.g. `engine modelMap`, `engine catch-all model`. */
   reason?: string;
 }
 
-type AiDiagnosticRelayPayload =
+export type AiDiagnosticRelayPayload =
   | AiRejectionRelayPayload
   | AiBlockedRelayPayload
   | AiModelSubstitutionRelayPayload;
@@ -212,6 +212,20 @@ function relayForOp(op: string): AiDiagnosticRelay | null {
 }
 
 /**
+ * The relay payload for one sandbox event, or `null` when the event is not a
+ * broker rejection, blocked response, or model substitution. Shared by the
+ * browser relay below and the hosted runtime, which prints its own broker's
+ * events directly.
+ */
+export function aiDiagnosticPayloadFor(event: SandboxEvent): AiDiagnosticRelayPayload | null {
+  if (event.kind !== 'service_mutation') return null;
+  if (event.service !== 'ai') return null;
+  const relay = relayForOp(event.op);
+  if (relay === null) return null;
+  return relay.fromEvent(event);
+}
+
+/**
  * Subscribe to the sandbox event stream and relay every broker refusal,
  * rejected request or blocked response, plus every silent model substitution,
  * to the dev server for terminal visibility.
@@ -222,11 +236,7 @@ function relayForOp(op: string): AiDiagnosticRelay | null {
  */
 export function setupAiDiagnosticsRelay(feed: AiDiagnosticsFeed, fetchFn: typeof fetch): void {
   feed.subscribe((event) => {
-    if (event.kind !== 'service_mutation') return;
-    if (event.service !== 'ai') return;
-    const relay = relayForOp(event.op);
-    if (relay === null) return;
-    const payload = relay.fromEvent(event);
+    const payload = aiDiagnosticPayloadFor(event);
     if (payload === null) return;
     try {
       void fetchFn('/__pyric/denials', {

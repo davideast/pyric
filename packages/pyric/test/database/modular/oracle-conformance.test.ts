@@ -5,6 +5,7 @@
  * losing executable coverage during future splits or additions.
  */
 import { describe, it, expect } from 'bun:test';
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../../packages/conformance/src/observation-gate.ts';
 import {
@@ -18,22 +19,30 @@ const obsGate = createObservationGate({
   notApplicable: NOT_APPLICABLE,
   siblingSources: [
     join(import.meta.dir, '..', 'on-disconnect.test.ts'),
+    join(import.meta.dir, 'admin-query-index.test.ts'),
+    join(import.meta.dir, 'info-write-validation.test.ts'),
     join(import.meta.dir, 'listener-lifecycle-cdd.test.ts'),
     join(import.meta.dir, 'oracle-conformance-listeners.test.ts'),
     join(import.meta.dir, 'oracle-conformance-queries.test.ts'),
     join(import.meta.dir, 'oracle-conformance-reference-writes.test.ts'),
     join(import.meta.dir, 'oracle-conformance-runtime-identity.test.ts'),
+    join(import.meta.dir, 'oracle-conformance-staging-auth.test.ts'),
     join(import.meta.dir, 'oracle-conformance-transactions.test.ts'),
     join(import.meta.dir, 'priority-metadata-cdd.test.ts'),
     join(import.meta.dir, 'query-validation.test.ts'),
     join(import.meta.dir, 'transaction-contention-cdd.test.ts'),
+    join(import.meta.dir, '..', '..', 'sandbox', 'internal', 'instances.test.ts'),
+    // SDK behavior scenario replays, one CDD file per capture.
+    ...readdirSync(join(import.meta.dir, '..', 'cdd'))
+      .filter((file) => file.startsWith('capture-') && file.endsWith('.test.ts'))
+      .map((file) => join(import.meta.dir, '..', 'cdd', file)),
   ],
 });
 
 describe('oracle conformance (rtdb-modular): completeness', () => {
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
     const report = obsGate.report();
-    expect(report.committed.length).toBe(55);
+    expect(report.committed.length).toBe(65);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

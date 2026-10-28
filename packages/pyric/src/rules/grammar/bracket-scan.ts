@@ -72,10 +72,17 @@ export interface BracketSpan {
   levels: number;
   /** Comma-separated items directly inside: list elements, map entries, call arguments. */
   items: number;
+  /** Set on the parameter list of a `function name(...)` declaration. */
+  declaration?: true;
+  /** Set when the token before the bracket (past whitespace and comments) is `/`. */
+  afterSlash?: true;
 }
 
 /** Words after which a bracket opens an operand, not an argument list, an index, or a block. */
-const KEYWORDS = new Set(['if', 'return', 'in', 'is', 'let', 'true', 'false', 'null']);
+const KEYWORDS = new Set(['if', 'return', 'in', 'is', 'let']);
+
+/** Literal words, which are operands like number and string literals. */
+const LITERAL_WORDS = new Set(['true', 'false', 'null']);
 
 /** The bracket kinds that put their content one nesting level deeper. */
 const LEVEL_KINDS: ReadonlySet<BracketKind> = new Set(['group', 'call', 'list', 'map']);
@@ -100,7 +107,9 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
   let previous: Previous = 'none';
   let word = '';
   let wordAfterDot = false;
+  let wordDeclaresFunction = false;
   let lastSignificant = '';
+  let matchHeaderDepth: number | null = null;
   const n = source.length;
   let i = 0;
   /** Marks the innermost open bracket as holding a token after its last comma. */
@@ -140,7 +149,7 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
     }
     // Regular expression literals, where an operand may start.
     if (options.regexLiterals && c === 47 && previous !== 'word' && previous !== 'operand') {
-      i = skipQuoted(source, i, 47, true);
+      i = skipRegexLiteral(source, i);
       while (i < n && isWordChar(source.charCodeAt(i))) i++;
       previous = 'operand';
       lastSignificant = '';
@@ -149,9 +158,16 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
     if (isWordChar(c) && c !== 36) {
       const start = i;
       while (i < n && isWordChar(source.charCodeAt(i))) i++;
+      const afterFunction = previous === 'word' && word === 'function' && !wordAfterDot && lastSignificant === '';
       word = source.slice(start, i);
       wordAfterDot = lastSignificant === '.';
-      previous = c >= 48 && c <= 57 ? 'operand' : 'word';
+      const prevBeforeWord = previous;
+      const isLiteral = (c >= 48 && c <= 57) || (!wordAfterDot && LITERAL_WORDS.has(word));
+      previous = isLiteral ? 'operand' : 'word';
+      wordDeclaresFunction = afterFunction && previous === 'word' && !KEYWORDS.has(word);
+      if (word === 'match' && !wordAfterDot && prevBeforeWord !== 'slash') {
+        matchHeaderDepth = stack.length;
+      }
       lastSignificant = '';
       continue;
     }
@@ -174,10 +190,20 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
     }
     if (c === 40 || c === 91 || c === 123) {
       const char = c === 40 ? '(' : c === 91 ? '[' : '{';
-      const kind = classify(char, previous, word, wordAfterDot);
+      let kind: BracketKind;
+      if (char === '{' && matchHeaderDepth !== null && stack.length === matchHeaderDepth) {
+        kind = 'block';
+        if (previous !== 'slash') matchHeaderDepth = null;
+      } else {
+        kind = classify(char, previous, word, wordAfterDot);
+      }
       const adds = LEVEL_KINDS.has(kind);
       if (adds) levels++;
+      const declaration = kind === 'call' && wordDeclaresFunction && lastSignificant === '';
       const span: BracketSpan = { char, kind, open: i, close: -1, depth: stack.length + 1, levels, items: 0 };
+      if (declaration) span.declaration = true;
+      if (previous === 'slash') span.afterSlash = true;
+      wordDeclaresFunction = false;
       spans.push(span);
       stack.push({ span, commas: 0, tail: false });
       previous = 'other';
@@ -192,10 +218,16 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
         open.span.items = open.commas + (open.tail ? 1 : 0);
         if (LEVEL_KINDS.has(open.span.kind)) levels--;
       }
+      if (c === 125 && matchHeaderDepth !== null && stack.length < matchHeaderDepth) {
+        matchHeaderDepth = null;
+      }
       previous = 'operand';
       lastSignificant = '';
       i++;
       continue;
+    }
+    if (c === 59 /* ; */ && matchHeaderDepth !== null && stack.length <= matchHeaderDepth) {
+      matchHeaderDepth = null;
     }
     if (c === 44 /* , */) {
       const top = stack[stack.length - 1];
@@ -215,7 +247,7 @@ export function scanBrackets(source: string, options: BracketScanOptions): Brack
 
 /** What one opening bracket opens, from the token before it. */
 function classify(char: '(' | '[' | '{', previous: Previous, word: string, wordAfterDot: boolean): BracketKind {
-  const afterName = previous === 'word' && !KEYWORDS.has(word);
+  const afterName = previous === 'word' && (wordAfterDot || !KEYWORDS.has(word));
   if (char === '(') {
     if (previous === 'dollar') return 'interpolation';
     if (afterName) return wordAfterDot ? 'method' : 'call';
@@ -239,6 +271,34 @@ function skipQuoted(source: string, start: number, quote: number, endsAtLineBrea
     }
     if (c === quote) return i + 1;
     if (endsAtLineBreak && (c === 10 || c === 13)) return i;
+    i++;
+  }
+  return n;
+}
+
+/** The offset just past a `/.../` regular expression literal opened at `start`, honoring backslash escapes and `[...]` character classes. */
+export function skipRegexLiteral(source: string, start: number): number {
+  const n = source.length;
+  let i = start + 1;
+  let inClass = false;
+  while (i < n) {
+    const c = source.charCodeAt(i);
+    if (c === 92 /* \ */) {
+      i += 2;
+      continue;
+    }
+    if (c === 10 || c === 13) return i;
+    if (inClass) {
+      if (c === 93 /* ] */) inClass = false;
+      i++;
+      continue;
+    }
+    if (c === 91 /* [ */) {
+      inClass = true;
+      i++;
+      continue;
+    }
+    if (c === 47 /* / */) return i + 1;
     i++;
   }
   return n;

@@ -20,11 +20,23 @@
 import { describe, it, expect } from 'bun:test';
 import {
   assertMatchingOracleProjects,
+  capturableRules,
+  captureDeployScenario,
+  createRunUser,
+  instanceRulesForCapture,
+  normalizeDeployError,
   observationLinkageOf,
+  queryConstraintsOf,
   selectRtdbScenarios,
   verifyRunDataCleanup,
+  verifyRunUserCleanup,
+  verifyRulesTextRestored,
+  type RulesDeployEndpoint,
   type RunDataStore,
+  type RunUserCreator,
+  type RunUserStore,
 } from './run-rules-rtdb.ts';
+import type { RtdbDeployScenario } from '../rules-corpus/rtdb/index.ts';
 
 const AUDIT_KEY = 'pyric_oracle_rulesrtdb_1752000000000_ab12cd';
 
@@ -97,16 +109,26 @@ describe('run-rules-rtdb data cleanup contract', () => {
 
 describe('run-rules-rtdb scenario selection', () => {
   it('keeps the full corpus when no selector is supplied', () => {
-    expect(selectRtdbScenarios([]).length).toBeGreaterThan(1);
+    const selection = selectRtdbScenarios([]);
+    expect(selection.scenarios.length).toBeGreaterThan(1);
+    expect(selection.deployScenarios.map((s) => s.id)).toContain('r29-deploy-rejections');
   });
 
   it('selects exactly one scenario by id', () => {
-    expect(selectRtdbScenarios(['--scenario', 'r15-validate-ancestor-scope']).map((s) => s.id)).toEqual([
+    expect(selectRtdbScenarios(['--scenario', 'r15-validate-ancestor-scope'])).toEqual({
+      scenarios: [expect.objectContaining({ id: 'r15-validate-ancestor-scope' })],
+      deployScenarios: [],
+    });
+    expect(selectRtdbScenarios(['--scenario=r15-validate-ancestor-scope']).scenarios.map((s) => s.id)).toEqual([
       'r15-validate-ancestor-scope',
     ]);
-    expect(selectRtdbScenarios(['--scenario=r15-validate-ancestor-scope']).map((s) => s.id)).toEqual([
-      'r15-validate-ancestor-scope',
-    ]);
+  });
+
+  it('selects a deploy scenario by id without any operation scenario', () => {
+    expect(selectRtdbScenarios(['--scenario', 'r29-deploy-rejections'])).toEqual({
+      scenarios: [],
+      deployScenarios: [expect.objectContaining({ id: 'r29-deploy-rejections' })],
+    });
   });
 
   it('rejects a missing or unknown scenario instead of silently capturing everything', () => {
@@ -139,5 +161,221 @@ describe('run-rules-rtdb observation metadata', () => {
       { projectId: 'oracle-a' },
       { project_id: 'oracle-a' },
     )).not.toThrow();
+  });
+});
+
+const MOUNT_KEY = 'pyric_oracle_rulesrtdb_1752000000000_ab12cd';
+const BEFORE_RULES = { '.read': false, '.write': false, app: { '.read': 'auth != null' } };
+
+function deployScenario(): RtdbDeployScenario {
+  return {
+    id: 'deploy-fixture',
+    fm: 'rtdb#71',
+    rationale: 'fixture',
+    provenance: 'fixture',
+    deployCases: [
+      {
+        description: 'unknown rule key',
+        construct: 'rtdb.rule-kind.unknown-key',
+        rules: JSON.stringify({ a: { '.valdiate': 'true' } }),
+        expectation: { verdict: 'REJECTED', error: 'x' },
+      },
+      {
+        description: 'valid ruleset',
+        construct: 'rtdb.rule-kind.read',
+        rules: JSON.stringify({ a: { '.read': 'true' } }),
+        expectation: { verdict: 'ACCEPTED' },
+      },
+    ],
+  };
+}
+
+/** A fake rules endpoint. Dry runs never change the live rules unless
+ *  `dryRunDeploys` models an endpoint that ignored the dry-run flag. */
+function fakeEndpoint(opts: {
+  reject?: (rules: Record<string, unknown>) => string | undefined;
+  dryRunDeploys?: boolean;
+  failStatus?: number;
+}): RulesDeployEndpoint & { sent: Record<string, unknown>[] } {
+  let live: Record<string, unknown> = structuredClone(BEFORE_RULES);
+  const sent: Record<string, unknown>[] = [];
+  return {
+    sent,
+    async dryRun(rules) {
+      sent.push(rules);
+      if (opts.failStatus) return { status: opts.failStatus, body: 'internal' };
+      const error = opts.reject?.(rules);
+      if (error) return { status: 400, body: JSON.stringify({ error }) };
+      if (opts.dryRunDeploys) live = structuredClone(rules);
+      return { status: 200, body: '' };
+    },
+    async readRules() {
+      return structuredClone(live);
+    },
+  };
+}
+
+describe('run-rules-rtdb deploy scenarios', () => {
+  it('dry-runs each case merged under the mount and records the rejection text', async () => {
+    const endpoint = fakeEndpoint({
+      reject: (rules) => {
+        const mounted = (rules[MOUNT_KEY] as Record<string, any>)['deploy-fixture'];
+        return mounted.a['.valdiate'] ? `/${MOUNT_KEY}/deploy-fixture/a: Invalid key: .valdiate` : undefined;
+      },
+    });
+    const behavior = await captureDeployScenario(endpoint, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: deployScenario(),
+    });
+    expect(behavior).toEqual({
+      'unknown rule key': { verdict: 'REJECTED', error: '/<mount>/deploy-fixture/a: Invalid key: .valdiate' },
+      'valid ruleset': { verdict: 'ACCEPTED' },
+    });
+    // The existing rules travel with every dry run, so an endpoint that
+    // ignored the flag would still keep them.
+    for (const rules of endpoint.sent) {
+      expect(rules.app).toEqual(BEFORE_RULES.app);
+    }
+  });
+
+  it('fails when the live rules differ from the snapshot after a dry run', async () => {
+    const endpoint = fakeEndpoint({ dryRunDeploys: true });
+    await expect(captureDeployScenario(endpoint, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: deployScenario(),
+    })).rejects.toThrow(/live rules changed after the dry run/);
+  });
+
+  it('fails on a status that is neither acceptance nor a rules rejection', async () => {
+    const endpoint = fakeEndpoint({ failStatus: 500 });
+    await expect(captureDeployScenario(endpoint, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: deployScenario(),
+    })).rejects.toThrow(/dry run returned 500/);
+  });
+
+  it('replaces every occurrence of the mount key in an error text', () => {
+    expect(normalizeDeployError(`/${MOUNT_KEY}/a and /${MOUNT_KEY}/b`, MOUNT_KEY)).toBe('/<mount>/a and /<mount>/b');
+  });
+
+  it('drops the line:column prefix, which points into the merged dry-run body', () => {
+    expect(normalizeDeployError("1:20775: Unknown variable 'foo'.\n", MOUNT_KEY)).toBe("Unknown variable 'foo'.");
+  });
+});
+
+describe('run-rules-rtdb query cases', () => {
+  it('maps a case query to SDK constraints in order, then limits', () => {
+    expect(queryConstraintsOf({ orderByChild: 'owner', equalTo: 'u1', limitToFirst: 2 })).toEqual([
+      ['orderByChild', 'owner'],
+      ['equalTo', 'u1'],
+      ['limitToFirst', 2],
+    ]);
+    expect(queryConstraintsOf({ orderByKey: true, startAt: 'a', endAt: 'm', limitToLast: 3 })).toEqual([
+      ['orderByKey'],
+      ['startAt', 'a'],
+      ['endAt', 'm'],
+      ['limitToLast', 3],
+    ]);
+    expect(queryConstraintsOf({ orderByValue: true })).toEqual([['orderByValue']]);
+    expect(queryConstraintsOf({ orderByPriority: true, equalTo: null })).toEqual([
+      ['orderByPriority'],
+      ['equalTo', null],
+    ]);
+  });
+});
+
+describe('run-rules-rtdb custom-token user cleanup', () => {
+  function fakeUsers(opts: { exists: boolean; sticky?: boolean }): RunUserStore & { deleted: string[] } {
+    let exists = opts.exists;
+    const deleted: string[] = [];
+    return {
+      deleted,
+      async deleteUser(uid) {
+        deleted.push(uid);
+        if (!exists) throw Object.assign(new Error('no user'), { code: 'auth/user-not-found' });
+        if (!opts.sticky) exists = false;
+      },
+      async userExists() {
+        return exists;
+      },
+    };
+  }
+
+  it('deletes the custom-token user and proves it absent', async () => {
+    const users = fakeUsers({ exists: true });
+    await verifyRunUserCleanup(users, 'pyric-oracle-uid');
+    expect(users.deleted).toEqual(['pyric-oracle-uid']);
+  });
+
+  it('is clean when no custom-token sign-in created the user', async () => {
+    await expect(verifyRunUserCleanup(fakeUsers({ exists: false }), 'pyric-oracle-uid')).resolves.toBeUndefined();
+  });
+
+  it('fails when the user still exists after deletion', async () => {
+    await expect(verifyRunUserCleanup(fakeUsers({ exists: true, sticky: true }), 'pyric-oracle-uid'))
+      .rejects.toThrow(/user cleanup NOT verified/);
+  });
+});
+
+describe('run-rules-rtdb identity user creation', () => {
+  it('records the uid before creating the user, so a creation that fails late is still cleaned up', async () => {
+    const runUids = new Set<string>();
+    const creator: RunUserCreator = {
+      async createUser() {
+        throw new Error('deadline exceeded after the user was written');
+      },
+    };
+    await expect(createRunUser(creator, runUids, { uid: 'pyric-oracle-run-0' })).rejects.toThrow(/deadline exceeded/);
+    expect([...runUids]).toEqual(['pyric-oracle-run-0']);
+  });
+
+  it('records the uid and creates the user with its email properties', async () => {
+    const runUids = new Set<string>();
+    const created: unknown[] = [];
+    const creator: RunUserCreator = {
+      async createUser(props) {
+        created.push(props);
+      },
+    };
+    const props = { uid: 'pyric-oracle-run-1', email: 'pyric-oracle-run-1@example.com', emailVerified: true };
+    await createRunUser(creator, runUids, props);
+    expect([...runUids]).toEqual(['pyric-oracle-run-1']);
+    expect(created).toEqual([props]);
+  });
+});
+
+describe('multi-instance capture rules', () => {
+  it('adds the run subtree to JSON rules and keeps every existing key', () => {
+    const before = JSON.stringify({ rules: { '.read': false, kept: { '.read': true } } });
+    expect(JSON.parse(instanceRulesForCapture('default', before, AUDIT_KEY, { '.read': true }))).toEqual({
+      rules: { '.read': false, kept: { '.read': true }, [AUDIT_KEY]: { '.read': true } },
+    });
+  });
+
+  it('refuses to run when the existing rules cannot be merged', () => {
+    const before = '/* comment */ { "rules": { ".read": false } }';
+    expect(() => instanceRulesForCapture('second', before, AUDIT_KEY, {})).toThrow('refusing to run: the rules of second are not plain JSON');
+  });
+
+  it('refuses to run when the existing root rules grant access', () => {
+    for (const root of [{ '.read': true }, { '.write': 'auth != null' }]) {
+      expect(() => instanceRulesForCapture('default', JSON.stringify({ rules: root }), AUDIT_KEY, {})).toThrow('refusing to run');
+    }
+  });
+
+  it('reads the scenario capture\'s pre-run rules through the same refusals', () => {
+    expect(capturableRules('the database', '{ "rules": { ".read": false, "kept": { ".read": true } } }').rules).toEqual({ '.read': false, kept: { '.read': true } });
+    expect(() => capturableRules('the database', '{ "rules": { ".read": true } }')).toThrow('refusing to run: the root .read rule');
+    expect(() => capturableRules('the database', '// c\n{ "rules": {} }')).toThrow('refusing to run: the rules of the database are not plain JSON');
+  });
+
+  it('verifies a restore by exact text, or by the same rules when reformatted, and throws otherwise', () => {
+    const text = '/* c */ { "rules": { ".read": false } }';
+    expect(verifyRulesTextRestored('second', text, text)).toEqual({ exact: true });
+    expect(verifyRulesTextRestored('default', '{"rules":{"a":1}}', '{ "rules": { "a": 1 } }')).toEqual({ exact: false });
+    expect(() => verifyRulesTextRestored('second', text, '{"rules":{}}')).toThrow('restore NOT verified on second');
   });
 });

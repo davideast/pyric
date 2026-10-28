@@ -1,0 +1,138 @@
+import { describe, expect, test } from 'bun:test';
+import { pathOwnerOnly, required, rtdbStdlib } from 'pyric/rules';
+import { runScenario, simulateCase, type StdlibScenario } from './harness.js';
+
+const { validation } = rtdbStdlib;
+
+const scenario: StdlibScenario = {
+  paths: {
+    '/players/$uid': {
+      read: pathOwnerOnly('$uid'),
+      write: pathOwnerOnly('$uid'),
+      ...validation.shape(
+        {
+          name: validation.stringLength(1, 12),
+          level: validation.numberBetween(1, 10),
+          team: validation.oneOf('red', 'blue'),
+          handle: validation.matches('^[a-z0-9_]+$'),
+          ready: 'boolean',
+        },
+        { required: ['name', 'level'] },
+      ),
+    },
+  },
+  cases: [],
+};
+
+const player = { name: 'Al', level: 3, team: 'red', handle: 'al_1', ready: true };
+const stored = { players: { alice: player } };
+const write = (description: string, expectation: 'ALLOW' | 'DENY', newData: unknown) =>
+  ({ description, expectation, operation: 'write' as const, path: '/players/alice', auth: 'alice', newData });
+
+scenario.cases.push(
+  write('a player with every field valid', 'ALLOW', player),
+  write('a player with only the required fields', 'ALLOW', { name: 'Al', level: 1 }),
+  write('a player missing a required field', 'DENY', { name: 'Al' }),
+  write('an empty name', 'DENY', { ...player, name: '' }),
+  write('a name over the maximum length', 'DENY', { ...player, name: 'abcdefghijklm' }),
+  write('a level over the maximum', 'DENY', { ...player, level: 11 }),
+  write('a level written as a string', 'DENY', { ...player, level: '5' }),
+  write('a team outside the allowed values', 'DENY', { ...player, team: 'green' }),
+  write('a handle that does not match the pattern', 'DENY', { ...player, handle: 'Al!' }),
+  write('a ready flag written as a string', 'DENY', { ...player, ready: 'yes' }),
+  write('a field outside the shape', 'DENY', { ...player, admin: true }),
+  { description: 'an update of one field to a valid value', expectation: 'ALLOW', operation: 'update', path: '/players/alice', auth: 'alice', data: stored, newData: { name: 'Alice' } },
+  { description: 'an update of one field to an invalid value', expectation: 'DENY', operation: 'update', path: '/players/alice', auth: 'alice', data: stored, newData: { level: 0 } },
+  { description: 'an update that removes a required field', expectation: 'DENY', operation: 'update', path: '/players/alice', auth: 'alice', data: stored, newData: { level: null } },
+);
+
+describe('rtdbStdlib.validation', () => {
+  test('value checks compile against the node they are placed on', () => {
+    expect(validation.stringLength(1, 12)).toBe('newData.isString() && newData.val().length >= 1 && newData.val().length <= 12');
+    expect(validation.numberBetween(-1, 1)).toBe('newData.isNumber() && newData.val() >= -1 && newData.val() <= 1');
+    expect(validation.oneOf('a', 1, true)).toBe("newData.val() == 'a' || newData.val() == 1 || newData.val() == true");
+    expect(validation.matches('^[a-z]+$')).toBe('newData.isString() && newData.val().matches(/^[a-z]+$/)');
+    expect(required('a', 'b')).toBe("newData.hasChildren(['a', 'b'])");
+  });
+
+  test('shape types each field and closes the node', () => {
+    expect(validation.shape({ a: 'string', b: 'number' })).toEqual({
+      validate: "newData.hasChildren(['a', 'b'])",
+      children: {
+        '/a': { validate: 'newData.isString()' },
+        '/b': { validate: 'newData.isNumber()' },
+        '/$other': { validate: 'false' },
+      },
+    });
+    expect(validation.shape({ a: 'boolean' }, { required: [], open: true })).toEqual({
+      children: { '/a': { validate: 'newData.isBoolean()' } },
+    });
+  });
+
+  test('shape and matches refuse input they cannot compile', () => {
+    expect(() => validation.shape({ a: 'string' }, { required: ['b'] })).toThrow();
+    expect(() => validation.shape({ 'a/b': 'string' })).toThrow(/field name/);
+    expect(() => validation.shape({ '': 'string' })).toThrow(/field name/);
+    expect(() => validation.shape({ '$other': 'string' })).toThrow(/field name/);
+    expect(() => validation.shape({ a: 'string' }, { required: ['a/b'] })).toThrow(/field name/);
+    expect(() => validation.matches('')).toThrow();
+    expect(() => validation.matches('a/b')).toThrow("escape '/'");
+    expect(() => validation.matches('\\\\/')).toThrow("escape '/'");
+    expect(() => validation.matches('\\')).toThrow(/trailing/);
+    expect(() => validation.matches('abc\\\\\\')).toThrow(/trailing/);
+    expect(() => validation.matches('a\nb')).toThrow(/newline/);
+    expect(() => validation.matches('a\rb')).toThrow(/newline/);
+    // Parentheses fail with production's deploy text (r44 /(/, r53 /)/).
+    expect(() => validation.matches('(')).toThrow("Illegal regular expression, expected ')' at position 5");
+    expect(() => validation.matches(')')).toThrow('Illegal regular expression, end-of-string expected');
+    expect(() => validation.matches('[abc')).toThrow(/unclosed '\['/);
+    expect(() => validation.stringLength(3, 1)).toThrow();
+  });
+
+  test('matches refuses what production refuses at deploy (#1247 SP-1, SP-2a; r46, r51)', () => {
+    expect(() => validation.matches('^red$|^blue$')).toThrow('unescaped ^, ^ can only appear at the end');
+    expect(() => validation.matches('(a$)')).toThrow('unescaped ^, ^ can only appear at the end');
+    expect(() => validation.matches('^\\p{L}+$')).toThrow('integer expected at position 3');
+    // r53: production deploys /^)/, reading ) as a literal.
+    expect(validation.matches('^)')).toBe('newData.isString() && newData.val().matches(/^)/)');
+  });
+
+  test('matches accepts escaped slashes and patterns production allows', () => {
+    expect(validation.matches('a\\/b')).toBe('newData.isString() && newData.val().matches(/a\\/b/)');
+    expect(validation.matches('a\\\\\\/b')).toBe('newData.isString() && newData.val().matches(/a\\\\\\/b/)');
+    expect(validation.matches('[^/]+')).toBe('newData.isString() && newData.val().matches(/[^/]+/)');
+    expect(validation.matches('^[^/]+$')).toBe('newData.isString() && newData.val().matches(/^[^/]+$/)');
+    expect(validation.matches('+')).toBe('newData.isString() && newData.val().matches(/+/)');
+    expect(validation.matches('[z-a]')).toBe('newData.isString() && newData.val().matches(/[z-a]/)');
+    expect(validation.matches('a{2,1}')).toBe('newData.isString() && newData.val().matches(/a{2,1}/)');
+
+    const slugScenario: StdlibScenario = {
+      paths: {
+        '/slug': { write: true, validate: validation.matches('^[^/]+$') },
+      },
+      cases: [],
+    };
+    expect(
+      simulateCase(slugScenario, {
+        description: 'slug without slash',
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/slug',
+        auth: 'alice',
+        newData: 'ok',
+      }),
+    ).toBe('ALLOW');
+    expect(
+      simulateCase(slugScenario, {
+        description: 'slug with slash',
+        expectation: 'DENY',
+        operation: 'write',
+        path: '/slug',
+        auth: 'alice',
+        newData: 'a/b',
+      }),
+    ).toBe('DENY');
+  });
+
+  runScenario(scenario);
+});

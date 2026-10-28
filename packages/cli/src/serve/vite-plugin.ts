@@ -43,18 +43,37 @@ import type { Plugin, UserConfig } from 'vite';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
+import { readPyricConfig } from '../cli/pyric-config.js';
+import { resolveOwnersConfig, type OwnersConfig } from './owners-config.js';
 import type { PyricAiOptions } from './vite-ai-config.js';
 import type { PyricAvatarsOptions } from './avatars-config.js';
 import type { PyricRuntimeChipOption } from './runtime/chip-config.js';
 import {
   createViteSandboxGeneration,
-  type ViteSandboxGeneration,
+  generationStateScope,
   type ViteSandboxGenerationInput,
   type ViteSandboxGenerationOptions,
 } from './vite-sandbox-generation.js';
+import { localGenerationSlot, projectGenerationSlot } from './vite-generation-registry.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
+import { installViteNetGuard } from './vite-net-guard.js';
+import { attachViteSsrActivation } from './vite-ssr-activation.js';
+import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
+import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
+
+/** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
+interface EnvironmentHooks {
+  configEnvironment(name: string, config: { consumer?: string }): { resolve: { external: string[] } } | null;
+}
+
+/** The plugin context's `environment`, present from Vite 6. */
+function environmentOf(context: object): SwapEnvironment | undefined {
+  const hasEnvironment = 'environment' in context;
+  if (!hasEnvironment) return undefined;
+  return (context as { environment?: SwapEnvironment }).environment;
+}
 
 export interface PyricOptions {
   /** Run the dev sandbox in the Vite server process, shared across browsers and
@@ -68,6 +87,15 @@ export interface PyricOptions {
   rules?: string;
   /** Project dir for `firebase.json` / rules discovery. Default: Vite's `root`. */
   root?: string;
+  /**
+   * The Firebase project the sandbox runs as: a project id or a `.firebaserc`
+   * alias. It names the default Realtime Database instance, selects the
+   * `.firebaserc` deploy targets a `firebase.json` `database` array names,
+   * and is the functions child's project. Without it, the project resolves as
+   * the Firebase CLI resolves it: `PYRIC_PROJECT`, then the `firebase use`
+   * active project for this directory, then `.firebaserc` `projects.default`.
+   */
+  project?: string;
   /** Persist sandbox state to `.pyric/state/state.json` so data + test users
    *  survive reloads/restarts. Off by default for SharedWorker; hosted mode
    *  always persists state. */
@@ -104,6 +132,12 @@ export interface PyricOptions {
   runtimeChip?: PyricRuntimeChipOption;
   /** Overrides the shared pyric.json Flow configuration. */
   flow?: FlowConfig;
+  /** Overrides the shared pyric.json `owners` configuration, field by field.
+   *  `skip` lists globs for the app's data-layer wrapper modules, so a
+   *  listener's owner shows the code that called the wrapper; the wrapper's
+   *  frame stays on the owner's `stack`. `frames` is how many application
+   *  frames each owner keeps, counted from the frame it shows (default 3). */
+  owners?: OwnersConfig;
   /** RTDB-triggered Cloud Functions under this dev server (the `pyric sandbox`
    *  parity fold). By default a `functions` block in `firebase.json` is
    *  discovered automatically: its `onValueCreated` triggers run in an isolated
@@ -117,8 +151,8 @@ export interface PyricOptions {
    *  - `region`: the trigger location. Beats `PYRIC_FUNCTIONS_RTDB_REGION`;
    *    default `us-central1`.
    *  - `instance`: the RTDB instance name. Default `<projectId>-default-rtdb`,
-   *    where projectId is `PYRIC_PROJECT`, else `.firebaserc`'s default
-   *    project, else `demo-project`.
+   *    where projectId is the resolved `project` (see that option), else
+   *    `demo-project`.
    *  - `watch`: hot-reload the functions source (default `true`, matching
    *    rules). A save under the functions source dir stops the child and
    *    respawns it — redeploy semantics: in-flight executions in the old child
@@ -166,6 +200,12 @@ export interface PyricOptions {
    *  the avatar route entirely. An object supplies a custom source that
    *  runs in the dev server, never the browser. */
   avatars?: PyricAvatarsOptions;
+  /** The app's own service worker module (path from the Vite root), such as a
+   *  `vite-plugin-pwa` `injectManifest` source. In dev, the plugin adds a fetch
+   *  listener to it that answers production Storage download URLs from the
+   *  sandbox (`sandboxStorageFetch` from `pyric/storage/sw`), so the file needs
+   *  no Pyric import. Builds are untouched. */
+  serviceWorker?: string;
 }
 
 function resolveFunctionsOptions(
@@ -174,6 +214,11 @@ function resolveFunctionsOptions(
   if (options === false) return false;
   if (typeof options === 'object') return options;
   return {};
+}
+
+/** The project's owner settings: pyric.json `owners`, overridden by the plugin option. */
+async function readOwners(projectDir: string, overrides: OwnersConfig | undefined): Promise<OwnersConfig | undefined> {
+  return resolveOwnersConfig((await readPyricConfig(projectDir)).owners, overrides);
 }
 
 /**
@@ -205,7 +250,7 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  *   import { pyric } from '@pyric/cli/vite';
  *   export default defineConfig({ plugins: [pyric()] });
  */
-export function pyric(options: PyricOptions = {}): Plugin {
+export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
   const moduleContext = createViteModuleContext();
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
@@ -217,6 +262,8 @@ export function pyric(options: PyricOptions = {}): Plugin {
     workerRuntime,
   };
   const pageRuntime = createVitePageRuntime(pageRuntimeInput);
+  const serviceWorkerWiring = createServiceWorkerWiring(options.serviceWorker);
+  let serviceWorkerContext: ServiceWorkerWiringContext = { root: process.cwd(), devServer: false };
   const moduleSwap = createViteModuleSwap(moduleContext, {
     getAiMode: () => pageRuntime.ai().mode,
   });
@@ -226,8 +273,12 @@ export function pyric(options: PyricOptions = {}): Plugin {
   const bridgeSetting = options.bridge;
   const usesDefaultBridgeOptions = bridgeSetting === true;
   const bridgeOpts = usesDefaultBridgeOptions ? {} : bridgeSetting || null;
-  let activeGeneration: ViteSandboxGeneration | null = null;
+  // A generation that owns project state is held process-wide, so the plugin
+  // instance a Vite restart builds closes it before claiming the same files.
+  const instanceSlot = localGenerationSlot();
   let hostedProjectKey: string | undefined;
+  let hostedInstanceId: string | undefined;
+  let owners: OwnersConfig | undefined = resolveOwnersConfig(undefined, options.owners);
 
   return {
     name: 'pyric:sandbox',
@@ -244,7 +295,12 @@ export function pyric(options: PyricOptions = {}): Plugin {
     enforce: 'pre',
 
     config(config, env) {
-      const moduleConfig = moduleSwap.config();
+      // Before the page runtime permits its AI upstreams on the guard. Only
+      // the dev server: a build or a preview runs no server-rendered app code.
+      const isDevServer = env.command === 'serve' && env.isPreview !== true;
+      if (isDevServer) installViteNetGuard();
+      serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
+      const moduleConfig = moduleSwap.config({ devServer: isDevServer });
       const pageConfig = pageRuntime.config(config, env);
       const serverWatchConfig: UserConfig = {
         server: {
@@ -261,24 +317,51 @@ export function pyric(options: PyricOptions = {}): Plugin {
       return finalizedConfig;
     },
 
-    configResolved(resolved) {
+    async configResolved(resolved) {
       moduleSwap.configResolved(resolved);
+      serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
+      // A sandbox build stamps pages without a dev server, so configureServer
+      // never reads pyric.json for it.
+      const isBuild = resolved.command === 'build';
+      if (isBuild) owners = await readOwners(resolveFirebaseProjectDir(resolved.root, options.root), options.owners);
     },
 
-    resolveId(source, importer) {
-      return moduleSwap.resolveId(source, importer);
+    configEnvironment(name, environmentConfig) {
+      return moduleSwap.configEnvironment(name, environmentConfig);
     },
 
-    load(id) {
-      return moduleSwap.load(id);
+    resolveId(source, importer, resolveOptions) {
+      const context: SwapResolveContext = {
+        resolve: (id, from, opts) => this.resolve(id, from, opts),
+        environment: environmentOf(this),
+      };
+      return moduleSwap.resolvePluginId(context, source, importer, resolveOptions);
     },
 
-    async configureServer(server) {
-      const priorGeneration = activeGeneration;
-      activeGeneration = null;
-      await priorGeneration?.close();
+      load(id) {
+        return moduleSwap.loadPluginModule(id);
+      },
 
+      transform(code, id, transformOptions) {
+        if (transformOptions?.ssr === true) return null;
+        const wiredServiceWorker = serviceWorkerWiring.transform(code, id, serviceWorkerContext);
+        if (wiredServiceWorker !== null) return wiredServiceWorker;
+        if (hostedInstanceId === undefined) return null;
+        const cleanId = id.split('?')[0];
+        if (cleanId === entries.app || cleanId === entries['messaging-sw']) {
+          return `globalThis.__PYRIC_HOST_INSTANCE_ID__=${JSON.stringify(hostedInstanceId)};\n${code}`;
+        }
+        return null;
+      },
+
+      async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+      const stateScope = generationStateScope(options);
+      const ownsProjectState = stateScope !== null;
+      const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
+      await slot.take()?.close();
+      owners = await readOwners(projectDir, options.owners);
+
       const uiEnabled = options.ui ?? true;
       const functionsOptions = resolveFunctionsOptions(options.functions);
       const ai = pageRuntime.ai();
@@ -294,6 +377,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         functions: functionsOptions,
         avatars: options.avatars,
         flow: options.flow,
+        project: options.project,
       };
       const generationInput: ViteSandboxGenerationInput = {
         server,
@@ -304,14 +388,18 @@ export function pyric(options: PyricOptions = {}): Plugin {
         ai,
       };
       const generation = await createViteSandboxGeneration(generationInput);
-      activeGeneration = generation;
+      slot.set(generation);
+      // Server-rendered firebase/* and firebase-admin/* reach this server's host (#1123).
+      const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
       hostedProjectKey = options.hosted ? projectDir : undefined;
+      hostedInstanceId = options.hosted ? generation.instanceId : undefined;
       // Vite creates a replacement before closing the old server. Cleanup
-      // belongs to this server, even when another generation is now active.
+      // belongs to this server, even when another generation is now active;
+      // closing a generation its replacement already closed is a no-op.
       const closeServer = server.close.bind(server);
       server.close = async () => {
-        const ownsActiveGeneration = activeGeneration === generation;
-        if (ownsActiveGeneration) activeGeneration = null;
+        slot.release(generation);
+        ssrActivation.close();
         try {
           await generation.close();
         } finally {
@@ -333,7 +421,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     transformIndexHtml(html) {
-      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey);
+      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey, owners, hostedInstanceId);
     },
   };
 }

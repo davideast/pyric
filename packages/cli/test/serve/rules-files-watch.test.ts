@@ -60,7 +60,7 @@ describe('watching the rules source and its module files', () => {
 describe('watching a module file that does not exist yet', () => {
   const outcomes = (() => {
     const fixture = new URL('./fixtures/rules-files-watch-real-fs.ts', import.meta.url).pathname;
-    const result = spawnSync(process.execPath, [fixture], { encoding: 'utf8', timeout: 20_000 });
+    const result = spawnSync(process.execPath, [fixture], { encoding: 'utf8', timeout: 20_000, env: process.env });
     if (result.status !== 0) throw new Error(`real fs watch fixture failed (${result.status}): ${result.stderr}`);
     return JSON.parse(result.stdout) as Record<'missingFile' | 'missingDirectory', { changed: string[]; errors: string[]; file: string }>
       & { deletedFile: { changed: string[]; errors: string[]; file: string; afterDelete: number; afterRecreate: number } };

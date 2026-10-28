@@ -63,6 +63,25 @@ describe('M2 — worker bundle + persist (via the /__pyric middleware)', () => {
     expect(html).toContain(entries.init); // boots the sandbox
   });
 
+  it('inlines the owners settings from pyric.json, with the plugin option overriding a field', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-owners-'));
+    writeFileSync(path.join(tmp, 'pyric.json'), JSON.stringify({ owners: { skip: ['src/db/**'], frames: 5 } }));
+    const { plugin: p } = await bootPluginInstance({ owners: { frames: 2 } }, tmp);
+    const html = (p.transformIndexHtml as (h: string) => string)('<html><head></head></html>');
+    const inline = html.match(/<script data-pyric-worker-init>globalThis.__PYRIC_WORKER_INIT__=(.*?);<\/script>/)?.[1];
+    expect(JSON.parse(inline ?? '{}').owners).toEqual({ skip: ['src/db/**'], frames: 2 });
+  });
+
+  it('inlines the owners settings from pyric.json in a sandbox build, where no dev server runs', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-owners-build-'));
+    writeFileSync(path.join(tmp, 'pyric.json'), JSON.stringify({ owners: { skip: ['src/db/**'] } }));
+    const p = pyric({});
+    await (p.configResolved as (config: unknown) => Promise<void>)({ root: tmp, command: 'build', server: {} });
+    const html = (p.transformIndexHtml as (h: string) => string)('<html><head></head></html>');
+    const inline = html.match(/<script data-pyric-worker-init>globalThis.__PYRIC_WORKER_INIT__=(.*?);<\/script>/)?.[1];
+    expect(JSON.parse(inline ?? '{}').owners).toEqual({ skip: ['src/db/**'] });
+  });
+
   it('changes the worker version when the configured AI model changes', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-epoch-'));
     const first = await bootPluginInstance({ ai: { model: 'model-a' } }, tmp);

@@ -31,6 +31,7 @@ import type {
   SnapMessage,
 } from '../../../src/serve/worker/protocol.js';
 import { openStorageForTransportTests } from './permissive-services.js';
+import { deployFirestoreRulesToHost } from '../../../src/serve/worker/host/rules.js';
 import {
   initializeSandbox,
   createMemoryBackend,
@@ -793,6 +794,52 @@ ${lets}
     expect(write.ok).toBe(true);
   });
 
+  it('setFirestoreRules refuses a Storage ruleset with the reason every plane gives and keeps the active one', async () => {
+    const ctx = await makeCtx(DENY_ALL_RULES);
+    const port = fakePort();
+    await sendOp(ctx, port, { t: 'op', id: 'sw-good', method: 'setFirestoreRules', source: DENY_ALL_RULES });
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} { allow read, write: if true; }
+  }
+}`;
+    const deployed = deployFirestoreRulesToHost(ctx, storageRules);
+    expect(deployed.ok).toBe(false);
+    expect(deployed.rejectionMessage).toBe(
+      "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
+    );
+    expect(deployed.rejectionMessage).toBe(`Firestore ${rulesSourceRejection(storageRules)!.message}`);
+    expect(deployed.messages).toEqual([{
+      severity: 'error',
+      text: "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
+      line: 2,
+      column: 1,
+    }]);
+    expect(ctx.activeRules?.firestore).toMatchObject({ status: 'error', source: DENY_ALL_RULES });
+
+    // The deny-all rules are still the ones requests evaluate.
+    const write = await sendOp(ctx, port, {
+      t: 'op', id: 'sw-write', method: 'setDoc', path: 'c/1', data: { v: 1 },
+    });
+    expect(write.ok).toBe(false);
+  });
+
+  it('setFirestoreRules answers ok:true for an allow-all ruleset it installed, with its lint finding', async () => {
+    const ctx = await makeCtx(DENY_ALL_RULES);
+    const port = fakePort();
+    const res = await sendOp(ctx, port, { t: 'op', id: 'sw-open', method: 'setFirestoreRules', source: PERMISSIVE_RULES });
+    const value = (res as ResMessage & { ok: true }).value as { ok: boolean; messages: Array<{ severity: string; text: string }> };
+    // The rules took effect: a write the deny-all rules refused now lands.
+    const write = await sendOp(ctx, port, {
+      t: 'op', id: 'sw-open-write', method: 'setDoc', path: 'c/1', data: { v: 1 },
+    });
+    expect(write.ok).toBe(true);
+    expect(value.ok).toBe(true);
+    expect(value.messages).toContainEqual(expect.objectContaining({ severity: 'error', text: expect.stringContaining('always-true condition') }));
+    expect(ctx.activeRules?.firestore).toMatchObject({ status: 'active', source: PERMISSIVE_RULES });
+  });
+
   it('setFirestoreRules refuses a ruleset that does not parse and keeps the active one, as the CLI does', async () => {
     const ctx = await makeCtx(PERMISSIVE_RULES);
     const port = fakePort();
@@ -920,6 +967,47 @@ describe('shared playground worker ops', () => {
     });
     expect(status.ok).toBe(true);
     expect(status.value).toMatchObject({ status: 'active' });
+  });
+
+  it('a database ruleset production would refuse keeps the active rules and reports the reason', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await sendOp(ctx, port, {
+      t: 'op',
+      id: 'good-rules',
+      method: 'setDatabaseRules',
+      source: { rules: { '.read': true, '.write': true } },
+    });
+
+    const refused = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'bad-rules',
+      method: 'setDatabaseRules',
+      source: { rules: { rooms: { '.write': "auth.uid = 'x'" } } },
+    });
+    expect(refused.ok).toBe(true);
+    expect(refused.value).toMatchObject({ ok: false });
+    expect(JSON.stringify(refused.value)).toContain('/rooms/.write:');
+
+    const status = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'bad-rules-status',
+      method: 'getRulesStatus',
+      service: 'database',
+    });
+    expect(status.value).toMatchObject({
+      status: 'error',
+      source: { rules: { '.read': true, '.write': true } },
+    });
+
+    const write = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'still-open',
+      method: 'rtdb.set',
+      path: '/rooms/a',
+      value: 1,
+    });
+    expect(write.ok).toBe(true);
   });
 
   it('RTDB shared ops honor the per-call auth lens', async () => {

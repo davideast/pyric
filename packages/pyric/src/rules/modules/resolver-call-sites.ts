@@ -62,9 +62,14 @@ function moduleArgument(facts: SourceExpressionFacts): ModuleCallArgument {
   };
 }
 
-export function moduleCallSites(ast: FirestoreRules, functionName: string): readonly ModuleCallSite[] {
+export function moduleCallSites(
+  ast: FirestoreRules,
+  functionName: string,
+  moduleFunctions: ReadonlyMap<string, FunctionDef> = new Map(),
+): readonly ModuleCallSite[] {
   const sites: ModuleCallSite[] = [];
   const declarations = new Map<FunctionDef, SourceFunctionDeclaration>();
+  const analyzedFunctions = new Set<FunctionDef>();
   const service = ast.service.name === 'firebase.storage' ? 'firebase.storage' : 'cloud.firestore';
 
   const makeContext = (
@@ -87,6 +92,7 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
     if (stack.has(fn.name)) return;
     const declaration = declarations.get(fn);
     if (!declaration) return;
+    analyzedFunctions.add(fn);
     const aliases = new Map(declaration.aliases);
     const receiverTypes = new Map(declaration.receiverTypes);
     fn.parameters.forEach((parameter, index) => {
@@ -113,18 +119,29 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
         sites.push({ arguments: argumentFacts.map(moduleArgument) });
       }
       const sourceFunction = ctx.functions.get(call.name);
-      if (sourceFunction) analyzeFunction(sourceFunction, argumentFacts, ctx.stack);
+      if (sourceFunction && !moduleFunctions.has(call.name)) {
+        analyzeFunction(sourceFunction, argumentFacts, ctx.stack);
+      }
     }
   };
 
   const globalFunctions = new Map((ast.functions ?? []).map((fn) => [fn.name, fn]));
-  const serviceFunctions = new Map(globalFunctions);
+  const serviceFunctions = new Map<string, FunctionDef>([
+    ...globalFunctions,
+    ...moduleFunctions,
+  ]);
   for (const fn of ast.service.functions ?? []) serviceFunctions.set(fn.name, fn);
+  for (const fn of moduleFunctions.values()) {
+    declarations.set(fn, { aliases: new Map(), receiverTypes: new Map(), functions: moduleFunctions });
+  }
+  const rootFunctions: FunctionDef[] = [];
   for (const fn of ast.functions ?? []) {
     declarations.set(fn, { aliases: new Map(), receiverTypes: new Map(), functions: globalFunctions });
+    rootFunctions.push(fn);
   }
   for (const fn of ast.service.functions ?? []) {
     declarations.set(fn, { aliases: new Map(), receiverTypes: new Map(), functions: serviceFunctions });
+    rootFunctions.push(fn);
   }
 
   const addMatch = (
@@ -141,6 +158,7 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
     for (const fn of match.functions) {
       functions.set(fn.name, fn);
       declarations.set(fn, declaration);
+      rootFunctions.push(fn);
     }
     const ctx = makeContext(declaration);
     for (const { condition } of match.allows) analyzeExpression(condition, ctx);
@@ -151,5 +169,10 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
     receiverTypes: new Map(),
     functions: serviceFunctions,
   });
+  for (const fn of rootFunctions) {
+    if (!analyzedFunctions.has(fn)) {
+      analyzeFunction(fn, [], new Set());
+    }
+  }
   return sites;
 }

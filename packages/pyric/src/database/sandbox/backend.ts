@@ -15,6 +15,16 @@ import { ValueListeners } from './value-listeners.js';
 import { WritePlane } from './write-plane.js';
 import type { JsonValue } from './data-tree.js';
 import type { ListenerAttribution } from '../../sandbox/attribution/listener-owners.js';
+import { invalidInfoWrite, isInfoPath } from '../writable-path.js';
+
+/**
+ * Refuse a write that targets `/.info`, at `path` or through one of an
+ * update's keys, as the database does for one that reaches it.
+ */
+function assertWritable(path: string, patch?: Record<string, unknown>): void {
+  const targets = patch === undefined ? [path] : Object.keys(patch).map((key) => `${path}/${key}`);
+  if (isInfoPath(path) || targets.some(isInfoPath)) throw invalidInfoWrite();
+}
 
 export class RtdbBackend {
   private readonly state: BackendState;
@@ -24,12 +34,13 @@ export class RtdbBackend {
   private readonly transactions: Transactions;
   private readonly persistence: PersistenceState;
 
-  constructor(sandbox?: Sandbox) {
-    this.state = new BackendState(sandbox);
+  /** `instance` is the instance's name, or `undefined` for the default instance. */
+  constructor(sandbox?: Sandbox, instance?: string) {
+    this.state = new BackendState(sandbox, instance);
     this.values = new ValueListeners(this.state);
     this.children = new ChildListeners(this.state);
     this.writes = new WritePlane(this.state, this.values, this.children);
-    this.transactions = new Transactions(this.state, this.values, this.children);
+    this.transactions = new Transactions(this.state, this.values, this.children, this.writes);
     this.persistence = new PersistenceState(this.state, this.values, this.children);
   }
 
@@ -49,13 +60,26 @@ export class RtdbBackend {
 
   adminGet(path: string): JsonValue { return this.writes.adminGet(path); }
   adminGetQuery(path: string, spec: QuerySpec): QueryRow[] { return this.writes.adminGetQuery(path, spec); }
-  adminSet(path: string, value: JsonValue): void { this.writes.adminSet(path, value); }
+  adminSet(path: string, value: JsonValue): void {
+    assertWritable(path);
+    this.writes.adminSet(path, value);
+  }
   adminSetWithPriority(path: string, value: JsonValue, priority: Priority): void {
+    assertWritable(path);
     this.writes.adminSetWithPriority(path, value, priority);
   }
-  adminUpdate(path: string, patch: Record<string, JsonValue>): void { this.writes.adminUpdate(path, patch); }
-  adminRemove(path: string): void { this.writes.adminRemove(path); }
-  adminSetPriority(path: string, priority: Priority): void { this.writes.adminSetPriority(path, priority); }
+  adminUpdate(path: string, patch: Record<string, JsonValue>): void {
+    assertWritable(path, patch);
+    this.writes.adminUpdate(path, patch);
+  }
+  adminRemove(path: string): void {
+    assertWritable(path);
+    this.writes.adminRemove(path);
+  }
+  adminSetPriority(path: string, priority: Priority): void {
+    assertWritable(path);
+    this.writes.adminSetPriority(path, priority);
+  }
 
   get(auth: AuthState, path: string): JsonValue { return this.writes.get(auth, path); }
   getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryRow[] {
@@ -68,21 +92,45 @@ export class RtdbBackend {
   unspecifiedIndexWarning(path: string, spec: QuerySpec): string | null {
     return this.state.unspecifiedIndexWarning(path, spec);
   }
-  set(auth: AuthState, path: string, value: JsonValue): void { this.writes.set(auth, path, value); }
+  set(auth: AuthState, path: string, value: JsonValue): void {
+    assertWritable(path);
+    this.writes.set(auth, path, value);
+  }
   setWithPriority(auth: AuthState, path: string, value: JsonValue, priority: Priority): void {
+    assertWritable(path);
     this.writes.setWithPriority(auth, path, value, priority);
   }
   update(auth: AuthState, path: string, patch: Record<string, JsonValue>): void {
+    assertWritable(path, patch);
     this.writes.update(auth, path, patch);
   }
-  remove(auth: AuthState, path: string): void { this.writes.remove(auth, path); }
+  remove(auth: AuthState, path: string): void {
+    assertWritable(path);
+    this.writes.remove(auth, path);
+  }
   setPriority(auth: AuthState, path: string, priority: Priority): void {
+    assertWritable(path);
     this.writes.setPriority(auth, path, priority);
   }
-  validateSet(auth: AuthState, path: string, value: unknown): void {
-    this.writes.validateSet(auth, path, value);
+  validateRead(auth: AuthState, path: string, spec?: QuerySpec): void {
+    this.writes.validateRead(auth, path, spec);
+  }
+  validatePriority(auth: AuthState, path: string, priority: Priority): void {
+    assertWritable(path);
+    this.writes.validatePriority(auth, path, priority);
+  }
+  /** Decide and record an `onDisconnect` registration; see `WritePlane.registerDisconnect`. */
+  registerDisconnect(auth: AuthState, operation: Parameters<WritePlane['registerDisconnect']>[1]): void {
+    if (operation.kind === 'update') assertWritable(operation.path, operation.values);
+    else assertWritable(operation.path);
+    this.writes.registerDisconnect(auth, operation);
+  }
+  validateSet(auth: AuthState, path: string, value: unknown, priority: Priority = null): void {
+    assertWritable(path);
+    this.writes.validateSet(auth, path, value, priority);
   }
   validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
+    assertWritable(path, patch);
     this.writes.validateUpdate(auth, path, patch);
   }
 
@@ -110,8 +158,9 @@ export class RtdbBackend {
     auth: AuthState,
     path: string,
     updateFn: (current: JsonValue) => JsonValue | undefined,
-    options?: { applyLocally?: boolean },
+    options?: { applyLocally?: boolean; admin?: boolean },
   ): { committed: boolean; val: JsonValue; key: string | null } {
+    assertWritable(path);
     return this.transactions.run(auth, path, updateFn, options);
   }
 
@@ -127,6 +176,15 @@ export class RtdbBackend {
     return this.children.onChild(auth, event, path, cb, spec, cancelCallback, onCanceled);
   }
 
+  adminOnChild(
+    event: ChildListener['event'],
+    path: string,
+    cb: ChildListener['cb'],
+    spec?: QuerySpec,
+  ): () => void {
+    return this.children.adminOnChild(event, path, cb, spec);
+  }
+
   off(
     path: string,
     eventType?: 'value' | ChildListener['event'],
@@ -139,7 +197,7 @@ export class RtdbBackend {
   exportTree(): JsonValue { return this.persistence.exportTree(); }
   exportPersistenceState(): JsonValue { return this.persistence.exportState(); }
   restoreTree(root: JsonValue): void { this.persistence.restore(root); }
-  resetTree(): void { this.persistence.reset(); }
+  resetTree(preserveRules = false): void { this.persistence.reset(preserveRules); }
   subscribeWrites(onChange: () => void): () => void { return this.persistence.subscribe(onChange); }
   mintKey(): string { return generatePushId(this.state.clock.now()); }
   listenerCount(): number { return this.values.count(); }

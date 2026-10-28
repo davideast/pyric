@@ -21,6 +21,11 @@ import type {
   WriteMode,
 } from '../test/spec.js';
 import type { EvaluatedRuleInfo } from '../test/spec.js';
+import type { ListQueryProofReport } from '../simulator/list-query-proof.js';
+import type { RtdbCoverageSummary } from '../rtdb/coverage.js';
+import type { RtdbRuleEvaluation } from '../rtdb/simulation/spec.js';
+
+export type { RtdbRuleEvaluation };
 
 // ─── Firestore ───────────────────────────────────────────────────────
 
@@ -86,6 +91,8 @@ export interface CaseResult {
    *  request past 1000 expressions is DENY with `kind: 'expressions'`
    *  and production's message. */
   resourceLimit?: RulesResourceLimit;
+  /** Static list-query proof verdict for `list` cases, separate from per-document `decision` (#371). */
+  queryProof?: ListQueryProofReport;
 }
 
 /** The structured account of why one Firestore case resolved as it did. */
@@ -104,6 +111,8 @@ export interface Explanation {
   evaluatedExpressions: number;
   /** The per-request limit that stopped the request, when one did. */
   resourceLimit?: RulesResourceLimit;
+  /** Static list-query proof verdict for `list` cases, separate from per-document `decision` (#371). */
+  queryProof?: ListQueryProofReport;
 }
 
 /** Aggregate of a `simulate(cases)` run. Counts partition the cases:
@@ -118,6 +127,27 @@ export interface SimulationSummary {
 // ─── RTDB ────────────────────────────────────────────────────────────
 
 /**
+ * The query a Realtime Database read carries, in the members rules read as
+ * `query.*`. At most one `orderBy*` member and at most one limit may be set,
+ * as in the SDK.
+ */
+export interface RtdbCaseQuery {
+  orderByChild?: string;
+  orderByKey?: true;
+  orderByValue?: true;
+  equalTo?: string | number | boolean | null;
+  startAt?: string | number | boolean | null;
+  endAt?: string | number | boolean | null;
+  limitToFirst?: number;
+  limitToLast?: number;
+}
+
+/** A case's data as one tree per database instance, keyed by instance name. */
+export type RtdbInstancesData = {
+  instances: Record<string, Record<string, unknown>>;
+};
+
+/**
  * One Realtime Database rules case. `expectation` is required so a `simulate`
  * run can partition cases into passed/failed the same way Firestore does —
  * the RTDB simulator otherwise returns only a raw allow/deny with no notion
@@ -128,16 +158,54 @@ export interface RtdbCase {
   description?: string;
   /** Expected outcome. */
   expectation: 'ALLOW' | 'DENY';
-  /** RTDB rule kind under test. */
-  operation: 'read' | 'write' | 'validate';
-  /** Absolute, root-relative tree path, e.g. `"/users/alice"`. */
+  /**
+   * RTDB rule kind under test. `update` is a multi-path `update()`: every
+   * path in `newData` is written together and each is judged against the
+   * tree the whole update produces.
+   */
+  operation: 'read' | 'write' | 'validate' | 'update';
+  /** Absolute, root-relative tree path, e.g. `"/users/alice"`. A path the
+   *  SDK refuses, one holding `.`, `#`, `$`, `[` or `]`, is UNSUPPORTED. */
   path: string;
   /** Auth context; a bare uid string, a full identity, or `null`. */
-  auth?: string | { uid: string; token?: Record<string, unknown> } | null;
-  /** Existing tree data the rule reads (`data`). */
-  data?: Record<string, unknown>;
-  /** Proposed write value (`newData`), for write/validate cases. */
+  auth?: string | { uid: string; tenant?: string; token?: Record<string, unknown> } | null;
+  /**
+   * The database instance the request goes to, by name, such as
+   * `"demo-app-shard-1"`. Omit it for the default instance. A rule's `root`
+   * and `data` read only this instance's tree.
+   */
+  instance?: string;
+  /**
+   * Existing data the rules read: the instance's tree, or one tree per
+   * instance as `{ instances: { "<name>": tree } }`. The per-instance form
+   * applies when the case names an `instance` or the ruleset holds rules per
+   * instance (`rtdbRules.fromFirebaseJson`); otherwise an object whose one
+   * key is `instances` is a tree with an `/instances` child, as before.
+   */
+  data?: Record<string, unknown> | RtdbInstancesData;
+  /**
+   * Proposed write value (`newData`), for write/validate cases. Any JSON
+   * value: a scalar such as `5` or `true` is a scalar write. For an `update`
+   * case it is the patch, an object keyed by paths relative to `path`, such
+   * as `{ "rooms/r1/title": "x", "rooms/r2/title": "y" }`. Its keys are
+   * checked as the SDK checks `update()` keys: an invalid key, or a key that
+   * is an ancestor or duplicate of another, makes the case UNSUPPORTED.
+   */
   newData?: unknown;
+  /**
+   * For a `'write'` or `'validate'` case, the full set of paths written
+   * together in one atomic multi-path `update()`, so `path`'s rules evaluate
+   * against the shared post-write tree projection. It lists `path`, with
+   * `newData` as its value when the case gives `newData`, and no path in it
+   * is an ancestor or duplicate of another; a case that breaks either is
+   * UNSUPPORTED.
+   */
+  updates?: Array<{ path: string; value: unknown }>;
+  /**
+   * The query a `read` case carries, so `query.*` rule expressions evaluate.
+   * Omit it to simulate a plain read of `path`.
+   */
+  query?: RtdbCaseQuery;
   /**
    * The instant `now` reports in this case, in epoch milliseconds. A caller
    * hosting a sandbox passes its sandbox clock so a `now`-gated rule moves
@@ -151,6 +219,10 @@ export interface RtdbCase {
 export interface RtdbCaseResult {
   case: RtdbCase;
   description?: string;
+  /** The database instance the case ran on: the one it named, or the
+   *  default instance of a ruleset that holds rules per instance. Absent
+   *  when neither applies. */
+  instance?: string;
   expectation: 'ALLOW' | 'DENY';
   decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
   passed: boolean;
@@ -163,9 +235,15 @@ export interface RtdbCaseResult {
   matchedRule: string;
   /** Engine-provided reason string. */
   reason: string;
+  /** Every `.read`, `.write` and `.validate` rule the engine evaluated, in
+   *  evaluation order. Empty when no rule of the operation's kind exists on
+   *  the path, or when the engine could not evaluate the case. */
+  trace: RtdbRuleEvaluation[];
 }
 
 export interface RtdbExplanation {
+  /** See {@link RtdbCaseResult.instance}. */
+  instance?: string;
   decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
   expectation: 'ALLOW' | 'DENY';
   passed: boolean;
@@ -173,6 +251,8 @@ export interface RtdbExplanation {
   matchedPath: string;
   matchedRule: string;
   reason: string;
+  /** See {@link RtdbCaseResult.trace}. */
+  trace: RtdbRuleEvaluation[];
 }
 
 export interface RtdbSimulationSummary {
@@ -180,4 +260,6 @@ export interface RtdbSimulationSummary {
   failed: number;
   unsupported: number;
   cases: RtdbCaseResult[];
+  /** Which rule nodes the cases evaluated, and which they never reached. */
+  coverage: RtdbCoverageSummary;
 }

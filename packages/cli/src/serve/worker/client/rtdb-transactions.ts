@@ -1,7 +1,9 @@
 /** Optimistic RTDB transaction loop over the worker RPC boundary. */
 import { runSdkWrite } from 'pyric/sandbox/internal';
+import { validateWritablePath } from 'pyric/database/internal';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
-import { dataRpc, nextId } from './core.js';
+import { nextId } from './core.js';
+import { rtdbRpc } from './rtdb-references.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
 import { hydrateRtdbSnapshot, type RtdbWireSnapshot } from './rtdb-snapshots.js';
 
@@ -26,20 +28,23 @@ function transactionResult(
   };
 }
 
-export async function rtdbRunTransaction<T>(
+export function rtdbRunTransaction<T>(
   ref: RtdbRefHandle,
   transactionUpdate: (current: T | null) => T | undefined,
   options?: RtdbTransactionOptions,
 ): Promise<RtdbTransactionResult> {
+  validateWritablePath('Reference.transaction', ref.path);
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation'), async () => {
     for (let attempt = 0; attempt < 25; attempt++) {
-      const before = hydrateRtdbSnapshot(ref, await dataRpc(ref.port, {
-        t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path,
+      const before = hydrateRtdbSnapshot(ref, await rtdbRpc(ref, {
+        t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
       }));
       const expected = before.val() as T | null;
-      const value = transactionUpdate(expected);
+      const current = expected === null ? null : structuredClone(expected);
+      const value = transactionUpdate(current);
       if (value === undefined) return transactionResult(false, before);
-      const wire = await dataRpc(ref.port, {
+      // A commit in flight at a hosted drop rejects with Error('disconnect') and is not retried (#1088).
+      const wire = await rtdbRpc(ref, {
         t: 'op',
         id: nextId(),
         method: 'rtdb.transactionCommit',

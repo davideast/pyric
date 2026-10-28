@@ -1,7 +1,7 @@
 /** Browser-safe app-port teardown shared by served apps and Pyric Studio. */
 import type { InboundMessage } from '../protocol.js';
-import { disconnectPort, nextId, rawRpc } from './core.js';
-import type { ClientDb } from './handles.js';
+import { disconnectPort, endPortSubscriptions, nextId, rawRpc } from './core.js';
+import type { ClientDb, ClientPort } from './handles.js';
 import { dropRtdbListenersForPort } from './rtdb-listeners.js';
 
 export interface DisconnectClientOptions {
@@ -44,4 +44,15 @@ export async function disconnectClient(
     disconnectPort(db.port);
     db.port.close();
   }
+}
+
+/**
+ * Ends every subscription on a port whose connection failed with no retry
+ * (ADR-0019, 2026-10-17 amendment, D6), with that failure's error. It runs the
+ * teardown an app's deletion runs, but leaves the port open to the caller's
+ * transport: a later operation fails with the transport's own close error.
+ */
+export function endFailedPort(port: ClientPort, error: Error & { code: string }): void {
+  endPortSubscriptions(port, error);
+  dropRtdbListenersForPort(port);
 }

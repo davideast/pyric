@@ -18,9 +18,10 @@ describe('RTDB system status paths', () => {
     const infoRef = ref(db, '.info/connected');
 
     let isConnected: unknown = false;
-    onValue(infoRef, (snap) => {
+    const unsubscribe = onValue(infoRef, (snap) => {
       isConnected = snap.val();
     });
+    unsubscribe();
 
     expect(isConnected).toBe(true);
   });
@@ -30,9 +31,10 @@ describe('RTDB system status paths', () => {
     const offsetRef = ref(db, '.info/serverTimeOffset');
 
     let offset: unknown = null;
-    onValue(offsetRef, (snap) => {
+    const unsubscribe = onValue(offsetRef, (snap) => {
       offset = snap.val();
     });
+    unsubscribe();
 
     expect(offset).toBe(0);
   });

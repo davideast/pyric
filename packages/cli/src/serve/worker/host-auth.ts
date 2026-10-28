@@ -18,10 +18,13 @@
  * imports).
  */
 
-import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush, clearRtdbSessionHandles } from './host-context.js';
 import {
+  deleteUser,
   getAuth,
   sandbox as authSandboxOps,
+  updateEmail,
+  updatePassword,
   type Auth,
   type MintedSession,
 } from 'pyric/auth';
@@ -39,6 +42,7 @@ import {
   resolveOAuthCredentialUser,
   type OAuthCredentialPayload,
 } from './host/auth-session-seeder.js';
+import { withoutJwtClaims } from 'pyric/sandbox/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
@@ -56,6 +60,7 @@ import { reauthenticateSession } from './host/auth-reauthentication.js';
 const _authSubs = new WeakMap<HostCtx, Map<PortLike, Map<string, 'authState' | 'idToken'>>>();
 const _portTenants = new WeakMap<HostCtx, Map<PortLike, string | null>>();
 const _lastAuthStateUid = new WeakMap<PortLike, string | null>();
+const _portOrigins = new WeakMap<PortLike, string>();
 
 export function authSubsFor(ctx: HostCtx): Map<PortLike, Map<string, 'authState' | 'idToken'>> {
   let m = _authSubs.get(ctx);
@@ -77,6 +82,17 @@ function portTenantsFor(ctx: HostCtx): Map<PortLike, string | null> {
 
 export function portTenant(ctx: HostCtx, port: PortLike): string | null {
   return portTenantsFor(ctx).get(port) ?? null;
+}
+
+/** Record the page origin an app port's client stated in its `appConfig`. */
+export function setPortOrigin(port: PortLike, origin: string): void {
+  _portOrigins.set(port, origin);
+}
+
+/** The port's page origin as a mint-request scope, empty when unknown. */
+export function portOriginScope(port: PortLike): { origin?: string } {
+  const origin = _portOrigins.get(port);
+  return origin === undefined ? {} : { origin };
 }
 
 /**
@@ -103,33 +119,59 @@ export function portSession(ctx: HostCtx, port: PortLike): MintedSession | null 
   return portSessionsFor(ctx).get(port) ?? null;
 }
 
+function resolveSignInTenant(
+  ctx: HostCtx,
+  port: PortLike,
+  explicitTenantId: string | null | undefined,
+): string | null {
+  if (explicitTenantId === null) {
+    portTenantsFor(ctx).delete(port);
+    return null;
+  }
+  if (explicitTenantId !== undefined) {
+    return explicitTenantId;
+  }
+  return portTenant(ctx, port);
+}
+
 /**
  * Bind (or clear) a port's session and fan the change out to THAT PORT's
  * authState/idToken subs — the per-port analog of the old cross-tab
  * broadcast. Every sign-in mints a fresh token (mintSession did), so the
  * idToken stream fires alongside authState, matching the real observers.
  */
-function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | null): void {
+function setPortSession(
+  ctx: HostCtx,
+  port: PortLike,
+  session: MintedSession | null,
+  options?: { skipResubscribe?: boolean },
+): void {
   if (session) {
     const tenant = session.user.tenantId ?? portTenant(ctx, port);
-    if (tenant) {
-      portTenantsFor(ctx).set(port, tenant);
-    }
     session.state.tenant = tenant ?? undefined;
     (session.user as { tenantId?: string | null }).tenantId = tenant ?? null;
+    if (tenant && session.state.token) {
+      const firebaseClaim = session.state.token.firebase;
+      const firebaseObj = (typeof firebaseClaim === 'object' && firebaseClaim !== null)
+        ? { ...(firebaseClaim as Record<string, unknown>), tenant }
+        : { tenant };
+      session.state.token = { ...session.state.token, firebase: firebaseObj };
+    }
   }
   portSessionsFor(ctx).set(port, session);
 
   // Clear cached session handles so they rebuild with the new session/tenant state
   ctx.sessionDbs?.clear();
-  ctx.sessionRtdbs?.clear();
+  clearRtdbSessionHandles(ctx);
   ctx.sessionStorages?.clear();
 
   // Prod parity on auth transitions: re-establish this port's session-bound
   // Firestore/RTDB listeners under the NEW identity, so a sign-out re-evaluates
   // live streams (auth-gated data is revoked, not leaked) and a sign-in
   // grants them. Studio-lens subs (explicit actAs) are untouched.
-  ctx.resubscribePortSubs?.(port);
+  if (!options?.skipResubscribe) {
+    ctx.resubscribePortSubs?.(port);
+  }
 
   const newUid = session?.user.uid ?? null;
   const lastUid = _lastAuthStateUid.has(port) ? _lastAuthStateUid.get(port)! : null;
@@ -152,6 +194,36 @@ function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | n
 
 export { setPortSession };
 
+/** Reconcile every connected port's session with `ctx.auth` after a full-state reset, import, or restore. */
+export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
+  ctx.sessionDbs?.clear();
+  clearRtdbSessionHandles(ctx);
+  ctx.sessionStorages?.clear();
+  const changed = new Set<PortLike>();
+  if (!ctx.portSessions || ctx.portSessions.size === 0) return changed;
+  const auth = ensureAuth(ctx);
+  const usersByUid = new Map(authSandboxOps.listUsers(auth).map((u) => [u.uid, u]));
+  for (const [port, session] of [...ctx.portSessions]) {
+    if (session === null) continue;
+    const record = usersByUid.get(session.user.uid);
+    if (!record || record.disabled) {
+      setPortSession(ctx, port, null, { skipResubscribe: true });
+      changed.add(port);
+      continue;
+    }
+    const providerClaim = (session.state.token?.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider;
+    const kind = providerClaim === 'custom' ? 'custom' : 'uid';
+    const refreshed = authSandboxOps.mintSession(auth, {
+      kind,
+      uid: session.user.uid,
+      tenantId: session.user.tenantId ?? null,
+    });
+    setPortSession(ctx, port, refreshed, { skipResubscribe: true });
+    changed.add(port);
+  }
+  return changed;
+}
+
 /** Apply a forced ID-token refresh to this port's data authorization state. */
 function refreshPortAuthorization(
   ctx: HostCtx,
@@ -159,13 +231,15 @@ function refreshPortAuthorization(
   session: MintedSession,
   claims: Record<string, unknown>,
 ): void {
-  session.state.token = { ...claims };
+  // Rules read the token's claim set without the JWT registered claims, as
+  // the in-process session does.
+  session.state.token = withoutJwtClaims(claims);
 
   // Frozen sandbox.withAuth handles capture the old token. Clear all
   // session-handle caches so this port and any same-uid sibling rebuild from
   // their own current session state on the next operation.
   ctx.sessionDbs?.clear();
-  ctx.sessionRtdbs?.clear();
+  clearRtdbSessionHandles(ctx);
   ctx.sessionStorages?.clear();
 
   // Existing Firestore/RTDB streams must reauthorize under the refreshed
@@ -193,9 +267,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
   switch (msg.method) {
     case 'auth.createUser': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'createPassword', email: msg.email, password: msg.password,
-          tenantId: msg.tenantId ?? null,
+          tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method); // new user record must be durable at ack
@@ -206,11 +281,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInEmail': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'password', email: msg.email, password: msg.password,
-          tenantId: msg.tenantId ?? null,
+          tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, null, false));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -218,14 +295,18 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInAnonymously': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const existing = portSession(ctx, port);
-        const hasAnonymousSession = existing !== null && existing.user.isAnonymous;
+        const hasAnonymousSession =
+          existing !== null
+          && existing.user.isAnonymous
+          && (existing.user.tenantId ?? null) === tenantId;
         if (hasAnonymousSession) {
           ok(port, msg.id, credReply(existing, null, false));
           break;
         }
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'anonymous', tenantId: msg.tenantId ?? null,
+          kind: 'anonymous', tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
@@ -244,10 +325,11 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.restorePortSession': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         let session: MintedSession | null = null;
         try {
           session = authSandboxOps.mintSession(auth, {
-            kind: 'uid', uid: msg.uid, tenantId: msg.tenantId ?? null,
+            kind: 'uid', uid: msg.uid, tenantId, ...portOriginScope(port),
           });
         } catch {
           session = null;
@@ -309,7 +391,11 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.setTenantId': {
       try {
-        portTenantsFor(ctx).set(port, msg.tenantId);
+        if (msg.tenantId === null) {
+          portTenantsFor(ctx).delete(port);
+        } else {
+          portTenantsFor(ctx).set(port, msg.tenantId);
+        }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -349,7 +435,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.deleteUser': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'deleteUser');
-        authSandboxOps.deleteUser(auth, session.user.uid);
+        const uid = session.user.uid;
+        const accountExists = authSandboxOps.listUsers(auth).some((record) => record.uid === uid);
+        // An account removed out of band reports `auth/user-not-found`
+        // through the store's own delete; a live account goes through the
+        // engine's deleteUser so the recent-login gate applies.
+        if (accountExists) await deleteUser(session.user);
+        else authSandboxOps.deleteUser(auth, uid);
         setPortSession(ctx, port, null);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
@@ -361,7 +453,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'updateEmail');
         const email = msg.email ?? msg.newEmail ?? '';
-        authSandboxOps.updateUser(auth, session.user.uid, { email });
+        await updateEmail(session.user, email);
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx, msg.method);
@@ -374,7 +466,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'updatePassword');
         const password = msg.password ?? msg.newPassword ?? '';
-        authSandboxOps.updateUser(auth, session.user.uid, { password });
+        await updatePassword(session.user, password);
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx, msg.method);
@@ -391,10 +483,11 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           setPortSession(ctx, port, null);
           ok(port, msg.id, null);
         } else {
+          const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
           const freshSession = authSandboxOps.mintSession(auth, {
             kind: 'uid',
             uid,
-            tenantId: msg.tenantId ?? portTenant(ctx, port) ?? null,
+            tenantId,
           });
           setPortSession(ctx, port, freshSession);
           ok(port, msg.id, serializeUser(freshSession.user));
@@ -446,12 +539,14 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         if (hasNoCredential) {
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'provider',
           uid,
           providerId: cred.providerId,
-          tenantId: msg.tenantId ?? null,
+          tenantId,
+          ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
@@ -462,12 +557,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.acceptIdentity': {
       try {
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const { providerId, photoURL, ...identity } = msg.identity;
         const { uid, isNewUser } = resolveOAuthCredentialUser(auth, {
           ...identity, providerId, photoURL: photoURL ?? undefined,
         });
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'provider', uid, providerId, tenantId: msg.tenantId ?? null,
+          kind: 'provider', uid, providerId, tenantId, ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);

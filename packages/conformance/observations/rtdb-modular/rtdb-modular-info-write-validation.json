@@ -1,0 +1,98 @@
+{
+  "name": "rtdb-modular-info-write-validation",
+  "matrixRow": "rtdb-modular#M95",
+  "rowIds": [
+    "rtdb-modular#M95"
+  ],
+  "description": "Every write API pointed at a location under `/.info`: set, setWithPriority, setPriority, remove, push, runTransaction, update on a `.info` reference and with a `.info/` key from the root, and each onDisconnect write, recording whether the client throws synchronously, rejects, or resolves, and the message. A get() of `.info/connected` is recorded alongside.",
+  "observedAt": "2026-10-07T11:24:31.297Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "repeatCount": 2,
+    "getConnected": {
+      "timing": "asynchronous-reject",
+      "name": "Error",
+      "code": null,
+      "message": "Invalid token in path"
+    },
+    "set": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "set failed = Can't modify data under /.info/"
+    },
+    "setNested": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "set failed = Can't modify data under /.info/"
+    },
+    "setWithPriority": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "setWithPriority failed = Can't modify data under /.info/"
+    },
+    "setPriority": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "setPriority failed = Can't modify data under /.info/"
+    },
+    "remove": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "remove failed = Can't modify data under /.info/"
+    },
+    "push": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "push failed = Can't modify data under /.info/"
+    },
+    "runTransaction": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "Reference.transaction failed = Can't modify data under /.info/"
+    },
+    "updateOnInfo": {
+      "timing": "asynchronous-reject",
+      "name": "Error",
+      "code": "INVALID_PARAMETERS",
+      "message": "INVALID_PARAMETERS: Invalid token in path"
+    },
+    "updateFromRoot": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "update failed: values argument contains an invalid key (.info) in path /.info/connected. Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+    },
+    "onDisconnectSet": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "OnDisconnect.set failed = Can't modify data under /.info/"
+    },
+    "onDisconnectSetWithPriority": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "OnDisconnect.setWithPriority failed = Can't modify data under /.info/"
+    },
+    "onDisconnectUpdate": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "OnDisconnect.update failed = Can't modify data under /.info/"
+    },
+    "onDisconnectRemove": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "OnDisconnect.remove failed = Can't modify data under /.info/"
+    }
+  }
+}

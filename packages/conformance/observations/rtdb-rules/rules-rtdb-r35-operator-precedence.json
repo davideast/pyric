@@ -1,0 +1,29 @@
+{
+  "name": "rules-rtdb-r35-operator-precedence",
+  "matrixRow": "rtdb-rules#9",
+  "rowIds": [
+    "rtdb-rules#9"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r35-operator-precedence\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a rule that mixes operators without parentheses must group them as production does, or the simulator grants or denies a request production decides the other way.",
+  "observedAt": "2026-10-07T23:50:55.783Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "!(true || false && false) groups && first": "DENY",
+    "false && false || true groups && first": "ALLOW",
+    "true || false && false groups && first": "ALLOW",
+    "false == 1 < 2 groups < before ==": "DENY",
+    "true == 1 < 2 groups < before ==": "ALLOW",
+    "1 < 2 == 2 < 3 compares two comparisons": "ALLOW",
+    "1 + 2 * 3 == 7 groups * before +": "ALLOW",
+    "true || false ? false : true takes the whole || as the condition": "DENY",
+    "true || false && false ? true : false takes the whole || as the condition": "ALLOW",
+    "true ? false : true ? true : true groups the ternary to the right": "DENY",
+    "true ? false : true || true keeps || inside the else branch": "DENY",
+    "!false && false applies ! before &&": "DENY",
+    "-1 + 2 == 1 applies unary minus before +": "ALLOW",
+    "10 - 4 - 3 == 3 groups - to the left": "ALLOW",
+    "8 / 4 / 2 == 1 groups / to the left": "ALLOW",
+    "7 % 4 * 2 == 6 groups % and * to the left": "ALLOW"
+  }
+}

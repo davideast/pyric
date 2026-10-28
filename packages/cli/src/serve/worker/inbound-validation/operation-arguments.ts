@@ -2,10 +2,12 @@ import { FirebaseError } from 'pyric/app';
 import type { OpMessage } from '../protocol.js';
 import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
-import { requireFirestorePath } from '../protocol/firestore-validation.js';
+import { requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
+import { assertQueryStructure } from '../host/query-structure.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
 import { assertRtdbQuery } from './rtdb-query.js';
+import { updateValuesShapeError } from '../client/rtdb-value-validation.js';
 export { isMessageRecord } from './fields.js';
 
 function assertRequiredPath(message: Record<string, unknown>): void {
@@ -19,7 +21,7 @@ function assertRequiredPath(message: Record<string, unknown>): void {
     case 'rtdb.onDisconnectSet': case 'rtdb.onDisconnectUpdate': case 'rtdb.onDisconnectRemove': case 'rtdb.onDisconnectCancel':
     case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL': case 'storage.setMetadata':
     case 'storage.getBytes': case 'storage.deleteObject': case 'storage.putBytes':
-    case 'storage.beginUpload':
+    case 'storage.beginUpload': case 'storage.copyObject': case 'storage.createUploadSession':
       requireString(message.path, 'path');
       return;
   }
@@ -34,6 +36,36 @@ function assertSharedAuthFields(message: Record<string, unknown>): void {
   const hasValidTenant = tenant === undefined || tenant === null || typeof tenant === 'string';
   requireShape(hasValidTenant, 'tenantId');
   requireOptionalBoolean(message.forceRefresh, 'forceRefresh');
+}
+
+/** The RTDB ops and the database rules ops name their instance with an optional string. */
+function assertDatabaseInstance(message: Record<string, unknown>): void {
+  const method = message.method;
+  const namesInstance = typeof method === 'string' && (
+    method.startsWith('rtdb.')
+    || method === 'setDatabaseRules' || method === 'getActiveRules' || method === 'getRulesStatus'
+  );
+  if (namesInstance) requireOptionalString(message.instance, 'instance');
+}
+
+/** Storage ops name their bucket, and the caller's name for the default bucket, with optional strings. */
+function assertStorageBucket(message: Record<string, unknown>): void {
+  const method = message.method;
+  const isStorageMethod = typeof method === 'string' && method.startsWith('storage.');
+  if (!isStorageMethod) return;
+  requireOptionalString(message.bucket, 'bucket');
+  requireOptionalString(message.defaultBucket, 'defaultBucket');
+}
+
+/** A metadata change from the admin plane: settable strings, custom keys set or removed, and the download tokens. */
+function assertMetadataPatch(patch: unknown): void {
+  requireRecord(patch, 'patch');
+  const { settable, customMetadata, downloadTokens } = patch;
+  requireOptionalRecord(settable, 'patch.settable');
+  requireShape(settable === undefined || Object.values(settable as object).every(value => typeof value === 'string'), 'patch.settable');
+  requireOptionalRecord(customMetadata, 'patch.customMetadata');
+  requireShape(customMetadata === undefined || Object.values(customMetadata as object).every(value => value === null || typeof value === 'string'), 'patch.customMetadata');
+  requireShape(downloadTokens === undefined || downloadTokens === null || typeof downloadTokens === 'string', 'patch.downloadTokens');
 }
 
 function assertSetOptions(value: unknown): void {
@@ -55,6 +87,8 @@ export function assertOperationArguments(message: Record<string, unknown>): void
   requireOptionalBoolean(message.resumeSession, 'resumeSession');
   assertRequiredPath(message);
   assertSharedAuthFields(message);
+  assertDatabaseInstance(message);
+  assertStorageBucket(message);
   // Only the dispatch is typed; each payload field remains untrusted.
   // The default refuses methods outside the protocol at runtime.
   const method = message.method as OpMessage['method'];
@@ -67,7 +101,16 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireDocumentData(message.data);
       assertSetOptions(message.options);
       return;
-    case 'updateDoc':
+    case 'updateDoc': {
+      requireSingleUpdateForm(message);
+      const hasFields = message.fields !== undefined;
+      if (hasFields) {
+        requireUpdateFields(message.fields);
+        return;
+      }
+      requireDocumentData(message.data);
+      return;
+    }
     case 'admin.setDocument':
       requireDocumentData(message.data);
       return;
@@ -90,14 +133,21 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasValidDepth, 'maxDepth');
       return;
     }
-    case 'rtdb.get':
+    case 'rtdb.get': {
       assertRtdbQuery(message.query);
+      const hasValidTransaction = message.transaction === undefined || message.transaction === true;
+      requireShape(hasValidTransaction, 'transaction');
+      const readsTransactionTarget = message.transaction === true;
+      if (readsTransactionTarget) requireShape(message.query === undefined, 'query');
       return;
+    }
     case 'rtdb.update':
     case 'rtdb.onDisconnectUpdate': {
       const hasValues = isMessageRecord(message.values);
-      requireShape(hasValues, 'values');
-      return;
+      if (hasValues) return;
+      // The served client refuses this first; the host keeps the SDK's text as its second line.
+      const fnName = message.method === 'rtdb.update' ? 'update' : 'OnDisconnect.update';
+      throw new FirebaseError('invalid-argument', updateValuesShapeError(fnName).message);
     }
     case 'rtdb.push': {
       const hasValidKey = message.key === undefined || typeof message.key === 'string';
@@ -120,25 +170,34 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasEnabledFlag, 'enabled');
       return;
     }
-    case 'storage.setMetadata': {
-      const patch = message.patch;
-      requireRecord(patch, 'patch');
-      const { settable, customMetadata, downloadTokens } = patch;
-      requireOptionalRecord(settable, 'patch.settable');
-      requireShape(settable === undefined || Object.values(settable as object).every(value => typeof value === 'string'), 'patch.settable');
-      requireOptionalRecord(customMetadata, 'patch.customMetadata');
-      requireShape(customMetadata === undefined || Object.values(customMetadata as object).every(value => value === null || typeof value === 'string'), 'patch.customMetadata');
-      requireShape(downloadTokens === undefined || downloadTokens === null || typeof downloadTokens === 'string', 'patch.downloadTokens');
+    case 'storage.setMetadata':
+      assertMetadataPatch(message.patch);
+      return;
+    case 'storage.copyObject': {
+      requireString(message.destinationPath, 'destinationPath');
+      requireOptionalString(message.destinationBucket, 'destinationBucket');
+      const hasPatch = message.patch !== undefined;
+      if (hasPatch) assertMetadataPatch(message.patch);
       return;
     }
-    case 'storage.putBytes':
+    case 'storage.createUploadSession':
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');
+      requireOptionalString(message.downloadTokens, 'downloadTokens');
+      requireOptionalString(message.origin, 'origin');
+      return;
+    case 'storage.putBytes':
+      requireString(message.dataB64, 'dataB64');
+      requireOptionalRecord(message.metadata, 'metadata');
+      requireOptionalString(message.contentType, 'contentType');
+      requireOptionalString(message.downloadTokens, 'downloadTokens');
+      requireOptionalBoolean(message.rollback, 'rollback');
       return;
     case 'storage.beginUpload':
       requireNumber(message.size, 'size');
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');
+      requireOptionalString(message.downloadTokens, 'downloadTokens');
       return;
     case 'storage.putPart':
       requireString(message.uploadId, 'uploadId');
@@ -146,8 +205,14 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireString(message.dataB64, 'dataB64');
       return;
     case 'storage.finishUpload':
+      requireString(message.uploadId, 'uploadId');
+      requireOptionalBoolean(message.rollback, 'rollback');
+      return;
     case 'storage.abortUpload':
       requireString(message.uploadId, 'uploadId');
+      return;
+    case 'storage.rollbackUpload':
+      requireString(message.rollbackToken, 'rollbackToken');
       return;
     case 'storage.getBytes':
       requireOptionalNumber(message.offset, 'offset');
@@ -197,7 +262,12 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasSupportedVisibility, 'visibility');
       return;
     }
+    case 'getDocs':
+    case 'count':
+      assertQueryStructure(message.source);
+      return;
     case 'aggregate': {
+      assertQueryStructure(message.source);
       const spec = message.spec;
       requireRecord(spec, 'spec');
       for (const aggregate of Object.values(spec)) {
@@ -359,14 +429,25 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasValidVisibility, 'visibility');
       return;
     }
-    case 'getDoc':
-    case 'getDocs':
-    case 'deleteDoc':
-    case 'count':
-    case 'batchCommit':
-    case 'txnCommit':
+    case 'listSubcollections':
+      requireString(message.docPath, 'docPath');
+      return;
     case 'setRules':
     case 'setFirestoreRules':
+      requireString(message.source, 'source');
+      return;
+    case 'messaging.subscribeToTopic':
+    case 'messaging.unsubscribeFromTopic': {
+      requireString(message.topic, 'topic');
+      const hasStringTokens = Array.isArray(message.tokens)
+        && message.tokens.every(token => typeof token === 'string');
+      requireShape(hasStringTokens, 'tokens');
+      return;
+    }
+    case 'getDoc':
+    case 'deleteDoc':
+    case 'batchCommit':
+    case 'txnCommit':
     case 'setDatabaseRules':
     case 'admin.getDocument':
     case 'admin.listDocuments':
@@ -380,7 +461,6 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'rtdb.goOffline':
     case 'rtdb.goOnline':
     case 'listRootCollections':
-    case 'listSubcollections':
     case 'auth.createUser':
     case 'auth.signInEmail':
     case 'auth.signInAnonymously':
@@ -409,8 +489,6 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'listCheckpoints':
     case 'getSnapshot':
     case 'resetAll':
-    case 'messaging.subscribeToTopic':
-    case 'messaging.unsubscribeFromTopic':
       return;
     default: {
       const unsupportedMethod: never = method;

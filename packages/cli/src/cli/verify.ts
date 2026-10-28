@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
   deriveRulesTestCases,
   fixtureVerifiableServices,
@@ -15,11 +15,23 @@ import {
   type VerifyRulesInput,
   type VerifyServiceResult,
 } from '../verify/index.js';
-import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, readFirebaseRcSync, type FirebaseJson } from './firebase-json.js';
+import { resolveFirebaseProject } from './firebase-project.js';
+import { readPyricConfig } from './pyric-config.js';
+import { markedProject, restoreStagingInstance, StagingSafetyError, stagingMarker } from '../verify/staging/engine.js';
+import { RtdbRestClient } from '../verify/staging/rest.js';
+import { assertNotAppInstance, stagingTargetFrom, stagingToken, type StagingTarget } from '../verify/staging/target.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
 import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
-import { parseRtdbRulesText } from '../rtdb/rules-json.js';
+import { firestoreDatabases } from '../serve/rules.js';
+import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
+import {
+  isRtdbInstanceRulesKey,
+  resolveRtdbCandidateRules,
+  rtdbInstanceOfRulesKey,
+  type RtdbRulesOverrides,
+} from './verify-rtdb-rules.js';
 
 export type Fixture = PyricVerifyFixture;
 
@@ -32,6 +44,8 @@ export interface FixtureResult {
 
 export interface VerifyCliDeps {
   resolveScope?: typeof resolveScope;
+  /** The staging instance's REST client; tests pass one backed by a local sandbox. */
+  stagingClient?: (target: StagingTarget, token: () => Promise<string>) => RtdbRestClient;
 }
 
 export function loadFixture(path: string): Fixture {
@@ -83,8 +97,16 @@ export function formatResults(results: FixtureResult[]): string {
     lines.push(`${marker} ${result.name}${desc} - ${serviceSummary}`);
     for (const service of Object.values(result.result.services)) {
       if (!service) continue;
-      for (const divergence of failingDivergences(service.divergences)) {
-        lines.push(`    [${service.service}] ${formatDivergence(divergence)}`);
+      const engines = Object.values(service.engines ?? {}).filter((engine) => engine !== undefined);
+      // With more than one engine, each line names the engine that reported it.
+      const groups = engines.length > 1
+        ? engines.map((engine) => ({ label: ` ${engine.engine}`, divergences: engine.divergences }))
+        : [{ label: '', divergences: service.divergences }];
+      for (const group of groups) {
+        for (const divergence of failingDivergences(group.divergences)) {
+          const instance = divergence.instance === undefined ? '' : ` ${divergence.instance}`;
+          lines.push(`    [${service.service}${instance}${group.label}] ${formatDivergence(divergence)}`);
+        }
       }
     }
   }
@@ -97,6 +119,9 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
 
   if (parsed.positional[0] === 'cases') {
     return runVerifyCases(parsed, cwd);
+  }
+  if (parsed.positional[0] === 'staging') {
+    return runVerifyStaging(parsed, cwd, deps);
   }
 
   const target = parsed.positional[0];
@@ -143,9 +168,32 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     return 2;
   }
 
-  let rulesResolution: { rules: VerifyRulesInput; paths: Partial<Record<VerifiableService, string>> };
+  // The staging target is checked before anything else reads the project: an
+  // instance the app uses is refused before a request is made.
+  let staging: VerifyFixtureOptions['staging'];
+  let stopStaging: (() => void) | undefined;
+  if (engines.includes('staging')) {
+    try {
+      const opened = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+      process.stderr.write(`pyric verify: staging instance ${opened.target.databaseUrl} (project ${opened.projectId}, credentials: ${opened.source})\n`);
+      const guard = stagingRunGuard(cwd, opened.target);
+      stopStaging = guard.stop;
+      staging = { client: opened.client, projectId: opened.projectId, ...guard.hooks };
+    } catch (e) {
+      process.stderr.write(`pyric verify: ${messageOf(e)}\n`);
+      return 2;
+    }
+  }
+
+  let rulesResolution: { rules: VerifyRulesInput; paths: Record<string, string> };
   try {
-    rulesResolution = await resolveCandidateRules(cwd, services, parsed.flags.get('rules'));
+    rulesResolution = await resolveCandidateRules({
+      cwd,
+      services,
+      fixtures: loaded.map((item) => item.fixture),
+      rulesFlag: parsed.flags.get('rules'),
+      project: stringFlag(parsed.flags.get('project')),
+    });
   } catch (e) {
     process.stderr.write(`pyric verify: ${messageOf(e)}\n`);
     return 2;
@@ -165,19 +213,24 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   }
 
   let results: FixtureResult[];
+  const options = {
+    services,
+    engines,
+    ...(rulesTestApi ? { rulesTestApi } : {}),
+    ...(staging ? { staging } : {}),
+  };
   try {
-    results = await Promise.all(
-      loaded.map((item) =>
-        runFixture(item.name, item.fixture, rulesResolution.rules, {
-          services,
-          engines,
-          ...(rulesTestApi ? { rulesTestApi } : {}),
-        })),
-    );
+    // The staging engine holds one instance, so its fixtures run one at a time.
+    results = staging
+      ? await pipelineFixtures(loaded, (item) => runFixture(item.name, item.fixture, rulesResolution.rules, options))
+      : await Promise.all(loaded.map((item) => runFixture(item.name, item.fixture, rulesResolution.rules, options)));
   } catch (e) {
-    const prefix = e instanceof VerifyInputError ? 'invalid input' : 'failed to replay';
+    const prefix = e instanceof VerifyInputError ? 'invalid input' : e instanceof StagingSafetyError ? 'staging instance' : 'failed to replay';
     process.stderr.write(`pyric verify: ${prefix}: ${messageOf(e)}\n`);
-    return 2;
+    stopStaging?.();
+    return e instanceof StagingAbortedError || (e as { name?: string }).name === 'AbortError' ? 130 : 2;
+  } finally {
+    stopStaging?.();
   }
   const allOk = results.every((result) => result.ok);
 
@@ -200,7 +253,7 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     if (!allOk) {
       const failed = results.filter((result) => !result.ok).length;
       const rules = Object.entries(rulesResolution.paths)
-        .map(([service, path]) => `${service}=${basename(path)}`)
+        .map(([key, path]) => `${key}=${basename(path)}`)
         .join(', ');
       process.stderr.write(
         `\n✗ ${failed} session(s) regressed under ${rules}.\n`,
@@ -247,6 +300,190 @@ function runVerifyCases(parsed: ParsedArgs, cwd: string): number {
   return result.ok ? 0 : 1;
 }
 
+/** The staging instance from `pyric.json`, refused when the app uses it, with credentials for its project. */
+async function openStagingInstance(
+  cwd: string,
+  appProjectOption: string | undefined,
+  deps: VerifyCliDeps,
+): Promise<{ client: RtdbRestClient; projectId: string; target: StagingTarget; source: string }> {
+  const target = stagingTargetFrom(await readPyricConfig(cwd));
+  const firebaseJson = await readFirebaseJsonOrNull(cwd);
+  const appProject = resolveFirebaseProject({ projectDir: cwd, ...(appProjectOption ? { option: appProjectOption } : {}) });
+  assertNotAppInstance(target, {
+    firebaseJson,
+    ...(appProject.projectId ? { appProjectId: appProject.projectId } : {}),
+    targetInstances: databaseTargetInstances(cwd, appProject.projectId),
+  });
+  const credentials = await stagingToken(target.projectId, deps.resolveScope ? { resolve: deps.resolveScope } : {});
+  const client = deps.stagingClient?.(target, credentials.token) ?? new RtdbRestClient(target.databaseUrl, credentials.token);
+  return { client, projectId: target.projectId, target, source: credentials.source };
+}
+
+/** Every instance a `.firebaserc` database target maps for the app's project. */
+function databaseTargetInstances(cwd: string, projectId: string | undefined): string[] {
+  if (!projectId) return [];
+  try {
+    const rc = readFirebaseRcSync(cwd) as { targets?: Record<string, { database?: Record<string, string[]> }> } | null;
+    return Object.values(rc?.targets?.[projectId]?.database ?? {}).flat();
+  } catch {
+    return [];
+  }
+}
+
+async function pipelineFixtures<T>(items: T[], run: (item: T) => Promise<FixtureResult>): Promise<FixtureResult[]> {
+  const out: FixtureResult[] = [];
+  for (const item of items) out.push(await run(item));
+  return out;
+}
+
+class StagingAbortedError extends Error {}
+
+/** Where a staging run keeps the prior rules while it runs, for `pyric verify staging restore`. */
+export const STAGING_RESTORE_RELATIVE_PATH = join('.pyric', 'staging-restore.json');
+
+/**
+ * While a staging run is active: keep the prior rules on disk, and turn
+ * SIGINT/SIGTERM into an abort between steps so the run still cleans up. A
+ * second signal exits at once, naming the recovery command.
+ */
+function stagingRunGuard(cwd: string, target: StagingTarget): { hooks: Pick<NonNullable<VerifyFixtureOptions['staging']>, 'onBeforeChange' | 'onRestored' | 'signal'>; stop: () => void } {
+  const controller = new AbortController();
+  const restorePath = join(cwd, STAGING_RESTORE_RELATIVE_PATH);
+  let signals = 0;
+  const onSignal = (signal: NodeJS.Signals) => {
+    signals += 1;
+    if (signals === 1) {
+      process.stderr.write(`\npyric verify: ${signal}: stopping after the current step and restoring ${target.databaseUrl}. Press again to quit without restoring.\n`);
+      controller.abort(new StagingAbortedError(`interrupted by ${signal}`));
+      return;
+    }
+    process.stderr.write(`pyric verify: quitting without restoring ${target.databaseUrl}. Run \`pyric verify staging restore\` to put it back.\n`);
+    process.exit(130);
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+  let stopped = false;
+  return {
+    hooks: {
+      signal: controller.signal,
+      onBeforeChange: (priorRules) => {
+        mkdirSync(dirname(restorePath), { recursive: true });
+        writeFileSync(restorePath, `${JSON.stringify({ databaseUrl: target.databaseUrl, projectId: target.projectId, rules: priorRules, startedAt: new Date().toISOString() }, null, 2)}\n`);
+      },
+      onRestored: () => rmSync(restorePath, { force: true }),
+    },
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      process.off('SIGINT', onSignal);
+      process.off('SIGTERM', onSignal);
+    },
+  };
+}
+
+/**
+ * `pyric verify staging restore`: put the configured instance back after a run
+ * that could not, from the prior rules the run kept in
+ * `.pyric/staging-restore.json`; with `--force` and no such file, enroll it
+ * afresh with deny-all rules. Its data is deleted either way.
+ */
+async function runVerifyStagingRestore(parsed: ParsedArgs, cwd: string, deps: VerifyCliDeps): Promise<number> {
+  let opened: Awaited<ReturnType<typeof openStagingInstance>>;
+  try {
+    opened = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+  } catch (e) {
+    process.stderr.write(`pyric verify staging restore: ${messageOf(e)}\n`);
+    return 2;
+  }
+  const { client, target } = opened;
+  const restorePath = join(cwd, STAGING_RESTORE_RELATIVE_PATH);
+  let rules: string | undefined;
+  if (existsSync(restorePath)) {
+    const kept = JSON.parse(readFileSync(restorePath, 'utf8')) as { databaseUrl?: string; rules?: string };
+    if (kept.databaseUrl !== target.databaseUrl) {
+      process.stderr.write(`pyric verify staging restore: ${STAGING_RESTORE_RELATIVE_PATH} is for ${kept.databaseUrl}, not ${target.databaseUrl}.\n`);
+      return 2;
+    }
+    rules = kept.rules;
+  } else if (parsed.flags.get('force') === true) {
+    rules = `${stagingMarker(target.projectId)}\n{\n  "rules": {\n    ".read": false,\n    ".write": false\n  }\n}`;
+  } else {
+    const current = await client.getRulesText().catch(() => '');
+    if (markedProject(current) === target.projectId && (await client.get('/', { shallow: true })).body === null) {
+      process.stdout.write(`✓ ${target.databaseUrl} is enrolled and empty; nothing to restore.\n`);
+      return 0;
+    }
+    process.stderr.write(
+      `pyric verify staging restore: no ${STAGING_RESTORE_RELATIVE_PATH} holds the rules ${target.databaseUrl} had. ` +
+        'Pass --force to deploy deny-all rules with the enrollment marker and delete its data.\n',
+    );
+    return 2;
+  }
+  if (typeof rules !== 'string' || markedProject(rules) !== target.projectId) {
+    process.stderr.write(`pyric verify staging restore: the kept rules do not carry the enrollment marker for ${target.projectId}; refusing to deploy them.\n`);
+    return 2;
+  }
+  const result = await restoreStagingInstance(client, rules);
+  if (!result.rulesRestored || !result.dataRemoved) {
+    process.stderr.write(`pyric verify staging restore: ${target.databaseUrl} is not restored (${result.errors.join('; ')}).\n`);
+    return 1;
+  }
+  rmSync(restorePath, { force: true });
+  process.stdout.write(`✓ restored ${target.databaseUrl}: enrolled rules deployed, data deleted.\n`);
+  return 0;
+}
+
+/** `pyric verify staging init`: enroll the configured instance, once. */
+async function runVerifyStaging(parsed: ParsedArgs, cwd: string, deps: VerifyCliDeps): Promise<number> {
+  if (parsed.positional[1] === 'restore') return runVerifyStagingRestore(parsed, cwd, deps);
+  if (parsed.positional[1] !== 'init') {
+    process.stderr.write('pyric verify staging: use `init` to enroll the instance pyric.json names, or `restore` to put it back after an interrupted run.\n');
+    return 2;
+  }
+  let opened: Awaited<ReturnType<typeof openStagingInstance>>;
+  try {
+    opened = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
+  } catch (e) {
+    process.stderr.write(`pyric verify staging init: ${messageOf(e)}\n`);
+    return 2;
+  }
+  const { client, target } = opened;
+  try {
+    const rules = await client.getRulesText();
+    const marked = markedProject(rules);
+    if (marked === target.projectId) {
+      process.stdout.write(`✓ ${target.databaseUrl} is already enrolled for project ${target.projectId}.\n`);
+      return 0;
+    }
+    if (marked !== undefined) {
+      process.stderr.write(`pyric verify staging init: ${target.databaseUrl} is enrolled for project ${marked}, not ${target.projectId}.\n`);
+      return 2;
+    }
+    const root = await client.get('/', { shallow: true });
+    if (root.status !== 200 || root.body !== null) {
+      process.stderr.write(
+        `pyric verify staging init: refusing to enroll ${target.databaseUrl}: it holds data (or could not be read, HTTP ${root.status}). ` +
+          'The staging engine replaces an instance\'s rules and data, so enroll an empty instance created for it.\n',
+      );
+      return 2;
+    }
+    const enrolled = `${stagingMarker(target.projectId)}\n${rules.trimStart()}`;
+    const dry = await client.putRules(enrolled, { dryRun: true });
+    if (dry.status !== 200) throw new Error(`production refused the marked rules: HTTP ${dry.status} ${dry.text.slice(0, 200)}`);
+    const put = await client.putRules(enrolled);
+    if (put.status !== 200) throw new Error(`deploying the marked rules failed: HTTP ${put.status} ${put.text.slice(0, 200)}`);
+    if (markedProject(await client.getRulesText()) !== target.projectId) throw new Error('the marker did not read back.');
+  } catch (e) {
+    process.stderr.write(`pyric verify staging init: ${messageOf(e)}\n`);
+    return 1;
+  }
+  process.stdout.write(
+    `✓ enrolled ${target.databaseUrl} (project ${target.projectId}, credentials: ${opened.source}).\n` +
+      '  Run `pyric verify --engine staging` to replay a captured session against it; add `--engine sandbox` to compare engines.\n',
+  );
+  return 0;
+}
+
 function loadFixturesFromDirectory(dir: string): Array<{ name: string; fixture: Fixture }> {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
@@ -266,9 +503,9 @@ function selectedServices(flag: FlagValue | undefined, fixtures: Fixture[]): Ver
       union.add(service);
     }
   }
-  if (union.size === 0) {
-    throw new Error('fixture does not contain firestore or rtdb rules services.');
-  }
+    if ( union.size === 0 ) {
+      throw new Error('fixture does not contain firestore, rtdb, or storage rules services.');
+    }
   return [...union].sort();
 }
 
@@ -284,8 +521,10 @@ function parseEngines(flag: FlagValue | undefined): VerifyEngine[] {
       pushUnique(out, 'sandbox');
     } else if (item === 'rules-test-api' || item === 'rulesTestApi') {
       pushUnique(out, 'rulesTestApi');
+    } else if (item === 'staging') {
+      pushUnique(out, 'staging');
     } else {
-      throw new Error(`unsupported verify engine '${item}'. Supported engines: sandbox, rules-test-api, both.`);
+      throw new Error(`unsupported verify engine '${item}'. Supported engines: sandbox, rules-test-api, staging, both.`);
     }
   }
   return out;
@@ -295,55 +534,106 @@ function pushUnique<T>(items: T[], item: T): void {
   if (!items.includes(item)) items.push(item);
 }
 
+interface CandidateRulesInput {
+  cwd: string;
+  services: VerifiableService[];
+  fixtures: Fixture[];
+  rulesFlag: FlagValue | undefined;
+  project: string | undefined;
+}
+
 async function resolveCandidateRules(
-  cwd: string,
-  services: VerifiableService[],
-  rulesFlag: FlagValue | undefined,
-): Promise<{ rules: VerifyRulesInput; paths: Partial<Record<VerifiableService, string>> }> {
-  const overrides = parseRulesOverrides(rulesFlag);
-  const needsDefaults = services.some((service) => !overrides.has(service));
-  const firebaseJson = needsDefaults ? await readFirebaseJsonOrNull(cwd) : null;
+  input: CandidateRulesInput,
+): Promise<{ rules: VerifyRulesInput; paths: Record<string, string> }> {
+  const { cwd, services } = input;
+  const overrides = parseRulesOverrides(input.rulesFlag);
+  let firebaseJson: Promise<FirebaseJson | null> | undefined;
+  const readConfig = (): Promise<FirebaseJson | null> => (firebaseJson ??= readFirebaseJsonOrNull(cwd));
 
   const rules: VerifyRulesInput = {};
-  const paths: Partial<Record<VerifiableService, string>> = {};
-  for (const service of services) {
-    const rel = overrides.get(service) ?? defaultRulesPath(firebaseJson, service);
+  const paths: Record<string, string> = {};
+  if (services.includes('firestore')) {
+    const rel = overrides.firestore ?? configuredFirestoreRules(cwd, await readConfig(), input.project);
     if (!rel) {
-      throw new Error(
-        `missing candidate ${service} rules. Pass --rules ${service}=<path> or configure firebase.json.`,
-      );
+      throw new Error('missing candidate firestore rules. Pass --rules firestore=<path> or configure firebase.json.');
     }
     const path = resolve(cwd, rel);
     if (!existsSync(path)) {
-      throw new Error(`rules file not found for ${service}: ${path}`);
+      throw new Error(`rules file not found for firestore: ${path}`);
     }
-    paths[service] = path;
-    if (service === 'firestore') {
-      rules.firestore = readFileSync(path, 'utf8');
-    } else if (service === 'rtdb') {
-      rules.rtdb = parseRtdbRulesFile(path);
+    paths.firestore = path;
+    rules.firestore = readFileSync(path, 'utf8');
+  }
+  if (services.includes('rtdb')) {
+    const rtdb = await resolveRtdbCandidateRules({
+      cwd,
+      fixtures: input.fixtures,
+      overrides: overrides.rtdb,
+      readFirebaseJson: readConfig,
+      ...(input.project ? { project: input.project } : {}),
+    });
+    Object.assign(rules, rtdb.rules);
+    Object.assign(paths, rtdb.paths);
+  }
+  if (services.includes('storage')) {
+    const configured = configuredStorageRules(await readConfig());
+    const defaultStoragePath = resolve(cwd, 'storage.rules');
+    const rel =
+      overrides.storage ??
+      configured ??
+      (existsSync(defaultStoragePath) ? 'storage.rules' : undefined);
+    if (!rel) {
+      throw new Error('missing candidate storage rules. Pass --rules storage=<path> or configure firebase.json.');
     }
+    const path = resolve(cwd, rel);
+    if (!existsSync(path)) {
+      throw new Error(`rules file not found for storage: ${path}`);
+    }
+    paths.storage = path;
+    rules.storage = readFileSync(path, 'utf8');
   }
   return { rules, paths };
 }
 
-function parseRulesOverrides(flag: FlagValue | undefined): Map<VerifiableService, string> {
-  const out = new Map<VerifiableService, string>();
+/** The rules file `firebase.json` names for the `(default)` Firestore database, from either `firestore` form. */
+function configuredFirestoreRules(cwd: string, config: FirebaseJson | null, project: string | undefined): string | undefined {
+  const projectId = project ?? readFirebaseRcSync(cwd)?.projects?.default;
+  const databases = firestoreDatabases(cwd, config, projectId === undefined ? {} : { projectId });
+  const entry = defaultFirestoreDatabase(databases);
+  return entry?.configured === true ? entry.rulesFile : undefined;
+}
+
+function configuredStorageRules(config: FirebaseJson | null): string | undefined {
+  const block = config?.storage;
+  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
+  return entries.find((e) => e && typeof e === 'object' && e.rules)?.rules;
+}
+
+function parseRulesOverrides(flag: FlagValue | undefined): {
+  firestore?: string;
+  rtdb: RtdbRulesOverrides;
+  storage?: string;
+} {
+  const out: { firestore?: string; rtdb: RtdbRulesOverrides; storage?: string } = {
+    rtdb: { instances: [] },
+  };
   for (const raw of flagStrings(flag)) {
     const eq = raw.indexOf('=');
     if (eq <= 0 || eq === raw.length - 1) {
-      throw new Error(`--rules must use service-qualified values like --rules rtdb=database.rules.json.`);
+      throw new Error(`--rules must use service-qualified values like --rules rtdb=database.rules.json or --rules rtdb:<instance>=<path>.`);
     }
-    const service = toVerifiableService(raw.slice(0, eq));
-    out.set(service, raw.slice(eq + 1));
+    const key = raw.slice(0, eq);
+    const path = raw.slice(eq + 1);
+    if (isRtdbInstanceRulesKey(key)) {
+      out.rtdb.instances.push({ instance: rtdbInstanceOfRulesKey(key), path });
+      continue;
+    }
+    const service = toVerifiableService(key);
+    if (service === 'rtdb') out.rtdb.default = path;
+    else if (service === 'storage') out.storage = path;
+    else out.firestore = path;
   }
   return out;
-}
-
-function defaultRulesPath(config: FirebaseJson | null, service: VerifiableService): string | undefined {
-  if (service === 'firestore') return config?.firestore?.rules;
-  if (service === 'rtdb') return config?.database?.rules;
-  return undefined;
 }
 
 async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null> {
@@ -354,17 +644,10 @@ async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null>
   }
 }
 
-function parseRtdbRulesFile(path: string): { rules: Record<string, unknown> } {
-  return parseRtdbRulesText(
-    readFileSync(path, 'utf8'),
-    (reason) => new Error(`RTDB rules file ${path} did not parse: ${reason.message}`),
-  );
-}
-
 function toVerifiableService(raw: string): VerifiableService {
-  if (raw === 'firestore' || raw === 'rtdb') return raw;
+  if (raw === 'firestore' || raw === 'rtdb' || raw === 'storage') return raw;
   if (raw === 'database') return 'rtdb';
-  throw new Error(`unsupported verify service '${raw}'. Supported services: firestore, rtdb.`);
+  throw new Error(`unsupported verify service '${raw}'. Supported services: firestore, rtdb, storage.`);
 }
 
 function flagStrings(value: FlagValue | undefined): string[] {
@@ -399,7 +682,8 @@ function formatDivergence(divergence: VerifyDivergence): string {
   }
   if (divergence.kind === 'engine-drift') {
     const method = divergence.method ? `${divergence.method} ` : '';
-    return `engine-drift: ${method}${divergence.path ?? ''}: sandbox=${divergence.sandbox}, rulesTestApi=${divergence.rulesTestApi}`;
+    const other = divergence.staging !== undefined ? `staging=${divergence.staging}` : `rulesTestApi=${divergence.rulesTestApi}`;
+    return `engine-drift: ${method}${divergence.path ?? ''}: sandbox=${divergence.sandbox}, ${other}`;
   }
   return `${divergence.drift}: ${divergence.path ?? ''}`;
 }

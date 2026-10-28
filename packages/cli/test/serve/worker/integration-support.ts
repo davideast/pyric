@@ -96,3 +96,16 @@ export function connectClientToHost(
 }
 
 export const sleep = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Resolve once `condition` holds. Messages cross the fake ports on macrotasks,
+ * so how long a delivery takes depends on the machine's load; waiting for the
+ * delivery itself, rather than for a fixed time, keeps a test deterministic.
+ */
+export async function until(condition: () => boolean, what: string, timeoutMs = 4_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await sleep(5);
+  }
+}

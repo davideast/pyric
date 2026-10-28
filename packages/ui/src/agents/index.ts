@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * `@pyric/ui/agents` — headless structural components for agentic UIs
  * (chat surfaces, tool-call drill-ins, streaming state indicators).
@@ -26,3 +28,20 @@ export {
   type SessionSpendSummaryProps,
   type TokenUsageInlineProps,
 } from './ContextWindowUsage.js';
+export type {
+  ContextWindowBreakdownRow,
+  ContextWindowCompactionPreview,
+  ContextWindowCompactionStats,
+  ContextWindowPricing,
+  ContextWindowPromptCostEstimate,
+  ContextWindowSnapshot,
+  ContextWindowStatus,
+  RequestInputComposition,
+  SessionCacheInsight,
+  SessionRequestUsage,
+  SessionTokenUsage,
+  SessionToolRef,
+  SessionTurnUsage,
+  SessionUsageCategoryDetail,
+  SessionUsageDetailRow,
+} from './usage-types.js';

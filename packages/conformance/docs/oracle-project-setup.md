@@ -73,6 +73,14 @@ a handful of `setDoc`/`getDoc`/`deleteDoc` calls each).
   `pyric_oracle/&lt;timestamp&gt;-&lt;random&gt;/&lt;probe&gt;` and deletes everything
   in that run namespace on the way out. A failed probe still gets a
   best-effort purge.
+- **Firestore and Storage rules.** A run with a service account merges
+  the `pyric_oracle` block into the project's deployed Firestore and
+  Storage rules, and records the ruleset each release pointed to first.
+  When the run ends, whether it passed, failed or was interrupted, the
+  harness points each release back at the recorded ruleset and reads
+  the release back to confirm it. If it cannot confirm the restore, it
+  exits non-zero with a message naming the release and the ruleset to
+  restore by hand. The Realtime Database rules merge is not restored.
 - **Anonymous users.** Every probe that signs in deletes the
   anonymous user before returning, with one exception: the
   `auth-signout-idempotent` probe deliberately ends signed out, so

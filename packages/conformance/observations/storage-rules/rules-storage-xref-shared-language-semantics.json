@@ -1,0 +1,208 @@
+{
+  "name": "rules-storage-xref-shared-language-semantics",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#219"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"xref-shared-language-semantics\" (STORAGE-XREF-SHARED-LANGUAGE). Shared-language disagreements first confirmed under cloud.firestore: does Storage production decide the same, and does the Storage evaluator share the defect?",
+  "observedAt": "2026-10-27T02:35:22.353Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d102a39a5828b3d1efb8dc9c67e99fd94fe4a7c616e897713e9a5ef1ec9098da"
+  },
+  "behavior": {
+    "split-drops-capture-text: 'a1b'.split('(1)').size() == 2": "ALLOW",
+    "split-honors-ignore-case: 'aXb'.split('(?i)x').size() == 2": "ALLOW",
+    "replace-honors-ignore-case: 'aXb'.replace('(?i)x', '-') == 'a-b'": "ALLOW",
+    "split-drops-trailing-empty: 'a,b,'.split(',').size() == 2": "ALLOW",
+    "trim-keeps-nbsp: '\\u00a0a'.trim() == '\\u00a0a'": "ALLOW",
+    "trim-strips-ascii-space: ' a '.trim() == 'a'": "ALLOW",
+    "int-above-2-53-distinct: 9007199254740993 != 9007199254740992": "ALLOW",
+    "int-add-overflow-errors: !(9223372036854775807 + 1 < 0)": "DENY",
+    "int-min-div-minus-one: (-9223372036854775807 - 1) / -1 == (-9223372036854775807 - 1)": "ALLOW",
+    "timestamp-plus-duration-past-range-errors: !(timestamp.date(9999, 12, 31) + duration.value(2, 'd') < timestamp.date(9999, 1, 1))": "DENY",
+    "duration-value-past-range-errors: !(duration.value(999999999999, 's') < duration.value(1, 's'))": "DENY",
+    "duration-unary-minus: -duration.value(1, 's') < duration.value(0, 's')": "ALLOW"
+  },
+  "diagnostics": {
+    "split-drops-capture-text: 'a1b'.split('(1)').size() == 2": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 62,
+              "currentOffset": 133,
+              "endOffset": 137
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "split-honors-ignore-case: 'aXb'.split('(?i)x').size() == 2": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 62,
+              "currentOffset": 228,
+              "endOffset": 232
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "replace-honors-ignore-case: 'aXb'.replace('(?i)x', '-') == 'a-b'": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 64,
+              "currentOffset": 327,
+              "endOffset": 331
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "split-drops-trailing-empty: 'a,b,'.split(',').size() == 2": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 64,
+              "currentOffset": 430,
+              "endOffset": 435
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "trim-keeps-nbsp: '\\u00a0a'.trim() == '\\u00a0a'": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 53,
+              "currentOffset": 515,
+              "endOffset": 523
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "trim-strips-ascii-space: ' a '.trim() == 'a'": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 61,
+              "currentOffset": 608,
+              "endOffset": 612
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int-above-2-53-distinct: 9007199254740993 != 9007199254740992": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 61,
+              "currentOffset": 691,
+              "endOffset": 706
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int-add-overflow-errors: !(9223372036854775807 + 1 < 0)": {
+      "notes": [
+        "Error: storage.rules line [11], column [83]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 11,
+          "column": 83,
+          "currentOffset": 813,
+          "endOffset": 813
+        }
+      }
+    },
+    "int-min-div-minus-one: (-9223372036854775807 - 1) / -1 == (-9223372036854775807 - 1)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 59,
+              "currentOffset": 883,
+              "endOffset": 883
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "timestamp-plus-duration-past-range-errors: !(timestamp.date(9999, 12, 31) + duration.value(2, 'd') < timestamp.date(9999, 1, 1))": {
+      "notes": [
+        "Error: storage.rules line [13], column [110]. Timestamp is not valid. Seconds must be in range [-62,135,596,800, +253,402,300,799]. Nanos must be in range [0, +999,999,999]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 13,
+          "column": 110,
+          "currentOffset": 1057,
+          "endOffset": 1057
+        }
+      }
+    },
+    "duration-value-past-range-errors: !(duration.value(999999999999, 's') < duration.value(1, 's'))": {
+      "notes": [
+        "Error: storage.rules line [14], column [81]. Duration is not valid. Seconds must be in range [-315,576,000,000, +315,576,000,000]. Nanos must be in range [-999,999,999, +999,999,999]. Nanos must have the same sign as seconds."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 14,
+          "column": 81,
+          "currentOffset": 1195,
+          "endOffset": 1199
+        }
+      }
+    },
+    "duration-unary-minus: -duration.value(1, 's') < duration.value(0, 's')": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 58,
+              "currentOffset": 1306,
+              "endOffset": 1306
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

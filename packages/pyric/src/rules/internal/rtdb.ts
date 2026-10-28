@@ -5,12 +5,14 @@
  * unstable internal subpath exposes the pure rules parser, simulator,
  * replay engine, and constraints DSL used by pyric's tooling packages.
  */
-export { replay } from '../../database/replay.js';
+export { replay, rewoundRtdbTree, rtdbReplaySteps, rtdbStateDrift } from '../../database/replay.js';
 export type {
   RtdbReplayDivergence,
   RtdbReplayOptions,
   RtdbReplayResult,
+  RtdbReplayStep,
 } from '../../database/replay.js';
+export { simulatedAuthOf as rtdbAuthVariable } from '../rtdb/simulation/handler.js';
 export {
   buildRuleExpression,
   compileRtdbRules,
@@ -19,16 +21,43 @@ export {
 } from '../rtdb/compiled-rules.js';
 export type { CompiledRtdbRules } from '../rtdb/compiled-rules.js';
 
+export { locateRtdbRule, locateRtdbTrace } from '../rtdb/source-locations.js';
+export type {
+  LocatedRtdbRuleEvaluation,
+  RtdbRuleKind,
+  RtdbSourceLocation,
+} from '../rtdb/source-locations.js';
+
 export { parseExpression } from '../rtdb/grammar/RtdbExprParser.js';
+export {
+  parseRtdbExpressionTree,
+  printRtdbExpressionTree,
+} from '../rtdb/grammar/expression-tree.js';
+export type {
+  RtdbBinaryOperator,
+  RtdbExpressionTree,
+  RtdbExpressionTreeResult,
+} from '../rtdb/grammar/expression-tree.js';
+export {
+  canonicalRtdbExpression,
+  canonicalTree as canonicalRtdbExpressionTree,
+  RtdbExpressionSyntaxError,
+} from '../rtdb/grammar/canonical.js';
+export { DIFFED_RULE_KINDS, diffRtdbRules } from '../rtdb/rules-diff.js';
+export type { DiffRtdbRulesOptions, RtdbRuleChange } from '../rtdb/rules-diff.js';
 export { validateExpression } from '../rtdb/grammar/validator.js';
 export { lintExpression } from '../rtdb/grammar/linter.js';
+export { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
+export type { RtdbSecurityCode, RtdbSecurityFinding } from '../rtdb/grammar/ruleset-lint.js';
 
 export {
   SimulationInputSchema,
   SimulateErrorCode,
   SimulationResultSchema,
+  RtdbRuleEvaluationSchema,
 } from '../rtdb/simulation/spec.js';
 export type {
+  RtdbRuleEvaluation,
   SimulationInput,
   SimulationResult,
   SimulateResult,
@@ -83,6 +112,7 @@ export {
   neq,
   gt,
   lte,
+  ref,
   AUTH_UID,
   turnGuard,
   flip,
@@ -91,7 +121,9 @@ export {
   ruleset,
   defineRtdbRules,
 } from '../rtdb/constraints/index.js';
-export { checkRtdbRules } from '../rtdb/constraints/document.js';
+export { checkRtdbRules, normalizeSimulationInput } from '../rtdb/constraints/document.js';
+export { rtdbRulesSourceRejection } from '../rtdb/source-rejection.js';
+export type { RtdbRulesSourceRejection } from '../rtdb/source-rejection.js';
 export type {
   Expr,
   PathDef,

@@ -4,6 +4,7 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import dev.pyric.database.internal.PushIdGenerator
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -72,64 +73,79 @@ class DatabaseReference(
     fun onDisconnect(): OnDisconnect = OnDisconnect(this)
 
     fun runTransaction(handler: Transaction.Handler, fireLocalEvents: Boolean = true) {
-        refScope.launch {
-            try {
-                var maxRetries = 25
-                while (maxRetries-- > 0) {
-                    val currentWire = database.bridgeClient.op(
-                        method = "rtdb.get",
-                        params = mapOf("path" to path),
-                        actAs = database.getEffectiveAuthLens().toMap()
-                    )
-                    @Suppress("UNCHECKED_CAST")
-                    val snapMap = currentWire as? Map<String, Any?>
-                    val currentVal = snapMap?.get("value")
-                    val currentPriority = snapMap?.get("priority")
-
-                    val mutableData = MutableData(currentVal, currentPriority, key)
-                    val result = handler.doTransaction(mutableData)
-
-                    if (!result.isSuccess) {
-                        val currentSnap = DataSnapshot.fromWire(this@DatabaseReference, snapMap)
-                        handler.onComplete(null, false, currentSnap)
-                        return@launch
-                    }
-
-                    val commitRes = database.bridgeClient.op(
-                        method = "rtdb.transactionCommit",
-                        params = mapOf(
-                            "path" to path,
-                            "expected" to currentVal,
-                            "value" to result.mutableData?.value,
-                            "applyLocally" to fireLocalEvents
-                        ),
-                        actAs = database.getEffectiveAuthLens().toMap()
-                    )
-                    @Suppress("UNCHECKED_CAST")
-                    val commitMap = commitRes as? Map<String, Any?>
-                    val retry = commitMap?.get("retry") == true
-                    if (!retry) {
-                        @Suppress("UNCHECKED_CAST")
-                        val finalSnapMap = commitMap?.get("snapshot") as? Map<String, Any?>
-                        val finalSnap = DataSnapshot.fromWire(this@DatabaseReference, finalSnapMap)
-                        handler.onComplete(null, commitMap?.get("committed") == true, finalSnap)
-                        return@launch
-                    }
-                }
-                handler.onComplete(
-                    DatabaseError(DatabaseError.OPERATION_FAILED, "Transaction exceeded max retries"),
-                    false,
-                    null
-                )
+        refScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val outcome = try {
+                settleTransaction(handler, fireLocalEvents)
             } catch (e: Exception) {
-                handler.onComplete(DatabaseError.fromException(e), false, null)
+                TransactionOutcome(DatabaseError.fromException(e), false, null)
+            }
+            // Outside the try: an exception from the app's onComplete is the app's,
+            // and must not come back as a second completion (delivery contract D3).
+            handler.onComplete(outcome.error, outcome.committed, outcome.snapshot)
+        }
+    }
+
+    private class TransactionOutcome(
+        val error: DatabaseError?,
+        val committed: Boolean,
+        val snapshot: DataSnapshot?
+    )
+
+    private suspend fun settleTransaction(
+        handler: Transaction.Handler,
+        fireLocalEvents: Boolean
+    ): TransactionOutcome {
+        var maxRetries = 25
+        while (maxRetries-- > 0) {
+            val currentWire = database.bridgeClient.op(
+                method = "rtdb.get",
+                params = mapOf("path" to path),
+                actAs = database.getEffectiveAuthLens().toMap()
+            )
+            @Suppress("UNCHECKED_CAST")
+            val snapMap = currentWire as? Map<String, Any?>
+            val currentVal = snapMap?.get("value")
+            val currentPriority = snapMap?.get("priority")
+
+            val mutableData = MutableData(currentVal, currentPriority, key)
+            val result = handler.doTransaction(mutableData)
+
+            if (!result.isSuccess) {
+                return TransactionOutcome(null, false, DataSnapshot.fromWire(this, snapMap))
+            }
+
+            val commitRes = database.bridgeClient.op(
+                method = "rtdb.transactionCommit",
+                params = mapOf(
+                    "path" to path,
+                    "expected" to currentVal,
+                    "value" to result.mutableData?.value,
+                    "applyLocally" to fireLocalEvents
+                ),
+                actAs = database.getEffectiveAuthLens().toMap()
+            )
+            @Suppress("UNCHECKED_CAST")
+            val commitMap = commitRes as? Map<String, Any?>
+            val retry = commitMap?.get("retry") == true
+            if (!retry) {
+                @Suppress("UNCHECKED_CAST")
+                val finalSnapMap = commitMap?.get("snapshot") as? Map<String, Any?>
+                val finalSnap = DataSnapshot.fromWire(this, finalSnapMap)
+                return TransactionOutcome(null, commitMap?.get("committed") == true, finalSnap)
             }
         }
+        return TransactionOutcome(
+            DatabaseError(DatabaseError.OPERATION_FAILED, "Transaction exceeded max retries"),
+            false,
+            null
+        )
     }
 
     private fun executeOp(method: String, params: Map<String, Any?>): Task<Void?> {
         val tcs = TaskCompletionSource<Void?>()
-        refScope.launch {
+        // Undispatched, so the frame is sent or held on the caller's thread and
+        // back-to-back writes reach the host in call order (#1026).
+        refScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 database.bridgeClient.op(
                     method = method,

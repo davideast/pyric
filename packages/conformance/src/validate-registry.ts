@@ -8,7 +8,7 @@ import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
-import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 import { longestPrefixOwners, soleLongestPrefixOwner } from './observation-surface.ts';
 import { listProbeFiles, type ProbeFile } from '../probes/load.ts';
 import { computeCriticalSymbols } from './entry-path-symbols.ts';
@@ -383,7 +383,7 @@ if (import.meta.main) {
     probeFiles: listProbeFiles(),
     rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id),
     rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id),
-    rulesRtdbScenarioIds: ALL_RULES_RTDB_SCENARIOS.map((scenario) => scenario.id),
+    rulesRtdbScenarioIds: [...ALL_RULES_RTDB_SCENARIOS, ...ALL_RULES_RTDB_DEPLOY_SCENARIOS].map((scenario) => scenario.id),
     entryPathCensus: [...model.census],
   });
 

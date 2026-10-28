@@ -2,6 +2,7 @@ import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-act
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
+import type { ChildEventSnapshot } from './sandbox/listener-types.js';
 import { jsonValuesEqual, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
@@ -18,13 +19,21 @@ import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
  * that app's session changes, replace the backend registration with one made
  * under the new identity. Registrations belonging to other app sessions are
  * untouched even though all equal-config apps share one data backend.
+ *
+ * An identity change does not change data, so the replacement registration's
+ * initial deliveries, which the backend makes synchronously, repeat what the
+ * listener already received; `replaying()` is true while they run, and the
+ * caller drops them. A replacement the new identity may not read is
+ * cancelled as before.
  */
 function subscribeWithLiveAuth(
   target: Target,
-  subscribe: (auth: AuthState, onCanceled: () => void) => Unsubscribe,
+  subscribe: (auth: AuthState, onCanceled: () => void, replaying: () => boolean) => Unsubscribe,
   onTerminal?: () => void,
 ): Unsubscribe {
   let stopped = false;
+  let replacing = false;
+  const replaying = (): boolean => replacing;
   let backendUnsubscribe: Unsubscribe = () => {};
   let sessionUnsubscribe: Unsubscribe | undefined;
   let release: Unsubscribe | undefined;
@@ -37,16 +46,20 @@ function subscribeWithLiveAuth(
     onTerminal?.();
   };
 
-  backendUnsubscribe = subscribe(authFor(target), stop);
+  backendUnsubscribe = subscribe(authFor(target), stop, replaying);
+  if (stopped) return stop;
   sessionUnsubscribe = target.kind === 'sandbox-live'
     ? target.onCurrentUserChanged?.(() => {
       if (stopped) return;
       backendUnsubscribe();
+      replacing = true;
       try {
-        backendUnsubscribe = subscribe(authFor(target), stop);
+        backendUnsubscribe = subscribe(authFor(target), stop, replaying);
       } catch {
         backendUnsubscribe = () => {};
         stop();
+      } finally {
+        replacing = false;
       }
     })
     : undefined;
@@ -74,6 +87,32 @@ function ownerOnlyOptions(options: ListenOptions | undefined): ListenOptions | u
 
 function queryScope(r: DatabaseReference | Query): string {
   return queryIdentifier(r._spec);
+}
+
+function registerTracked(
+  target: Target,
+  path: string,
+  event: 'value' | ChildEvent,
+  registryCallback: object,
+  activity: SdkActivityHandle,
+  scope: string | undefined,
+  attach: (unregister: () => void) => Unsubscribe,
+): Unsubscribe {
+  let registration: ListenerRegistration | undefined;
+  let unregistered = false;
+  const unregister = (): void => {
+    unregistered = true;
+    activity.close();
+    if (registration !== undefined) {
+      listenerRegistry.removeExact(target, path, event, registryCallback, registration, scope);
+    }
+  };
+  const unsubscribe = attach(unregister);
+  if (!unregistered) {
+    registration = { unsubscribe };
+    listenerRegistry.add(target, path, event, registryCallback, registration, scope);
+  }
+  return unsubscribe;
 }
 
 /**
@@ -228,25 +267,17 @@ function onValueInternal(
     // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
     // only on server-minted `getAdminDatabase` handles, never anything a page
     // controls, so a page's `onValue` stays on the rule-gated path below.
-    let registration: ListenerRegistration | undefined;
-    const unregister = (): void => {
-      activity.close();
-      const currentRegistration = registration;
-      const hasRegistration = currentRegistration !== undefined;
-      if (hasRegistration) {
-        listenerRegistry.removeExact(target, q.ref._path, 'value', registryCallback, currentRegistration, scope);
+    return registerTracked(target, q.ref._path, 'value', registryCallback, activity, scope, (unregister) => {
+      if (isAdmin) {
+        const subscribed = target.backend.adminOnValue(q.ref._path, deliver, q._spec);
+        return () => { unregister(); subscribed(); };
       }
-    };
-    let subscribed: Unsubscribe;
-    if (isAdmin) {
-      subscribed = target.backend.adminOnValue(q.ref._path, deliver, q._spec);
-    } else {
-      subscribed = subscribeWithLiveAuth(
+      return subscribeWithLiveAuth(
         target,
-        (auth, onCanceled) => target.backend.onValue(
+        (auth, onCanceled, replaying) => target.backend.onValue(
           auth,
           q.ref._path,
-          deliver,
+          (snapshot) => { if (!replaying()) deliver(snapshot); },
           q._spec,
           reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
           () => { activity.fail(); onCanceled(); },
@@ -254,12 +285,7 @@ function onValueInternal(
         ),
         unregister,
       );
-    }
-    let unsub = subscribed;
-    if (isAdmin) unsub = () => { unregister(); subscribed(); };
-    registration = { unsubscribe: unsub };
-    listenerRegistry.add(target, q.ref._path, 'value', registryCallback, registration, scope);
-    return unsub;
+    });
   }
   const ref0 = reference;
   const target = targetOf(ref0);
@@ -273,23 +299,17 @@ function onValueInternal(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  let registration: ListenerRegistration | undefined;
-  const unregister = (): void => {
-    activity.close();
-    const currentRegistration = registration;
-    const hasRegistration = currentRegistration !== undefined;
-    if (hasRegistration) listenerRegistry.removeExact(target, ref0._path, 'value', registryCallback, currentRegistration);
-  };
-  let subscribed: Unsubscribe;
-  if (isAdmin) {
-    subscribed = target.backend.adminOnValue(ref0._path, wrapper);
-  } else {
-    subscribed = subscribeWithLiveAuth(
+  return registerTracked(target, ref0._path, 'value', registryCallback, activity, undefined, (unregister) => {
+    if (isAdmin) {
+      const subscribed = target.backend.adminOnValue(ref0._path, wrapper);
+      return () => { unregister(); subscribed(); };
+    }
+    return subscribeWithLiveAuth(
       target,
-      (auth, onCanceled) => target.backend.onValue(
+      (auth, onCanceled, replaying) => target.backend.onValue(
         auth,
         ref0._path,
-        wrapper,
+        (raw) => { if (!replaying()) wrapper(raw); },
         undefined,
         reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
         () => { activity.fail(); onCanceled(); },
@@ -297,12 +317,7 @@ function onValueInternal(
       ),
       unregister,
     );
-  }
-  let unsub = subscribed;
-  if (isAdmin) unsub = () => { unregister(); subscribed(); };
-  registration = { unsubscribe: unsub };
-  listenerRegistry.add(target, ref0._path, 'value', registryCallback, registration);
-  return unsub;
+  });
 }
 
 /**
@@ -515,16 +530,13 @@ function onChildEvent(
   const spec = isQ ? (r as Query)._spec : undefined;
   const target = targetOf(baseRef as unknown as object);
   const scope = isQuery(r as object) ? queryScope(r) : undefined;
-  const wrapper = (raw: {
-    key: string;
-    val: JsonValue;
-    previousChildName: string | null;
-  }): void => {
+  const wrapper = (raw: ChildEventSnapshot): void => {
     // Synthesize a snapshot rooted at the child path so `snap.key`
     // and `snap.val()` match the upstream `onChildAdded` snapshot
-    // shape (key = the child's key, val = the child's value).
+    // shape (key = the child's key, val = the child's value). A removed
+    // child carries the priorities the tree no longer holds.
     const childRef = child(baseRef, raw.key);
-    const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
+    const snap = buildSandboxSnapFromRaw(target, childRef, raw.val, raw.priorities);
     try {
       cb(snap, event === 'child_removed' ? null : raw.previousChildName);
     } catch {
@@ -532,29 +544,25 @@ function onChildEvent(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  let registration: ListenerRegistration | undefined;
-  const unregister = (): void => {
-    activity.close();
-    if (registration) {
-      listenerRegistry.removeExact(target, baseRef._path, event, registryCallback, registration, scope);
+  return registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) => {
+    if (target.admin === true) {
+      const subscribed = target.backend.adminOnChild(event, baseRef._path, wrapper, spec);
+      return () => { unregister(); subscribed(); };
     }
-  };
-  const unsub = subscribeWithLiveAuth(
-    target,
-    (auth, onCanceled) => target.backend.onChild(
-      auth,
-      event,
-      baseRef._path,
-      wrapper,
-      spec,
-      cancelCallback,
-      () => { activity.fail(); onCanceled(); },
-    ),
-    unregister,
-  );
-  registration = { unsubscribe: unsub };
-  listenerRegistry.add(target, baseRef._path, event, registryCallback, registration, scope);
-  return unsub;
+    return subscribeWithLiveAuth(
+      target,
+      (auth, onCanceled, replaying) => target.backend.onChild(
+        auth,
+        event,
+        baseRef._path,
+        (raw) => { if (!replaying()) wrapper(raw); },
+        spec,
+        cancelCallback,
+        () => { activity.fail(); onCanceled(); },
+      ),
+      unregister,
+    );
+  });
 }
 
 /**

@@ -1,6 +1,9 @@
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { Priority } from './query.js';
 
+/** Priorities by canonical path, as {@link PriorityState.atOrBelow} reads them. */
+export type PriorityRecord = Record<string, Exclude<Priority, null>>;
+
 export class PriorityState {
   private readonly values = new Map<string, Exclude<Priority, null>>();
 
@@ -11,6 +14,17 @@ export class PriorityState {
   forChild(path: string): (key: string) => Priority {
     const base = pathSegments(path);
     return (key) => this.get(joinPath([...base, key]));
+  }
+
+  /** The priorities at and below `path`, by canonical path. */
+  atOrBelow(path: string): PriorityRecord {
+    const canonical = joinPath(pathSegments(path));
+    const prefix = canonical === '/' ? '/' : `${canonical}/`;
+    const out: PriorityRecord = {};
+    for (const [key, priority] of this.values) {
+      if (key === canonical || key.startsWith(prefix)) out[key] = priority;
+    }
+    return out;
   }
 
   clear(): void {
@@ -25,9 +39,13 @@ export class PriorityState {
     }
   }
 
-  replace(path: string, priority: Priority): void {
+  replace(path: string, priority: Priority, hasNode?: (path: string) => boolean): void {
     this.clearAtOrBelow(path);
-    if (priority !== null) this.values.set(joinPath(pathSegments(path)), priority);
+    if (priority !== null) {
+      this.values.set(joinPath(pathSegments(path)), priority);
+      return;
+    }
+    if (hasNode) this.pruneMissingAncestors(path, hasNode);
   }
 
   set(path: string, priority: Priority): void {
@@ -44,13 +62,21 @@ export class PriorityState {
       .sort(([a], [b]) => a.localeCompare(b)));
   }
 
-  applyUpdate(writes: Array<{ path: string; value: JsonValue }>): void {
+  applyUpdate(writes: Array<{ path: string; value: JsonValue }>, hasNode?: (path: string) => boolean): void {
     for (const write of writes) {
-      const priority = this.get(write.path);
       this.clearAtOrBelow(write.path);
-      if (write.value !== null && priority !== null) {
-        this.values.set(joinPath(pathSegments(write.path)), priority);
+      if (write.value === null && hasNode) {
+        this.pruneMissingAncestors(write.path, hasNode);
       }
+    }
+  }
+
+  private pruneMissingAncestors(path: string, hasNode: (path: string) => boolean): void {
+    const segments = pathSegments(path);
+    for (let depth = segments.length - 1; depth >= 0; depth -= 1) {
+      const ancestor = joinPath(segments.slice(0, depth));
+      if (hasNode(ancestor)) break;
+      this.values.delete(ancestor);
     }
   }
 

@@ -1,10 +1,12 @@
 import type {
-  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation,
+  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation, PathSegment,
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
+import { recursiveScope } from './recursive-scope.js';
 import {
-  collectRulesetScopes, functionReferences, ruleReferences,
+  collectRulesetScopes, expandFunctionBody, exprContains, exprDepth,
+  functionReferences, ruleReferences, walkExpr,
   type NameReferences, type RulesetScopes,
 } from './function-scopes.js';
 
@@ -18,15 +20,37 @@ export interface ValidationFinding {
 
 const WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update', 'delete']);
 const READ_OPS: Set<Operation> = new Set(['read', 'get', 'list']);
-const DATA_WRITE_OPS: Set<Operation> = new Set(['create', 'update']);
+const DATA_WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update']);
+
+const IMPORTED_AUTH_HELPERS: ReadonlySet<string> = new Set([
+  'isAuthenticated',
+  'isSignedIn',
+  'isOwner',
+  'isVerified',
+  'hasClaim',
+  'hasRole',
+  'hasAnyRole',
+]);
 
 export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[] {
   const findings: ValidationFinding[] = [];
   const rootMatch = ast.service.match;
+  const isStorage = ast.service?.name === 'firebase.storage';
+
+  const importedAuthFns = new Set<string>();
+  for (const imp of ast.imports ?? []) {
+    const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
+    for (const name of names) {
+      if (IMPORTED_AUTH_HELPERS.has(name)) importedAuthFns.add(name);
+    }
+  }
 
   // Global and service scope functions are visible in every match block.
   const outerScope = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
   const scopes = collectRulesetScopes(ast);
+  const fnScopes = new Map<FunctionDef, ReadonlyMap<string, FunctionDef>>(
+    scopes.functions.map(s => [s.fn, s.functions]),
+  );
 
   // SEC-4: Check for default deny
   checkDefaultDeny(rootMatch, findings);
@@ -42,7 +66,7 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   checkOverlappingPaths(rootMatch.children, findings);
 
   // Walk all match blocks
-  walkMatch(rootMatch, findings, outerScope);
+  walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage, importedAuthFns);
 
   return findings;
 }
@@ -51,8 +75,20 @@ function walkMatch(
   match: MatchBlock,
   findings: ValidationFinding[],
   scopeFunctions: FunctionDef[],
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  /** Full path segments of the enclosing blocks below the documents root;
+   *  null for the documents root itself. */
+  parentSegments: readonly PathSegment[] | null = null,
+  isStorage = false,
+  importedAuthFns: ReadonlySet<string> = new Set(),
 ) {
-  const isRecursiveWildcard = match.path.segments.some(s => s.type === 'recursive');
+  const segments = parentSegments === null ? [] : [...parentSegments, ...match.path.segments];
+  // SEC-2 and SEC-5 concern a recursive wildcard in the last position, which
+  // governs every document under its prefix. One followed by further
+  // segments, the collection-group shape, governs only documents whose path
+  // ends in them.
+  const subtree = recursiveScope(segments);
+  const recursiveSubtree = subtree?.kind === 'subtree' ? subtree : null;
   const pathStr = match.path.raw;
 
   // Merge scope: parent functions + this match's functions
@@ -80,49 +116,54 @@ function walkMatch(
       });
     }
 
-    // SEC-2: Public read at recursive wildcard
-    if (isRead && isLiteralTrue && isRecursiveWildcard) {
+    // SEC-2: Public read at a final recursive wildcard
+    if (isRead && isLiteralTrue && recursiveSubtree) {
       findings.push({
         code: 'SEC-2', severity: 'critical', path: pathStr, operation: opStr,
-        message: `Public read at recursive wildcard ${pathStr} — entire database is readable`,
+        message: `Public read at ${recursiveSubtree.fullPath}: ${recursiveSubtree.description} is readable`,
       });
     }
 
-    // SEC-5: Overly permissive recursive wildcard
-    if (isRecursiveWildcard && !isLiteralFalse) {
+    // SEC-5: A grant at a final recursive wildcard
+    if (recursiveSubtree && !isLiteralFalse) {
       findings.push({
         code: 'SEC-5', severity: 'high', path: pathStr, operation: opStr,
-        message: `Recursive wildcard ${pathStr} has a non-deny rule — overrides all specific rules`,
+        message: `Recursive wildcard ${recursiveSubtree.fullPath} grants ${opStr} on ${recursiveSubtree.description} `
+          + 'when its condition holds; a request is allowed when any matching rule allows it, '
+          + 'so a more specific rule cannot narrow this grant',
       });
     }
 
     // SEC-3: No auth check on write (follows function calls transitively)
     const fnMap = new Map(localScope.map(f => [f.name, f]));
-    if (isWrite && !isLiteralTrue && !isLiteralFalse && !referencesAuthTransitive(cond, fnMap)) {
+    if (isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes, importedAuthFns)) {
       findings.push({
         code: 'SEC-3', severity: 'high', path: pathStr, operation: opStr,
-        message: `Write rule at ${pathStr} does not check request.auth`,
+        message: `Write rule (${opStr}) at ${pathStr} does not check request.auth`,
       });
     }
 
     // SEC-6: Write without data validation (follows function calls transitively)
-    if (isDataWrite && !isLiteralFalse && !referencesRequestDataTransitive(cond, fnMap)) {
+    if (isDataWrite && !isLiteralFalse && !validatesRequestDataTransitive(cond, fnMap, fnScopes, isStorage)) {
       findings.push({
         code: 'SEC-6', severity: 'high', path: pathStr, operation: opStr,
-        message: `${opStr} at ${pathStr} does not validate request.resource.data — any data shape accepted`,
+        message: isStorage
+          ? `${opStr} at ${pathStr} does not validate request.resource — any upload payload accepted`
+          : `${opStr} at ${pathStr} does not validate request.resource.data — any data shape accepted`,
       });
     }
 
-    // SEM-1: request.resource.data in read rule
-    if (isRead && !isWrite && referencesRequestData(cond)) {
+    // SEM-1: request.resource.data in read rule (use unfolded condition so short-circuit folding does not hide dead reads)
+    if (isRead && referencesRequestDataAnyTransitive(allow.condition, fnMap, fnScopes)) {
       findings.push({
         code: 'SEM-1', severity: 'high', path: pathStr, operation: opStr,
         message: `Read rule at ${pathStr} references request.resource.data which is not available on reads`,
       });
     }
 
-    // SEM-2: resource.data in create rule
-    if (ops.includes('create') && !ops.includes('update') && referencesResourceData(cond)) {
+    // SEM-2: resource.data in create/write rule
+    const includesCreate = ops.includes('create') || ops.includes('write');
+    if (includesCreate && !ops.includes('update') && referencesResourceDataAnyTransitive(allow.condition, fnMap, fnScopes)) {
       findings.push({
         code: 'SEM-2', severity: 'high', path: pathStr, operation: opStr,
         message: `Create rule at ${pathStr} references resource.data but document doesn't exist yet on create`,
@@ -130,14 +171,17 @@ function walkMatch(
     }
 
     // SEM-3: document access budget exceeded. Production allows exactly 10
-    // get/exists/getAfter/existsAfter reads per request evaluation; the
-    // 11th fails, so the finding fires only ABOVE 10 (same boundary as the
-    // linter's GET_COUNT error and the simulator's runtime LookupBudget).
-    const docReads = countDocumentAccessCalls(cond, fnMap);
-    if (docReads > 10) {
+    // get/exists/getAfter/existsAfter reads per request evaluation in Firestore
+    // and 2 firestore.get/firestore.exists reads in Storage; the next one
+    // fails, so the finding fires only ABOVE the limit.
+    const maxDocReads = isStorage ? 2 : 10;
+    const docReads = countDocumentAccessCalls(allow.condition, fnMap, new Set(), fnScopes);
+    if (docReads > maxDocReads) {
       findings.push({
         code: 'SEM-3', severity: 'high', path: pathStr, operation: opStr,
-        message: `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter), which exceeds the 10-call budget`,
+        message: isStorage
+          ? `Rule at ${pathStr} may perform ${docReads} document access calls (firestore.get/firestore.exists), which exceeds the ${maxDocReads}-call budget`
+          : `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter), which exceeds the ${maxDocReads}-call budget`,
       });
     }
 
@@ -151,10 +195,10 @@ function walkMatch(
     }
 
     // QUA-5: Complex condition
-    if (exprDepth(cond) > 10) {
+    if (exprDepth(allow.condition) > 10) {
       findings.push({
         code: 'QUA-5', severity: 'low', path: pathStr, operation: opStr,
-        message: `Condition at ${pathStr} has depth ${exprDepth(cond)} — consider splitting into functions`,
+        message: `Condition at ${pathStr} has depth ${exprDepth(allow.condition)} — consider splitting into functions`,
       });
     }
   }
@@ -175,8 +219,10 @@ function walkMatch(
     });
   }
 
-  // STR-2: Nested match without parent rules (skip the root /databases match)
-  const isRoot = match.path.raw.includes('databases') && match.path.raw.includes('documents');
+  // STR-2: Nested match without parent rules (skip the root /databases or /b/{bucket}/o match)
+  const isRoot =
+    (match.path.raw.includes('databases') && match.path.raw.includes('documents')) ||
+    (match.path.raw.includes('/b/') && match.path.raw.includes('/o'));
   if (match.children.length > 0 && match.allows.length === 0 && !isRoot) {
     findings.push({
       code: 'STR-2', severity: 'medium', path: pathStr,
@@ -186,22 +232,41 @@ function walkMatch(
 
   // Recurse into children
   for (const child of match.children) {
-    walkMatch(child, findings, localScope);
+    walkMatch(child, findings, localScope, fnScopes, segments, isStorage, importedAuthFns);
   }
 }
 
 // ---- SEC-4: Default deny ----
 
 function checkDefaultDeny(rootMatch: MatchBlock, findings: ValidationFinding[]) {
-  const hasDefaultDeny = rootMatch.children.some(child => {
-    const isRecursive = child.path.segments.some(s => s.type === 'recursive');
-    if (!isRecursive) return false;
-    return child.allows.some(a => {
-      const hasBothOps = a.operations.includes('read') && a.operations.includes('write');
-      const isDeny = a.condition.type === 'literal' && a.condition.value === false;
-      return hasBothOps && isDeny;
+  const coversDeny = (block: MatchBlock): boolean => {
+    if (block.allows.length === 0) return false;
+    const deniedOps = new Set<Operation>();
+    for (const a of block.allows) {
+      const folded = foldConstants(a.condition);
+      if (folded.type !== 'literal' || folded.value !== false) return false;
+      for (const op of a.operations) deniedOps.add(op);
+    }
+    const coversRead = deniedOps.has('read') || (deniedOps.has('get') && deniedOps.has('list'));
+    const coversWrite =
+      deniedOps.has('write') ||
+      (deniedOps.has('create') && deniedOps.has('update') && deniedOps.has('delete'));
+    return coversRead && coversWrite;
+  };
+
+  const isRootWithTrailingRecursive =
+    ((rootMatch.path.raw.includes('databases') && rootMatch.path.raw.includes('documents')) ||
+      (rootMatch.path.raw.includes('/b/') && rootMatch.path.raw.includes('/o'))) &&
+    rootMatch.path.segments.length > 0 &&
+    rootMatch.path.segments[rootMatch.path.segments.length - 1]?.type === 'recursive';
+
+  const hasDefaultDeny =
+    (isRootWithTrailingRecursive && coversDeny(rootMatch)) ||
+    rootMatch.children.some(child => {
+      const isWholeDbWildcard =
+        child.path.segments.length === 1 && child.path.segments[0].type === 'recursive';
+      return isWholeDbWildcard && coversDeny(child);
     });
-  });
 
   if (!hasDefaultDeny) {
     findings.push({
@@ -276,53 +341,172 @@ function functionExpressions(fn: FunctionDef): Expression[] {
   return [...fn.lets.map(l => l.value), fn.body];
 }
 
-function referencesAuth(expr: Expression): boolean {
-  return exprContains(expr, e =>
-    e.type === 'memberAccess' && e.property === 'auth' &&
-    e.object.type === 'identifier' && e.object.name === 'request',
+function propTarget(expr: Expression, prop: string): Expression | null {
+  if (expr.type === 'memberAccess' && expr.property === prop) return expr.object;
+  if (expr.type === 'bracketAccess' && expr.index.type === 'literal' && expr.index.value === prop) {
+    return expr.object;
+  }
+  return null;
+}
+
+function isRequestAuth(e: Expression): boolean {
+  const obj = propTarget(e, 'auth');
+  return obj !== null && obj.type === 'identifier' && obj.name === 'request';
+}
+
+function isRequestResource(e: Expression): boolean {
+  const reqObj = propTarget(e, 'resource');
+  return reqObj !== null && reqObj.type === 'identifier' && reqObj.name === 'request';
+}
+
+function isRequestResourceData(e: Expression): boolean {
+  const resObj = propTarget(e, 'data');
+  if (!resObj) return false;
+  return isRequestResource(resObj);
+}
+
+function isResourceData(e: Expression): boolean {
+  const obj = propTarget(e, 'data');
+  return obj !== null && obj.type === 'identifier' && obj.name === 'resource';
+}
+
+function isNullLiteral(e: Expression): boolean {
+  return e.type === 'literal' && e.value === null;
+}
+
+function isAuthComparisonWithNull(e: Expression, op: '==' | '!='): boolean {
+  if (e.type !== 'binaryOp' || e.op !== op) return false;
+  return (
+    (isRequestAuth(e.left) && isNullLiteral(e.right)) ||
+    (isNullLiteral(e.left) && isRequestAuth(e.right))
   );
 }
 
-function referencesAuthTransitive(expr: Expression, fns: Map<string, FunctionDef>, visited = new Set<string>()): boolean {
-  if (referencesAuth(expr)) return true;
-  // Follow function calls
+function guardsConditionTransitive(
+  expr: Expression,
+  checkAtom: (e: Expression) => boolean | null,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  visited = new Set<FunctionDef>(),
+): boolean {
+  if (expr.type === 'binaryOp' && expr.op === '||') {
+    return (
+      guardsConditionTransitive(expr.left, checkAtom, fns, fnScopes, visited) &&
+      guardsConditionTransitive(expr.right, checkAtom, fns, fnScopes, visited)
+    );
+  }
+  if (expr.type === 'binaryOp' && expr.op === '&&') {
+    return (
+      guardsConditionTransitive(expr.left, checkAtom, fns, fnScopes, visited) ||
+      guardsConditionTransitive(expr.right, checkAtom, fns, fnScopes, visited)
+    );
+  }
+  if (expr.type === 'ternary') {
+    const condGuards = guardsConditionTransitive(expr.condition, checkAtom, fns, fnScopes, visited);
+    const thenGuards = condGuards || guardsConditionTransitive(expr.consequent, checkAtom, fns, fnScopes, visited);
+    if (isLitBool(expr.alternate, false)) return thenGuards;
+    const elseGuards = guardsConditionTransitive(expr.alternate, checkAtom, fns, fnScopes, visited);
+    if (isLitBool(expr.consequent, false)) return elseGuards;
+    return thenGuards && elseGuards;
+  }
+  const atomResult = checkAtom(expr);
+  if (atomResult !== null) return atomResult;
+
   let found = false;
   walkExpr(expr, e => {
-    if (found) return;
-    if (e.type === 'functionCall' && fns.has(e.name) && !visited.has(e.name)) {
-      visited.add(e.name);
-      if (functionExpressions(fns.get(e.name)!).some(x => referencesAuthTransitive(x, fns, visited))) found = true;
+    if (found || e.type !== 'functionCall') return;
+    const fn = fns.get(e.name);
+    if (!fn || visited.has(fn)) return;
+    const nextVisited = new Set(visited);
+    nextVisited.add(fn);
+    const calleeScope = fnScopes.get(fn) ?? fns;
+    if (guardsConditionTransitive(expandFunctionBody(fn), checkAtom, calleeScope, fnScopes, nextVisited)) {
+      found = true;
     }
   });
   return found;
 }
 
-function referencesRequestData(expr: Expression): boolean {
-  return exprContains(expr, e =>
-    e.type === 'memberAccess' && e.property === 'data' &&
-    e.object.type === 'memberAccess' && e.object.property === 'resource' &&
-    e.object.object.type === 'identifier' && e.object.object.name === 'request',
-  );
+function checkAuthAtom(
+  expr: Expression,
+  fns: ReadonlyMap<string, FunctionDef>,
+  importedAuthFns: ReadonlySet<string>,
+): boolean | null {
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    if (isAuthComparisonWithNull(expr.operand, '==')) return true;
+    if (isAuthComparisonWithNull(expr.operand, '!=')) return false;
+    return false;
+  }
+  if (isAuthComparisonWithNull(expr, '==')) return false;
+  if (exprContains(expr, isRequestAuth)) return true;
+  if (
+    importedAuthFns.size > 0 &&
+    exprContains(expr, e => e.type === 'functionCall' && !fns.has(e.name) && importedAuthFns.has(e.name))
+  ) {
+    return true;
+  }
+  return null;
 }
 
-function referencesRequestDataTransitive(expr: Expression, fns: Map<string, FunctionDef>, visited = new Set<string>()): boolean {
-  if (referencesRequestData(expr)) return true;
+function checkRequestDataAtom(expr: Expression, isStorage = false): boolean | null {
+  if (exprContains(expr, isStorage ? isRequestResource : isRequestResourceData)) return true;
+  return null;
+}
+
+function guardsAuthTransitive(
+  expr: Expression,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  importedAuthFns: ReadonlySet<string> = new Set(),
+): boolean {
+  return guardsConditionTransitive(expr, e => checkAuthAtom(e, fns, importedAuthFns), fns, fnScopes);
+}
+
+function validatesRequestDataTransitive(
+  expr: Expression,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  isStorage = false,
+): boolean {
+  return guardsConditionTransitive(expr, e => checkRequestDataAtom(e, isStorage), fns, fnScopes);
+}
+
+function referencesExprAnyTransitive(
+  expr: Expression,
+  pred: (e: Expression) => boolean,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  visited = new Set<FunctionDef>(),
+): boolean {
+  if (exprContains(expr, pred)) return true;
   let found = false;
   walkExpr(expr, e => {
-    if (found) return;
-    if (e.type === 'functionCall' && fns.has(e.name) && !visited.has(e.name)) {
-      visited.add(e.name);
-      if (functionExpressions(fns.get(e.name)!).some(x => referencesRequestDataTransitive(x, fns, visited))) found = true;
+    if (found || e.type !== 'functionCall') return;
+    const fn = fns.get(e.name);
+    if (!fn || visited.has(fn)) return;
+    visited.add(fn);
+    const calleeScope = fnScopes.get(fn) ?? fns;
+    if (functionExpressions(fn).some(x => referencesExprAnyTransitive(x, pred, calleeScope, fnScopes, visited))) {
+      found = true;
     }
   });
   return found;
 }
 
-function referencesResourceData(expr: Expression): boolean {
-  return exprContains(expr, e =>
-    e.type === 'memberAccess' && e.property === 'data' &&
-    e.object.type === 'identifier' && e.object.name === 'resource',
-  );
+function referencesRequestDataAnyTransitive(
+  expr: Expression,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+): boolean {
+  return referencesExprAnyTransitive(expr, isRequestResourceData, fns, fnScopes);
+}
+
+function referencesResourceDataAnyTransitive(
+  expr: Expression,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+): boolean {
+  return referencesExprAnyTransitive(expr, isResourceData, fns, fnScopes);
 }
 
 // ---- QUA-3: Duplicate functions ----
@@ -435,65 +619,4 @@ function pathsOverlap(a: MatchBlock, b: MatchBlock): boolean {
     if (sa.type === 'literal' && (sb.type === 'wildcard' || sb.type === 'recursive')) return true;
   }
   return false;
-}
-
-// ---- Expression depth ----
-
-function exprDepth(expr: Expression): number {
-  switch (expr.type) {
-    case 'binaryOp': return 1 + Math.max(exprDepth(expr.left), exprDepth(expr.right));
-    case 'unaryOp': return 1 + exprDepth(expr.operand);
-    case 'ternary': return 1 + Math.max(exprDepth(expr.condition), exprDepth(expr.consequent), exprDepth(expr.alternate));
-    case 'methodCall': return 1 + Math.max(exprDepth(expr.object), ...expr.args.map(exprDepth));
-    case 'functionCall': return 1 + Math.max(0, ...expr.args.map(exprDepth));
-    case 'bracketAccess': return 1 + Math.max(exprDepth(expr.object), exprDepth(expr.index));
-    case 'sliceAccess': return 1 + Math.max(exprDepth(expr.object), exprDepth(expr.start), exprDepth(expr.end));
-    case 'memberAccess': return 1 + exprDepth(expr.object);
-    case 'inExpr': return 1 + Math.max(exprDepth(expr.element), exprDepth(expr.collection));
-    case 'isExpr': return 1 + exprDepth(expr.value);
-    default: return 0;
-  }
-}
-
-// ---- Generic expression walker ----
-
-function exprContains(expr: Expression, predicate: (e: Expression) => boolean): boolean {
-  if (predicate(expr)) return true;
-  return walkExprSome(expr, predicate);
-}
-
-function walkExprSome(expr: Expression, predicate: (e: Expression) => boolean): boolean {
-  switch (expr.type) {
-    case 'binaryOp': return exprContains(expr.left, predicate) || exprContains(expr.right, predicate);
-    case 'unaryOp': return exprContains(expr.operand, predicate);
-    case 'ternary': return exprContains(expr.condition, predicate) || exprContains(expr.consequent, predicate) || exprContains(expr.alternate, predicate);
-    case 'methodCall': return exprContains(expr.object, predicate) || expr.args.some(a => exprContains(a, predicate));
-    case 'functionCall': return expr.args.some(a => exprContains(a, predicate));
-    case 'bracketAccess': return exprContains(expr.object, predicate) || exprContains(expr.index, predicate);
-    case 'sliceAccess': return exprContains(expr.object, predicate) || exprContains(expr.start, predicate) || exprContains(expr.end, predicate);
-    case 'memberAccess': return exprContains(expr.object, predicate);
-    case 'inExpr': return exprContains(expr.element, predicate) || exprContains(expr.collection, predicate);
-    case 'isExpr': return exprContains(expr.value, predicate);
-    case 'listLiteral': return expr.elements.some(e => exprContains(e, predicate));
-    case 'mapLiteral': return expr.entries.some(e => exprContains(e.key, predicate) || exprContains(e.value, predicate));
-    default: return false;
-  }
-}
-
-function walkExpr(expr: Expression, visitor: (e: Expression) => void) {
-  visitor(expr);
-  switch (expr.type) {
-    case 'binaryOp': walkExpr(expr.left, visitor); walkExpr(expr.right, visitor); break;
-    case 'unaryOp': walkExpr(expr.operand, visitor); break;
-    case 'ternary': walkExpr(expr.condition, visitor); walkExpr(expr.consequent, visitor); walkExpr(expr.alternate, visitor); break;
-    case 'methodCall': walkExpr(expr.object, visitor); expr.args.forEach(a => walkExpr(a, visitor)); break;
-    case 'functionCall': expr.args.forEach(a => walkExpr(a, visitor)); break;
-    case 'bracketAccess': walkExpr(expr.object, visitor); walkExpr(expr.index, visitor); break;
-    case 'sliceAccess': walkExpr(expr.object, visitor); walkExpr(expr.start, visitor); walkExpr(expr.end, visitor); break;
-    case 'memberAccess': walkExpr(expr.object, visitor); break;
-    case 'inExpr': walkExpr(expr.element, visitor); walkExpr(expr.collection, visitor); break;
-    case 'isExpr': walkExpr(expr.value, visitor); break;
-    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, visitor)); break;
-    case 'mapLiteral': expr.entries.forEach(e => { walkExpr(e.key, visitor); walkExpr(e.value, visitor); }); break;
-  }
 }

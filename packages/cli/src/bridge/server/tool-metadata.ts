@@ -15,7 +15,7 @@
  * factories come from `./tool-family-factories.ts`.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import { toolFamilies } from '../tool-families.js';
 import {
   FORWARDED_METADATA_FACTORIES,

@@ -1,32 +1,45 @@
 /** Per-port RTDB disconnect registration and explicit connection lifecycle. */
-import { dataRpc, nextId } from './core.js';
-import type { ClientPort, ClientRtdb, RtdbRefHandle } from './handles.js';
+import { validateWritablePath } from 'pyric/database/internal';
+import { nextId } from './core.js';
+import type { ClientPort, ClientRtdb, ClientRtdbInstance, RtdbRefHandle } from './handles.js';
+import { rtdbRpc } from './rtdb-references.js';
+import { validateRtdbPriority, validateRtdbUpdateValues, validateRtdbValue } from './rtdb-value-validation.js';
 
 interface RtdbConnectionState {
   networkEnabled: boolean;
   listeners: Set<() => void>;
 }
 
-const connections = new WeakMap<ClientPort, RtdbConnectionState>();
+/** As in production, each database instance is its own connection. */
+type InstanceHandle = { readonly port: ClientPort; readonly instance?: ClientRtdbInstance };
 
-function connectionFor(port: ClientPort): RtdbConnectionState {
-  const existing = connections.get(port);
+const connections = new WeakMap<ClientPort, Map<string | undefined, RtdbConnectionState>>();
+
+function connectionFor(handle: InstanceHandle): RtdbConnectionState {
+  let instances = connections.get(handle.port);
+  if (instances === undefined) {
+    instances = new Map();
+    connections.set(handle.port, instances);
+  }
+  const name = handle.instance?.name;
+  const existing = instances.get(name);
   const hasConnection = existing !== undefined;
   if (hasConnection) return existing;
   const connection = { networkEnabled: true, listeners: new Set<() => void>() };
-  connections.set(port, connection);
+  instances.set(name, connection);
   return connection;
 }
 
-function setNetworkEnabled(port: ClientPort, networkEnabled: boolean): void {
-  const connection = connectionFor(port);
+function setNetworkEnabled(handle: InstanceHandle, networkEnabled: boolean): void {
+  const connection = connectionFor(handle);
   connection.networkEnabled = networkEnabled;
   for (const listener of [...connection.listeners]) listener();
 }
 
 /** RTDB is connected only when its transport and the app's network control allow it. */
-export function observeRtdbConnection(port: ClientPort, next: (connected: boolean) => void): () => void {
-  const connection = connectionFor(port);
+export function observeRtdbConnection(handle: InstanceHandle, next: (connected: boolean) => void): () => void {
+  const port = handle.port;
+  const connection = connectionFor(handle);
   const isLocalTransport = port.observeConnection === undefined;
   let networkConnected = isLocalTransport;
   let previous: boolean | undefined;
@@ -59,31 +72,39 @@ export class RtdbOnDisconnect {
   ) {}
 
   cancel(): Promise<void> {
-    return dataRpc(this._repo.port, {
+    return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectCancel', path: this._path,
     }).then(() => undefined);
   }
 
   remove(): Promise<void> {
-    return dataRpc(this._repo.port, {
+    validateWritablePath('OnDisconnect.remove', this._path);
+    return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectRemove', path: this._path,
     }).then(() => undefined);
   }
 
   set(value: unknown): Promise<void> {
-    return dataRpc(this._repo.port, {
+    validateWritablePath('OnDisconnect.set', this._path);
+    validateRtdbValue('OnDisconnect.set', value, this._path);
+    return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value,
     }).then(() => undefined);
   }
 
   setWithPriority(value: unknown, priority: string | number | null): Promise<void> {
-    return dataRpc(this._repo.port, {
+    validateWritablePath('OnDisconnect.setWithPriority', this._path);
+    validateRtdbValue('OnDisconnect.setWithPriority', value, this._path);
+    validateRtdbPriority('OnDisconnect.setWithPriority', priority);
+    return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value, priority,
     }).then(() => undefined);
   }
 
   update(values: Record<string, unknown>): Promise<void> {
-    return dataRpc(this._repo.port, {
+    validateWritablePath('OnDisconnect.update', this._path);
+    validateRtdbUpdateValues('OnDisconnect.update', values, this._path);
+    return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectUpdate', path: this._path, values,
     }).then(() => undefined);
   }
@@ -94,11 +115,11 @@ export function rtdbOnDisconnect(ref: RtdbRefHandle): RtdbOnDisconnect {
 }
 
 export function rtdbGoOffline(db: ClientRtdb): void {
-  setNetworkEnabled(db.port, false);
-  void dataRpc(db.port, { t: 'op', id: nextId(), method: 'rtdb.goOffline' }).catch(() => undefined);
+  setNetworkEnabled(db, false);
+  void rtdbRpc(db, { t: 'op', id: nextId(), method: 'rtdb.goOffline' }).catch(() => undefined);
 }
 
 export function rtdbGoOnline(db: ClientRtdb): void {
-  setNetworkEnabled(db.port, true);
-  void dataRpc(db.port, { t: 'op', id: nextId(), method: 'rtdb.goOnline' }).catch(() => undefined);
+  setNetworkEnabled(db, true);
+  void rtdbRpc(db, { t: 'op', id: nextId(), method: 'rtdb.goOnline' }).catch(() => undefined);
 }

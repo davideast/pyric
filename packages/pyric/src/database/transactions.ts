@@ -4,6 +4,7 @@ import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
 import type { DataSnapshot, DatabaseReference } from './types.js';
 import { buildSandboxSnapFromRaw } from './snapshots.js';
+import { validateWritablePath } from './writable-path.js';
 
 // ─── Transactions (Tier 4) ───────────────────────────────────────────
 
@@ -48,14 +49,15 @@ export interface TransactionOptions {
  *
  * Contract (oracle-locked):
  *
- *   1. `transactionUpdate` is called with the CURRENT value at `ref`'s
- *      path. For an absent path the arg is `null` (NOT `undefined`);
- *      oracle:
+ *   1. `transactionUpdate` is called with the caller-visible value at
+ *      `ref`'s path (`null` for an absent path or when `.read` rules
+ *      deny the caller, NOT `undefined`); oracle:
  *      `rtdb-modular-runtransaction-current-value-arg.json` →
  *      `missingFirstWasNull: true`.
  *   2. Returning `undefined` from the update fn ABORTS the transaction:
  *      resolves `{ committed: false, snapshot }` where the snapshot is
- *      the pre-transaction value; oracle:
+ *      the caller-visible pre-transaction value (`null` when `.read` is
+ *      denied); oracle:
  *      `rtdb-modular-runtransaction-abort-undefined.json` → `committed:
  *      false, snapVal: null`.
  *   3. Returning any defined value WRITES that value (rules-checked);
@@ -81,20 +83,23 @@ export interface TransactionOptions {
  * A synchronous overlapping write during the update callback invalidates the
  * read and retries the callback. Writes to unrelated paths do not conflict.
  */
-export async function runTransaction<T>(
+export function runTransaction<T>(
   r: DatabaseReference,
   transactionUpdate: (current: T | null) => T | undefined,
   options?: TransactionOptions,
 ): Promise<TransactionResult> {
+  validateWritablePath('Reference.transaction', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), () => {
+    const txOptions = target.admin === true ? { ...options, admin: true } : options;
     const result = target.backend.runTransaction(
       authFor(target),
       r._path,
       transactionUpdate as (current: JsonValue) => JsonValue | undefined,
-      options,
+      txOptions,
     );
-    const snap = buildSandboxSnapFromRaw(target, r, result.val);
+    const priorities = result.val === null ? {} : undefined;
+    const snap = buildSandboxSnapFromRaw(target, r, result.val, priorities);
     return new TransactionResult(result.committed, snap) as TransactionResult & {
       committed: boolean;
       snapshot: DataSnapshot;

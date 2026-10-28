@@ -42,5 +42,7 @@ export function activeStorageRules(ctx: SurfaceContext): string | null {
  * object path alone.
  */
 export function rulesRequestPath(object: StorageReference): string {
-  return `b/${object.bucket}/o/${object.fullPath}`;
+  return object.fullPath === ''
+    ? `b/${object.bucket}/o`
+    : `b/${object.bucket}/o/${object.fullPath}`;
 }

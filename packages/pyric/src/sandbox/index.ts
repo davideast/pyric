@@ -21,8 +21,10 @@ import type { LocalSandbox, SandboxConfig } from './types/service.js';
 export type {
   ActivityEventProvenance,
   AuthLens,
+  AnyDenialContext,
   AuthState,
   DenialContext,
+  RtdbDenialContext,
   DenialEvent,
   EventActor,
   EventProvenance,
@@ -30,6 +32,7 @@ export type {
   OperationContext,
   ListenerLifecycleEvent,
   ListenerOwner,
+  OwnerStackFrame,
   LocalSandbox,
   MutationEventService,
   PersistableService,

@@ -164,9 +164,12 @@ export interface ExtractionWarning {
    * - `'dynamic-arg'` — a `where`/`orderBy` arg was non-literal.
    * - `'dynamic-direction'` — `orderBy` direction wasn't literally
    *   "asc"/"desc"; the extractor emitted both.
+   * - `'dynamic-collection-id'` — the query's collection id (the last
+   *   path segment) was non-literal; the extractor emitted no index for it.
    */
   code:
     | 'partial-base'
+    | 'dynamic-collection-id'
     | 'unknown-callee'
     | 'dynamic-arg'
     | 'dynamic-direction'

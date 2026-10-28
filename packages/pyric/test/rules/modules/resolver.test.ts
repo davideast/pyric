@@ -430,6 +430,7 @@ describe('export filtering', () => {
 
   test('exported function calling non-exported helper includes prefixed helper as transitive dep', () => {
     const userModule = `
+      import { isAuthenticated } from 'auth';
       function checkDoc(uid) { return get(/databases/(default)/documents/admins/$(uid)).data.active == true; }
       export function isAdmin() { return isAuthenticated() && checkDoc(request.auth.uid); }
     `;

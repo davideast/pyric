@@ -17,9 +17,19 @@ object BridgeProtocol {
     const val TYPE_WORKER_EVENT = "worker-event"
     const val EVENT_REMOTE_LENS = "remote-lens"
 
-    fun createAttachFrame(): Map<String, Any> = mapOf(
-        "type" to TYPE_ATTACH,
-        "protocol" to PROTOCOL_VERSION
+    /** A re-attach carries the `clientSessionId` the bridge acknowledged before. */
+    fun createAttachFrame(clientSessionId: String? = null): Map<String, Any> {
+        val frame = mutableMapOf<String, Any>(
+            "type" to TYPE_ATTACH,
+            "protocol" to PROTOCOL_VERSION
+        )
+        if (clientSessionId != null) frame["clientSessionId"] = clientSessionId
+        return frame
+    }
+
+    fun createPingFrame(id: String): Map<String, Any> = mapOf(
+        "type" to TYPE_PING,
+        "id" to id
     )
 
     fun createPongFrame(id: String): Map<String, Any> = mapOf(

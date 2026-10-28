@@ -3,6 +3,7 @@ import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
+import { getStorageService } from 'pyric/storage/internal';
 
 import {
   handleMessage,
@@ -395,5 +396,71 @@ service firebase.storage {
       ...asAdmin,
     })) as { uploadId: string };
     expect(adminUpload.uploadId).toBeDefined();
+  });
+});
+
+describe('storage worker ops — a range read and an overwrite between its reads', () => {
+  /**
+   * Arrange for an overwrite of `path` to complete immediately after the
+   * host's first metadata read of it, before it reads any bytes. The overwrite
+   * writes new bytes under a new generation through the backend itself.
+   */
+  async function overwriteAfterMetadataRead(ctx: HostCtx, path: string, replacement: Uint8Array): Promise<void> {
+    const service = await getStorageService(getStorageSandbox(ctx.sandbox));
+    const backend = service.backend;
+    const readMetadata = backend.getMetadata.bind(backend);
+    let armed = true;
+    backend.getMetadata = async (target, bucket) => {
+      const stored = await readMetadata(target, bucket);
+      const overwrites = armed && target === path && stored !== undefined;
+      if (!overwrites) return stored;
+      armed = false;
+      const blob = new Blob([replacement], { type: stored.contentType ?? '' });
+      await backend.put(path, blob, {
+        ...stored,
+        size: replacement.byteLength,
+        generation: String(Number(stored.generation) + 1),
+      });
+      return stored;
+    };
+  }
+
+  async function seed(ctx: HostCtx, path: string): Promise<Uint8Array> {
+    const original = new Uint8Array(64).fill(0x11);
+    await opOk(ctx, { method: 'storage.putBytes', path, dataB64: bytesToBase64(original) });
+    return original;
+  }
+
+  it('fails storage/object-changed when the bytes come from a later write than the metadata', async () => {
+    const ctx = makeCtx();
+    await seed(ctx, 'media/race.bin');
+    await overwriteAfterMetadataRead(ctx, 'media/race.bin', new Uint8Array(64).fill(0x22));
+
+    const err = await opFail(ctx, { method: 'storage.getBytes', path: 'media/race.bin', offset: 0, length: 16 });
+    expect(err.code).toBe('storage/object-changed');
+  });
+
+  it('fails storage/object-changed against the expected generation when the overwrite lands after the metadata read', async () => {
+    const ctx = makeCtx();
+    await seed(ctx, 'media/race.bin');
+    const meta = (await opOk(ctx, { method: 'storage.getMetadata', path: 'media/race.bin' })) as { generation: string };
+    await overwriteAfterMetadataRead(ctx, 'media/race.bin', new Uint8Array(64).fill(0x22));
+
+    const err = await opFail(ctx, {
+      method: 'storage.getBytes', path: 'media/race.bin', offset: 0, length: 16, expectedGeneration: meta.generation,
+    });
+    expect(err.code).toBe('storage/object-changed');
+  });
+
+  it('returns the slice and the generation of one write when nothing intervenes', async () => {
+    const ctx = makeCtx();
+    const original = await seed(ctx, 'media/race.bin');
+    const meta = (await opOk(ctx, { method: 'storage.getMetadata', path: 'media/race.bin' })) as { generation: string };
+
+    const range = (await opOk(ctx, { method: 'storage.getBytes', path: 'media/race.bin', offset: 8, length: 8 })) as {
+      dataB64: string; size: number; generation: string;
+    };
+    expect(range.generation).toBe(meta.generation);
+    expect(base64ToBytes(range.dataB64)).toEqual(original.subarray(8, 16));
   });
 });

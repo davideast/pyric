@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { GAME_SPECS } from '../../../../src/rules/rtdb/constraints/game.spec.js';
 import { turnGuard, flip, winCheckHelper } from '../../../../src/rules/rtdb/constraints/game.js';
-import { buildRuleExpression } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { buildRuleExpression, compileRtdbRules, simulateRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 
 describe('Game Primitives', () => {
   describe('turnGuard', () => {
@@ -17,15 +17,15 @@ describe('Game Primitives', () => {
 
     test('with 3 players', () => {
       const result = turnGuard('turn', { A: 'p1', B: 'p2', C: 'p3' });
-      expect(result).toContain('data.child("turn").val() == "A"');
-      expect(result).toContain('data.child("turn").val() == "B"');
-      expect(result).toContain('data.child("turn").val() == "C"');
+      expect(result).toContain("data.child('turn').val() == 'A'");
+      expect(result).toContain("data.child('turn').val() == 'B'");
+      expect(result).toContain("data.child('turn').val() == 'C'");
       expect(result.split('||').length).toBe(3);
     });
 
     test('uses data (pre-write) not newData', () => {
       const result = turnGuard('currentTurn', { X: 'playerX' });
-      expect(result).toContain('data.child("currentTurn")');
+      expect(result).toContain("data.child('currentTurn')");
       expect(result).not.toContain('newData');
     });
 
@@ -34,11 +34,43 @@ describe('Game Primitives', () => {
       const parsed = buildRuleExpression(result, 'write', []);
       expect(parsed.parsed.valid).toBe(true);
     });
+
+    test('rejects missing or empty playingValue when statusField is provided, and enforces status in simulate (CON-5 / BLD-4)', () => {
+      expect(() => turnGuard('currentTurn', { X: 'playerX', O: 'playerO' }, 'status')).toThrow(/playingValue/);
+      expect(() => turnGuard('currentTurn', { X: 'playerX', O: 'playerO' }, 'status', '')).toThrow(/playingValue/);
+      expect(() => turnGuard('currentTurn', { X: 'playerX', O: 'playerO' }, '', 'playing')).toThrow();
+      expect(() => turnGuard('currentTurn', {})).toThrow();
+
+      const rule = turnGuard('currentTurn', { X: 'playerX', O: 'playerO' }, 'status', 'playing');
+      const compiled = compileRtdbRules({ rules: { game: { '.write': rule } } });
+      const activePlay = simulateRtdbRules(compiled, {
+        operation: 'write',
+        path: '/game',
+        auth: { uid: 'u1', token: {} },
+        mockData: { game: { status: 'playing', currentTurn: 'X', playerX: 'u1', playerO: 'u2' } },
+        newData: { status: 'playing', currentTurn: 'O', playerX: 'u1', playerO: 'u2' },
+      });
+      expect(activePlay.success && activePlay.data.allowed).toBe(true);
+
+      const finishedGame = simulateRtdbRules(compiled, {
+        operation: 'write',
+        path: '/game',
+        auth: { uid: 'u1', token: {} },
+        mockData: { game: { status: 'finished', currentTurn: 'X', playerX: 'u1', playerO: 'u2' } },
+        newData: { status: 'finished', currentTurn: 'O', playerX: 'u1', playerO: 'u2' },
+      });
+      expect(finishedGame.success && finishedGame.data.allowed).toBe(false);
+    });
   });
 
   describe('flip', () => {
     test('2 marks', () => {
       expect(flip(['X', 'O'])).toBe(GAME_SPECS.flipTwoMarks.output);
+    });
+
+    test('rejects fewer than 2 marks (CON-5 / BLD-4)', () => {
+      expect(() => flip([])).toThrow(/at least 2 marks/);
+      expect(() => flip(['X'])).toThrow(/at least 2 marks/);
     });
 
     test('3 marks (circular rotation)', () => {
@@ -47,8 +79,8 @@ describe('Game Primitives', () => {
 
     test('creation starts at first mark', () => {
       const result = flip(['X', 'O']);
-      expect(result).toContain('(!(data.exists()))');
-      expect(result).toContain('newData.val() == "X"');
+      expect(result).toContain('!data.exists() && ');
+      expect(result).toContain("newData.val() == 'X'");
     });
 
     test('parses as valid validate expression', () => {
@@ -100,7 +132,7 @@ describe('Game Primitives', () => {
 
     test('mark O works same as X', () => {
       const result = winCheckHelper('O', [[0,1,2]]);
-      expect(result).toContain('"O"');
+      expect(result).toContain("'O'");
       expect(result).not.toContain('"X"');
     });
   });

@@ -52,6 +52,9 @@ public final class Transaction: @unchecked Sendable {
         var error: Error?
     }
 
+    /// Reads a document and blocks the calling thread until the reply arrives.
+    /// `runTransaction(_:completion:)` runs its update block on a thread of its own
+    /// for this; inside an async update block, use `getDocument(_:) async` instead.
     public func getDocument(_ document: DocumentReference, error: NSErrorPointer) -> DocumentSnapshot? {
         let box = BoxedResult()
         let semaphore = DispatchSemaphore(value: 0)

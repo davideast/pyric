@@ -1,0 +1,45 @@
+{
+  "code": "PERMISSION_DENIED",
+  "message": "PERMISSION_DENIED: Permission denied",
+  "denialContext": {
+    "engine": "rtdb",
+    "matchedPath": "/rooms/$roomId",
+    "matchedRule": "auth.uid == $roomId || auth.token.role == 'editor'",
+    "pathVariableBindings": {
+      "$roomId": "bob"
+    },
+    "reason": "No 'write' rule grants access; the deepest, at '/rooms/$roomId', evaluated to false",
+    "rtdbTrace": [
+      {
+        "path": "/rooms/$roomId",
+        "kind": "write",
+        "conditionText": "auth.uid == $roomId || auth.token.role == 'editor'",
+        "verdict": "DENY",
+        "pathVariableBindings": {
+          "$roomId": "bob"
+        }
+      }
+    ],
+    "auth": {
+      "uid": "alice",
+      "tenant": "tenant-a",
+      "token": {
+        "role": "viewer",
+        "firebase": {
+          "tenant": "tenant-a"
+        }
+      }
+    },
+    "reasons": [
+      "/rooms/$roomId write DENY: No 'write' rule grants access; the deepest, at '/rooms/$roomId', evaluated to false"
+    ],
+    "request": {
+      "method": "set",
+      "path": "/rooms/bob/title",
+      "data": {
+        "text": "Renamed",
+        "by": "alice"
+      }
+    }
+  }
+}

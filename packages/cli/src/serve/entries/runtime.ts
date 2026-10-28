@@ -37,15 +37,16 @@ export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
+import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
-import { createDatabaseRulesDeployment } from './database-rules.js';
+import { databaseRules } from './page-database-rules.js';
 
-export const databaseRules = createDatabaseRulesDeployment(sandbox);
+export { databaseRules };
 
 /**
  * The DEFAULT-ON worker path (Phase 3c): when SharedWorker is available the
@@ -171,15 +172,12 @@ if (!useWorker) try {
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
   }
-  if (payload.databaseRules) {
-    databaseRules.deploy(payload.databaseRules);
-    diagnostics.databaseRulesDeployed = true;
-    diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
-  } else if (payload.permissive) {
-    databaseRules.deploy(null, 'allow');
-  } else {
-    databaseRules.deploy(null);
-  }
+  // Each instance gets its own rules. An instance without rules follows the
+  // default policy: deny, as in production, unless the session is permissive.
+  const databaseInstances = payload.databaseInstances ?? null;
+  databaseRules.deploy(databaseInstances, payload.permissive ? 'allow' : 'deny');
+  diagnostics.databaseRulesDeployed = Boolean(payload.databaseRules);
+  diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
   // Open the ONE per-sandbox storage service eagerly: the FIRST open wins the
   // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,
   // issue #359) — a lazy first open from app code would land on the legacy
@@ -349,12 +347,14 @@ if (!useWorker) try {
           ? rtdbSandbox.snapshotState(getDatabase(sandbox))
           : undefined;
       const auth = getAuth(sandbox);
+      const defaultInstance = databaseRules.defaultName();
       const body = JSON.stringify(buildVerifyFixture({
         sandbox,
         firestoreRules: payload.rules,
         rtdbRules: payload.databaseRules ?? null,
         rtdbState,
-        rtdbDatabaseUrl: payload.databaseUrl ?? null,
+        rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
+        rtdbInstances: captureRtdbInstances(sandbox, defaultInstance),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: auth.currentUser,
@@ -446,11 +446,13 @@ if (!useWorker) {
 // once, and explain any stack frame that points into /__pyric/sdk/. ────────
 console.info(
   `[pyric sandbox] firebase/* on this page is served by the Pyric sandbox` +
-    (useWorker
-      ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
-      : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
-        ? ' (project rules loaded)'
-        : ' (no project rules)') +
+    (useHosted
+      ? ' on the dev server (one backend for all tabs and server processes; rules/seed/persist owned by the dev server)'
+      : useWorker
+        ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
+        : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
+          ? ' (project rules loaded)'
+          : ' (no project rules)') +
     ` — diagnostics: globalThis.__pyricServe`,
 );
 
@@ -613,19 +615,31 @@ if (!useWorker && typeof EventSource !== 'undefined') {
     try {
       // Null rules mean the rules file was deleted: `policy` then governs
       // every read and write, as it does when the page starts without rules.
-      const { rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
+      const { instance, target, rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
+        instance: string;
+        target?: string;
         rules: { rules: Record<string, unknown> } | null;
         rulesHash: string | null;
         policy?: 'allow' | 'deny';
       };
-      databaseRules.deploy(rules, policy ?? 'deny');
+      // An unresolved deploy target's rules apply to its instances once the
+      // app's project resolved it, and are kept for that resolution until then.
+      if (target !== undefined) {
+        databaseRules.deployTarget(target, rules, policy);
+        console.info(`[pyric sandbox] RTDB rules for deploy target "${target}" ${rules === null ? 'removed' : `hot-reloaded (hash ${rulesHash})`}`);
+        return;
+      }
+      databaseRules.deployInstance(instance, rules, policy);
       const isRemoved = rules === null;
-      diagnostics.databaseRulesDeployed = !isRemoved;
-      diagnostics.databaseRulesHash = rulesHash ?? null;
+      const isDefaultInstance = instance === databaseRules.defaultInstance() || databaseRules.isDefaultName(instance);
+      if (isDefaultInstance) {
+        diagnostics.databaseRulesDeployed = !isRemoved;
+        diagnostics.databaseRulesHash = rulesHash ?? null;
+      }
       if (isRemoved) {
-        console.info(`[pyric sandbox] database.rules.json removed; RTDB reads/writes default to ${policy ?? 'deny'}`);
+        console.info(`[pyric sandbox] RTDB rules for instance ${instance} removed; its reads/writes default to ${policy ?? 'deny'}`);
       } else {
-        console.info(`[pyric sandbox] database.rules.json hot-reloaded (hash ${rulesHash})`);
+        console.info(`[pyric sandbox] RTDB rules for instance ${instance} hot-reloaded (hash ${rulesHash})`);
       }
     } catch (err) {
       runtimeStatus.reportError(err, 'runtime');

@@ -26,16 +26,29 @@ import {
   arrayUnion,
   arrayRemove,
   deleteField,
+  FieldPath,
   type Firestore,
   type DocumentReference,
   type SetOptions,
+  type Transaction as ModularTransaction,
+  type WriteBatch,
 } from 'pyric/firestore';
+import { atomicWriterCreate } from 'pyric/firestore/internal';
 import { assertEncodedDocValueDepth, rehydrateEncodedDocValue, requireDocumentData, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+import {
+  Bytes as RulesBytes,
+  Duration as RulesDuration,
+  LatLng as RulesLatLng,
+  Path as RulesPath,
+  Reference as RulesReference,
+  Timestamp as RulesTimestamp,
+  Vector as RulesVector,
+} from 'pyric/rules/internal';
 import { FirebaseError } from 'pyric/app';
 
-import type { OpMessage, WriteDescriptor, SentinelMarker, SerializedDocData } from '../protocol.js';
-import { serializeDocData, isSentinelMarker } from '../protocol.js';
-import { assertAtomicList, requireFirestorePath } from '../protocol/firestore-validation.js';
+import type { OpMessage, WriteDescriptor, SentinelMarker, UpdatePayload } from '../protocol.js';
+import { isSentinelMarker } from '../protocol.js';
+import { assertAtomicList, requireFirestorePath, requireSingleUpdateForm, requireUpdateFields } from '../protocol/firestore-validation.js';
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from '../host-context.js';
 
 // ─── Sentinel resolution ──────────────────────────────────────────────────
@@ -104,42 +117,98 @@ function resolveSentinel(marker: SentinelMarker): unknown {
 // ─── Transaction read-set canonicalization helpers ─────────────────────────
 
 /**
- * Rebuild a JSON-flattened `Uint8Array` (an index-keyed `{ "0": n, … }`
- * map) and encode it as base64url without padding — the exact form
- * `pyric/rules`' `Bytes.toBase64()` emits. Backs the transaction read-set
- * canonicalizer's handling of prototype-stripped `Bytes` clones.
+ * Project a hydrated Firestore document/value tree into a collision-free
+ * tagged AST before JSON stringification.
+ *
+ * WHY NOT `JSON.stringify(document)` WITH `.toJSON()`?
+ * ----------------------------------------------------
+ * Calling `JSON.stringify` directly on a rehydrated document invokes
+ * `RulesValue.toJSON()`, which emits `{ __type: 'timestamp', seconds, nanos }`
+ * AFTER `rehydrateEncodedDocValue` has ALREADY unwrapped `{ type: 'pyric/map/1.0', fields }`
+ * on user plain maps — causing a real `Timestamp` and a plain user map
+ * `{ __type: 'timestamp', seconds, nanos }` to serialize to the exact same
+ * JSON string! Disjoint node tags (`['ts', ...]`, `['bytes', ...]`,
+ * `['path', ...]`, `['map', ...]`, etc.) guarantee distinct types and plain
+ * user maps can NEVER collide.
  */
-/** Timestamp/Duration stripped-clone key set (they share field names). */
-const TS_CLONE_KEYS = ['typeName', 'seconds', 'nanos'] as const;
-
-/** Does `o` carry EXACTLY these own enumerable keys (no more, no fewer)?
- *  Backs the transaction canonicalizer's strict clone-shape matching. */
-function hasExactKeys(o: Record<string, unknown>, keys: readonly string[]): boolean {
-  const own = Object.keys(o);
-  return own.length === keys.length && keys.every((k) => k in o);
+function canonicalizeHydratedValue(value: unknown): unknown {
+  if (value === null) return ['null'];
+  if (typeof value === 'boolean') return ['bool', value];
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return ['num', 'NaN'];
+    if (value === Infinity) return ['num', 'Infinity'];
+    if (value === -Infinity) return ['num', '-Infinity'];
+    if (Object.is(value, -0)) return ['num', '-0'];
+    return ['num', value];
+  }
+  if (typeof value === 'string') return ['str', value];
+  if (Array.isArray(value)) return ['arr', value.map(canonicalizeHydratedValue)];
+  if (value instanceof RulesTimestamp) return ['ts', value.seconds, value.nanos];
+  if (value instanceof RulesBytes) return ['bytes', value.toBase64()];
+  if (value instanceof RulesLatLng) return ['geo', value.lat, value.lng];
+  if (value instanceof RulesDuration) return ['dur', value.seconds, value.nanos];
+  if (value instanceof RulesReference) return ['ref', value.path];
+  if (value instanceof RulesPath) {
+    const bindings = Object.entries(value.bindings).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return ['path', [...value.segments], bindings];
+  }
+  if (value instanceof RulesVector) return ['vec', [...value.value]];
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+      k,
+      canonicalizeHydratedValue(v),
+    ]);
+    return ['map', entries];
+  }
+  return ['unknown', String(value)];
 }
 
-function indexMapToBase64Url(data: unknown): string {
-  const map = (data ?? {}) as Record<string, number>;
-  const keys = Object.keys(map);
-  const bytes = new Uint8Array(keys.length);
-  for (let i = 0; i < keys.length; i++) bytes[i] = map[String(i)] ?? 0;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function canonicalizeHydratedDoc(document: unknown): string {
+  return JSON.stringify(canonicalizeHydratedValue(document));
+}
+
+// ─── Update arguments ─────────────────────────────────────────────────────
+
+type UpdateArguments = [Record<string, unknown>] | [FieldPath, unknown, ...unknown[]];
+
+/**
+ * Rebuild the `update` arguments of an update payload. A field list becomes
+ * the field-and-value form with one `FieldPath` per segment vector, so a
+ * segment that contains `.` stays one literal field name.
+ */
+function prepareUpdateArguments(payload: UpdatePayload, valueEncoding?: DocValueEncoding): UpdateArguments {
+  // Batch and transaction descriptors reach here without inbound validation.
+  requireSingleUpdateForm(payload);
+  const fields = payload.fields;
+  if (fields === undefined) {
+    return [prepareWriteData(payload.data, valueEncoding) as Record<string, unknown>];
+  }
+  requireUpdateFields(fields);
+  if (fields.length === 0) return [{}];
+  const args: unknown[] = [];
+  for (const field of fields) {
+    args.push(new FieldPath(...field.path), prepareWriteData(field.value, valueEncoding));
+  }
+  return args as [FieldPath, unknown, ...unknown[]];
+}
+
+/** Call an overloaded `update` with prepared arguments in either form. */
+function callUpdate<R>(
+  args: UpdateArguments,
+  withData: (data: Record<string, unknown>) => R,
+  withFields: (field: FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]) => R,
+): R {
+  const [first, value, ...moreFieldsAndValues] = args;
+  const isDataForm = args.length === 1;
+  if (isDataForm) return withData(first as Record<string, unknown>);
+  return withFields(first as FieldPath, value, ...moreFieldsAndValues);
 }
 
 // ─── Atomic write helper ──────────────────────────────────────────────────
 
-type AtomicWriter = {
-  set(ref: DocumentReference, data: Record<string, unknown>, options?: SetOptions): void;
-  update(ref: DocumentReference, data: Record<string, unknown>): void;
-  delete(ref: DocumentReference): void;
-};
-
 function applyAtomicWrite(
   db: Firestore,
-  writer: AtomicWriter,
+  writer: WriteBatch | ModularTransaction,
   write: WriteDescriptor,
 ): void {
   const isInvalidWrite = write === null || typeof write !== 'object' || Array.isArray(write);
@@ -149,16 +218,23 @@ function applyAtomicWrite(
   const path = requireFirestorePath(write.path);
   const ref = pyricDoc(db, path);
   switch (write.method) {
+    case 'create': {
+      const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
+      atomicWriterCreate(writer, ref, data);
+      return;
+    }
     case 'set': {
       const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
       writer.set(ref, data, write.options);
       return;
     }
-    case 'update': {
-      const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
-      writer.update(ref, data);
+    case 'update':
+      callUpdate(
+        prepareUpdateArguments(write, write.valueEncoding),
+        (data) => writer.update(ref, data),
+        (field, value, ...more) => writer.update(ref, field, value, ...more),
+      );
       return;
-    }
     case 'delete':
       writer.delete(ref);
       return;
@@ -207,8 +283,12 @@ export async function handleFirestoreWriteOp(
     case 'updateDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
-        await sdkActivity.silence(() => updateDoc(ref, data));
+        const args = prepareUpdateArguments(msg, msg.valueEncoding);
+        await sdkActivity.silence(() => callUpdate(
+          args,
+          (data) => updateDoc(ref, data),
+          (field, value, ...more) => updateDoc(ref, field, value, ...more),
+        ));
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -337,7 +417,7 @@ export async function handleFirestoreWriteOp(
        *      typed doc would never compare equal to the client's getDoc
        *      echo (a guaranteed phantom abort → retry livelock).
        */
-      const canonicalDocJson = (json: string, valueEncoding?: DocValueEncoding): string => {
+      const canonicalClientDoc = (json: string, valueEncoding?: DocValueEncoding): string => {
         let data: unknown;
         try {
           data = JSON.parse(json);
@@ -346,58 +426,7 @@ export async function handleFirestoreWriteOp(
         }
         assertEncodedDocValueDepth(data);
         const document = requireDocumentData(rehydrateEncodedDocValue(data, valueEncoding));
-        return JSON.stringify(document, (_key, v: unknown) => {
-          const isNonMapValue = v === null || typeof v !== 'object' || Array.isArray(v);
-          if (isNonMapValue) return v;
-          const o = v as Record<string, unknown>;
-          const isNotWrapperClone = typeof o.typeName !== 'string' || o.__type !== undefined;
-          if (isNotWrapperClone) return v;
-          // Re-shape a stripped rules-wrapper clone into the wrapper's own
-          // canonical toJSON marker form (kept in sync with pyric/rules'
-          // simulator/wrappers/* instance fields + toJSON()) — but ONLY
-          // when the key set EXACTLY matches that wrapper's own-field
-          // shape. A looser match would silently DROP extra keys from
-          // user data that merely resembles a clone, collapsing two
-          // genuinely different docs into one canonical form and letting
-          // a concurrent write commit undetected (false equality). A
-          // near-miss map passes through unchanged — worst case is a
-          // spurious abort + retry, never a lost update.
-          switch (o.typeName) {
-            case 'timestamp': {
-              const hasTimestampFields = hasExactKeys(o, TS_CLONE_KEYS);
-              if (hasTimestampFields) return { __type: 'timestamp', seconds: o.seconds, nanos: o.nanos };
-              return v;
-            }
-            case 'duration': {
-              const hasDurationFields = hasExactKeys(o, TS_CLONE_KEYS);
-              if (hasDurationFields) return { __type: 'duration', seconds: o.seconds, nanos: o.nanos };
-              return v;
-            }
-            case 'latlng': {
-              const hasLocationFields = hasExactKeys(o, ['typeName', 'lat', 'lng']);
-              if (hasLocationFields) return { __type: 'latlng', lat: o.lat, lng: o.lng };
-              return v;
-            }
-            case 'reference': {
-              const hasReferenceFields = hasExactKeys(o, ['typeName', 'path']);
-              if (hasReferenceFields) return { __type: 'reference', path: o.path };
-              return v;
-            }
-            case 'path': {
-              const hasPathFields = hasExactKeys(o, ['typeName', 'segments', 'bindings']);
-              if (hasPathFields) return { __type: 'path', segments: o.segments };
-              return v;
-            }
-            case 'bytes': {
-              // Rebuild the Uint8Array's index-keyed map in canonical base64url form.
-              const hasByteFields = hasExactKeys(o, ['typeName', 'data']);
-              if (hasByteFields) return { __type: 'bytes', base64: indexMapToBase64Url(o.data) };
-              return v;
-            }
-            default:
-              return v;
-          }
-        });
+        return canonicalizeHydratedDoc(document);
       };
 
       try {
@@ -405,8 +434,8 @@ export async function handleFirestoreWriteOp(
         assertAtomicList(msg.reads, 'read');
         await sdkActivity.silence(() => runTransaction(db, async (tx) => {
           // ── Step 1: validate the read-set ──────────────────────────────
-          // Re-read each doc the client touched and compare its current
-          // serialized form against what the client recorded at read time.
+          // Re-read each doc the client touched and compare its live hydrated
+          // AST against the client's recorded snapshot AST.
           for (const read of msg.reads) {
             const isInvalidRead = read === null || typeof read !== 'object' || Array.isArray(read);
             if (isInvalidRead) {
@@ -422,25 +451,19 @@ export async function handleFirestoreWriteOp(
               throw new FirebaseError('invalid-argument', 'Firestore transaction read JSON must be a string.');
             }
             const clientHadNull = clientData === null;
-            const clientJson = clientHadNull ? null : canonicalDocJson(clientData.json, clientData.valueEncoding);
+            const clientCanonical = clientHadNull ? null : canonicalClientDoc(clientData.json, clientData.valueEncoding);
             const path = requireFirestorePath(read.path);
             const ref = pyricDoc(db, path);
             const currentSnap = await tx.get(ref);
             const existsBool = currentSnap.exists();
+            const liveDoc = existsBool ? (ctx.sandbox.admin.getDocument(path) ?? currentSnap.data() ?? null) : null;
 
-            // Retain the original short-circuiting and snapshot access timing.
-            let currentSerialized: SerializedDocData | null = null;
-            const hasCurrentData = existsBool && Boolean(currentSnap.data());
-            if (hasCurrentData) {
-              currentSerialized = serializeDocData(currentSnap.data() as Record<string, unknown>);
-            }
-
-            const workerHasNull = currentSerialized === null;
+            const workerHasNull = liveDoc === null;
             const hasChangedExistence = clientHadNull !== workerHasNull;
             if (hasChangedExistence) throw TXN_ABORT;
 
-            const hasChangedData = clientJson !== null && currentSerialized !== null
-              && clientJson !== canonicalDocJson(currentSerialized.json, currentSerialized.valueEncoding);
+            const hasChangedData = clientCanonical !== null && liveDoc !== null
+              && clientCanonical !== canonicalizeHydratedDoc(liveDoc);
             if (hasChangedData) throw TXN_ABORT;
           }
 

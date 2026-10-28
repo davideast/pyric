@@ -18,7 +18,7 @@
  * no globals.
  */
 
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import type { ProjectScope } from '../project-scope.js';
 import { resolveModules } from './modules/resolver.js';
 import { SimulateFirestoreRulesHandler } from './simulator/handler.js';

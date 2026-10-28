@@ -76,14 +76,24 @@ Add the Vite plugin to an existing Firebase application:
 npm install --save-dev @pyric/cli
 ```
 
-Keep the Firebase imports in the application:
+Keep the Firebase imports in the application. AI Logic requires App Check from November 2, 2026, and `getAI` reads App Check when it starts, so initialize App Check first:
 
 ```ts
 import { getAI } from 'firebase/ai';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+
+if (import.meta.env.DEV) {
+  const scope = self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string };
+  scope.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
+initializeAppCheck(firebaseApp, {
+  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
+  isTokenAutoRefreshEnabled: true,
+});
 
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
@@ -91,6 +101,8 @@ export const rtdb = getDatabase(firebaseApp);
 export const storage = getStorage(firebaseApp);
 export const ai = getAI(firebaseApp);
 ```
+
+The debug provider stands in for reCAPTCHA during development. The [AI Logic guide](./build/ai-logic.md#initialize-app-check-before-getai) covers the debug token and the site key.
 
 Then add Pyric to Vite:
 

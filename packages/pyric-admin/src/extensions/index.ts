@@ -1,14 +1,37 @@
 /**
- * `pyric-admin/extensions`: a deferred entry for `firebase-admin/extensions`.
- *
- * The sandbox does not model Extensions. Every value `firebase-admin/extensions`
- * exports is present so imports link; using one throws `PyricDeferredApiError`.
- * See `../deferred.ts`.
+ * `pyric-admin/extensions`: deferred service handle for `firebase-admin/extensions`.
  */
-import { deferredAdminEntry } from '../deferred.js';
+import type { PyricAdminApp } from '../app/index.js';
+import {
+  deferredAdminEntry,
+  guardDeferredServiceApp,
+  wireDeferredService,
+} from '../deferred.js';
 
 export { PyricDeferredApiError } from '../deferred.js';
 
-export const {
-  Extensions, Runtime, getExtensions,
-} = deferredAdminEntry('extensions');
+export class Extensions {
+  readonly #app: PyricAdminApp;
+
+  /** @internal */
+  constructor(...args: unknown[]) {
+    this.#app = guardDeferredServiceApp('extensions', 'Extensions', args);
+  }
+
+  get app(): PyricAdminApp {
+    return this.#app;
+  }
+
+  declare runtime: (...args: unknown[]) => never;
+}
+
+export const getExtensions: (app?: PyricAdminApp) => Extensions = wireDeferredService(
+  Extensions,
+  'extensions',
+  'Extensions',
+  {
+    sync: ['runtime'],
+  },
+);
+
+export const { Runtime } = deferredAdminEntry('extensions');

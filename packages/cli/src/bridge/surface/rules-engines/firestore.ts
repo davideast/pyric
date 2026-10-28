@@ -1,5 +1,5 @@
 /** The Firestore rules engine behind the `rules` tool. */
-import { DOCUMENT_PATH_FORM, rulesSourceRejection, type RulesSourceRejection } from 'pyric/rules/internal';
+import { DOCUMENT_PATH_FORM, parseToASTOrError, rulesSourceRejection, type RulesSourceRejection } from 'pyric/rules/internal';
 import { installFirestoreRules } from '../firestore-rules-load.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import {
@@ -25,7 +25,15 @@ const RECOMPILE_FIX =
  */
 function loadFailure(source: string): RulesSourceProblem | null {
   const rejection = rulesSourceRejection(source);
-  return rejection === null ? null : problemFor(rejection);
+  if (rejection !== null) return problemFor(rejection);
+  const parsed = parseToASTOrError(source);
+  if (parsed.ok && parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore') {
+    return {
+      body: `rules did not compile: Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`,
+      fix: REPARSE_FIX,
+    };
+  }
+  return null;
 }
 
 /** A rejection in the caller's words, with the edit that fixes it. */
@@ -44,9 +52,12 @@ function caseFor(request: RulesRequest): SimulationRequest {
     path: request.path,
   };
   if (request.uid !== undefined) simulation.uid = request.uid;
-  if (request.data !== undefined) simulation.data = request.data;
+  // The method's validation has already refused a non-object value for this service.
+  if (request.data !== undefined) simulation.data = request.data as SimulationRequest['data'];
   if (request.rules !== undefined) simulation.rules = request.rules;
   if (request.requestTime !== undefined) simulation.requestTime = request.requestTime;
+  // The method's validation has already refused a query on anything but a list.
+  if (request.query !== undefined) simulation.query = request.query as SimulationRequest['query'];
   return simulation;
 }
 
@@ -79,12 +90,15 @@ export const FIRESTORE_RULES: RulesEngine = {
     if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
     const detail = simulationDetail(outcome.result);
     const decision = outcome.allowed ? 'ALLOW' : 'DENY';
-    const verdict = `${request.operation} ${request.path}: ${decision}`;
+    const queryProof = detail?.queryProof as { verdict?: string } | undefined;
+    const proofLabel = queryProof?.verdict !== undefined ? ` (queryProof: ${queryProof.verdict})` : '';
+    const verdict = `${request.operation} ${request.path}: ${decision}${proofLabel}`;
     const unmatched = unmatchedPathReason(detail);
     const data: Record<string, unknown> = {
       allowed: outcome.allowed,
       auth: outcome.auth,
       case: detail,
+      ...(queryProof !== undefined ? { queryProof } : {}),
     };
     if (unmatched === null) {
       return { ok: true, summary: verdict, data };
@@ -94,6 +108,10 @@ export const FIRESTORE_RULES: RulesEngine = {
   },
 
   async install(ctx, rules) {
+    const failure = loadFailure(rules);
+    if (failure !== null) {
+      return operationFailure(`Firestore ${failure.body} ${failure.fix}`);
+    }
     const rejection = installFirestoreRules(ctx.sandbox, rules);
     if (rejection !== null) {
       const problem = problemFor(rejection);
@@ -110,14 +128,18 @@ export async function explainFirestoreDenial(
 ) {
   const outcome = await simulateFirestoreCase(ctx, caseFor(request));
   if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
+  const detail = simulationDetail(outcome.result);
+  const queryProof = detail?.queryProof as { verdict?: string } | undefined;
   const verdict = outcome.allowed ? 'allowed' : 'denied';
+  const proofSuffix = queryProof?.verdict !== undefined ? ` (queryProof: ${queryProof.verdict})` : '';
   return {
     ok: true,
-    summary: `${request.operation} ${request.path} is ${verdict} for this identity.`,
+    summary: `${request.operation} ${request.path} is ${verdict} for this identity.${proofSuffix}`,
     data: {
       allowed: outcome.allowed,
       auth: outcome.auth,
-      case: simulationDetail(outcome.result),
+      case: detail,
+      ...(queryProof !== undefined ? { queryProof } : {}),
     },
   };
 }

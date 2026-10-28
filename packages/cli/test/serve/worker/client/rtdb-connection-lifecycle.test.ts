@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { cleanupPortWithDisconnect } from '../../../../src/serve/worker/host.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { disconnectClient } from '../../../../src/serve/worker/client/disconnect.js';
-import { connectClientToHost, makeHostCtx, sleep } from '../integration-support.js';
+import { connectClientToHost, makeHostCtx, until } from '../integration-support.js';
 
 describe('RTDB worker connection lifecycle', () => {
   let restoreSW: () => void;
@@ -46,7 +46,7 @@ describe('RTDB worker connection lifecycle', () => {
 
     const events: unknown[] = [];
     const unsubscribe = client.rtdbOnValue(observerRef, (snapshot) => events.push(snapshot.val()));
-    await sleep();
+    await until(() => events.length >= 1, 'initial observer value');
     const presence = client.rtdbChild(writerRef, 'presence');
     await client.rtdbOnDisconnect(presence).set({ state: 'offline', child: 'parent-child' });
     await client.rtdbOnDisconnect(client.rtdbChild(presence, 'child')).set('queued-child');
@@ -63,7 +63,7 @@ describe('RTDB worker connection lifecycle', () => {
       .toEqual({ state: 'online', child: 'original-child' });
 
     client.rtdbGoOffline(writerDb);
-    await sleep();
+    await until(() => events.length >= 5, 'observer snapshots of the drained queue');
     const terminal = (await client.rtdbGet(observerRef)).val();
     expect(terminal).toEqual({
       presence: { state: 'offline', child: 'original-child' },
@@ -103,7 +103,9 @@ describe('RTDB worker connection lifecycle', () => {
       terminal,
     ]);
     await cleanupPortWithDisconnect(ctx, writerHostPort);
-    await sleep();
+    // The observer port answers this read after any snapshot the awaited teardown
+    // posted to it: writes fan out before the host replies, and the port is FIFO.
+    await client.rtdbGet(observerRef);
     expect(events).toHaveLength(5);
     unsubscribe();
   });
@@ -133,5 +135,141 @@ describe('RTDB worker connection lifecycle', () => {
     expect(failure).toMatchObject({ code: 'PERMISSION_DENIED' });
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'rulesTarget'))).val()).toBe('seed');
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'drainControl'))).val()).toBe('drained');
+  });
+
+  it('cancelling an unqueued child keeps a parent set whole so a tightened parent .write denies it and setWithPriority keeps its priority (#1021)', async () => {
+    const ctx = await makeHostCtx();
+    const { db: writerClient } = connectClientToHost(ctx, 'worker://disconnect-1021-cancel-writer');
+    const { db: observerClient } = connectClientToHost(ctx, 'worker://disconnect-1021-cancel-observer');
+    const writerDb = client.rtdbGetDatabase(writerClient);
+    const observerDb = client.rtdbGetDatabase(observerClient);
+    const tight = "root.child('flags').child('tight').val() != true";
+    await client.setDatabaseRules(writerClient, {
+      rules: {
+        '.read': true,
+        flags: { '.write': true },
+        doc: { '.write': tight, $k: { '.write': true } },
+        prio: { '.write': true },
+      },
+    });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'doc'), { a: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), false);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'doc')).set({ a: 2 });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'doc/neverQueued')).cancel();
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), true);
+
+    await client.rtdbSet(client.rtdbRef(writerDb, 'prio'), { a: 1, keep: 'x' });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'prio')).setWithPriority({ a: 2 }, 9);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'prio/neverQueued')).cancel();
+
+    let prioPriority: unknown;
+    const stopPrio = client.rtdbOnValue(client.rtdbRef(observerDb, 'prio'), (snapshot) => { prioPriority = snapshot.priority; });
+    client.rtdbGoOffline(writerDb);
+    // The host drains a port's queue in registration order (drainPortRtdbDisconnects),
+    // so once prio's write reaches the observer, doc's denied set has been attempted.
+    await until(() => prioPriority === 9, 'drained prio setWithPriority');
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'doc'))).exportVal()).toEqual({ a: 1, keep: 'x' });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'prio'))).exportVal()).toEqual({ a: 2, '.priority': 9 });
+    stopPrio();
+  });
+
+  it('re-registering a parent remove or set replaces a queued descendant operation (#1021)', async () => {
+    for (const last of ['remove', 'set'] as const) {
+      const ctx = await makeHostCtx();
+      const { db: writerClient } = connectClientToHost(ctx, `worker://disconnect-1021-${last}-writer`);
+      const { db: observerClient } = connectClientToHost(ctx, `worker://disconnect-1021-${last}-observer`);
+      const writerDb = client.rtdbGetDatabase(writerClient);
+      const observerDb = client.rtdbGetDatabase(observerClient);
+      await client.setDatabaseRules(writerClient, { rules: { '.read': true, '.write': true } });
+      await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres')).set({ status: 'first' });
+      await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres/sub')).set('stale-child');
+      let expected: unknown = { status: 'second' };
+      if (last === 'remove') {
+        await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres')).remove();
+        expected = null;
+      } else {
+        await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'pres')).set({ status: 'second' });
+      }
+      // A control write queued last: the host drains in registration order
+      // (drainPortRtdbDisconnects), so its arrival means pres has been drained.
+      await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'drainControl')).set(true);
+      let drained = false;
+      const stopControl = client.rtdbOnValue(client.rtdbRef(observerDb, 'drainControl'), (snapshot) => { drained = snapshot.val() === true; });
+      client.rtdbGoOffline(writerDb);
+      await until(() => drained, 'drained control write');
+      expect((await client.rtdbGet(client.rtdbRef(observerDb, 'pres'))).exportVal()).toEqual(expected);
+      stopControl();
+    }
+  });
+
+  it('cancelling a path inside a queued set or update splits into a deep per-leaf merge and preserves parent priority (probe-ondisconnect-edge)', async () => {
+    const ctx = await makeHostCtx();
+    const { db: writerClient } = connectClientToHost(ctx, 'worker://disconnect-split-edge-writer');
+    const { db: observerClient } = connectClientToHost(ctx, 'worker://disconnect-split-edge-observer');
+    const writerDb = client.rtdbGetDatabase(writerClient);
+    const observerDb = client.rtdbGetDatabase(observerClient);
+    const tight = "root.child('flags').child('tight').val() != true";
+    await client.setDatabaseRules(writerClient, {
+      rules: {
+        '.read': true,
+        flags: { '.write': true },
+        e1: { '.write': true },
+        e1r: { doc: { '.write': tight, $k: { '.write': true } } },
+        e2n: { '.write': true },
+        c1: { '.write': true },
+        drainControl: { '.write': true },
+      },
+    });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'e1/doc'), { a: 1, b: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'e1r/doc'), { a: 1, b: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'e2n/doc'), { a: { x: 1, y: 1, keep: 'x' }, b: 1 });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'c1/doc'), { a: 1, b: 1, keep: 'x' });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), false);
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1/doc')).setWithPriority({ a: 2, b: 3 }, 9);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1/doc/b')).cancel();
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1r/doc')).set({ a: 2, b: 3 });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e1r/doc/b')).cancel();
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e2n/doc')).update({ a: { x: 2, y: 3 }, b: 4 });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'e2n/doc/a/y')).cancel();
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'c1/doc')).setWithPriority({ a: 2, b: 3 }, 9);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'c1/doc/b')).set(30);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'c1/doc/b')).cancel();
+
+    await client.rtdbSet(client.rtdbRef(writerDb, 'flags/tight'), true);
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'drainControl')).set(true);
+
+    let drained = false;
+    const stopControl = client.rtdbOnValue(client.rtdbRef(observerDb, 'drainControl'), (snapshot) => {
+      drained = snapshot.val() === true;
+    });
+    client.rtdbGoOffline(writerDb);
+    await until(() => drained, 'drained split-edge operations');
+
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'e1/doc'))).exportVal()).toEqual({
+      '.priority': 9,
+      a: 2,
+      b: 1,
+      keep: 'x',
+    });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'e1r/doc'))).exportVal()).toEqual({
+      a: 2,
+      b: 1,
+      keep: 'x',
+    });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'e2n/doc'))).exportVal()).toEqual({
+      a: { keep: 'x', x: 2, y: 1 },
+      b: 4,
+    });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'c1/doc'))).exportVal()).toEqual({
+      '.priority': 9,
+      a: 2,
+      b: 1,
+      keep: 'x',
+    });
+    stopControl();
   });
 });

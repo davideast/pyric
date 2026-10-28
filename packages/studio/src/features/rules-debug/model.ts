@@ -22,6 +22,8 @@ import type {
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
+import { locateRtdbRule, locateRtdbTrace } from 'pyric/rules/internal/rtdb';
+import type { RtdbRuleEvaluation } from 'pyric/rules/internal/rtdb';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent | SandboxListenerEvent;
 
@@ -65,8 +67,11 @@ export interface Denial {
   /** Raw simulator/enforcer trace lines (Firestore `Rule #N (ops) → deny`;
    *  RTDB `${path} write DENY: …`; Storage `match /… verb: condition false`). */
   reasons: string[];
-  /** Proposed write payload (create/update/set). Absent on reads + delete. */
+  /** Proposed write payload (create/update/set). Absent on reads + delete.
+   *  An update's payload is the fields it writes, as nested maps. */
   resourceData?: unknown;
+  /** An update's field paths as segment vectors; a segment may contain `.`. */
+  updateMask?: string[][];
   /** Existing doc state the rule saw (`null`/`exists:false` ⇒ absent doc). */
   resourceBefore?: { data: unknown; exists: boolean };
   /** The DECIDING rule's verdict + 1-indexed source line + condition text +
@@ -143,6 +148,15 @@ function requestDataOf(e: DeniedSandboxEvent): unknown {
   if ('resourceData' in request && request.resourceData !== undefined) return request.resourceData;
   if ('data' in request) return request.data;
   return undefined;
+}
+
+function updateMaskOf(e: DeniedSandboxEvent): string[][] | undefined {
+  if (!('request' in e) || !e.request) return undefined;
+  const request = e.request as { updateMask?: unknown };
+  const mask = request.updateMask;
+  const isMask = Array.isArray(mask)
+    && mask.every((path) => Array.isArray(path) && path.every((segment) => typeof segment === 'string'));
+  return isMask ? (mask as string[][]) : undefined;
 }
 
 function enrichListenerDenials(denials: Denial[], events: readonly SandboxEvent[]): Denial[] {
@@ -254,6 +268,8 @@ export function toDenial(e: DeniedSandboxEvent): Denial {
   if ('rules' in e && e.rules) d.rules = e.rules;
   const requestData = requestDataOf(e);
   if (requestData !== undefined) d.resourceData = requestData;
+  const updateMask = updateMaskOf(e);
+  if (updateMask !== undefined) d.updateMask = updateMask;
   if ('resourceBefore' in e && e.resourceBefore) {
     d.resourceBefore = {
       data: e.resourceBefore.data,
@@ -321,12 +337,28 @@ function engineOf(denial: Denial): RuleEngine {
   return e === 'rtdb' || e === 'storage' ? e : 'firestore';
 }
 
+function isRtdbValidateReason(reason: string | undefined): boolean {
+  return reason === 'Validation rule evaluated to false' || Boolean(reason?.startsWith("Validation rule at '"));
+}
+
 /** RTDB rule phase for a denial: a `.validate` failure (from the mechanical
  *  `reason`) beats the method-derived read/write gate. */
 function rtdbPhase(denial: Denial): RulePhase {
-  if (denial.rules?.reason === 'Validation rule evaluated to false') return 'validate';
+  if (isRtdbValidateReason(denial.rules?.reason)) return 'validate';
   const m = denial.method;
   return m === 'get' || m === 'list' || m === 'listen' ? 'read' : 'write';
+}
+
+/** 1-based line in `database.rules.json` of the RTDB rule that decided a
+ *  denial: the `.read`, `.write` or `.validate` key at the verdict's
+ *  `matchedPath`. Undefined for an implicit deny, for a verdict without a
+ *  matched path, or when the source is absent or does not contain the rule. */
+export function rtdbRuleLine(denial: Denial, rulesSource: string | undefined): number | undefined {
+  const matchedPath = denial.rules?.matchedPath;
+  if (!rulesSource || !matchedPath || denial.rules?.errorCode === 'NO_MATCHING_RULE') {
+    return undefined;
+  }
+  return locateRtdbRule(rulesSource, matchedPath, `.${rtdbPhase(denial)}`)?.line;
 }
 
 /** Static attribution is separate from the rule that actually evaluated. */
@@ -525,13 +557,15 @@ export function denialSeverity(denial: Denial): DenialSeverity {
  *   - `true` / `false`  the sub-expression evaluated to that boolean;
  *   - `skipped`         a `&&`/`||` operand short-circuited (not evaluated);
  *   - `error`           the sub-expression threw;
+ *   - `unsupported`     the simulator could not evaluate it (RTDB trace rows);
+ *                       `error` carries what it could not evaluate;
  *   - `value`           a non-boolean value (an operand feeding a comparison).
  * `depth` and `children` reconstruct the AST tree from the flat trace so the
  * view can indent operands under their operator. Pure — unit-tested.
  */
 export interface TraceStep {
   source: string;
-  outcome: 'true' | 'false' | 'skipped' | 'error' | 'value';
+  outcome: 'true' | 'false' | 'skipped' | 'error' | 'unsupported' | 'value';
   value?: unknown;
   error?: string;
   /** Set when this node recorded a `let name = …` binding inside a function. */
@@ -579,6 +613,65 @@ export function projectTraceSteps(denial: Denial): TraceStep[] {
     }
   });
   return roots;
+}
+
+// ─── RTDB evaluation trace ────────────────────────────────────────────────────
+
+/** How an RTDB rule verdict reads as a {@link TraceStep} outcome, so RTDB rows
+ *  render with the same step component as Firestore's expression trace. */
+const RTDB_VERDICT_OUTCOME: Record<RtdbRuleEvaluation['verdict'], TraceStep['outcome']> = {
+  ALLOW: 'true',
+  DENY: 'false',
+  ERROR: 'error',
+  UNSUPPORTED: 'unsupported',
+};
+
+/** One rule the RTDB engine evaluated, in evaluation order. */
+export interface RtdbTraceRow {
+  /** The rule node's path in the ruleset, such as `/rooms/$roomId`. */
+  path: string;
+  kind: RtdbRuleEvaluation['kind'];
+  verdict: RtdbRuleEvaluation['verdict'];
+  /** The rule's expression and verdict as a Firestore-style trace step. */
+  step: TraceStep;
+  /** The `$` wildcards bound at this node. */
+  bindings: Record<string, string>;
+  /** 1-based line of the rule in `database.rules.json`. Absent when the source
+   *  is unavailable or does not contain the rule. */
+  line?: number;
+}
+
+/**
+ * Project the RTDB evaluation trace carried on a denial's rules verdict into
+ * one row per evaluated rule, root first. `rulesSource` is the text of
+ * `database.rules.json`; with it each row names the line of its rule. Returns
+ * `[]` for an event with no RTDB trace (another service, or an operation no rule
+ * of the requested kind covers).
+ */
+export function projectRtdbTrace(denial: Denial, rulesSource?: string): RtdbTraceRow[] {
+  const trace = denial.rules?.rtdbTrace;
+  if (!trace || trace.length === 0) return [];
+  const located: Array<RtdbRuleEvaluation & { line?: number }> =
+    rulesSource === undefined ? [...trace] : locateRtdbTrace(rulesSource, trace);
+  return located.map((entry) => {
+    const step: TraceStep = {
+      source: entry.conditionText,
+      outcome: RTDB_VERDICT_OUTCOME[entry.verdict],
+      ...(entry.verdict === 'ALLOW' || entry.verdict === 'DENY' ? { value: entry.verdict === 'ALLOW' } : {}),
+      ...(entry.message !== undefined ? { error: entry.message } : {}),
+      depth: 0,
+      children: [],
+    };
+    const row: RtdbTraceRow = {
+      path: entry.path,
+      kind: entry.kind,
+      verdict: entry.verdict,
+      step,
+      bindings: entry.pathVariableBindings,
+    };
+    if (entry.line !== undefined) row.line = entry.line;
+    return row;
+  });
 }
 
 // ─── "What the rule saw": inspectable request/resource variables ────────────

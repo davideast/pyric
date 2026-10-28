@@ -1,0 +1,94 @@
+{
+  "name": "auth-requires-recent-login",
+  "matrixRow": "auth #176",
+  "rowIds": [
+    "auth#176",
+    "auth#84",
+    "auth#85"
+  ],
+  "description": "The recent-login gate. Signs in several independent accounts (one Auth instance each, so every session keeps its own sign-in time), waits past the documented five-minute window, and records which sensitive operations refuse a stale session with which code and message. Brackets the window length with deleteUser at fixed ages, checks whether a forced token refresh restarts the window (it reads the sign-in time, not the token issue time), and checks that reauthenticateWithCredential clears the gate. Every account is removed through the Admin SDK at the end so no arm can leak one.",
+  "observedAt": "2026-10-07T03:34:51.828Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "freshUpdatePassword": {
+      "code": null
+    },
+    "windowBracket": [
+      {
+        "targetAgeSeconds": 280,
+        "ageSeconds": 280,
+        "deleteUser": null
+      },
+      {
+        "targetAgeSeconds": 295,
+        "ageSeconds": 295,
+        "deleteUser": null
+      },
+      {
+        "targetAgeSeconds": 305,
+        "ageSeconds": 305,
+        "deleteUser": "auth/requires-recent-login"
+      },
+      {
+        "targetAgeSeconds": 320,
+        "ageSeconds": 320,
+        "deleteUser": "auth/requires-recent-login"
+      }
+    ],
+    "forcedRefresh": {
+      "issuedAtChanged": true,
+      "authTimeOlderThanIssuedAt": true
+    },
+    "gated": {
+      "ageSeconds": 330,
+      "updateProfile": {
+        "code": null
+      },
+      "getIdTokenForced": {
+        "code": null
+      },
+      "updatePassword": {
+        "code": "auth/requires-recent-login",
+        "message": "Firebase: Error (auth/requires-recent-login)."
+      },
+      "updateEmail": {
+        "code": "auth/operation-not-allowed",
+        "message": "Firebase: Please verify the new email before changing email. (auth/operation-not-allowed)."
+      },
+      "verifyBeforeUpdateEmail": {
+        "code": "auth/requires-recent-login",
+        "message": "Firebase: Error (auth/requires-recent-login)."
+      },
+      "deleteUser": {
+        "code": "auth/requires-recent-login",
+        "message": "Firebase: Error (auth/requires-recent-login)."
+      },
+      "unlinkPassword": {
+        "code": null
+      },
+      "anonymousLinkWithCredential": {
+        "code": null
+      },
+      "anonymousDeleteUser": {
+        "code": null
+      },
+      "afterForcedRefreshUpdatePassword": {
+        "code": "auth/requires-recent-login",
+        "message": "Firebase: Error (auth/requires-recent-login)."
+      }
+    },
+    "afterReauth": {
+      "reauthenticate": {
+        "code": null
+      },
+      "updatePassword": {
+        "code": null
+      },
+      "deleteUser": {
+        "code": null
+      }
+    },
+    "cleanupLeaked": false
+  }
+}

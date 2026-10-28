@@ -15,6 +15,7 @@ export const RTDB_SCORE_CLASSIFICATIONS = [
   'conformant',
   'diverged',
   'unknown',
+  'acceptance-mismatch',
   'local-unsupported',
   'local-error',
   'unprobeable',
@@ -81,8 +82,16 @@ function classify(
   if (construct.status === 'unprobeable' || capability.classification === 'unprobeable') {
     return 'unprobeable';
   }
+  // Production refuses to deploy the construct. Credit requires Pyric's
+  // load-time check to refuse it too, and the refusal to be captured.
+  if (construct.status === 'rejected') {
+    if (capability.classification !== 'error') return 'acceptance-mismatch';
+    return coverage.verdict === 'verified' ? 'conformant' : 'unknown';
+  }
   if (capability.classification === 'unsupported') return 'local-unsupported';
   if (capability.classification === 'error') return 'local-error';
+  // A probe that carries production's captured verdict must reproduce it.
+  if (capability.evaluationAgreement === false) return 'acceptance-mismatch';
   if (coverage.verdict === 'unverified' && !construct.unattributable) return 'unknown';
   return 'conformant';
 }

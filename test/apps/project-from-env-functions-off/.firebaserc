@@ -1,0 +1,7 @@
+{
+  "projects": { "staging": "my-app-staging", "prod": "my-app-prod" },
+  "targets": {
+    "my-app-staging": { "database": { "main": ["my-app-staging-main"] } },
+    "my-app-prod": { "database": { "main": ["my-app-prod-main"] } }
+  }
+}

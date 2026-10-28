@@ -3,6 +3,7 @@ import { canIUse } from '../../../src/conformance/can-i-use.js';
 import { canIUse as browserCanIUse } from '../../../src/conformance/browser.js';
 import { createConformanceTools } from '../../../src/conformance/tools.js';
 import { CONFORMANCE_SUPPORTS } from '../../../src/conformance/.generated/can-i-use.js';
+import { CONFORMANCE_SUPPORTS as BROWSER_CONFORMANCE_SUPPORTS } from '../../../src/conformance/.generated/can-i-use-browser.js';
 import { SERVED_MODULES } from '../../../src/conformance/.generated/served-availability.js';
 import { classifyServedExport } from '../../../src/conformance/served-query.js';
 import { deriveServedModules, servedServices } from '../../../scripts/generate-served-availability.ts';
@@ -92,6 +93,11 @@ test('served reporting preserves engine trust axes and agrees across Node and br
         assurance: original?.assurance, claims: original?.claims, importPaths: original?.importPaths });
     }
   }
+});
+
+test('the browser projection carries every Node feature answer without claims', () => {
+  const nodeAnswers = CONFORMANCE_SUPPORTS.map(({ claims: _claims, ...support }) => support);
+  expect(BROWSER_CONFORMANCE_SUPPORTS).toEqual(nodeAnswers);
 });
 
 test('erased type features keep their engine evidence without a runtime availability claim', () => {

@@ -1,0 +1,160 @@
+{
+  "name": "rules-storage-h1-int64-precision",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#207"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-int64-precision\" (STORAGE-H1-INT64). Ints are documented as 64-bit; JavaScript doubles make distinct values above 2^53 equal and leave overflow unmodeled.",
+  "observedAt": "2026-10-27T02:46:27.727Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "596de6e0e1dbb1d32c1bb2fe46fd5bdb273b37f8650e6b06bae2e014bacd6677"
+  },
+  "behavior": {
+    "distinct-literals-equal: 9007199254740993 == 9007199254740992 (pyric ALLOW)": "DENY",
+    "int-of-string-equal: int(request.resource.metadata.v) == 9007199254740992 (pyric ALLOW)": "DENY",
+    "max-greater-than-max-minus-one: 9223372036854775807 > 9223372036854775806 (pyric DENY)": "ALLOW",
+    "exact-subtraction: 9007199254740993 - 1 == 9007199254740992 (pyric DENY)": "ALLOW",
+    "string-of-int64: string(9007199254740993) == '9007199254740993' (pyric DENY)": "ALLOW",
+    "overflow-wraps-negative: 9223372036854775807 + 1 < 0 (pyric DENY)": "DENY",
+    "overflow-stays-positive: 9223372036854775807 + 1 > 0 (pyric ALLOW)": "DENY",
+    "overflow-is-error-absorbed: (9223372036854775807 + 1 == 0) || true (pyric ALLOW)": "ALLOW",
+    "overflow-not-is-error: !(9223372036854775807 + 1 == 0) (pyric ALLOW)": "DENY"
+  },
+  "diagnostics": {
+    "distinct-literals-equal: 9007199254740993 == 9007199254740992 (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 63,
+              "currentOffset": 134,
+              "endOffset": 149
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "int-of-string-equal: int(request.resource.metadata.v) == 9007199254740992 (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 59,
+              "currentOffset": 232,
+              "endOffset": 234
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "max-greater-than-max-minus-one: 9223372036854775807 > 9223372036854775806 (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 70,
+              "currentOffset": 357,
+              "endOffset": 375
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "exact-subtraction: 9007199254740993 - 1 == 9007199254740992 (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 57,
+              "currentOffset": 458,
+              "endOffset": 473
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "string-of-int64: string(9007199254740993) == '9007199254740993' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 55,
+              "currentOffset": 556,
+              "endOffset": 561
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "overflow-wraps-negative: 9223372036854775807 + 1 < 0 (pyric DENY)": {
+      "notes": [
+        "Error: storage.rules line [9], column [83]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 9,
+          "column": 83,
+          "currentOffset": 688,
+          "endOffset": 688
+        }
+      }
+    },
+    "overflow-stays-positive: 9223372036854775807 + 1 > 0 (pyric ALLOW)": {
+      "notes": [
+        "Error: storage.rules line [10], column [83]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 10,
+          "column": 83,
+          "currentOffset": 781,
+          "endOffset": 781
+        }
+      }
+    },
+    "overflow-is-error-absorbed: (9223372036854775807 + 1 == 0) || true (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 66,
+              "currentOffset": 857,
+              "endOffset": 857
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "overflow-not-is-error: !(9223372036854775807 + 1 == 0) (pyric ALLOW)": {
+      "notes": [
+        "Error: storage.rules line [12], column [83]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 12,
+          "column": 83,
+          "currentOffset": 981,
+          "endOffset": 981
+        }
+      }
+    }
+  }
+}

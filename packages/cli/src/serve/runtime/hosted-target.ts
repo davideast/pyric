@@ -1,4 +1,5 @@
 import type { WorkerInitPayload } from '../init-payload.js';
+import type { OwnersConfig } from '../owners-config.js';
 
 /** Hosted selection is stamped before Studio starts; absence retains SharedWorker. */
 export function readHostedTarget(): { url: string; projectKey: string } | null {
@@ -18,12 +19,34 @@ export function readHostedTarget(): { url: string; projectKey: string } | null {
   return { url: `${protocol}//${location.host}/__pyric/sandbox`, projectKey };
 }
 
-export function stampHostedTarget(html: string, projectKey: string | undefined): string {
+/**
+ * The page's synchronous transport selection. Served HTML carries it as
+ * `__PYRIC_WORKER_INIT__`; a Next.js page, whose HTML pyric never serves,
+ * gets the same value inlined into its client bundle (`next/runtime-env.ts`).
+ */
+export function workerInitPayload(
+  projectKey: string | undefined,
+  owners?: OwnersConfig,
+  instanceId?: string,
+): WorkerInitPayload {
   const hosted = projectKey !== undefined;
   const payload: WorkerInitPayload = {
     hosted, projectKey: projectKey ?? null,
     bridgeUrl: hosted ? '/__pyric/sandbox' : null,
   };
+  if (owners !== undefined) payload.owners = owners;
+  if (hosted && instanceId !== undefined) payload.instanceId = instanceId;
+  return payload;
+}
+
+export function stampHostedTarget(
+  html: string,
+  projectKey: string | undefined,
+  owners?: OwnersConfig,
+  instanceId?: string,
+): string {
+  const hosted = projectKey !== undefined;
+  const payload = workerInitPayload(projectKey, owners, instanceId);
   const serialized = JSON.stringify(payload).replaceAll('<', '\\u003c');
   let declaration = `<script data-pyric-worker-init>globalThis.__PYRIC_WORKER_INIT__=${serialized};</script>`;
   if (hosted) {

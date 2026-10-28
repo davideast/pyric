@@ -20,7 +20,9 @@ import { FirebaseError } from 'pyric/app';
 import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
+import { requestInstance } from '../request-instance.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
+import { closeSendOrder, issueTime, postInOrder, waitsToSubscribe, withdrawOperation, withdrawSubscription, type SendReservation } from './send-order.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -38,10 +40,16 @@ export function nextSubId(): string { return `sub-${++_subCounter}`; }
 export const _pending = new Map<string, {
   port: ClientPort;
   clientSessionId?: string;
+  /** The named RTDB instance the request addressed; a denial relay names it. */
+  instance?: string;
   budget?: ReturnType<typeof createOperationBudget>;
   release?: () => void;
+  /** When the app issued the request; a hold deadline counts from here. */
+  issuedAt: number;
+  /** The frame the request sent, so a transport can send it again after a drop. */
+  message: InboundMessage;
   resolve: (v: unknown) => void;
-  reject: (e: Error & { code: string }) => void;
+  reject: (e: Error & { code?: string }) => void;
 }>();
 
 /**
@@ -85,26 +93,90 @@ function appDeletedError(): Error & { code: string } {
   return Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' });
 }
 
+/**
+ * What on `port` is still waiting on the host: requests without a reply, and
+ * data subscriptions (Firestore, RTDB, an AI stream). Auth state, presence,
+ * messaging and event-stream subscriptions are not counted; they observe the
+ * host rather than wait on it. A Node process stays up while this is nonzero.
+ */
+export function outstandingWorkOn(port: ClientPort): number {
+  let count = 0;
+  for (const pending of _pending.values()) {
+    const ownsRequest = pending.port === port;
+    if (ownsRequest) count += 1;
+  }
+  for (const subscription of _snapSubs.values()) {
+    const ownsSubscription = subscription.port === port;
+    const target = (subscription.message as { target?: unknown } | undefined)?.target;
+    const waitsOnData = typeof target === 'object' && target !== null;
+    if (ownsSubscription && waitsOnData) count += 1;
+  }
+  return count;
+}
+
 export function isDisconnectedPort(port: ClientPort): boolean {
   return disconnectedPorts.has(port);
+}
+
+type SnapshotSubscription = typeof _snapSubs extends Map<string, infer T> ? T : never;
+
+/** A subscription in the routing table whose `sub` frame the caller sends later. */
+export interface RegisteredSubscription {
+  /**
+   * Sends the `sub` frame, in `reservation`'s place when one is given. Does
+   * nothing once the subscription was cancelled. A frame the transport
+   * refuses reports through the subscription's error callback, never a throw.
+   */
+  send(message: InboundMessage, reservation?: SendReservation): void;
+}
+
+/**
+ * Puts a subscription in the routing table before its frame exists (D7), or
+ * returns undefined when its app port is closed. Until `send` runs the entry
+ * has no message, so no restore re-sends it and a cancel sends nothing.
+ */
+export function registerSnapshotSubscription(
+  port: ClientPort,
+  subId: string,
+  subscription: SnapshotSubscription,
+): RegisteredSubscription | undefined {
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return undefined;
+  const entry: SnapshotSubscription = { ...subscription, message: undefined };
+  _snapSubs.set(subId, entry);
+  const isRegistered = (): boolean => _snapSubs.get(subId) === entry;
+  const failed = (error: unknown): void => {
+    const wasRegistered = isRegistered() && _snapSubs.delete(subId);
+    if (wasRegistered) subscription.error?.(error);
+  };
+  return {
+    send(message, reservation) {
+      const wasCancelled = !isRegistered();
+      if (wasCancelled) return;
+      entry.message = message;
+      try {
+        if (reservation !== undefined) reservation.send(message, failed);
+        else postInOrder(port, message, failed);
+      } catch (error) {
+        // A closed transport refuses the frame; the listener hears it as an error, as a deleted app's would.
+        queueMicrotask(() => failed(error));
+      }
+    },
+  };
 }
 
 /** Atomically register and post a subscription unless its app port is closed. */
 export function openSnapshotSubscription(
   port: ClientPort,
   subId: string,
-  subscription: (typeof _snapSubs extends Map<string, infer T> ? T : never),
+  subscription: SnapshotSubscription,
   message: InboundMessage,
+  reservation?: SendReservation,
 ): boolean {
-  const isDeleted = disconnectedPorts.has(port);
+  const registered = registerSnapshotSubscription(port, subId, subscription);
+  const isDeleted = registered === undefined;
   if (isDeleted) return false;
-  _snapSubs.set(subId, { ...subscription, message });
-  try {
-    port.postMessage(message);
-  } catch (error) {
-    _snapSubs.delete(subId);
-    throw error;
-  }
+  registered.send(message, reservation);
   return true;
 }
 
@@ -120,21 +192,33 @@ export function openEventSubscription(
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) { error?.(appDeletedError()); return false; }
   _eventSubs.set(subId, { port, next, error, message, restored });
-  port.postMessage(message);
+  const failed = (cause: unknown): void => {
+    const isRegistered = _eventSubs.get(subId)?.message === message && _eventSubs.delete(subId);
+    if (isRegistered) error?.(cause instanceof FirebaseError ? cause : appDeletedError());
+  };
+  try {
+    postInOrder(port, message, failed);
+  } catch (cause) {
+    queueMicrotask(() => failed(cause));
+  }
   return true;
 }
 
 /** Move existing observers when getToken selects a different Service Worker scope. */
-export function retargetMessagingSubscriptions(port: ClientPort, recipientId: string): void {
+export function retargetMessagingSubscriptions(
+  port: ClientPort,
+  recipientId: string,
+  postMessage: ClientPort['postMessage'] = message => postInOrder(port, message),
+): void {
   for (const [subId, subscription] of _snapSubs) {
     const message = subscription.message;
     const ownsSubscription = subscription.port === port && message?.t === 'sub';
     if (!ownsSubscription) continue;
     const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
     if (!isMessaging) continue;
-    port.postMessage({ t: 'unsub', subId });
+    postMessage({ t: 'unsub', subId });
     message.recipientId = recipientId;
-    port.postMessage(message);
+    postMessage(message);
   }
 }
 
@@ -192,58 +276,173 @@ export function restoreAuthSubscriptions(port: ClientPort, postMessage: ClientPo
   }
 }
 
-/** Remove a local subscription and notify only a live app port. */
+/**
+ * Remove a local subscription and notify only a live app port (D10). The host
+ * hears `unsub` once, and only when its `sub` frame was sent: a second cancel
+ * sends nothing, and a cancel before the frame left the client takes the
+ * frame back instead.
+ */
 export function closeSubscription(
   port: ClientPort,
   subId: string,
   clientSessionId?: string,
 ): void {
+  const entry = _snapSubs.get(subId) ?? _eventSubs.get(subId);
+  const isOpen = entry !== undefined;
+  if (!isOpen) return;
   _snapSubs.delete(subId);
   _eventSubs.delete(subId);
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return;
+  const wasNeverSent = entry.message === undefined
+    || withdrawSubscription(port, subId)
+    || port.withdrawSubscription?.(subId) === true;
+  if (wasNeverSent) return;
   const message: InboundMessage = { t: 'unsub', subId };
   const hasSessionId = clientSessionId !== undefined && clientSessionId !== '';
   if (hasSessionId) message.clientSessionId = clientSessionId;
-  try {
-    port.postMessage(message);
-  } catch {
+  const ignore = (): void => {
     // Local cancellation is complete even when the host cannot be notified.
+  };
+  try {
+    postInOrder(port, message, ignore);
+  } catch {
+    ignore();
   }
 }
 
-/** Settle outstanding calls without claiming that the owning app was deleted. */
-export function rejectPendingRequests(port: ClientPort, error: Error & { code: string }): void {
+/**
+ * Settle outstanding calls without claiming that the owning app was deleted.
+ * `selects` narrows them by correlation id, so a transport can fail the calls
+ * it sent and keep the ones it still holds.
+ */
+export function rejectPendingRequests(
+  port: ClientPort,
+  error: Error & { code: string },
+  selects: (id: string) => boolean = () => true,
+): void {
   for (const [id, pending] of [..._pending]) {
     const isOwnedRequest = pending.port === port;
-    if (isOwnedRequest) {
+    const isSelected = isOwnedRequest && selects(id);
+    if (isSelected) {
       takePendingRequest(id);
       pending.reject(error);
     }
   }
 }
 
+/** The outstanding calls on `port` that `selects` picks, in issue order, with the frame each sent. */
+export function pendingRequestsOn(
+  port: ClientPort,
+  selects: (id: string) => boolean,
+): Array<{ id: string; message: InboundMessage }> {
+  const requests: Array<{ id: string; message: InboundMessage }> = [];
+  for (const [id, pending] of _pending) {
+    const isSelected = pending.port === port && selects(id);
+    if (isSelected) requests.push({ id, message: pending.message });
+  }
+  return requests;
+}
+
+/**
+ * Moves each outstanding operation in `ids` to a new correlation id and
+ * returns the frames to send under them, in the order given. A reply to an old
+ * id then finds no call to settle; the Realtime Database SDK clears its
+ * response callbacks on a drop for the same reason. A moved call goes to the
+ * end of the issue order, after every call still outstanding.
+ */
+export function reissuePendingRequests(ids: string[]): InboundMessage[] {
+  const reissued: InboundMessage[] = [];
+  for (const id of ids) {
+    const pending = _pending.get(id);
+    const message = pending?.message;
+    const isOutstandingOperation = pending !== undefined && message?.t === 'op';
+    if (!isOutstandingOperation) continue;
+    const moved = { ...message, id: nextId() };
+    _pending.delete(id);
+    _pending.set(moved.id, { ...pending, message: moved });
+    reissued.push(moved);
+  }
+  return reissued;
+}
+
+/** Rejects one outstanding call with `error`, which may carry no code. */
+export function rejectPendingRequest(id: string, error: Error): void {
+  const pending = takePendingRequest(id);
+  pending?.reject(error);
+}
+
+/**
+ * Forgets one outstanding call without settling it: no reply can reach it
+ * and its promise never settles, as production drops a sent onDisconnect's
+ * callback when its connection drops.
+ */
+export function forgetPendingRequest(id: string): void {
+  takePendingRequest(id);
+}
+
 /** Drop every client-side correlation owned by a closing app port. */
 export function disconnectPort(port: ClientPort): void {
   disconnectedPorts.add(port);
   rejectPendingRequests(port, appDeletedError());
+  endPortSubscriptions(port, new FirebaseError('aborted', 'The operation was aborted.'), appDeletedError());
+  port.onmessage = null;
+}
+
+/**
+ * Ends every subscription on `port` once (D6). A Firestore listener and an
+ * event stream hear the error; RTDB, Auth, Messaging and presence observers
+ * stop without a call, as production's do when their app is deleted.
+ */
+export function endPortSubscriptions(
+  port: ClientPort,
+  error: Error & { code: string },
+  streamError: Error & { code: string } = error,
+): void {
   for (const [id, subscription] of [..._snapSubs]) {
     const isForeignSubscription = subscription.port !== port;
     if (isForeignSubscription) continue;
     _snapSubs.delete(id);
     const isFirestoreSubscription = subscription.service === 'firestore';
-    if (isFirestoreSubscription) {
-      subscription.error?.(new FirebaseError('aborted', 'The operation was aborted.'));
-    }
+    if (isFirestoreSubscription) subscription.error?.(error);
+    else if (isAiStream(subscription.message)) subscription.error?.(streamError);
     subscription.close?.();
   }
   for (const [id, subscription] of [..._eventSubs]) {
     const isForeignSubscription = subscription.port !== port;
     if (isForeignSubscription) continue;
     _eventSubs.delete(id);
-    subscription.error?.(appDeletedError());
+    subscription.error?.(streamError);
   }
-  port.onmessage = null;
+}
+
+function isAiStream(message: InboundMessage | undefined): boolean {
+  const isSubscription = message?.t === 'sub';
+  if (!isSubscription) return false;
+  const target = message.target;
+  return typeof target === 'object' && target !== null && 'service' in target && target.service === 'ai';
+}
+
+/**
+ * Fails every AI stream whose `sub` frame the dropped socket took (decision
+ * 7). A stream is not restored on re-attach, so it fails once with `error`
+ * like an operation in flight. Its `unsub` is held and released after the
+ * re-attach, which stops a resumed session's pump. A stream whose frame is
+ * still held stays open and is sent after the re-attach.
+ */
+export function failInFlightStreams(
+  port: ClientPort,
+  error: Error & { code: string },
+  isHeld: (subId: string) => boolean,
+): void {
+  for (const [subId, subscription] of [..._snapSubs]) {
+    const ownsStream = subscription.port === port && isAiStream(subscription.message);
+    if (!ownsStream) continue;
+    const wasSent = !isHeld(subId) && !waitsToSubscribe(port, subId);
+    if (!wasSent) continue;
+    closeSubscription(port, subId);
+    subscription.error?.(error);
+  }
 }
 
 // ─── Denial relay (headless dev visibility) ────────────────────────────────
@@ -265,6 +464,10 @@ interface DenialRelayPayload {
   /** Sibling of denialContext on the sandbox error (query-proof denials
    *  attach the suggested where() fix there); forwarded when present. */
   remediation?: string;
+  /** The named RTDB instance the denied request addressed; absent for the default one. */
+  instance?: string;
+  /** A denied listener's owners, as the page recorded them when it opened. */
+  owners?: unknown[];
 }
 
 /** POST a denial to the dev server for terminal visibility. No-op when the
@@ -272,16 +475,20 @@ interface DenialRelayPayload {
  *  `fetch` isn't available (non-browser host). */
 function relayDenial(
   kind: 'listener' | 'read',
-  err: { message: string; code: string; denialContext?: unknown; remediation?: unknown },
+  err: { message: string; code?: string; denialContext?: unknown; remediation?: unknown },
+  instance?: string,
+  owners?: unknown[],
 ): void {
   if (err.denialContext === undefined) return;
   if (typeof fetch !== 'function') return;
   const payload: DenialRelayPayload = {
     kind,
-    code: err.code,
+    code: err.code ?? 'unknown',
     message: err.message,
     denialContext: err.denialContext,
     ...(typeof err.remediation === 'string' ? { remediation: err.remediation } : {}),
+    ...(instance === undefined ? {} : { instance }),
+    ...(owners !== undefined ? { owners } : {}),
   };
   try {
     void fetch('/__pyric/denials', {
@@ -332,12 +539,17 @@ export function wirePort(port: ClientPort): void {
       if (succeeded) {
         pending.resolve(msg.value);
       } else {
-        const err = new Error(msg.error.message) as Error & {
-          code: string;
+        const hasCode = msg.error.codeless !== true;
+        let err: Error & {
+          code?: string;
           denialContext?: unknown;
           aiEnvelope?: unknown;
         };
-        err.code = msg.error.code;
+        if (hasCode) {
+          err = new FirebaseError(msg.error.code, msg.error.message);
+        } else {
+          err = new Error(msg.error.message);
+        }
         // Structured denial context (spike gap 6): re-attach so consumers —
         // and the bridge relay, which re-serializes thrown errors — see the
         // same shape a local SandboxError carries.
@@ -355,19 +567,36 @@ export function wirePort(port: ClientPort): void {
         if (hasAiEnvelope) {
           err.aiEnvelope = msg.error.aiEnvelope;
         }
-        relayDenial('read', err);
+        relayDenial('read', err, pending.instance);
         pending.reject(err);
       }
     } else if (isSnapshot) {
       const sub = _snapSubs.get(msg.subId);
-      const isForeignSubscription = sub === undefined || sub.port !== port;
+      if (sub === undefined) {
+        const eventSub = _eventSubs.get(msg.subId);
+        const errPayload = snapshotError(msg);
+        if (eventSub !== undefined && eventSub.port === port && errPayload !== undefined) {
+          closeSubscription(port, msg.subId, eventSub.message.clientSessionId);
+          const err = errPayload.codeless !== true
+            ? new FirebaseError(errPayload.code, errPayload.message)
+            : Object.assign(new Error(errPayload.message), { code: 'unavailable' });
+          eventSub.error?.(err);
+        }
+        return;
+      }
+      const isForeignSubscription = sub.port !== port;
       if (isForeignSubscription) return;
       const errPayload = snapshotError(msg);
       const hasError = errPayload !== undefined;
       if (hasError) {
         closeSubscription(port, msg.subId, sub.message?.clientSessionId);
-        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
-        err.code = errPayload.code;
+        const hasCode = errPayload.codeless !== true;
+        let err: Error & { code?: string; denialContext?: unknown; aiEnvelope?: unknown };
+        if (hasCode) {
+          err = new FirebaseError(errPayload.code, errPayload.message);
+        } else {
+          err = new Error(errPayload.message);
+        }
         const hasDenialContext = errPayload.denialContext !== undefined;
         if (hasDenialContext) err.denialContext = errPayload.denialContext;
         const aiEvidence = errPayload.aiEvidence;
@@ -375,7 +604,9 @@ export function wirePort(port: ClientPort): void {
         if (hasAiEvidence) setAiEvidence(err, aiEvidence);
         const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
         if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
-        relayDenial('listener', err);
+        const opened = sub.message;
+        const owners = opened !== undefined && 'owners' in opened ? opened.owners : undefined;
+        relayDenial('listener', err, requestInstance(opened), owners);
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
@@ -567,34 +798,50 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
  * Send an already-final message and return a promise for its result — no
  * implicit stamping. The RELAY path ({@link relayWorkerOp}) explicitly owns
  * the final remote provenance fields before sending through this function.
+ *
+ * The message goes out in call order ({@link postInOrder}), or in the place
+ * `reservation` claimed when the app issued the call. A custom `postMessage`
+ * is the transport's own restore traffic and bypasses the order.
  */
 export function rawRpc(
   port: ClientPort,
   msg: InboundMessage,
-  postMessage: ClientPort['postMessage'] = message => port.postMessage(message),
+  postMessage?: ClientPort['postMessage'],
+  reservation?: SendReservation,
 ): Promise<unknown> {
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return Promise.reject(appDeletedError());
   const isOperation = msg.t === 'op' || msg.t === 'tool';
   const budget = isOperation ? operationBudget(port, msg.clientSessionId) : undefined;
-  const reservation = budget?.reserve(msg);
-  const isRefused = reservation?.accepted === false;
-  if (isRefused) return Promise.reject(new FirebaseError(reservation.error.code, reservation.error.message));
+  const budgetReservation = budget?.reserve(msg);
+  const isRefused = budgetReservation?.accepted === false;
+  if (isRefused) return Promise.reject(new FirebaseError(budgetReservation.error.code, budgetReservation.error.message));
+  const isTeardown = msg.t === 'disconnect';
+  // An app's teardown sends none of the frames still waiting for their turn.
+  if (isTeardown) closeSendOrder(port);
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
     _pending.set(opMsg.id, {
       port,
       clientSessionId: msg.clientSessionId,
-      budget,
-      release: reservation?.release,
+      instance: requestInstance(msg),
+      budget: budget,
+      release: budgetReservation?.release,
+      issuedAt: reservation?.issuedAt ?? issueTime(),
+      message: msg,
       resolve,
       reject,
     });
+    const failed = (error: unknown): void => {
+      const isPending = takePendingRequest(opMsg.id) !== undefined;
+      if (isPending) reject(error);
+    };
     try {
-      postMessage(msg);
+      if (postMessage !== undefined) postMessage(msg);
+      else if (reservation !== undefined) reservation.send(msg, failed);
+      else postInOrder(port, msg, failed);
     } catch (error) {
-      takePendingRequest(opMsg.id);
-      reject(error);
+      failed(error);
     }
   });
 }
@@ -613,13 +860,14 @@ function operationBudget(port: ClientPort, clientSessionId: string | undefined):
 function takePendingRequest(id: string) {
   const request = _pending.get(id);
   _pending.delete(id);
+  if (request !== undefined) withdrawOperation(request.port, id);
   request?.release?.();
   return request;
 }
 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
-export function rpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
-  return rawRpc(port, stampIssuer(msg));
+export function rpc(port: ClientPort, msg: InboundMessage, reservation?: SendReservation): Promise<unknown> {
+  return rawRpc(port, stampIssuer(msg), undefined, reservation);
 }
 
 /**
@@ -656,12 +904,16 @@ export function rpcWithTimeout(
  * `actAs` is only attached when a lens is active — when none is set the wire
  * message is byte-identical to before, preserving the additive contract.
  */
-export function dataRpc(port: ClientPort, msg: InboundMessage & { t: 'op' }): Promise<unknown> {
+export function dataRpc(
+  port: ClientPort,
+  msg: InboundMessage & { t: 'op' },
+  reservation?: SendReservation,
+): Promise<unknown> {
   if (disconnectedPorts.has(port) && !msg.method.startsWith('rtdb.')) {
     return Promise.reject(
       new FirebaseError('failed-precondition', 'The client has already been terminated.'),
     );
   }
   const withLens = _defaultLens ? { ...msg, actAs: _defaultLens } : msg;
-  return rpc(port, withLens);
+  return rpc(port, withLens, reservation);
 }

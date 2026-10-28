@@ -300,7 +300,7 @@ export function attachTabSync(sandbox: LocalSandbox, options: TabSyncOptions = {
       applyingRemote = true;
       try {
         for (const [path, data] of Object.entries(msg.snapshot.firestore)) {
-          sandbox.admin.setDocument(path, data as Record<string, unknown>);
+          getInternalEnv(sandbox).adminSetDocument(path, data as Record<string, unknown>);
         }
       } finally {
         applyingRemote = false;
@@ -353,7 +353,7 @@ export function attachTabSync(sandbox: LocalSandbox, options: TabSyncOptions = {
     applyingRemote = true;
     try {
       if (event.method === 'delete') {
-        sandbox.admin.deleteDocument(event.path);
+        getInternalEnv(sandbox).adminDeleteDocument(event.path);
       } else {
         // set / create / update — in all cases `nextState` is the post-
         // resolution document data we want the receiving tab to have.
@@ -361,7 +361,7 @@ export function attachTabSync(sandbox: LocalSandbox, options: TabSyncOptions = {
         // already the fully-resolved final state; we don't need to re-merge.
         const data = event.nextState;
         if (data !== null && data !== undefined) {
-          sandbox.admin.setDocument(event.path, data as Record<string, unknown>);
+          getInternalEnv(sandbox).adminSetDocument(event.path, data as Record<string, unknown>);
         }
       }
     } finally {

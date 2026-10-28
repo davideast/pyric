@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "public": { ".read": true, ".write": true },
+    "private": { ".read": false, ".write": false }
+  }
+}

@@ -35,6 +35,7 @@ import {
   type WireChunk,
   type WireResponse,
 } from '../../src/ai/broker/index.js';
+import { describeResponseBlock } from '../../src/ai/blocked.js';
 
 // ai-* observations live under the 'ai' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'ai');
@@ -102,8 +103,11 @@ describe('synthesizer envelope facts (ai-generate-minimal-envelope)', () => {
     ]);
   });
 
-  it('resolves the -latest alias to the captured fixed model version', async () => {
-    expect((await minimal()).modelVersion).toBe(obs.modelVersion); // gemini-3.1-flash-lite
+  it('reports the requested -latest alias as modelVersion rather than a dated model', async () => {
+    // The capture recorded the dated model the alias resolved to that day.
+    // That resolution changes over time, so the sandbox does not pin it.
+    expect(typeof obs.modelVersion).toBe('string');
+    expect((await minimal()).modelVersion).toBe('gemini-flash-lite-latest');
   });
 
   it('passes unknown model names through as modelVersion', async () => {
@@ -157,7 +161,7 @@ describe('streaming chunk semantics (ai-generate-stream-framing)', () => {
     for (const c of chunks) {
       expect(Boolean(c.candidates || c.usageMetadata)).toBe(true);
       expect(c.responseId).toBe(chunks[0]!.responseId);
-      expect(c.modelVersion).toBe('gemini-3.1-flash-lite');
+      expect(c.modelVersion).toBe('gemini-flash-lite-latest');
     }
   });
 
@@ -610,9 +614,20 @@ describe('openai translation: response and chunk mapping', () => {
     buffer.add([{ index: 0, function: { name: 'get_', arguments: '' } } as any]);
     buffer.add([{ index: 0, function: { name: 'weather', arguments: '{"cit' } } as any]);
     buffer.add([{ index: 0, function: { arguments: 'y":"Paris"}' } } as any]);
-    const parts = buffer.flush();
-    expect(parts).toEqual([{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }]);
-    expect(buffer.flush()).toEqual([]); // emitted exactly once
+    expect(buffer.flush()).toEqual({
+      parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }],
+      malformed: false,
+    });
+    expect(buffer.flush()).toEqual({ parts: [], malformed: false }); // emitted exactly once
+  });
+
+  it('ToolCallBuffer flags arguments that do not parse and keeps the raw text', () => {
+    const buffer = new ToolCallBuffer();
+    buffer.add([{ index: 0, function: { name: 'f', arguments: '{not json' } } as any]);
+    expect(buffer.flush()).toEqual({
+      parts: [{ functionCall: { name: 'f', args: { __malformed: '{not json' } } }],
+      malformed: true,
+    });
   });
 
   it('SseParser handles LF LF and CRLF CRLF, split pushes, and surfaces [DONE] for the caller to skip', () => {
@@ -705,7 +720,7 @@ describe('openai engine (mocked fetch)', () => {
     });
     const res = await engine.generateContent(userReq('translate hello'), MODEL);
     expect(keySet(res)).toEqual(['candidates', 'modelVersion', 'responseId', 'usageMetadata']);
-    expect(res.modelVersion).toBe('gemini-3.1-flash-lite'); // Gemini alias, not the upstream name
+    expect(res.modelVersion).toBe('gemini-flash-lite-latest'); // The requested Gemini name, not the upstream name
     expect(res.responseId).toBe('sbx-1');
     expect(res.usageMetadata).toEqual({
       promptTokenCount: 7,
@@ -765,6 +780,37 @@ describe('openai engine (mocked fetch)', () => {
 
     // Nothing derived from the [DONE] sentinel (it would have JSON.parse-crashed anyway).
     expect(chunks.length).toBe(3); // two text chunks + one finish chunk
+  });
+
+  it('streams: tool-call arguments that are not JSON end the stream with MALFORMED_FUNCTION_CALL', async () => {
+    const frames = [
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"get_weather","arguments":"{not"}}]},"finish_reason":null}]}\n\n`,
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" json"}}]},"finish_reason":null}]}\n\n`,
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n`,
+      `data: [DONE]\n\n`,
+    ];
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: (async () => sseResponse(frames)) as typeof fetch,
+    });
+    const chunks = await collect(engine.streamGenerateContent(userReq('weather?'), MODEL));
+
+    const last = chunks.at(-1)!;
+    expect(last.candidates![0]!.finishReason).toBe('MALFORMED_FUNCTION_CALL');
+    expect(describeResponseBlock(last)).toEqual({ finishReason: 'MALFORMED_FUNCTION_CALL' });
+  });
+
+  it('streams: a well-formed tool call beside a malformed one still ends MALFORMED_FUNCTION_CALL', async () => {
+    const frames = [
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"a","arguments":"{}"}},{"index":1,"id":"t2","type":"function","function":{"name":"b","arguments":"{oops"}}]},"finish_reason":null}]}\n\n`,
+      `data: {"id":"c","model":"llama3","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n`,
+    ];
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: (async () => sseResponse(frames)) as typeof fetch,
+    });
+    const chunks = await collect(engine.streamGenerateContent(userReq('two tools'), MODEL));
+    expect(chunks.at(-1)!.candidates![0]!.finishReason).toBe('MALFORMED_FUNCTION_CALL');
   });
 
   it('maps upstream content_filter to SAFETY', async () => {
@@ -968,7 +1014,7 @@ describe('broker blocked-response emission', () => {
 // ── Model substitutions: the engine answered as a DIFFERENT model ───────────
 //
 // An engine that quietly redirects the requested model (an openai `modelMap`
-// entry, the openai catch-all `model`, a gemini experimental alias) makes a
+// entry, the openai catch-all `model`) makes a
 // developer believe they tested model X when model Y answered. The broker
 // announces the swap on the event stream the same way it announces a block.
 
@@ -1057,7 +1103,7 @@ describe('broker model-substitution emission', () => {
     expect(events.some((e) => e.op === 'model_substituted')).toBe(false);
   });
 
-  it('emits model_substituted for a gemini experimental alias redirect', async () => {
+  it('sends every requested gemini model upstream as itself, with no substitution', async () => {
     const sandbox = initializeSandbox();
     const events = aiEvents(sandbox);
     const seen: string[] = [];
@@ -1066,15 +1112,62 @@ describe('broker model-substitution emission', () => {
       sandbox,
     });
 
-    await broker.generateContent(userReq('hi'), 'gemini-2.5-flash');
+    for (const model of ['gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash']) {
+      await broker.generateContent(userReq('hi'), model);
+    }
 
-    const substituted = events.find((e) => e.op === 'model_substituted');
-    expect(substituted).toBeDefined();
-    expect(substituted.detail.requestedModel).toBe('gemini-2.5-flash');
-    expect(substituted.detail.effectiveModel).toBe('gemini-flash-lite-latest');
-    expect(substituted.detail.engine).toBe('gemini');
-    // The announced effective model is the one actually called upstream.
-    expect(seen[0]).toContain('models/gemini-flash-lite-latest');
+    expect(seen.map((url) => new URL(url).pathname)).toEqual([
+      '/v1beta/models/gemini-3.5-flash-lite:generateContent',
+      '/v1beta/models/gemini-2.5-flash:generateContent',
+      '/v1beta/models/gemini-2.5-flash-lite:generateContent',
+      '/v1beta/models/gemini-1.5-flash:generateContent',
+    ]);
+    expect(events.some((e) => e.op === 'model_substituted')).toBe(false);
+  });
+
+  it("surfaces the gemini upstream's 404 for a model it does not serve", async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const upstreamError = {
+      error: {
+        code: 404,
+        message: 'models/gemini-2.5-flash is not found for API version v1beta, or is not supported for generateContent.',
+        status: 'NOT_FOUND',
+      },
+    };
+    const broker = new AiBroker({
+      engine: {
+        kind: 'gemini',
+        apiKey: 'k',
+        fetch: (async () => Response.json(upstreamError, { status: 404 })) as unknown as typeof fetch,
+      },
+      sandbox,
+    });
+
+    const failure = await broker.generateContent(userReq('hi'), 'gemini-2.5-flash').catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(AiBrokerError);
+    expect((failure as AiBrokerError).envelope).toEqual(upstreamError);
+    const rejected = events.find((e) => e.op === 'request_rejected');
+    expect(rejected.detail).toMatchObject({ code: 404, status: 'NOT_FOUND' });
+  });
+
+  it("passes the gemini upstream's modelVersion through unchanged", async () => {
+    const broker = new AiBroker({
+      engine: {
+        kind: 'gemini',
+        apiKey: 'k',
+        fetch: (async () =>
+          Response.json({
+            candidates: [{ content: { role: 'model', parts: [{ text: 'pong' }] }, index: 0, finishReason: 'STOP' }],
+            modelVersion: 'gemini-3.5-flash-lite',
+          })) as unknown as typeof fetch,
+      },
+    });
+
+    const res = await broker.generateContent(userReq('hi'), 'gemini-flash-lite-latest');
+
+    expect(res.modelVersion).toBe('gemini-3.5-flash-lite');
   });
 
   it('stays silent when gemini passes the requested model straight through', async () => {

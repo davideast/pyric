@@ -23,7 +23,7 @@ const isShowcase = definition.presentation === 'showcase';
   <article class="prose example-explanation">
     <slot />
   </article>
-  {definition.renderer === 'chess' ? (
+  {'renderer' in definition && definition.renderer === 'chess' ? (
     <section class="example-rules">
       <h2>Full Security Rules</h2>
       <p>These are the Rules running the board above. Look for the imports at the top, the separate <code>moveType</code> gates, and the explicit king-safety checks.</p>

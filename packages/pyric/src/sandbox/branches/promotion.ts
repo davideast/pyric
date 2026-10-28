@@ -22,10 +22,10 @@ import {
   base64ToBytes,
   getAdminStorageSandbox,
   replaceStorageRules,
+  restoreStorageState,
 } from '../../storage/internal.js';
 import {
   holdsBytesInline,
-  installsStorageRules,
   type FullSandboxState,
   type SandboxService,
   type StorageObjectState,
@@ -67,10 +67,10 @@ function promoteFirestore(
     const document = next.firestore[path];
     const wasDeleted = document === undefined;
     if (wasDeleted) {
-      target.admin.deleteDocument(path);
+      getInternalEnv(target).adminDeleteDocument(path);
       continue;
     }
-    target.admin.setDocument(path, decodeStateDocument(document, next.firestoreEncoding));
+    getInternalEnv(target).adminSetDocument(path, decodeStateDocument(document, next.firestoreEncoding));
   }
 }
 
@@ -127,6 +127,20 @@ async function promoteStorage(
     // A branch is captured with its bytes inline; a reference names bytes only its own store holds.
     const inline = holdsBytesInline(object);
     if (!inline) throw new Error(`Storage object '${path}' in a branch carries no bytes to promote.`);
+    const metadata = object.metadata;
+    if (metadata !== undefined) {
+      await restoreStorageState(storage, [{
+        dataBase64: object.contentBase64,
+        blobType: object.blobType ?? object.contentType ?? '',
+        metadata: {
+          ...metadata,
+          fullPath: object.path,
+          contentType: object.contentType,
+          customMetadata: { ...object.customMetadata },
+        },
+      }]);
+      continue;
+    }
     await uploadBytes(ref(storage, path), base64ToBytes(object.contentBase64), settableOf(object));
   }
 }
@@ -180,7 +194,6 @@ async function promoteRules(
       getOrCreateBackend(target).setRules(structuredClone(next.rules.database));
       continue;
     }
-    if (!installsStorageRules(next.rules.storage)) continue;
     await replaceStorageRules(target, next.rules.storage);
   }
 }

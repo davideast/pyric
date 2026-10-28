@@ -10,14 +10,20 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { IN_PROCESS_STATE_RELATIVE } from '../../src/bridge/server/in-process.js';
+import {
+  IN_PROCESS_STATE_RELATIVE,
+  loadSandboxSnapshot,
+  openPersistedServices,
+} from '../../src/bridge/server/in-process.js';
+import { initializeSandbox } from 'pyric/sandbox';
 import { runDatabaseRulesValidate } from '../../src/cli/database-rules.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
+import { setInlineStorageLimitForTesting } from 'pyric/sandbox/internal';
 
 const workDir = mkdtempSync(join(tmpdir(), 'pyric-surface-cli-'));
 
@@ -192,7 +198,7 @@ describe('pyric <tool> <method>', () => {
 
   it('exits 0 when a database rules file has no errors', async () => {
     const rulesFile = join(workDir, 'clean.database.rules.json');
-    writeFileSync(rulesFile, JSON.stringify({ rules: { notes: { $id: { '.write': 'auth != null' } } } }));
+    writeFileSync(rulesFile, JSON.stringify({ rules: { notes: { $id: { '.write': 'auth != null', '.validate': 'newData.isString()' } } } }));
     const linted = await run('rules.lint', [
       'rules',
       'lint',
@@ -209,7 +215,7 @@ describe('pyric <tool> <method>', () => {
     const plainFile = join(workDir, 'plain.database.rules.json');
     writeFileSync(
       plainFile,
-      JSON.stringify({ rules: { notes: { $uid: { '.read': 'auth != null && auth.uid == $uid', '.write': 'auth != null && auth.uid == $uid' } } } }),
+      JSON.stringify({ rules: { notes: { $uid: { '.read': 'auth != null && auth.uid == $uid', '.write': 'auth != null && auth.uid == $uid', '.validate': 'newData.isString()' } } } }),
     );
     const commentedFile = join(workDir, 'commented.database.rules.json');
     writeFileSync(
@@ -221,7 +227,8 @@ describe('pyric <tool> <method>', () => {
     "notes": {
       "$uid": {
         ".read": "auth != null && auth.uid == $uid", // the owner only
-        ".write": "auth != null && auth.uid == $uid"
+        ".write": "auth != null && auth.uid == $uid",
+        ".validate": "newData.isString()"
       }
     }
   }
@@ -256,7 +263,15 @@ describe('pyric <tool> <method>', () => {
       const simulatedCommented = await simulate(commentedFile, uid);
       const simulatedPlain = await simulate(plainFile, uid);
       expect(simulatedCommented.stdout).toContain(decision);
-      expect(simulatedCommented).toEqual(simulatedPlain);
+      // The trace names the line of each evaluated rule, and the two files
+      // place the rule on different lines; everything else is identical.
+      const withoutLines = (output: { code: number; stdout: string }) => ({
+        ...output,
+        stdout: output.stdout.replace(/"line": \d+/g, '"line": 0'),
+      });
+      expect(simulatedCommented.stdout).toContain('"line": 7');
+      expect(simulatedPlain.stdout).toContain('"line": 1');
+      expect(withoutLines(simulatedCommented)).toEqual(withoutLines(simulatedPlain));
     }
 
     expect(await validate(commentedFile)).toEqual({ code: 0, stdout: '{\n  "errors": []\n}\n' });
@@ -361,5 +376,71 @@ describe('pyric <tool> <method>', () => {
     expect(whoami.code).toBe(0);
     const appSession = JSON.parse(whoami.stdout).data.appSession as { uid: string } | null;
     expect(appSession?.uid).toBe('session-carrier');
+  });
+});
+
+describe('pyric database <method> --instance', () => {
+  const projectDir = mkdtempSync(join(tmpdir(), 'pyric-surface-cli-instance-'));
+  afterAll(() => rmSync(projectDir, { recursive: true, force: true }));
+  writeFileSync(join(projectDir, 'firebase.json'), JSON.stringify({
+    database: [{ instance: 'demo-app-default-rtdb', rules: 'database.rules.json' }, { instance: 'shard-00', rules: 'database.rules.json' }],
+  }));
+  writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-app' } }));
+
+  async function inProject(key: string, argv: string[]): Promise<Run> {
+    let stdout = '';
+    let stderr = '';
+    const code = await runSurfaceMethod(key, parseArgs(argv), {
+      cwd: projectDir,
+      stdout: { write: (text) => void (stdout += text) },
+      stderr: { write: (text) => void (stderr += text) },
+      discover: async () => null,
+    });
+    return { code, stdout, stderr };
+  }
+
+  it('persists a write to the named instance under rtdb.instances, and reads it back', async () => {
+    const written = await inProject('database.set', ['database', 'set', '--instance', 'shard-00', '--path', 'rooms/lobby', '--value', '{"name":"shard"}']);
+    expect(written.code).toBe(0);
+    expect(written.stdout).toContain('Wrote rooms/lobby on shard-00');
+
+    const restored = initializeSandbox();
+    openPersistedServices(restored, projectDir);
+    loadSandboxSnapshot(restored, projectDir);
+    const rtdb = restored.snapshot().services?.rtdb as { instances?: Record<string, { data?: unknown }> };
+    expect(rtdb.instances?.['shard-00']?.data).toEqual({ rooms: { lobby: { name: 'shard' } } });
+
+    const shard = await inProject('database.get', ['database', 'get', '--instance', 'shard-00', '--path', 'rooms/lobby']);
+    expect(shard.code).toBe(0);
+    expect(shard.stdout).toContain('"name": "shard"');
+    const fallback = await inProject('database.get', ['database', 'get', '--path', 'rooms/lobby']);
+    expect(fallback.stdout).toContain('No value at rooms/lobby');
+  });
+
+  it('exits 2 for an instance the project does not have, naming the ones it does', async () => {
+    const refused = await inProject('database.get', ['database', 'get', '--instance', 'shard-09', '--path', 'rooms/lobby']);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain('database instance "shard-09" is not declared in firebase.json');
+    expect(refused.stderr).toContain('Known instances: demo-app-default-rtdb (default), shard-00.');
+  });
+});
+
+describe('a Storage write past the inline limit', () => {
+  it('reports the result, says Storage was not saved, names the limit, and fails', async () => {
+    const restore = setInlineStorageLimitForTesting(4);
+    try {
+      const upload = await run('storage.uploadBytes', [
+        'storage', 'uploadBytes', '--in-process', '--path', 'big/five.bin', '--contentBase64', 'AQIDBAU=',
+      ]);
+      expect(upload.code).toBe(2);
+      expect(upload.stderr).toContain('pyric: Storage was not saved.');
+      expect(upload.stderr).toContain('MAX_INLINE_STORAGE_BYTES');
+      expect(upload.stderr).toContain('`pyric snapshot`');
+      const sidecar = join(workDir, '.pyric', 'state', 'storage.json');
+      const saved = existsSync(sidecar) ? readFileSync(sidecar, 'utf8') : '';
+      expect(saved).not.toContain('big/five.bin');
+    } finally {
+      restore();
+    }
   });
 });

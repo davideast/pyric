@@ -117,6 +117,10 @@ class RulesDenialListenerTest {
         val registration = firestore.addRulesDenialListener { exception, context ->
             denials.add(exception to context)
         }
+        // Stays registered after the first listener is removed, so the second denial has an
+        // observable arrival to wait for instead of a fixed delay.
+        val sentinelDenials = CopyOnWriteArrayList<FirebaseFirestoreException>()
+        firestore.addRulesDenialListener { exception, _ -> sentinelDenials.add(exception) }
 
         try {
             Tasks.await(firestore.document("secrets/doc1").get())
@@ -144,10 +148,43 @@ class RulesDenialListenerTest {
         } catch (_: ExecutionException) {
             // Expected
         }
-        awaitDenialCount(denials, 1)
+        awaitDenialCount(sentinelDenials, 2)
+        assertEquals(2, sentinelDenials.size)
 
-        // Should still only have 1 denial recorded
+        // The removed listener still has only the first denial recorded
         assertEquals(1, denials.size)
+    }
+
+    @Test
+    fun testDenialEmittedImmediatelyAfterConstructionReachesListener() {
+        // The denial collector must be subscribed before the constructor returns. If it starts
+        // later on the background dispatcher, a denial emitted right after construction is
+        // dropped by the non-replaying flow and the listener never fires.
+        val instances = 300
+        var missed = 0
+        repeat(instances) { i ->
+            val freshClient = PyricBridgeClient(InMemoryBridgeTransport())
+            val freshApp = FirebaseApp.initializeApp(
+                "test-immediate-denial-app-$i",
+                FirebaseOptions.Builder()
+                    .setApiKey("test-api-key")
+                    .setApplicationId("test-app-id")
+                    .setProjectId("test-project-id")
+                    .build()
+            )
+            val fresh = FirebaseFirestore(freshClient, freshApp, "(default)")
+            val seen = CopyOnWriteArrayList<FirebaseFirestoreException>()
+            fresh.addRulesDenialListener { exception, _ -> seen.add(exception) }
+
+            freshClient.dispatchDenial(
+                FirebaseFirestoreException("denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+            )
+
+            awaitDenialCount(seen, 1, timeoutMs = 1000)
+            if (seen.isEmpty()) missed++
+            fresh.terminate()
+        }
+        assertEquals(0, missed, "denials dropped after construction: $missed of $instances")
     }
 
     @Test

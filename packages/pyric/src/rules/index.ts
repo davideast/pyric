@@ -29,7 +29,8 @@
 export { firestoreRules } from './api/firestore.js';
 export type { FirestoreRuleset } from './api/firestore.js';
 export { rtdbRules } from './api/rtdb.js';
-export type { RtdbRuleset } from './api/rtdb.js';
+export type { RtdbRuleset, RtdbRulesConstructor } from './api/rtdb.js';
+export type { RtdbFirebaseJsonOptions } from './api/rtdb-firebase-json.js';
 
 // ─── Tolerant lint (the AI-authoring front door) ─────────────────────
 export { lint } from './api/lint.js';
@@ -58,10 +59,29 @@ export type {
   Explanation,
   SimulationSummary,
   RtdbCase,
+  RtdbCaseQuery,
   RtdbCaseResult,
+  RtdbInstancesData,
   RtdbExplanation,
+  RtdbRuleEvaluation,
   RtdbSimulationSummary,
 } from './api/case-types.js';
+
+// ─── RTDB rule coverage ──────────────────────────────────────────────
+export { renderRtdbCoverage } from './rtdb/coverage.js';
+export type {
+  RtdbCoverageOptions,
+  RtdbCoverageStatus,
+  RtdbCoverageSummary,
+  RtdbFileCoverage,
+  RtdbRuleCoverage,
+  RtdbCoverageKind,
+} from './rtdb/coverage.js';
+
+// ─── RTDB ruleset diff and expression equivalence ───────────────────
+export { diffRtdbRules } from './rtdb/rules-diff.js';
+export type { DiffRtdbRulesOptions, RtdbRuleChange, RtdbRuleKind } from './rtdb/rules-diff.js';
+export { canonicalRtdbExpression, RtdbExpressionSyntaxError } from './rtdb/grammar/canonical.js';
 
 // ─── Structured trace types (plain data) ─────────────────────────────
 export type {
@@ -70,9 +90,17 @@ export type {
   PathResolutionTrace,
   EvaluatedRuleInfo,
   FirestoreMethod,
+  ListQuery,
+  ListQueryWhereConstraint,
   RulesResourceLimit,
 } from './test/spec.js';
 export type { ExprTraceEntry } from './simulator/evaluator.js';
+export type {
+  ListQueryProofReport,
+  QueryProofFailure,
+  QueryProofResidual,
+  QueryRepro,
+} from './simulator/list-query-proof.js';
 
 // ─── Value helpers ───────────────────────────────────────────────────
 export {
@@ -91,6 +119,7 @@ export {
   all,
   any,
   not,
+  lit,
   deny,
   always,
   allow,
@@ -128,6 +157,7 @@ export {
   gt,
   lte,
   AUTH_UID,
+  ref,
   turnGuard,
   flip,
   winCheckHelper,
@@ -135,6 +165,11 @@ export {
   ruleset,
   defineRtdbRules,
 } from './rtdb/constraints/index.js';
+
+// ─── RTDB rules standard library (builders grouped by module) ────────
+export { rtdbStdlib } from './rtdb/stdlib/index.js';
+export type { RtdbStdlib, FieldRule, ShapeOptions, ShapeResult } from './rtdb/stdlib/index.js';
+
 export type {
   Expr,
   PathDef,

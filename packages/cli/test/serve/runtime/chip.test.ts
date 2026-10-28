@@ -615,3 +615,62 @@ describe('the Traffic view', () => {
     expect(row.querySelector('.slot')!.textContent).toBe('Failed');
   });
 });
+
+describe('the Identity view when switching fails', () => {
+  const flush = async () => { for (let i = 0; i < 6; i += 1) await Promise.resolve(); };
+  const announced = (root: ShadowRoot) => root.querySelector('.announcer')!.textContent;
+
+  it('names a rejected sign-in in the Switch user section and announces it', async () => {
+    const switchUser = mock(async (_uid: string) => { throw new Error('directory unavailable'); });
+    const { root } = setup({
+      initiallyOpen: true,
+      initialUser: { uid: 'u1', email: 'a@example.com' },
+      listUsers: () => [user('u1', 'a@example.com'), user('u2', 'bob@example.com')],
+      switchUser,
+    });
+    await flush();
+    root.querySelector<HTMLButtonElement>('[data-switch-user="u2"]')!.click();
+    await flush();
+    const empty = root.querySelector('[data-identity-error]')!;
+    expect(empty.textContent).toContain('Could not sign in');
+    expect(empty.textContent).toContain('directory unavailable');
+    expect(announced(root)).toContain('Could not sign in');
+    // The rows stay: the failure adds one message, not a second action zone.
+    expect(root.querySelectorAll('[data-switch-user]').length).toBe(1);
+  });
+
+  it('names a thrown sign-out and keeps the session shown', async () => {
+    const signOut = mock(() => { throw new Error('sign-out refused'); });
+    const { root } = setup({
+      initiallyOpen: true,
+      initialUser: { uid: 'u1', email: 'a@example.com' },
+      listUsers: () => [user('u1', 'a@example.com')],
+      signOut,
+    });
+    await flush();
+    root.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
+    await flush();
+    expect(root.querySelector('[data-identity-error]')!.textContent).toContain('Could not sign out');
+    expect(root.querySelector('[data-identity-row] .c1')!.textContent).toBe('a@example.com');
+  });
+
+  it('announces the new identity as plain text after a successful switch and sign-out', async () => {
+    let current: RuntimeIdentity | null = { uid: 'u1', email: 'a@example.com' };
+    const { root } = setup({
+      initiallyOpen: true,
+      initialUser: current,
+      listUsers: () => [user('u1', 'a@example.com'), { uid: 'u2', email: 'bob@example.com', displayName: 'Bob' } as AuthUserRecord],
+      getCurrentUser: () => current,
+      switchUser: async (uid) => { current = { uid, email: 'bob@example.com', displayName: 'Bob' }; },
+      signOut: async () => { current = null; },
+    });
+    await flush();
+    root.querySelector<HTMLButtonElement>('[data-switch-user="u2"]')!.click();
+    await flush();
+    expect(announced(root)).toContain('Signed in as Bob.');
+    expect(root.querySelector('[data-identity-error]')).toBeNull();
+    root.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
+    await flush();
+    expect(announced(root)).toContain('Signed out.');
+  });
+});

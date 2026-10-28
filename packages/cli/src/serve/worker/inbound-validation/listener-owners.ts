@@ -5,6 +5,16 @@ function requireStringList(value: unknown, field: string): void {
   requireShape(isList, field);
 }
 
+/** One stack position: a file, a finite line, and optionally a column and function name. */
+function requireFramePosition(value: Record<string, unknown>, field: string): void {
+  requireString(value.file, `${field}.file`);
+  const hasLine = typeof value.line === 'number' && Number.isFinite(value.line);
+  requireShape(hasLine, `${field}.line`);
+  const hasColumn = value.column === undefined || typeof value.column === 'number' && Number.isFinite(value.column);
+  requireShape(hasColumn, `${field}.column`);
+  requireOptionalString(value.function, `${field}.function`);
+}
+
 /** Attribution crosses the wire as plain data, before listener registration. */
 export function assertListenerOwners(value: unknown): void {
   const isAbsent = value === undefined;
@@ -15,12 +25,13 @@ export function assertListenerOwners(value: unknown): void {
     requireRecord(owner, 'owner');
     switch (owner.kind) {
       case 'frame': {
-        requireString(owner.file, 'owner.file');
-        const hasLine = typeof owner.line === 'number' && Number.isFinite(owner.line);
-        requireShape(hasLine, 'owner.line');
-        const hasColumn = owner.column === undefined || typeof owner.column === 'number' && Number.isFinite(owner.column);
-        requireShape(hasColumn, 'owner.column');
-        requireOptionalString(owner.function, 'owner.function');
+        requireFramePosition(owner, 'owner');
+        if (owner.stack === undefined) break;
+        requireShape(Array.isArray(owner.stack), 'owner.stack');
+        for (const frame of owner.stack) {
+          requireRecord(frame, 'owner.stack');
+          requireFramePosition(frame, 'owner.stack');
+        }
         break;
       }
       case 'tag':

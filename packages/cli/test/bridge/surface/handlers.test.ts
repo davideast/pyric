@@ -216,8 +216,17 @@ it('stores and reads back a Cloud Storage object', async () => {
 });
 
 it('lints and simulates the rules of all three services', async () => {
-  expect((await run('rules.lint', { service: 'firestore' })).ok).toBe(true);
-  expect((await run('rules.lint', { service: 'database', rules: DATABASE_RULES })).ok).toBe(true);
+  // Per FS-LNT-1 and .agents/skills/firestore-rules-audit/SKILL.md,
+  // Firestore rules.lint merges validateFirestoreRules(ast) findings;
+  // the harness TENANT_RULES allow write without validating request.resource.data (SEC-6).
+  const firestoreLint = await run('rules.lint', { service: 'firestore' });
+  expect(firestoreLint.ok).toBe(false);
+  expect(JSON.stringify(firestoreLint.data)).toContain('SEC-6');
+  // The harness database rules grant public read and write at the root, which
+  // the security lint reports as errors.
+  const databaseLint = await run('rules.lint', { service: 'database', rules: DATABASE_RULES });
+  expect((databaseLint.data as { issues: Array<{ code: string }> }).issues.map((issue) => issue.code))
+    .toContain('RTDB-SEC-1');
   expect((await run('rules.lint', { service: 'storage', rules: STORAGE_RULES })).ok).toBe(true);
 
   const database = await run('rules.simulate', {
@@ -240,6 +249,15 @@ it('lints and simulates the rules of all three services', async () => {
 it('reads the rules standard library', async () => {
   expect((await run('rules.listStdlib')).ok).toBe(true);
   expect((await run('rules.getStdlib', { module: 'math' })).ok).toBe(true);
+});
+
+it('reads the RTDB standard library through the service argument', async () => {
+  const listed = await run('rules.listStdlib', { service: 'database' });
+  expect(listed.ok).toBe(true);
+  expect((listed.data as { modules: Array<{ key: string }> }).modules.map(({ key }) => key)).toContain('lobby');
+  const got = await run('rules.getStdlib', { module: 'turns', service: 'database' });
+  expect(got.ok).toBe(true);
+  expect((got.data as { importLine: string }).importLine).toContain('rtdbStdlib');
 });
 
 it('inspects, seeds, and resets the sandbox', async () => {
@@ -793,4 +811,18 @@ it('saves, lists and inspects a project rate capture through the service tool', 
   expect(opened.ok).toBe(true);
   expect((await run('sandbox.deleteCapture', { id, confirm: false })).ok).toBe(false);
   expect((await run('sandbox.deleteCapture', { id, confirm: true })).ok).toBe(true);
+});
+
+// #1247 S3: the CLI's rules.simulate evaluates database cases through the
+// same case validation and engine as rtdbRules().simulate.
+it('simulates database writes that read query, and refuses paths the SDK refuses', async () => {
+  const rules = JSON.stringify({ rules: { notkey: { '.write': '!query.orderByKey' }, users: { $uid: { '.write': true } } } });
+  // SP-4: production reads query in a .write as a plain read (capture rules-rtdb-r49-value-edges).
+  const write = await run('rules.simulate', { service: 'database', operation: 'write', path: 'notkey', data: 1, rules });
+  expect((write.data as { decision: string }).decision).toBe('ALLOW');
+  // CS-6: the SDK refuses a path holding '.' (capture rtdb-modular-reference-shape-url).
+  const dotted = await run('rules.simulate', { service: 'database', operation: 'write', path: 'users/a.b', data: 1, rules });
+  expect(dotted.ok).toBe(false);
+  expect((dotted.data as { decision: string }).decision).toBe('UNSUPPORTED');
+  expect((dotted.data as { reason: string }).reason).toContain('child failed: path argument was an invalid path = "/users/a.b"');
 });

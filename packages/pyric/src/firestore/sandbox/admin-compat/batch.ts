@@ -19,6 +19,8 @@ import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import type { BatchOperationInput } from 'pyric/sandbox/internal';
 import { makeError } from 'pyric/sandbox/internal';
 import { cloneDoc } from '../document-copy.js';
+import { updateFieldsData } from '../update-fields.js';
+import { parseAdminUpdateArguments, type FieldPath } from './field-path.js';
 import {
   FirestoreCompatError,
   type AuthContext,
@@ -40,6 +42,11 @@ export class WriteBatchImpl implements WriteBatch {
     private readonly bypassRules: boolean = false,
   ) {}
 
+  create(ref: DocumentReference, data: DocumentData): WriteBatch {
+    this.ops.push({ method: 'create', path: ref.path, data: cloneDoc(data) });
+    return this;
+  }
+
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch {
     const operation: BatchOperationInput = { method: 'set', path: ref.path, data: cloneDoc(data) };
     const mergeFields = options?.mergeFields;
@@ -54,8 +61,9 @@ export class WriteBatchImpl implements WriteBatch {
     return this;
   }
 
-  update(ref: DocumentReference, data: DocumentData): WriteBatch {
-    this.ops.push({ method: 'update', path: ref.path, data: cloneDoc(data) });
+  update(ref: DocumentReference, dataOrField: DocumentData | string | FieldPath, ...preconditionOrValues: unknown[]): WriteBatch {
+    const { fields } = parseAdminUpdateArguments(dataOrField, preconditionOrValues);
+    this.ops.push({ method: 'update', path: ref.path, data: cloneDoc(updateFieldsData(fields)) });
     return this;
   }
 

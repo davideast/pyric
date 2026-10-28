@@ -4,6 +4,25 @@ import {
   matchRtdbExpression,
 } from '../expression-engine.js';
 import type { RtdbRuleExpression } from '../types.js';
+import {
+  UNTERMINATED_STRING_LITERAL,
+  isUnterminatedRtdbStringLiteral,
+  unescapeRtdbStringLiteral,
+} from './string-literal.js';
+import {
+  HAS_CHILDREN_ARGUMENT_COUNT,
+  MATCHES_REGEX_LITERAL,
+  REGEX_FLAGS,
+  isSupportedRegexFlags,
+  HAS_CHILDREN_ARRAY,
+  HAS_CHILDREN_STRINGS,
+  argumentCountMessage,
+  operandMessage,
+  replaceArgumentMessage,
+  stringArgumentMessage,
+  type TypedOperator,
+} from './type-rules.js';
+import { RtdbRegex, compileRtdbRegex } from './regex.js';
 
 export interface SimulatedAuth {
   uid: string;
@@ -33,36 +52,11 @@ function safeMemberRead(recv: unknown, key: string): unknown {
   return (recv as Record<string, unknown>)[key] ?? null;
 }
 
-/** Process standard escape sequences in single-quoted string literals. */
-function processStringEscapes(raw: string): string {
-  let out = '';
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw[i];
-    if (c !== '\\' || i === raw.length - 1) {
-      out += c;
-      continue;
-    }
-    const next = raw[++i];
-    switch (next) {
-      case '\\': out += '\\'; break;
-      case '\'': out += '\''; break;
-      case '"':  out += '"';  break;
-      case 'n':  out += '\n'; break;
-      case 'r':  out += '\r'; break;
-      case 't':  out += '\t'; break;
-      case 'b':  out += '\b'; break;
-      case 'f':  out += '\f'; break;
-      case '/':  out += '/';  break;
-      default:   out += '\\' + next; break;
-    }
-  }
-  return out;
-}
-
 export interface SimulatedQuery {
   orderByChild?: string | null;
   orderByKey?: boolean | null;
   orderByValue?: boolean | null;
+  orderByPriority?: boolean | null;
   equalTo?: string | number | boolean | null;
   limitToFirst?: number | null;
   limitToLast?: number | null;
@@ -92,20 +86,31 @@ function isObjectNode(raw: unknown): raw is Record<string, unknown> {
  * object left with no children reads as null.
  */
 function exportedValue(raw: unknown): unknown {
+  if (Array.isArray(raw)) {
+    const out: Record<string, unknown> = {};
+    for (let i = 0; i < raw.length; i++) {
+      if (!(i in raw)) continue;
+      const value = exportedValue(raw[i]);
+      if (value !== null) out[String(i)] = value;
+    }
+    return Object.keys(out).length === 0 ? null : out;
+  }
   if (!isObjectNode(raw)) return raw ?? null;
   if (Object.hasOwn(raw, '.value')) return exportedValue(raw['.value']);
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(raw)) {
     if (key === '.priority') continue;
     const value = exportedValue(child);
-    if (value !== null) out[key] = value;
+    // Defined, not assigned: assigning a key named `__proto__` runs the
+    // prototype setter and drops it, where production keeps it (CS-1).
+    if (value !== null) Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
   }
   return Object.keys(out).length === 0 ? null : out;
 }
 
-/** A node's priority: its `.priority` number or string, else null. */
+/** A node's priority: its `.priority` number or string when the node exists, else null. */
 function priorityOf(raw: unknown): number | string | null {
-  if (!isObjectNode(raw)) return null;
+  if (!isObjectNode(raw) || exportedValue(raw) === null) return null;
   const priority = raw['.priority'];
   const isPriority = typeof priority === 'number' || typeof priority === 'string';
   return isPriority ? priority : null;
@@ -134,12 +139,12 @@ export class DataSnapshot {
     return this.child(path).exists();
   }
 
-  hasChildren(keys?: readonly unknown[]): boolean {
+  hasChildren(keys?: readonly string[]): boolean {
     // `hasChildren(['a', 'b'])` — true only when EVERY listed key is
     // present (prod semantics). `hasChildren()` — true when the node has
     // at least one child.
-    if (Array.isArray(keys)) {
-      return keys.every((key) => this.hasChild(String(key)));
+    if (keys !== undefined) {
+      return keys.every((key) => this.hasChild(key));
     }
     return isObjectNode(this.val());
   }
@@ -176,13 +181,11 @@ export class DataSnapshot {
     return new DataSnapshot(current, currentPath, this._root);
   }
 
-  parent(): DataSnapshot | null {
-    if (this._path === '/') return null;
+  parent(): DataSnapshot {
+    if (this._path === '/') throw new RtdbRuleRuntimeError('Cannot call parent() on root.');
     const parts = this._path.split('/').filter(p => p.length > 0);
     parts.pop();
-    if (parts.length === 0) {
-      return new DataSnapshot(this._root, '/');
-    }
+    if (parts.length === 0) return new DataSnapshot(this._root, '/');
     const rootSnap = new DataSnapshot(this._root, '/');
     return rootSnap.child(parts.join('/'));
   }
@@ -195,9 +198,8 @@ export class DataSnapshot {
 class RtdbString {
   constructor(private value: string) {}
 
-  matches(pattern: RegExp | string): boolean {
-    const r = pattern instanceof RegExp ? pattern : new RegExp(pattern);
-    return r.test(this.value);
+  matches(pattern: RtdbRegex): boolean {
+    return pattern.test(this.value);
   }
 
   contains(other: string): boolean {
@@ -218,11 +220,7 @@ class RtdbString {
    *  the r11-string-validation capture: production ALLOWS the write whose rule is
    *  `newData.val().replace('_', '-') === 'a-b-c'` for the value `a_b_c`, which
    *  only holds under replace-all. */
-  replace(from: string | RegExp, to: string): string {
-    if (from instanceof RegExp) {
-      const flags = from.flags.includes('g') ? from.flags : `${from.flags}g`;
-      return this.value.replace(new RegExp(from.source, flags), to);
-    }
+  replace(from: string, to: string): string {
     if (from === '') return this.value;
     return this.value.split(from).join(to);
   }
@@ -269,6 +267,73 @@ const STRING_METHODS = new Set([
   'matches', 'contains', 'beginsWith', 'endsWith', 'replace', 'toLowerCase', 'toUpperCase',
 ]);
 
+/** The one string argument of `method`. Any other value fails the rule: it is never converted to a string. */
+function oneStringArgument(method: string, args: readonly unknown[]): string {
+  if (args.length !== 1) throw new RtdbRuleRuntimeError(argumentCountMessage(method, 1));
+  const [value] = args;
+  if (typeof value !== 'string') throw new RtdbRuleRuntimeError(stringArgumentMessage(method));
+  return value;
+}
+
+/** `hasChildren`'s child names: no argument, or one array of strings. */
+function childNamesArgument(args: readonly unknown[]): readonly string[] | undefined {
+  if (args.length === 0) return undefined;
+  if (args.length > 1) throw new RtdbRuleRuntimeError(HAS_CHILDREN_ARGUMENT_COUNT);
+  const [names] = args;
+  if (!Array.isArray(names)) throw new RtdbRuleRuntimeError(HAS_CHILDREN_ARRAY);
+  if (!names.every((name) => typeof name === 'string')) throw new RtdbRuleRuntimeError(HAS_CHILDREN_STRINGS);
+  return names;
+}
+
+/** `matches`'s one argument, a regular expression literal. */
+function regexArgument(args: readonly unknown[]): RtdbRegex {
+  if (args.length !== 1) throw new RtdbRuleRuntimeError(argumentCountMessage('matches', 1));
+  const [pattern] = args;
+  if (!(pattern instanceof RtdbRegex)) throw new RtdbRuleRuntimeError(MATCHES_REGEX_LITERAL);
+  return pattern;
+}
+
+/** `replace`'s substring and replacement, both strings. */
+function replaceArguments(args: readonly unknown[]): [string, string] {
+  if (args.length !== 2) throw new RtdbRuleRuntimeError(argumentCountMessage('replace', 2));
+  const [from, to] = args;
+  if (typeof from !== 'string') throw new RtdbRuleRuntimeError(replaceArgumentMessage(1));
+  if (typeof to !== 'string') throw new RtdbRuleRuntimeError(replaceArgumentMessage(2));
+  return [from, to];
+}
+
+/** The operators that compare for equality, which read null like any other value. */
+const EQUALITY_OPERATORS = new Set<TypedOperator>(['==', '===', '!=', '!==']);
+const ARITHMETIC_NUMBER_OPERATORS = new Set<TypedOperator>(['-', '*', '/', '%']);
+const ORDERING_OPERATORS = new Set<TypedOperator>(['<', '<=', '>', '>=']);
+
+/** Whether `value` fails an operator that takes it as an operand. */
+function isInvalidOperand(operator: TypedOperator, value: unknown): boolean {
+  if (value instanceof DataSnapshot || typeof value === 'function') return true;
+  if (EQUALITY_OPERATORS.has(operator)) return false;
+  if (ARITHMETIC_NUMBER_OPERATORS.has(operator)) return typeof value !== 'number';
+  return typeof value !== 'number' && typeof value !== 'string';
+}
+
+/**
+ * Both operands of a typed operator. A snapshot is not a value an operator
+ * reads; production refuses to deploy such a rule, and the evaluator fails it.
+ * Null, booleans, strings, and objects fail arithmetic or ordering operators
+ * whose operand types do not include them, `|| true` included (captures
+ * r27-stdlib-core-patterns, r33-null-operands, r36-runtime-arithmetic-types,
+ * and r37-runtime-comparison-and-length-types); `==` and `!=` compare values
+ * without type conversion.
+ */
+function evalBinaryPair(operator: TypedOperator, left: any, right: any, ctx: unknown): [any, any] {
+  const l = left.eval(ctx);
+  if (isInvalidOperand(operator, l)) throw new RtdbRuleRuntimeError(operandMessage(operator, 'left'));
+  const r = right.eval(ctx);
+  if (isInvalidOperand(operator, r) || (ORDERING_OPERATORS.has(operator) && typeof l !== typeof r)) {
+    throw new RtdbRuleRuntimeError(operandMessage(operator, 'right'));
+  }
+  return [l, r];
+}
+
 /** The rules type name of a value that is neither a snapshot nor a string. */
 function runtimeTypeName(value: unknown): string {
   if (value === null) return 'null';
@@ -285,43 +350,76 @@ function getEvalSemantics(): Semantics {
     Expr(node) { return (node as any).eval(this.args.ctx); },
 
     Ternary_ternary(cond, _q, then, _c, els) {
-      return (cond as any).eval(this.args.ctx) ? (then as any).eval(this.args.ctx) : (els as any).eval(this.args.ctx);
+      const c = (cond as any).eval(this.args.ctx);
+      if (typeof c !== 'boolean') throw new RtdbRuleRuntimeError('condition of ? must be boolean.');
+      return c ? (then as any).eval(this.args.ctx) : (els as any).eval(this.args.ctx);
     },
     Ternary(node) { return (node as any).eval(this.args.ctx); },
 
-    Logical_and(left, _op, right) { return (left as any).eval(this.args.ctx) && (right as any).eval(this.args.ctx); },
-    Logical_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
-    Logical(node) { return (node as any).eval(this.args.ctx); },
+    // A chain matches flat (`first`, then each term of `rest`) and is folded
+    // in a loop: left to right, stopping at the first deciding term, exactly
+    // as the left-nested pairs `((a || b) || c)` evaluate.
+    LogicalOr_or(first, _ops, rest) {
+      const l = (first as any).eval(this.args.ctx);
+      if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of || must be boolean.');
+      if (l) return true;
+      for (const term of rest.children) {
+        const r = (term as any).eval(this.args.ctx);
+        if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of || must be boolean.');
+        if (r) return true;
+      }
+      return false;
+    },
+    LogicalOr(node) { return (node as any).eval(this.args.ctx); },
 
-    Comparison_strictEq(left, _op, right) { return (left as any).eval(this.args.ctx) === (right as any).eval(this.args.ctx); },
-    Comparison_strictNeq(left, _op, right) { return (left as any).eval(this.args.ctx) !== (right as any).eval(this.args.ctx); },
-    Comparison_gte(left, _op, right) { return (left as any).eval(this.args.ctx) >= (right as any).eval(this.args.ctx); },
-    Comparison_lte(left, _op, right) { return (left as any).eval(this.args.ctx) <= (right as any).eval(this.args.ctx); },
-    Comparison_gt(left, _op, right) { return (left as any).eval(this.args.ctx) > (right as any).eval(this.args.ctx); },
-    Comparison_lt(left, _op, right) { return (left as any).eval(this.args.ctx) < (right as any).eval(this.args.ctx); },
+    LogicalAnd_and(first, _ops, rest) {
+      const l = (first as any).eval(this.args.ctx);
+      if (typeof l !== 'boolean') throw new RtdbRuleRuntimeError('Left operand of && must be boolean.');
+      if (!l) return false;
+      for (const term of rest.children) {
+        const r = (term as any).eval(this.args.ctx);
+        if (typeof r !== 'boolean') throw new RtdbRuleRuntimeError('Right operand of && must be boolean.');
+        if (!r) return false;
+      }
+      return true;
+    },
+    LogicalAnd(node) { return (node as any).eval(this.args.ctx); },
+
+    Equality_strictEq(left, _op, right) { const [l, r] = evalBinaryPair('===', left, right, this.args.ctx); return l === r; },
+    Equality_strictNeq(left, _op, right) { const [l, r] = evalBinaryPair('!==', left, right, this.args.ctx); return l !== r; },
     // RTDB `==` and `!=` do not convert types: the number 5 does not equal the
     // string '5', and the number 1 does not equal true.
-    Comparison_looseEq(left, _op, right) { return (left as any).eval(this.args.ctx) === (right as any).eval(this.args.ctx); },
-    Comparison_looseNeq(left, _op, right) { return (left as any).eval(this.args.ctx) !== (right as any).eval(this.args.ctx); },
+    Equality_looseEq(left, _op, right) { const [l, r] = evalBinaryPair('==', left, right, this.args.ctx); return l === r; },
+    Equality_looseNeq(left, _op, right) { const [l, r] = evalBinaryPair('!=', left, right, this.args.ctx); return l !== r; },
+    Equality(node) { return (node as any).eval(this.args.ctx); },
+
+    Comparison_gte(left, _op, right) { const [l, r] = evalBinaryPair('>=', left, right, this.args.ctx); return l >= r; },
+    Comparison_lte(left, _op, right) { const [l, r] = evalBinaryPair('<=', left, right, this.args.ctx); return l <= r; },
+    Comparison_gt(left, _op, right) { const [l, r] = evalBinaryPair('>', left, right, this.args.ctx); return l > r; },
+    Comparison_lt(left, _op, right) { const [l, r] = evalBinaryPair('<', left, right, this.args.ctx); return l < r; },
     Comparison(node) { return (node as any).eval(this.args.ctx); },
 
-    Additive_add(left, _op, right) { return (left as any).eval(this.args.ctx) as number + ((right as any).eval(this.args.ctx) as number); },
-    Additive_sub(left, _op, right) { return (left as any).eval(this.args.ctx) as number - ((right as any).eval(this.args.ctx) as number); },
+    Additive_add(left, _op, right) { const [l, r] = evalBinaryPair('+', left, right, this.args.ctx); return (l as number) + (r as number); },
+    Additive_sub(left, _op, right) { const [l, r] = evalBinaryPair('-', left, right, this.args.ctx); return (l as number) - (r as number); },
     Additive(node) { return (node as any).eval(this.args.ctx); },
 
-    Multiplicative_mul(left, _op, right) { return (left as any).eval(this.args.ctx) as number * ((right as any).eval(this.args.ctx) as number); },
-    Multiplicative_div(left, _op, right) { return (left as any).eval(this.args.ctx) as number / ((right as any).eval(this.args.ctx) as number); },
-    Multiplicative_mod(left, _op, right) { return (left as any).eval(this.args.ctx) as number % ((right as any).eval(this.args.ctx) as number); },
+    Multiplicative_mul(left, _op, right) { const [l, r] = evalBinaryPair('*', left, right, this.args.ctx); return (l as number) * (r as number); },
+    Multiplicative_div(left, _op, right) {
+      const [l, r] = evalBinaryPair('/', left, right, this.args.ctx);
+      return (r as number) === 0 ? Number.NaN : (l as number) / (r as number);
+    },
+    Multiplicative_mod(left, _op, right) { const [l, r] = evalBinaryPair('%', left, right, this.args.ctx); return (l as number) % (r as number); },
     Multiplicative(node) { return (node as any).eval(this.args.ctx); },
 
     UnaryExpr_not(_op, expr) {
       const val = (expr as any).eval(this.args.ctx);
-      if (typeof val !== 'boolean') {
-        return false;
-      }
-      return !val;
+      return typeof val === 'boolean' ? !val : false;
     },
-    UnaryExpr_neg(_op, expr) { return -((expr as any).eval(this.args.ctx) as number); },
+    UnaryExpr_neg(_op, expr) {
+      const value = (expr as any).eval(this.args.ctx);
+      if (typeof value !== 'number') throw new RtdbRuleRuntimeError('Invalid unary - expression: operand is not a number.');
+      return -value;
+    },
     UnaryExpr(node) { return (node as any).eval(this.args.ctx); },
 
     CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
@@ -333,12 +431,12 @@ function getEvalSemantics(): Semantics {
         switch (method) {
           case 'val': return recv.val();
           case 'exists': return recv.exists();
-          case 'hasChild': return recv.hasChild(String(argValues[0]));
-          case 'hasChildren': return recv.hasChildren(argValues.length > 0 ? (argValues[0] as unknown[]) : undefined);
+          case 'hasChild': return recv.hasChild(oneStringArgument(method, argValues));
+          case 'hasChildren': return recv.hasChildren(childNamesArgument(argValues));
           case 'isString': return recv.isString();
           case 'isNumber': return recv.isNumber();
           case 'isBoolean': return recv.isBoolean();
-          case 'child': return recv.child(String(argValues[0]));
+          case 'child': return recv.child(oneStringArgument(method, argValues));
           case 'parent': return recv.parent();
           case 'getPriority': return recv.getPriority();
           default: throw new Error(`Unknown DataSnapshot method: ${method}`);
@@ -348,11 +446,11 @@ function getEvalSemantics(): Semantics {
       if (typeof recv === 'string') {
         const str = new RtdbString(recv);
         switch (method) {
-          case 'matches': return str.matches(argValues[0] as RegExp | string);
-          case 'contains': return str.contains(String(argValues[0]));
-          case 'beginsWith': return str.beginsWith(String(argValues[0]));
-          case 'endsWith': return str.endsWith(String(argValues[0]));
-          case 'replace': return str.replace(argValues[0] as string | RegExp, String(argValues[1]));
+          case 'matches': return str.matches(regexArgument(argValues));
+          case 'contains': return str.contains(oneStringArgument(method, argValues));
+          case 'beginsWith': return str.beginsWith(oneStringArgument(method, argValues));
+          case 'endsWith': return str.endsWith(oneStringArgument(method, argValues));
+          case 'replace': return str.replace(...replaceArguments(argValues));
           case 'toLowerCase': return str.toLowerCase();
           case 'toUpperCase': return str.toUpperCase();
           default:
@@ -383,13 +481,19 @@ function getEvalSemantics(): Semantics {
 
     CallExpr_memberAccess(receiver, _dot, member) {
       const recv = (receiver as any).eval(this.args.ctx);
+      const prop = member.sourceString;
+      if (prop === 'length') {
+        if (typeof recv === 'string') return recv.length;
+        throw new RtdbRuleRuntimeError("No such method/property 'length'.");
+      }
       if (recv === null || recv === undefined) return null;
-      return safeMemberRead(recv, member.sourceString);
+      return safeMemberRead(recv, prop);
     },
 
     CallExpr_indexAccess(receiver, _open, index, _close) {
       const recv = (receiver as any).eval(this.args.ctx);
       const idx = (index as any).eval(this.args.ctx);
+      if (typeof idx !== 'string' && typeof idx !== 'number') throw new RtdbRuleRuntimeError('Invalid property access.');
       if (recv === null || recv === undefined) return null;
       return safeMemberRead(recv, String(idx));
     },
@@ -411,15 +515,22 @@ function getEvalSemantics(): Semantics {
     number(node) { return (node as any).eval(this.args.ctx); },
 
     string_double(_open, _chars, _close) {
-      return JSON.parse(this.sourceString);
+      if (isUnterminatedRtdbStringLiteral(this.sourceString)) {
+        throw new SyntaxError(UNTERMINATED_STRING_LITERAL);
+      }
+      return unescapeRtdbStringLiteral(this.sourceString);
     },
-    string_single(_open, chars, _close) {
-      return processStringEscapes(chars.sourceString);
+    string_single(_open, _chars, _close) {
+      if (isUnterminatedRtdbStringLiteral(this.sourceString)) {
+        throw new SyntaxError(UNTERMINATED_STRING_LITERAL);
+      }
+      return unescapeRtdbStringLiteral(this.sourceString);
     },
     string(node) { return (node as any).eval(this.args.ctx); },
 
     regex(_slash1, body, _slash2, flags) {
-      return new RegExp(body.sourceString, flags.sourceString);
+      if (!isSupportedRegexFlags(flags.sourceString)) throw new RtdbRuleRuntimeError(REGEX_FLAGS);
+      return compileRtdbRegex(body.sourceString, flags.sourceString);
     },
 
     bool_true(_lit) { return true; },
@@ -431,8 +542,15 @@ function getEvalSemantics(): Semantics {
     ident(_dollar, _start, _rest) {
       const ctx = this.args.ctx as EvalContext;
       const name = this.sourceString;
-      if (ctx?.pathVariableBindings && name in ctx.pathVariableBindings) {
-        return ctx.pathVariableBindings[name];
+      // Only a `$` name reads a path variable, so a `$data` wildcard never
+      // shadows the built-in `data` snapshot.
+      if (_dollar.sourceString === '$') {
+        const bindings = ctx?.pathVariableBindings;
+        if (bindings !== undefined) {
+          if (name in bindings) return bindings[name];
+          if (name.slice(1) in bindings) return bindings[name.slice(1)];
+        }
+        return undefined;
       }
       switch (name) {
         case 'auth': return ctx?.auth ?? null;

@@ -51,12 +51,18 @@ describe('HTML sandbox injection', () => {
   it('maps every served Firebase module', () => {
     expect(Object.keys(sdkImportMap()).sort()).toEqual([
       'firebase/ai',
+      'firebase/analytics',
       'firebase/app',
+      'firebase/app-check',
       'firebase/auth',
       'firebase/database',
       'firebase/firestore',
+      'firebase/firestore/lite',
+      'firebase/functions',
       'firebase/messaging',
       'firebase/messaging/sw',
+      'firebase/performance',
+      'firebase/remote-config',
       'firebase/storage',
     ]);
   });
@@ -75,6 +81,14 @@ it('inlines transport selection before init and application scripts', () => {
   expect(inlinedSelection(html)).toEqual({ hosted: false, projectKey: null, bridgeUrl: null });
   expect(html.indexOf('data-pyric-worker-init')).toBeLessThan(html.indexOf('/__pyric/sdk/init.js'));
   expect(html.indexOf('data-pyric-worker-init')).toBeLessThan(html.indexOf('src="app.js"'));
+});
+
+it('inlines the project owner-frame policy with the transport selection', () => {
+  const owners = { skip: ['src/db/**'], frames: 2 };
+  const html = injectServeTags('<head></head>', { owners });
+  expect(inlinedSelection(html)).toEqual({ hosted: false, projectKey: null, bridgeUrl: null, owners });
+  const restamped = stampHostedTarget(html, 'orbit', owners);
+  expect(inlinedSelection(restamped)).toEqual({ hosted: true, projectKey: 'orbit', bridgeUrl: '/__pyric/sandbox', owners });
 });
 
 it('escapes hosted identity in the inline script', () => {

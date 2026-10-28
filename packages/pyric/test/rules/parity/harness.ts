@@ -17,14 +17,9 @@
  *
  * The tests pass if the run completes; the per-scenario tally is the artifact.
  *
- * Requires: PARITY_SA_BASE64 in env — a minimal service account that holds
- * only `firebaserules.rulesets.test` (no need for the broad
- * FIREBASE_SA_BASE64 the live-integration tests use).
+ * Requires: a Rules Test API credential; credential.ts lists the sources.
+ * The CI identity holds only `firebaserules.rulesets.test`.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { cert } from 'firebase-admin/app';
 import type { ProjectScope } from '../../../src/project-scope.js';
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
@@ -60,73 +55,12 @@ export interface CaseRow {
   status: Status;
 }
 
-// ─── Credential — ProjectScope from PARITY_SA_BASE64 ──────────────────────
+// ─── Credential ───────────────────────────────────────────────────────────────
 //
-// The old harness used `initializeAgentApp({ credentialEnvVar })`, which
-// died with `packages/sdk/` in the cutover. Post-mirror equivalent: build
-// a firebase-admin cert credential straight from the base64 SA env var and
-// wrap it in the `ProjectScope` shape `TestFirestoreRulesHandler.execute`
-// takes (F3). No admin App needed — the credential alone mints the token.
+// Selection and token minting live in credential.ts, which loads no Firebase
+// code, so the capture runners can check for a credential on their inert path.
 
-export function hasParitySecret(): boolean {
-  return !!process.env.PARITY_SA_BASE64 || !!process.env.PARITY_PROJECT_ID || existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
-}
-
-export function parityScope(): ProjectScope {
-  const b64 = process.env.PARITY_SA_BASE64;
-  if (b64) {
-    const sa = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8')) as {
-      project_id: string;
-    };
-    const credential = cert(sa as Parameters<typeof cert>[0]);
-    let cached: { token: string; expiresAt: number } | undefined;
-    return {
-      projectId: sa.project_id,
-      resolveToken: async () => {
-        if (cached && Date.now() < cached.expiresAt - 60_000) return cached.token;
-        const t = await credential.getAccessToken();
-        cached = { token: t.access_token, expiresAt: Date.now() + t.expires_in * 1000 };
-        return cached.token;
-      },
-    };
-  }
-  const configPath = join(homedir(), '.config', 'configstore', 'firebase-tools.json');
-  if (existsSync(configPath)) {
-    const projectId = process.env.PARITY_PROJECT_ID || 'digame-mas';
-    let cached: { token: string; expiresAt: number } | undefined;
-    return {
-      projectId,
-      resolveToken: async () => {
-        if (cached && Date.now() < cached.expiresAt - 60_000) return cached.token;
-        const data = JSON.parse(readFileSync(configPath, 'utf8')) as {
-          user?: { email: string };
-          users?: Record<string, { tokens?: { refresh_token?: string } }>;
-          tokens?: { refresh_token?: string };
-        };
-        const email = data.user?.email;
-        const refreshToken = (email && data.users?.[email]?.tokens?.refresh_token) || data.tokens?.refresh_token;
-        if (!refreshToken) throw new Error('No refresh token found in firebase-tools configuration.');
-        const res = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            client_id: '563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com',
-            client_secret: 'j9iVZfS8kkCEFUPaAeJV0sAi',
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken,
-          }),
-        });
-        if (!res.ok) throw new Error(`OAuth token refresh failed: HTTP ${res.status}`);
-        const json = await res.json() as { access_token: string; expires_in?: number };
-        cached = { token: json.access_token, expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000 };
-        return cached.token;
-      },
-    };
-  }
-  throw new Error(
-    'Neither PARITY_SA_BASE64 nor ~/.config/configstore/firebase-tools.json was found to authorize parity scope.',
-  );
-}
+export { hasParityCredential, parityScope } from './credential.js';
 
 // ─── Classification ────────────────────────────────────────────────────────
 

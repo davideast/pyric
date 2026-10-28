@@ -26,7 +26,28 @@ export type UnconfiguredIndexRecord = {
   revision: string;
 };
 
-export type IndexConfigRecord = ConfiguredIndexRecord | UnconfiguredIndexRecord;
+/** A firebase.json this page cannot edit indexes for, with the reason. */
+export type UnavailableIndexRecord = {
+  status: 'unavailable';
+  service: 'firestore' | 'rtdb';
+  path: null;
+  config: null;
+  revision: string;
+  reason: string;
+};
+
+export type IndexConfigRecord = ConfiguredIndexRecord | UnconfiguredIndexRecord | UnavailableIndexRecord;
+
+/**
+ * The distinct files a firebase.json section names in `field`. A section is
+ * one object, or a list with one entry per database.
+ */
+function configuredPaths(section: unknown, field: 'rules' | 'indexes'): unknown[] {
+  if (section === undefined || section === null) return [];
+  const entries: unknown[] = Array.isArray(section) ? section : [section];
+  const paths = entries.map(entry => (entry as Record<string, unknown> | null)?.[field]).filter(path => path !== undefined && path !== null);
+  return [...new Set(paths)];
+}
 
 /** The existing Firebase config selects the only writable file. No path comes from the browser. */
 export function createIndexConfigStore(projectDir: string) {
@@ -39,20 +60,21 @@ export function createIndexConfigStore(projectDir: string) {
     }
     const setup = JSON.parse(firebase);
     const targetService: 'firestore' | 'rtdb' = service ?? (
-      setup.firestore?.indexes ? 'firestore' :
-      setup.database?.rules ? 'rtdb' :
+      configuredPaths(setup.firestore, 'indexes').length > 0 ? 'firestore' :
+      configuredPaths(setup.database, 'rules').length > 0 ? 'rtdb' :
       'firestore'
     );
-    const section = targetService === 'rtdb' ? setup.database : setup.firestore;
-    if (Array.isArray(section)) throw new Error('Select a single database configuration before editing indexes here.');
-    if (section === undefined || section === null) {
-      return { status: 'unconfigured', service: targetService, path: null, config: null, revision: '' };
-    }
     const key = targetService === 'rtdb' ? 'database.rules' : 'firestore.indexes';
-    const path: unknown = targetService === 'rtdb' ? section.rules : section.indexes;
-    if (path === undefined || path === null) {
+    const paths = targetService === 'rtdb' ? configuredPaths(setup.database, 'rules') : configuredPaths(setup.firestore, 'indexes');
+    if (paths.length === 0) {
       return { status: 'unconfigured', service: targetService, path: null, config: null, revision: '' };
     }
+    if (paths.length > 1) {
+      const files = targetService === 'rtdb' ? 'rules' : 'indexes';
+      const reason = `The databases in firebase.json use different ${files} files (${paths.join(', ')}). Add the index to the file for the database the query runs on.`;
+      return { status: 'unavailable', service: targetService, path: null, config: null, revision: '', reason };
+    }
+    const path = paths[0];
     if (typeof path !== 'string' || !path || isAbsolute(path)) throw new Error(`Set ${key} in firebase.json to a project-relative file.`);
     const absolute = resolveWorkspacePath(root, path);
     const contents = await readOptional(absolute);
@@ -65,6 +87,7 @@ export function createIndexConfigStore(projectDir: string) {
   }
   async function preview(query: ServiceIndexQuery) {
     const current = await read(indexService(query));
+    if (current.status === 'unavailable') throw new Error(current.reason);
     if (current.status === 'unconfigured' || !current.path || !current.config) {
       const key = indexService(query) === 'rtdb' ? 'database.rules' : 'firestore.indexes';
       throw new Error(`Set ${key} in firebase.json to a project-relative file.`);

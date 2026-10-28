@@ -261,4 +261,37 @@ describe('the real graph', () => {
       expect(verified.length).toBe(engine.verifiedConstructs);
     }
   });
+
+  it('never marks a non-semantic Firestore construct verified without scenario AST exercise, and forbids over-annotated row scopes', () => {
+    const firestore = coverageReport.engines.find((e) => e.engine === 'firestore')!;
+    const unexercisedVerified = firestore.constructs.filter(
+      (c) => c.verdict === 'verified' && c.exercisedBy.length === 0 && c.kind !== 'semantic',
+    );
+    expect(unexercisedVerified).toEqual([]);
+
+    const byId = new Map(firestore.constructs.map((c) => [c.id, c]));
+    const rulesReg = surfaceRegistries.find((r) => r.surface === 'rules')!;
+    const overAnnotated: Array<{ rowId: string; scenarioId: string; missing: string[] }> = [];
+    for (const block of rulesReg.blocks) {
+      if (block.kind !== 'table') continue;
+      for (const r of block.rows) {
+        if (r.surface !== 'firestore-rules') continue;
+        const obs = r.oracleObservations?.[0];
+        if (!obs?.startsWith('rules-firestore-')) continue;
+        const scenarioId = obs.replace(/^rules-firestore-/, '');
+        const missing = (r.constructs ?? []).filter((cid) => {
+          const entry = byId.get(cid);
+          return entry !== undefined && entry.kind !== 'semantic' && !entry.exercisedBy.includes(scenarioId);
+        });
+        if (missing.length > 0) {
+          overAnnotated.push({ rowId: r.id, scenarioId, missing });
+        }
+      }
+    }
+    expect(overAnnotated).toEqual([]);
+
+    const typeDispatch = byId.get('firestore.semantic.type-dispatch');
+    expect(typeDispatch?.verdict).toBe('verified');
+    expect(typeDispatch?.verifiedByRows).toContain('firestore-rules#182');
+  });
 });

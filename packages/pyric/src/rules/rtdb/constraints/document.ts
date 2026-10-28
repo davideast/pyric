@@ -4,8 +4,9 @@ import {
   type CompiledRtdbRules,
 } from '../compiled-rules.js';
 import type { SimulationInput, SimulateResult } from '../simulation/spec.js';
+import { structuralFindings } from '../structure.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
-import { ruleset } from './ruleset.js';
+import { assertKnownPathKeys, ruleset } from './ruleset.js';
 import type { PathDef, RulesetContext } from './types.js';
 
 export interface RtdbRulesDefinition {
@@ -31,7 +32,7 @@ export interface RtdbRulesCheckResult {
 
 export type RtdbRulesSimulationAuth =
   | string
-  | { uid: string; token?: Record<string, unknown> }
+  | { uid: string; tenant?: string; token?: Record<string, unknown> }
   | null;
 
 export type RtdbRulesSimulationInput =
@@ -68,21 +69,58 @@ export interface RtdbRulesDocumentInternal extends RtdbRulesDocument {
   simulate(input: RtdbRulesSimulationInput): SimulateResult;
 }
 
-function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
+export function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
   if (auth === undefined || auth === null) return null;
   if (typeof auth === 'string') return { uid: auth, token: {} };
-  return { uid: auth.uid, token: auth.token ?? {} };
+  const normalized: NonNullable<SimulationInput['auth']> = {
+    uid: auth.uid,
+    token: auth.token ?? {},
+  };
+  if (auth.tenant !== undefined) normalized.tenant = auth.tenant;
+  return normalized;
 }
 
-function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
+function isRulesServerTimestamp(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).__type === 'serverTimestamp'
+  );
+}
+
+function normalizeSimulationValue(value: unknown): unknown {
+  if (isRulesServerTimestamp(value)) return { '.sv': 'timestamp' };
+  if (Array.isArray(value)) return value.map(normalizeSimulationValue);
+  if (typeof value === 'object' && value !== null) {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      // Defined, not assigned, so an own `__proto__` key is kept (#1247 CS-1).
+      Object.defineProperty(normalized, key, {
+        value: normalizeSimulationValue(child), enumerable: true, writable: true, configurable: true,
+      });
+    }
+    return normalized;
+  }
+  return value;
+}
+
+export function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
   const simulation: SimulationInput = {
     operation: input.operation,
     path: input.path,
     auth: normalizeAuth(input.auth),
     mockData: input.mockData ?? input.data ?? {},
   };
-  if (input.newData !== undefined) simulation.newData = input.newData;
+  if (input.newData !== undefined) simulation.newData = normalizeSimulationValue(input.newData);
   if (input.now !== undefined) simulation.now = input.now;
+  if (input.updates !== undefined) {
+    simulation.updates = input.updates.map((u) => ({
+      path: u.path,
+      value: normalizeSimulationValue(u.value),
+    }));
+  }
+  if (input.query !== undefined) simulation.query = input.query;
   return simulation;
 }
 
@@ -105,6 +143,16 @@ function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RtdbRules
     ...collectExpressionFindings(node.path, '.read', node.read, kind),
     ...collectExpressionFindings(node.path, '.write', node.write, kind),
     ...collectExpressionFindings(node.path, '.validate', node.validate, kind),
+    // A shape problem whose deploy rejection was captured is an error; one
+    // inferred from a captured rejection's text is a warning.
+    ...(node.structure ?? [])
+      .filter((finding) => finding.severity === (kind === 'errors' ? 'error' : 'warning'))
+      .map((finding): RtdbRulesFinding => ({
+        path: finding.path,
+        rule: 'ruleset',
+        code: finding.code,
+        message: finding.message,
+      })),
   ];
 
   for (const child of node.children) {
@@ -140,6 +188,22 @@ export function checkRtdbRules(compile: () => CompiledRtdbRules): RtdbRulesCheck
   return { ok: errors.length === 0, errors, warnings };
 }
 
+function attachStructuralFindings(node: RtdbNode): CompiledRtdbRules {
+  const rulesObj: Record<string, unknown> = {};
+  if (node.read) rulesObj['.read'] = node.read.raw;
+  if (node.write) rulesObj['.write'] = node.write.raw;
+  if (node.validate) rulesObj['.validate'] = node.validate.raw;
+  if (node.indexOn) rulesObj['.indexOn'] = node.indexOn;
+  for (const child of node.children) {
+    const segment = child.path.slice(child.path.lastIndexOf('/') + 1);
+    rulesObj[segment] = {};
+    attachStructuralFindings(child);
+  }
+  const structure = structuralFindings(node.path, rulesObj);
+  if (structure.length > 0) node.structure = structure;
+  return node;
+}
+
 class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
   private compiled: CompiledRtdbRules | undefined;
 
@@ -147,7 +211,7 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
 
   /** Compiles the definition on first use; lint, simulate, and toJSON share the tree. */
   compile(): CompiledRtdbRules {
-    this.compiled ??= ruleset(this.definition.paths);
+    this.compiled ??= attachStructuralFindings(ruleset(this.definition.paths));
     return this.compiled;
   }
 
@@ -165,6 +229,7 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
 }
 
 export function defineRtdbRules(definition: RtdbRulesDefinition): RtdbRulesDocument {
+  if (typeof definition.paths === 'object' && definition.paths !== null) assertKnownPathKeys(definition.paths);
   // The runtime object carries the full method surface; the declared return
   // type is the inert public artifact. Route the assignment through the
   // internal interface (a declared subtype) so the brand-only weak type

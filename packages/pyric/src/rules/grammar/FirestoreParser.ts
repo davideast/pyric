@@ -8,6 +8,7 @@ import { addParenthesizedGroup } from './paren-groups.js';
 import { boundSourceNesting, type SourceNestingFailure } from './compile-limits.js';
 import { MAX_BRACKET_DEPTH } from './bracket-scan.js';
 import { SourcePositions, setCompletionPosition, setExpressionPosition } from './expression-positions.js';
+import { SEGMENT_DEPTH, isSegmentPlaceholder, matchSegmented, type PieceResult } from './source-segments.js';
 
 // The grammar source is inlined at SDK build time (see
 // scripts/inline-grammar.ts). This keeps the parser browser-safe — no
@@ -123,20 +124,9 @@ semantics.addOperation<any>('toAST', {
     const children: MatchBlock[] = [];
     for (const item of items.children) {
       const ast = item.toAST();
-      const isFunction = ast._kind === 'function';
-      if (isFunction) {
-        functions.push(ast);
-      } else {
-        const isAllow = ast._kind === 'allow';
-        if (isAllow) {
-          allows.push(ast);
-        } else {
-          const isMatch = ast._kind === 'match';
-          if (isMatch) {
-            children.push(ast);
-          }
-        }
-      }
+      if (ast._kind === 'function') functions.push(ast);
+      else if (ast._kind === 'allow') allows.push(ast);
+      else if (ast._kind === 'match') children.push(ast);
     }
     return { functions, allows, children };
   },
@@ -144,14 +134,7 @@ semantics.addOperation<any>('toAST', {
   MatchBlock(_kw, path, _lb, body, _rb) {
     const { functions, allows, children } = body.toAST();
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
-    return {
-      _kind: 'match',
-      path: parsePath(path.sourceString),
-      functions,
-      allows,
-      children,
-      loc: { line: lineNum, col: colNum },
-    };
+    return { _kind: 'match', path: parsePath(path.sourceString), functions, allows, children, loc: { line: lineNum, col: colNum } };
   },
   AllowStatement(_kw, ops, _colon, _if, expr, _semi) {
     // Source position of the `allow` keyword. Ohm's `getLineAndColumn`
@@ -161,12 +144,7 @@ semantics.addOperation<any>('toAST', {
     // numbers stay stable — but a caller comparing to a non-trimmed
     // source must account for any leading blank lines.
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
-    return {
-      _kind: 'allow',
-      operations: ops.toAST(),
-      condition: expr.toAST(),
-      loc: { line: lineNum, col: colNum },
-    };
+    return { _kind: 'allow', operations: ops.toAST(), condition: expr.toAST(), loc: { line: lineNum, col: colNum } };
   },
   OperationList(first, _commas, rest) {
     return [first.toAST(), ...rest.children.map((c: any) => c.toAST())];
@@ -175,21 +153,9 @@ semantics.addOperation<any>('toAST', {
   FunctionDef(_export, _kw, name, _lp, params, _rp, _lb, body, _rb) {
     const { lets, expr, returnLoc } = body.toAST();
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
-    let isExported = false;
-    const exportStr = _export.sourceString.trim();
-    const isExportKw = exportStr === 'export';
-    if (isExportKw) {
-      isExported = true;
-    }
     return {
-      _kind: 'function',
-      name: name.sourceString,
-      parameters: params.toAST(),
-      exported: isExported,
-      lets,
-      body: expr,
-      returnLoc,
-      loc: { line: lineNum, col: colNum },
+      _kind: 'function', name: name.sourceString, parameters: params.toAST(),
+      exported: _export.sourceString.trim() === 'export', lets, body: expr, returnLoc, loc: { line: lineNum, col: colNum },
     };
   },
   ParameterList(list) {
@@ -212,45 +178,19 @@ semantics.addOperation<any>('toAST', {
   Ternary_ternary(cond, _q, cons, _colon, alt) {
     return placedAt({ type: 'ternary', condition: cond.toAST(), consequent: cons.toAST(), alternate: alt.toAST() }, this);
   },
-  LogicalOr_or(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '||', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  LogicalAnd_and(left, _op, right) {
-    return completesAt(placedAt({ type: 'binaryOp', op: '&&', left: left.toAST(), right: right.toAST() }, _op), this);
-  },
-  InIsExpr_in(left, _op, right) {
-    return placedAt({ type: 'inExpr', element: left.toAST(), collection: right.toAST() }, _op);
-  },
-  InIsExpr_is(left, _op, typeName) {
-    return placedAt({ type: 'isExpr', value: left.toAST(), typeName: typeName.sourceString }, _op);
-  },
-  Equality_eq(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '==', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Equality_neq(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '!=', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Comparison_gte(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '>=', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Comparison_lte(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '<=', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Comparison_gt(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '>', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Comparison_lt(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '<', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Additive_add(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '+', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Additive_sub(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '-', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  Multiplicative_mul(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '*', left: left.toAST(), right: right.toAST() }, _op);
-  },
+  LogicalOr_or(left, _op, right) { return placedAt({ type: 'binaryOp', op: '||', left: left.toAST(), right: right.toAST() }, _op); },
+  LogicalAnd_and(left, _op, right) { return completesAt(placedAt({ type: 'binaryOp', op: '&&', left: left.toAST(), right: right.toAST() }, _op), this); },
+  InIsExpr_in(left, _op, right) { return placedAt({ type: 'inExpr', element: left.toAST(), collection: right.toAST() }, _op); },
+  InIsExpr_is(left, _op, typeName) { return placedAt({ type: 'isExpr', value: left.toAST(), typeName: typeName.sourceString }, _op); },
+  Equality_eq(left, _op, right) { return placedAt({ type: 'binaryOp', op: '==', left: left.toAST(), right: right.toAST() }, _op); },
+  Equality_neq(left, _op, right) { return placedAt({ type: 'binaryOp', op: '!=', left: left.toAST(), right: right.toAST() }, _op); },
+  Comparison_gte(left, _op, right) { return placedAt({ type: 'binaryOp', op: '>=', left: left.toAST(), right: right.toAST() }, _op); },
+  Comparison_lte(left, _op, right) { return placedAt({ type: 'binaryOp', op: '<=', left: left.toAST(), right: right.toAST() }, _op); },
+  Comparison_gt(left, _op, right) { return placedAt({ type: 'binaryOp', op: '>', left: left.toAST(), right: right.toAST() }, _op); },
+  Comparison_lt(left, _op, right) { return placedAt({ type: 'binaryOp', op: '<', left: left.toAST(), right: right.toAST() }, _op); },
+  Additive_add(left, _op, right) { return placedAt({ type: 'binaryOp', op: '+', left: left.toAST(), right: right.toAST() }, _op); },
+  Additive_sub(left, _op, right) { return placedAt({ type: 'binaryOp', op: '-', left: left.toAST(), right: right.toAST() }, _op); },
+  Multiplicative_mul(left, _op, right) { return placedAt({ type: 'binaryOp', op: '*', left: left.toAST(), right: right.toAST() }, _op); },
   Multiplicative_div(left, _op, right) {
     const source = _op.source as any;
     const next: string = source.sourceString.charAt(source.endIdx);
@@ -259,32 +199,23 @@ semantics.addOperation<any>('toAST', {
       ...(/\s/.test(next) ? {} : { slashStartsPath: true }),
     }, _op);
   },
-  Multiplicative_mod(left, _op, right) {
-    return placedAt({ type: 'binaryOp', op: '%', left: left.toAST(), right: right.toAST() }, _op);
-  },
-  UnaryExpr_not(_op, expr) {
-    return placedAt({ type: 'unaryOp', op: '!', operand: expr.toAST() }, this);
-  },
-  UnaryExpr_neg(_op, expr) {
-    return placedAt({ type: 'unaryOp', op: '-', operand: expr.toAST() }, this);
-  },
+  Multiplicative_mod(left, _op, right) { return placedAt({ type: 'binaryOp', op: '%', left: left.toAST(), right: right.toAST() }, _op); },
+  UnaryExpr_not(_op, expr) { return placedAt({ type: 'unaryOp', op: '!', operand: expr.toAST() }, this); },
+  UnaryExpr_neg(_op, expr) { return placedAt({ type: 'unaryOp', op: '-', operand: expr.toAST() }, this); },
   PostfixExpr_methodCall(obj, _dot, method, _lp, args, _rp) {
     return placedAt({ type: 'methodCall', object: obj.toAST(), method: method.sourceString, args: args.asIteration().children.map((c: any) => c.toAST()) }, this);
   },
-  PostfixExpr_memberAccess(obj, _dot, member) {
-    return placedAt({ type: 'memberAccess', object: obj.toAST(), property: member.sourceString }, this);
-  },
-  PostfixExpr_bracketAccess(obj, _lb, idx, _rb) {
-    return placedAt({ type: 'bracketAccess', object: obj.toAST(), index: idx.toAST() }, this);
-  },
+  PostfixExpr_memberAccess(obj, _dot, member) { return placedAt({ type: 'memberAccess', object: obj.toAST(), property: member.sourceString }, this); },
+  PostfixExpr_bracketAccess(obj, _lb, idx, _rb) { return placedAt({ type: 'bracketAccess', object: obj.toAST(), index: idx.toAST() }, this); },
   PostfixExpr_sliceAccess(obj, _lb, start, _colon, end, _rb) {
     return placedAt({ type: 'sliceAccess', object: obj.toAST(), start: start.toAST(), end: end.toAST() }, this);
   },
   Primary_paren(_lp, expr, _rp) {
     const inner = expr.toAST() as Expression;
     addParenthesizedGroup(inner);
-    // A parenthesized conjunction completes at its opening parenthesis.
-    if (inner.type === 'binaryOp' && inner.op === '&&') completesAt(inner, this);
+    // A parenthesized conjunction completes at its opening parenthesis. A
+    // placeholder for a bracket matched on its own may stand for one.
+    if ((inner.type === 'binaryOp' && inner.op === '&&') || isSegmentPlaceholder(inner)) completesAt(inner, this);
     return inner;
   },
   Primary_path(p) { return p.toAST(); },
@@ -293,11 +224,16 @@ semantics.addOperation<any>('toAST', {
   Primary_functionCall(name, _lp, args, _rp) {
     return placedAt({ type: 'functionCall', name: name.sourceString, args: args.asIteration().children.map((c: any) => c.toAST()) }, this);
   },
-  PathLiteral(_slash, first, _slashes, rest) {
-    const segments: Array<string | Expression> = [first.toAST()];
-    for (const r of rest.children) segments.push(r.toAST());
+  PathLiteral(_slash, cont, last) {
+    const segments: Array<string | Expression> = [];
+    for (const c of cont.children) segments.push(c.toAST());
+    segments.push(last.toAST());
     return placedAt({ type: 'pathLiteral', raw: this.sourceString, segments }, this);
   },
+  PathLitContSegment_interpolation(_dp, expr, _rps) { return expr.toAST(); },
+  PathLitContSegment_captureRef(_lb, name, _rbs) { return `{${name.sourceString}}`; },
+  PathLitContSegment_parenLiteral(p) { return p.sourceString.slice(0, -1); },
+  PathLitContSegment_literal(p) { return p.sourceString.slice(0, -1); },
   PathLitSegment_interpolation(_dp, expr, _rp) { return expr.toAST(); },
   // Match-style `{ident}` is INVALID syntax inside path literals — Firestore
   // requires `$(ident)` for interpolation. We parse it anyway (instead of
@@ -432,10 +368,16 @@ function parsePath(raw: string): PathPattern {
  * exists — without this conversion that data is lost when the match goes out
  * of scope.
  */
-function buildParseError(match: ohm.MatchResult, source: string): ParseError {
-  const offset = (match as any).getRightmostFailurePosition?.() ?? 0;
-  const expected = (match as any).getExpectedText?.() ?? '';
-  return failureAt(source, offset, expected, (match as any).message ?? 'Parse error');
+function buildParseError(match: ohm.MatchResult, source: string, baseOffset: number = 0): ParseError {
+  const m = match as any;
+  const offset = baseOffset + (m.getRightmostFailurePosition?.() ?? 0);
+  const expected = m.getExpectedText?.() ?? '';
+  const interval = m.getInterval?.();
+  let message: string = m.message ?? 'Parse error';
+  if (interval !== undefined && (m.input !== source || baseOffset !== 0)) {
+    message = `${new interval.constructor(source, offset, offset).getLineAndColumnMessage()}Expected ${expected}`;
+  }
+  return failureAt(source, offset, expected, message);
 }
 
 /** A ParseError at `offset` of `source`, with 1-based line and column and the snippet there. */
@@ -475,46 +417,82 @@ function stackFailure(source: string): ParseError {
   return error;
 }
 
-/**
- * Match `trimmed` from `startRule` and build a value from the match, never
- * descending into a group production rejects as too complex or past the
- * bracket depth bound (`boundSourceNesting`), and never letting a stack
- * overflow escape.
- */
-function matchBounded<T>(
-  trimmed: string,
-  startRule: string | undefined,
-  build: (match: ohm.MatchResult) => T,
-): { ok: true; value: T } | { ok: false; error: ParseError } {
-  const bounded = boundSourceNesting(trimmed);
-  if (!('source' in bounded)) return { ok: false, error: nestingFailure(trimmed, bounded) };
+function matchGrammar(text: string, startRule: string | undefined): ohm.MatchResult {
+  if (startRule === undefined) return grammar.match(text);
+  return grammar.match(text, startRule);
+}
+
+/** Match one piece of the segmented match (`source-segments.ts`) and build its AST. */
+function matchPiece(text: string, startRule: string | undefined, offset: number, prefix: number, errorSource: string, baseOffset: number): PieceResult<ParseError> {
+  const match = matchGrammar(text, startRule);
+  if (!match.succeeded()) return { ok: false, error: buildParseError(match, errorSource, baseOffset + offset - prefix) };
+  const sourcePositions = buildPositions;
+  if (sourcePositions !== null && (offset !== 0 || prefix !== 0)) {
+    const start = sourcePositions.at(offset);
+    buildPositions = new SourcePositions(text, start.line - 1, start.column - 1 - prefix);
+  }
   try {
-    const match = startRule === undefined ? grammar.match(bounded.source) : grammar.match(bounded.source, startRule);
-    // The bounded source keeps every offset, so a failure is placed in `trimmed`.
-    if (!match.succeeded()) return { ok: false, error: buildParseError(match, trimmed) };
-    return { ok: true, value: build(match) };
+    return { ok: true, ast: semantics(match).toAST() as object };
+  } finally {
+    buildPositions = sourcePositions;
+  }
+}
+
+/** Match `trimmed` within the nesting bound (`boundSourceNesting`) and in segments (`matchSegmented`). */
+function matchBounded(trimmed: string, startRule: string | undefined, buildAst: boolean, errorSource: string = trimmed, baseOffset: number = 0, segmentDepth: number = SEGMENT_DEPTH): { ok: true; value: unknown } | { ok: false; error: ParseError } {
+  const bounded = boundSourceNesting(trimmed);
+  if (!('source' in bounded)) {
+    return { ok: false, error: nestingFailure(errorSource, { offset: baseOffset + bounded.offset, expected: bounded.expected }) };
+  }
+  const matchSource = (source: string, rule: string | undefined, needAst: boolean, at: number): PieceResult<ParseError> =>
+    matchSegmented(source, rule, (text, r, offset, prefix) => {
+      if (needAst || text !== source) return matchPiece(text, r, offset, prefix, errorSource, at);
+      const m = matchGrammar(text, r);
+      if (!m.succeeded()) return { ok: false, error: buildParseError(m, errorSource, at) };
+      return { ok: true, ast: {} };
+    }, 0, 0, segmentDepth);
+  try {
+    const matched = matchSource(bounded.source, startRule, buildAst, baseOffset);
+    if (!matched.ok) return matched;
+    if (bounded.elided !== undefined) {
+      const queue = bounded.elided.map((e) => ({ offset: baseOffset + e.offset, text: e.text }));
+      for (let i = 0; i < queue.length; i++) {
+        const item = queue[i]!;
+        const sub = boundSourceNesting(item.text);
+        if (!('source' in sub)) {
+          return { ok: false, error: nestingFailure(errorSource, { offset: item.offset + sub.offset, expected: sub.expected }) };
+        }
+        const subMatched = matchSource(sub.source, 'Expr', false, item.offset);
+        if (!subMatched.ok) return subMatched;
+        if (sub.elided !== undefined) {
+          for (const child of sub.elided) queue.push({ offset: item.offset + child.offset, text: child.text });
+        }
+      }
+    }
+    return { ok: true, value: matched.ast };
   } catch (e) {
-    if (e instanceof RangeError) return { ok: false, error: stackFailure(trimmed) };
+    if (e instanceof RangeError) return { ok: false, error: stackFailure(errorSource) };
     throw e;
   }
 }
 
 // ---- Public API ----
 
-export function parseExpression(input: string): ParseResult {
+function checkStrictParse(input: string, startRule: string | undefined, emptyMsg: string): ParseResult {
   const trimmed = input.trim();
-  if (!trimmed) return { valid: false, errors: [{ message: 'Empty expression' }] };
-  const matched = matchBounded(trimmed, 'Expr', () => undefined);
-  if (matched.ok) return { valid: true, errors: [] };
-  return { valid: false, errors: [{ message: matched.error.message }], parseError: matched.error };
+  if (!trimmed) return { valid: false, errors: [{ message: emptyMsg }] };
+  const leadingTrimmed = input.length - input.trimStart().length;
+  const matched = matchBounded(trimmed, startRule, false, input.trimEnd(), leadingTrimmed);
+  if (!matched.ok) return { valid: false, errors: [{ message: matched.error.message }], parseError: matched.error };
+  return { valid: true, errors: [] };
+}
+
+export function parseExpression(input: string): ParseResult {
+  return checkStrictParse(input, 'Expr', 'Empty expression');
 }
 
 export function parseRulesFile(input: string): ParseResult {
-  const trimmed = input.trim();
-  if (!trimmed) return { valid: false, errors: [{ message: 'Empty rules file' }] };
-  const matched = matchBounded(trimmed, undefined, () => undefined);
-  if (matched.ok) return { valid: true, errors: [] };
-  return { valid: false, errors: [{ message: matched.error.message }], parseError: matched.error };
+  return checkStrictParse(input, undefined, 'Empty rules file');
 }
 
 export function parseToAST(input: string): FirestoreRules | null {
@@ -522,14 +500,17 @@ export function parseToAST(input: string): FirestoreRules | null {
   return result.ok ? result.ast : null;
 }
 
+/** How {@link parseToASTOrError} matches; `segmentDepth` overrides {@link SEGMENT_DEPTH} in tests. */
+export interface ParseOptions {
+  segmentDepth?: number;
+}
+
 /**
  * Parse and either return the AST or a structured failure. Use this when
  * the caller wants to surface a diagnostic; use `parseToAST` when null is
  * a sufficient signal.
  */
-export function parseToASTOrError(
-  input: string,
-): { ok: true; ast: FirestoreRules } | { ok: false; error: ParseError } {
+export function parseToASTOrError(input: string, options: ParseOptions = {}): { ok: true; ast: FirestoreRules } | { ok: false; error: ParseError } {
   const trimmed = input.trim();
   if (!trimmed) {
     return { ok: false, error: { line: 1, column: 1, offset: 0, expected: '', actual: '', message: 'Empty rules file' } };
@@ -541,34 +522,27 @@ export function parseToASTOrError(
   let leadingLineOffset = 0;
   let lastLeadingNewline = -1;
   for (let i = 0; i < leadingTrimmed; i++) {
-    const isNewline = input.charCodeAt(i) === 10;
-    if (isNewline) {
+    if (input.charCodeAt(i) === 10) {
       leadingLineOffset++;
       lastLeadingNewline = i;
     }
   }
   // Expression positions are recorded against the caller's source directly.
   buildPositions = new SourcePositions(trimmed, leadingLineOffset, leadingTrimmed - lastLeadingNewline - 1);
-  let built: ReturnType<typeof matchBounded<FirestoreRules>>;
+  let built: ReturnType<typeof matchBounded>;
   try {
-    built = matchBounded(trimmed, undefined, (match) => semantics(match).toAST() as FirestoreRules);
+    built = matchBounded(trimmed, undefined, true, input.trimEnd(), leadingTrimmed, options.segmentDepth);
   } finally {
     buildPositions = null;
   }
   if (!built.ok) return built;
-  const ast = built.value;
-  const hasLeadingOffset = leadingLineOffset > 0;
-  if (hasLeadingOffset) {
-    shiftAstLines(ast, leadingLineOffset);
-  }
+  const ast = built.value as FirestoreRules;
+  if (leadingLineOffset > 0) shiftAstLines(ast, leadingLineOffset);
   return { ok: true, ast };
 }
 
 function shiftSourceLoc(loc: { line: number; col: number; file?: string } | undefined, offset: number): void {
-  const hasLoc = loc !== undefined;
-  if (hasLoc) {
-    loc!.line = loc!.line + offset;
-  }
+  if (loc !== undefined) loc.line += offset;
 }
 
 function shiftFunctionLocs(fn: FunctionDef, offset: number): void {
@@ -583,77 +557,41 @@ function shiftFunctionLocs(fn: FunctionDef, offset: number): void {
 
 function shiftAstLines(ast: FirestoreRules, offset: number): void {
   shiftSourceLoc(ast.loc, offset);
-  for (const imp of ast.imports) {
-    shiftSourceLoc(imp.loc, offset);
-  }
-  const hasGlobalFunctions = ast.functions !== undefined;
-  if (hasGlobalFunctions) {
-    for (const fn of ast.functions!) {
-      shiftFunctionLocs(fn, offset);
-    }
-  }
+  for (const imp of ast.imports) shiftSourceLoc(imp.loc, offset);
+  for (const fn of ast.functions ?? []) shiftFunctionLocs(fn, offset);
   shiftSourceLoc(ast.service.loc, offset);
-  const hasServiceFunctions = ast.service.functions !== undefined;
-  if (hasServiceFunctions) {
-    for (const fn of ast.service.functions!) {
-      shiftFunctionLocs(fn, offset);
-    }
-  }
+  for (const fn of ast.service.functions ?? []) shiftFunctionLocs(fn, offset);
   const stack: MatchBlock[] = [ast.service.match];
-  let stackLen = stack.length;
-  while (stackLen > 0) {
+  while (stack.length > 0) {
     const block = stack.pop()!;
     shiftSourceLoc(block.loc, offset);
-    for (const fn of block.functions) {
-      shiftFunctionLocs(fn, offset);
-    }
+    for (const fn of block.functions) shiftFunctionLocs(fn, offset);
     for (const allow of block.allows) {
       shiftSourceLoc(allow.loc, offset);
       shiftSourceLoc(allow.condition.loc, offset);
     }
-    for (const child of block.children) {
-      stack.push(child);
-    }
-    stackLen = stack.length;
+    for (const child of block.children) stack.push(child);
   }
 }
 
 function attachFunctionSourceFile(fn: FunctionDef, file: string): void {
-  const hasLoc = fn.loc !== undefined;
-  if (hasLoc) {
-    fn.loc!.file = file;
-  }
+  if (fn.loc !== undefined) fn.loc.file = file;
   for (const binding of fn.lets) {
-    const hasBindingLoc = binding.loc !== undefined;
-    if (hasBindingLoc) {
-      binding.loc!.file = file;
-    }
-    const hasValueLoc = binding.value.loc !== undefined;
-    if (hasValueLoc) {
-      binding.value.loc!.file = file;
-    }
+    if (binding.loc !== undefined) binding.loc.file = file;
+    if (binding.value.loc !== undefined) binding.value.loc.file = file;
   }
   if (fn.returnLoc !== undefined) fn.returnLoc.file = file;
-  const hasBodyLoc = fn.body.loc !== undefined;
-  if (hasBodyLoc) {
-    fn.body.loc!.file = file;
-  }
+  if (fn.body.loc !== undefined) fn.body.loc.file = file;
 }
 
 export function parseFunctions(input: string, sourceFile?: string): FunctionDef[] | null {
   const wrapped = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n${input}\n  }\n}`;
   const ast = parseToAST(wrapped);
-  const isAstNull = ast === null;
-  if (isAstNull) {
-    return null;
-  }
-  const fns = ast!.service.match.functions;
+  if (ast === null) return null;
+  const fns = ast.service.match.functions;
   for (const fn of fns) {
     shiftFunctionLocs(fn, -3);
-    const hasSourceFile = sourceFile !== undefined;
-    if (hasSourceFile) {
-      attachFunctionSourceFile(fn, sourceFile!);
-    }
+    if (sourceFile !== undefined) attachFunctionSourceFile(fn, sourceFile);
   }
   return fns;
 }

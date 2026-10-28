@@ -7,13 +7,12 @@ import http from 'isomorphic-git/http/web';
 
 import { ensureBufferPolyfill } from './buffer-polyfill';
 import { resolveGitCommitAuthor } from './git-author';
+import { corsProxyForCredentials } from './cors-proxy-policy';
 import { getLinkedGitHubRepo } from './linked-repo';
 import { getStoredPAT } from './github-auth';
 import { normalizedAdapter } from './normalized-fs';
 import { WORKSPACE_ROOT } from '~/lib/store/files';
 import { getVFS } from '~/lib/vfs';
-
-const DEFAULT_CORS_PROXY = 'https://cors.isomorphic-git.org';
 
 function workspaceFs() {
   ensureBufferPolyfill();
@@ -49,6 +48,7 @@ export async function fetchWorkspaceRemoteDefaultBranch(
   const token = await getStoredPAT();
   if (!token) return null;
 
+  const corsProxy = corsProxyForCredentials();
   const { fs } = workspaceFs();
   await fs.promises.mkdir(dir, { recursive: true });
 
@@ -72,7 +72,7 @@ export async function fetchWorkspaceRemoteDefaultBranch(
     singleBranch: true,
     depth: 1,
     onAuth: () => githubAuth(token),
-    corsProxy: DEFAULT_CORS_PROXY,
+    ...(corsProxy ? { corsProxy } : {}),
   });
 
   const remoteRef = `refs/remotes/origin/${link.defaultBranch}`;

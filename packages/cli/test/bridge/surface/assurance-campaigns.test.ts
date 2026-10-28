@@ -7,6 +7,7 @@ import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getFirestore } from 'pyric/sandbox/admin-firestore';
+import { replaceStorageRules } from 'pyric/storage/internal';
 
 import {
   callAssuranceOperation,
@@ -14,6 +15,7 @@ import {
   sandboxRules,
 } from '../../../src/bridge/surface/assurance-campaigns.js';
 import { createSurfaceContext } from '../../../src/bridge/surface/context.js';
+import { loadFirestoreRules } from '../../../src/bridge/surface/firestore-rules-load.js';
 import { OPEN_ORDER_RULES } from '../../fixtures/order-rules.js';
 
 function contextWithOrders() {
@@ -33,6 +35,27 @@ describe('the campaigns one sandbox holds', () => {
   it('reads back the rules the sandbox is enforcing', () => {
     const ctx = contextWithOrders();
     expect(sandboxRules(ctx).firestore).toBe(OPEN_ORDER_RULES);
+  });
+
+  it('reads back the Firestore rules in force rather than a refused rules load', () => {
+    const ctx = contextWithOrders();
+    const refused = loadFirestoreRules(ctx.sandbox, 'not valid firestore rules {{{');
+    expect(refused).toContain('did not parse');
+    expect(sandboxRules(ctx).firestore).toBe(OPEN_ORDER_RULES);
+  });
+
+  it('reads back Storage rules installed on the sandbox', async () => {
+    const ctx = contextWithOrders();
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
+    await replaceStorageRules(ctx.sandbox, storageRules);
+    expect(sandboxRules(ctx).storage).toBe(storageRules);
   });
 });
 

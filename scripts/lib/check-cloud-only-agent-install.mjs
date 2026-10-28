@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const FORBIDDEN_RUNTIMES = new Set([
@@ -63,7 +63,7 @@ export function inspectCloudOnlyDependencyTree(tree, status) {
   return [...found].sort();
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
 if (isMain) {
   try {
     const tree = JSON.parse(readFileSync(0, 'utf8'));

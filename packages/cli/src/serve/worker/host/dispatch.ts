@@ -29,7 +29,6 @@ import {
 // executes against THIS sandbox (one backend for app + Studio + agent), instead
 // of a separate in-page sandbox.
 import { buildSandboxDispatcher } from '../../../bridge/client/dispatch.js';
-import { firebaseOptionsEqual } from 'pyric/app/internal';
 
 import { activityJourneyId, type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { getOrCreateRemoteClientPort, RemoteClientPort } from '../remote-client-port.js';
@@ -40,6 +39,7 @@ import {
   handleAuthSub,
   handleAuthUnsub,
   cleanupPortSession,
+  setPortOrigin,
 } from '../host-auth.js';
 import {
   eventSubsFor,
@@ -66,6 +66,7 @@ import { isRulesOp, handleRulesOp } from './rules.js';
 import { handleClockOp, isClockOp, subscribeClock, unsubscribeClock } from './clock.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js';
 import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
+import { configConflictError, forgetConfigPort, handleAppConfig, refusalBaseline } from './app-config-lock.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
 import { isConnectionOp, handleConnectionOp } from './connection.js';
 import { isStudioOp, handleStudioOp } from './studio.js';
@@ -77,13 +78,6 @@ import {
   cleanupPortPresence,
 } from './presence.js';
 import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
-
-function configConflictError(): Error & { code: string } {
-  return Object.assign(
-    new Error('Pyric currently supports one Firebase configuration per runtime'),
-    { code: 'app/multiple-configs-not-supported' },
-  );
-}
 
 // ─── Op orchestrator ────────────────────────────────────────────────────────
 
@@ -225,13 +219,8 @@ export async function handleMessage(
 
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
-    const hasNoAppOptions = ctx.appOptions === undefined;
-    if (hasNoAppOptions) {
-      ctx.appOptions = structuredClone(msg.options);
-    } else {
-      const optionsConflict = !firebaseOptionsEqual(ctx.appOptions, msg.options);
-      if (optionsConflict) (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);
-    }
+    if (msg.origin !== undefined) setPortOrigin(targetPort, msg.origin);
+    handleAppConfig(ctx, targetPort, msg, stalePort => cleanupPort(ctx, stalePort));
     return;
   }
   // A rejected app port still owns host-side resources until its explicit
@@ -240,10 +229,10 @@ export async function handleMessage(
   if (rejectsConfig) {
     const isOperation = msg.t === 'op' || msg.t === 'tool';
     const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
+    const error = configConflictError(refusalBaseline(ctx), ctx.rejectedConfigDetails?.get(targetPort));
     if (isOperation) {
-      fail(targetPort, msg.id, configConflictError());
+      fail(targetPort, msg.id, error);
     } else if (isDataSubscription) {
-      const error = configConflictError();
       targetPort.postMessage({
         t: 'snap',
         subId: msg.subId,
@@ -404,6 +393,7 @@ export async function cleanupPortWithDisconnect(ctx: HostCtx, port: PortLike): P
  */
 export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   (ctx.disconnectedPorts ??= new WeakSet()).add(port);
+  forgetConfigPort(ctx, port, stalePort => cleanupPort(ctx, stalePort));
   const failures: unknown[] = [];
   const attempt = (cleanup: () => void): void => {
     try {

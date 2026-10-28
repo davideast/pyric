@@ -1,6 +1,6 @@
 import rename from '../surface/methods/sandbox/renameCapture.js';
 import remove from '../surface/methods/sandbox/deleteCapture.js';
-import type { ToolHandler } from '@inbrowser/agent';
+import type { ToolHandler } from 'pyric/sandbox/internal';
 import save from '../surface/methods/sandbox/saveCapture.js';
 import list from '../surface/methods/sandbox/listCaptures.js';
 import open from '../surface/methods/sandbox/openCapture.js';

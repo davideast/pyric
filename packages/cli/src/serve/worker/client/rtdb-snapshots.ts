@@ -1,5 +1,6 @@
 /** RTDB snapshot wire shape and Firebase-compatible client hydration. */
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
+import { executeQuery, valueChildren } from 'pyric/database/internal';
 import { rtdbChild } from './rtdb-references.js';
 
 export interface RtdbWireEntry {
@@ -32,6 +33,7 @@ export function valueAt(root: unknown, path: string): unknown {
 function exportValueAt(root: unknown, path: string): unknown {
   let current = root;
   for (const segment of path.split('/').filter(Boolean)) {
+    if (segment === '.priority' || segment === '.value') return null;
     if (current === null || typeof current !== 'object') return null;
     const record = current as Record<string, unknown>;
     const container = '.value' in record && Object.keys(record).every(
@@ -41,6 +43,30 @@ function exportValueAt(root: unknown, path: string): unknown {
     current = (container as Record<string, unknown>)[segment];
   }
   return current === undefined ? null : current;
+}
+
+function priorityFromExport(exported: unknown): string | number | null {
+  if (exported === null || typeof exported !== 'object' || Array.isArray(exported)) return null;
+  const candidate = (exported as Record<string, unknown>)['.priority'];
+  return typeof candidate === 'string' || typeof candidate === 'number' ? candidate : null;
+}
+
+function derivedEntries(value: unknown, exportValue: unknown): RtdbWireEntry[] {
+  const children = valueChildren(value);
+  if (children.length === 0) return [];
+  const rawChildren = Object.fromEntries(
+    children.map((entry) => [entry.key, entry.value]),
+  ) as Parameters<typeof executeQuery>[0];
+  return executeQuery(
+    rawChildren,
+    { orderBy: null, bounds: [], limit: null },
+    (key) => priorityFromExport(exportValueAt(exportValue, key)),
+  ).map((row) => ({
+    key: row.key,
+    value: row.value,
+    priority: row.priority,
+    exportValue: exportValueAt(exportValue, row.key) ?? row.value,
+  }));
 }
 
 export function makeRtdbSnapshot(
@@ -68,13 +94,14 @@ export function makeRtdbSnapshot(
       const entry = direct.length === 1
         ? entries?.find((candidate) => candidate.key === direct[0])
         : undefined;
+      const nextExport = entry?.exportValue ?? exportValueAt(exportValue, path);
       return makeRtdbSnapshot(
         rtdbChild(refHandle, path),
         childValue(path),
         undefined,
-        entry?.priority ?? null,
+        entry?.priority ?? priorityFromExport(nextExport),
         undefined,
-        entry?.exportValue ?? exportValueAt(exportValue, path),
+        nextExport,
       );
     },
     hasChild: (path) => childValue(path) !== null && childValue(path) !== undefined,
@@ -82,12 +109,10 @@ export function makeRtdbSnapshot(
     exportVal: () => exportValue ?? null,
     toJSON: () => exportValue ?? null,
     forEach: (callback) => {
-      const orderedEntries: RtdbWireEntry[] = entries ?? (
-        !value || typeof value !== 'object' || Array.isArray(value)
-          ? []
-          : Object.entries(value as Record<string, unknown>)
-              .map(([key, child]) => ({ key, value: child }))
-      );
+      // Without the host's ordered entries (a `child()` or iterated
+      // snapshot), an array value still has children keyed by index (#1110),
+      // ordered by RTDB priority then key from `exportValue`.
+      const orderedEntries: RtdbWireEntry[] = entries ?? derivedEntries(value, exportValue);
       for (const entry of orderedEntries) {
         if (callback(makeRtdbSnapshot(
           rtdbChild(refHandle, entry.key),

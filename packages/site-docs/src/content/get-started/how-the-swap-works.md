@@ -27,11 +27,29 @@ import { pyric } from '@pyric/cli/vite';
 export default { plugins: [pyric()] };
 ```
 
-When the bundler reaches `firebase/firestore`, it gets Pyric's mirror instead of the Firebase SDK. Your `addDoc` call lands in a local backend with your rules enforced. No request leaves your machine. Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
+When the bundler reaches `firebase/firestore` in browser code, it gets Pyric's mirror instead of the Firebase SDK. Your `addDoc` call lands in a local backend with your rules enforced. No request leaves your machine. Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
+
+### Server-rendered modules
+
+Under `vite dev`, modules Vite loads for server rendering get the swap too: `server.ssrLoadModule`, an environment runner, and the SSR entry and loaders of a framework built on Vite. They get the same modules a Node process started with `node --import @pyric/cli/register` gets.
+
+| In a server-rendered module | `pyric({ hosted: true })` | the default SharedWorker sandbox |
+|---|---|---|
+| `firebase/app`, `auth`, `database`, `firestore`, `storage` | reach the dev server's sandbox, signed in as the server's own user, under your rules | each call fails with `failed-precondition`, naming `hosted: true` |
+| `firebase/ai`, `firebase/messaging` | each call fails with `failed-precondition` | the same |
+| `firebase/app-check` | `initializeAppCheck` and token calls work in the server's process; tokens are minted locally with production's shape | the same |
+| `firebase/analytics`, `firestore/lite`, `functions`, `performance`, `remote-config` | imports resolve; each call fails with `PyricDeferredApiError` naming the subpath | the same |
+| `firebase-admin/*` | reaches the dev server's sandbox as admin, past your rules | each call fails with `failed-precondition`, naming `hosted: true` |
+
+Server code has one signed-in user for the whole dev server process, shared by every request, as a Node server that calls `initializeApp` has in production. Browser sessions are separate.
+
+Vite's default externalization and `ssr.noExternal` both work. A server environment Vite does not run in its own Node process, such as a Cloudflare Workers runtime, gets a module that throws when it loads.
+
+The dev server's network guard stays on for Firebase code the swap does not reach: other `firebase/*` subpaths, an installed package that imports `firebase` itself, and your Vite config's own imports. The dev server log names each refused host.
 
 `pyric sandbox` does the same swap for a static page or a Node process. The served page carries an import map, so the browser makes the same substitution without Vite.
 
-One detail that surprises people: `initializeApp(firebaseConfig)` still works. The config is accepted and ignored — there is no project to talk to.
+One detail that surprises people: `initializeApp(firebaseConfig)` still works, and no request reaches the project it names. The sandbox reads some options the way Firebase does. When no project is configured for the dev server, `projectId` names the default Realtime Database instance and selects the `.firebaserc` deploy targets that `firebase.json` names. `storageBucket` names the bucket that `getStorage(app)` and `storage.bucket()` use, which is the host's default bucket. Keep the config your production build uses, and give a Node process the same options as your pages.
 
 ## In production: nothing happens
 
@@ -55,10 +73,10 @@ A SharedWorker can outlive a Vite module update, so a refreshed page may otherwi
 
 For a Node child process, `pyric sandbox` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`, which maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*` for that process. The rule is the same as the browser. With activation present, it uses the sandbox. Without activation, it uses Firebase.
 
-Every `firebase-admin/*` subpath maps into `pyric-admin`, including the services the sandbox does not model, such as `firebase-admin/remote-config` and `firebase-admin/security-rules`. Those subpaths resolve and their exports link, so a process that imports them still starts. Calling one throws `PyricDeferredApiError`, which names the subpath:
+Every `firebase-admin/*` subpath maps into `pyric-admin`, including the services the sandbox does not model, such as `firebase-admin/remote-config`, `firebase-admin/security-rules`, and `firebase-admin/installations`. Those subpaths resolve, their exports link, and `get<Service>(app)` (or `admin.<service>(app)`) returns an `App`-bound handle without network calls so servers that initialize unmodeled services at module load start cleanly. Calling a method on that handle (or using a non-service export directly) fails with `PyricDeferredApiError`, naming the symbol and subpath:
 
 ```text
-pyric: 'firebase-admin/remote-config' is not mirrored by the local sandbox, so its calls fail here. Imports resolve so module graphs load. Code that needs this service runs against Firebase outside the sandbox: start it without `pyric sandbox`, or keep the call off the code path the sandbox runs.
+pyric-admin/remote-config: RemoteConfig.getTemplate is not implemented in pyric-admin/remote-config sandbox backend. The sandbox does not model this API; calls fail with this message.
 ```
 
 The sandbox never hands these imports to the real `firebase-admin`, so code under `pyric sandbox` does not reach a production service.

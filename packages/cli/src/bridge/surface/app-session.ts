@@ -21,6 +21,8 @@
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { Auth, AuthUserRecord, User } from 'pyric/auth';
+import { tokenClaimAccount } from 'pyric/sandbox/internal';
+import type { AccountLookup } from './identity.js';
 
 /** The app's own signed-in user, as every method that reports one spells it. */
 export interface AppSession {
@@ -76,6 +78,22 @@ export function readAppSession(sandbox: LocalSandbox): AppSession | null {
     providerId: providerOf(auth, user),
     tenantId: tenantOf(user, record),
     customClaims: record?.customClaims ?? {},
+  };
+}
+
+/**
+ * The Auth account behind a uid, for the agent identity's token projection.
+ * The sign-in provider is known only for the app session's own user; any
+ * other uid has no sign-in to report.
+ */
+export function accountLookupFor(sandbox: LocalSandbox): AccountLookup {
+  return (uid) => {
+    const auth = getAuth(sandbox);
+    const record = authSandbox.listUsers(auth).find((entry) => entry.uid === uid);
+    if (record === undefined) return null;
+    const user = auth.currentUser;
+    const signInProvider = user !== null && user.uid === uid ? providerOf(auth, user) : null;
+    return { account: tokenClaimAccount(record), customClaims: record.customClaims, signInProvider };
   };
 }
 

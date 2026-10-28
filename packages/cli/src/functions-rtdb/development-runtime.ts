@@ -41,9 +41,13 @@ export interface FunctionsDevelopmentRuntimeOptions {
   /** The per-launch secret this child's handshake beacon must present.
    *  Absent when the host runs no beacon receiver. */
   beaconToken?: string | undefined;
+  /** Identity of the host at `serveUrl`, pinned in the child's
+   *  `PYRIC_SANDBOX_INSTANCE`. */
+  hostInstanceId?: string | undefined;
   instance: string;
   location: string;
-  projectId?: string;
+  /** The project the child runs as, from `resolveFirebaseProject`. */
+  projectId: string;
   childModuleUrl?: string | URL;
   readiness: FunctionsPeerReadiness;
   onEvent?(event: FunctionsDevelopmentEvent): void;
@@ -220,10 +224,11 @@ export function createFunctionsDevelopmentRuntime(
           serveUrl: options.serveUrl,
           registerUrl: options.registerUrl,
           beaconToken: options.beaconToken,
+          instanceId: options.hostInstanceId,
         }),
         instance: options.instance,
         location: options.location,
-        ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
+        projectId: options.projectId,
         ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
         onEvent: (event) => emit({ type: 'child-event', event }),
       });

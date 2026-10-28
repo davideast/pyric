@@ -1,0 +1,69 @@
+{
+  "name": "firestore-servertimestamp-pending-echo",
+  "matrixRow": "firestore#servertimestamp-pending-value",
+  "rowIds": [
+    "firestore#servertimestamp-pending-value"
+  ],
+  "description": "updateDoc with serverTimestamp() while online, seen by a doc listener and a query listener with includeMetadataChanges. Records hasPendingWrites and the field under the default, estimate and previous serverTimestamps options for each snapshot.",
+  "observedAt": "2026-10-27T19:41:56.912Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "docEvents": [
+      {
+        "pending": false,
+        "fromCache": true,
+        "none": "old",
+        "estimate": "old",
+        "previous": "old"
+      },
+      {
+        "pending": false,
+        "fromCache": false,
+        "none": "old",
+        "estimate": "old",
+        "previous": "old"
+      },
+      {
+        "pending": true,
+        "fromCache": false,
+        "none": null,
+        "estimate": "Timestamp",
+        "previous": "old"
+      },
+      {
+        "pending": false,
+        "fromCache": false,
+        "none": "Timestamp",
+        "estimate": "Timestamp",
+        "previous": "Timestamp"
+      }
+    ],
+    "queryEvents": [
+      {
+        "pending": false,
+        "docPending": false,
+        "none": "old",
+        "previous": "old"
+      },
+      {
+        "pending": false,
+        "docPending": false,
+        "none": "old",
+        "previous": "old"
+      },
+      {
+        "pending": true,
+        "docPending": true,
+        "none": null,
+        "previous": "old"
+      },
+      {
+        "pending": false,
+        "docPending": false,
+        "none": "Timestamp",
+        "previous": "Timestamp"
+      }
+    ]
+  }
+}

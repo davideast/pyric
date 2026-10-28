@@ -1,20 +1,32 @@
 /** The Realtime Database rules engine behind the `rules` tool. */
 import { rtdbRules } from 'pyric/rules';
+import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
 import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
+import { resolveDatabaseInstance } from 'pyric/sandbox/internal';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
+import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
+import { projectDatabaseInstances } from '../database-instance-catalog.js';
+import { instanceSelector, onInstance } from '../database-instance.js';
+import { databaseRulesSource, installDatabaseRules } from '../database-rules-load.js';
+import { databaseFor } from '../service-handles.js';
 import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { markLintFindings } from '../rules-verdict.js';
+import { storedIdentity } from '../stored-identity.js';
 import type { SurfaceContext } from '../types.js';
 import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
 
+/** The edit a ruleset that production's deploy would refuse takes. */
+const RECOMPILE_FIX =
+  "Fix the rules (call rules.lint for each finding), then call rules.set with service 'database'.";
+
 /** What a call has to do when it named no source and the sandbox holds none. */
-const NO_RULES_LOADED =
+export const NO_RULES_LOADED =
   "No database rules were supplied and none are loaded in the sandbox. Pass rules, or call rules.set with service 'database' first.";
 
 /** What a call has to do when the source it named is not the JSON these rules take. */
-function notRules(problem: string): string {
+export function notRules(problem: string): string {
   return `The supplied database rules did not parse: ${problem}. Pass rules as a JSON object with a 'rules' key.`;
 }
 
@@ -22,7 +34,7 @@ function notRules(problem: string): string {
  * The ruleset a source describes, or why it is not a rules document. The
  * source is the text of a rules file, comments included.
  */
-function parseRuleset(source: string): { ruleset: RtdbRulesJson } | { problem: string } {
+export function parseRuleset(source: string): { ruleset: RtdbRulesJson } | { problem: string } {
   try {
     return { ruleset: parseRtdbRulesText(source, (reason) => reason) };
   } catch (error) {
@@ -31,12 +43,13 @@ function parseRuleset(source: string): { ruleset: RtdbRulesJson } | { problem: s
 }
 
 /** The identity a simulation runs as, in the shape the database tools take. */
-function identityFor(
+export function identityFor(
   ctx: SurfaceContext,
   uid: string | undefined,
 ): { uid: string; claims: Record<string, unknown> } | null {
   if (uid !== undefined) {
-    const projected = ctx.identity.projectionFor(uid);
+    const stored = storedIdentity(ctx, uid);
+    const projected = ctx.identity.projectionFor(uid, stored.tenant, stored.claims);
     return { uid: projected.uid, claims: projected.token };
   }
   const held = ctx.identity.authState();
@@ -45,18 +58,31 @@ function identityFor(
 }
 
 /** The rules engine addresses the tree from the root, whether the caller wrote the separator or not. */
-function rooted(path: string): string {
+export function rooted(path: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
+/** Resolve `instance` for `rules.set`, allowing newly named RTDB instances before data is written to them. */
+async function deploySelector(ctx: SurfaceContext, raw: unknown): Promise<string | undefined> {
+  if (raw === undefined) return undefined;
+  const instance = resolveDatabaseInstance(String(raw));
+  if (instance === undefined) return undefined;
+  const catalog = ctx.databaseInstances ?? (await projectDatabaseInstances(ctx.sandbox, ctx.projectDir));
+  return catalog.select(instance.name) === undefined ? undefined : instance.name;
+}
+
 /** Evaluate one case against a supplied ruleset rather than the running one. */
-function simulateAgainst(
+export function simulateAgainst(
   ctx: SurfaceContext,
   ruleset: RtdbRulesJson,
-  request: RulesRequest,
+  request: Omit<RulesRequest, 'data'> & { data?: unknown },
   auth: { uid: string; claims: Record<string, unknown> } | null,
+  selector?: string,
 ) {
-  const tree = snapshotState(ctx.sandbox);
+  const tree =
+    selector === undefined
+      ? snapshotState(ctx.sandbox)
+      : snapshotState(databaseFor(ctx, selector));
   let data: Record<string, unknown> = {};
   if (tree !== null && typeof tree === 'object') data = tree as Record<string, unknown>;
   let identity: RtdbCase['auth'] = null;
@@ -71,25 +97,34 @@ function simulateAgainst(
     now: requestInstant(ctx, request.requestTime),
   };
   if (request.data !== undefined) oneCase.newData = request.data;
+  if (request.query !== undefined) oneCase.query = request.query as RtdbCase['query'];
   return rtdbRules(ruleset).simulate([oneCase]).cases[0];
 }
 
 export const DATABASE_RULES: RulesEngine = {
-  requestMethods: ['read', 'write', 'validate'],
+  requestMethods: ['read', 'write', 'update', 'validate'],
 
   compileFailure(source): RulesSourceProblem | null {
     const parsed = parseRuleset(source);
-    if ('ruleset' in parsed) return null;
-    return {
-      body: `rules did not parse: ${parsed.problem}.`,
-      fix: "Pass rules JSON with a top-level 'rules' object, then call set again.",
-    };
+    if ('problem' in parsed) {
+      return {
+        body: `rules did not parse: ${parsed.problem}.`,
+        fix: "Pass rules JSON with a top-level 'rules' object, then call set again.",
+      };
+    }
+    // Production's deploy refuses a ruleset a rule of which carries an error.
+    const rejection = rtdbRulesSourceRejection(parsed.ruleset);
+    return rejection === null ? null : { body: rejection.message, fix: RECOMPILE_FIX };
   },
 
-  async lint(ctx, rules) {
+  async lint(ctx, rules, instance) {
+    const selector = instance === undefined ? undefined : await instanceSelector(ctx, instance);
     let ruleset: RtdbRulesJson | null = null;
     if (rules === undefined) {
-      ruleset = getActiveRules(ctx.sandbox);
+      ruleset =
+        selector === undefined
+          ? databaseRulesSource(ctx.sandbox)
+          : getActiveRules(databaseFor(ctx, selector));
     } else {
       const parsed = parseRuleset(rules);
       if ('problem' in parsed) {
@@ -104,16 +139,18 @@ export const DATABASE_RULES: RulesEngine = {
     const errors = issues.filter((issue) => issue.severity === 'error').length;
     return markLintFindings({
       ok: errors === 0,
-      summary: `${issues.length} findings, ${errors} errors`,
+      summary: onInstance(`${issues.length} findings, ${errors} errors`, selector),
       data: { issues },
     });
   },
 
   async simulate(ctx, request) {
+    const selector =
+      request.instance === undefined ? undefined : await instanceSelector(ctx, request.instance);
     const auth = identityFor(ctx, request.uid);
     const path = rooted(request.path);
 
-    if (request.rules === undefined) {
+    if (request.rules === undefined && selector === undefined) {
       const call: Record<string, unknown> = {
         operation: request.operation,
         path,
@@ -121,34 +158,55 @@ export const DATABASE_RULES: RulesEngine = {
         now: requestInstant(ctx, request.requestTime),
       };
       if (request.data !== undefined) call.newData = request.data;
+      if (request.query !== undefined) call.query = request.query;
       return callSandboxTool(ctx, 'rtdb_simulate_access', call);
     }
 
-    const parsed = parseRuleset(request.rules);
-    if ('problem' in parsed) {
-      return operationFailure(notRules(parsed.problem));
+    let ruleset: RtdbRulesJson;
+    if (request.rules !== undefined) {
+      const parsed = parseRuleset(request.rules);
+      if ('problem' in parsed) {
+        return operationFailure(notRules(parsed.problem));
+      }
+      ruleset = parsed.ruleset;
+    } else {
+      const active = getActiveRules(databaseFor(ctx, selector));
+      if (active === null) return operationFailure(NO_RULES_LOADED);
+      ruleset = active;
     }
-    const evaluated = simulateAgainst(ctx, parsed.ruleset, request, auth);
+    const evaluated = simulateAgainst(ctx, ruleset, request, auth, selector);
+    const result: Record<string, unknown> = {
+      decision: evaluated.decision,
+      allowed: evaluated.decision === 'ALLOW',
+      matchedPath: evaluated.matchedPath,
+      matchedRule: evaluated.matchedRule,
+      reason: evaluated.reason,
+      trace:
+        request.rules !== undefined ? locateRtdbTrace(request.rules, evaluated.trace) : evaluated.trace,
+    };
     return {
       ok: !evaluated.unsupported,
-      summary: `${request.operation} ${request.path}: ${evaluated.decision}`,
-      data: {
-        decision: evaluated.decision,
-        allowed: evaluated.decision === 'ALLOW',
-        matchedPath: evaluated.matchedPath,
-        reason: evaluated.reason,
-      },
+      summary: onInstance(`${request.operation} ${request.path}: ${evaluated.decision}`, selector),
+      data: result,
     };
   },
 
-  async install(ctx, rules) {
+  async install(ctx, rules, instance) {
     const parsed = parseRuleset(rules);
     if ('problem' in parsed) {
       return operationFailure(
         `Database rules did not parse: ${parsed.problem}. Pass rules JSON with a top-level 'rules' object, then call set again.`,
       );
     }
-    setRules(ctx.sandbox, parsed.ruleset);
+    const selector = await deploySelector(ctx, instance);
+    if (selector !== undefined) {
+      const rejection = rtdbRulesSourceRejection(parsed.ruleset);
+      if (rejection !== null) return operationFailure(`${rejection.message} ${RECOMPILE_FIX}`);
+      setRules(databaseFor(ctx, selector), parsed.ruleset);
+      return { ok: true, summary: onInstance('Database rules installed.', selector) };
+    }
+    const rejection = installDatabaseRules(ctx.sandbox, parsed.ruleset);
+    if (rejection !== null) return operationFailure(`${rejection.message} ${RECOMPILE_FIX}`);
     return { ok: true, summary: 'Database rules installed.' };
   },
 };

@@ -12,6 +12,9 @@ describe('Firebase public-surface census', () => {
   const expectedCounts = {
     ai: { runtime: [55, 44, 0], types: [164, 115] },
     app: { runtime: [10, 9, 13], types: [6, 4] },
+    // pyric/app-check is a deferred stub: every name resolves and throws, so the
+    // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
+    'app-check': { runtime: [8, 8, 0], types: [11, 11] },
     auth: { runtime: [85, 71, 0], types: [64, 25] },
     firestore: { runtime: [104, 104, 15], types: [78, 78] },
     database: { runtime: [44, 44, 10], types: [15, 15] },

@@ -9,7 +9,8 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getClock } from 'pyric/sandbox';
-import { resolveChildDatabaseHost, resolveChildProjectId } from '../../../../functions-rtdb/child.js';
+import { resolveChildDatabaseHost } from '../../../../functions-rtdb/child.js';
+import { resolveFirebaseProject } from '../../../../cli/firebase-project.js';
 import {
   executeOnValueCreated,
   type CreatedEventOptions,
@@ -70,7 +71,9 @@ function eventOptionsFor(
   ctx: SurfaceContext,
   trigger: DiscoveredOnValueCreated,
 ): CreatedEventOptions {
-  const projectId = resolveChildProjectId();
+  // The project the functions child runs as, so a wildcard trigger's event
+  // names the instance the child's handlers see.
+  const projectId = resolveFirebaseProject({ projectDir: ctx.projectDir }).projectId ?? 'demo-project';
   let instance = trigger.instance;
   if (instance === '*') instance = `${projectId}-default-rtdb`;
   return {

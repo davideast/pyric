@@ -1530,4 +1530,49 @@ service cloud.firestore {
       expect(notes).toContain('document-relative');
     });
   });
+
+  describe('lexical scoping and request.resource on non-write methods (FS-SIM-1, FS-SIM-9)', () => {
+    test('enforces lexical scoping for functions, path captures, and local bindings (FS-SIM-1, FS-COV-1)', () => {
+      const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function outerLeaksChildCapture() { return docId == 'a'; }
+    match /docs/{docId} {
+      allow get: if outerLeaksChildCapture();
+    }
+  }
+}`;
+      const res = handler.simulate(rules, [{
+        description: 'outer function cannot read child capture',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'docs/a',
+      }]);
+      expect(res.success && res.data.passed).toBe(1);
+    });
+
+    test('omits request.resource on get/list/delete when tc.data is absent, and populates it when tc.data is provided (FS-SIM-9a, FS-SIM-9b)', () => {
+      const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{docId} {
+      allow get, list, delete: if request.resource == null || request.resource.data.ok == true;
+    }
+  }
+}`;
+      const res = handler.simulate(rules, [
+        { description: 'get without data denies', expectation: 'DENY', method: 'get', path: 'docs/a' },
+        { description: 'list without data denies', expectation: 'DENY', method: 'list', path: 'docs/a' },
+        { description: 'delete without data denies', expectation: 'DENY', method: 'delete', path: 'docs/a' },
+        {
+          description: 'delete with explicit tc.data allows',
+          expectation: 'ALLOW',
+          method: 'delete',
+          path: 'docs/a',
+          data: { ok: true },
+        },
+      ]);
+      expect(res.success && res.data.passed).toBe(4);
+    });
+  });
 });

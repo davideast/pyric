@@ -4,6 +4,7 @@
  * mechanical extraction from `local-environment.ts`).
  */
 import type { DocumentData } from './local-state.js';
+import type { QueryScope } from './query-execution.js';
 
 /**
  * Compare two doc payloads for snapshot-suppression purposes. `null`
@@ -19,17 +20,22 @@ export function docDataEqual(a: DocumentData | null, b: DocumentData | null): bo
 }
 
 /**
- * True if any path in `paths` is a direct child document of
- * `collection`. Used as a cheap pre-filter for query-listener
- * notifications: we only re-read the collection when something it
- * could plausibly contain was just touched. Slice 6 may revisit when
- * subcollection-aware queries land — current shape keeps the filter
- * conservative (no false negatives) at the cost of an occasional
- * false positive that the change-set diff then suppresses.
+ * True if any path in `paths` is a document the query scope gathers: a
+ * direct child document of the collection, or for a collection group, a
+ * document in any collection with the group's id at any depth. Used as a
+ * cheap pre-filter for query-listener notifications: the listener re-reads
+ * only when something it could contain was just touched. The filter is
+ * conservative (no false negatives); a false positive is suppressed by the
+ * change-set diff.
  */
-export function anyPathInCollection(paths: ReadonlySet<string>, collection: string): boolean {
-  const prefix = `${collection}/`;
+export function anyPathInQueryScope(paths: ReadonlySet<string>, scope: QueryScope): boolean {
   for (const p of paths) {
+    if (scope.kind === 'collection-group') {
+      const segments = p.split('/');
+      if (segments.length % 2 === 0 && segments[segments.length - 2] === scope.collectionId) return true;
+      continue;
+    }
+    const prefix = `${scope.path}/`;
     if (!p.startsWith(prefix)) continue;
     const remaining = p.slice(prefix.length);
     if (remaining.length > 0 && !remaining.includes('/')) return true;

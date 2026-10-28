@@ -8,6 +8,10 @@
   "observedAt": "2026-09-27T14:10:51.121Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "ac47f27e6b55449f267cafd4f3edf33d40e520f05d7d669a33973343cffa299d"
+  },
   "behavior": {
     "'users/' + uid + '/' + file == 'users/alice/a.txt' on create → ALLOW": "ALLOW",
     "string + string concatenates (binding and literal) → ALLOW": "ALLOW",

@@ -16,7 +16,8 @@ export interface PyricNextOptions {
   /**
    * Port override for the local Pyric sandbox server when configuring dev-time
    * rewrites (`/__pyric/:path*`). By default, resolves from `PYRIC_SANDBOX`
-   * or `PYRIC_SANDBOX_PORT`, falling back to `4000`.
+   * (bare `remote` reads the project's `.pyric/serve.json`) or
+   * `PYRIC_SANDBOX_PORT`, falling back to `4000`.
    */
   port?: number;
   /**

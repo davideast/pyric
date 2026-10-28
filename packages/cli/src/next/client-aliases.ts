@@ -9,13 +9,18 @@
  */
 const CLIENT_MODULES: Readonly<Record<string, string>> = {
   'firebase/ai': 'ai',
+  'firebase/analytics': 'analytics',
   'firebase/app': 'app',
+  'firebase/app-check': 'app-check',
   'firebase/auth': 'auth',
   'firebase/firestore': 'firestore',
   'firebase/firestore/lite': 'firestore-lite',
+  'firebase/functions': 'functions',
   'firebase/database': 'database',
   'firebase/messaging': 'messaging',
   'firebase/messaging/sw': 'messaging-sw',
+  'firebase/performance': 'performance',
+  'firebase/remote-config': 'remote-config',
   'firebase/storage': 'storage',
 };
 

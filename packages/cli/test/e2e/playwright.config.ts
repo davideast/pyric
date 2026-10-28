@@ -10,7 +10,10 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.pw.ts',
-  testIgnore: ['hosted/**'],
+  // Each of these folders has its own config and server; run it through
+  // that config (the `test:hosted-smoke`, `test:site-cli`, `test:site-static`
+  // and `test:soak` scripts), never this one.
+  testIgnore: ['hosted/**', 'site-cli/**', 'site-static/**', 'soak/**'],
   timeout: 30_000,
   reporter: 'list',
   use: {

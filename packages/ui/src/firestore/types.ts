@@ -64,6 +64,7 @@ export function inferType(value: unknown): FieldType {
   // references below) rather than rendering them as maps of internal fields.
   if (typeof value === 'object' && isTimestampShape(value)) return 'timestamp';
   if (typeof value === 'object' && isGeoPointShape(value)) return 'geopoint';
+  if (typeof value === 'object' && isBytesShape(value)) return 'bytes';
 
   // DocumentReference has no shared class identity across the two
   // backends (sandbox-chainable vs. firebase/firestore). Use a
@@ -95,6 +96,28 @@ export function isTimestampShape(v: object): boolean {
     (typeof obj.seconds === 'number' && typeof obj.nanoseconds === 'number') ||
     (typeof obj._seconds === 'number' && typeof obj._nanoseconds === 'number')
   );
+}
+
+/**
+ * A serialized Bytes: the JSON form `{ type: 'firestore/bytes/1.0', bytes: <base64> }`,
+ * or the class-stripped form `{ bytes: Uint8Array }` that structured clone
+ * leaves behind. Each carries exactly its listed keys, so a map that merely
+ * has a `bytes` field is not misclassified.
+ */
+export function isBytesShape(v: object): boolean {
+  const obj = v as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length === 1) return obj.bytes instanceof Uint8Array;
+  return keys.length === 2 && obj.type === 'firestore/bytes/1.0' && typeof obj.bytes === 'string';
+}
+
+/** Rebuild a {@link Bytes} from a real instance or either serialized shape. */
+export function coerceBytes(value: unknown): Bytes {
+  if (value instanceof Bytes) return value;
+  const obj = value as { bytes: Uint8Array | string };
+  return typeof obj.bytes === 'string'
+    ? Bytes.fromBase64String(obj.bytes)
+    : Bytes.fromUint8Array(obj.bytes);
 }
 
 /** A serialized GeoPoint: exactly `{ latitude, longitude }`, both numbers. The

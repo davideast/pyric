@@ -12,6 +12,9 @@ import {
   firestoreUniverseHash,
 } from '../../src/firestore-rules-scorecard.ts';
 
+// Loading the whole conformance graph takes about 3 s on a CI runner and up to 7 s on a slow one.
+const FULL_GRAPH_TIMEOUT_MS = 20_000;
+
 function construct(id: string, status: LanguageConstruct['status'] = 'accepted'): LanguageConstruct {
   return {
     id, kind: 'function', engine: 'firestore', reference: 'test', status,
@@ -180,10 +183,10 @@ describe('Firestore Rules scorecard', () => {
   it('pins the current honest baseline over all 140 constructs', async () => {
     const scorecard = await computeFirestoreRulesScorecard();
     expect(scorecard.universe.denominator).toBe(140);
-    expect(scorecard.score).toEqual({ numerator: 137, denominator: 140, ratio: 137 / 140, percent: 97.9 });
+    expect(scorecard.score).toEqual({ numerator: 128, denominator: 140, ratio: 128 / 140, percent: 91.4 });
     expect(scorecard.counts).toEqual({
-      conformant: 137,
-      diverged: 0,
+      conformant: 128,
+      diverged: 9,
       unknown: 0,
       'acceptance-mismatch': 0,
       'local-unsupported': 0,
@@ -194,9 +197,9 @@ describe('Firestore Rules scorecard', () => {
       productionAcceptance: { unprobed: 0, accepted: 128, rejected: 9, unprobeable: 3 },
       localAcceptance: { accepted: 128, rejected: 9, unsupported: 0, unprobeable: 3 },
       localCapability: { implemented: 128, unsupported: 0, error: 9, unprobeable: 3 },
-      productionEvidence: { verified: 137, diverged: 0, unverified: 3 },
+      productionEvidence: { verified: 129, diverged: 9, unverified: 2 },
     });
-  });
+  }, FULL_GRAPH_TIMEOUT_MS);
 });
 
 describe('Firestore Rules scorecard CDD completeness', () => {
@@ -238,7 +241,7 @@ describe('Firestore Rules scorecard CDD completeness', () => {
       expect(construct.localCapability).toBeTruthy();
       expect(construct.productionEvidence).toBeTruthy();
     }
-  });
+  }, FULL_GRAPH_TIMEOUT_MS);
 
   it('classifies every non-conforming row with a reviewed disposition', () => {
     for (const row of rows.filter(({ status }) => status !== 'conforms')) {

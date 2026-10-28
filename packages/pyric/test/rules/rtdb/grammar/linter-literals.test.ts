@@ -38,6 +38,23 @@ describe('lintExpression reports a hardcoded rule only when the whole expression
     expect(hardcoded('true', 'validate')).toEqual([]);
     expect(hardcoded('false', 'validate')).toEqual([]);
   });
+
+  test('LNT-7: negative number literals and arithmetic fold in comparisons', () => {
+    expect(hardcoded('-1 == -1', 'read')).toEqual(['HARDCODED_TRUE']);
+    expect(hardcoded('(-1) == -1', 'read')).toEqual(['HARDCODED_TRUE']);
+    expect(hardcoded('-1 == 1', 'read')).toEqual(['HARDCODED_FALSE']);
+    expect(hardcoded('1 + 2 * 3 == 7', 'read')).toEqual(['HARDCODED_TRUE']);
+    expect(lintExpression('auth != null && -1 < 0', 'read').map((w) => w.code)).toContain(
+      'CONSTANT_COMPARISON',
+    );
+  });
+
+  test('COV-2: non-finite number literals (1e309) and division by zero are not folded as constants', () => {
+    expect(hardcoded('1e309 == 2e309', 'read')).toEqual([]);
+    expect(lintExpression('1e309 == 2e309', 'read')).toEqual([]);
+    expect(lintExpression('auth != null && 1e309 == 2e309', 'read')).toEqual([]);
+    expect(hardcoded('1 / 0 == 2 / 0', 'read')).toEqual([]);
+  });
 });
 
 describe('compiled rules JSON: a boolean literal and the string of it lint the same', () => {

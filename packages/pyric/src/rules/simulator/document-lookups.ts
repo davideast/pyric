@@ -1,5 +1,6 @@
 import type { SimulationContext, SimResource } from './evaluation-context.js';
 import { EvalError } from './eval-error.js';
+import { reviveFirestoreNumbers } from './firestore-values.js';
 import { Path } from './wrappers/path.js';
 
 /**
@@ -9,7 +10,8 @@ export function isDocumentPath(segmentsOrPath: string | readonly string[]): bool
   const segments = typeof segmentsOrPath === 'string'
     ? segmentsOrPath.split('/').filter(Boolean)
     : segmentsOrPath;
-  return segments.length > 0 && segments.length % 2 === 0;
+  if (segments.length === 0 || segments.length % 2 !== 0) return false;
+  return !segments.some((seg) => /^\{.*\}$/.test(seg));
 }
 
 export function normalizeDocumentPath(rawPath: string): string {
@@ -45,7 +47,7 @@ export function normalizeDocumentPath(rawPath: string): string {
 export function makeGetResource(relPath: string, data: Record<string, unknown>): SimResource {
   const segments = relPath.split('/').filter(Boolean);
   return {
-    data,
+    data: reviveFirestoreNumbers(data) as Record<string, unknown>,
     id: segments.at(-1) ?? '',
     __name__: new Path(['databases', '(default)', 'documents', ...segments]),
   };
@@ -63,14 +65,17 @@ export function resolveGet(rawPath: string, context: SimulationContext): SimReso
   if (!document && context.getDoc) {
     const loaded = context.getDoc(path);
     if (loaded) {
-      context.mockDocuments.set(path, loaded);
-      document = loaded;
+      const revived = reviveFirestoreNumbers(loaded) as Record<string, unknown>;
+      context.mockDocuments.set(path, revived);
+      document = revived;
     }
   }
   if (document) {
-    return context.identitylessFunctionMocks?.has(path)
-      ? { data: document }
-      : makeGetResource(path, document);
+    const revivedDoc = reviveFirestoreNumbers(document) as Record<string, unknown>;
+    if (context.identitylessFunctionMocks?.has(path)) {
+      return { data: revivedDoc };
+    }
+    return makeGetResource(path, revivedDoc);
   }
   throw new EvalError(`get() of non-existent document '${path}' (guard with exists() first)`);
 }
@@ -79,13 +84,19 @@ export function resolveExists(rawPath: string, context: SimulationContext): bool
   const path = normalizeDocumentPath(rawPath);
   const segments = path.split('/').filter(Boolean);
   if (!isDocumentPath(segments)) {
-    return false;
+    throw new EvalError(
+      `exists() requires a path pointing to a document (even segment count), got '${path}'`,
+    );
   }
+  // An exists mock answers exists() first, whatever else is known about
+  // the path (FS-CON-6).
+  const mocked = context.existsMocks?.get(path);
+  if (mocked !== undefined) return mocked;
   if (context.mockDocuments.has(path)) return true;
   if (context.getDoc) {
     const loaded = context.getDoc(path);
     if (loaded) {
-      context.mockDocuments.set(path, loaded);
+      context.mockDocuments.set(path, reviveFirestoreNumbers(loaded) as Record<string, unknown>);
       return true;
     }
   }

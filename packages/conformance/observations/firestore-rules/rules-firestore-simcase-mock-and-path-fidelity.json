@@ -1,0 +1,47 @@
+{
+  "name": "rules-firestore-simcase-mock-and-path-fidelity",
+  "matrixRow": "firestore-rules#197",
+  "rowIds": [
+    "firestore-rules#197"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"simcase-mock-and-path-fidelity\" (FS-CON-6). functionMocks are per-function and order-free; a sibling recursive deny cannot revoke a list grant.",
+  "observedAt": "2026-10-17T20:35:43.152Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "511162316aa6fe16b01aa18ba61c32b5639523d72db5e953e26a033b1c8c9471"
+  },
+  "behavior": {
+    "exists mocked true, get unmocked → get() errors → DENY": "DENY",
+    "exists mocked false with a get mock → !exists() → ALLOW": "ALLOW",
+    "mocks [exists, get] → ALLOW": "ALLOW",
+    "mocks [get, exists] → ALLOW": "ALLOW",
+    "exists mock path '/other/x' (leading slash) → ALLOW": "ALLOW",
+    "list menuItems/{id} beside a {document=**} read deny → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "exists mocked true, get unmocked → get() errors → DENY": {
+      "notes": [
+        "Error: firestore.rules line [6], column [24]. Function not found error: Name: [get]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 6,
+          "column": 24,
+          "currentOffset": 231,
+          "endOffset": 233
+        },
+        "functionCalls": [
+          {
+            "function": "get",
+            "args": [
+              "/databases/%28default%29/documents/other/x"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -11,10 +11,19 @@
  *
  * 2. Version skew: a live tab whose SharedWorker predates a new op returns
  *    a raw "Unknown method: …" — the client appends restart/reload guidance.
+ *
+ * 3. Heartbeat (#973): a real Node process attached over `ws` keeps pinging
+ *    while idle and still exits when its script ends. It runs the built CLI,
+ *    so build first. PYRIC_TEST_NODE optionally selects the Node executable.
  */
 
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { WebSocketServer } from 'ws';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { createBridge, type Bridge } from '../../src/bridge/server/bridge.js';
@@ -191,6 +200,47 @@ describe('remote core — event-loop hold (ref/unref transitions)', () => {
     node.core.dispose('closed');
     expect(node.holds).toEqual(['ref', 'unref', 'ref', 'unref']);
   });
+
+  it('releaseInFlight settles each call by its fate, unrefs once, and is idempotent (#1107)', async () => {
+    const bridge = createBridge({ version: 'test', callTimeoutMs: 5000 });
+    connectTab(bridge, makeWorkerCtx(), { dropOps: true }); // nothing answers
+    const node = connectNode(bridge, { opTimeoutMs: 60 });
+    await node.core.ready;
+
+    const outcomes: string[] = [];
+    const record = (name: string, call: Promise<unknown>): void => {
+      call.then(
+        () => outcomes.push(`${name}: resolved`),
+        (error: Error & { code?: string }) => outcomes.push(`${name}: ${error.code ?? 'no code'} ${error.message}`),
+      );
+    };
+    const instance = undefined;
+    record('set', node.channel.op({ method: 'rtdb.set', instance, path: 'a', value: 1 }));
+    record('onDisconnect', node.channel.op({ method: 'rtdb.onDisconnectSet', instance, path: 'a', value: 0 }));
+    record('commit', node.channel.op({ method: 'rtdb.transactionCommit', instance, path: 'a', expected: 1, value: 2 }));
+    record('keyless push', node.channel.op({ method: 'rtdb.push', instance, path: 'list', value: 1 }));
+    record('keyed push', node.channel.op({ method: 'rtdb.push', instance, path: 'list', key: 'k1', value: 1 }));
+    record('metadata', node.channel.op({ method: 'storage.getMetadata', path: 'x' }));
+    node.channel.subscribe({ target: { service: 'rtdb', path: 'x' } }, () => {});
+    expect(node.holds).toEqual(['ref']);
+
+    const released = node.core.releaseInFlight('lost');
+    expect(released.map((call) => call.payload.method)).toEqual(['rtdb.set', 'rtdb.push']);
+    expect(node.holds).toEqual(['ref', 'unref']);
+    expect(node.core.releaseInFlight('lost again')).toEqual([]);
+    expect(node.holds).toEqual(['ref', 'unref']);
+
+    // Past the per-send timeout: a released call has no timer left.
+    await tick(120);
+    expect(outcomes).toEqual([
+      'commit: no code disconnect',
+      'keyless push: unavailable lost',
+      'metadata: unavailable lost',
+    ]);
+    released[0]!.resolve(null);
+    await tick();
+    expect(outcomes.at(-1)).toBe('set: resolved');
+  });
 });
 
 // ─── Terminal listener errors ───────────────────────────────────────────────
@@ -342,4 +392,167 @@ describe('remote core — version-skew guidance on Unknown method', () => {
       expect((err as Error).message).not.toContain('predate');
     }
   });
+});
+
+// ─── Heartbeat timers never hold the loop (#973) ───────────────────────────
+
+/** A bridge host on `port` (0 picks one) that acknowledges attach, answers ops, and counts pings. */
+async function startPingCountingHost(
+  port = 0,
+): Promise<{ url: string; port: number; pings: () => number; stop: () => Promise<void> }> {
+  const http = createServer();
+  const server = new WebSocketServer({ server: http, path: '/__pyric/sandbox' });
+  http.listen(port, '127.0.0.1');
+  await once(http, 'listening');
+  let pings = 0;
+  server.on('connection', (socket) => {
+    socket.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString()) as BridgeMessage;
+      const reply = (frame: BridgeMessage): void => socket.send(JSON.stringify(frame));
+      if (msg.type === 'attach') {
+        reply({ type: 'attach-ack', protocol: 1, bridgeVersion: 'test', peerConnected: true, clientSessionId: 's' });
+      } else if (msg.type === 'ping') {
+        pings += 1;
+        reply({ type: 'pong', id: msg.id });
+      } else if (msg.type === 'worker-op') {
+        reply({ type: 'worker-res', id: msg.id, ok: true, value: { key: null, exists: true, value: 1, size: 1 } });
+      }
+    });
+  });
+  const stop = async (): Promise<void> => {
+    for (const client of server.clients) client.terminate();
+    server.close();
+    http.closeAllConnections();
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  };
+  const bound = (http.address() as AddressInfo).port;
+  return { url: `http://127.0.0.1:${bound}`, port: bound, pings: () => pings, stop };
+}
+
+/** Attach, run one op, stay idle long enough for several heartbeats, and end without closing. */
+const IDLE_SCRIPT = `
+const { setHeartbeatForTesting } = await import(new URL('host-liveness.js', process.argv[1]).href);
+setHeartbeatForTesting({ intervalMs: 50, timeoutMs: 45_000 });
+const { connectRemoteSandbox } = await import(process.argv[1]);
+const remote = await connectRemoteSandbox({ url: process.argv[2] });
+await remote.rtdb.get('a');
+await new Promise((resolve) => setTimeout(resolve, 400));
+process.stdout.write('idle');
+`;
+
+describe('remote client — heartbeat and the event loop (#973)', () => {
+  it('an idle attached process keeps pinging and still exits when its script ends', async () => {
+    const host = await startPingCountingHost();
+    try {
+      const entry = new URL('../../dist/remote/index.js', import.meta.url).href;
+      const child = spawn(
+        process.env.PYRIC_TEST_NODE ?? 'node',
+        ['--input-type=module', '-e', IDLE_SCRIPT, entry, host.url],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => (stdout += chunk));
+      child.stderr.on('data', (chunk) => (stderr += chunk));
+      const exited = once(child, 'exit').then(([code]) => code as number | null);
+      const deadline = new Promise<'hung'>((resolve) => setTimeout(() => resolve('hung'), 10_000));
+      const outcome = await Promise.race([exited, deadline]);
+      if (outcome === 'hung') child.kill('SIGKILL');
+      expect(outcome, stderr).toBe(0);
+      expect(stdout).toBe('idle');
+      expect(host.pings()).toBeGreaterThanOrEqual(3);
+    } finally {
+      await host.stop();
+    }
+  }, 20_000);
+});
+
+// ─── A held call holds the loop until it settles (#1107) ───────────────────
+
+/**
+ * Attach through the lazy handle with the hold deadline in argv[3], wait for
+ * the host to drop the connection, then issue one call and end the script
+ * with nothing else keeping the process alive.
+ */
+const HELD_CALL_SCRIPT = `
+const { setHoldDeadlineForTesting } = await import(new URL('held-calls.js', process.argv[1]).href);
+setHoldDeadlineForTesting(Number(process.argv[3]));
+const { remoteSandbox } = await import(process.argv[1]);
+const keepAlive = setInterval(() => {}, 1000);
+let lost;
+const dropped = new Promise((resolve) => { lost = resolve; });
+const lazy = remoteSandbox({ url: process.argv[2], warn: () => lost() });
+await lazy.rtdb.get('a');
+process.stdout.write('attached\\n');
+await dropped;
+clearInterval(keepAlive);
+lazy.rtdb.get('a').then(
+  (value) => process.stdout.write('settled ' + value + '\\n'),
+  (error) => process.stdout.write('failed ' + error.code + '\\n'),
+);
+process.stdout.write('held\\n');
+`;
+
+function runHeldCallScript(url: string, holdDeadlineMs: number) {
+  const entry = new URL('../../dist/remote/index.js', import.meta.url).href;
+  const child = spawn(
+    process.env.PYRIC_TEST_NODE ?? 'node',
+    ['--input-type=module', '-e', HELD_CALL_SCRIPT, entry, url, String(holdDeadlineMs)],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => (stdout += chunk));
+  child.stderr.on('data', (chunk) => (stderr += chunk));
+  const exited = once(child, 'exit').then(([code]) => code as number | null);
+  const printed = async (line: string): Promise<void> => {
+    const deadline = Date.now() + 10_000;
+    while (!stdout.includes(`${line}\n`)) {
+      if (Date.now() > deadline) throw new Error(`the script never printed ${line}: ${stdout}${stderr}`);
+      await tick(20);
+    }
+  };
+  const exitWithin = (ms: number): Promise<number | null | 'hung'> =>
+    Promise.race([exited, tick(ms).then(() => 'hung' as const)]);
+  return { child, printed, exitWithin, stdout: () => stdout, stderr: () => stderr };
+}
+
+describe('remote client — a held call and the event loop (#1107)', () => {
+  it('a call issued while the connection is lost keeps the process alive until the host is back and it settles', async () => {
+    const first = await startPingCountingHost();
+    const script = runHeldCallScript(first.url, 10_000);
+    let second: Awaited<ReturnType<typeof startPingCountingHost>> | undefined;
+    try {
+      await script.printed('attached');
+      await first.stop();
+      await script.printed('held');
+      // Past the first reconnect attempts, with nothing but the held call left.
+      await tick(800);
+      expect(script.child.exitCode).toBeNull();
+
+      second = await startPingCountingHost(first.port);
+      const outcome = await script.exitWithin(10_000);
+      if (outcome === 'hung') script.child.kill('SIGKILL');
+      expect(outcome, script.stderr()).toBe(0);
+      expect(script.stdout()).toContain('settled 1\n');
+    } finally {
+      script.child.kill('SIGKILL');
+      await second?.stop();
+    }
+  }, 30_000);
+
+  it('a call that outlives its hold deadline fails and lets the process exit', async () => {
+    const host = await startPingCountingHost();
+    const script = runHeldCallScript(host.url, 300);
+    try {
+      await script.printed('attached');
+      await host.stop();
+      const outcome = await script.exitWithin(10_000);
+      if (outcome === 'hung') script.child.kill('SIGKILL');
+      expect(outcome, script.stderr()).toBe(0);
+      expect(script.stdout()).toContain('failed unavailable\n');
+    } finally {
+      script.child.kill('SIGKILL');
+    }
+  }, 30_000);
 });

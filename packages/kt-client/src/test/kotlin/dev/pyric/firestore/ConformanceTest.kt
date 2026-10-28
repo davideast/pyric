@@ -62,8 +62,8 @@ class ConformanceTest {
     }
 
     @Test
-    @DisplayName("firestore-kotlin#2: FirebaseFirestore.getInstance(database) provides isolated instance")
-    fun `firestore-kotlin#2 FirebaseFirestore getInstance database provides isolated instance`() {
+    @DisplayName("firestore-kotlin#2: FirebaseFirestore.getInstance(database) provides a distinct handle per database")
+    fun `firestore-kotlin#2 FirebaseFirestore getInstance database provides a distinct handle per database`() {
         val db1 = FirebaseFirestore.getInstance("db-1")
         val db2 = FirebaseFirestore.getInstance("db-2")
         assertNotNull(db1)
@@ -487,7 +487,7 @@ class ConformanceTest {
         val task = harness.firestore.runTransaction { txn ->
             attempts++
             if (attempts < 2) {
-                throw RuntimeException("Temporary conflict")
+                throw com.google.firebase.firestore.FirebaseFirestoreException("Temporary conflict", com.google.firebase.firestore.FirebaseFirestoreException.Code.ABORTED)
             }
             "recovered"
         }

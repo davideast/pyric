@@ -1,6 +1,6 @@
 {
   "name": "@pyric/ui",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.30",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -87,23 +87,18 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && bun run check:dist",
+    "check:dist": "bun run scripts/check-use-client.ts",
     "test": "bun run test:no-dom && bun run test:dom",
-    "test:no-dom": "bun test test/auth/claims test/auth/controller test/auth/hooks test/firestore/hooks test/firestore/inference test/firestore/reducers test/firestore/validation test/firestore/import test/storage/hooks test/storage/logic test/traffic/hooks test/rules/hooks test/rules/logic test/events/hooks test/rtdb/logic test/rtdb/reducers",
+    "test:no-dom": "bun test test/auth/claims test/auth/controller test/auth/hooks test/firestore/hooks test/firestore/inference test/firestore/reducers test/firestore/validation test/firestore/import test/storage/hooks test/storage/logic test/traffic/hooks test/rules/hooks test/rules/logic test/events/hooks test/rtdb/logic test/rtdb/reducers test/build",
     "test:dom": "bun test test/auth/components test/firestore/components test/primitives test/storage/components test/traffic/components test/rules/components test/events/components test/agents test/rtdb/components",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit"
   },
   "peerDependencies": {
-    "@inbrowser/agent": "0.4.2",
     "react": ">=18",
     "react-dom": ">=18",
     "firebase": ">=12",
     "pyric": "workspace:*"
-  },
-  "peerDependenciesMeta": {
-    "@inbrowser/agent": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",

@@ -1,11 +1,18 @@
 {
   "name": "rules-storage-firestore-lookup-budget",
   "matrixRow": "Storage rules engine #129-#130",
-  "rowIds": ["storage-rules#129", "storage-rules#130"],
+  "rowIds": [
+    "storage-rules#129",
+    "storage-rules#130"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"firestore-lookup-budget\" (STORAGE-P3-LOOKUP-BUDGET). Mocked firestore.get/exists return, error, caching, distinct-document budget, and lazy-evaluation behavior without touching a real Firestore database.",
   "observedAt": "2026-07-21T06:03:34.592Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d11e998530fb0da44eafa17edce3865a4bfcbaedb090a4e96a337686c3f954fb"
+  },
   "behavior": {
     "get: existing mocked document field allows": "ALLOW",
     "get: missing mocked document field errors and denies": "DENY",

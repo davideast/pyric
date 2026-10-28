@@ -21,6 +21,7 @@ import {
 } from './support.js';
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
 import { assertQueryIndexEnforcement } from './query-index-contracts.js';
+import { assertM95InfoWrites } from './info-write-contracts.js';
 
 const contentionObservation = loadObservation('rtdb-modular-concurrent-transforms');
 const currentValueObservation = loadObservation('rtdb-modular-runtransaction-current-value-arg');
@@ -59,6 +60,21 @@ describe('rtdb-modular CDD: public operation rows', () => {
     const { db } = setup(); const root = api.ref(db); api.databaseSandbox.setRules(db, { rules: { '.read': true, allowed: { '.write': true }, blocked: { '.write': false } } });
     await expect(api.update(root, { allowed: 1, blocked: 2 })).rejects.toThrow();
     expect([(await api.get(api.ref(db, 'allowed'))).val(), (await api.get(api.ref(db, 'blocked'))).val()]).toEqual([null, null]);
+  });
+  // Row SW1 records the served planes' synchronous refusal of values JSON
+  // cannot carry (#1362). The sandbox side: the in-page sandbox fails the same
+  // writes (asynchronously, #1224) and leaves the stored data as it was.
+  row('SW1', async () => {
+    const { db } = setup();
+    const target = api.ref(db, 'kept');
+    await api.setWithPriority(target, { k: 5, j: 1 }, 3);
+    const fails = async (write: () => Promise<unknown>) => {
+      try { await write(); return 'resolved'; } catch (error) { return (error as Error).message; }
+    };
+    expect(await fails(() => api.set(target, NaN))).toContain('contains NaN');
+    expect(await fails(() => api.update(target, { k: NaN }))).toContain('contains NaN');
+    expect(await fails(() => api.setPriority(target, NaN))).not.toBe('resolved');
+    expect((await api.get(target)).exportVal()).toEqual({ k: 5, j: 1, '.priority': 3 });
   });
   row('119', async () => { const { db } = setup(); const target = api.ref(db, 'x'); await api.set(target, { a: 1, b: 2 }); await api.update(target, { a: null }); expect((await api.get(target)).val()).toEqual({ b: 2 }); });
   row('120', assertOverlappingUpdate);
@@ -174,4 +190,5 @@ describe('rtdb-modular CDD: public operation rows', () => {
   row('172', () => expect(api.forceWebSockets()).toBeUndefined());
   row('173', () => expect(api.enableLogging(() => {}, true)).toBeUndefined());
   row('174', () => { const { db } = setup(); expect(referenceObservation.mismatchedHost.timing).toBe('synchronous-throw'); const parsed = api.refFromURL(db, 'ftp://other.example/a/b?ignored=1'); expect([parsed.key, parsed.toString()]).toEqual(['b', 'sandbox://rtdb/a/b']); expect(() => api.refFromURL(db, 'https://other.example/a#fragment')).toThrow(); });
+  row('M95', assertM95InfoWrites);
 });

@@ -46,7 +46,9 @@ export function beginWorkerDatabaseActivity(
     app: ref.port, method, kind, owners,
     source: { service: 'database', target: ref.path, isQuery: !!query,
       ...(query ? { indexQuery: captureDatabaseIndexQuery(ref.path, query) } : {}),
-      key: JSON.stringify([ref.path, query ? queryIdentifier(query) : 'default']),
+      key: JSON.stringify(ref.instance?.name === undefined
+        ? [ref.path, query ? queryIdentifier(query) : 'default']
+        : [ref.instance.name, ref.path, query ? queryIdentifier(query) : 'default']),
     },
   });
 }

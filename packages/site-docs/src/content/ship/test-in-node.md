@@ -86,7 +86,7 @@ Under `pyric sandbox` the backend lives in a SharedWorker in the browser. A Node
 It is a relay, so it has edges worth knowing:
 
 - The browser tab must stay open.
-- Remote Storage is single-bucket with an 8 MiB per-operation cap.
+- Remote Storage on a SharedWorker host moves bytes in frames of up to 8 MiB per operation, and has no upload session URLs.
 - Anything unimplemented throws an explicit error with a remediation, never wrong data.
 
 ## Verification is a test too

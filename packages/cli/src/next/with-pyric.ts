@@ -8,9 +8,17 @@ import { augmentWebpackConfig } from './webpack-config.js';
 import { augmentTurbopackConfig } from './turbopack-config.js';
 import { augmentDevRewrites } from './dev-rewrites.js';
 import { augmentRuntimeEnv } from './runtime-env.js';
+import { findEdgeRuntimeFiles, formatEdgeRuntimeWarning } from './edge-runtime.js';
 
 function isFunctionConfig(config: NextConfig): config is NextConfigFunction {
   return typeof config === 'function';
+}
+
+function warnAboutEdgeRuntime(): void {
+  const warning = formatEdgeRuntimeWarning(findEdgeRuntimeFiles(process.cwd()));
+  if (warning !== null) {
+    console.warn(warning);
+  }
 }
 
 function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOptions): NextConfigObject {
@@ -25,7 +33,7 @@ function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOpt
 /**
  * Higher-order configuration wrapper for Next.js (`next.config.js` or `next.config.mjs`).
  *
- * During development mode (`pyric sandbox` or non-production NODE_ENV):
+ * During the development server phase (`pyric sandbox -- next dev`):
  *   - Applies Webpack and Turbopack alias mappings to swap `firebase/*` imports
  *     for Pyric local sandbox mirrors on client components.
  *   - Adds `firebase` and `firebase-admin` to `serverExternalPackages` to prevent
@@ -35,24 +43,23 @@ function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOpt
  *   - Enforces a bundler safety interlock (guard) to prevent accidental connections to
  *     production databases when `PYRIC_SANDBOX` is inactive.
  *
- * In production (`NODE_ENV === 'production'` without `PYRIC_SANDBOX_FORCE=1`):
- *   - Functions as a zero-overhead identity passthrough, leaving standard builds untouched.
+ * In the production build, export and production server phases (without
+ * `PYRIC_SANDBOX_FORCE=1`):
+ *   - Returns the user's configuration unchanged, leaving standard builds untouched.
+ *
+ * The result is always a configuration function, because the decision depends on
+ * the phase Next passes in rather than on NODE_ENV.
  */
-export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): NextConfig {
-  if (isProductionPassthrough()) {
-    return config;
-  }
+export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): NextConfigFunction {
+  return async (phase, defaults) => {
+    if (isProductionPassthrough(phase)) {
+      return isFunctionConfig(config) ? await config(phase, defaults) : config;
+    }
 
-  enforceSandboxGuard(options);
+    enforceSandboxGuard(options);
+    warnAboutEdgeRuntime();
 
-  if (isFunctionConfig(config)) {
-    const asyncConfigWrapper: NextConfigFunction = async (phase, defaults) => {
-      const resolvedConfig = await config(phase, defaults);
-      const augmentedConfig = applyPyricEnhancements(resolvedConfig, options);
-      return augmentedConfig;
-    };
-    return asyncConfigWrapper;
-  }
-
-  return applyPyricEnhancements(config, options);
+    const resolvedConfig = isFunctionConfig(config) ? await config(phase, defaults) : config;
+    return applyPyricEnhancements(resolvedConfig, options);
+  };
 }

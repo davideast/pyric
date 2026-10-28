@@ -1,19 +1,41 @@
-import { createDenialThrottle } from '../namespace.js';
+import { createDenialThrottle, noteAiDiagnostic } from '../namespace.js';
+import { aiDiagnosticPayloadFor } from '../ai-diagnostics-relay.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createStorageByteRoute } from './storage-byte-route.js';
-import { uploadTokenOf } from '../worker/host/storage.js';
+import {
+  defaultBucketNames,
+  finishUploadSession,
+  openUploadSession,
+  seedDefaultBucketNames,
+  storeBucketOf,
+  uploadSessionOf,
+  uploadTokenOf,
+} from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
-import { handleRulesOp } from '../worker/host/rules.js';
+import {
+  databaseInstanceRulesHost,
+  deployFirestoreRulesToHost,
+  enforcedFirestoreRulesState,
+  resetHostSandbox,
+  normalizeDatabaseRules,
+  setDatabaseRules,
+  setDatabaseTargetRules,
+} from '../worker/host/rules.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
-import { realpathSync } from 'node:fs';
-import { isAbsolute, relative, sep } from 'node:path';
-import { createSandboxRoot, emitSandboxEvent, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { open as openFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { createSandboxRoot, emitSandboxEvent, getInternalEnv, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
+import { sandbox as rtdbSandbox } from 'pyric/database';
+import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
-import { installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
+import { DEFAULT_BUCKET, installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
@@ -21,14 +43,21 @@ import { createSurfaceContext } from '../../bridge/surface/context.js';
 import { callMethod } from '../../bridge/surface/method-call.js';
 import { methodByKey } from '../../bridge/surface/methods/registry.js';
 import type { OperationResult } from '../../bridge/surface/types.js';
-import type { InitPayload } from '../init-payload.js';
+import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
+import { ensureAuth, setPortSession } from '../worker/host-auth.js';
+import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
+import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
+import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
-import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, type HostedPersistence } from './persistence.js';
+import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
 import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
+import { createReproRecorder, type ReproRecorder } from '../repro/recorder.js';
+import { buildReproFile, captureReproBase } from '../repro/capture.js';
+import type { ReproFile } from '../repro/format.js';
 
 type HostedTransport = 'worker-port' | 'worker-relay';
 
@@ -39,6 +68,15 @@ interface OperationQueue {
 
 interface HostedPort extends OperationQueue {
   port: PortLike;
+  transport: HostedTransport;
+}
+
+function resolveRealPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 /** Server-owned persistence and AI configuration; never sent to browsers. */
@@ -47,6 +85,10 @@ export interface HostedRuntimeOptions {
   persistence?: HostedPersistence;
   proxyUpstream?: string;
   logger?: ServeLogger;
+  /** Keep the bounded operation log a repro file is written from. Defaults to true. */
+  record?: boolean;
+  /** Entries one repro log window holds; see `createReproRecorder`. */
+  reproWindow?: number;
 }
 
 /** One Node-owned sandbox; each admitted consumer owns its ordered work. */
@@ -129,9 +171,33 @@ export async function createHostedRuntime(
       fetchAiUpstream(input, init, aiThrottle, ai.logger, 'ai-upstream'),
     { preconnect: fetch.preconnect },
   );
+  const defaultBucketsPath = join(hostedStateDirectory(ownedProjectDir), 'default-buckets.json');
+  function loadPersistedDefaultBuckets(): string[] {
+    if (!existsSync(defaultBucketsPath)) return [];
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(defaultBucketsPath, 'utf8'));
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string' && item !== '') : [];
+    } catch {
+      return [];
+    }
+  }
+  function savePersistedDefaultBuckets(): void {
+    try {
+      mkdirSync(hostedStateDirectory(ownedProjectDir), { recursive: true });
+      const tmp = `${defaultBucketsPath}.${randomUUID()}.tmp`;
+      writeFileSync(tmp, JSON.stringify([...defaultBucketNames(ctx)].sort()));
+      renameSync(tmp, defaultBucketsPath);
+    } catch {
+      // Best-effort alias hint; does not affect object durability.
+    }
+  }
+
   const ctx: HostCtx = {
     sandbox,
     flushPersistence,
+    onDefaultBucketName: () => {
+      savePersistedDefaultBuckets();
+    },
     db: getFirestore(sandbox),
     instanceId,
     subs: new Map(),
@@ -141,6 +207,7 @@ export async function createHostedRuntime(
     aiUpstream: { baseUrl: resolveAiProxyUpstream(ai.proxyUpstream).target, fetch: aiFetch },
     storageByteRoute: true,
   };
+  seedDefaultBucketNames(ctx, loadPersistedDefaultBuckets());
   const hostedFetch: typeof fetch = Object.assign(
     (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const isRelativeUrl = typeof input === 'string';
@@ -162,6 +229,13 @@ export async function createHostedRuntime(
     closeOwnedPersistence();
     throw error;
   }
+  // The broker runs in this process, so no page relays its diagnostics to the
+  // denials route. Print them here through the same formatter and throttle.
+  const aiDiagnosticsThrottle = createDenialThrottle();
+  const unsubscribeAiDiagnostics = sandbox.onEvent((event) => {
+    const diagnostic = aiDiagnosticPayloadFor(event);
+    if (diagnostic !== null) noteAiDiagnostic(aiDiagnosticsThrottle, ai.logger, diagnostic);
+  });
   const unsubscribeFailure = persistence.onFailure(() => {
     emitSandboxEvent(sandbox, makeSandboxRuntimeErrorEvent({
       at: Date.now(), service: 'runtime', method: 'persist', auth: null,
@@ -169,25 +243,93 @@ export async function createHostedRuntime(
     }));
   });
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir, undefined, persistence.checkpoints);
+  // A `database` method's `instance` resolves as a client's does on this host.
+  surfaceContext.databaseInstances = hostDatabaseInstances(ctx);
   const ports = new Map<string, HostedPort>();
+  const uploadPartCounts = new Map<string, number>();
+  const recordedUploadFiles = new Map<string, string>();
+  const recordedUploadsDir = ai.record === false ? undefined : mkdtempSync(join(tmpdir(), 'pyric-repro-uploads-'));
+  const recorder: ReproRecorder | undefined = ai.record === false ? undefined : createReproRecorder({
+    limit: ai.reproWindow,
+    capture: () => captureReproBase(ctx, [...ports].map(([id, owned]) => [id, owned.port] as [string, PortLike])),
+    onDrop(dropped, retained) {
+      const retainedIds = new Set<string>();
+      for (const entry of retained) {
+        if (entry.kind === 'upload-slice' || entry.kind === 'upload') retainedIds.add(entry.uploadId);
+      }
+      for (const entry of dropped) {
+        if (entry.kind !== 'upload-slice' && entry.kind !== 'upload') continue;
+        if (retainedIds.has(entry.uploadId)) continue;
+        const filePath = recordedUploadFiles.get(entry.uploadId);
+        recordedUploadFiles.delete(entry.uploadId);
+        uploadPartCounts.delete(entry.uploadId);
+        if (filePath !== undefined) rmSync(filePath, { force: true });
+      }
+    },
+  });
+  // A replay host has no deploy targets, so the log names the instances a
+  // target's rules reach.
+  if (recorder !== undefined) {
+    ctx.onDatabaseTargetDeploy = ({ instance, rules }) => {
+      recorder.note({ kind: 'rules', at: Date.now(), service: 'database', instance, source: rules });
+    };
+  }
   const closingPorts = new Set<Promise<void>>();
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
   let closed = false;
   let closePromise: Promise<void> | undefined;
 
+  /** The log records an MCP caller's tool calls as a port of its own. */
+  function toolSession(message: ToolCallRequest): string {
+    return `mcp:${message.callerId ?? 'legacy'}`;
+  }
+
+  function reconcilePortSessions(): void {
+    if (!ctx.portSessions || ctx.portSessions.size === 0) return;
+    const knownUids = new Set(authSandbox.listUsers(ensureAuth(ctx)).map(user => user.uid));
+    for (const [port, session] of [...ctx.portSessions.entries()]) {
+      if (session !== null && !knownUids.has(session.user.uid)) {
+        setPortSession(ctx, port, null);
+        ctx.portSessions.delete(port);
+      }
+    }
+  }
+
+  /** The Firestore status from the rules the sandbox enforces, never `active` for a source production would not load. */
+  function syncFirestoreActiveRulesFromSandbox(): void {
+    const source = getInternalEnv(ctx.sandbox).getRules();
+    ctx.activeRules ??= {};
+    ctx.activeRules.firestore = enforcedFirestoreRulesState(source, ctx.activeRules.firestore);
+  }
+
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
+    await recorder?.inbound(toolSession(message), {
+      t: 'tool', id: message.id, name: message.name, args: message.args ?? {},
+      ...(message.actAs ? { actAs: message.actAs } : {}),
+    });
     try {
       const effect = sandboxToolEffect(message.name);
       const changesState = effect === 'write';
       if (changesState) requireHealthyPersistence();
       let result = await dispatchSandboxTool(sandbox, message.name, message.args, message.actAs);
+      if (result.ok) {
+        if (message.name === 'firestore_simulator_create') {
+          syncFirestoreActiveRulesFromSandbox();
+          restoreFirestoreSubscriptions(ctx);
+        } else if (message.name === 'auth_delete_user') {
+          reconcilePortSessions();
+        }
+      }
       if (changesState) result = await persistMutationResult(result);
       const isRead = effect === 'read';
       if (isRead) result = describeRead(result);
       send({ type: 'tool-result', id: message.id, ok: true, result });
+      recorder?.outbound(toolSession(message), { t: 'res', id: message.id, ok: true, value: result });
     } catch (error) {
-      send({ type: 'tool-result', id: message.id, ok: false, error: serializeError(error) });
+      const serialized = serializeError(error);
+      send({ type: 'tool-result', id: message.id, ok: false, error: serialized });
+      recorder?.outbound(toolSession(message), { t: 'res', id: message.id, ok: false, error: serialized });
     }
   }
 
@@ -246,18 +388,27 @@ export async function createHostedRuntime(
     }
   }
 
+  function deliverOutbound(clientSessionId: string, message: OutboundMessage, transport: HostedTransport): void {
+    recorder?.outbound(clientSessionId, message);
+    const usesWorkerRelay = transport === 'worker-relay';
+    if (usesWorkerRelay) relayMessage(clientSessionId, message);
+    else send({ type: 'worker-message-result', clientSessionId, message });
+  }
+
   function portFor(clientSessionId: string, transport: HostedTransport): HostedPort {
     const existing = ports.get(clientSessionId);
     const hasExistingPort = existing !== undefined;
     if (hasExistingPort) return existing;
-    const port: PortLike = {
-      postMessage(message) {
-        const usesWorkerRelay = transport === 'worker-relay';
-        if (usesWorkerRelay) relayMessage(clientSessionId, message);
-        else send({ type: 'worker-message-result', clientSessionId, message });
+    const owned: HostedPort = {
+      port: {
+        postMessage(message) {
+          deliverOutbound(clientSessionId, message, owned.transport);
+        },
       },
+      transport,
+      pending: Promise.resolve(),
+      budget: createOperationBudget(),
     };
-    const owned = { port, pending: Promise.resolve(), budget: createOperationBudget() };
     ports.set(clientSessionId, owned);
     return owned;
   }
@@ -270,14 +421,19 @@ export async function createHostedRuntime(
       const reservation = owned.budget.reserve(incoming);
       const isRefused = !reservation.accepted;
       if (isRefused) {
-        owned.port.postMessage({ t: 'res', id: incoming.id, ok: false, error: reservation.error });
+        deliverOutbound(clientSessionId, { t: 'res', id: incoming.id, ok: false, error: reservation.error }, transport);
         return;
       }
       releaseOperation = reservation.release;
     }
     // Admission owns identity. A payload cannot address another app's port.
-    const message = { ...incoming, clientSessionId: undefined, resumeSession: undefined };
-    owned.pending = owned.pending.then(() => {
+    const message: InboundMessage = incoming.resumeSession === true
+      ? { ...incoming, clientSessionId: undefined, resumeSession: true }
+      : { ...incoming, clientSessionId: undefined, resumeSession: undefined };
+    owned.pending = owned.pending.then(async () => {
+      owned.transport = transport;
+      if (message.resumeSession === true) ctx.disconnectedPorts?.delete(owned.port);
+      await recorder?.inbound(clientSessionId, message);
       const changesDurableState = message.t === 'op' && requiresHealthyPersistence(message);
       if (changesDurableState) requireHealthyPersistence();
       return handleMessage(ctx, owned.port, message);
@@ -300,7 +456,10 @@ export async function createHostedRuntime(
     const isMissingPort = owned === undefined;
     if (isMissingPort) return;
     ports.delete(clientSessionId);
-    const closing = owned.pending.then(() => cleanupPortWithDisconnect(ctx, owned.port));
+    const closing = owned.pending.then(() => {
+      if (!closed) recorder?.note({ kind: 'client', at: Date.now(), session: clientSessionId, event: 'disconnect' });
+      return cleanupPortWithDisconnect(ctx, owned.port);
+    });
     closingPorts.add(closing);
     try {
       await closing;
@@ -313,15 +472,59 @@ export async function createHostedRuntime(
     const owned = ports.get(clientSessionId);
     const isMissingPort = owned === undefined;
     if (isMissingPort) return;
-    owned.pending = owned.pending.then(() => drainPortRtdbDisconnects(ctx, owned.port)).catch((error: unknown) => {
+    owned.pending = owned.pending.then(() => {
+      recorder?.note({ kind: 'client', at: Date.now(), session: clientSessionId, event: 'interrupted' });
+      return drainPortRtdbDisconnects(ctx, owned.port);
+    }).catch((error: unknown) => {
       console.error('[pyric hosted] RTDB disconnect cleanup failed:', error);
     });
   }
 
   const storageBytes = createStorageByteRoute({
-    storage: persistence.storage,
+    storage: {
+      objectFile: async (bucket, path) => {
+        const direct = await persistence.storage.objectFile(bucket, path);
+        if (direct !== undefined || bucket === DEFAULT_BUCKET) return direct;
+        if (defaultBucketNames(ctx).size > 0 || ctx.appOptions?.storageBucket !== undefined) return undefined;
+        return persistence.storage.objectFile(DEFAULT_BUCKET, path);
+      },
+      uploadProgress: uploadId => persistence.storage.uploadProgress(uploadId),
+      async appendUpload(uploadId, offset, bytes) {
+        const progress = await persistence.storage.appendUpload(uploadId, offset, bytes);
+        if (recorder !== undefined && recordedUploadsDir !== undefined) {
+          let filePath = recordedUploadFiles.get(uploadId);
+          if (filePath === undefined) {
+            filePath = join(recordedUploadsDir, `${randomUUID()}.bin`);
+            recordedUploadFiles.set(uploadId, filePath);
+          }
+          const fh = await openFile(filePath, 'a');
+          try {
+            await fh.appendFile(bytes);
+          } finally {
+            await fh.close();
+          }
+          const partIndex = uploadPartCounts.get(uploadId) ?? 0;
+          uploadPartCounts.set(uploadId, partIndex + 1);
+          recorder.note({
+            kind: 'upload-slice',
+            at: Date.now(),
+            uploadId,
+            partIndex,
+            offset,
+            length: bytes.byteLength,
+          });
+        }
+        return progress;
+      },
+    },
     sessionToken: payload.sessionToken,
     uploadToken: uploadId => uploadTokenOf(ctx, uploadId),
+    bucketOf: name => storeBucketOf(ctx, name),
+    sessions: {
+      get: sessionId => uploadSessionOf(ctx, sessionId),
+      open: (sessionId, size) => openUploadSession(ctx, sessionId, size),
+      finish: sessionId => finishUploadSession(ctx, sessionId),
+    },
   });
 
   return {
@@ -329,33 +532,94 @@ export async function createHostedRuntime(
     storageHttp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
       return storageBytes(req, res, url);
     },
+    /** Whether a byte route request from `origin` is an upload session's, from the origin the session names. */
+    storageAllowsOrigin(url: URL, origin: string | undefined): boolean {
+      return storageBytes.allowsOrigin(url, origin);
+    },
     /** A null database or Storage source clears the rules, so the default
-     *  policy applies: RTDB's configured policy, and deny-all for Storage. */
-    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null): Promise<void> {
+     *  policy applies: RTDB's configured policy, and deny-all for Storage.
+     *  `instance` names the RTDB instance a database ruleset deploys to, as
+     *  {@link setDatabaseRules} takes it, absent for the default instance, or
+     *  an unresolved deploy target, as {@link setDatabaseTargetRules} takes it. */
+    async deployRules(service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination): Promise<void> {
       if (closed) throw new Error('The hosted sandbox is closed.');
       if (service === 'storage') {
         await replaceStorageRules(ctx.sandbox, source);
+        recorder?.note({ kind: 'rules', at: Date.now(), service, source });
         return;
       }
-      const isFirestore = service === 'firestore';
-      if (isFirestore && source === null) throw new Error('Firestore rules source is required.');
-      const op = isFirestore
-        ? { t: 'op' as const, id: 'file-rules-reload', method: 'setFirestoreRules' as const, source: source as string }
-        : { t: 'op' as const, id: 'file-rules-reload', method: 'setDatabaseRules' as const, source };
-      handleRulesOp(ctx, {
-        postMessage(reply) {
-          const failed = reply.t === 'res' && !reply.ok;
-          if (failed) throw new Error(reply.error.message);
-        },
-      }, op, ctx.db);
+      if (service === 'database') {
+        const deployed = typeof instance === 'object'
+          ? setDatabaseTargetRules(ctx, instance.target, source)
+          : setDatabaseRules(ctx, instance, source);
+        if (!deployed.ok) throw new Error(deployed.messages.map((message) => message.text).join('; '));
+        if (typeof instance !== 'object') {
+          recorder?.note({ kind: 'rules', at: Date.now(), service, ...(instance === undefined ? {} : { instance }), source });
+        }
+        return;
+      }
+      if (source === null) throw new Error('Firestore rules source is required.');
+      const previousFirestoreRules = ctx.activeRules?.firestore ? structuredClone(ctx.activeRules.firestore) : undefined;
+      const deployed = deployFirestoreRulesToHost(ctx, source);
+      if (!deployed.ok) {
+        if (ctx.activeRules) {
+          if (previousFirestoreRules === undefined) delete ctx.activeRules.firestore;
+          else {
+            ctx.activeRules.firestore = previousFirestoreRules;
+            const previousSource = previousFirestoreRules.status === 'active'
+              ? previousFirestoreRules.source
+              : previousFirestoreRules.lastKnownGood;
+            if (typeof previousSource === 'string') setRules(ctx.sandbox, previousSource);
+          }
+        }
+        const errorMessages = deployed.messages.filter((m) => m.severity === 'error').map((m) => m.text).filter(Boolean);
+        throw new Error(deployed.rejectionMessage ?? (errorMessages.length > 0 ? errorMessages.join('; ') : 'Invalid Firestore security rules.'));
+      }
+      recorder?.note({ kind: 'rules', at: Date.now(), service, source });
     },
+    /**
+     * The repro file for the operations recorded so far: the starting state,
+     * rules, signed-in ports and open listeners, then every frame since.
+     */
+    async captureRepro(callerProjectDir: string = ownedProjectDir): Promise<ReproFile> {
+      if (closed) throw new Error('The hosted sandbox is closed.');
+      const projectDistance = relative(ownedProjectDir, resolveRealPath(callerProjectDir));
+      const isOutsideProject = projectDistance === '..' || projectDistance.startsWith(`..${sep}`) || isAbsolute(projectDistance);
+      if (isOutsideProject) throw new Error('The discovered host belongs to another project.');
+      if (recorder === undefined) throw new Error('This host does not record operations.');
+      const log = await recorder.log();
+      return buildReproFile(
+        log,
+        sha256 => persistence.state.objectFile?.(sha256),
+        async (uploadId, offset, length) => {
+          const filePath = recordedUploadFiles.get(uploadId);
+          if (filePath === undefined) {
+            throw new Error(`The bytes of Storage upload '${uploadId}' are no longer on disk; the repro cannot carry them.`);
+          }
+          const fh = await openFile(filePath, 'r');
+          try {
+            const buffer = Buffer.allocUnsafe(length);
+            const { bytesRead } = await fh.read(buffer, 0, length, offset);
+            return buffer.subarray(0, bytesRead);
+          } finally {
+            await fh.close();
+          }
+        },
+      );
+    },
+    /** Clears tracked active Firestore rules metadata without changing enforced sandbox rules. */
+    clearActiveFirestoreRules(): void {
+      if (ctx.activeRules) delete ctx.activeRules.firestore;
+    },
+    /** The Node host's per-instance RTDB rules, as `connectDatabaseInstanceRules` applies them. */
+    databaseRules: databaseInstanceRulesHost(ctx),
     instanceId,
     toolNames: SANDBOX_TOOL_NAMES,
     /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */
     runMethod(call: HostedMethodRequest, connection: object): Promise<OperationResult> {
       if (closed) return Promise.resolve({ ok: false, summary: 'The hosted sandbox is closed.' });
       const { key, args, projectDir: callerProjectDir } = call;
-      const projectDistance = relative(ownedProjectDir, callerProjectDir);
+      const projectDistance = relative(ownedProjectDir, resolveRealPath(callerProjectDir));
       const namesParentDirectory = projectDistance === '..' || projectDistance.startsWith(`..${sep}`);
       const isOutsideProject = namesParentDirectory || isAbsolute(projectDistance);
       if (isOutsideProject) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
@@ -378,7 +642,55 @@ export async function createHostedRuntime(
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
         const changesDurableState = hasMutationEffect && !changesHeldIdentity;
         if (changesDurableState) requireHealthyPersistence();
-        let outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
+        if (changesDurableState && key !== 'rules.set') {
+          recorder?.note({ kind: 'external', at: Date.now(), source: 'command', name: key });
+        }
+        let outcome: OperationResult;
+        if (key === 'sandbox.reset') {
+          const scope = typeof args.scope === 'string' ? args.scope : 'all';
+          outcome = await resetHostSandbox(ctx, scope, () => callMethod(method, args, surfaceContext, call.allowProduction));
+        } else {
+          outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
+        }
+        if (outcome.ok) {
+          if (key === 'sandbox.reset') {
+            const scope = typeof args.scope === 'string' ? args.scope : 'all';
+            if (scope === 'all') {
+              reconcilePortSessions();
+              restoreFirestoreSubscriptions(ctx);
+            } else if (scope === 'firestore') {
+              restoreFirestoreSubscriptions(ctx);
+            } else if (scope === 'auth') {
+              reconcilePortSessions();
+            }
+          } else if (key === 'rules.set') {
+            if (args.service === 'firestore' && typeof args.rules === 'string') {
+              deployFirestoreRulesToHost(ctx, args.rules);
+              restoreFirestoreSubscriptions(ctx);
+              recorder?.note({ kind: 'rules', at: Date.now(), service: 'firestore', source: args.rules });
+            } else if (args.service === 'database') {
+              const dbSource = typeof args.rules === 'string' ? args.rules : args.rules === undefined ? null : JSON.stringify(args.rules);
+              const rawInstance = typeof args.instance === 'string' ? args.instance : undefined;
+              setDatabaseRules(ctx, rawInstance, dbSource);
+              const targetSelector = rtdbInstance(ctx, rawInstance).selector;
+              recorder?.note({
+                kind: 'rules',
+                at: Date.now(),
+                service: 'database',
+                ...(targetSelector === undefined ? {} : { instance: targetSelector }),
+                source: dbSource,
+              });
+            } else if (args.service === 'storage') {
+              recorder?.note({ kind: 'rules', at: Date.now(), service: 'storage', source: typeof args.rules === 'string' ? args.rules : null });
+            }
+          } else if (key === 'sandbox.seed' || key === 'sandbox.seedFromFixture' || key === 'sandbox.restore' || key === 'sandbox.promote') {
+            syncFirestoreActiveRulesFromSandbox();
+            reconcilePortSessions();
+            restoreFirestoreSubscriptions(ctx);
+          } else if (key === 'auth.deleteUser') {
+            reconcilePortSessions();
+          }
+        }
         if (changesDurableState) outcome = await persistMutationResult(outcome);
         const isRead = method.effect === 'read';
         if (isRead) return describeRead(outcome);
@@ -460,9 +772,11 @@ export async function createHostedRuntime(
           if (healthy) await flushPersistence();
         } finally {
           unsubscribeFailure();
+          unsubscribeAiDiagnostics();
           initialized.dispose();
           sandbox.dispose();
           closeOwnedPersistence();
+          if (recordedUploadsDir !== undefined) rmSync(recordedUploadsDir, { recursive: true, force: true });
         }
       })();
       return closePromise;

@@ -15,8 +15,9 @@
  * Output: packages/pyric/test/rules/linter/fixtures/compile-limits/captures.json
  *
  * Credentials: the same contract as `capture-rules-expression-cost.ts`:
- * PARITY_SA_BASE64, PARITY_SA_PATH, or a firebase-tools login with
- * PARITY_PROJECT_ID. The caller needs `firebaserules.rulesets.test`.
+ * GOOGLE_APPLICATION_CREDENTIALS, a firebase-tools login, or the gcloud ADC
+ * file, with PARITY_PROJECT_ID naming the project. The caller needs
+ * `firebaserules.rulesets.test`.
  *
  * Usage:
  *   PARITY_PROJECT_ID=<project> bun run packages/conformance/src/capture-rules-compile-limits.ts
@@ -32,7 +33,7 @@ const OUT = join(OUT_DIR, 'captures.json');
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
 export type Service = 'firestore' | 'storage';
-export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting' | 'list-nesting' | 'map-nesting' | 'index-chain' | 'call-nesting' | 'slash-divisor' | 'member-chain';
+export type Shape = 'call-depth' | 'call-depth-uncalled' | 'let-count' | 'paren-nesting' | 'paren-literal' | 'and-nesting' | 'list-nesting' | 'map-nesting' | 'index-chain' | 'call-nesting' | 'slash-divisor' | 'member-chain' | 'glob-in-path' | 'glob-nested';
 
 const LEAF = "request.auth.uid == 'a'";
 
@@ -88,6 +89,14 @@ export function probeBlock(shape: Shape, n: number, path = 'p'): string {
     case 'call-nesting':
       // n nested calls of one identity function: id(id(... uid ...)) == 'a'.
       return `    match /${path}/{d} {\n      function id(x) { return x; }\n      allow read: if ${'id('.repeat(n)}request.auth.uid${')'.repeat(n)} == 'a';\n    }`;
+    case 'glob-in-path':
+      // n recursive wildcards in one match path: /{g1=**}/p/{d} at n = 1,
+      // /{g1=**}/p/{g2=**} at n = 2.
+      return `    match /{g1=**}/${path}/${n === 1 ? '{d}' : '{g2=**}'} {\n      allow read: if ${LEAF};\n    }`;
+    case 'glob-nested':
+      // n recursive wildcards across a match and the match nested in it:
+      // /p/{gid} then /{rest=**} at n = 1, /{g=**}/p/{gid} then /{rest=**} at n = 2.
+      return `    match /${n === 1 ? '' : '{g=**}/'}${path}/{gid} {\n      match /{rest=**} {\n        allow read: if ${LEAF};\n      }\n    }`;
     case 'and-nesting': {
       // n terms: t1 && (t2 && (... && (leaf))).
       let inner = LEAF;
@@ -240,7 +249,7 @@ export interface Boundary { service: Service; shape: Shape; largestPass: number 
 export function boundaries(probes: readonly ProbeRecord[]): Boundary[] {
   const out: Boundary[] = [];
   for (const service of ['firestore', 'storage'] as const) {
-    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal', 'list-nesting', 'map-nesting', 'index-chain', 'call-nesting', 'slash-divisor', 'member-chain'] as const) {
+    for (const shape of ['call-depth', 'call-depth-uncalled', 'let-count', 'and-nesting', 'paren-nesting', 'paren-literal', 'list-nesting', 'map-nesting', 'index-chain', 'call-nesting', 'slash-divisor', 'member-chain', 'glob-in-path', 'glob-nested'] as const) {
       const mine = probes.filter((p) => p.service === service && p.shape === shape && !p.range);
       if (mine.length === 0) continue;
       const ok = mine.filter((p) => p.compiles).map((p) => p.n);
@@ -334,8 +343,5 @@ async function main(args: string[]): Promise<void> {
 }
 
 if (import.meta.main) {
-  if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
-    process.env.PARITY_SA_BASE64 = Buffer.from(readFileSync(process.env.PARITY_SA_PATH)).toString('base64');
-  }
   await main(process.argv.slice(2));
 }

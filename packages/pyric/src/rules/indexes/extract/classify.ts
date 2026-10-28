@@ -54,11 +54,23 @@ function resolveCollectionPath(call: ts.CallExpression): string | null {
   for (let i = 1; i < call.arguments.length; i++) {
     const lit = strLit(call.arguments[i]);
     if (lit !== null) segs.push(lit);
-    else segs.push('{*}');
+    else segs.push(DYNAMIC_SEGMENT);
   }
   // If the very first segment is dynamic, we can't say anything useful.
-  if (segs[0] === '{*}') return null;
+  if (segs[0] === DYNAMIC_SEGMENT) return null;
   return segs.join('/');
+}
+
+/** The segment `resolveCollectionPath` writes for a non-literal argument. */
+const DYNAMIC_SEGMENT = '{*}';
+
+/**
+ * True when a resolved path's collection id, its last segment, is dynamic.
+ * An index names its collection group by a literal id, so a query on such
+ * a path yields no index: `collection(db, "parents", id, childName)`.
+ */
+export function hasDynamicCollectionId(collectionPath: string): boolean {
+  return collectionPath.split('/').pop() === DYNAMIC_SEGMENT;
 }
 
 /**

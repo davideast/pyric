@@ -9,18 +9,19 @@ import {
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
+import {
+  isBypassedBridgeImport,
+  swappedFirebaseEntries,
+  type AiMode,
+  type ServedFirebaseSpecifier,
+} from './firebase-module-swap.js';
+import { loadRoutedModule, routeServerImport, ssrSwapAlias, unaliasedSpecifier } from './vite-ssr-routing.js';
+import { loadServerTarget } from './vite-ssr-loader.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
-const SERVED_FIREBASE_SUBPATHS = new Set(
-  SDK_MODULES.map((specifier) => specifier.slice('firebase/'.length)),
-);
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 type OptimizerOptions = NonNullable<DepOptimizationOptions['esbuildOptions']>;
 type OptimizerPlugin = NonNullable<OptimizerOptions['plugins']>[number];
-
-function entryKey(subpath: string): string {
-  return subpath.replaceAll('/', '-');
-}
 
 function packageRootOf(file: string): string {
   let dir = path.dirname(file);
@@ -35,12 +36,60 @@ export interface ViteModuleContext {
   cliRoot: string;
 }
 
+/** The part of a Vite environment the server branch reads (Vite 6 and later). */
+export interface SwapEnvironment {
+  readonly name: string;
+  readonly config: { readonly consumer: string };
+}
+
+/** The part of Vite's plugin context the resolve hook uses. */
+export interface SwapResolveContext {
+  resolve(
+    source: string,
+    importer?: string,
+    options?: { skipSelf?: boolean; ssr?: boolean },
+  ): Promise<{ id: string } | null>;
+  /** Present from Vite 6. On Vite 5 the `ssr` resolve option tells the server apart. */
+  readonly environment?: SwapEnvironment;
+}
+
+export interface SwapConfigOptions {
+  /** `vite dev`: route server-rendered imports too (`vite-ssr-routing.ts`). */
+  devServer?: boolean;
+}
+
 export interface ViteModuleSwap {
-  config(): UserConfig;
+  config(options?: SwapConfigOptions): UserConfig;
+  /** Vite 6+: keeps the SSR loader external in every server environment. */
+  configEnvironment(name: string, config: { consumer?: string }): { resolve: { external: string[] } } | null;
   configResolved(config: ResolvedConfig): void;
   resolveId(source: string, importer: string | undefined): string | null;
+  /** The plugin's resolve hook: the client swap, and the server routing behind the SSR alias. */
+  resolvePluginId(
+    context: SwapResolveContext,
+    source: string,
+    importer: string | undefined,
+    options?: { ssr?: boolean },
+  ): Promise<string | { id: string } | null>;
   load(id: string): string | null;
+  /** The plugin's load hook: the node shims, and the routed SSR modules. */
+  loadPluginModule(id: string): Promise<string | null>;
 }
+
+/** A server environment's own config, for `configEnvironment`. Unset consumers default as Vite defaults them. */
+function isServerEnvironment(name: string, consumer: string | undefined): boolean {
+  const resolvedConsumer = consumer ?? (name === 'client' ? 'client' : 'server');
+  return resolvedConsumer === 'server';
+}
+
+/** Whether Vite runs this environment's modules in this process. A runnable environment has a runner. */
+function runsInProcess(environment: SwapEnvironment | undefined): boolean {
+  const isViteFive = environment === undefined;
+  return isViteFive || 'runner' in environment;
+}
+
+/** The package the SSR shims import; external so every runner shares the one Node module. */
+const SSR_EXTERNAL = ['@pyric/cli'];
 
 export function createViteModuleContext(): ViteModuleContext {
   const entries = defaultSdkEntries();
@@ -48,7 +97,9 @@ export function createViteModuleContext(): ViteModuleContext {
 }
 
 export interface ViteModuleSwapOptions {
-  getAiMode?: () => 'sandbox' | 'production';
+  /** The resolved AI mode. Read on each resolution, since Vite resolves the
+   *  mode from its env files after the plugin is constructed. */
+  getAiMode?: () => AiMode;
 }
 
 /** Own the Vite and optimizer forms of the Firebase-module swap. */
@@ -75,19 +126,18 @@ export function createViteModuleSwap(
   const shimFor = (specifier: string): string =>
     NODE_BUILTIN_SHIMS[specifier.replace(/^node:/, '')];
 
-  function resolveId(source: string, importer: string | undefined): string | null {
-    const isShadowBridgeImporter = importer !== undefined &&
-      (importer.includes('app-ai-passthrough') || importer.includes('app-bridge'));
-    const isFirebaseAppSpecifier = source === 'firebase/app';
-    const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
-    if (isBypassedBridgeImport) return null;
+  const aiMode = (): AiMode => options?.getAiMode?.() ?? 'sandbox';
+  /** Set by `config()`: whether this server routes server-rendered imports. */
+  let routesServerImports = false;
 
-    const firebaseMatch = FIREBASE_SPECIFIER.exec(source);
-    const isFirebaseSpecifier = firebaseMatch !== null;
+  function resolveId(source: string, importer: string | undefined): string | null {
+    if (isBypassedBridgeImport(source, importer)) return null;
+
+    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     if (isFirebaseSpecifier) {
-      const subpath = firebaseMatch[1] ?? '';
-      const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
-      return isServedSubpath ? entries[entryKey(subpath)] ?? null : null;
+      const swapped = swappedFirebaseEntries(aiMode());
+      const key = swapped.get(source as ServedFirebaseSpecifier);
+      return key === undefined ? null : entries[key] ?? null;
     }
 
     const nodeMatch = NODE_BUILTIN_RE.exec(source);
@@ -95,6 +145,43 @@ export function createViteModuleSwap(
     const isOwnedImporter = isOurCode(importer);
     const shouldShimNodeBuiltin = isNodeBuiltin && isOwnedImporter;
     return shouldShimNodeBuiltin ? NODE_SHIM_PREFIX + nodeMatch[2] : null;
+  }
+
+  async function resolvePluginId(
+    context: SwapResolveContext,
+    source: string,
+    importer: string | undefined,
+    resolveOptions?: { ssr?: boolean },
+  ): Promise<string | { id: string } | null> {
+    const original = unaliasedSpecifier(source);
+    const isUnaliased = original === null;
+    if (isUnaliased) return resolveId(source, importer);
+    const environment = context.environment;
+    const isServer = environment === undefined
+      ? resolveOptions?.ssr === true
+      : environment.config.consumer === 'server';
+    const routed = isServer
+      ? routeServerImport({
+        specifier: original,
+        importer,
+        aiMode: aiMode(),
+        runsInProcess: runsInProcess(environment),
+        environmentName: environment?.name ?? 'ssr',
+      })
+      : resolveId(original, importer);
+    const isRouted = routed !== null;
+    if (isRouted) return routed;
+    // Not swapped here (the real firebase/ai in production AI mode, a shadow
+    // app's own firebase/app, firebase-admin in browser code): resolve it as
+    // Vite would have. The alias is in the skip set this call inherits.
+    return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
+  }
+
+  function loadPluginModule(id: string): Promise<string | null> {
+    const shim = load(id);
+    const isShim = shim !== null;
+    if (isShim) return Promise.resolve(shim);
+    return loadRoutedModule(id, loadServerTarget);
   }
 
   function load(id: string): string | null {
@@ -145,12 +232,16 @@ export function createViteModuleSwap(
   };
 
   return {
-    config() {
+    config(configOptions) {
       const excludedModules = [
         ...SDK_MODULES,
+        // Never pre-bundled for the browser: the SSR alias names it, and an
+        // excluded id stays external before the optimizer applies aliases.
+        'firebase-admin',
         '@firebase/app',
         '@firebase/component',
         '@firebase/ai',
+        '@firebase/app-check',
         '@firebase/util',
         '@firebase/logger',
       ];
@@ -158,12 +249,23 @@ export function createViteModuleSwap(
       const optimizer = usesRolldown
         ? { rolldownOptions: { plugins: [rolldownMirror] } }
         : { esbuildOptions: { plugins: [optimizerMirror] } };
+      routesServerImports = configOptions?.devServer === true;
+      const ssrRouting: UserConfig = routesServerImports
+        ? { resolve: { alias: [ssrSwapAlias()] }, ssr: { external: SSR_EXTERNAL } }
+        : {};
       return {
+        ...ssrRouting,
         optimizeDeps: {
           exclude: excludedModules,
           ...optimizer,
         },
       };
+    },
+    configEnvironment(name, environmentConfig) {
+      // The `ssr` environment takes the top-level `ssr.external` above.
+      const isOtherServerEnvironment = routesServerImports && name !== 'ssr' &&
+        isServerEnvironment(name, environmentConfig.consumer);
+      return isOtherServerEnvironment ? { resolve: { external: [...SSR_EXTERNAL] } } : null;
     },
     configResolved(config) {
       const allow = config.server?.fs?.allow;
@@ -179,6 +281,8 @@ export function createViteModuleSwap(
       }
     },
     resolveId,
+    resolvePluginId,
     load,
+    loadPluginModule,
   };
 }

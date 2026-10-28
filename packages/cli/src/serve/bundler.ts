@@ -28,17 +28,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
-/** Modules the import map serves. Keys are the bare specifiers app code uses. */
-export const SDK_MODULES = [
-  'firebase/ai',
-  'firebase/app',
-  'firebase/auth',
-  'firebase/firestore',
-  'firebase/database',
-  'firebase/messaging',
-  'firebase/messaging/sw',
-  'firebase/storage',
-] as const;
+export { SDK_MODULES } from './firebase-module-swap.js';
 
 /**
  * The wrapper entries shipped with @pyric/cli, located relative to this
@@ -58,13 +48,20 @@ export function defaultSdkEntries(): Record<string, string> {
   };
   return {
     ai: pick('ai'),
+    analytics: pick('analytics'),
     app: pick('app'),
     'app-ai-passthrough': pick('app-ai-passthrough'),
+    'app-ai-passthrough-app-check': pick('app-ai-passthrough-app-check'),
+    'app-check': pick('app-check'),
     auth: pick('auth'),
     firestore: pick('firestore'),
+    'firestore-lite': pick('firestore-lite'),
+    functions: pick('functions'),
     database: pick('database'),
     messaging: pick('messaging'),
     'messaging-sw': pick('messaging-sw'),
+    performance: pick('performance'),
+    'remote-config': pick('remote-config'),
     storage: pick('storage'),
     init: pick('init'),
   };
