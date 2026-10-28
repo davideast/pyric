@@ -57,6 +57,19 @@
  *    patches are installed BEFORE the dispatcher is materialized: materializing
  *    loads undici, which loads `_http_agent`.
  *
+ * 3. `http.ClientRequest.prototype.onSocket`, for a request to a proxy. The
+ *    socket reaches only the proxy; the real destination is the `CONNECT`
+ *    target or the absolute-form URL in the request's path, and the request is
+ *    the only object that still carries its path. Likewise a TLS session over a
+ *    tunnel names its destination only in `servername`, which the socket seams
+ *    check beside `host`.
+ *
+ * Every host is compared in the catalog's one spelling (`normalizeHostname`),
+ * which writes each IPv4 form the resolver accepts (`2852039166`,
+ * `0xa9fea9fe`, `169.254.43518`) and each IPv4-mapped IPv6 address as a dotted
+ * quad, so no respelling of the metadata IP gets past its entry. Worker
+ * threads load the register too (`./worker-guard.js`).
+ *
  * Policy
  * ------
  * One knob, `PYRIC_GUARD=warn|block|off`, default `warn`:
@@ -109,7 +122,11 @@ import {
   normalizeHostname,
   type GoogleEndpoint,
 } from '../google-endpoints.js';
-import { nodeAgentPrototypes, nodeSocketPrototypes } from './connect-prototypes.js';
+import {
+  nodeAgentPrototypes,
+  nodeClientRequestPrototypes,
+  nodeSocketPrototypes,
+} from './connect-prototypes.js';
 
 /** undici's version-suffixed global-dispatcher slots (`undici.globalDispatcher.1` in undici 6 / Node 20–22, `.2` in undici 7+ / Node 24+). */
 const UNDICI_DISPATCHER_KEY_PREFIX = 'undici.globalDispatcher.';
@@ -181,31 +198,29 @@ export function parseAllowHosts(raw: string | undefined): string[] {
   return out;
 }
 
-/** Only a trailing `:port` is stripped; a bare IPv6 address is left alone. */
-const HOST_WITH_PORT = /^(.+):\d+$/;
+/** `name:port`: one colon, so never a bare IPv6 address. */
+const NAME_WITH_PORT = /^([^:]+):\d+$/;
+
+/** `[v6]` or `[v6]:port`. */
+const BRACKETED_HOST = /^\[([^\]]+)\](?::\d+)?$/;
 
 /**
- * Best-effort hostname from a host, `host:port`, or full URL. Normalization
- * and suffix matching are the catalog's, so the guard and the catalog can
- * never disagree about what a hostname is.
+ * Best-effort hostname from a host, `host:port`, `[v6]:port`, or full URL.
+ * Normalization and suffix matching are the catalog's, so the guard and the
+ * catalog can never disagree about what a hostname is.
  */
 function hostnameOf(value: string): string {
   const trimmed = value.trim();
   if (trimmed.includes('://')) {
     try {
-      return normalizeHostname(new URL(trimmed).hostname).replace(/^\[|\]$/g, '');
+      return normalizeHostname(new URL(trimmed).hostname);
     } catch {
       // Not a parseable URL: fall through to the textual forms.
     }
   }
   const withoutPath = trimmed.split('/')[0] ?? trimmed;
-  const portMatch = HOST_WITH_PORT.exec(withoutPath);
-  let hostPart: string;
-  if (portMatch === null) {
-    hostPart = withoutPath;
-  } else {
-    hostPart = portMatch[1]!;
-  }
+  const hostPart =
+    BRACKETED_HOST.exec(withoutPath)?.[1] ?? NAME_WITH_PORT.exec(withoutPath)?.[1] ?? withoutPath;
   return normalizeHostname(hostPart);
 }
 
@@ -441,7 +456,14 @@ export interface NetGuardHooks {
   /** Prototypes whose `connect` is patched. Defaults to the `net.Socket`
    *  prototype. */
   socketPrototypes?: readonly SocketPrototype[];
+  /** Prototypes whose `onSocket` is patched. Defaults to the
+   *  `http.ClientRequest` prototype. */
+  requestPrototypes?: readonly RequestPrototype[];
 }
+
+/** An `onSocket`-bearing object: `http.ClientRequest.prototype` in
+ *  production, a stand-in under test. */
+type RequestPrototype = { onSocket?: unknown };
 
 export interface NetGuard {
   readonly mode: GuardMode;
@@ -543,7 +565,7 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
     const original = target[name];
     if (typeof original !== 'function') return;
     const wrapped = function (this: unknown, ...args: unknown[]): unknown {
-      reporter.check(connectHost(args), 'socket');
+      for (const host of connectHosts(args)) reporter.check(host, 'socket');
       return (original as ConnectFn).apply(this, args);
     };
     target[name] = wrapped;
@@ -564,6 +586,11 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   // to one line.
   for (const prototype of hooks.socketPrototypes ?? nodeSocketPrototypes()) {
     guardConnect(prototype as { [k: string]: unknown }, 'connect');
+  }
+  // And the request a socket carries, whose path names a proxy's real
+  // destination. The socket itself only reaches the proxy.
+  for (const prototype of hooks.requestPrototypes ?? nodeClientRequestPrototypes()) {
+    guardProxiedRequest(prototype, reporter);
   }
 
   const installed = new Map<symbol, Dispatcher>();
@@ -607,29 +634,81 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 }
 
 /**
- * Extract the destination host from `net.connect` / `tls.connect` /
- * `Socket.prototype.connect` arguments, across all of their overloads:
+ * Check the destination a request to a proxy names before its request line is
+ * written. A refusal goes to `onSocket` as its error argument, which is how
+ * Node fails a request whose socket could not be used: the request emits
+ * `error` with the guard's error and the proxy receives nothing. Throwing here
+ * instead would surface as an uncaught exception from the Agent's callback.
+ */
+function guardProxiedRequest(prototype: RequestPrototype, reporter: Reporter): void {
+  const original = prototype.onSocket;
+  if (typeof original !== 'function') return;
+  prototype.onSocket = function (this: RequestLike, socket: unknown, error?: unknown): unknown {
+    const target = proxiedTarget(this);
+    if (target === undefined || error !== undefined) return original.call(this, socket, error);
+    try {
+      reporter.check(target, 'socket');
+    } catch (refusal) {
+      return original.call(this, socket, refusal);
+    }
+    return original.call(this, socket, error);
+  };
+}
+
+/**
+ * Every host a `net.connect` / `tls.connect` / `Socket.prototype.connect` /
+ * `Agent.prototype.createConnection` call names, across their overloads:
  * `(options[, cb])`, `(port[, host][, cb])`, `(path[, cb])`, and the
  * `[options, cb]` array `net.connect` hands the socket once it has normalized
- * its own arguments. An IPC path or a portless local socket has no host, which
- * is exactly the "nothing to say" answer.
+ * its own arguments. An IPC path or a portless local socket names no host,
+ * which is exactly the "nothing to say" answer.
+ *
+ * The TCP peer is not the only host. A connection tunnelled through a proxy
+ * names its real destination elsewhere, and each of those is checked too.
  */
-function connectHost(args: readonly unknown[]): string | undefined {
+function connectHosts(args: readonly unknown[]): string[] {
   const first = args[0];
-  if (Array.isArray(first)) return connectHost(first);
-  if (typeof first === 'object' && first !== null) {
-    const host = (first as { host?: unknown; hostname?: unknown }).host ??
-      (first as { hostname?: unknown }).hostname;
-    return typeof host === 'string' ? host : undefined;
-  }
-  if (typeof first === 'number' || (typeof first === 'string' && /^\d+$/.test(first))) {
-    // (port, host?, ...): the host, when given, is the next string argument.
-    const second = args[1];
-    if (typeof second === 'string') return second;
-    if (typeof second === 'object' && second !== null) {
-      const host = (second as { host?: unknown }).host;
-      return typeof host === 'string' ? host : undefined;
-    }
-  }
+  if (Array.isArray(first)) return connectHosts(first);
+  if (typeof first === 'object' && first !== null) return optionHosts(first as ConnectOptions);
+  const isPort = typeof first === 'number' || (typeof first === 'string' && /^\d+$/.test(first));
+  if (!isPort) return [];
+  // (port, host?, ...): the host, when given, is the next string argument.
+  const second = args[1];
+  if (typeof second === 'string') return [second];
+  if (typeof second === 'object' && second !== null) return optionHosts(second as ConnectOptions);
+  return [];
+}
+
+/** The connect options the guard reads. */
+interface ConnectOptions {
+  host?: unknown;
+  hostname?: unknown;
+  /** The TLS SNI name: the real destination of a TLS session over a tunnel. */
+  servername?: unknown;
+}
+
+function optionHosts(options: ConnectOptions): string[] {
+  const named = [options.host ?? options.hostname, options.servername];
+  return named.filter((host): host is string => typeof host === 'string' && host.length > 0);
+}
+
+/** The parts of an `http.ClientRequest` the guard reads. */
+interface RequestLike {
+  method?: unknown;
+  path?: unknown;
+}
+
+/** Matches an absolute-form request target, `http://host/...`. */
+const ABSOLUTE_FORM = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/**
+ * The destination a request to a proxy names in its path: the `host:port`
+ * target of a `CONNECT`, or the URL of a forward-proxy request
+ * (`GET http://host/...`). An ordinary request path names none.
+ */
+function proxiedTarget(request: RequestLike): string | undefined {
+  if (typeof request.path !== 'string') return undefined;
+  const isConnect = typeof request.method === 'string' && request.method.toUpperCase() === 'CONNECT';
+  if (isConnect || ABSOLUTE_FORM.test(request.path)) return request.path;
   return undefined;
 }

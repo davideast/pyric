@@ -356,7 +356,7 @@ describe('installNetGuard', () => {
   const noTls = { connect: () => ({}) };
   // The prototype seams default to Node's real built-ins. Every unit test hands
   // in stand-ins (or none) so the test process's own sockets stay unpatched.
-  const noPrototypes = { agentPrototypes: [], socketPrototypes: [] };
+  const noPrototypes = { agentPrototypes: [], socketPrototypes: [], requestPrototypes: [] };
 
   it('is inert and silent when PYRIC_SANDBOX is absent', () => {
     const real = mockDispatcher();
@@ -534,6 +534,7 @@ describe('installNetGuard', () => {
       tls: { connect: () => ({}) },
       agentPrototypes: [httpAgentPrototype],
       socketPrototypes: [],
+      requestPrototypes: [],
     });
 
     // The prototype's own copy now refuses a catalog host.
@@ -619,6 +620,7 @@ describe('installNetGuard', () => {
       tls: noTls,
       agentPrototypes: [],
       socketPrototypes: [socketPrototype],
+      requestPrototypes: [],
     });
     const connect = socketPrototype.connect as (...args: unknown[]) => unknown;
 
@@ -1078,7 +1080,7 @@ describe('EgressVerdict shape', () => {
 describe('installNetGuard multi-slot undici globalDispatcher coverage', () => {
   const noNet = { connect: () => ({}), createConnection: () => ({}) };
   const noTls = { connect: () => ({}) };
-  const noPrototypes = { agentPrototypes: [], socketPrototypes: [] };
+  const noPrototypes = { agentPrototypes: [], socketPrototypes: [], requestPrototypes: [] };
 
   it('wraps undici.globalDispatcher.1, .2 (Node 24+), and dynamically discovered .N slots simultaneously', () => {
     const slot1 = Symbol.for('undici.globalDispatcher.1');

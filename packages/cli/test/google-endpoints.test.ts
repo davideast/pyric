@@ -117,3 +117,55 @@ describe('the shared normalizer and suffix matcher', () => {
     expect(matchesHostSuffix('notexample.com', 'example.com')).toBe(false);
   });
 });
+
+describe('normalizeHostname on IP literals', () => {
+  /** Spellings of 169.254.169.254 the system resolver connects to (#1442). */
+  const METADATA_SPELLINGS = [
+    '2852039166',
+    '0xa9fea9fe',
+    '0XA9FEA9FE',
+    '169.254.43518',
+    '169.16689662',
+    '0251.0376.0251.0376',
+    '0xa9.0xfe.0xa9.0xfe',
+    '169.254.169.254.',
+    '::ffff:169.254.169.254',
+    '::ffff:a9fe:a9fe',
+    '[::ffff:a9fe:a9fe]',
+    '0:0:0:0:0:ffff:a9fe:a9fe',
+    '::FFFF:A9FE:A9FE',
+  ];
+
+  it('writes every IPv4 spelling of the metadata IP as its dotted quad', () => {
+    for (const spelling of METADATA_SPELLINGS) {
+      expect({ spelling, host: normalizeHostname(spelling) }).toEqual({ spelling, host: '169.254.169.254' });
+    }
+  });
+
+  it('finds the metadata server under every spelling', () => {
+    for (const spelling of METADATA_SPELLINGS) {
+      expect({ spelling, alwaysBlock: lookupGoogleEndpoint(spelling)?.alwaysBlock }).toEqual({
+        spelling,
+        alwaysBlock: true,
+      });
+    }
+  });
+
+  it('writes other IPv6 addresses in one compressed form without brackets', () => {
+    expect(normalizeHostname('[::1]')).toBe('::1');
+    expect(normalizeHostname('0:0:0:0:0:0:0:1')).toBe('::1');
+    expect(normalizeHostname('2001:DB8::1')).toBe('2001:db8::1');
+  });
+
+  it('leaves hostnames, including ones made of hex digits, as text', () => {
+    expect(normalizeHostname('cafe.bad')).toBe('cafe.bad');
+    expect(normalizeHostname('deadbeef')).toBe('deadbeef');
+    expect(normalizeHostname('127.0.0.1')).toBe('127.0.0.1');
+    expect(normalizeHostname('localhost')).toBe('localhost');
+  });
+
+  it('leaves text the URL parser would read differently alone', () => {
+    expect(normalizeHostname('2852039166/x')).toBe('2852039166/x');
+    expect(normalizeHostname('a@2852039166')).toBe('a@2852039166');
+  });
+});
