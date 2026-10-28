@@ -201,7 +201,7 @@ export const sdkCaptureBlock: CompatibilityTableBlock = {
       rowRef: 'served-query-doc-pending-writes',
       featureKeys: ['onSnapshot'],
       api: 'QueryDocumentSnapshot.metadata.hasPendingWrites on the served planes',
-      behavior: "Production: only the doc with a pending write reports `hasPendingWrites` true. On the served planes every doc in the snapshot carries the query's value. FP-5.",
+      behavior: "Production: only the doc with a pending write reports `hasPendingWrites` true. The served planes report each doc's own value from the in-page engine, which reports false on the written doc (FL-20), and they skip the first snapshot from the cache (#1355). FP-5 is fixed.",
       evidence: '`oracle:firestore-query-doc-pending-writes`.',
       risk: ['listener'],
       riskScore: 2,

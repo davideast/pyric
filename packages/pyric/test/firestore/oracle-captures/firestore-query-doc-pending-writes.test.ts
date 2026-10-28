@@ -2,7 +2,7 @@ import { it } from 'bun:test';
 import { scenario } from '../../../../conformance/src/capture/sdk-scenarios/firestore/firestore-query-doc-pending-writes.scenario.ts';
 import { CACHED_INITIAL_SNAPSHOT, expectReplay, load, runInPage } from './support.ts';
 
-// The served planes mark every doc pending instead (FP-5): packages/cli/test/serve/worker/oracle-captures/.
+// The served planes forward this engine's per-doc values (FP-5, fixed in #1358): packages/cli/test/serve/worker/oracle-captures/.
 it('firestore-query-doc-pending-writes', async () => {
   const production = load('firestore-query-doc-pending-writes');
   const pyric = await runInPage(scenario);
