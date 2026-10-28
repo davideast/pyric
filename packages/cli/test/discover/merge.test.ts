@@ -222,3 +222,48 @@ describe('runConvergence', () => {
     expect(result.declaredAt).toBeNull();
   });
 });
+
+// ─── Field names that are Object.prototype members ────────────────────────
+
+/** Names Firestore accepts as field names that plain objects also inherit. */
+const PROTOTYPE_NAMES = ['constructor', 'toString', 'hasOwnProperty', 'valueOf'] as const;
+
+const stringDescriptor = (example: string) => ({
+  types: [{ kind: 'scalar', type: 'string' } as FieldType],
+  presenceSeen: 1,
+  presenceTotal: 1,
+  nullable: false,
+  example,
+});
+
+const obsMap = (fields: Record<string, ReturnType<typeof stringDescriptor>>): FieldObservation => ({
+  type: { kind: 'map', fields },
+  isNull: false,
+});
+
+describe('mergeDoc — field names that are Object.prototype members', () => {
+  for (const name of PROTOTYPE_NAMES) {
+    test(`keeps a top-level field named ${name}`, () => {
+      const first = mergeDoc(emptySchema(), { [name]: obsScalar('string', 'a') });
+      const second = mergeDoc(first.next, { [name]: obsScalar('string', 'b') });
+      expect(Object.hasOwn(second.next.fields, name)).toBe(true);
+      expect(second.next.fields[name]!.presenceSeen).toBe(2);
+    });
+
+    test(`adds a field named ${name} to a schema that lacks it`, () => {
+      const first = mergeDoc(emptySchema(), { title: obsScalar('string', 'a') });
+      const second = mergeDoc(first.next, { [name]: obsScalar('string', 'b') });
+      expect(Object.hasOwn(second.next.fields, name)).toBe(true);
+      expect(second.changes).toContainEqual({ kind: 'field_added', path: [name], type: { kind: 'scalar', type: 'string' } });
+    });
+
+    test(`keeps a map field named ${name}`, () => {
+      const first = mergeDoc(emptySchema(), { profile: obsMap({ title: stringDescriptor('a') }) });
+      const second = mergeDoc(first.next, { profile: obsMap({ [name]: stringDescriptor('b') }) });
+      const profile = second.next.fields.profile!.types[0]!;
+      expect(profile.kind).toBe('map');
+      const fields = (profile as { kind: 'map'; fields: Record<string, unknown> }).fields;
+      expect(Object.hasOwn(fields, name)).toBe(true);
+    });
+  }
+});
