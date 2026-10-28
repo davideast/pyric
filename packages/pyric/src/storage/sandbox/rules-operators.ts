@@ -1,4 +1,4 @@
-import { NO_OP, RulesValue } from '../../rules/simulator/wrappers/base.js';
+import { NO_OP, RulesValue, ValueRangeError } from '../../rules/simulator/wrappers/base.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
 import { DIVIDE_BY_ZERO_MESSAGE } from '../../rules/simulator/eval-error.js';
@@ -55,9 +55,21 @@ export function isValueTypeOperand(v: unknown): boolean {
  * operand, dispatched to the left value's `binaryOp`. `+` also tries the
  * right value, so `duration + timestamp` adds like `timestamp + duration`.
  * An operand pair no value accepts is production's "Unsupported operation
- * error" (captured for `timestamp < int`), an error value that denies.
+ * error" (captured for `timestamp < int`), an error value that denies. A
+ * result past the timestamp or duration range is an error value too.
  */
 export function evalValueOperator(op: string, left: unknown, right: unknown): unknown {
+  try {
+    return dispatchValueOperator(op, left, right);
+  } catch (err) {
+    // A result past the timestamp or duration range is production's
+    // "Timestamp is not valid" or "Duration is not valid" error value.
+    if (err instanceof ValueRangeError) return new RuleError(err.message);
+    throw err;
+  }
+}
+
+function dispatchValueOperator(op: string, left: unknown, right: unknown): unknown {
   if (left instanceof RulesValue) {
     const result = left.binaryOp(op, right);
     if (result !== NO_OP) return result;
