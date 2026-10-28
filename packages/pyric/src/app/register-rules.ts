@@ -15,6 +15,11 @@
  * Realtime Database rules resolve through the loader behind
  * `rtdbRules.fromFirebaseJson`, which resolves instances and deploy targets
  * as `firebase deploy` does, with the project from `.firebaserc`.
+ *
+ * Storage rules resolve per bucket through the shared `storageRulesConfig`,
+ * with deploy targets mapped for `.firebaserc`'s default project. Each bucket
+ * enforces its own file, and a bucket nothing deploys to is locked. A bucket
+ * whose file cannot be read or is refused stays locked; the others load.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -23,11 +28,13 @@ import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 import { setRules as setDatabaseRules, toStrictRulesJson } from 'pyric/sandbox/database';
 import { getDatabase } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
+import { deployStorageBucketRules, lockUndeployedStorageBuckets } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import {
   DEFAULT_DATABASE_RULES_FILE,
   defaultFirestoreDatabase,
   firestoreRulesConfig,
+  storageRulesConfig,
   unservedFirestoreDatabaseWarnings,
 } from 'pyric/sandbox/internal';
 import { loadFirebaseJsonRules } from '../rules/api/rtdb-firebase-json.js';
@@ -39,7 +46,7 @@ interface RulesEntry {
 interface FirebaseJson {
   firestore?: unknown;
   database?: unknown;
-  storage?: RulesEntry | RulesEntry[];
+  storage?: unknown;
 }
 
 const PREFIX = 'pyric/app/register';
@@ -76,7 +83,7 @@ function readDeclaredRules(projectDir: string, entry: RulesEntry | undefined): {
 
 interface FirebaseRc {
   projects?: { default?: unknown };
-  targets?: Record<string, { firestore?: Record<string, unknown> } | undefined>;
+  targets?: Record<string, { firestore?: Record<string, unknown>; storage?: Record<string, unknown> } | undefined>;
 }
 
 function readFirebaseRc(projectDir: string): FirebaseRc | null {
@@ -85,15 +92,18 @@ function readFirebaseRc(projectDir: string): FirebaseRc | null {
   return JSON.parse(readFileSync(path, 'utf8')) as FirebaseRc;
 }
 
+/** The names `.firebaserc` maps one deploy target of `service` to, for its default project. */
+function targetNames(rc: FirebaseRc | null, service: 'firestore' | 'storage', target: string): unknown {
+  const projectId = rc?.projects?.default;
+  return typeof projectId === 'string' ? rc?.targets?.[projectId]?.[service]?.[target] : undefined;
+}
+
 /** The databases `firebase.json` deploys Firestore rules to, with deploy targets mapped for `.firebaserc`'s default project. */
 function firestoreDatabases(projectDir: string, config: FirebaseJson): ReturnType<typeof firestoreRulesConfig> {
   let rc: FirebaseRc | null | undefined;
   const readRc = (): FirebaseRc | null => (rc ??= readFirebaseRc(projectDir));
   return firestoreRulesConfig(config.firestore, {
-    targetDatabases: (target) => {
-      const projectId = readRc()?.projects?.default;
-      return typeof projectId === 'string' ? readRc()?.targets?.[projectId]?.firestore?.[target] : undefined;
-    },
+    targetDatabases: (target) => targetNames(readRc(), 'firestore', target),
   });
 }
 
@@ -136,14 +146,39 @@ function loadDatabaseRules(
 }
 
 function loadStorageRules(sandbox: LocalSandbox, projectDir: string, config: FirebaseJson): void {
-  const entries = Array.isArray(config.storage) ? config.storage : [config.storage];
-  // One local bucket: the first entry with rules, as the dev server reads it.
-  const entry = entries.find((candidate) => typeof candidate?.rules === 'string');
+  // Only what firebase.json declares: register has never read an undeclared storage.rules.
+  if (config.storage === undefined) return;
+  let resolved: ReturnType<typeof storageRulesConfig>;
   try {
-    const declared = readDeclaredRules(projectDir, entry);
-    // Storage honors rules only on the first open of the service, so it opens here.
-    if (declared !== null) getStorageSandbox(sandbox, { rules: declared.source });
+    resolved = storageRulesConfig(config.storage, {
+      targetBuckets: (target) => targetNames(readFirebaseRc(projectDir), 'storage', target),
+    });
   } catch (error) {
     report('storage.rules', error);
+    return;
+  }
+  lockUndeployedStorageBuckets(sandbox);
+  for (const pending of resolved.unresolved) {
+    process.stderr.write(
+      `${PREFIX}: Storage deploy target "${pending.target}" (${pending.label}) maps to no bucket in .firebaserc, so its rules are not loaded and its buckets stay locked.\n`,
+    );
+  }
+  const defaultRules = resolved.defaultRules;
+  if (defaultRules?.configured === true) {
+    try {
+      const declared = readDeclaredRules(projectDir, { rules: defaultRules.file });
+      // Storage honors rules only on the first open of the service, so it opens here.
+      if (declared !== null) getStorageSandbox(sandbox, { rules: declared.source });
+    } catch (error) {
+      report('storage.rules', error);
+    }
+  }
+  for (const target of resolved.buckets) {
+    try {
+      const declared = readDeclaredRules(projectDir, { rules: target.file });
+      if (declared !== null) deployStorageBucketRules(sandbox, target.bucket, declared.source);
+    } catch (error) {
+      report(`${target.file} for Storage bucket "${target.bucket}"`, error);
+    }
   }
 }

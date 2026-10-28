@@ -101,8 +101,9 @@ restored in a `finally` path.
 - The replay tests hold pyric to it: `packages/pyric/test/firestore/oracle-conformance.test.ts`
   and `packages/pyric/test/database/oracle-conformance.test.ts`. A
   disagreement is pinned there, with both sides, before any fix.
-- Add or extend the registry row and the service's node count file in the same
-  change (AGENTS.md boundary 6). Every `rtdb-modular` row needs a CDD
+- Add or extend the registry row in the same change as a delta file in the
+  service's count directory, `assurance-node-counts/<service>/<pr-number>.json`
+  (AGENTS.md boundary 6). Every `rtdb-modular` row needs a CDD
   assertion as well.
 
 ## `run-sdk-scenarios.ts`: one scenario, two referees

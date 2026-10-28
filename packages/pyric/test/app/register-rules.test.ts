@@ -9,7 +9,8 @@ import { join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
 import { getDatabase, ref, set } from 'pyric/database';
-import { getStorageSandbox, ref as storageRef, uploadString } from 'pyric/storage';
+import { getStorage, ref as storageRef, uploadString } from '../../src/storage/index.js';
+import { createAppForSandbox } from '../../src/app/internal.js';
 import { loadProjectRules } from '../../src/app/register-rules.js';
 
 const FIRESTORE_RULES = `rules_version = '2';
@@ -27,6 +28,14 @@ service firebase.storage {
 // Comments and a trailing comma, as a deployed rules file may carry.
 const DEFAULT_RTDB_RULES = '{ /* default */ "rules": { "open": { ".read": true, ".write": true, } } }';
 const CHAT_RTDB_RULES = JSON.stringify({ rules: { rooms: { '.read': true, '.write': true } } });
+
+const STORAGE_BUCKET = 'rules-demo.appspot.com';
+
+/** The app's Storage on its default bucket, or on `gs://<bucket>`, as a registered process gets it. */
+function appStorage(sandbox: LocalSandbox, bucketUrl?: string) {
+  const app = createAppForSandbox(sandbox, { projectId: 'rules-demo', storageBucket: STORAGE_BUCKET }, `register-${Math.random()}`);
+  return getStorage(app, bucketUrl);
+}
 
 const dirs: string[] = [];
 
@@ -72,7 +81,7 @@ describe('loadProjectRules (pyric/app/register)', () => {
     },
     '.firebaserc': {
       projects: { default: 'rules-demo' },
-      targets: { 'rules-demo': { database: { chat: ['rules-demo-chat'] } } },
+      targets: { 'rules-demo': { database: { chat: ['rules-demo-chat'] }, storage: { main: [STORAGE_BUCKET] } } },
     },
     'firestore.rules': FIRESTORE_RULES,
     'database.rules.json': DEFAULT_RTDB_RULES,
@@ -99,9 +108,9 @@ describe('loadProjectRules (pyric/app/register)', () => {
     await expect(set(ref(chat, 'open/a'), 1)).rejects.toMatchObject(permissionDenied);
   });
 
-  it('applies the first storage entry with rules', async () => {
+  it('applies a storage deploy target to the bucket .firebaserc maps it to', async () => {
     const { sandbox } = load(project(fullProject));
-    const storage = getStorageSandbox(sandbox.withAuth(null));
+    const storage = appStorage(sandbox);
     await uploadString(storageRef(storage, 'public/a.txt'), 'hello');
     await expect(uploadString(storageRef(storage, 'private/a.txt'), 'no')).rejects.toMatchObject({ code: 'storage/unauthorized' });
   });
@@ -113,20 +122,48 @@ describe('loadProjectRules (pyric/app/register)', () => {
   });
 
   it('names an unresolved deploy target on stderr and still loads Firestore and Storage', async () => {
-    const dir = project({ ...fullProject, '.firebaserc': { projects: { default: 'rules-demo' } } });
+    const dir = project({
+      ...fullProject,
+      '.firebaserc': { projects: { default: 'rules-demo' }, targets: { 'rules-demo': { storage: { main: [STORAGE_BUCKET] } } } },
+    });
     const { sandbox, stderr } = load(dir);
     expect(stderr).toContain('pyric/app/register: could not load Realtime Database rules');
     expect(stderr).toContain('"chat"');
     const ctx = sandbox.withAuth(null);
     await expect(set(ref(getDatabase(ctx), 'open/a'), 1)).rejects.toMatchObject(permissionDenied);
     await setDoc(doc(getFirestore(ctx), 'open/a'), { ok: true });
-    await uploadString(storageRef(getStorageSandbox(ctx), 'public/a.txt'), 'hello');
+    await uploadString(storageRef(appStorage(sandbox), 'public/a.txt'), 'hello');
   });
 
   it('names a storage rules file that does not parse and still loads RTDB', async () => {
     const { sandbox, stderr } = load(project({ ...fullProject, 'storage.rules': 'service firebase.storage {' }));
     expect(stderr).toContain('pyric/app/register: could not load storage.rules');
     await set(ref(getDatabase(sandbox.withAuth(null)), 'open/a'), 1);
+  });
+
+  it('gives each bucket the rules firebase.json deploys to it (the ST-H2-2 repro)', async () => {
+    const signedIn = STORAGE_RULES.replace('if true', 'if request.auth != null');
+    const { sandbox, stderr } = load(project({
+      'firebase.json': {
+        storage: [
+          { bucket: 'media-bucket', rules: 'media.rules' },
+          { bucket: STORAGE_BUCKET, rules: 'storage.rules' },
+        ],
+      },
+      'media.rules': STORAGE_RULES,
+      'storage.rules': signedIn,
+    }));
+    expect(stderr).toBe('');
+    await expect(uploadString(storageRef(appStorage(sandbox), 'public/a.txt'), 'no')).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await uploadString(storageRef(appStorage(sandbox, 'gs://media-bucket'), 'public/a.txt'), 'hello');
+    await expect(uploadString(storageRef(appStorage(sandbox, 'gs://other-bucket'), 'public/a.txt'), 'no')).rejects.toMatchObject({ code: 'storage/unauthorized' });
+  });
+
+  it('names a storage deploy target .firebaserc does not map, and keeps its buckets locked', async () => {
+    const dir = project({ ...fullProject, '.firebaserc': { projects: { default: 'rules-demo' }, targets: { 'rules-demo': { database: { chat: ['rules-demo-chat'] } } } } });
+    const { sandbox, stderr } = load(dir);
+    expect(stderr).toContain('Storage deploy target "main" (firebase.json storage[0]) maps to no bucket in .firebaserc');
+    await expect(uploadString(storageRef(appStorage(sandbox), 'public/a.txt'), 'no')).rejects.toMatchObject({ code: 'storage/unauthorized' });
   });
 
   it('names a declared rules file that does not exist', () => {

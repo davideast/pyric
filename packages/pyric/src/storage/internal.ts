@@ -28,6 +28,9 @@ export {
   getStorageRulesResolution,
   replaceCrossServiceIam,
   replaceStorageRules,
+  deployStorageBucketRules,
+  lockUndeployedStorageBuckets,
+  storageBucketsWithRules,
 } from './service.js';
 export { enforceRules, storageFirestoreLookup } from './enforce.js';
 export { requestResourceFor, resourceFromStored } from './sandbox/rules-resources.js';
