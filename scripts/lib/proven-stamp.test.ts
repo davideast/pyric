@@ -141,16 +141,37 @@ describe('verifying the stamp before an upload', () => {
 });
 
 describe('checking downloaded tarballs against the pack record', () => {
-  const check = (repo: string) => node(repo, 'check', packages(repo));
+  /** Runs `check` with GITHUB_SHA as given, never the one a CI runner sets for this test run. */
+  const check = (repo: string, githubSha?: string) => {
+    const env = { ...process.env };
+    delete env.GITHUB_SHA;
+    if (githubSha !== undefined) env.GITHUB_SHA = githubSha;
+    return spawnSync('node', [stampScript, 'check', packages(repo), repo], { cwd: repo, encoding: 'utf8', env });
+  };
 
-  test('the tarballs the pack wrote pass in any tree, even another commit', () => {
+  test('the tarballs the pack wrote pass on their own commit, even in a dirty tree', () => {
     const repo = checkout();
     pack(repo);
-    writeFileSync(join(repo, 'README.md'), 'second\n');
-    git(repo, 'commit', '-q', '-am', 'second');
+    writeFileSync(join(repo, 'downloaded.txt'), 'a job writes files');
     const checked = check(repo);
     expect(checked.status).toBe(0);
     expect(checked.stdout).toContain('are the ones packed from');
+  });
+
+  test('tarballs packed from another commit are refused, by HEAD or by GITHUB_SHA', () => {
+    const repo = checkout();
+    pack(repo);
+    const packedFrom = git(repo, 'rev-parse', 'HEAD');
+    writeFileSync(join(repo, 'README.md'), 'second\n');
+    git(repo, 'commit', '-q', '-am', 'second');
+    const byHead = check(repo);
+    expect(byHead.status).toBe(1);
+    expect(byHead.stderr).toContain(`packed from commit ${packedFrom}`);
+    // GITHUB_SHA, when set, names the commit and wins over HEAD.
+    expect(check(repo, packedFrom).status).toBe(0);
+    const other = check(repo, 'f'.repeat(40));
+    expect(other.status).toBe(1);
+    expect(other.stderr).toContain(`this job checked out ${'f'.repeat(40)}`);
   });
 
   test('a tarball whose bytes changed after the pack is refused', () => {

@@ -4,7 +4,7 @@
 //   node scripts/lib/proven-stamp.mjs record <packages dir> <repo root> <head> <clean>
 //   node scripts/lib/proven-stamp.mjs write  <packages dir> <version> <repo root> <name>...
 //   node scripts/lib/proven-stamp.mjs verify <packages dir> <version> <repo root> <name>...
-//   node scripts/lib/proven-stamp.mjs check  <packages dir>
+//   node scripts/lib/proven-stamp.mjs check  <packages dir> <repo root>
 //
 // `record` runs at the end of scripts/pack-packages.sh. It adds the pack's
 // own facts to manifest.json: each tarball's sha256 as the pack wrote it,
@@ -28,7 +28,10 @@
 // another job made and uploaded. It requires the tarballs in the directory to
 // be exactly the ones manifest.json's pack record lists, each with the hash
 // the pack wrote, so a job tests the bytes that pack made and no others. It
-// does not look at the tree: the job checking is not the job that packed.
+// also requires the pack to come from the commit this job checked out
+// (GITHUB_SHA when set, otherwise HEAD), so a job never tests another
+// commit's tarballs. It does not ask for a clean tree: the job checking is not
+// the job that packed, and its own install and downloads touch the tree.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -126,14 +129,21 @@ function verify(dir, version, root, files) {
   console.log(`proven-stamp: the ${files.length} tarballs in ${dir} are the ones proven on ${stamp.value.head}`);
 }
 
-function check(dir) {
-  const hint = 'Use the tarballs the pack job uploaded, unchanged, or pack again with scripts/pack-packages.sh.';
+/** The commit this job tests: the one CI checked out, or HEAD outside CI. */
+function checkedOutCommit(root) {
+  return process.env.GITHUB_SHA || headOf(root);
+}
+
+function check(dir, root) {
+  const hint = 'Use the tarballs the pack job uploaded for this commit, unchanged, or pack again with scripts/pack-packages.sh.';
   const manifest = readJson(join(dir, MANIFEST), MANIFEST);
   if (manifest.missing) fail('check', dir, [manifest.missing], hint);
   const pack = manifest.value.pack;
   if (!pack) fail('check', dir, [`${MANIFEST} has no pack record: pack with scripts/pack-packages.sh`], hint);
   const files = readdirSync(dir).filter((file) => file.endsWith('.tgz')).sort();
   const found = tarballProblems(dir, files, pack.tarballs, 'the pack record');
+  const commit = checkedOutCommit(root);
+  if (pack.head !== commit) found.push(`the tarballs were packed from commit ${pack.head}, and this job checked out ${commit}`);
   if (files.length === 0) found.push('the directory holds no tarballs');
   if (found.length > 0) fail('check', dir, found, hint);
   console.log(`proven-stamp: the ${files.length} tarballs in ${dir} are the ones packed from ${pack.head}`);
@@ -142,14 +152,14 @@ function check(dir) {
 const [action, ...args] = process.argv.slice(2);
 if (action === 'record' && args.length === 4) {
   record(...args);
-} else if (action === 'check' && args.length === 1) {
-  check(args[0]);
+} else if (action === 'check' && args.length === 2) {
+  check(...args);
 } else if ((action === 'write' || action === 'verify') && args.length >= 4) {
   const [dir, version, root, ...names] = args;
   const files = names.map((name) => `${name}-${version}.tgz`);
   if (action === 'write') write(dir, version, root, files);
   else verify(dir, version, root, files);
 } else {
-  console.error('usage: node scripts/lib/proven-stamp.mjs record <dir> <root> <head> <clean> | write|verify <dir> <version> <root> <name>... | check <dir>');
+  console.error('usage: node scripts/lib/proven-stamp.mjs record <dir> <root> <head> <clean> | write|verify <dir> <version> <root> <name>... | check <dir> <root>');
   process.exit(2);
 }

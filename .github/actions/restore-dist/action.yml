@@ -14,6 +14,12 @@ inputs:
       the published tarball ships it; "site" for the full build plus the
       composed public site (scripts/build-site.sh).
     required: true
+  fresh:
+    description: >
+      "true" skips the restore and always builds; the result is still saved.
+      Only the studio flavor reads it.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -55,8 +61,24 @@ runs:
           dist/site
         key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
 
-    - name: Restore built packages with the embedded Studio site
+    - name: Key the Studio build on the pinned toolchain
       if: inputs.flavor == 'studio'
+      id: toolchain
+      shell: bash
+      env:
+        BUN_VERSION: ${{ env.BUN_VERSION }}
+        NODE_VERSION: ${{ env.NODE_VERSION }}
+      run: |
+        # build.yml's workflow env pins both; a key without them could restore
+        # output another toolchain built, so a missing pin fails the job.
+        if [ -z "$BUN_VERSION" ] || [ -z "$NODE_VERSION" ]; then
+          echo "restore-dist: the studio flavor needs BUN_VERSION and NODE_VERSION in the workflow env" >&2
+          exit 1
+        fi
+        echo "toolchain=bun-$BUN_VERSION-node-$NODE_VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Restore built packages with the embedded Studio site
+      if: inputs.flavor == 'studio' && inputs.fresh != 'true'
       id: restore-studio
       uses: actions/cache/restore@v4
       with:
@@ -71,7 +93,7 @@ runs:
           packages/cli/src/bridge/surface/descriptions.generated.ts
         # The site key covers every input of the full build and more, so it
         # is exact for this flavor too; the prefix keeps the two apart.
-        key: dist-studio-${{ runner.os }}-${{ steps.key.outputs.site-key }}
+        key: dist-studio-${{ runner.os }}-${{ steps.toolchain.outputs.toolchain }}-${{ steps.key.outputs.site-key }}
 
     - name: Build packages (site omitted)
       if: inputs.flavor == 'packages' && steps.restore-packages.outputs.cache-hit != 'true'
@@ -116,7 +138,7 @@ runs:
           packages/cli/src/bridge/surface/manifest.generated.ts
           packages/cli/src/bridge/surface/manifest.sandbox.generated.ts
           packages/cli/src/bridge/surface/descriptions.generated.ts
-        key: dist-studio-${{ runner.os }}-${{ steps.key.outputs.site-key }}
+        key: dist-studio-${{ runner.os }}-${{ steps.toolchain.outputs.toolchain }}-${{ steps.key.outputs.site-key }}
 
     - name: Save built packages and site
       if: inputs.flavor == 'site' && steps.restore-site.outputs.cache-hit != 'true'

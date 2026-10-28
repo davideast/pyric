@@ -108,10 +108,15 @@ describe('required CI result', () => {
     })).toEqual([]);
   });
 
+  type Step = { name?: string; run?: string; uses?: string; with?: Record<string, string>; env?: Record<string, string> };
+  const parsedWorkflow = () => Bun.YAML.parse(readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8')) as {
+    env?: Record<string, string>;
+    jobs: Record<string, { needs?: string | string[]; steps?: Step[] }>;
+  };
+  const CHECK = 'node scripts/lib/proven-stamp.mjs check dist/packages .';
+
   test('the pack job is the only pack, and every tarball consumer checks its manifest', () => {
-    const workflow = Bun.YAML.parse(readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8')) as {
-      jobs: Record<string, { needs?: string | string[]; steps?: { name?: string; run?: string; uses?: string; with?: Record<string, string> }[] }>;
-    };
+    const workflow = parsedWorkflow();
     const needsOf = (job: string) => [workflow.jobs[job]?.needs ?? []].flat();
     const runs = (job: string) => (workflow.jobs[job]?.steps ?? []).map((step) => step.run ?? '').join('\n');
     const packers = Object.keys(workflow.jobs).filter((job) => runs(job).includes('scripts/pack-packages.sh'));
@@ -123,12 +128,54 @@ describe('required CI result', () => {
     for (const job of ['app-scenarios', 'packaging', 'install-matrix']) {
       const steps = workflow.jobs[job]?.steps ?? [];
       const download = steps.findIndex((step) => step.uses?.startsWith('actions/download-artifact') && step.with?.name === 'packed-packages');
-      const check = steps.findIndex((step) => step.run === 'node scripts/lib/proven-stamp.mjs check dist/packages');
+      const check = steps.findIndex((step) => step.run === CHECK);
       const firstUse = steps.findIndex((step) => /dist\/packages|PYRIC_PACKAGE_ARTIFACT_DIR/.test(`${step.run ?? ''}`) && !step.run?.includes('proven-stamp.mjs check'));
       expect(download).toBeGreaterThanOrEqual(0);
       expect(check).toBeGreaterThan(download);
       expect(firstUse === -1 || firstUse > check).toBe(true);
     }
+  });
+
+  test('each consumer tests the downloaded tarballs, with no fallback to a pack of its own', () => {
+    const workflow = parsedWorkflow();
+    const steps = (job: string) => workflow.jobs[job]?.steps ?? [];
+    const indexOf = (job: string, match: (step: Step) => boolean) => steps(job).findIndex(match);
+    const checkAt = (job: string) => indexOf(job, (step) => step.run === CHECK);
+
+    // packaging-test.sh without --packages builds and packs on its own.
+    const gateRuns = steps('packaging').filter((step) => step.run?.includes('scripts/packaging-test.sh'));
+    expect(gateRuns.map((step) => step.run)).toEqual(['bash scripts/packaging-test.sh --packages dist/packages']);
+    expect(indexOf('packaging', (step) => step.run === gateRuns[0]?.run)).toBeGreaterThan(checkAt('packaging'));
+
+    const appRuns = steps('app-scenarios').filter((step) => step.run?.includes('test/apps/run.ts'));
+    expect(appRuns).toHaveLength(1);
+    expect(appRuns[0]?.run).toContain('--packages dist/packages');
+    expect(indexOf('app-scenarios', (step) => step.run === appRuns[0]?.run)).toBeGreaterThan(checkAt('app-scenarios'));
+
+    // install-matrix.sh without PYRIC_PACKAGE_ARTIFACT_DIR packs when dist/packages has no manifest.
+    const install = indexOf('install-matrix', (step) => step.run?.includes('scripts/install-matrix.sh') ?? false);
+    expect(install).toBeGreaterThanOrEqual(0);
+    expect(steps('install-matrix')[install]?.env?.PYRIC_PACKAGE_ARTIFACT_DIR).toBe('dist/packages');
+    expect(install).toBeGreaterThan(checkAt('install-matrix'));
+  });
+
+  test('the packed build is keyed on the pinned toolchain and built fresh on main and nightly', () => {
+    const workflow = parsedWorkflow();
+    const action = readFileSync(resolve(import.meta.dir, '../../.github/actions/restore-dist/action.yml'), 'utf8');
+    expect(workflow.env?.BUN_VERSION).toBeTruthy();
+    expect(workflow.env?.NODE_VERSION).toBeTruthy();
+    // One pin: every job reads the versions from the workflow env.
+    const raw = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    for (const line of raw.split('\n').filter((text) => /^\s+(bun|node)-version:/.test(text))) {
+      expect(line).toMatch(/: \$\{\{ env\.(BUN|NODE)_VERSION \}\}$/);
+    }
+    const studioKeys = action.match(/key: dist-studio-.*$/gm) ?? [];
+    expect(studioKeys).toHaveLength(2);
+    for (const key of studioKeys) expect(key).toContain('steps.toolchain.outputs.toolchain');
+    expect(action).toContain("if: inputs.flavor == 'studio' && inputs.fresh != 'true'");
+    const build = (workflow.jobs['pack-packages']?.steps ?? []).find((step) => step.uses === './.github/actions/restore-dist');
+    expect(build?.with?.flavor).toBe('studio');
+    expect(build?.with?.fresh).toBe("${{ github.event_name == 'push' || github.event_name == 'schedule' }}");
   });
 
   test('the aggregate job receives the app scenario result and the plan\'s selection', () => {
