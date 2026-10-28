@@ -62,7 +62,9 @@ packages/conformance/
                      <engine>-rules for a rules-language snapshot's
                      constructs. base.json holds { "nodes": N }; every other
                      file is one change, { "delta": n } with n not zero, named
-                     for the change (for example 1417.json). The count is the
+                     for the PR number, not the issue (for example 1479.json),
+                     since two PRs adding the same file with the same delta
+                     merge into one file. The count is the
                      sum of the files. conformance-model.test.ts derives each
                      service's assurance node count and fails on any service
                      whose count differs from that sum, so adding or removing

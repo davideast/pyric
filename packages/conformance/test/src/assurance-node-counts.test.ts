@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -33,17 +33,7 @@ function writeCountTree(root: string, services: Record<string, Record<string, st
 }
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: 'test',
-      GIT_AUTHOR_EMAIL: 'test@example.com',
-      GIT_COMMITTER_NAME: 'test',
-      GIT_COMMITTER_EMAIL: 'test@example.com',
-    },
-  });
+  return execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
 }
 
 describe('per-service assurance node counts', () => {
@@ -55,8 +45,8 @@ describe('per-service assurance node counts', () => {
     const ids = [...owners.keys()].filter((id) => id !== 'storage#2');
     expect(assuranceNodeCountProblems(ids, owners, committed)).toEqual([
       'storage: 1 assurance nodes, packages/conformance/assurance-node-counts/storage/ sums to 2 (1 removed); '
-        + 'if the row change is deliberate, add packages/conformance/assurance-node-counts/storage/<change>.json '
-        + 'with {"delta": -1}, named for the change (for example the issue number)',
+        + 'if the row change is deliberate, add packages/conformance/assurance-node-counts/storage/<pr-number>.json '
+        + 'with {"delta": -1}, named for the PR number, not the issue',
     ]);
   });
 
@@ -93,7 +83,7 @@ describe('per-service assurance node counts', () => {
 
   it('sums base.json and every delta file in one directory per service', () => {
     const dir = countTree({
-      storage: { 'base.json': '{ "nodes": 2 }\n', '1417.json': '{ "delta": 3 }\n', 'drop-old-row.json': '{ "delta": -1 }\n' },
+      storage: { 'base.json': '{ "nodes": 2 }\n', '1479.json': '{ "delta": 3 }\n', 'drop-old-row.json': '{ "delta": -1 }\n' },
       rules: { 'base.json': '{ "nodes": 1 }\n' },
       app: { '1500.json': '{ "delta": 4 }\n' },
     });
@@ -101,9 +91,9 @@ describe('per-service assurance node counts', () => {
   });
 
   it('rejects a delta of zero', () => {
-    const dir = countTree({ storage: { 'base.json': '{ "nodes": 2 }\n', '1417.json': '{ "delta": 0 }\n' } });
+    const dir = countTree({ storage: { 'base.json': '{ "nodes": 2 }\n', '1479.json': '{ "delta": 0 }\n' } });
     expect(() => loadAssuranceNodeCounts(dir)).toThrow(
-      'packages/conformance/assurance-node-counts/storage/1417.json: "delta" must be a non-zero integer',
+      'packages/conformance/assurance-node-counts/storage/1479.json: "delta" must be a non-zero integer',
     );
   });
 
@@ -115,7 +105,7 @@ describe('per-service assurance node counts', () => {
   });
 
   it('rejects a file name outside ^[a-z0-9-]+\\.json$', () => {
-    for (const bad of ['Fix_1417.json', '1417.JSON', 'notes.md', '.json']) {
+    for (const bad of ['Fix_1479.json', '1479.JSON', 'notes.md', '.json']) {
       const dir = countTree({ storage: { 'base.json': '{ "nodes": 2 }\n', [bad]: '{ "delta": 1 }\n' } });
       expect(() => loadAssuranceNodeCounts(dir)).toThrow(
         `packages/conformance/assurance-node-counts/storage/${bad}: count file names must match ^[a-z0-9-]+\\.json$`,
@@ -131,8 +121,28 @@ describe('per-service assurance node counts', () => {
     );
   });
 
+  it('rejects a symlinked count file or service directory, so nothing counts twice', () => {
+    const linkedFile = countTree({ storage: { 'base.json': '{ "nodes": 2 }\n' } });
+    symlinkSync(join(linkedFile, 'storage', 'base.json'), join(linkedFile, 'storage', '1479.json'));
+    expect(() => loadAssuranceNodeCounts(linkedFile)).toThrow(
+      'packages/conformance/assurance-node-counts/storage/1479.json: a count file must be a regular file, not a symlink or directory',
+    );
+    const linkedDir = countTree({ storage: { 'base.json': '{ "nodes": 2 }\n' } });
+    symlinkSync(join(linkedDir, 'storage'), join(linkedDir, 'storage-copy'));
+    expect(() => loadAssuranceNodeCounts(linkedDir)).toThrow(
+      'packages/conformance/assurance-node-counts/storage-copy: each service is a directory',
+    );
+  });
+
+  it('names the file whose JSON does not parse', () => {
+    const dir = countTree({ storage: { 'base.json': '{ "nodes": 2 }\n', '1479.json': '{ "delta": 1,\n' } });
+    expect(() => loadAssuranceNodeCounts(dir)).toThrow(
+      'packages/conformance/assurance-node-counts/storage/1479.json: not valid JSON',
+    );
+  });
+
   it('rejects a directory whose files sum below zero', () => {
-    const dir = countTree({ storage: { 'base.json': '{ "nodes": 1 }\n', '1417.json': '{ "delta": -2 }\n' } });
+    const dir = countTree({ storage: { 'base.json': '{ "nodes": 1 }\n', '1479.json': '{ "delta": -2 }\n' } });
     expect(() => loadAssuranceNodeCounts(dir)).toThrow(
       'packages/conformance/assurance-node-counts/storage/: files sum to -1',
     );
@@ -143,6 +153,8 @@ describe('per-service assurance node counts', () => {
     const counts = join(repo, 'assurance-node-counts');
     writeCountTree(counts, { storage: { 'base.json': '{ "nodes": 2 }\n' } });
     git(repo, 'init', '-q', '-b', 'main');
+    git(repo, 'config', 'user.name', 'test');
+    git(repo, 'config', 'user.email', 'test@example.com');
     git(repo, 'add', '.');
     git(repo, 'commit', '-q', '-m', 'base');
     git(repo, 'switch', '-q', '-c', 'one');
@@ -156,7 +168,6 @@ describe('per-service assurance node counts', () => {
     git(repo, 'switch', '-q', 'main');
     git(repo, 'merge', '-q', '--no-ff', '-m', 'merge one and two', 'one', 'two');
 
-    expect(git(repo, 'diff', '--name-only', '--diff-filter=U')).toBe('');
     expect(loadAssuranceNodeCounts(counts)).toEqual({ storage: 4 });
     const merged = new Map([
       ['storage#1', 'storage'], ['storage#2', 'storage'], ['storage#3', 'storage'], ['storage#4', 'storage'],

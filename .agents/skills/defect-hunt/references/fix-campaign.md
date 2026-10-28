@@ -6,7 +6,7 @@ proves itself by removing pins; none may weaken one.
 ## 1. Pins first
 
 Land the evidence before any fix, in its own PR: new scenarios, observations,
-registry rows, the per-service node count files, and a pin for every
+registry rows, a node count delta file per service touched, and a pin for every
 disagreement (a known-divergence entry naming both answers and the finding).
 The published score drops honestly. In #1247 this was stream S0 (#1248).
 
@@ -30,12 +30,16 @@ table before anyone starts:
 
 ## 3. Shared score pins
 
-Scorecards, baselines, node counts and score pins in tests are shared by every
-stream, and they are where parallel PRs collide. Each stream keeps its changes
-to them in one commit of its own, separate from its source commits. The first
-stream to merge lands its commit as is. Whichever PR merges second drops its
-pin commit, rebases on `main`, regenerates the shared files, and commits the
-result. Nobody hand-merges a generated number.
+Scorecards, baselines and score pins in tests are shared by every stream, and
+they are where parallel PRs collide. Each stream keeps its changes to them in
+one commit of its own, separate from its source commits. The first stream to
+merge lands its commit as is. Whichever PR merges second drops its pin commit,
+rebases on `main`, regenerates the shared files, and commits the result.
+Nobody hand-merges a generated number.
+
+Node counts are not shared this way. Each PR adds its own delta file,
+`assurance-node-counts/<service>/<pr-number>.json`, so two streams that add
+rows to one service merge without conflict and nobody regenerates a count.
 
 ## 4. Each stream works red to green against the pins
 

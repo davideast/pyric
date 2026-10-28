@@ -8,16 +8,19 @@
  * committed expectation is one directory per service under
  * `assurance-node-counts/`, named for the service key. A service's count is
  * the sum of its files: `base.json` holds `{ "nodes": N }`, and every other
- * file is one change, `{ "delta": n }` with `n` not zero, named for that change
- * (for example the issue number). Two changes to one service add two files, so
- * they merge without conflict and the sum still equals the merged count.
+ * file is one change, `{ "delta": n }` with `n` not zero, named for the PR that
+ * makes it. Two PRs that change one service add two files, so they merge
+ * without conflict and the sum still equals the merged count. The name is the
+ * PR number, not the issue: several PRs often share an issue, and git merges
+ * two branches that add the same file with the same contents into one file,
+ * which would count one delta for two changes.
  *
  * The check fails when a service's node count differs from its committed
  * count, when a service has no count directory, when a count directory names
  * no service, and when a node has no owning service. Adding or removing a row
  * is therefore a deliberate, reviewable file in one service's directory.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rowsForSurface, surfaceRegistries } from '../registry/index.ts';
@@ -59,7 +62,7 @@ export function assuranceNodeOwners(): ReadonlyMap<string, string> {
 export function loadAssuranceNodeCounts(dir: string = ASSURANCE_NODE_COUNTS_DIR): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const entry of readdirSync(dir).sort()) {
-    const isServiceDirectory = statSync(join(dir, entry)).isDirectory();
+    const isServiceDirectory = lstatSync(join(dir, entry)).isDirectory();
     if (!isServiceDirectory) {
       throw new Error(
         `${COUNTS_PATH}/${entry}: each service is a directory, ${COUNTS_PATH}/<service>/, holding base.json and delta files`,
@@ -82,8 +85,20 @@ function countFileValue(path: string, file: string, shownPath: string): number {
   if (!COUNT_FILE_NAME.test(file)) {
     throw new Error(`${shownPath}: count file names must match ${COUNT_FILE_NAME.source}`);
   }
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as { nodes?: unknown; delta?: unknown };
+  const isRegularFile = lstatSync(path).isFile();
+  if (!isRegularFile) {
+    throw new Error(`${shownPath}: a count file must be a regular file, not a symlink or directory`);
+  }
+  const parsed = parseCountFile(path, shownPath);
   return file === BASE_FILE ? baseValue(parsed.nodes, shownPath) : deltaValue(parsed.delta, shownPath);
+}
+
+function parseCountFile(path: string, shownPath: string): { nodes?: unknown; delta?: unknown } {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as { nodes?: unknown; delta?: unknown };
+  } catch (error) {
+    throw new Error(`${shownPath}: not valid JSON (${(error as Error).message})`);
+  }
 }
 
 function baseValue(nodes: unknown, shownPath: string): number {
@@ -137,6 +152,6 @@ function serviceCountProblem(service: string, derived: number, expected: number 
   const delta = derived - expected;
   const change = delta < 0 ? `${-delta} removed` : `${delta} added`;
   return `${service}: ${derived} assurance nodes, ${dir} sums to ${expected} (${change}); `
-    + `if the row change is deliberate, add ${dir}<change>.json with {"delta": ${delta}}, `
-    + 'named for the change (for example the issue number)';
+    + `if the row change is deliberate, add ${dir}<pr-number>.json with {"delta": ${delta}}, `
+    + 'named for the PR number, not the issue';
 }
