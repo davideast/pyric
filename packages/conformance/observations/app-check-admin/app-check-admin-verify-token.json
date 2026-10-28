@@ -2,7 +2,9 @@
   "name": "app-check-admin-verify-token",
   "matrixRow": "",
   "rowIds": [
-    "app-check-admin#verify-token"
+    "app-check-admin#verify-token",
+    "app-check-admin#verify-token-firebase-token",
+    "app-check-admin#verify-token-firebase-token-production-ai-mode"
   ],
   "description": "verifyToken without options, for an Admin-minted token and for a token from the debug-token exchange: result key set, decoded claim names, and app id agreement.",
   "observedAt": "2026-10-22T03:09:04.633Z",

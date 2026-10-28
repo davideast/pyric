@@ -42,11 +42,15 @@ import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode, type
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { remoteSandbox } from '../remote/index.js';
+import { isBypassedBridgeImport, resolveAiMode } from '../serve/firebase-module-swap.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
  *  returning the lazy branded handle. `Symbol.for` so both packages agree
  *  without importing each other's types. */
 const SANDBOX_FACTORY = Symbol.for('pyric.remote.sandboxFactory');
+
+/** The seam with pyric-admin's App Check mirror: firebase-admin's verifier for tokens from Firebase (#1552). */
+const APP_CHECK_FIREBASE_VERIFIER = Symbol.for('pyric.admin.appCheck.firebaseVerifier');
 
 interface SyncResolveContext {
   parentURL?: string;
@@ -160,6 +164,18 @@ function isRealAdminFile(url: string): boolean {
 }
 
 /**
+ * Whether a real `firebase-admin` file is loaded on Pyric's behalf: by the App
+ * Check verifier bridge (production AI mode, #1552), or by another real
+ * `firebase-admin` file that one loaded. An app's own import has another
+ * parent, so it still trips.
+ */
+function isPyricAdminLoad(specifier: string, parentURL: string | undefined): boolean {
+  const fromBridge = isBypassedBridgeImport(specifier, parentURL);
+  const fromRealAdmin = parentURL !== undefined && isRealAdminFile(parentURL);
+  return fromBridge || fromRealAdmin;
+}
+
+/**
  * The tripwire (#1443): `pyric-admin` has no runtime dependency on
  * `firebase-admin`, and the hook maps every form of the import it recognizes,
  * so a real `firebase-admin` file in a registered process is a missed import
@@ -167,6 +183,10 @@ function isRealAdminFile(url: string): boolean {
  * `block`, even under an explicit `PYRIC_GUARD=warn`, so the metadata server
  * and every catalog host refuse with `PYRIC_GUARD_BLOCKED` instead of reaching
  * production. `PYRIC_GUARD=off` installs no guard and so no tripwire.
+ *
+ * The one deliberate load is the App Check verifier bridge in production AI
+ * mode, whose firebase-admin app holds no credentials; it and the files it
+ * loads do not trip.
  *
  * Only the sync hook gets one: the async fallback runs on Node's loader
  * thread, which cannot reach this process's guard.
@@ -176,7 +196,7 @@ function withRealAdminTripwire(resolve: SyncResolve, guard: NetGuard | null): Sy
   let tripped = false;
   return (specifier, context, nextResolve) => {
     const result = resolve(specifier, context, nextResolve);
-    const trips = !tripped && isRealAdminFile(result.url);
+    const trips = !tripped && isRealAdminFile(result.url) && !isPyricAdminLoad(specifier, context.parentURL);
     if (!trips) return result;
     tripped = true;
     process.stderr.write(
@@ -242,6 +262,8 @@ function activate(): void {
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
     remoteSandbox({ configuredUrl: opts?.url, instanceId: process.env.PYRIC_SANDBOX_INSTANCE });
 
+  installAppCheckVerifier();
+
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +
       `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
@@ -257,6 +279,23 @@ function activate(): void {
     hooks: hooksInstalled,
     sandbox: process.env.PYRIC_SANDBOX ?? '',
   });
+}
+
+/**
+ * Production AI mode only: the page's App Check tokens come from Firebase, so
+ * pyric-admin's mirror hands them to firebase-admin's own verifier (#1552).
+ * The bridge, and firebase-admin with it, loads on the first such token, so a
+ * server that never verifies one never loads firebase-admin. In sandbox AI
+ * mode nothing is installed, and the mirror refuses such a token with a
+ * message that says why.
+ */
+function installAppCheckVerifier(): void {
+  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
+  if (!isProductionAiMode) return;
+  (globalThis as Record<symbol, unknown>)[APP_CHECK_FIREBASE_VERIFIER] = async (token: string, projectId: string) => {
+    const bridge = await import('./app-bridge-admin-app-check.js');
+    return bridge.verifyFirebaseAppCheckToken(token, projectId);
+  };
 }
 
 /**

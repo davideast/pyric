@@ -22,7 +22,15 @@ import {
   type Tarballs,
   type TimedResult,
 } from './install.ts';
-import { describeGroupProcesses, describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
+import {
+  DEFAULT_EXIT_TIMING,
+  describeGroupProcesses,
+  describeProcState,
+  endGroup,
+  watchChildExit,
+  type ExitTiming,
+  type LiveProcess,
+} from './unreaped-exit.ts';
 
 /** How much of npm's debug log the job log gets when an install attempt times out. */
 const NPM_LOG_TAIL_LINES = 40;
@@ -54,6 +62,15 @@ export interface StopGrace {
 
 const DEFAULT_STOP_GRACE: StopGrace = { termMs: 5_000, killMs: 5_000 };
 
+/** The waits an `AppProcess` uses. Tests pass short ones; the runner uses the defaults. */
+export interface ProcessTiming {
+  exit: ExitTiming;
+  /** The grace `stop()` uses when it is given none. */
+  stop: StopGrace;
+}
+
+export const DEFAULT_PROCESS_TIMING: ProcessTiming = { exit: DEFAULT_EXIT_TIMING, stop: DEFAULT_STOP_GRACE };
+
 /** One child process of the app, with its interleaved stdout and stderr. */
 export class AppProcess {
   readonly exited: Promise<number | null>;
@@ -82,6 +99,7 @@ export class AppProcess {
     private readonly cwd: string,
     private readonly env: NodeJS.ProcessEnv,
     private readonly spawnChild: SpawnChild = spawn,
+    private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
   ) {
     const pyricEnv = Object.entries(env).filter(([key]) => key.startsWith('PYRIC_')).map(([key, value]) => `${key}=${value} `);
     this.header = `$ ${pyricEnv.join('')}${[command, ...args].join(' ')}\n`;
@@ -123,7 +141,7 @@ export class AppProcess {
       if (exit.source !== 'close') this.exitedEarly = true;
       this.leftoverProcesses.push(...exit.leftovers);
       this.finish(exit.code);
-    });
+    }, this.timing.exit);
     return child;
   }
 
@@ -216,7 +234,7 @@ export class AppProcess {
    * pipes a process outside the group holds open, is recorded as gone, so
    * `exited` settles and nothing waits on it past that.
    */
-  async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
+  async stop(grace: StopGrace = this.timing.stop): Promise<void> {
     if (this.child.pid === undefined) return;
     if (!this.running) {
       await this.stopLeftoverGroup(grace);
@@ -478,6 +496,8 @@ export class AppRun implements App {
     private readonly packages?: { tarballs: Tarballs; npmCache: string; npm?: NestedNpm },
     /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
     private readonly ports: PortIssuer = runPorts,
+    /** The waits every process the run starts uses. */
+    private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -512,6 +532,8 @@ export class AppRun implements App {
       [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
       projectDir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     return this.servedHost(name, port, child);
@@ -546,6 +568,8 @@ export class AppRun implements App {
       ['--import', '@pyric/cli/register', script, ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     return child;
@@ -559,6 +583,8 @@ export class AppRun implements App {
       [join('node_modules', '@pyric', 'cli', 'dist', 'cli', 'index.js'), ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     return child;
@@ -599,6 +625,8 @@ export class AppRun implements App {
       args,
       join(this.dir, options.cwd ?? '.'),
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
@@ -660,6 +688,8 @@ export class AppRun implements App {
       ['--import', '@pyric/cli/register', script, ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;

@@ -4,9 +4,9 @@ import { EventEmitter } from 'node:events';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AppProcess, AppRun } from './driver.ts';
-import { runCommand } from './install.ts';
-import { decodeExitStatus, describeGroupProcesses, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit, type ProcStat } from './unreaped-exit.ts';
+import { AppProcess, AppRun, type ProcessTiming } from './driver.ts';
+import { runCommand, type CommandTiming } from './install.ts';
+import { decodeExitStatus, describeGroupProcesses, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit, type ExitTiming, type ProcStat } from './unreaped-exit.ts';
 
 const onLinux = process.platform === 'linux';
 const parents: ChildProcess[] = [];
@@ -16,6 +16,25 @@ afterEach(() => {
 
 /** How long a test waits for /proc to show a process it started in the state it needs; a loaded machine can be slow to run it. */
 const PROC_WAIT_MS = 4000;
+
+/**
+ * The driver's waits, shortened so these tests take milliseconds, not the
+ * runner's seconds (#1487). Every path a default wait guards still runs; only
+ * the length of the wait changes.
+ */
+const FAST_EXIT: ExitTiming = { outputCloseGraceMs: 100, zombie: { intervalMs: 20, graceMs: 200 } };
+const FAST_PROCESS: ProcessTiming = { exit: FAST_EXIT, stop: { termMs: 100, killMs: 100 } };
+const FAST_COMMAND: CommandTiming = { exit: FAST_EXIT, leftoverTermMs: 100 };
+
+/** How long a test waits for the driver to settle a child; far past FAST_EXIT's waits, for a loaded machine. */
+const SETTLE_WAIT_MS = 4000;
+
+/** `promise`'s value, or 'still waiting' if it has not settled within SETTLE_WAIT_MS. */
+async function settled<T>(promise: Promise<T>): Promise<T | 'still waiting'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'still waiting'>((resolve) => { timer = setTimeout(() => resolve('still waiting'), SETTLE_WAIT_MS); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 /** What /proc/<pid>/stat says about `pid`, or undefined once it is gone. */
 function procStat(pid: number): ProcStat | undefined {
@@ -112,15 +131,19 @@ describe('reading an unreaped exit from /proc', () => {
 
   test.if(onLinux)('a zombie counts as missed only once it outlasts the grace period', async () => {
     const pid = await zombie(5);
-    const seen: number[] = [];
+    const graceMs = 200;
     const started = performance.now();
-    const stop = watchUnreapedExit(pid, (exit) => seen.push(exit.code ?? -1, performance.now() - started), { intervalMs: 50, graceMs: 600 });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(seen).toEqual([]);
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    let stop = () => {};
+    const missed = new Promise<number[]>((resolve) => {
+      stop = watchUnreapedExit(pid, (exit) => resolve([exit.code ?? -1, performance.now() - started]), { intervalMs: 20, graceMs });
+    });
+    // The zombie exists before the watch starts, so a watcher that ignored the grace would report it on its first poll.
+    const seen = await settled(missed);
     stop();
+    expect(seen).not.toBe('still waiting');
+    if (seen === 'still waiting') return;
     expect(seen[0]).toBe(5);
-    expect(seen[1]).toBeGreaterThanOrEqual(600);
+    expect(seen[1]).toBeGreaterThanOrEqual(graceMs);
   }, 10_000);
 });
 
@@ -134,19 +157,18 @@ describe('the driver sees a child that exited unreaped', () => {
 
   test.if(onLinux)('an app process whose exit never arrives settles with the zombie\'s exit code, after the grace period', async () => {
     const pid = await zombie(3);
-    const child = new AppProcess('never reaped', 'node', ['server.mjs'], '.', {}, () => silentHandle(pid));
-    const code = await Promise.race([child.exited, new Promise((resolve) => setTimeout(() => resolve('still waiting'), 6000))]);
+    const started = performance.now();
+    const child = new AppProcess('never reaped', 'node', ['server.mjs'], '.', {}, () => silentHandle(pid), FAST_PROCESS);
+    const code = await settled(child.exited);
     expect(code).toBe(3);
+    expect(performance.now() - started).toBeGreaterThanOrEqual(FAST_EXIT.zombie.graceMs);
     expect(child.running).toBe(false);
     expect(child.output).toContain('exited with code 3, and the runner never reaped it');
   }, 15_000);
 
   test.if(onLinux)('a command the runner never sees exit resolves with its exit code', async () => {
     const pid = await zombie(0);
-    const result = await Promise.race([
-      runCommand('npm', ['install'], { cwd: '.', spawnChild: () => silentHandle(pid) }),
-      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 6000)),
-    ]);
+    const result = await settled(runCommand('npm', ['install'], { cwd: '.', spawnChild: () => silentHandle(pid), timing: FAST_COMMAND }));
     expect(result).toEqual({ code: 0, output: expect.stringContaining('the runner never reaped it') });
   }, 15_000);
 });
@@ -164,32 +186,41 @@ describe('a child whose exit came without its close', () => {
     }
   });
 
-  /** A shell that leaves `sleep 30` in its process group holding its pipes, records that sleep's pid in a file, then exits with `code`. */
+  /**
+   * A shell that leaves `sleep 30` in its process group holding its pipes,
+   * records that sleep's pid in a file, then exits with `code`. It exits only
+   * once the background fork has become `sleep`, so the driver's short
+   * FAST_EXIT grace finds it under that name, never as a fork of `sh`.
+   */
   function leavesPipesOpen(code: number): { script: string; holder: () => number } {
     const file = join(mkdtempSync(join(tmpdir(), 'pyric-holder-')), 'pid');
     holderFiles.push(file);
-    return { script: `sleep 30 & echo $! > ${file}; exit ${code}`, holder: () => Number(readFileSync(file, 'utf8').trim()) };
+    const script = `sleep 30 & pid=$!; until [ "$(cat /proc/$pid/comm)" = sleep ]; do :; done; echo $pid > ${file}; exit ${code}`;
+    return { script, holder: () => Number(readFileSync(file, 'utf8').trim()) };
   }
 
   const isAlive = (pid: number) => {
     try { process.kill(pid, 0); return true; } catch { return false; }
   };
 
+  /** Waits until `pid` is gone, and throws after PROC_WAIT_MS if it still runs. */
+  const waitUntilGone = (pid: number) => waitForProc(() => (isAlive(pid) ? undefined : true), () => `pid ${pid} still runs${describeProcState(pid)}`);
+
   test.if(onLinux)('a process it started that still holds its pipes is named, and fails the app unless expected', async () => {
     const holder = leavesPipesOpen(4);
-    const child = new AppProcess('pipe holder', 'sh', ['-c', holder.script], '.', { PATH: process.env.PATH });
-    const code = await Promise.race([child.exited, new Promise((resolve) => setTimeout(() => resolve('still waiting'), 11000))]);
+    const child = new AppProcess('pipe holder', 'sh', ['-c', holder.script], '.', { PATH: process.env.PATH }, spawn, FAST_PROCESS);
+    const code = await settled(child.exited);
     expect(code).toBe(4);
     expect(child.output).toContain(`processes it started still run in its group, holding its output pipes: pid ${holder.holder()} (sleep)`);
     expect(child.leftoverProcesses).toEqual([{ pid: holder.holder(), comm: 'sleep' }]);
     // Stopping it ends what it left in its group: SIGTERM, then SIGKILL.
     await child.stop();
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitUntilGone(holder.holder());
     expect(isAlive(holder.holder())).toBe(false);
   }, 25_000);
 
   test.if(onLinux)('the app fails on a leftover its scenario did not expect, and passes when it did', async () => {
-    const run = new AppRun('leftovers', '.', tmpdir(), async () => { throw new Error('no browser'); });
+    const run = new AppRun('leftovers', '.', tmpdir(), async () => { throw new Error('no browser'); }, undefined, undefined, FAST_PROCESS);
     const holder = leavesPipesOpen(0);
     const result = await run.command('sh', ['-c', holder.script], { timeoutMs: 15_000 });
     expect(result.code).toBe(0);
@@ -208,23 +239,20 @@ describe('a child whose exit came without its close', () => {
     const child = new AppProcess('lost close', 'node', ['server.mjs'], '.', {}, () => {
       setTimeout(() => handle.emit('exit', 0, null), 10);
       return handle;
-    });
-    expect(await Promise.race([child.exited, new Promise((resolve) => setTimeout(() => resolve('still waiting'), 11000))])).toBe(0);
+    }, FAST_PROCESS);
+    expect(await settled(child.exited)).toBe(0);
     expect(child.output).toContain('no process is left in its group, so the runner lost `close`');
     expect(child.leftoverProcesses).toEqual([]);
   }, 25_000);
 
   test.if(onLinux)('a command resolves with its exit code, and the process it left holding its pipes is ended', async () => {
     const holder = leavesPipesOpen(0);
-    const result = await Promise.race([
-      runCommand('sh', ['-c', holder.script], { cwd: '.' }),
-      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 11000)),
-    ]) as { code: number; output: string } | string;
+    const result = await settled(runCommand('sh', ['-c', holder.script], { cwd: '.', timing: FAST_COMMAND }));
     expect(typeof result).toBe('object');
     if (typeof result === 'string') return;
     expect(result.code).toBe(0);
     expect(result.output).toContain(`pid ${holder.holder()} (sleep)`);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await waitUntilGone(holder.holder());
     expect(isAlive(holder.holder())).toBe(false);
   }, 25_000);
 
