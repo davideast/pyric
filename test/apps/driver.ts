@@ -22,10 +22,20 @@ import {
   type Tarballs,
   type TimedResult,
 } from './install.ts';
-
-/** How much of npm's debug log a timed-out install's output keeps. */
-const NPM_LOG_TAIL_LINES = 40;
 import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
+
+/** How much of npm's debug log the job log gets when an install attempt times out. */
+const NPM_LOG_TAIL_LINES = 40;
+
+/** How `installProject` runs npm. Tests pass a stand-in npm, a short limit, and their own report. */
+export interface NestedNpm {
+  command: string;
+  attemptMs: number;
+  /** Where the `[runner]` lines go; the run's output by default. */
+  report?: (line: string) => void;
+}
+
+const NPM_INSTALL: NestedNpm = { command: 'npm', attemptMs: NESTED_INSTALL_ATTEMPT_MS };
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -453,7 +463,7 @@ export class AppRun implements App {
     private readonly home: string,
     private readonly launchBrowser: () => Promise<Browser>,
     /** The packed Pyric packages and npm cache the runner installed the app with. */
-    private readonly packages?: { tarballs: Tarballs; npmCache: string },
+    private readonly packages?: { tarballs: Tarballs; npmCache: string; npm?: NestedNpm },
     /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
     private readonly ports: PortIssuer = runPorts,
   ) {}
@@ -583,18 +593,24 @@ export class AppRun implements App {
    */
   async installProject(path: string): Promise<ScriptResult> {
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
-    const { npmCache, tarballs } = this.packages;
+    const { npmCache, tarballs, npm = NPM_INSTALL } = this.packages;
     pinPyricPackages(join(this.dir, path), tarballs);
     const logsDir = join(this.home, 'npm-logs', path);
+    const what = `${this.name}: npm install in ${path}`;
+    const report = npm.report ?? ((line: string) => console.log(line));
     const attempt = async (args: string[]): Promise<TimedResult> => {
-      const result = await this.timedCommand('npm', args, { cwd: path, timeoutMs: NESTED_INSTALL_ATTEMPT_MS });
-      const note = result.timedOut ? `\n[runner] stopped after ${result.timeoutMs / 1000} s\n${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}` : '';
-      return { code: result.code, output: `${result.output}${note}`, timedOut: result.timedOut };
+      const result = await this.timedCommand(npm.command, args, { cwd: path, timeoutMs: npm.attemptMs });
+      if (!result.timedOut) return { code: result.code, output: result.output, timedOut: false };
+      // Printed now: the app's logs are saved only when it fails, and its home
+      // is removed after it, so a retry that passes would lose this (#1494).
+      const note = `[runner] ${what} stopped after ${result.timeoutMs / 1000} s\n${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}`;
+      report(note.trimEnd());
+      return { code: result.code, output: `${result.output}\n${note}`, timedOut: true };
     };
     const result = await retryOnceOnTimeout(() => npmInstall(npmCache, attempt, logsDir), {
-      what: `${this.name}: npm install in ${path}`,
+      what,
       reset: () => rm(join(this.dir, path, 'node_modules'), { recursive: true, force: true }),
-      report: (line) => console.log(line),
+      report,
     });
     if (result.timedOut) throw new Error(`npm install in ${path} timed out on both attempts:\n${result.output}`);
     if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);

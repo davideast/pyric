@@ -121,9 +121,11 @@ export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
 }
 
 /**
- * How long npm waits on one registry request before it fails it and retries
- * it itself. npm's default is 5 minutes, longer than an install gets here, so
- * a stalled request would end as a silent kill instead of an npm error (#1476).
+ * How long npm waits on one registry request before it fails it. npm's default
+ * is 5 minutes, longer than an install gets here. With this, a stalled request
+ * at least ends its wait and shows in npm's debug log; npm retries it twice
+ * with backoff, so a request that stalls every time can still outlast an
+ * attempt (#1476).
  */
 const FETCH_TIMEOUT_MS = 60_000;
 
@@ -167,11 +169,13 @@ export async function npmInstall<R extends CommandResult>(
 
 /**
  * How long one nested `npm install` (`app.installProject`) gets before the
- * runner calls it hung. A passing one takes well under this on CI; a hung one
- * never finished in 240 s (#1476). Two attempts and the rest of a scenario
- * still fit in the app's 300 s.
+ * runner calls it hung. On CI a passing one took 52 to 71 s; a hung one never
+ * finished in 240 s (#1476). The app's 300 s limit covers its whole scenario,
+ * so two hung attempts (220 s), their stops (up to 10 s each) and the
+ * node_modules removal leave about 50 s for the scenario's other steps, and a
+ * second hang still ends as an install error, not the app's timeout.
  */
-export const NESTED_INSTALL_ATTEMPT_MS = 150_000;
+export const NESTED_INSTALL_ATTEMPT_MS = 110_000;
 
 export interface TimedResult extends CommandResult {
   /** True when the runner stopped the command at its time limit. */
