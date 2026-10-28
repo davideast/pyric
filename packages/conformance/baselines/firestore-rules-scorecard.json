@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 125,
+    "numerator": 126,
     "denominator": 140,
-    "ratio": 0.8928571428571429,
-    "percent": 89.3
+    "ratio": 0.9,
+    "percent": 90
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 126,
-      "diverged": 12,
+      "verified": 127,
+      "diverged": 11,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 125,
-    "diverged": 12,
+    "conformant": 126,
+    "diverged": 11,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -3093,8 +3093,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "atomic-batch-sibling-merge",
@@ -3138,10 +3138,10 @@
         "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#201"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.rule-kind.function": {
       "productionAcceptance": "accepted",
