@@ -84,7 +84,7 @@ export {
   tagNameOf,
   type SelectableElement,
 } from '../attribution/element-selector.js';
-export { getClock } from '../clock.js';
+export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {

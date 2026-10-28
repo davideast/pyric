@@ -40,4 +40,30 @@ describe('the page mirror of the sandbox clock', () => {
 
     receiveClockState({ mode: 'wall', fixedAt: 0, offsetMs: 0 });
   });
+
+  // The page mints push ids and upload stamps from this mirror, so it must
+  // agree with the worker's clock, which never steps back with the host (#1255).
+  it('holds its last reading when the host clock steps backward', () => {
+    receiveClockState({ mode: 'wall', fixedAt: 0, offsetMs: 0 });
+    setSystemTime(WALL_MS);
+    expect(sandboxNow()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS - 1500);
+    expect(sandboxNow()).toBe(WALL_MS);
+
+    setSystemTime(WALL_MS + 10);
+    expect(sandboxNow()).toBe(WALL_MS + 10);
+  });
+
+  it('holds an offset reading when the host clock steps backward', () => {
+    const hour = 60 * 60 * 1000;
+    receiveClockState({ mode: 'offset', fixedAt: 0, offsetMs: hour });
+    setSystemTime(WALL_MS);
+    expect(sandboxNow()).toBe(WALL_MS + hour);
+
+    setSystemTime(WALL_MS - 1500);
+    expect(sandboxNow()).toBe(WALL_MS + hour);
+
+    receiveClockState({ mode: 'wall', fixedAt: 0, offsetMs: 0 });
+  });
 });
