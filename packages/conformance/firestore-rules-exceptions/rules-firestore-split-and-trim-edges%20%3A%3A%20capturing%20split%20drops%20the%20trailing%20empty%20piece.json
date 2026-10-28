@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#202","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"split() returns capture-group text and keeps trailing empty pieces in pyric; production does neither","issue":"FS2-SIM-7"}

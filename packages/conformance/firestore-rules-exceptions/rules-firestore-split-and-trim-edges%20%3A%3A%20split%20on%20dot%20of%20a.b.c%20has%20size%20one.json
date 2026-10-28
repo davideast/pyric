@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#202","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"split() drops trailing empty pieces but keeps one in production; pyric keeps them all","issue":"FS2-SIM-7"}

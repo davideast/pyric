@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#199","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"pyric's split() and replace() read . as JavaScript does, which excludes \\r; RE2's . matches it","issue":"FS2-SIM-5a2"}
