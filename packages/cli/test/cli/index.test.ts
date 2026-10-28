@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -181,6 +181,30 @@ service cloud.firestore {
       expect(result.code).toBe(0);
       expect(result.stderr).toBe('');
       expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toHaveProperty('indexes');
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips an index for a dynamic collection id and says so', async () => {
+    const outputDir = mkdtempSync(join(tmpdir(), 'pyric-firestore-indexes-'));
+    const sourcePath = join(outputDir, 'queries.ts');
+    const outputPath = join(outputDir, 'firestore.indexes.json');
+    writeFileSync(sourcePath, `
+      export function listChildren(parentId: string, childCollection: string, s: string) {
+        let q = query(collection(db, 'parents', parentId, childCollection));
+        q = query(q, where('status', '==', s));
+        q = query(q, orderBy('createdAt', 'desc'));
+        return q;
+      }
+    `);
+
+    try {
+      const result = await runDispatch(['firestore', 'indexes', 'generate', sourcePath, '--out', outputPath]);
+
+      expect(result.code).toBe(0);
+      expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toEqual({ indexes: [] });
+      expect(result.stderr).toContain('index for a wildcard collection id skipped: name the collection');
     } finally {
       rmSync(outputDir, { recursive: true, force: true });
     }

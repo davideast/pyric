@@ -148,10 +148,65 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
 type SnapshotCallback = (snap: ClientDocSnapshot | ClientQuerySnapshot) => void;
 type SnapshotErrorCallback = (err: unknown) => void;
 
+/** Production's `PartialObserver`: any of `next`, `error` and `complete`. */
+export interface SnapshotObserver {
+  next?: SnapshotCallback;
+  error?: SnapshotErrorCallback;
+  complete?: () => void;
+}
+
+type ObserverOrNext = SnapshotObserver | SnapshotCallback;
+
+interface ListenerArguments {
+  readonly options: object | undefined;
+  readonly next: SnapshotCallback | undefined;
+  readonly error: SnapshotErrorCallback | undefined;
+}
+
 /**
- * Subscribe to a document or query. Mirrors `pyric/firestore`'s `onSnapshot`,
- * including its options-second form `onSnapshot(target, options, next,
- * error)`: `@pyric/ui`'s hooks pass `{ owner }` there for listener
+ * An observer is an object with at least one of `next`, `error` or
+ * `complete` as a function, as the SDK's `isPartialObserver` decides; any
+ * other object in the second slot is listen options.
+ */
+function isPartialObserver(value: unknown): value is SnapshotObserver {
+  const isObject = typeof value === 'object' && value !== null;
+  if (!isObject) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.next === 'function'
+    || typeof candidate.error === 'function'
+    || typeof candidate.complete === 'function';
+}
+
+/**
+ * Read the four call forms: `(next, error?)`, `(observer)`, `(options, next,
+ * error?)` and `(options, observer)`. `complete` is never called: production
+ * does not end an `onSnapshot` stream, and `unsubscribe` is not an end
+ * (observation `firestore-row-84-observer-object-form`).
+ */
+function listenerArguments(second: unknown, third: unknown, fourth: unknown): ListenerArguments {
+  const isOptions = typeof second === 'object' && second !== null && !isPartialObserver(second);
+  const options = isOptions ? second : undefined;
+  const handler = isOptions ? third : second;
+  const trailingError = isOptions ? fourth : third;
+  if (isPartialObserver(handler)) {
+    return { options, next: handler.next?.bind(handler), error: handler.error?.bind(handler) };
+  }
+  return {
+    options,
+    next: handler as SnapshotCallback | undefined,
+    error: trailingError as SnapshotErrorCallback | undefined,
+  };
+}
+
+/** The SDK logs a listen error nobody observes instead of throwing it. */
+function reportUncaughtListenError(error: unknown): void {
+  console.error('pyric/firestore: Uncaught Error in snapshot listener:', error);
+}
+
+/**
+ * Subscribe to a document or query. Mirrors `pyric/firestore`'s `onSnapshot`
+ * in all four call forms, with a callback or an observer, with or without
+ * options first: `@pyric/ui`'s hooks pass `{ owner }` there for listener
  * attribution, and a caller injecting this client as the hooks' backend must
  * not lose its callback to that slot. The owners are derived here, on the page
  * whose stack and DOM they describe, and travel with the subscribe message.
@@ -161,23 +216,23 @@ type SnapshotErrorCallback = (err: unknown) => void;
  */
 export function onSnapshot(
   target: DocRefHandle | CollRefHandle | QueryHandle,
-  callback: SnapshotCallback,
+  observerOrNext: ObserverOrNext,
   errorCallback?: SnapshotErrorCallback,
 ): Unsubscribe;
 export function onSnapshot(
   target: DocRefHandle | CollRefHandle | QueryHandle,
   options: object,
-  callback: SnapshotCallback,
+  observerOrNext: ObserverOrNext,
   errorCallback?: SnapshotErrorCallback,
 ): Unsubscribe;
 export function onSnapshot(
   target: DocRefHandle | CollRefHandle | QueryHandle,
-  optionsOrCallback: object | SnapshotCallback,
-  callbackOrError?: SnapshotCallback | SnapshotErrorCallback,
-  maybeError?: SnapshotErrorCallback,
+  second: object | ObserverOrNext,
+  third?: ObserverOrNext | SnapshotErrorCallback,
+  fourth?: SnapshotErrorCallback,
 ): Unsubscribe {
-  const hasDirectCallback = typeof optionsOrCallback === 'function';
-  const listenOptions = hasDirectCallback ? undefined : optionsOrCallback;
+  const { options: listenOptions, next: callback, error: errorCallback } = listenerArguments(second, third, fourth);
+  const reportError = errorCallback ?? reportUncaughtListenError;
   // Derived before the message is built: `captureCreationFrame` reads the
   // stack this call is still on.
   const owners = pageListenerOwners(listenOptions);
@@ -186,12 +241,6 @@ export function onSnapshot(
   // Kept across lens resubscriptions: the host's fresh snapshot after a
   // resubscribe is diffed against what this listener last delivered.
   const baseline: QueryChangeBaseline = { excludesMetadataChanges: !includeMetadataChanges };
-  const callback = (hasDirectCallback
-    ? optionsOrCallback
-    : callbackOrError) as SnapshotCallback;
-  const errorCallback = (hasDirectCallback
-    ? callbackOrError
-    : maybeError) as SnapshotErrorCallback | undefined;
   let currentSubId = nextSubId();
   const port = target.port;
   const activity = beginWorkerFirestoreActivity(target, 'onSnapshot', 'subscription', owners);
@@ -206,9 +255,7 @@ export function onSnapshot(
         decoded = makeSnapshot(raw, port, target.converter, baseline);
       } catch (error) {
         stop();
-        const hasErrorCallback = errorCallback !== undefined;
-        if (hasErrorCallback) errorCallback(error);
-        else console.error('pyric/firestore: Uncaught Error in snapshot listener:', error);
+        reportError(error);
         return;
       }
       // An unchanged re-established listener delivers nothing.
@@ -218,9 +265,11 @@ export function onSnapshot(
       // listener id, immediately before the application's callback runs.
       const result = raw as { usage?: UsageEvidence };
       activity.delivered(snapshot, result.usage);
-      deliverWithRegions(activity.id, () => callback(snapshot));
+      const deliver = callback;
+      const hasNext = deliver !== undefined;
+      if (hasNext) deliverWithRegions(activity.id, () => deliver(snapshot));
     },
-    error: (error: unknown) => { activity.fail(); errorCallback?.(error); },
+    error: (error: unknown) => { activity.fail(); reportError(error); },
     close: () => activity.close(),
   };
 

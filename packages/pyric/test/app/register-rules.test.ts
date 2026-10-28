@@ -138,3 +138,49 @@ describe('loadProjectRules (pyric/app/register)', () => {
     expect(load(project({})).stderr).toBe('');
   });
 });
+
+// #1315: the array `firestore` form deploys its `(default)` entry to (default).
+describe('loadProjectRules (pyric/app/register) with a firestore array', () => {
+  const DECOY_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if true; }
+  }
+}`;
+  const arrayProject = {
+    'firebase.json': {
+      firestore: [
+        { database: '(default)', rules: 'firestore.default.rules' },
+        { database: 'reports', rules: 'reports.rules' },
+      ],
+    },
+    'firestore.default.rules': FIRESTORE_RULES,
+    'reports.rules': DECOY_RULES,
+    'firestore.rules': DECOY_RULES,
+  };
+
+  it('applies the (default) entry, not the decoy firestore.rules', async () => {
+    const { sandbox } = load(project(arrayProject));
+    const db = getFirestore(sandbox.withAuth(null));
+    await setDoc(doc(db, 'open/a'), { ok: true });
+    await expect(setDoc(doc(db, 'locked/x'), { ok: false })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
+  it('warns on stderr that the named database is not served', () => {
+    const { stderr } = load(project(arrayProject));
+    expect(stderr).toBe(
+      'pyric/app/register: firebase.json deploys reports.rules to Firestore database "reports". Pyric serves only (default) for now, so getFirestore(app, "reports") reads and writes (default) under (default)\'s rules. See https://github.com/davideast/pyric/issues/1314.\n',
+    );
+  });
+
+  it('applies the (default) rules a .firebaserc deploy target maps', async () => {
+    const { sandbox, stderr } = load(project({
+      'firebase.json': { firestore: [{ target: 'main', rules: 'firestore.default.rules' }] },
+      '.firebaserc': { projects: { default: 'demo' }, targets: { demo: { firestore: { main: ['(default)'] } } } },
+      'firestore.default.rules': FIRESTORE_RULES,
+      'firestore.rules': DECOY_RULES,
+    }));
+    expect(stderr).toBe('');
+    await expect(setDoc(doc(getFirestore(sandbox.withAuth(null)), 'locked/x'), { ok: false })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+});

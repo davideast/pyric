@@ -310,7 +310,7 @@ export const firestoreRegistry = {
     },
     {
       kind: 'table',
-      prefix: "## Named databases\n\nIn production `getFirestore(app, databaseId)` selects a named database with its own documents, and rules see that id in the `database` path variable. Pyric models one database per app, `(default)`.\n",
+      prefix: "## Named databases\n\nIn production `getFirestore(app, databaseId)` selects a named database with its own documents, and rules see that id in the `database` path variable. Pyric models one database per app, `(default)`. When `firebase.json` declares `firestore` as an array, pyric serves the `(default)` entry's rules and prints a startup warning for each named entry.\n",
       rows: [
         namedDatabaseRow({
           rowRef: "MD1",
@@ -1191,13 +1191,11 @@ export const firestoreRegistry = {
         row12({
           rowRef: "76",
           featureKeys: ["getAggregateFromServer"],
-          behavior: "`getAggregateFromServer(query, spec)` returns `{ data: () => Record<alias, number|null> }` in-page; on the served planes a leftover stub throws `unsupported-in-served-mode` (FP-4)",
-          status: "bug",
-          statusNote: "throws on the served planes (FP-4)",
-          evidence: "In-page: `unit:sandbox-target.test.ts`. Production: `oracle:firestore-aggregate-field-semantics` key `countOnly`.",
+          behavior: "`getAggregateFromServer(query, spec)` returns `{ data: () => Record<alias, number|null> }` in the in-page sandbox, on a served page and in a registered Node process",
+          status: "conforms",
+          evidence: "In-page: `unit:sandbox-target.test.ts`; collectionGroup + nested paths: `unit:upstream-write-aggregate-probes.test.ts`. Production: `oracle:firestore-aggregate-field-semantics` key `countOnly` (`{ n: 4 }`), replayed through the served surface export and through the worker client and host in `unit:cli/serve/worker/oracle-captures/firestore-served-surface.test.ts`; that scenario's other keys are pinned under FL-27, FL-28 and FL-30. A served page and a registered Node process aggregate over the host in `test/apps/client-sdk-under-register`.",
           automation: "oracle-backed",
           oracleObservations: ["firestore-aggregate-field-semantics"],
-          conformanceDisposition: "pending-fix",
           conformanceTests: ["packages/pyric/test/firestore/sandbox-target.test.ts","packages/pyric/test/firestore/upstream-write-aggregate-probes.test.ts","packages/cli/test/serve/worker/oracle-captures/firestore-served-surface.test.ts"],
         }),
         row12({

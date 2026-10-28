@@ -30,9 +30,25 @@
  * offset; from `offset` it grows that offset; from `fixed` it moves the frozen
  * instant and stays frozen. {@link SandboxClock.reset} returns to `wall`.
  *
- * The clock is deliberately not monotonic across a `set`: a caller who pins an
- * instant in the past gets an instant in the past, and the sandbox will stamp
- * it. That is the caller's decision to make.
+ * ## The host clock can step back; the sandbox clock does not
+ *
+ * The clock stands in for Firebase's servers, and their clock never steps
+ * back. A developer's host clock can (WSL2 steps back about 1.5 s every 30 s),
+ * so in `wall` and `offset` mode `now()` never returns less than the last value
+ * it returned. A backward step shows up as time standing still until the host
+ * catches up. Without this, `request.time > resource.data.updatedAt` could deny
+ * a valid write and sequential push ids could sort out of order (#1255).
+ *
+ * The floor guards against the host, not the caller. `advance` on a flowing
+ * clock moves the floor by the same delta, so a forward advance lands `ms`
+ * past the last reading even while the host is behind, and a negative advance
+ * lands exactly that far below it. `set`, `reset`, and `restore` drop the
+ * floor: a caller who pins an instant in the past with `set` gets an instant in
+ * the past. That is the caller's decision to make.
+ *
+ * {@link ClockReading} holds this rule, and every plane that derives an
+ * instant from a clock state reads through it: the clock itself, and the
+ * page's mirror of a clock hosted in a SharedWorker.
  *
  * Node-safe and browser-safe: it reads `Date.now()` and nothing else.
  */
@@ -102,14 +118,80 @@ function assertFiniteMilliseconds(value: number, label: string): void {
   }
 }
 
+function isFlowing(state: SandboxClockState): boolean {
+  return state.mode !== 'fixed';
+}
+
+/** The offset a flowing state adds to the host clock. A wall state adds none. */
+function flowingOffset(state: SandboxClockState): number {
+  if (state.mode === 'offset') {
+    return state.offsetMs;
+  }
+  return 0;
+}
+
+/**
+ * Derives `now()` from a clock state, holding the last wall or offset reading
+ * when the host clock steps back. See the module header for why.
+ *
+ * Shared by {@link SandboxClock} and by any plane that mirrors a clock it
+ * cannot call synchronously, so both apply the same rule to the same state.
+ */
+export class ClockReading {
+  private current: SandboxClockState = wallClockState();
+  private floor = Number.NEGATIVE_INFINITY;
+
+  /** The state this reading derives from. */
+  get state(): SandboxClockState {
+    return { ...this.current };
+  }
+
+  /** Adopt a new state. An explicit move, so the held reading is dropped. */
+  adopt(state: SandboxClockState): void {
+    this.current = { ...state };
+    this.floor = Number.NEGATIVE_INFINITY;
+  }
+
+  /**
+   * Adopt a flowing state that is `ms` later than the current one, carrying
+   * the held reading forward by the same amount. Without the carry, an advance
+   * made while the host is behind would land below the last reading.
+   */
+  shift(state: SandboxClockState, ms: number): void {
+    this.current = { ...state };
+    this.floor += ms;
+  }
+
+  /**
+   * Adopt a state sent by the plane that owns the clock. A mirror cannot tell
+   * an advance from a restore, so between two flowing states it carries the
+   * held reading by the change in offset, and otherwise drops it.
+   */
+  follow(state: SandboxClockState): void {
+    const bothFlowing = isFlowing(this.current) && isFlowing(state);
+    if (bothFlowing) {
+      this.shift(state, flowingOffset(state) - flowingOffset(this.current));
+      return;
+    }
+    this.adopt(state);
+  }
+
+  /** The current instant, in epoch milliseconds. */
+  now(): number {
+    if (this.current.mode === 'fixed') {
+      return this.current.fixedAt;
+    }
+    this.floor = Math.max(this.floor, Date.now() + flowingOffset(this.current));
+    return this.floor;
+  }
+}
+
 /**
  * One sandbox's clock. Owned by the sandbox and shared by every service on it,
  * so `set` / `advance` / `reset` move all of them at once.
  */
 export class SandboxClock {
-  private currentMode: SandboxClockMode = 'wall';
-  private fixedAt = 0;
-  private offsetMs = 0;
+  private readonly reading = new ClockReading();
   private readonly listeners = new Set<(state: SandboxClockState) => void>();
 
   /**
@@ -125,27 +207,26 @@ export class SandboxClock {
     };
   }
 
+  private move(state: SandboxClockState): void {
+    this.reading.adopt(state);
+    this.announce();
+  }
+
   private announce(): void {
-    const state = this.capture();
+    const announced = this.capture();
     for (const listener of [...this.listeners]) {
-      listener(state);
+      listener(announced);
     }
   }
 
   /** Which of the three modes the clock is in. */
   get mode(): SandboxClockMode {
-    return this.currentMode;
+    return this.reading.state.mode;
   }
 
   /** The sandbox's current time, in epoch milliseconds. */
   now(): number {
-    if (this.currentMode === 'fixed') {
-      return this.fixedAt;
-    }
-    if (this.currentMode === 'offset') {
-      return Date.now() + this.offsetMs;
-    }
-    return Date.now();
+    return this.reading.now();
   }
 
   /** The sandbox's current time as a `Date`. */
@@ -159,10 +240,7 @@ export class SandboxClock {
    */
   set(epochMs: number): void {
     assertFiniteMilliseconds(epochMs, 'A clock instant');
-    this.currentMode = 'fixed';
-    this.fixedAt = epochMs;
-    this.offsetMs = 0;
-    this.announce();
+    this.move({ mode: 'fixed', fixedAt: epochMs, offsetMs: 0 });
   }
 
   /**
@@ -172,34 +250,27 @@ export class SandboxClock {
    */
   advance(ms: number): void {
     assertFiniteMilliseconds(ms, 'A clock advance');
-    if (this.currentMode === 'fixed') {
-      this.fixedAt += ms;
-      this.announce();
+    const current = this.reading.state;
+    if (current.mode === 'fixed') {
+      this.move({ ...current, fixedAt: current.fixedAt + ms });
       return;
     }
-    this.currentMode = 'offset';
-    this.offsetMs += ms;
+    this.reading.shift({ mode: 'offset', fixedAt: 0, offsetMs: flowingOffset(current) + ms }, ms);
     this.announce();
   }
 
   /** Return to the wall clock, discarding any pin or offset. */
   reset(): void {
-    this.currentMode = 'wall';
-    this.fixedAt = 0;
-    this.offsetMs = 0;
-    this.announce();
+    this.move(wallClockState());
   }
 
   /** This clock's whole state, as a value a checkpoint or branch can hold. */
   capture(): SandboxClockState {
-    return { mode: this.currentMode, fixedAt: this.fixedAt, offsetMs: this.offsetMs };
+    return this.reading.state;
   }
 
   /** Adopt a captured state wholesale. */
   restore(state: SandboxClockState): void {
-    this.currentMode = state.mode;
-    this.fixedAt = state.fixedAt;
-    this.offsetMs = state.offsetMs;
-    this.announce();
+    this.move(state);
   }
 }

@@ -15,11 +15,13 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export interface FirebaseJson {
-  firestore?: {
-    rules?: string;
-    indexes?: string;
-    database?: string;
-  };
+  /**
+   * Firestore rules and indexes, as the Firebase CLI reads them: one object
+   * that deploys to its `database`, or to `(default)`, or an array whose
+   * entries each name a `database`, or a `target` that `.firebaserc` maps to
+   * databases. `firestoreRulesConfig` in `pyric/sandbox/internal` resolves it.
+   */
+  firestore?: FirestoreConfig | FirestoreConfigEntry[];
   /**
    * Realtime Database rules, as the Firebase CLI reads them: one object whose
    * `rules` file deploys to the project's default instance, or an array whose
@@ -33,6 +35,41 @@ export interface FirebaseJson {
    *  multi-bucket projects. `rules` is a path; `bucket` overrides the default
    *  `{projectId}.firebasestorage.app`. */
   storage?: { rules?: string; bucket?: string } | Array<{ rules?: string; bucket?: string }>;
+}
+
+/** The single-object `firestore` form. */
+export interface FirestoreConfig {
+  rules?: string;
+  indexes?: string;
+  /** The database the object deploys to. Defaults to `(default)`. */
+  database?: string;
+}
+
+/** One entry of the array `firestore` form. */
+export interface FirestoreConfigEntry extends FirestoreConfig {
+  /** A deploy target that `.firebaserc` maps to database ids. Wins over `database`. */
+  target?: string;
+  /**
+   * Pyric's own key, never in a `firebase.json`: the rules file a Vite or
+   * `pyric.config` override serves on `(default)`. See `withDefaultFirestoreRules`.
+   */
+  pyricRulesOverride?: string;
+}
+
+/**
+ * `firestore` with `rules` served on `(default)` in place of what it names
+ * there. An object gets the `rules` key. An array gets a
+ * `{ pyricRulesOverride: rules }` entry, which `firestoreRulesConfig` applies
+ * after it resolves the array, so the override reaches `(default)` however
+ * the array deploys to it, through `database` or a `.firebaserc` target.
+ */
+export function withDefaultFirestoreRules(
+  firestore: FirebaseJson['firestore'],
+  rules: string,
+): FirestoreConfig | FirestoreConfigEntry[] {
+  if (!Array.isArray(firestore)) return { ...firestore, rules };
+  const entries = firestore.filter((entry) => entry.pyricRulesOverride === undefined);
+  return [...entries, { pyricRulesOverride: rules }];
 }
 
 /** The single-object `database` form: `rules` deploys to the default instance. */
@@ -63,8 +100,9 @@ export interface FirebaseRc {
   /**
    * Deploy-target maps, keyed project → resource type → target name →
    * resource ids (mirrors firebase-tools' RCData,
-   * clones/firebase-tools/src/rc.ts:28-36). `hosting` (target → site ids)
-   * and `database` (target → instance names) are consumed.
+   * clones/firebase-tools/src/rc.ts:28-36). `hosting` (target → site ids),
+   * `database` (target → instance names) and `firestore` (target → database
+   * ids) are consumed.
    */
   targets?: {
     [projectId: string]: {

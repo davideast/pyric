@@ -146,6 +146,37 @@ function re2SpaceEscape(escape: string, inClass: boolean, unicode: boolean): str
 }
 
 /**
+ * Spell RE2's `.` as `[^\n]` in a JS RegExp source. A JS `.` also skips
+ * `\r`, U+2028 and U+2029; RE2's `.` skips only `\n`. The 2026-10-28 capture
+ * `re2-pattern-semantics` shows production's `split()` and `replace()` match
+ * `\r` with `.`. Under `(?s)` (`dotAll`) a JS `.` with the `s` flag already
+ * matches everything, as RE2's does, so the source is left alone.
+ *
+ * `source` is already normalized by `normalizeRe2ForJsRegExp`, as for
+ * `spellRe2SpaceClasses`.
+ */
+export function spellRe2Dot(source: string, dotAll: boolean): string {
+  if (dotAll) return source;
+  let out = '';
+  let inClass = false;
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === '\\' && i + 1 < source.length) {
+      out += source.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    else if (ch === ']') inClass = false;
+    const isDot = ch === '.' && !inClass;
+    out += isDot ? '[^\\n]' : ch;
+    i++;
+  }
+  return out;
+}
+
+/**
  * Scan an RE2 pattern for the constructs JavaScript accepts and RE2 rejects
  * (a backreference, a lookaround), and collect its inline flags (`(?i)`,
  * `(?m)`, `(?s)`, and their scoped forms) as JavaScript RegExp flags.

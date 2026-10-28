@@ -53,6 +53,9 @@ import {
 import type { BridgeToolEvent } from './bridge.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { claimProjectState } from '../../serve/hosted/project-ownership.js';
+import { firestoreDatabaseWarnings, firestoreDatabases } from '../../serve/rules.js';
+import { readFirebaseRcSync, type FirebaseJson } from '../../cli/firebase-json.js';
+import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
 import { TargetRouter } from './target-router.js';
 import type { discoverServe } from '../../serve/discovery.js';
 import type { callHostedMethod } from '../../cli/hosted-method.js';
@@ -156,17 +159,44 @@ export interface ProjectRulesLoad {
   refused: string | null;
 }
 
-/**
- * Load `<cwd>/firestore.rules` into the sandbox when present. A file
- * production would not load (it does not parse, or it is past a compile
- * limit) is refused: the rules in force stay, and lint and simulate read the
- * file's source. Null when there is no rules file. Without rules,
- * rules-enforcing (`as:{uid}`) ops fall back to the sandbox's default; admin
- * ops are unaffected.
- */
-export function loadProjectRules(sandbox: LocalSandbox, cwd: string): ProjectRulesLoad | null {
-  const path = join(cwd, 'firestore.rules');
+function readProjectFirebaseJson(cwd: string): FirebaseJson | null {
+  const path = join(cwd, 'firebase.json');
   if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as FirebaseJson;
+  } catch (error) {
+    throw new Error(`pyric: failed to parse firebase.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Load the rules `<cwd>/firebase.json` deploys to the `(default)` Firestore
+ * database, resolved as the dev server resolves them, else
+ * `<cwd>/firestore.rules` when `firebase.json` names none. A file production
+ * would not load (it does not parse, or it is past a compile limit) is
+ * refused: the rules in force stay, and lint and simulate read the file's
+ * source. Null when there is no rules file. Without rules, rules-enforcing
+ * (`as:{uid}`) ops fall back to the sandbox's default; admin ops are
+ * unaffected. `onWarning` receives one line per named database or unresolved
+ * deploy target pyric does not serve yet, and one for a named file that is
+ * missing.
+ */
+export function loadProjectRules(
+  sandbox: LocalSandbox,
+  cwd: string,
+  onWarning: (message: string) => void = () => {},
+): ProjectRulesLoad | null {
+  const config = readProjectFirebaseJson(cwd);
+  const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+  const databases = firestoreDatabases(cwd, config, projectId === undefined ? {} : { projectId });
+  for (const warning of firestoreDatabaseWarnings(cwd, databases)) onWarning(warning);
+  const entry = defaultFirestoreDatabase(databases);
+  const path = entry?.rulesFile;
+  if (entry === undefined || path === undefined) return null;
+  if (!existsSync(path)) {
+    if (entry.configured) onWarning(`${entry.label} points Firestore rules at ${path}, but it does not exist.`);
+    return null;
+  }
   return { path, refused: loadFirestoreRules(sandbox, readFileSync(path, 'utf8')) };
 }
 
@@ -389,13 +419,13 @@ async function runInProcessSession(
   }
   // After the snapshot: restoring it resets the ruleset to the sandbox default,
   // and the project's rules file is the authority for what the server enforces.
-  const projectRules = loadProjectRules(sandbox, projectDir);
+  const projectRules = loadProjectRules(sandbox, projectDir, log);
   if (projectRules !== null && projectRules.refused === null) {
     log(`rules loaded from ${projectRules.path}`);
   } else if (projectRules !== null) {
     log(`rules not loaded from ${projectRules.path}: ${projectRules.refused} The sandbox keeps the rules in force.`);
   } else {
-    log(`no firestore.rules found in ${projectDir}`);
+    log(`no Firestore rules for (default) found in ${projectDir}`);
   }
   const restoredObjects = await loadStorageSidecar(storage, projectDir);
   const restoredStorage = restoredObjects > 0;

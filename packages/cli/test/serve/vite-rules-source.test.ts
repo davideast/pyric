@@ -29,6 +29,23 @@ describe('Vite rules source convention', () => {
     });
   });
 
+  it('adds a pyric rules override entry to a firestore array and keeps the entries firebase.json names', () => {
+    const root = project();
+    writeFileSync(path.join(root, 'firestore.modules.rules'), 'modules');
+    expect(resolveViteRulesConfig(root, undefined, {
+      firestore: [
+        { database: '(default)', rules: 'firestore.default.rules', indexes: 'i.json' },
+        { database: 'reports', rules: 'reports.rules' },
+      ],
+    })).toEqual({
+      firestore: [
+        { database: '(default)', rules: 'firestore.default.rules', indexes: 'i.json' },
+        { database: 'reports', rules: 'reports.rules' },
+        { pyricRulesOverride: 'firestore.modules.rules' },
+      ],
+    });
+  });
+
   it('prefers storage.modules.rules for Vite while preserving the deployment target', () => {
     const root = project();
     writeFileSync(path.join(root, 'storage.modules.rules'), 'modules');

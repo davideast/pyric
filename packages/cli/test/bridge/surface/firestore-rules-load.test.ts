@@ -94,6 +94,55 @@ describe('the in-process server loading firestore.rules', () => {
   });
 });
 
+// #1315: the in-process server reads firebase.json, in either firestore form.
+describe('the in-process server resolving firebase.json', () => {
+  const DEFAULT_RULES = IN_FORCE.replace('!= null', '== null');
+
+  function arrayProject(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-rules-load-'));
+    writeFileSync(join(dir, 'firebase.json'), JSON.stringify({
+      firestore: [
+        { database: '(default)', rules: 'firestore.default.rules' },
+        { database: 'reports', rules: 'reports.rules' },
+      ],
+    }), 'utf8');
+    writeFileSync(join(dir, 'firestore.default.rules'), DEFAULT_RULES, 'utf8');
+    writeFileSync(join(dir, 'reports.rules'), IN_FORCE, 'utf8');
+    writeFileSync(join(dir, 'firestore.rules'), IN_FORCE, 'utf8');
+    return dir;
+  }
+
+  it('loads the (default) entry of an array, not firestore.rules, and warns about the named one', () => {
+    const dir = arrayProject();
+    try {
+      const warnings: string[] = [];
+      const sandbox = sandboxWithRulesInForce();
+      expect(loadProjectRules(sandbox, dir, (warning) => warnings.push(warning))).toEqual({
+        path: join(dir, 'firestore.default.rules'),
+        refused: null,
+      });
+      expect(inspect(sandbox).rules.source).toBe(DEFAULT_RULES);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toStartWith('firebase.json deploys reports.rules to Firestore database "reports".');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the file an object form names', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-rules-load-'));
+    try {
+      writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ firestore: { rules: 'custom.rules' } }), 'utf8');
+      writeFileSync(join(dir, 'custom.rules'), DEFAULT_RULES, 'utf8');
+      writeFileSync(join(dir, 'firestore.rules'), IN_FORCE, 'utf8');
+      const sandbox = sandboxWithRulesInForce();
+      expect(loadProjectRules(sandbox, dir)).toEqual({ path: join(dir, 'custom.rules'), refused: null });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('a seed carrying Firestore rules', () => {
   for (const [label, source] of REFUSED) {
     it(`refuses ${label} and keeps the rules in force`, async () => {

@@ -18,6 +18,7 @@ import {
   boardIntegrityExpr,
   placementExpr,
 } from './expressions.js';
+import { checkRulesSource } from '../grammar/source-compile-limits.js';
 
 export interface GameConfig {
   collection: string;
@@ -28,6 +29,19 @@ export interface GameConfig {
 }
 
 const SMALL_BOARD_THRESHOLD = 42;
+
+/** Most win lines one part function ORs together when a ruleset has to
+ *  split. Each line adds a nesting level to the `||` chain, and production
+ *  rejects an expression nested past 99 levels ("Expression is too complex
+ *  to evaluate safely."). 64 lines plus the deepest line (11 cells) stay
+ *  well under it. */
+const WIN_LINES_PER_PART = 64;
+
+/** Win lines are ORed in one function per mark (or direction) unless that
+ *  ruleset fails production's compile limits. Splitting changes how many
+ *  expressions a request evaluates, so a ruleset that loads as one chain
+ *  keeps its shape. */
+const UNSPLIT = Number.POSITIVE_INFINITY;
 
 /** A single Firestore path segment we are willing to interpolate into a
  *  `match /<collection>/{gameId}` block. Deliberately stricter than
@@ -51,21 +65,59 @@ function assertSafeCollection(collection: string): void {
   }
 }
 
+/** Generate the rules for `config`. When the rules with one win chain per
+ *  function would not load in production, the win lines split into part
+ *  functions. Throws, naming the limit, when even the split rules would not
+ *  load, so no caller receives rules that fail to load. */
 export function assembleGameRules(config: GameConfig): string {
-  const { grid, winLineCount, hasGravity, hasLobby, collection } = config;
+  const { grid, winLineCount, collection } = config;
   assertSafeCollection(collection);
-  const totalCells = grid.cols * grid.rows;
   const lines = generateWinLines(grid.cols, grid.rows, winLineCount);
-  const useOptimized = totalCells > SMALL_BOARD_THRESHOLD;
+  const unsplit = assembleWith(config, lines, UNSPLIT);
+  if (checkRulesSource(unsplit).ok) return unsplit;
+  const split = assembleWith(config, lines, WIN_LINES_PER_PART);
+  const checked = checkRulesSource(split);
+  if (checked.ok) return split;
+  const { cols, rows } = grid;
+  throw new Error(
+    `assembleGameRules: the rules generated for a ${cols}x${rows} board with ` +
+      `${winLineCount} in a row would not load in production: ${checked.rejection.message}`,
+  );
+}
 
-  if (useOptimized) {
-    return assembleOptimized(config, lines);
-  }
-  return assembleClassic(config, lines);
+function assembleWith(config: GameConfig, lines: number[][], linesPerFunction: number): string {
+  const usesFlatLayout = config.grid.cols * config.grid.rows > SMALL_BOARD_THRESHOLD;
+  return usesFlatLayout
+    ? assembleOptimized(config, lines, linesPerFunction)
+    : assembleClassic(config, lines, linesPerFunction);
+}
+
+/** One function `name(b)` that is true when `mark` holds a whole line.
+ *  Past `linesPerFunction` lines, the lines go to part functions `name0`,
+ *  `name1`, ... and `name` ORs their results. */
+function winCheckFunctions(name: string, mark: string, lines: number[][], grid: GridConfig, linesPerFunction: number): string {
+  if (lines.length === 0) return `    function ${name}(b) { return false; }`;
+  if (lines.length <= linesPerFunction) return winFunction(name, winCheckExpr(mark, lines, grid));
+  const parts = chunk(lines, linesPerFunction).map((part, i) => ({ name: `${name}${i}`, part }));
+  const partFunctions = parts.map(({ name: partName, part }) => winFunction(partName, winCheckExpr(mark, part, grid)));
+  const combined = winFunction(name, parts.map(({ name: partName }) => `${partName}(b)`).join(' || '));
+  return [...partFunctions, combined].join('\n\n');
+}
+
+function winFunction(name: string, body: string): string {
+  return `    function ${name}(b) {
+      return ${body};
+    }`;
+}
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
 }
 
 // ---- Classic: nested board map, static enumeration ----
-function assembleClassic(config: GameConfig, lines: number[][]): string {
+function assembleClassic(config: GameConfig, lines: number[][], linesPerFunction: number): string {
   const { grid, hasGravity, hasLobby, collection } = config;
   const totalCells = grid.cols * grid.rows;
 
@@ -99,13 +151,9 @@ function assembleClassic(config: GameConfig, lines: number[][]): string {
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function hasWonHost(b) {
-      return ${winCheckExpr('host', lines, grid)};
-    }
+${winCheckFunctions('hasWonHost', 'host', lines, grid, linesPerFunction)}
 
-    function hasWonGuest(b) {
-      return ${winCheckExpr('guest', lines, grid)};
-    }
+${winCheckFunctions('hasWonGuest', 'guest', lines, grid, linesPerFunction)}
 
     function validMove(nc, nr, mark, b, ob) {
       return ${validMoveBody};
@@ -163,19 +211,14 @@ ${lobbyRules(hasLobby)}
 }
 
 // ---- Optimized: flat layout, dynamic access, MapDiff, directional win split ----
-function assembleOptimized(config: GameConfig, lines: number[][]): string {
+function assembleOptimized(config: GameConfig, lines: number[][], linesPerFunction: number): string {
   const { grid, hasGravity, hasLobby, collection } = config;
   const totalCells = grid.cols * grid.rows;
   const dirs = splitWinLinesByDirection(lines, grid.cols);
 
-  function dirWinFn(name: string, mark: string, dirLines: number[][]): string {
-    if (dirLines.length === 0) return `    function ${name}(b) { return false; }`;
-    return `    function ${name}(b) {
-      return ${winCheckExpr(mark, dirLines, grid)};
-    }`;
-  }
+  const dirWinFn = (name: string, mark: string, dirLines: number[][]) => winCheckFunctions(name, mark, dirLines, grid, linesPerFunction);
 
-  const winFunctions = [
+  const directionWinFunctions = [
     dirWinFn('wonHH', 'host', dirs.horizontal),
     dirWinFn('wonHV', 'host', dirs.vertical),
     dirWinFn('wonHD1', 'host', dirs.diagUp),
@@ -214,7 +257,7 @@ function assembleOptimized(config: GameConfig, lines: number[][]): string {
 service cloud.firestore {
   match /databases/{database}/documents {
 
-${winFunctions}
+${directionWinFunctions}
 
     match /${collection}/{gameId} {
       allow read: if request.auth != null;

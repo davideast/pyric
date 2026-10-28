@@ -1,5 +1,5 @@
 import { parseStorageRules, type Expr, type MatchBlock, type StorageRules } from './sandbox/rules.js';
-import { normalizeRe2ForJsRegExp } from '../rules/grammar/re2-pattern.js';
+import { re2PatternProblem } from '../rules/simulator/re2-pattern-check.js';
 import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
 
 export interface StorageRulesResolution {
@@ -77,16 +77,6 @@ function matchUsesFirestoreLookup(
   return match.children.some((child) => matchUsesFirestoreLookup(child, matchScope));
 }
 
-function isValidRe2Pattern(pattern: string): boolean {
-  if (/\\[1-9]/.test(pattern) || /\(\?<?[=!]/.test(pattern)) return false;
-  try {
-    new RegExp(`^(?:${normalizeRe2ForJsRegExp(pattern)})$`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function validateExpressionRegexes(expression: Expr): void {
   if (
     expression.kind === 'methodcall' &&
@@ -94,11 +84,8 @@ function validateExpressionRegexes(expression: Expr): void {
     expression.args.length === 1
   ) {
     const arg = expression.args[0];
-    if (arg?.kind === 'literal' && typeof arg.value === 'string' && !isValidRe2Pattern(arg.value)) {
-      throw new SyntaxError(
-        `Storage rules do not compile: Invalid regular expression pattern. Pattern: ${arg.value}.`,
-      );
-    }
+    const problem = arg?.kind === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
+    if (problem !== null) throw new SyntaxError(`Storage rules do not compile: ${problem}`);
   }
   switch (expression.kind) {
     case 'member':

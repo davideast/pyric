@@ -7,12 +7,14 @@
  * sorted missing-field docs into orderBy results. These probes lock the
  * canonical type order
  *   null < boolean < number < timestamp < string < bytes < ref < geopoint
- *   < array < map
+ *   < array < vector < map
  * and the missing-field exclusion, mirroring
  * `clones/firebase-js-sdk/packages/firestore/src/model/{type_order,values}.ts`.
  */
 import { describe, it, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
+import { Bytes, LatLng, Reference, Timestamp, Vector } from 'pyric/rules/internal';
+import { Timestamp as ModularTimestamp } from '../../../src/firestore/timestamp.js';
 import { createCompatFirestore } from '../../../src/firestore/sandbox/admin-compat/index.js';
 import {
   compareValues,
@@ -20,10 +22,13 @@ import {
   TypeRank,
 } from '../../../src/firestore/sandbox/query-value-order.js';
 
-const ts = (s: number, n = 0) => ({ seconds: s, nanos: n });
-const geo = (lat: number, lng: number) => ({ latitude: lat, longitude: lng });
-const bytes = (...b: number[]) => ({ data: new Uint8Array(b) });
-const ref = (path: string) => ({ path });
+// Values are the wrappers the store holds. #1364 (FL-3) ranks by type tag,
+// so plain objects shaped like these are maps; see the last describe below.
+const ts = (s: number, n = 0) => new Timestamp(s, n);
+const geo = (lat: number, lng: number) => new LatLng(lat, lng);
+const bytes = (...b: number[]) => new Bytes(new Uint8Array(b));
+const ref = (path: string) => new Reference(path);
+const vec = (...v: number[]) => new Vector(v);
 
 describe('FS-B3 — canonical type order ranking', () => {
   it('ranks types in the Firestore canonical order', () => {
@@ -37,6 +42,7 @@ describe('FS-B3 — canonical type order ranking', () => {
       ref('a/b'),
       geo(0, 0),
       [1],
+      vec(1),
       { k: 1 },
     ];
     const ranks = ascending.map(typeOrderRank);
@@ -71,14 +77,42 @@ describe('FS-B3 — canonical type order ranking', () => {
   it('timestamps compare by seconds then nanos', () => {
     expect(compareValues(ts(100, 0), ts(100, 500))).toBeLessThan(0);
     expect(compareValues(ts(200), ts(100))).toBeGreaterThan(0);
-    // Mixed nanos/nanoseconds field names both work.
-    expect(compareValues({ seconds: 1, nanoseconds: 5 }, ts(1, 5))).toBe(0);
+    // The modular Timestamp (nanoseconds) and the rules one (nanos) agree.
+    expect(compareValues(new ModularTimestamp(1, 5), ts(1, 5))).toBe(0);
   });
 
   it('arrays compare element-wise then by length', () => {
     expect(compareValues([1, 2], [1, 3])).toBeLessThan(0);
     expect(compareValues([1], [1, 2])).toBeLessThan(0);
     expect(compareValues([1, 2], [1, 2])).toBe(0);
+  });
+});
+
+describe('#1364 — type tags, not shapes', () => {
+  it('FL-3: plain maps shaped like scalars rank as maps', () => {
+    expect(typeOrderRank({ seconds: 1, nanoseconds: 0 })).toBe(TypeRank.Map);
+    expect(typeOrderRank({ latitude: 1, longitude: 2 })).toBe(TypeRank.Map);
+    expect(typeOrderRank({ path: 'a/b' })).toBe(TypeRank.Map);
+    expect(typeOrderRank({ data: new Uint8Array([1]) })).toBe(TypeRank.Map);
+  });
+
+  it('FL-1, FL-2: stored LatLng and Vector rank as geopoint and vector', () => {
+    expect(typeOrderRank(geo(1, 2))).toBe(TypeRank.GeoPoint);
+    expect(typeOrderRank(vec(1, 2))).toBe(TypeRank.Vector);
+    expect(compareValues(geo(1, 2), geo(3, 4))).toBeLessThan(0);
+  });
+
+  it('vectors compare by dimension, then components', () => {
+    expect(compareValues(vec(9), vec(1, 2))).toBeLessThan(0);
+    expect(compareValues(vec(1, 2), vec(1, 3))).toBeLessThan(0);
+  });
+
+  it('FL-6: references compare path segments', () => {
+    expect(compareValues(ref('users/u/g/1'), ref('users-x/u/g/2'))).toBeLessThan(0);
+  });
+
+  it('-0 and 0 compare equal', () => {
+    expect(compareValues(-0, 0)).toBe(0);
   });
 });
 

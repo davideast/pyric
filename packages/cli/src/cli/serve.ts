@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
-import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
 import {
@@ -250,11 +250,12 @@ async function startServeRuntime(opts: {
     config ??= {};
     const isFirestorePath = typeof ruleOverrides === 'string';
     if (isFirestorePath) {
-      config.firestore = { ...config.firestore, rules: ruleOverrides };
+      config.firestore = withDefaultFirestoreRules(config.firestore, ruleOverrides);
     } else {
-      const hasFirestoreOverride = Boolean(ruleOverrides.firestore);
+      const firestoreOverride = ruleOverrides.firestore;
+      const hasFirestoreOverride = firestoreOverride !== undefined && firestoreOverride !== '';
       if (hasFirestoreOverride) {
-        config.firestore = { ...config.firestore, rules: ruleOverrides.firestore };
+        config.firestore = withDefaultFirestoreRules(config.firestore, firestoreOverride);
       }
       const hasDatabaseOverride = Boolean(ruleOverrides.database);
       if (hasDatabaseOverride) {

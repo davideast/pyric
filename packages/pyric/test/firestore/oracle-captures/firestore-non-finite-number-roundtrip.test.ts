@@ -7,9 +7,5 @@ import { expectReplay, load, runInPage } from './support.ts';
 it('firestore-non-finite-number-roundtrip', async () => {
   const production = load('firestore-non-finite-number-roundtrip');
   const pyric = await runInPage(scenario);
-  expectReplay({
-    production,
-    pyric,
-    pins: [{ key: 'eq0', finding: 'FL-31: == 0 matches a -0 doc', production: ['neg0'], pyric: [] }],
-  });
+  expectReplay({ production, pyric });
 });

@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 125,
+    "numerator": 128,
     "denominator": 140,
-    "ratio": 0.8928571428571429,
-    "percent": 89.3
+    "ratio": 0.9142857142857143,
+    "percent": 91.4
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 126,
-      "diverged": 12,
+      "verified": 129,
+      "diverged": 9,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 125,
-    "diverged": 12,
+    "conformant": 128,
+    "diverged": 9,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1323,10 +1323,11 @@
         "re2-pattern-semantics",
         "split-and-trim-edges"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
-        "firestore-rules#199",
+      "verifiedByRows": [
         "firestore-rules#202"
+      ],
+      "divergedByRows": [
+        "firestore-rules#199"
       ]
     },
     "firestore.method.string.replace": {
@@ -3093,8 +3094,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "atomic-batch-sibling-merge",
@@ -3138,10 +3139,10 @@
         "unknown-function-names-runtime-error",
         "unsupported-feature-witness"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#201"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.rule-kind.function": {
       "productionAcceptance": "accepted",
@@ -3197,8 +3198,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts",
         "atomic-batch-sibling-merge",
@@ -3243,11 +3244,10 @@
         "unsupported-feature-witness"
       ],
       "verifiedByRows": [
-        "firestore-rules#185"
-      ],
-      "divergedByRows": [
+        "firestore-rules#185",
         "firestore-rules#200"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.rule-kind.import": {
       "productionAcceptance": "unprobeable",
@@ -3328,8 +3328,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "hierarchical-match-cascade",
@@ -3338,11 +3338,10 @@
         "simcase-mock-and-path-fidelity"
       ],
       "verifiedByRows": [
-        "firestore-rules#197"
-      ],
-      "divergedByRows": [
+        "firestore-rules#197",
         "firestore-rules#200"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.semantic.error-absorption-and": {
       "productionAcceptance": "accepted",

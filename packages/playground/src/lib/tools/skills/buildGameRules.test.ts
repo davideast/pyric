@@ -2,8 +2,7 @@
  * `build_game_rules` — the generated rules must be REAL rules:
  * parseable + lint-clean (no error-severity findings) for both
  * assembler layouts, with honest metadata, and hard input validation
- * (the 121-cell ceiling exists because the rules complexity ceiling
- * binds above 11x11).
+ * (cols and rows each 1 to 11, the documented board range).
  */
 import { describe, expect, test } from 'bun:test';
 import { lintFirestoreRules } from 'pyric/rules/internal';
@@ -54,14 +53,16 @@ describe('build_game_rules', () => {
     expect(lintErrors(data.rules)).toEqual([]);
   });
 
-  test('custom grid works and the 121-cell ceiling is enforced', async () => {
+  test('custom grid works and the 1 to 11 board range is enforced', async () => {
     const ok = await run({ game: 'custom', cols: 5, rows: 5, winLength: 4 });
     expect(ok.ok).toBe(true);
     expect((ok.data as BuildGameRulesData).cellCount).toBe(25);
 
-    const tooBig = await run({ game: 'custom', cols: 12, rows: 12, winLength: 5 });
-    expect(tooBig.ok).toBe(false);
-    expect(tooBig.summary).toContain('exceeds');
+    for (const [cols, rows] of [[12, 12], [10, 12], [1, 121], [121, 1]]) {
+      const outside = await run({ game: 'custom', cols, rows, winLength: 2 });
+      expect(outside.ok).toBe(false);
+      expect(outside.summary).toContain('from 1 to 11');
+    }
 
     const badWin = await run({ game: 'custom', cols: 3, rows: 3, winLength: 9 });
     expect(badWin.ok).toBe(false);

@@ -165,6 +165,7 @@ import { mintAccessToken } from './oracle-access-token.ts';
 import {
   OracleRulesSession,
   firestoreOracleTarget,
+  rtdbOracleTarget,
   runWithOracleRulesRestored,
   storageOracleTarget,
 } from './oracle-rules-session.ts';
@@ -216,42 +217,8 @@ interface ServiceAccount {
 
 const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
 const RTDB_API = 'https://firebasedatabase.googleapis.com/v1beta';
-
-// RTDB rules counterpart. RTDB rules are JSON (not the
-// `service cloud.firestore { ... }` grammar), and the API endpoint is
-// the database's own `<databaseUrl>/.settings/rules.json`. We marker
-// off the oracle namespace by checking for `pyric_oracle` as a
-// top-level key in the parsed rules JSON — much simpler than parsing
-// the Storage / Firestore rules grammar.
-const ORACLE_RTDB_NAMESPACE_KEY = 'pyric_oracle';
-// The rules-JSON that grants the oracle harness read+write on
-// `/pyric_oracle/*` while leaving the rest of the database
-// default-deny. Includes `.indexOn` declarations at the leaf list
-// level (`$probe/list`) so the query probes (orderByChild, equalTo)
-// can run without per-probe rule modifications — RTDB rejects
-// queries on un-indexed fields with `Index not defined`. The set of
-// indexed fields is the union of what every modular-SDK query probe
-// uses (`pos`, `group`).
-const ORACLE_RTDB_RULES_BODY = {
-  rules: {
-    '.read': false,
-    '.write': false,
-    [ORACLE_RTDB_NAMESPACE_KEY]: {
-      '.read': 'auth != null',
-      '.write': 'auth != null',
-      // Allow nested queries on common shapes. RTDB applies $-vars
-      // top-down; this matches `pyric_oracle/<run>/<probe>/list` and
-      // indexes that level's children on `pos` + `group`.
-      $run: {
-        $probe: {
-          list: {
-            '.indexOn': ['pos', 'group'],
-          },
-        },
-      },
-    },
-  },
-};
+const RTDB_RULES_SCOPE =
+  'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email';
 
 /**
  * Auto-create a Web App in the project. Polls the long-running
@@ -355,104 +322,6 @@ async function discoverRtdbInstance(
   return def.databaseUrl ?? null;
 }
 
-/**
- * RTDB counterpart of the Firestore and Storage rules deployments in
- * `OracleRulesSession`. Unlike those, this deployment is not restored when
- * the run ends. RTDB rules are deployed as JSON via the database's own REST endpoint:
- *
- *   GET   <databaseUrl>/.settings/rules.json?access_token=…
- *   PUT   <databaseUrl>/.settings/rules.json?access_token=…
- *
- * (`PATCH` is not supported — RTDB takes a full rules-JSON replacement.
- * The "PATCH" mention in some Firebase docs refers to the
- * `firebasedatabase.googleapis.com` management API, not the per-DB rules
- * endpoint.)
- *
- * Marker-based idempotency: read the current rules; if they already
- * contain a top-level `pyric_oracle` key, no-op. Otherwise inject our
- * oracle namespace into the existing `rules` object (preserving any
- * other top-level keys the project's rules already carry) and PUT the
- * merged JSON.
- *
- * Returns:
- *   - 'fresh' — no rules existed, deployed our minimal namespace.
- *   - 'merged' — existing rules merged with our namespace.
- *   - 'already-configured' — `pyric_oracle` already a top-level key, no-op.
- *   - 'skipped' — no RTDB instance on the project (`databaseUrl` null).
- *   - `error: …` — failure surfaced as a string so the caller can log
- *     and continue. RTDB probes then run against whatever rules the
- *     project currently has (likely capturing PERMISSION_DENIED for
- *     happy-path writes).
- */
-async function ensureOracleRtdbRules(
-  token: string,
-  databaseUrl: string | undefined,
-): Promise<'fresh' | 'merged' | 'already-configured' | 'skipped' | string> {
-  if (!databaseUrl) return 'skipped';
-  const rulesUrl = `${databaseUrl}/.settings/rules.json?access_token=${encodeURIComponent(token)}`;
-  // 1. Read current rules. RTDB returns the full JSON document; if the
-  //    database is brand-new it may return `{"rules":{".read":false,".write":false}}`
-  //    or similar default.
-  const readResp = await fetch(rulesUrl);
-  if (!readResp.ok) {
-    return `error: read rules failed: ${readResp.status} ${await readResp.text()}`;
-  }
-  let currentBody: unknown;
-  try {
-    currentBody = await readResp.json();
-  } catch (e) {
-    return `error: parse rules failed: ${e instanceof Error ? e.message : String(e)}`;
-  }
-  const current = (currentBody ?? {}) as Record<string, unknown>;
-  const currentRules = (current.rules ?? {}) as Record<string, unknown>;
-  // 2. Marker check: namespace already present AND the embedded
-  //    `$run/$probe/list/.indexOn` shape matches. We compare against
-  //    the live ORACLE_RTDB_RULES_BODY so adding a new indexed field
-  //    here triggers a re-deploy automatically (rather than silently
-  //    using a stale older index set).
-  const existing = currentRules[ORACLE_RTDB_NAMESPACE_KEY] as Record<string, unknown> | undefined;
-  if (existing) {
-    const desired = ORACLE_RTDB_RULES_BODY.rules[ORACLE_RTDB_NAMESPACE_KEY];
-    if (JSON.stringify(existing) === JSON.stringify(desired)) {
-      return 'already-configured';
-    }
-    // Marker present but shape drifted — fall through to merge so
-    // we update to the desired shape.
-  }
-  // 3. Decide outcome. If the rules object was empty / missing, we
-  //    deploy our minimal "fresh" body (deny-all + permissive oracle
-  //    namespace). Otherwise we MERGE — preserve every existing
-  //    top-level key and overwrite (or insert) `pyric_oracle` with the
-  //    desired shape.
-  let nextBody: { rules: Record<string, unknown> };
-  let outcome: 'fresh' | 'merged';
-  const existingKeyCount = Object.keys(currentRules).length;
-  if (existingKeyCount === 0) {
-    nextBody = ORACLE_RTDB_RULES_BODY;
-    outcome = 'fresh';
-  } else {
-    nextBody = {
-      rules: {
-        ...currentRules,
-        [ORACLE_RTDB_NAMESPACE_KEY]: ORACLE_RTDB_RULES_BODY.rules[ORACLE_RTDB_NAMESPACE_KEY],
-      },
-    };
-    outcome = 'merged';
-  }
-  // 4. Deploy. RTDB takes a full PUT of the rules JSON; `print=silent`
-  //    suppresses the (verbose) echo response body.
-  const putUrl = `${databaseUrl}/.settings/rules.json?access_token=${encodeURIComponent(token)}&print=silent`;
-  const putResp = await fetch(putUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(nextBody),
-  });
-  if (!putResp.ok) {
-    return `error: deploy rules failed: ${putResp.status} ${await putResp.text()}`;
-  }
-  return outcome;
-}
-
 // Module-level handles to the service account + RTDB admin token, set
 // after `loadConfig()` runs. Probes that need to PUT to the
 // `/.settings/rules.json` endpoint (rules round-trip, propagation
@@ -461,7 +330,7 @@ async function ensureOracleRtdbRules(
 // has no RTDB instance.
 let serviceAccount: ServiceAccount | null = null;
 let rtdbAdminToken: string | null = null;
-// The Firestore and Storage rules deployments, restored when the run ends.
+// The Firestore, Storage, and RTDB rules deployments, restored when the run ends.
 // `null` under `PYRIC_ORACLE_FIREBASE_CONFIG`: without a service account the
 // harness deploys nothing and restores nothing.
 let oracleRulesSession: OracleRulesSession | null = null;
@@ -490,7 +359,7 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   console.log(`[oracle] project: ${sa.project_id}`);
   const token = await mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
   const cfg = await fetchWebConfig(token, sa.project_id);
-  // The Firestore and Storage oracle rules are deployed by `main` inside
+  // The Firestore, Storage, and RTDB oracle rules are deployed by `main` inside
   // `runWithOracleRulesRestored`, so the project's rules are put back when the
   // run ends. The session mints a fresh token for each phase because a run can
   // outlast one token.
@@ -511,36 +380,15 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
       console.log(`[oracle] no rtdb instance found on ${sa.project_id} — rtdb probes will be skipped`);
     }
   }
-  // RTDB rules — best-effort, mirrors the Firestore + Storage pattern.
   // The per-database `/.settings/rules.json` endpoint requires the
-  // `firebase.database` OAuth scope (the broader `firebase` scope used
-  // by the Firestore + Storage + Management APIs is NOT accepted here).
-  // We mint a separate token scoped to `firebase.database` +
-  // `userinfo.email` (the email scope is required by the RTDB REST API
-  // for SA auth). If the SA lacks the necessary IAM role
-  // (e.g. `roles/firebasedatabase.admin`), the deploy returns 401/403
-  // and we log the error string but proceed; RTDB probes will then
-  // observe whatever rules the project currently has.
-  let rtdbRuleOutcome: string = 'skipped';
+  // `firebase.database` and `userinfo.email` scopes; the `firebase` scope the
+  // Rules and Management APIs take is not accepted there. Probes that read or
+  // rewrite the RTDB rules use this token. `deployOracleRules` mints its own.
   if (cfg.databaseURL) {
     try {
-      const rtdbToken = await mintAccessToken(
-        sa,
-        'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-      );
-      rtdbAdminToken = rtdbToken;
-      rtdbRuleOutcome = await ensureOracleRtdbRules(rtdbToken, cfg.databaseURL);
+      rtdbAdminToken = await mintAccessToken(sa, RTDB_RULES_SCOPE);
     } catch (e) {
-      rtdbRuleOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
-    }
-    console.log(`[oracle] rtdb rules: ${rtdbRuleOutcome}`);
-    const rtdbRuleChanged =
-      rtdbRuleOutcome !== 'already-configured' &&
-      rtdbRuleOutcome !== 'skipped' &&
-      !rtdbRuleOutcome.startsWith('error');
-    if (rtdbRuleChanged) {
-      console.log('[oracle] waiting 5s for rtdb rules to propagate');
-      await new Promise((r) => setTimeout(r, 5_000));
+      console.log(`[oracle] rtdb token: error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   return cfg;
@@ -6904,7 +6752,7 @@ const probes: Probe[] = [
       }
       // Read the CURRENT rules so we can restore them afterward. The
       // RTDB rules endpoint is global per-database, so writing test
-      // rules here would clobber the harness's `ensureOracleRtdbRules`
+      // rules here would clobber the harness's `OracleRulesSession.deployRtdb`
       // configuration. We snapshot first, deploy, fetch-back, then
       // restore — all under one admin token.
       const rulesUrl = `${config.databaseURL!}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}`;
@@ -7488,7 +7336,7 @@ const probes: Probe[] = [
       const beforeRules = (beforeBody.rules ?? {}) as Record<string, unknown>;
       const putUrl = `${config.databaseURL!}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
       // The audit namespace — sub-keys per rule so we don't fight
-      // `ensureOracleRtdbRules`'s `pyric_oracle` namespace.
+      // the `pyric_oracle` namespace `OracleRulesSession.deployRtdb` merges.
       const auditKey = `pyric_oracle_simaudit_${RUN_ID.replace(/[^a-zA-Z0-9_]/g, '_')}`;
       // Sign in once for the whole audit.
       await signInAnonymously(auth);
@@ -8967,6 +8815,7 @@ async function main(): Promise<void> {
         await runProbes();
       });
       console.log("[oracle] the project's Firestore and Storage rules are restored and verified");
+      if (config.databaseURL) console.log('[oracle] rtdb rules restored and verified');
     } finally {
       process.off('SIGINT', interrupted);
       process.off('SIGTERM', interrupted);
@@ -8976,7 +8825,7 @@ async function main(): Promise<void> {
 }
 
 /**
- * Merge the oracle namespace into the project's Firestore and Storage rules.
+ * Merge the oracle namespace into the project's Firestore, Storage, and RTDB rules.
  * `main` calls this inside `runWithOracleRulesRestored`, which puts the
  * project's own rules back when the run ends.
  */
@@ -8998,16 +8847,33 @@ async function deployOracleRules(session: OracleRulesSession): Promise<void> {
     }
   }
   console.log(`[oracle] storage rules: ${storageOutcome}`);
+  // RTDB rules are best-effort in the same way: without
+  // `roles/firebasedatabase.admin` the write is refused, and the RTDB probes
+  // observe whatever rules the database already has.
+  let rtdbOutcome: string = 'skipped';
+  if (config.databaseURL && serviceAccount) {
+    const sa = serviceAccount;
+    try {
+      rtdbOutcome = await session.deployRtdb(
+        rtdbOracleTarget(config.databaseURL, () => mintAccessToken(sa, RTDB_RULES_SCOPE)),
+      );
+    } catch (e) {
+      rtdbOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  console.log(`[oracle] rtdb rules: ${rtdbOutcome}`);
   // Newly-deployed rules take a few seconds to propagate before
   // the next setDoc sees them. Existing-configured: no wait.
-  const storageChanged =
-    storageOutcome !== 'already-configured' &&
-    storageOutcome !== 'skipped' &&
-    !storageOutcome.startsWith('error');
-  if (firestoreOutcome !== 'already-configured' || storageChanged) {
+  if (firestoreOutcome !== 'already-configured' || rulesChanged(storageOutcome) || rulesChanged(rtdbOutcome)) {
     console.log('[oracle] waiting 10s for new rules to propagate');
     await new Promise((r) => setTimeout(r, 10_000));
   }
+}
+
+/** A best-effort deployment that wrote new rules, so the run waits for them to propagate. */
+function rulesChanged(outcome: string): boolean {
+  const unchanged = outcome === 'already-configured' || outcome === 'skipped';
+  return !unchanged && !outcome.startsWith('error');
 }
 
 await main();

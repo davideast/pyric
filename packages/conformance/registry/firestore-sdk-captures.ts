@@ -77,11 +77,11 @@ export const sdkCaptureBlock: CompatibilityTableBlock = {
       oracleObservations: ['firestore-query-disjunction-limits'],
       conformanceTests: [`${IN_PAGE}/firestore-query-disjunction-limits.test.ts`],
     }),
-    captureRow({
+    matchingRow({
       rowRef: 'negative-zero-equality',
       featureKeys: ['where'],
       api: "where(field, '==' | '!=', 0) with a -0 value stored",
-      behavior: 'Production treats -0 and 0 as equal in `==` and `!=`; pyric does not. FL-31.',
+      behavior: '-0 equals 0 in `==` and `!=` but not in `in`, as in production. FL-31.',
       evidence: '`oracle:firestore-query-negative-zero` and `oracle:firestore-non-finite-number-roundtrip` key `eq0`.',
       risk: ['specific-value'],
       riskScore: 2,
@@ -201,7 +201,7 @@ export const sdkCaptureBlock: CompatibilityTableBlock = {
       rowRef: 'served-query-doc-pending-writes',
       featureKeys: ['onSnapshot'],
       api: 'QueryDocumentSnapshot.metadata.hasPendingWrites on the served planes',
-      behavior: "Production: only the doc with a pending write reports `hasPendingWrites` true. On the served planes every doc in the snapshot carries the query's value. FP-5.",
+      behavior: "Production: only the doc with a pending write reports `hasPendingWrites` true. The served planes report each doc's own value from the in-page engine, which reports false on the written doc (FL-20), and they skip the first snapshot from the cache (#1355). FP-5 is fixed.",
       evidence: '`oracle:firestore-query-doc-pending-writes`.',
       risk: ['listener'],
       riskScore: 2,

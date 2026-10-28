@@ -15,7 +15,8 @@ it('firestore-query-composite-index-required', async () => {
     pins: [
       runs('eqPlusOrderOther', 'r,q'),
       runs('rangePlusOrderOther', 'r,p,q,s'),
-      runs('twoRangeFields', 'r,p,q,s'),
+      // Implicit order follows field-path order since #1364 (FL-4).
+      runs('twoRangeFields', 'r,q,p,s'),
       runs('arrayContainsPlusOrder', 'r,q'),
     ],
   });

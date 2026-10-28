@@ -40,7 +40,12 @@ export type { ParseError, ParseResult } from '../grammar/FirestoreParser.js';
 export { assembleRules, assembleExpression as printExpression } from '../grammar/FirestoreAssembler.js';
 export { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 export { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
-export { rulesSourceRejection, sourceCompileLimitViolations } from '../grammar/source-compile-limits.js';
+export {
+  checkRulesSource,
+  rulesGrammarRejection,
+  rulesSourceRejection,
+  sourceCompileLimitViolations,
+} from '../grammar/source-compile-limits.js';
 export type { RulesSourceRejection } from '../grammar/source-compile-limits.js';
 export type { CompileLimitViolation } from '../grammar/compile-limits.js';
 export type { ValidationFinding } from '../grammar/FirestoreValidator.js';
@@ -79,6 +84,8 @@ export {
   renderMatchBlockPath,
 } from '../simulator/match-resolution.js';
 export type { MatchResult } from '../simulator/match-resolution.js';
+export { collectRootMatches, resolveRootMatch, rootGovernsEveryDocument } from '../simulator/root-match.js';
+export type { RootMatch } from '../simulator/root-match.js';
 export { evaluateQueryProof } from '../simulator/query-proof.js';
 export type {
   QueryConstraints,
