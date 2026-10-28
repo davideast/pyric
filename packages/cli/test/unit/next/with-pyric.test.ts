@@ -15,6 +15,8 @@ describe('withPyric Next.js configuration wrapper', () => {
   const origPyricSandbox = process.env.PYRIC_SANDBOX;
   const origPyricSandboxForce = process.env.PYRIC_SANDBOX_FORCE;
   const origPyricSandboxPort = process.env.PYRIC_SANDBOX_PORT;
+  // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
+  const origPyricGuard = process.env.PYRIC_GUARD;
 
   beforeEach(() => {
     process.env.NODE_ENV = 'development';
@@ -39,6 +41,11 @@ describe('withPyric Next.js configuration wrapper', () => {
       process.env.PYRIC_SANDBOX_PORT = origPyricSandboxPort;
     } else {
       delete process.env.PYRIC_SANDBOX_PORT;
+    }
+    if (origPyricGuard !== undefined) {
+      process.env.PYRIC_GUARD = origPyricGuard;
+    } else {
+      delete process.env.PYRIC_GUARD;
     }
   });
 
@@ -337,5 +344,65 @@ describe('withPyric Next.js configuration wrapper', () => {
     delete process.env.PYRIC_WORKER_INIT;
     const res = await resolveWith({});
     expect('NEXT_PUBLIC_PYRIC_WORKER_INIT' in (res.env ?? {})).toBe(false);
+  });
+});
+
+/**
+ * #1443: inside the Next dev server that withPyric wraps, nothing is meant to
+ * reach live Firebase, so the guard defaults to block there, as it does in the
+ * Vite dev server. An explicit PYRIC_GUARD still names the mode.
+ */
+describe('withPyric guard default in the Next dev server', () => {
+  const NET_GUARD = Symbol.for('pyric.netGuard');
+  const slot = globalThis as unknown as Record<symbol, unknown>;
+  const saved = { guard: process.env.PYRIC_GUARD, sandbox: process.env.PYRIC_SANDBOX, published: slot[NET_GUARD] };
+  let escalations: string[];
+
+  beforeEach(() => {
+    escalations = [];
+    process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
+    delete process.env.PYRIC_GUARD;
+    slot[NET_GUARD] = { mode: 'warn', escalate: (reason: string) => { escalations.push(reason); return true; } };
+  });
+
+  afterEach(() => {
+    const restore = (key: 'PYRIC_GUARD' | 'PYRIC_SANDBOX', value: string | undefined) => {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    };
+    restore('PYRIC_GUARD', saved.guard);
+    restore('PYRIC_SANDBOX', saved.sandbox);
+    if (saved.published === undefined) delete slot[NET_GUARD];
+    else slot[NET_GUARD] = saved.published;
+  });
+
+  it('escalates the guard in this process and sets PYRIC_GUARD=block for the processes Next starts', async () => {
+    await resolveWith({});
+    expect(process.env.PYRIC_GUARD).toBe('block');
+    expect(escalations).toHaveLength(1);
+    expect(escalations[0]).toContain('Next dev server');
+  });
+
+  it('leaves an explicit PYRIC_GUARD alone', async () => {
+    for (const mode of ['warn', 'off', 'block']) {
+      process.env.PYRIC_GUARD = mode;
+      await resolveWith({});
+      expect(process.env.PYRIC_GUARD).toBe(mode);
+    }
+    expect(escalations).toEqual([]);
+  });
+
+  it('changes nothing in production phases', async () => {
+    for (const phase of ['phase-production-build', 'phase-production-server', 'phase-export']) {
+      await resolveWith({}, undefined, phase);
+    }
+    expect(process.env.PYRIC_GUARD).toBeUndefined();
+    expect(escalations).toEqual([]);
+  });
+
+  it('sets the default without a published guard, as in a process the register did not start', async () => {
+    delete slot[NET_GUARD];
+    await resolveWith({});
+    expect(process.env.PYRIC_GUARD).toBe('block');
   });
 });

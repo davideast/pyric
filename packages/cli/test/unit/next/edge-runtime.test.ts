@@ -47,6 +47,7 @@ describe('Edge runtime detection', () => {
 describe('withPyric Edge runtime warning', () => {
   const savedCwd = process.cwd();
   const savedSandbox = process.env.PYRIC_SANDBOX;
+  const savedGuard = process.env.PYRIC_GUARD;
   let root: string;
   let warnings: string[];
   const originalWarn = console.warn;
@@ -69,6 +70,9 @@ describe('withPyric Edge runtime warning', () => {
     rmSync(root, { recursive: true, force: true });
     if (savedSandbox === undefined) delete process.env.PYRIC_SANDBOX;
     else process.env.PYRIC_SANDBOX = savedSandbox;
+    // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
+    if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
+    else process.env.PYRIC_GUARD = savedGuard;
   });
 
   it('warns in the development server phase and names the Edge file', async () => {

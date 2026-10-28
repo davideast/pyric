@@ -15,10 +15,15 @@ describe('withPyric webpack ordering', () => {
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
   });
 
+  // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
+  const savedGuard = process.env.PYRIC_GUARD;
+
   afterEach(() => {
     process.env.NODE_ENV = savedNodeEnv;
     if (saved === undefined) delete process.env.PYRIC_SANDBOX;
     else process.env.PYRIC_SANDBOX = saved;
+    if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
+    else process.env.PYRIC_GUARD = savedGuard;
   });
 
   it('applies the Pyric aliases after the user webpack function, so the user cannot erase them', async () => {
