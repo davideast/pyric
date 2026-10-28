@@ -16,6 +16,8 @@ import type { AiEngineConfigWire } from './worker/protocol.js';
 import { permitGuardHost } from '../register/net-guard.js';
 import { FIREBASE_AI_LOGIC_HOST } from '../google-endpoints.js';
 import type { AiMode } from './firebase-module-swap.js';
+import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
+import { BODY_TOO_LARGE_CODE, collectRawBody } from '../bridge/server/peer.js';
 
 /** The dev server's diagnostics throttle, as this module needs it: the
  *  denials route owns the instance, and the proxy shares it so a failing
@@ -29,6 +31,10 @@ export const AI_PROXY_DEFAULT_UPSTREAM = 'http://localhost:11434/v1';
 
 /** The route the dev server mounts for OpenAI-compatible traffic. */
 export const AI_PROXY_ROUTE = '/__pyric/ai-proxy';
+
+/** Largest request body the proxy forwards: the hosted method route's limit,
+ *  which already carries AI requests with inline images. */
+export const AI_PROXY_BODY_LIMIT_BYTES = HOSTED_METHOD_BODY_LIMIT;
 
 /**
  * Request headers that must NOT be forwarded upstream: origin-sensitive
@@ -290,7 +296,11 @@ export async function fetchAiUpstream(
  *   - POST only (the OpenAI chat-completions surface is POST); 405 otherwise.
  *   - the path suffix + query ride through verbatim
  *     (`/__pyric/ai-proxy/chat/completions` becomes `<upstream>/chat/completions`).
- *   - the request body is forwarded verbatim; headers minus the
+ *   - the caller must pass the namespace's loopback guard (Host, and an
+ *     Origin naming this server when one is sent), which the namespace runs
+ *     before this handler: the upstream may carry the developer's key.
+ *   - the request body is forwarded verbatim, up to
+ *     {@link AI_PROXY_BODY_LIMIT_BYTES} (413 past it); headers minus the
  *     origin-sensitive/hop-by-hop set above (`authorization` DOES forward,
  *     since upstreams may require a key).
  *   - the response body is STREAMED through chunk-by-chunk. SSE passthrough
@@ -319,17 +329,16 @@ export async function handleAiProxy(
   const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
   const target = `${upstreamBase}${suffix}${url.search}`;
 
-  // Buffer the REQUEST body (small JSON payloads); the RESPONSE streams.
-  const raw = await new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-  // Copy into a plain-ArrayBuffer view; fetch's BodyInit typing rejects
-  // Buffer's ArrayBufferLike backing.
-  const body = new Uint8Array(raw.byteLength);
-  body.set(raw);
+  // The request body is a bounded JSON payload, read once; the RESPONSE streams.
+  let body: Uint8Array<ArrayBuffer>;
+  try {
+    body = await collectRawBody(req, AI_PROXY_BODY_LIMIT_BYTES);
+  } catch (error) {
+    const tooLarge = (error as { code?: unknown }).code === BODY_TOO_LARGE_CODE;
+    const status = tooLarge ? 413 : 400;
+    res.writeHead(status, { 'content-type': 'text/plain' }).end(tooLarge ? 'Payload Too Large' : 'Bad Request');
+    return;
+  }
 
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
