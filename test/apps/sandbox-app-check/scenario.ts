@@ -19,6 +19,9 @@ declare function runAppCheck(): Promise<Record<string, unknown>>;
 declare function runAiChecks(tag: string): Promise<Record<string, unknown>>;
 
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
+/** Apps `runAiChecks` leaves refused: one with no App Check, one that called getAI before initializeAppCheck. */
+const REFUSED_APPS_PER_RUN = 2;
+
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
 
 function refusal(op: string) {
@@ -97,7 +100,8 @@ export default scenario(async (app) => {
   });
 
   await app.step('the page console carries pyric\'s guidance once per refused app', () => {
-    assert.ok(consoleHints(app) >= 1, app.browserLog.join('\n'));
+    // runAiChecks refuses two apps: the one with no App Check and the one that called getAI first.
+    assert.equal(consoleHints(app), REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
   });
 
   await app.step('a registered Node process gets the same refusal and the same answers', async () => {
@@ -131,7 +135,7 @@ export default scenario(async (app) => {
     assert.deepEqual(result, expected('sandbox'));
     // The terminal already printed this refusal for the SharedWorker page, and
     // the dev server throttles a repeat, so the page console is the evidence here.
-    assert.ok(consoleHints(app) > hintsBefore, app.browserLog.join('\n'));
+    assert.equal(consoleHints(app) - hintsBefore, REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
   });
 
   await app.step('no request left the browser for reCAPTCHA or App Check', () => {

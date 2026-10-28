@@ -276,6 +276,26 @@ describe('the broker gate', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ code: 403, status: 'PERMISSION_DENIED', message: gateWire.noHeader.messageText, hint: APP_CHECK_HINT });
   });
+
+  it('a stream with no token and a malformed request gets the 403, as generateContent does', async () => {
+    const malformed = { contents: [] };
+    const model = `models/${MODEL}`;
+    const broker = new AiBroker();
+    const code = async (run: () => Promise<unknown>): Promise<number> => {
+      try {
+        await run();
+      } catch (error) {
+        return (error as AiBrokerError).envelope.error.code;
+      }
+      throw new Error('expected a refusal');
+    };
+    const stream = () => (async () => {
+      for await (const _chunk of broker.streamGenerateContent(malformed, model, { token: null })) { /* none */ }
+    })();
+    expect(await code(stream)).toBe(403);
+    expect(await code(() => broker.generateContent(malformed, model, { token: null }))).toBe(403);
+    expect(await code(() => broker.countTokens(malformed, model, { token: null }))).toBe(403);
+  });
 });
 
 describe('handles with no app', () => {

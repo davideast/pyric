@@ -327,15 +327,19 @@ export class AiBroker {
    */
   streamGenerateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): AsyncIterable<WireChunk> {
     const identity = this.observationIdentity(model);
-    this.validate(req, model);
+    const hasClaim = appCheck !== undefined;
+    // The App Check gate comes before validation, as in generateContent. A
+    // claim's gate is asynchronous, so its request is validated after the gate
+    // passes; a stream with no claim still throws eagerly.
+    if (!hasClaim) this.validate(req, model);
     this.emitModelSubstitution(model);
     const engine = this.engine;
-    const hasClaim = appCheck !== undefined;
     const eager = hasClaim ? undefined : engine.streamGenerateContent(req, model);
     const admit = () => this.admitAppCheck(model, appCheck);
     const open = async (): Promise<AsyncIterable<WireChunk>> => {
       if (eager !== undefined) return eager;
       await admit();
+      this.validate(req, model);
       return engine.streamGenerateContent(req, model);
     };
     const annotate = (chunk: WireChunk) => this.annotate(chunk, identity);
