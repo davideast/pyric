@@ -34,6 +34,8 @@ Build & Test runs the app scenarios with `--skip-slow`, on pull requests and on 
 
 npm downloads are cached in `~/.cache/pyric-app-scenarios-npm` (set `PYRIC_APPS_NPM_CACHE` to move it), so a second run installs in seconds. Apps start longest first, by the times the last run recorded in `test-results/app-durations.json`; an app with no recorded time starts before the rest. Without `--jobs`, a local run takes one app per four free CPU threads, at most 6, and CI takes one per runner thread. Apps whose package.json names the same packages share one `npm install` per run, copied into each app's `node_modules`. An app whose install runs its own scripts or links its own directories installs alone. When the cached package listings are older than a version a dependency asks for, npm fails with `ETARGET` or `ENOVERSIONS`, and the runner retries that install once with `--prefer-online`. Without `--packages`, the runner packs the current workspace build. Run `bun run build` first, or pass `--build`. Install Chromium once with `bunx playwright install chromium`.
 
+Every run, including one of named apps, is a heavy run, and so is `bun run test`. At most two heavy runs go at once on one machine, across all worktrees: each takes a slot in `~/.cache/pyric/heavy-runs/` before it samples the load, and a third waits until one finishes, printing which runs hold the slots. `PYRIC_HEAVY_RUN_SLOTS` changes the count. Targeted runs such as `bun test <file>` never wait for a slot.
+
 A failure names the app and the step, and prints the dev server log, each server script's output, and the browser console. Full logs are saved to `test-results/apps/<name>/`.
 
 ## Add an app from a bug report
