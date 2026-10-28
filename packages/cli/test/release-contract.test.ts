@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import ts from 'typescript';
 import { spawnSync } from 'node:child_process';
 
 import {
@@ -19,6 +20,7 @@ interface ReleaseContract {
   mcpTools: string[];
   mcpToolMethods: Record<string, string[]>;
   bridgeTools: string[];
+  allowedFirebaseSdkImportEdges: string[];
   standaloneBridgeTools: string[];
 }
 
@@ -31,6 +33,41 @@ const contract = JSON.parse(
 const manifest = JSON.parse(
   readFileSync(join(packageRoot, 'package.json'), 'utf8'),
 ) as { exports: Record<string, unknown> };
+
+function isFirebaseSdk(specifier: string): boolean {
+  return /^(firebase|firebase-admin)(\/|$)/.test(specifier);
+}
+
+/** Real (non-type-only) Firebase SDK imports in one source file. */
+function firebaseSdkImports(file: string): string[] {
+  const sourceFile = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+  const specifiers: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      isFirebaseSdk(node.moduleSpecifier.text)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return specifiers;
+}
+
+/** The packed dist edges the source implies: src/<path>.ts -> dist/<path>.js. */
+function sourceFirebaseSdkEdges(): string[] {
+  const srcRoot = join(packageRoot, 'src');
+  return (readdirSync(srcRoot, { recursive: true }) as string[])
+    .filter((file) => file.endsWith('.ts') && !file.endsWith('.d.ts'))
+    .flatMap((file) =>
+      firebaseSdkImports(join(srcRoot, file)).map(
+        (specifier) => `dist/${file.slice(0, -'.ts'.length)}.js -> ${specifier}`,
+      ),
+    );
+}
 
 function advertisedCommands(help: string): string[] {
   const section = help.split('\nCOMMANDS\n')[1]?.split('\nCORE FLAGS')[0];
@@ -99,5 +136,13 @@ describe('ratified @pyric/cli release contract', () => {
     // surface change fail on the pull request that makes it (#1549).
     expect([...contract.bridgeTools].sort()).toEqual([...BRIDGE_TOOL_NAMES].sort());
     expect([...contract.standaloneBridgeTools].sort()).toEqual([...BRIDGE_IN_PROCESS_TOOL_NAMES].sort());
+  });
+
+  it('pins the packed Firebase SDK import edges to the ones the source declares', () => {
+    // The packaging gate audits the packed tarball against these rows and only
+    // runs on main or when packaging files change. A source change that adds,
+    // removes or moves a Firebase SDK import fails here on its own pull
+    // request instead (#1293 moved one and broke main).
+    expect(sourceFirebaseSdkEdges().sort()).toEqual([...contract.allowedFirebaseSdkImportEdges].sort());
   });
 });
