@@ -40,7 +40,12 @@ import {
 import { getClock } from '../../../src/sandbox/internal/index.js';
 import type { Sandbox } from '../../../src/sandbox/index.js';
 
-const OBSERVATION = JSON.parse(readFileSync(new URL('../../../../conformance/observations/auth/auth-request-auth-per-sign-in.json', import.meta.url), 'utf8')) as {
+/** Reads a committed auth capture by stem; the auth completeness gate counts this call as coverage. */
+function load(stem: string): unknown {
+  return JSON.parse(readFileSync(new URL(`../../../../conformance/observations/auth/${stem}.json`, import.meta.url), 'utf8'));
+}
+
+const OBSERVATION = load('auth-request-auth-per-sign-in') as {
   behavior: Record<string, { claims?: Claims | null; signInProvider?: string | null; rtdb?: Record<string, string> }>;
 };
 
@@ -292,7 +297,7 @@ describe('request.auth per sign-in kind matches the production capture', () => {
   }
 });
 
-const TEST_API = JSON.parse(readFileSync(new URL('../../../../conformance/observations/auth/auth-request-auth-rules-test-api.json', import.meta.url), 'utf8')) as {
+const TEST_API = load('auth-request-auth-rules-test-api') as {
   behavior: Record<string, { firestore: Record<string, string> }>;
 };
 
