@@ -27,6 +27,7 @@
  * un-checked.
  */
 import { describe, it, expect } from 'bun:test';
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
@@ -108,10 +109,17 @@ const NOT_APPLICABLE: Record<string, string> = {
 // read so the completeness test can fail an observation that is only mentioned in
 // a comment or loaded but never asserted. See
 // `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+// SDK behavior scenarios replay in `oracle-captures/`, one file per
+// observation; the directory is the index.
+const CAPTURE_REPLAYS = join(import.meta.dir, 'oracle-captures');
+
 const obsGate = createObservationGate({
   dir: OBS_DIR,
   match: (f) => f.startsWith('firestore-'),
   notApplicable: NOT_APPLICABLE,
+  siblingSources: readdirSync(CAPTURE_REPLAYS)
+    .filter((file) => file.endsWith('.test.ts'))
+    .map((file) => join(CAPTURE_REPLAYS, file)),
 });
 
 function load(name: string): Record<string, unknown> {

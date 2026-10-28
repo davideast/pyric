@@ -1,0 +1,35 @@
+{
+  "name": "firestore-query-composite-index-required",
+  "matrixRow": "firestore#composite-index-required",
+  "rowIds": [
+    "firestore#composite-index-required"
+  ],
+  "description": "Queries on a collection id no composite index covers: two controls that need only single-field indexes, and four shapes that need a composite index (equality plus orderBy on another field, range plus orderBy on another field, ranges on two fields, array-contains plus orderBy).",
+  "observedAt": "2026-10-27T19:28:03.815Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "controlEqOnly": {
+      "ok": "q,r"
+    },
+    "controlRangeAndOrderSame": {
+      "ok": "q,r,p,s"
+    },
+    "eqPlusOrderOther": {
+      "code": "failed-precondition",
+      "requiresIndex": true
+    },
+    "rangePlusOrderOther": {
+      "code": "failed-precondition",
+      "requiresIndex": true
+    },
+    "twoRangeFields": {
+      "code": "failed-precondition",
+      "requiresIndex": true
+    },
+    "arrayContainsPlusOrder": {
+      "code": "failed-precondition",
+      "requiresIndex": true
+    }
+  }
+}

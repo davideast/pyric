@@ -1,0 +1,33 @@
+{
+  "name": "firestore-write-map-depth-limit",
+  "matrixRow": "firestore#write-server-limits",
+  "rowIds": [
+    "firestore#write-server-limits"
+  ],
+  "description": "setDoc of a value nested in 26, 41, 101 and 102 maps, one client per write and a 15 s bound each. The 101 and 102 writes did not settle within the bound.",
+  "observedAt": "2026-10-27T19:41:24.292Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "maps 26": {
+      "ok": false,
+      "code": "invalid-argument",
+      "message": "3 INVALID_ARGUMENT: Property r contains an invalid nested entity."
+    },
+    "maps 41": {
+      "ok": false,
+      "code": "invalid-argument",
+      "message": "3 INVALID_ARGUMENT: Request contains an invalid argument."
+    },
+    "maps 101": {
+      "ok": false,
+      "code": "probe-timeout",
+      "message": "timeout 15s"
+    },
+    "maps 102": {
+      "ok": false,
+      "code": "probe-timeout",
+      "message": "timeout 15s"
+    }
+  }
+}

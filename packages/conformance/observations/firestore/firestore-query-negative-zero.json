@@ -1,0 +1,60 @@
+{
+  "name": "firestore-query-negative-zero",
+  "matrixRow": "firestore#negative-zero-equality",
+  "rowIds": [
+    "firestore#negative-zero-equality"
+  ],
+  "description": "Three docs with v = 0, 1 and -0, read with getDocsFromServer under == 0, == -0, in [0], != 0, not-in [0] and orderBy(v), each step bounded at 15 s. not-in [0] did not settle within the bound.",
+  "observedAt": "2026-10-27T19:30:37.312Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "log": [
+      [
+        "set pos",
+        "ok"
+      ],
+      [
+        "set one",
+        "ok"
+      ],
+      [
+        "set neg",
+        "ok"
+      ],
+      [
+        "get neg",
+        "ok"
+      ],
+      [
+        "eq0",
+        "ok"
+      ],
+      [
+        "eqNeg0",
+        "ok"
+      ],
+      [
+        "in0",
+        "ok"
+      ],
+      [
+        "ne0",
+        "ok"
+      ],
+      [
+        "orderBy",
+        "ok"
+      ]
+    ],
+    "storedNegIsNegZero": true,
+    "eq0": "neg,pos",
+    "eqNeg0": "neg,pos",
+    "in0": "pos",
+    "ne0": "one",
+    "notIn0": {
+      "error": "notIn0 timeout"
+    },
+    "orderBy": "neg,pos,one"
+  }
+}

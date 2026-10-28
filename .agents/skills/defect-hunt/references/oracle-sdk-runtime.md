@@ -21,6 +21,7 @@ capture: an observation can refute a confident hunter.
 | `firestore-transaction-contention-retries`, `firestore-browser-lifecycle` (real Chromium), `firestore-collection-group-listener`, and `rules-firestore-get-after-and-exists-after` | `packages/conformance/src/run-firestore-real.ts` | none |
 | Firestore `request.resource.data` for client writes | `packages/conformance/src/run-firestore-write-request-resource.ts` | none |
 | `admin-firestore-*` | `packages/conformance/src/admin-firestore-probes.ts` | `rigs/admin-firestore.ts` |
+| SDK behavior scenarios: `firestore-*` and `rtdb-modular-*` from the 2026-10-27 hunt on | `packages/conformance/src/run-sdk-scenarios.ts`, one `src/capture/sdk-scenarios/<service>/<name>.scenario.ts` per observation | none (its prefixes belong to `rigs/oracle-run.ts`) |
 
 Each rig manifest in `packages/conformance/rigs/` states the runner's env,
 project setup, what it writes and how it cleans up. Read it, and the runner's
@@ -104,13 +105,34 @@ restored in a `finally` path.
   change (AGENTS.md boundary 6). Every `rtdb-modular` row needs a CDD
   assertion as well.
 
+## `run-sdk-scenarios.ts`: one scenario, two referees
+
+```sh
+PYRIC_ORACLE_SA_PATH=<service-account.json> PYRIC_ORACLE_FIREBASE_CONFIG='<web config json>' \
+PYRIC_ORACLE_RTDB_URL=https://<dedicated-instance>.firebaseio.com \
+  bun run packages/conformance/src/run-sdk-scenarios.ts <observation-name>
+```
+
+- A scenario file drives the modular SDK through an injected module, so the
+  runner passes `firebase/firestore` or `firebase/database` and the pyric
+  suites pass `pyric/firestore`, `pyric/database` or the served worker client
+  through the same code. A new SDK question is a new scenario file; the
+  directory is the index.
+- Inert without names or credentials: it prints the scenario list.
+- Firestore deploys nothing and deletes the run tree with the admin SDK. RTDB
+  runs only against `PYRIC_ORACLE_RTDB_URL`, refuses a default instance,
+  merges the scenario's rules under the run's path in the oracle namespace, and restores the
+  exact rules text in a `finally` path, printing `rules restored: true`.
+- The replays live in `packages/pyric/test/firestore/oracle-captures/`,
+  `packages/pyric/test/database/cdd/capture-*.test.ts` and
+  `packages/cli/test/serve/worker/oracle-captures/`. A pin names its finding
+  and both answers (`replay-comparison.ts`).
+
 ## What is missing
 
-- **No scenario-driven SDK runner.** RTDB rules have a corpus and
-  `run-rules-rtdb.ts`; SDK behavior has only hand-written probes. A new SDK
-  question means a new probe in `run.ts`, a new `rtdb-climb/*.probe.ts`, or a
-  new mode in `run-firestore-real.ts`. In #1247, DF-4, DF-5 and LD-9 waited on
-  this.
+- **Scenarios cover only the SDK hunt's captures.** Older SDK questions are
+  hand-written probes in `run.ts`, `rtdb-climb/*.probe.ts`, or a mode in
+  `run-firestore-real.ts`.
 - **No Firestore climb directory.** Firestore probes that deploy their own
   rules all live in `run-firestore-real.ts`, selected by flag, not by name.
 - **No preview for `run.ts`.** It cannot list what it would capture without
