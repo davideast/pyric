@@ -47,7 +47,7 @@ const NEXTJS_TSCONFIG_JSON = `{
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -58,7 +58,7 @@ const NEXTJS_TSCONFIG_JSON = `{
       "@/*": ["./src/*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
   "exclude": ["node_modules"]
 }
 `;
@@ -494,7 +494,7 @@ export const NEXTJS_TEMPLATE: ScaffoldTemplate = {
   dependencies: {
     firebase: FIREBASE_PIN,
     'firebase-admin': FIREBASE_ADMIN_PIN,
-    next: '^15.0.0',
+    next: '^16.4.0',
     react: '^19.0.0',
     'react-dom': '^19.0.0',
   },
