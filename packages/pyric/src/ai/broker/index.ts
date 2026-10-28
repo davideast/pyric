@@ -31,6 +31,7 @@ export {
   errorEnvelope,
   unknownModel,
   badRole,
+  functionRoleRefused,
   emptyContents,
   missingThoughtSignature,
   resolveModelVersion,

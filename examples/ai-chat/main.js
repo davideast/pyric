@@ -171,11 +171,13 @@ async function weatherDemo() {
     addMsg('tool', `${call.name}(${JSON.stringify(call.args)}) => ${JSON.stringify(result)}`);
 
     // Turn 2: thread the model's functionCall turn and the tool result back.
+    // The tool result rides under role 'user': production Firebase AI Logic
+    // refuses role 'function', and so does the sandbox.
     const second = await model.generateContent({
       contents: [
         { role: 'user', parts: [{ text: question }] },
         first.response.candidates[0].content,
-        { role: 'function', parts: [{ functionResponse: { name: call.name, response: result } }] },
+        { role: 'user', parts: [{ functionResponse: { name: call.name, response: result } }] },
       ],
       tools: [weatherTool],
     });

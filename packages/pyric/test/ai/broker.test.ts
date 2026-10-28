@@ -22,8 +22,10 @@ import {
   Synthesizer,
   ToolCallBuffer,
   badRole,
+  functionRoleRefused,
   emptyContents,
   geminiToOpenAIRequest,
+  lastUserText,
   loadObservationEnvelope,
   mapFinishReason,
   missingThoughtSignature,
@@ -243,6 +245,24 @@ describe('scripted engine queue and matchers', () => {
     expect(hit2.candidates![0]!.content.parts[0]!.text).toBe('second');
   });
 
+  it('matches the question, not the function response turn under role user, on a tool round trip', async () => {
+    const engine = new ScriptedEngine([
+      { match: 'weather', respond: { functionCall: { name: 'get_weather', args: { city: 'Paris' } } } },
+      { match: 'weather', respond: { text: 'sunny' } },
+    ]);
+    const first = await engine.generateContent(userReq('what is the weather in paris'), MODEL);
+    const roundTrip: GenerateContentRequest = {
+      contents: [
+        { role: 'user', parts: [{ text: 'what is the weather in paris' }] },
+        first.candidates![0]!.content,
+        { role: 'user', parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }] },
+      ],
+    };
+    expect(lastUserText(roundTrip)).toBe('what is the weather in paris');
+    const answer = await engine.generateContent(roundTrip, MODEL);
+    expect(answer.candidates![0]!.content.parts[0]!.text).toBe('sunny');
+  });
+
   it('an unconditional entry earlier in the queue wins over a later matcher', async () => {
     const engine = new ScriptedEngine([
       { respond: { text: 'unconditional-first' } },
@@ -349,6 +369,49 @@ describe('error synthesis matches captured envelopes verbatim', () => {
     expect(env.error.message).toBe(obs.messageText);
   });
 
+  it('role function rejects with ai-error-function-role-refused, which names the role', async () => {
+    const obs = loadObs('ai-error-function-role-refused.json').behavior;
+    expect(functionRoleRefused()).toEqual(obs.raw);
+    const contents: GenerateContentRequest['contents'] = [
+      { role: 'user', parts: [{ text: 'weather in Paris?' }] },
+      {
+        role: 'model',
+        parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } }, thoughtSignature: 'sig' }],
+      },
+      { role: 'function', parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }] },
+    ];
+    const env = await envelopeOf(new AiBroker().generateContent({ contents }, MODEL));
+    expect(env).toEqual(obs.raw);
+    expect(env.error.message).toBe(obs.messageText);
+    expect(env.error.message).toContain("Role 'function'");
+  });
+
+  it('role function is refused before the thought-signature check, as in production', async () => {
+    const obs = loadObs('ai-error-function-role-refused.json').behavior;
+    const contents: GenerateContentRequest['contents'] = [
+      { role: 'user', parts: [{ text: 'weather in Paris?' }] },
+      { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }] },
+      { role: 'function', parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }] },
+    ];
+    const env = await envelopeOf(new AiBroker().generateContent({ contents }, MODEL));
+    expect(env.error.message).toBe(obs.messageText);
+  });
+
+  it('accepts only the roles the ai-error-bad-role capture lists: MODEL, USER', async () => {
+    const obs = loadObs('ai-error-bad-role.json').behavior;
+    expect(obs.messageText).toContain('Please use a valid role: MODEL, USER.');
+    for (const role of ['system', 'assistant', 'SYSTEM_1']) {
+      const env = await envelopeOf(
+        new AiBroker().generateContent({ contents: [{ role, parts: [{ text: 'hi' }] }] }, MODEL),
+      );
+      expect(env).toEqual(badRole(role));
+    }
+    for (const role of ['user', 'USER']) {
+      const res = await new AiBroker().generateContent({ contents: [{ role, parts: [{ text: 'hi' }] }] }, MODEL);
+      expect(res.candidates![0]!.finishReason).toBe('STOP');
+    }
+  });
+
   it('empty contents rejects with ai-error-empty-contents (trailing newline and all)', async () => {
     const obs = loadObs('ai-error-empty-contents.json').behavior;
     expect(emptyContents()).toEqual(obs.raw);
@@ -362,7 +425,7 @@ describe('error synthesis matches captured envelopes verbatim', () => {
       { role: 'user', parts: [{ text: 'weather in Paris?' }] },
       { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }] },
       {
-        role: 'function',
+        role: 'user',
         parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }],
       },
     ];
@@ -386,7 +449,7 @@ describe('error synthesis matches captured envelopes verbatim', () => {
         ],
       },
       {
-        role: 'function',
+        role: 'user',
         parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }],
       },
     ];

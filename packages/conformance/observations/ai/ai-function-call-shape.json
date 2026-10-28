@@ -2,15 +2,15 @@
   "name": "ai-function-call-shape",
   "matrixRow": "",
   "rowIds": [
-    "ai#fncall-part-shape",
-    "ai#fncall-mode-any",
     "ai#fncall-id-present",
+    "ai#fncall-mode-any",
+    "ai#fncall-part-shape",
     "ai#helper-functioncalls"
   ],
-  "description": "functionCall part shape under toolConfig mode ANY. The fact that args arrives as a parsed JSON object (not a string) is the load-bearing difference from OpenAI-shaped tool_calls. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
-  "observedAt": "2026-07-10T01:47:15.744Z",
+  "description": "functionCall part shape under toolConfig mode ANY. The fact that args arrives as a parsed JSON object (not a string) is the load-bearing difference from OpenAI-shaped tool_calls.",
+  "observedAt": "2026-10-28T02:04:03.679Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
   "behavior": {
@@ -35,9 +35,9 @@
                   "args": {
                     "city": "Paris"
                   },
-                  "id": "vrsQR5pS"
+                  "id": "call_1649563"
                 },
-                "thoughtSignature": "EjQKMgERTTIPWvGLR+NlDNq/YZLo1k7WYq3v4nYRrBRqFt3uJ5G2IWh+89izbwcJgGK8r5Ib"
+                "thoughtSignature": "EmAKXgFpFH0T14ECmR4rPTwhHKK9eBFk8z2Oe8Bj4pD08veD7Yk0mQrudfD5g5UdYRwnxTiZopV3bmcv9lSaYHafa9bjgEbz5qu5r4hhVH0eEzUaNn1LrSTQ695RMttrps8="
               }
             ],
             "role": "model"
@@ -59,8 +59,8 @@
         ],
         "serviceTier": "standard"
       },
-      "modelVersion": "gemini-3.1-flash-lite",
-      "responseId": "GU9QasmFAdHi_uMP-5OhsQg"
+      "modelVersion": "gemini-3.5-flash-lite",
+      "responseId": "EljhaquLN5aosOIPwKCnsA0"
     }
   }
 }

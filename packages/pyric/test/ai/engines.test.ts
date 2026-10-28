@@ -209,7 +209,7 @@ describe('ai: openai engine translation', () => {
           ],
         },
         {
-          role: 'function',
+          role: 'user',
           parts: [
             { functionResponse: { name: 'first_tool', response: { ok: 1 } } },
             { functionResponse: { name: 'second_tool', response: { ok: 2 } } },

@@ -45,12 +45,18 @@ export function promptTextOf(req: GenerateContentRequest | CountTokensRequest): 
   return system + contents;
 }
 
-/** Text of the last `user` turn — what string/regex matchers run against. */
+/**
+ * Text of the last `user` turn — what string/regex matchers run against.
+ * A function response turn rides under role `user` too (#1410); it carries
+ * a tool result, not a prompt, so it is skipped.
+ */
 export function lastUserText(req: GenerateContentRequest): string {
   const contents = req.contents ?? [];
   for (let i = contents.length - 1; i >= 0; i--) {
     const c = contents[i]!;
-    if ((c.role ?? '').toLowerCase() === 'user') {
+    const isUserTurn = (c.role ?? '').toLowerCase() === 'user';
+    const isFunctionResponseTurn = (c.parts ?? []).some((p) => p.functionResponse);
+    if (isUserTurn && !isFunctionResponseTurn) {
       return (c.parts ?? []).map((p) => p.text ?? '').join('');
     }
   }

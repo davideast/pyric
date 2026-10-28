@@ -156,7 +156,21 @@ export function unknownModel(name: string): WireErrorEnvelope {
 export function badRole(role: string): WireErrorEnvelope {
   return errorEnvelope(
     400,
-    `Role '${role}' is not supported. Please use a valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER.`,
+    `Role '${role}' is not supported. Please use a valid role: MODEL, USER.`,
+    'INVALID_ARGUMENT',
+  );
+}
+
+/**
+ * `ai-error-function-role-refused` (400 INVALID_ARGUMENT), captured text
+ * verbatim. Production lists a longer role vocabulary for `function` than
+ * for an unknown role (`badRole`), and the broker accepts neither list in
+ * full: it accepts only MODEL and USER.
+ */
+export function functionRoleRefused(): WireErrorEnvelope {
+  return errorEnvelope(
+    400,
+    "Role 'function' is not supported. Please use a valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER.",
     'INVALID_ARGUMENT',
   );
 }
