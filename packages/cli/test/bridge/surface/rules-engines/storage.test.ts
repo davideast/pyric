@@ -5,7 +5,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
-import { getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
+import { deleteObject, getMetadata, getStorageSandbox, ref, updateMetadata, uploadBytes } from 'pyric/storage';
 import { compileStorageRules } from 'pyric/storage/internal';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
@@ -70,10 +70,40 @@ describe('lint', () => {
     expect((result.data as { errors: string[] }).errors.length).toBeGreaterThan(0);
   });
 
-  it('parses a supplied source with no errors', async () => {
-    const result = await STORAGE_RULES.lint(freshContext(), OPEN_RULES);
+  it('passes a source that checks the caller and the upload with no errors', async () => {
+    const checked = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid && request.resource.size < 1024 * 1024;
+    }
+  }
+}`;
+    const result = await STORAGE_RULES.lint(freshContext(), checked);
     expect(result.ok).toBe(true);
     expect((result.data as { errors: string[] }).errors).toEqual([]);
+    expect(result.summary).toBe('Storage rules compiled with no lint errors. Warnings: SEC-4.');
+  });
+
+  it('reports the shared linter\'s security findings for public read and write (ST-H3-7)', async () => {
+    const result = await STORAGE_RULES.lint(freshContext(), OPEN_RULES);
+    expect(result.ok).toBe(false);
+    const issues = (result.data as { issues: Array<{ code: string }> }).issues;
+    const codes = issues.map((issue) => issue.code);
+    expect(codes).toContain('SEC-1');
+    expect(codes).toContain('SEC-2');
+    expect(codes).toContain('SEC-5');
+    expect(result.summary).toContain('SEC-1');
+  });
+
+  it('lints the installed source when none is supplied', async () => {
+    const ctx = freshContext();
+    await STORAGE_RULES.install(ctx, OPEN_RULES);
+    const result = await STORAGE_RULES.lint(ctx, undefined);
+    expect(result.ok).toBe(false);
+    const codes = (result.data as { issues: Array<{ code: string }> }).issues.map((issue) => issue.code);
+    expect(codes).toContain('SEC-1');
   });
 });
 
@@ -336,5 +366,185 @@ service firebase.storage {
     expect(() => compileStorageRules(v2WithImport)).toThrow(/rules_version = '2\+modules'/);
     const v2Install = await STORAGE_RULES.install(ctx, v2WithImport);
     expect(v2Install.ok).toBe(false);
+  });
+});
+
+/**
+ * `request.resource` is built per verb, as the live planes build it
+ * (ST-H2-5, ST-H2-6, ST-H3-2, ST-H3-3). Each expected verdict comes from the
+ * same request made on the in-page plane in the same sandbox.
+ */
+describe('simulate request.resource by verb', () => {
+  const OWNER_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} {
+      allow get, delete: if request.resource == null;
+      allow create: if request.auth != null && request.resource.metadata.owner == request.auth.uid;
+      allow update: if request.resource.size == 11;
+    }
+  }
+}`;
+
+  async function seeded() {
+    const sandbox = initializeSandbox();
+    const ctx = createSurfaceContext(sandbox);
+    await STORAGE_RULES.install(ctx, OWNER_RULES);
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }));
+    await uploadBytes(ref(alice, 'docs/readme.txt'), new TextEncoder().encode('hello world'), {
+      contentType: 'text/plain',
+      customMetadata: { owner: 'alice' },
+    });
+    return { ctx, alice };
+  }
+
+  function allowedOf(result: { ok: boolean; data?: unknown }): boolean {
+    expect(result.ok).toBe(true);
+    return (result.data as { allowed: boolean }).allowed;
+  }
+
+  async function liveAllows(run: () => Promise<unknown>): Promise<boolean> {
+    try {
+      await run();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  it('builds a re-upload from the case data only, not the stored object (ST-H2-5)', async () => {
+    const { ctx, alice } = await seeded();
+    const live = await liveAllows(() =>
+      uploadBytes(ref(alice, 'docs/readme.txt'), new TextEncoder().encode('again'), {
+        contentType: 'text/plain',
+      }),
+    );
+    expect(live).toBe(false);
+    const simulated = await STORAGE_RULES.simulate(ctx, {
+      operation: 'create',
+      path: 'docs/readme.txt',
+      uid: 'alice',
+      data: { contentType: 'text/plain', size: 5 },
+    });
+    expect(allowedOf(simulated)).toBe(live);
+  });
+
+  it('gives an upload with no data the upload defaults', async () => {
+    const rules = OPEN_RULES.replace(
+      'allow read, write: if true;',
+      "allow create: if request.resource.contentType == 'application/octet-stream' && request.resource.size == 0;",
+    );
+    const result = await STORAGE_RULES.simulate(freshContext(), { operation: 'create', path: 'a/b.bin', rules });
+    expect(allowedOf(result)).toBe(true);
+  });
+
+  it('builds an update from the stored object even when no data is passed (ST-H3-2)', async () => {
+    const { ctx, alice } = await seeded();
+    const simulated = await STORAGE_RULES.simulate(ctx, {
+      operation: 'update',
+      path: 'docs/readme.txt',
+      uid: 'alice',
+    });
+    const live = await liveAllows(() => updateMetadata(ref(alice, 'docs/readme.txt'), {}));
+    expect(live).toBe(true);
+    expect(allowedOf(simulated)).toBe(live);
+  });
+
+  it('denies an update of an object that is not stored, as the live update does', async () => {
+    const { ctx, alice } = await seeded();
+    const rules = OWNER_RULES.replace('request.resource.size == 11', 'request.auth != null && request.resource.size < 1024');
+    await STORAGE_RULES.install(ctx, rules);
+    const live = await liveAllows(() => updateMetadata(ref(alice, 'docs/missing.txt'), {}));
+    expect(live).toBe(false);
+    const simulated = await STORAGE_RULES.simulate(ctx, {
+      operation: 'update',
+      path: 'docs/missing.txt',
+      uid: 'alice',
+    });
+    expect(allowedOf(simulated)).toBe(live);
+  });
+
+  it('patches the stored object with the case data on an update', async () => {
+    const { ctx } = await seeded();
+    const rules = OPEN_RULES.replace(
+      'allow read, write: if true;',
+      "allow update: if request.resource.contentType == 'text/markdown' && request.resource.metadata.owner == 'alice';",
+    );
+    const result = await STORAGE_RULES.simulate(ctx, {
+      operation: 'update',
+      path: 'docs/readme.txt',
+      rules,
+      data: { contentType: 'text/markdown' },
+    });
+    expect(allowedOf(result)).toBe(true);
+  });
+
+  for (const operation of ['get', 'list', 'delete'] as const) {
+    it(`refuses data on a ${operation}, which carries no request.resource (ST-H2-6)`, async () => {
+      const { ctx } = await seeded();
+      const result = await STORAGE_RULES.simulate(ctx, {
+        operation,
+        path: 'docs/readme.txt',
+        uid: 'alice',
+        data: { size: 5 },
+      });
+      expect(result.ok).toBe(false);
+      expect(result.summary).toContain(`a ${operation} request carries no request.resource; remove 'data'`);
+    });
+  }
+
+  it('evaluates a get and a delete with no request.resource, as the live planes do', async () => {
+    const { ctx, alice } = await seeded();
+    const liveGet = await liveAllows(() => getMetadata(ref(alice, 'docs/readme.txt')));
+    const simGet = await STORAGE_RULES.simulate(ctx, { operation: 'get', path: 'docs/readme.txt', uid: 'alice' });
+    expect(allowedOf(simGet)).toBe(liveGet);
+    const simDelete = await STORAGE_RULES.simulate(ctx, {
+      operation: 'delete',
+      path: 'docs/readme.txt',
+      uid: 'alice',
+    });
+    const liveDelete = await liveAllows(() => deleteObject(ref(alice, 'docs/readme.txt')));
+    expect(allowedOf(simDelete)).toBe(liveDelete);
+  });
+
+  it('reads a numeric string size as its number (ST-H3-3)', async () => {
+    const rules = OPEN_RULES.replace('allow read, write: if true;', 'allow create: if request.resource.size > 1000;');
+    const result = await STORAGE_RULES.simulate(freshContext(), {
+      operation: 'create',
+      path: 'a/b.bin',
+      rules,
+      data: { size: '999999' },
+    });
+    expect(allowedOf(result)).toBe(true);
+  });
+
+  it('refuses a misspelled data field, naming it (ST-H3-3)', async () => {
+    const result = await STORAGE_RULES.simulate(freshContext(), {
+      operation: 'create',
+      path: 'a/b.bin',
+      rules: OPEN_RULES,
+      data: { sise: 10 },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain('data.sise is not a field of request.resource');
+  });
+
+  it('refuses a wrong-typed data field, naming it (ST-H3-3)', async () => {
+    const ctx = freshContext();
+    const wrong: Array<[string, Record<string, unknown>]> = [
+      ['data.size', { size: true }],
+      ['data.contentType', { contentType: 5 }],
+      ['data.metadata.owner', { metadata: { owner: 5 } }],
+    ];
+    for (const [field, data] of wrong) {
+      const result = await STORAGE_RULES.simulate(ctx, {
+        operation: 'create',
+        path: 'a/b.bin',
+        rules: OPEN_RULES,
+        data,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.summary).toContain(field);
+    }
   });
 });

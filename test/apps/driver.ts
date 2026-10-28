@@ -8,12 +8,34 @@
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
-import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
-import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
+import {
+  debugLogTail,
+  NESTED_INSTALL_ATTEMPT_MS,
+  npmInstall,
+  pinPyricPackages,
+  retryOnceOnTimeout,
+  type Tarballs,
+  type TimedResult,
+} from './install.ts';
+import { describeGroupProcesses, describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
+
+/** How much of npm's debug log the job log gets when an install attempt times out. */
+const NPM_LOG_TAIL_LINES = 40;
+
+/** How `installProject` runs npm. Tests pass a stand-in npm, a short limit, and their own report. */
+export interface NestedNpm {
+  command: string;
+  attemptMs: number;
+  /** Where the `[runner]` lines go; the run's output by default. */
+  report?: (line: string) => void;
+}
+
+const NPM_INSTALL: NestedNpm = { command: 'npm', attemptMs: NESTED_INSTALL_ATTEMPT_MS };
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -131,6 +153,11 @@ export class AppProcess {
 
   get output(): string {
     return this.text;
+  }
+
+  /** The child's pid, which also numbers its process group (it is spawned detached). */
+  get pid(): number | undefined {
+    return this.child.pid;
   }
 
   get running(): boolean {
@@ -441,7 +468,7 @@ export class AppRun implements App {
     private readonly home: string,
     private readonly launchBrowser: () => Promise<Browser>,
     /** The packed Pyric packages and npm cache the runner installed the app with. */
-    private readonly packages?: { tarballs: Tarballs; npmCache: string },
+    private readonly packages?: { tarballs: Tarballs; npmCache: string; npm?: NestedNpm },
     /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
     private readonly ports: PortIssuer = runPorts,
   ) {}
@@ -533,6 +560,17 @@ export class AppRun implements App {
     args: string[],
     options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number } = {},
   ): Promise<ScriptResult> {
+    const result = await this.timedCommand(command, args, options);
+    if (result.timedOut) throw new Error(`${[command, ...args].join(' ')} did not exit within ${result.timeoutMs / 1000}s:\n${result.output}`);
+    return { code: result.code, output: result.output };
+  }
+
+  /** Runs a command to exit, or stops it at `timeoutMs` and says so instead of throwing. */
+  private async timedCommand(
+    command: string,
+    args: string[],
+    options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
+  ): Promise<TimedResult & { timeoutMs: number; running?: string }> {
     this.scriptCount += 1;
     const label = [command, ...args].join(' ');
     const child = new AppProcess(
@@ -546,18 +584,48 @@ export class AppRun implements App {
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
+      // Read before the stop ends them: what the command was still running.
+      const running = child.pid === undefined ? undefined : describeGroupProcesses(child.pid);
       await child.stop();
-      throw new Error(`${label} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+      return { code: null, output: child.output, timedOut: true, timeoutMs, running };
     }
-    return { code: await child.exited, output: child.output };
+    return { code: await child.exited, output: child.output, timedOut: false, timeoutMs };
   }
 
+  /**
+   * `npm install` in `path`, under a limit per attempt. An attempt that hangs
+   * is stopped, its node_modules removed, and tried once more (#1476); npm's
+   * debug log goes to the app's home, and its end joins the output of an
+   * attempt that timed out, so the hang can be read from the app's log.
+   */
   async installProject(path: string): Promise<ScriptResult> {
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
-    pinPyricPackages(join(this.dir, path), this.packages.tarballs);
-    const result = await npmInstall(this.packages.npmCache, (args) => this.command('npm', args, { cwd: path, timeoutMs: 240_000 }));
+    const { npmCache, tarballs, npm = NPM_INSTALL } = this.packages;
+    pinPyricPackages(join(this.dir, path), tarballs);
+    const logsDir = join(this.home, 'npm-logs', path);
+    const what = `${this.name}: npm install in ${path}`;
+    const report = npm.report ?? ((line: string) => console.log(line));
+    const attempt = async (args: string[]): Promise<TimedResult> => {
+      const result = await this.timedCommand(npm.command, args, { cwd: path, timeoutMs: npm.attemptMs });
+      if (!result.timedOut) return { code: result.code, output: result.output, timedOut: false };
+      // Printed now: the app's logs are saved only when it fails, and its home
+      // is removed after it, so a retry that passes would lose this (#1494).
+      // npm's log does not cover what its install scripts do, such as a
+      // prebuilt binary a package downloads itself, so the processes npm was
+      // still running are named too.
+      const running = `[runner] processes in its group when it was stopped:\n${result.running ?? '(unknown)'}\n`;
+      const note = `[runner] ${what} stopped after ${result.timeoutMs / 1000} s\n${running}${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}`;
+      report(note.trimEnd());
+      return { code: result.code, output: `${result.output}\n${note}`, timedOut: true };
+    };
+    const result = await retryOnceOnTimeout(() => npmInstall(npmCache, attempt, logsDir), {
+      what,
+      reset: () => rm(join(this.dir, path, 'node_modules'), { recursive: true, force: true }),
+      report,
+    });
+    if (result.timedOut) throw new Error(`npm install in ${path} timed out on both attempts:\n${result.output}`);
     if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
-    return result;
+    return { code: result.code, output: result.output };
   }
 
   async serverScript(

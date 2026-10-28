@@ -1,0 +1,10 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} {
+      allow get: if request.auth != null;
+      allow create: if request.auth != null && request.resource.metadata.owner == request.auth.uid;
+      allow update: if request.auth != null && request.resource.size < 1024;
+    }
+  }
+}

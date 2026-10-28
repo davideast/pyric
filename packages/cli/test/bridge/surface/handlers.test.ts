@@ -227,7 +227,12 @@ it('lints and simulates the rules of all three services', async () => {
   const databaseLint = await run('rules.lint', { service: 'database', rules: DATABASE_RULES });
   expect((databaseLint.data as { issues: Array<{ code: string }> }).issues.map((issue) => issue.code))
     .toContain('RTDB-SEC-1');
-  expect((await run('rules.lint', { service: 'storage', rules: STORAGE_RULES })).ok).toBe(true);
+  // The harness Storage rules are public too, so the shared linter reports
+  // them as `lint()` does (ST-H3-7).
+  const storageLint = await run('rules.lint', { service: 'storage', rules: STORAGE_RULES });
+  expect(storageLint.ok).toBe(false);
+  expect((storageLint.data as { issues: Array<{ code: string }> }).issues.map((issue) => issue.code))
+    .toContain('SEC-1');
 
   const database = await run('rules.simulate', {
     service: 'database',

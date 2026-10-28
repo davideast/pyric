@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { AppProcess, AppRun, freePort, portIssuer, probePort, type PortIssuer, type SpawnChild } from './driver.ts';
 
 /** A child that never gets a pid, so the driver sends it no signal. */
@@ -181,4 +184,81 @@ describe('app ports', () => {
       await app.close();
     }
   });
+});
+
+/**
+ * A stand-in npm: every call writes a debug log to its --logs-dir and leaves
+ * a file in node_modules. The calls listed in `hangs` (1-based) then wait on
+ * a child, as npm waits on an install script, until stopped; the others exit 0. A call that finds an earlier call's
+ * node_modules says so in `leftovers`.
+ */
+function fakeNpm(dir: string, hangs: number[]): string {
+  const script = join(dir, 'fake-npm.sh');
+  writeFileSync(script, `#!/bin/bash
+calls="${dir}/calls"
+n=$(( $(cat "$calls" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$calls"
+logs=""
+for arg in "$@"; do case "$arg" in --logs-dir=*) logs="\${arg#--logs-dir=}";; esac; done
+mkdir -p "$logs"
+printf '0 verbose cli fake npm call %s\\n1 http fetch GET https://registry.npmjs.org/stalled-%s\\n' "$n" "$n" > "$logs/2026-10-28T12_0\${n}_00_000Z-debug-0.log"
+[ -e node_modules/left-by-call ] && echo "call $n found node_modules from an earlier call" >> "${dir}/leftovers"
+mkdir -p node_modules && touch node_modules/left-by-call
+case " ${hangs.join(' ')} " in *" $n "*) sleep 31 & wait;; esac
+echo "added 1 package"
+`);
+  chmodSync(script, 0o755);
+  return script;
+}
+
+function installRun(hangs: number[]) {
+  const work = mkdtempSync(join(tmpdir(), 'pyric-install-project-'));
+  mkdirSync(join(work, 'app', 'my-chat'), { recursive: true });
+  writeFileSync(join(work, 'app', 'my-chat', 'package.json'), '{"name":"my-chat","private":true}\n');
+  const lines: string[] = [];
+  const npm = { command: fakeNpm(work, hangs), attemptMs: 1_000, report: (line: string) => lines.push(line) };
+  const noBrowser = () => Promise.reject(new Error('no browser in this test'));
+  const run = new AppRun('chat', join(work, 'app'), join(work, 'home'), noBrowser, { tarballs: new Map(), npmCache: join(work, 'cache'), npm });
+  const read = (name: string) => (existsSync(join(work, name)) ? readFileSync(join(work, name), 'utf8') : '');
+  return { run, lines, read, done: () => rmSync(work, { recursive: true, force: true }) };
+}
+
+describe('installProject when npm hangs (#1476)', () => {
+  test('a hung attempt prints its npm debug log to the run output at once, and a fresh attempt passes', async () => {
+    const { run, lines, read, done } = installRun([1]);
+    try {
+      const result = await run.installProject('my-chat');
+      expect(result.code).toBe(0);
+      expect(read('calls').trim()).toBe('2');
+      expect(read('leftovers')).toBe('');
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toStartWith('[runner] chat: npm install in my-chat stopped after 1 s');
+      expect(lines[0]).toContain('[runner] processes in its group when it was stopped:');
+      expect(lines[0]).toMatch(/pid \d+ parent \d+ state \w: \S*bash \S*fake-npm\.sh install/);
+      expect(lines[0]).toMatch(/pid \d+ parent \d+ state \w: sleep 31/);
+      expect(lines[0]).toContain("[runner] the end of npm's debug log 2026-10-28T12_01_00_000Z-debug-0.log");
+      expect(lines[0]).toContain('http fetch GET https://registry.npmjs.org/stalled-1');
+      expect(lines[1]).toStartWith('[runner] infrastructure retry: chat: npm install in my-chat timed out');
+      expect(lines[2]).toMatch(/exited 0 in \d+ s, 2 attempts \(1 infrastructure retry\)$/);
+    } finally {
+      await run.close();
+      done();
+    }
+  }, 20_000);
+
+  test('a second hang fails the install with both debug logs, and is not tried a third time', async () => {
+    const { run, lines, read, done } = installRun([1, 2]);
+    try {
+      const failure = await run.installProject('my-chat').then(() => undefined, (error: Error) => error);
+      expect(failure?.message).toContain('npm install in my-chat timed out on both attempts');
+      expect(failure?.message).toContain('stalled-1');
+      expect(failure?.message).toContain('stalled-2');
+      expect(read('calls').trim()).toBe('2');
+      expect(lines.filter((line) => line.includes('stopped after'))).toHaveLength(2);
+      expect(lines.at(-1)).toMatch(/timed out in \d+ s, 2 attempts \(1 infrastructure retry\)$/);
+    } finally {
+      await run.close();
+      done();
+    }
+  }, 20_000);
 });
