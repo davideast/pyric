@@ -1,5 +1,6 @@
 import type { PathSegment } from './rules.js';
 import { StoragePath } from './rules-path.js';
+import { recursiveWildcardMinimum } from '../../rules/grammar/recursive-wildcard-minimum.js';
 
 export type PathParamValue = string | string[] | StoragePath;
 
@@ -24,16 +25,7 @@ export function formatPath(segments: PathSegment[]): string {
   );
 }
 
-/**
- * The fewest segments a recursive wildcard (`{name=**}`) matches under a
- * ruleset's `rules_version`. Version 1, the default when the source declares
- * none, needs one or more; version 2 takes zero or more. The Storage docs:
- * "In version 1, recursive wildcards match one or more filename elements,
- * not zero or more elements." Capture `rules-storage-h1-v1-recursive-wildcard`.
- */
-export function recursiveWildcardMinimum(rulesVersion: string): number {
-  return rulesVersion === '1' ? 1 : 0;
-}
+export { recursiveWildcardMinimum };
 
 /**
  * Match `segments` against `remaining` under the ruleset's `rules_version`.
