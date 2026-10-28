@@ -8,8 +8,12 @@
 // A process started before its host fails its first calls and reaches the
 // host at its next call once the host is up, with no restart.
 // Each process stays up only while its SDKs would hold a production process.
+// A process started while the host is paused waits for it.
 import assert from 'node:assert/strict';
-import { scenario, type App } from '../driver.ts';
+import { scenario, sleep, type App } from '../driver.ts';
+
+/** How long the host is paused: past two of discovery's one-second health probes. */
+const HOST_STALL_MS = 2_500;
 
 declare function readBack(): Promise<{ database: unknown; firestore: unknown; aggregate: unknown }>;
 
@@ -155,5 +159,25 @@ export default scenario(async (app) => {
     assert.equal(await lifetime(app, env, 'listener'), true, 'an open Firestore listener holds it');
     assert.equal(await lifetime(app, env, 'rtdb'), true, 'RTDB holds it until goOffline() or deleteApp()');
     assert.equal(await lifetime(app, env, 'offline'), false, 'goOffline() releases it');
+  });
+
+  await app.step('a process started while its host is busy waits for it instead of calling it stale', async () => {
+    // A busy host answers nothing for longer than discovery's one-second
+    // health probe, twice over. Its pointer still names a running process, so
+    // the host is not gone (#1527).
+    const pid = host.process.pid;
+    assert.ok(pid !== undefined, 'the dev server has no pid');
+    process.kill(pid, 'SIGSTOP');
+    let output: string;
+    try {
+      const run = app.serverScript('busy-host.mjs', [], { env, timeoutMs: 30_000 });
+      await sleep(HOST_STALL_MS);
+      process.kill(pid, 'SIGCONT');
+      output = (await run).output;
+    } finally {
+      process.kill(pid, 'SIGCONT');
+    }
+    assert.doesNotMatch(output, /is stale/, output);
+    expectOk(output, 'busy.listener', null);
   });
 });

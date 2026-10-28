@@ -142,6 +142,27 @@ describe('selectExplicitHost: PYRIC_SANDBOX=remote:<url>', () => {
     expect(choice.notice).toContain('Set PYRIC_SANDBOX=remote');
   });
 
+  it('uses the url without a stale notice when the probe missed a host that discovery then found at that url', async () => {
+    // A dev server restarting between the probe and discovery (#1527).
+    const choice = await selectExplicitHost({
+      url: 'http://127.0.0.1:5192',
+      cwd: '/workspace/app',
+      discover: async () => mine,
+      probe: nothingAnswers,
+    });
+    expect(choice).toEqual({ kind: 'explicit', serveUrl: 'http://127.0.0.1:5192', base: 'http://127.0.0.1:5192' });
+  });
+
+  it('treats localhost and the loopback address the pointer recorded as the same url', async () => {
+    const choice = await selectExplicitHost({
+      url: 'http://localhost:5192',
+      cwd: '/workspace/app',
+      discover: async () => mine,
+      probe: nothingAnswers,
+    });
+    expect(choice).toEqual({ kind: 'explicit', serveUrl: 'http://localhost:5192', base: 'http://127.0.0.1:5192' });
+  });
+
   it('falls back to this project\'s host when another host answers at the url', async () => {
     const choice = await selectExplicitHost({
       url: 'http://localhost:3473',
