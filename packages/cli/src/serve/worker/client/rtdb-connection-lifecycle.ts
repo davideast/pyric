@@ -3,6 +3,7 @@ import { validateWritablePath } from 'pyric/database/internal';
 import { nextId } from './core.js';
 import type { ClientPort, ClientRtdb, ClientRtdbInstance, RtdbRefHandle } from './handles.js';
 import { rtdbRpc } from './rtdb-references.js';
+import { validateRtdbPriority, validateRtdbUpdateValues, validateRtdbValue } from './rtdb-value-validation.js';
 
 interface RtdbConnectionState {
   networkEnabled: boolean;
@@ -85,6 +86,7 @@ export class RtdbOnDisconnect {
 
   set(value: unknown): Promise<void> {
     validateWritablePath('OnDisconnect.set', this._path);
+    validateRtdbValue('OnDisconnect.set', value, this._path);
     return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value,
     }).then(() => undefined);
@@ -92,6 +94,8 @@ export class RtdbOnDisconnect {
 
   setWithPriority(value: unknown, priority: string | number | null): Promise<void> {
     validateWritablePath('OnDisconnect.setWithPriority', this._path);
+    validateRtdbValue('OnDisconnect.setWithPriority', value, this._path);
+    validateRtdbPriority('OnDisconnect.setWithPriority', priority);
     return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value, priority,
     }).then(() => undefined);
@@ -99,6 +103,7 @@ export class RtdbOnDisconnect {
 
   update(values: Record<string, unknown>): Promise<void> {
     validateWritablePath('OnDisconnect.update', this._path);
+    validateRtdbUpdateValues('OnDisconnect.update', values, this._path);
     return rtdbRpc(this._repo, {
       t: 'op', id: nextId(), method: 'rtdb.onDisconnectUpdate', path: this._path, values,
     }).then(() => undefined);

@@ -1,1 +1,0 @@
-{"kind":"verdict","rowId":"storage-rules#219","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"split() returns capture-group text in pyric; production drops it","issue":"ST-H1-13 / FS2-SIM-4"}

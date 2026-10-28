@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   OracleRulesSession,
   firestoreOracleTarget,
+  rtdbOracleTarget,
   runWithOracleRulesRestored,
   storageOracleTarget,
 } from '../../src/oracle-rules-session.ts';
@@ -119,6 +120,221 @@ function liveSource(fake: Fake, release: string): string | undefined {
 function session(fake: Fake): OracleRulesSession {
   return new OracleRulesSession({ projectId: PROJECT, accessToken: async () => 'test-token', fetch: fake.fetch });
 }
+
+const DATABASE_URL = 'https://oracle-test-rtdb.firebaseio.com';
+
+// Comments and spacing are kept: the restore must put back the exact source.
+const RTDB_ORIGINAL = `{
+  // the project's own rules
+  "rules": {
+    "users": { "$uid": { ".read": "auth.uid === $uid" } }
+  }
+}`;
+
+const RTDB_ORIGINAL_JSON = `{
+  "rules": {
+    "users": { "$uid": { ".read": "auth.uid === $uid" } }
+  }
+}`;
+
+interface FakeRtdb {
+  fetch: (url: string, init?: RequestInit) => Promise<Response>;
+  source: { value: string };
+  calls: string[];
+  failures: Array<{ method: string; status: number; remaining: number }>;
+  /** When set, a PUT answers 200 but leaves the rules unchanged. */
+  ignorePuts: { value: boolean };
+}
+
+/** An in-memory `<databaseUrl>/.settings/rules.json` endpoint that stores the rules source verbatim. */
+function fakeRtdbRules(initial: string): FakeRtdb {
+  const source = { value: initial };
+  const calls: string[] = [];
+  const failures: FakeRtdb['failures'] = [];
+  const ignorePuts = { value: false };
+  const handler = async (url: string, init: RequestInit = {}): Promise<Response> => {
+    const method = init.method ?? 'GET';
+    const parsed = new URL(url);
+    calls.push(`${method} ${parsed.pathname} token=${parsed.searchParams.get('access_token')}`);
+    if (`${parsed.origin}${parsed.pathname}` !== `${DATABASE_URL}/.settings/rules.json`) {
+      return new Response('{"error":"not found"}', { status: 404 });
+    }
+    const failure = failures.find((f) => f.method === method && f.remaining > 0);
+    if (failure) {
+      failure.remaining -= 1;
+      return new Response('{"error":"injected failure"}', { status: failure.status });
+    }
+    if (method === 'GET') return new Response(source.value, { status: 200 });
+    if (method === 'PUT') {
+      if (!ignorePuts.value) source.value = String(init.body);
+      return new Response(null, { status: 204 });
+    }
+    return new Response('{"error":"unhandled"}', { status: 405 });
+  };
+  return { fetch: handler, source, calls, failures, ignorePuts };
+}
+
+function rtdbTarget(tokens: { count: number } = { count: 0 }) {
+  return rtdbOracleTarget(DATABASE_URL, async () => `rtdb-token-${++tokens.count}`);
+}
+
+function rtdbSession(fake: FakeRtdb): OracleRulesSession {
+  return new OracleRulesSession({ projectId: PROJECT, accessToken: async () => 'test-token', fetch: fake.fetch });
+}
+
+describe('OracleRulesSession for RTDB', () => {
+  test('rules that lack the oracle block read back identical after the run', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const s = rtdbSession(fake);
+
+    const result = await runWithOracleRulesRestored(s, async () => {
+      expect(await s.deployRtdb(rtdbTarget())).toBe('merged');
+      const live = JSON.parse(fake.source.value) as { rules: Record<string, unknown> };
+      expect(Object.keys(live.rules)).toEqual(['users', 'pyric_oracle']);
+      return 'done';
+    });
+
+    expect(result).toBe('done');
+    expect(fake.source.value).toBe(RTDB_ORIGINAL_JSON);
+  });
+
+  test('an interrupted run restores the rules: restoreAll alone puts them back', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const s = rtdbSession(fake);
+    await s.deployRtdb(rtdbTarget());
+    expect(fake.source.value).toContain('pyric_oracle');
+
+    // The SIGINT and SIGTERM handler in run.ts calls restoreAll directly.
+    await s.restoreAll();
+
+    expect(fake.source.value).toBe(RTDB_ORIGINAL_JSON);
+  });
+
+  test('the rules come back when the run body throws, and the body error is kept', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const s = rtdbSession(fake);
+    const failure = new Error('probe exploded');
+
+    const error = await runWithOracleRulesRestored(s, async () => {
+      await s.deployRtdb(rtdbTarget());
+      throw failure;
+    }).catch((e: unknown) => e);
+
+    expect(error).toBe(failure);
+    expect(fake.source.value).toBe(RTDB_ORIGINAL_JSON);
+  });
+
+  test('a probe that rewrites the rules mid-run is undone by the restore too', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const s = rtdbSession(fake);
+    await s.deployRtdb(rtdbTarget());
+    fake.source.value = '{"rules":{"probe_scratch":{".read":true}}}';
+
+    await s.restoreAll();
+
+    expect(fake.source.value).toBe(RTDB_ORIGINAL_JSON);
+  });
+
+  test('a fresh database gets the minimal oracle rules, and the restore puts back the empty rules', async () => {
+    const empty = '{\n  "rules": {}\n}';
+    const fake = fakeRtdbRules(empty);
+    const s = rtdbSession(fake);
+
+    expect(await s.deployRtdb(rtdbTarget())).toBe('fresh');
+    expect(JSON.parse(fake.source.value)).toEqual({
+      rules: {
+        '.read': false,
+        '.write': false,
+        pyric_oracle: {
+          '.read': 'auth != null',
+          '.write': 'auth != null',
+          $run: { $probe: { list: { '.indexOn': ['pos', 'group'] } } },
+        },
+      },
+    });
+
+    await s.restoreAll();
+    expect(fake.source.value).toBe(empty);
+  });
+
+  test('rules that already carry the oracle block are left alone and nothing is written', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    await rtdbSession(fake).deployRtdb(rtdbTarget());
+    const configured = fake.source.value;
+    const second = rtdbSession(fake);
+    const before = fake.calls.length;
+
+    expect(await second.deployRtdb(rtdbTarget())).toBe('already-configured');
+    await second.restoreAll();
+
+    expect(fake.calls.slice(before).filter((c) => !c.startsWith('GET'))).toEqual([]);
+    expect(fake.source.value).toBe(configured);
+  });
+
+  test('rules the harness cannot parse are refused before anything is written', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL);
+    const s = rtdbSession(fake);
+
+    await expect(s.deployRtdb(rtdbTarget())).rejects.toThrow('parse RTDB rules');
+    await s.restoreAll();
+
+    expect(fake.calls.filter((c) => c.startsWith('PUT'))).toEqual([]);
+    expect(fake.source.value).toBe(RTDB_ORIGINAL);
+  });
+
+  test('a deploy whose write fails still restores the rules', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const s = rtdbSession(fake);
+    fake.failures.push({ method: 'PUT', status: 500, remaining: 1 });
+
+    await expect(s.deployRtdb(rtdbTarget())).rejects.toThrow('deploy RTDB oracle rules');
+    await s.restoreAll();
+
+    expect(fake.calls.filter((c) => c.startsWith('PUT'))).toHaveLength(2);
+    expect(fake.source.value).toBe(RTDB_ORIGINAL_JSON);
+  });
+
+  test('a restore that reads back different rules fails loudly with the rules to put back by hand', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const s = rtdbSession(fake);
+    await s.deployRtdb(rtdbTarget());
+    fake.ignorePuts.value = true;
+
+    const error = (await s.restoreAll().catch((e: unknown) => e)) as Error;
+
+    expect(error.message).toContain('ORACLE RULES RESTORE FAILED');
+    expect(error.message).toContain(`RTDB (${DATABASE_URL})`);
+    expect(error.message).toContain('do not match the rules recorded before the run');
+    expect(error.message).toContain(RTDB_ORIGINAL_JSON);
+  });
+
+  test('a failed RTDB restore does not stop the Firestore restore', async () => {
+    const rules = fakeRulesApi({ 'cloud.firestore': FIRESTORE_ORIGINAL });
+    const rtdb = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const both = (url: string, init?: RequestInit) =>
+      url.startsWith(DATABASE_URL) ? rtdb.fetch(url, init) : rules.fetch(url, init);
+    const s = new OracleRulesSession({ projectId: PROJECT, accessToken: async () => 'test-token', fetch: both });
+    await s.deployRtdb(rtdbTarget());
+    await s.deploy(firestoreOracleTarget());
+    rtdb.failures.push({ method: 'PUT', status: 503, remaining: 99 });
+
+    const error = (await s.restoreAll().catch((e: unknown) => e)) as Error;
+
+    expect(error.message).toContain('RTDB');
+    expect(liveSource(rules, 'cloud.firestore')).toBe(FIRESTORE_ORIGINAL);
+  });
+
+  test('the RTDB restore uses a fresh token from the RTDB token source', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const s = rtdbSession(fake);
+    const tokens = { count: 0 };
+    await s.deployRtdb(rtdbTarget(tokens));
+    await s.restoreAll();
+
+    expect(tokens.count).toBe(2);
+    expect(fake.calls.at(-1)).toContain('token=rtdb-token-2');
+  });
+});
 
 describe('OracleRulesSession', () => {
   test('a Firestore merge is undone: the release points back at the original ruleset', async () => {

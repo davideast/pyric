@@ -61,6 +61,21 @@ describe('rtdb-modular CDD: public operation rows', () => {
     await expect(api.update(root, { allowed: 1, blocked: 2 })).rejects.toThrow();
     expect([(await api.get(api.ref(db, 'allowed'))).val(), (await api.get(api.ref(db, 'blocked'))).val()]).toEqual([null, null]);
   });
+  // Row SW1 records the served planes' synchronous refusal of values JSON
+  // cannot carry (#1362). The sandbox side: the in-page sandbox fails the same
+  // writes (asynchronously, #1224) and leaves the stored data as it was.
+  row('SW1', async () => {
+    const { db } = setup();
+    const target = api.ref(db, 'kept');
+    await api.setWithPriority(target, { k: 5, j: 1 }, 3);
+    const fails = async (write: () => Promise<unknown>) => {
+      try { await write(); return 'resolved'; } catch (error) { return (error as Error).message; }
+    };
+    expect(await fails(() => api.set(target, NaN))).toContain('contains NaN');
+    expect(await fails(() => api.update(target, { k: NaN }))).toContain('contains NaN');
+    expect(await fails(() => api.setPriority(target, NaN))).not.toBe('resolved');
+    expect((await api.get(target)).exportVal()).toEqual({ k: 5, j: 1, '.priority': 3 });
+  });
   row('119', async () => { const { db } = setup(); const target = api.ref(db, 'x'); await api.set(target, { a: 1, b: 2 }); await api.update(target, { a: null }); expect((await api.get(target)).val()).toEqual({ b: 2 }); });
   row('120', assertOverlappingUpdate);
   row('121', () => assertNullRemoval(true));

@@ -6,7 +6,6 @@ export const documentSnapshotFromJSON = unsupportedServedApi('firestore', 'docum
 export const enablePersistentCacheIndexAutoCreation = unsupportedServedApi('firestore', 'enablePersistentCacheIndexAutoCreation');
 export const ensureFirestoreConfigured = unsupportedServedApi('firestore', 'ensureFirestoreConfigured');
 export const executeWrite = unsupportedServedApi('firestore', 'executeWrite');
-export const getAggregateFromServer = unsupportedServedApi('firestore', 'getAggregateFromServer');
 export const getPersistentCacheIndexManager = unsupportedServedApi('firestore', 'getPersistentCacheIndexManager');
 export const loadBundle = unsupportedServedApi('firestore', 'loadBundle');
 export const namedQuery = unsupportedServedApi('firestore', 'namedQuery');

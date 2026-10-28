@@ -13,7 +13,12 @@
 
 import type { FirestoreRules } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError } from '../grammar/FirestoreParser.js';
-import { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
+import { describeCompileLimitViolations } from '../grammar/compile-limits.js';
+import {
+  checkRulesSource,
+  wrongServiceReason,
+  type RulesSourceRejection,
+} from '../grammar/source-compile-limits.js';
 import { lintFirestoreRules } from '../linter/linter.js';
 import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 import { SimulateFirestoreRulesHandler } from '../simulator/handler.js';
@@ -175,41 +180,35 @@ function toEngineResult(r: CaseResult) {
 /**
  * Compile Firestore rules source into a deep, safe-by-default handle.
  *
- * @throws {RulesCompileError} when the source does not parse or breaks one
- *   of production's compile limits. The thrown error carries the
+ * @throws {RulesCompileError} when the source does not parse, names a
+ *   service other than `cloud.firestore`, or breaks one of production's
+ *   compile limits. The thrown error carries the
  *   compile-blocking issues on `.issues`.
  */
 export function firestoreRules(source: string): FirestoreRuleset {
+  const checked = checkRulesSource(source);
+  if (!checked.ok) throw compileError(source, checked.rejection);
+  return new FirestoreRulesetImpl(source, checked.ast);
+}
+
+/**
+ * The error `firestoreRules()` throws for a source production's load check
+ * refuses: it does not parse, its service is not `cloud.firestore`, or it is
+ * past one of production's compile limits (call depth, `let` count, nesting).
+ */
+function compileError(source: string, rejection: RulesSourceRejection): RulesCompileError {
+  if (rejection.kind === 'compile') {
+    return new RulesCompileError(
+      `Firestore rules source failed to compile: ${describeCompileLimitViolations(rejection.violations)}`,
+      rejection.violations.map(compileLimitViolationToIssue),
+    );
+  }
+  if (rejection.otherService !== undefined) {
+    const message = wrongServiceReason(rejection.otherService);
+    const issue: RuleIssue = { code: 'PARSE_ERROR', severity: 'error', message, line: rejection.line, origin: 'parse' };
+    return new RulesCompileError(`Firestore rules source failed to compile: ${message}`, [issue]);
+  }
   const parsed = parseToASTOrError(source);
-  if (!parsed.ok) {
-    const issues: RuleIssue[] = [parseErrorToIssue(parsed.error)];
-    throw new RulesCompileError(
-      'Firestore rules source failed to compile',
-      issues,
-    );
-  }
-  if (parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore') {
-    const msg = `Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`;
-    const issue: RuleIssue = {
-      code: 'PARSE_ERROR',
-      severity: 'error',
-      message: msg,
-      ...(parsed.ast.service.loc ? { line: parsed.ast.service.loc.line } : {}),
-      origin: 'parse',
-    };
-    throw new RulesCompileError(
-      `Firestore rules source failed to compile: ${msg}`,
-      [issue],
-    );
-  }
-  // Production rejects a ruleset past its compile limits (call depth, `let`
-  // count, nesting) before evaluating any request.
-  const violations = compileLimitViolations(parsed.ast);
-  if (violations.length > 0) {
-    throw new RulesCompileError(
-      `Firestore rules source failed to compile: ${describeCompileLimitViolations(violations)}`,
-      violations.map(compileLimitViolationToIssue),
-    );
-  }
-  return new FirestoreRulesetImpl(source, parsed.ast);
+  const issues: RuleIssue[] = parsed.ok ? [] : [parseErrorToIssue(parsed.error)];
+  return new RulesCompileError('Firestore rules source failed to compile', issues);
 }

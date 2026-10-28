@@ -46,7 +46,9 @@ import {
 
 afterEach(() => cleanup());
 
-const OPEN_STORAGE_RULES = `
+// Version 2, so `{path=**}` matches the bucket root's zero segments and the
+// root list is allowed; under version 1 a recursive wildcard needs one.
+const OPEN_STORAGE_RULES = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /{path=**} { allow read, write: if true; }

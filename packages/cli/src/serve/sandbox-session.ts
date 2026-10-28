@@ -212,7 +212,8 @@ export async function createSandboxSession(
 ): Promise<SandboxSession> {
   // Preserve the established fail-fast order: Firestore, then RTDB, then
   // Storage. Callers historically surfaced the first error in this sequence.
-  const firestore = await loadProjectRules(options.projectDir, options.firebaseConfig);
+  const firestore = await loadProjectRules(options.projectDir, options.firebaseConfig, options.project);
+  for (const warning of firestore.warnings) options.logger?.note(`  ⚠ ${warning}`);
   const database = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig, options.project);
   const storage = await loadProjectStorageRules(options.projectDir, options.firebaseConfig);
   // Each declared instance's rules in force, null while its file is missing.
@@ -453,9 +454,11 @@ export async function createSandboxSession(
     // Module files the latest failed reload asked for. Watched with the
     // last-good module files so fixing or creating one reloads.
     let attemptedModuleFiles: readonly string[] = [];
-    const firestoreSourcePath = firestoreRulesPath(options.projectDir, options.firebaseConfig);
+    const firestoreSourcePath = firestoreRulesPath(options.projectDir, options.firebaseConfig, options.project);
     const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
       const sourcePath = firestoreSourcePath;
+      // An array firebase.json that deploys no rules to (default) has no file to reload.
+      if (sourcePath === null) return { kind: 'not-configured' };
       const isSourceMissing = !existsSync(sourcePath);
       // A deleted source keeps the last-good rules. Without a rules file the
       // sandbox runs its default rules, which the SharedWorker sets to a
@@ -492,7 +495,8 @@ export async function createSandboxSession(
       }
     };
     const firestoreRulesFiles = (): readonly string[] => {
-      return [...new Set([firestoreSourcePath, ...firestore.moduleFiles, ...attemptedModuleFiles])];
+      const sourceFiles = firestoreSourcePath === null ? [] : [firestoreSourcePath];
+      return [...new Set([...sourceFiles, ...firestore.moduleFiles, ...attemptedModuleFiles])];
     };
     const databaseRulesFiles = (): readonly string[] => [...new Set([...database.targets, ...database.pending].map((target) => target.path))];
     // The Node host holds one store per instance, so each instance's rules

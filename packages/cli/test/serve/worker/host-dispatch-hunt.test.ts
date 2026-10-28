@@ -78,7 +78,7 @@ service firebase.storage {
     expect(badRes.messages).toEqual([
       expect.objectContaining({
         severity: 'error',
-        text: "Expected 'service cloud.firestore', got 'service firebase.storage'.",
+        text: "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
       }),
     ]);
 

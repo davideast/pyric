@@ -12,7 +12,7 @@ describe('rules-language production coverage', () => {
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('verified');
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('verified');
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.semantic.type-dispatch')?.verdict).toBe('verified');
-    expect(firestore?.verifiedConstructs).toBe(126);
+    expect(firestore?.verifiedConstructs).toBe(129);
   }, FULL_GRAPH_TIMEOUT_MS);
 
   it('restores RTDB validate scope only after the ancestor case conforms', async () => {
@@ -42,6 +42,6 @@ describe('rules-language production coverage', () => {
       unknownMethod('method:foo'),
     ]);
     expect(storage?.verifiedScenarioCount).toBe(45);
-    expect(storage?.verifiedConstructs).toBe(110);
+    expect(storage?.verifiedConstructs).toBe(112);
   }, FULL_GRAPH_TIMEOUT_MS);
 });

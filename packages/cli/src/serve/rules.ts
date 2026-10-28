@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import {
   describeCompileLimitViolations,
   lintFirestoreRules,
@@ -21,7 +21,15 @@ import {
   sourceCompileLimitViolations,
   type ResolveResult,
 } from 'pyric/rules/internal';
-import { asSentence, databaseRulesConfig, type DatabaseRulesConfig } from 'pyric/sandbox/internal';
+import {
+  asSentence,
+  databaseRulesConfig,
+  defaultFirestoreDatabase,
+  firestoreRulesConfig,
+  unservedFirestoreDatabaseWarnings,
+  type DatabaseRulesConfig,
+  type FirestoreRulesConfig,
+} from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
 import { readFirebaseRcSync, type FirebaseJson, type FirebaseRc } from '../cli/firebase-json.js';
 import {
@@ -44,6 +52,8 @@ export interface LoadedRules {
   /** Rules files of the project's own that the source imports, directly or
    *  through other modules. Watched alongside `sourcePath`. */
   moduleFiles: string[];
+  /** One line per `firebase.json` Firestore entry pyric does not serve yet. */
+  warnings: string[];
 }
 
 export interface LoadedStorageRules {
@@ -139,9 +149,16 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
     source = resolved.data.resolved;
   }
   // Production rejects a ruleset that does not parse, or is past its compile
-  // limits, before it evaluates any request, so the sandbox does not serve
-  // one either: the check every rules load path runs.
+  // limits, or names a service other than cloud.firestore, before it
+  // evaluates any request, so the sandbox does not serve one either: the
+  // check every rules load path runs, with the reason every plane gives.
   const rejection = rulesSourceRejection(source);
+  if (rejection?.kind === 'parse' && rejection.otherService !== undefined) {
+    throw new RulesPrepareError(
+      `pyric sandbox: ${sourcePath}: Firestore ${rejection.message} Fix the rules before serving.`,
+      moduleFiles,
+    );
+  }
   if (rejection?.kind === 'parse') {
     throw new RulesPrepareError(
       `pyric sandbox: ${sourcePath} failed to parse (line ${rejection.line}, col ${rejection.column}). Fix the rules before serving.`,
@@ -167,41 +184,95 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
 }
 
 /**
- * The Firestore rules file the project deploys: `firebase.json`'s
- * `firestore.rules`, else `firestore.rules` in `cwd`. The file may not exist.
+ * Where a project's Firestore deploy targets resolve from: the project id
+ * and `.firebaserc`. Without a project id, target entries stay unresolved.
  */
-export function firestoreRulesPath(cwd: string, config: FirebaseJson | null): string {
-  const rel = config?.firestore?.rules ?? 'firestore.rules';
-  return isAbsolute(rel) ? rel : join(cwd, rel);
+export interface FirestoreRulesProject {
+  projectId?: string;
+  /** Reads `.firebaserc`. Defaults to reading it from the project directory. */
+  readRc?: () => FirebaseRc | null;
 }
 
 /**
- * Load the project rules per `firebase.json` (`firestore.rules` path,
- * defaulting to `firestore.rules` in cwd when the key is absent but the file
- * exists). Missing file with no explicit config → `{ rules: null }` (serving
- * without rules is fine; the runtime logs it). Missing file that IS
- * explicitly configured → throw (the project says it should exist).
+ * The Firestore databases `firebase.json` deploys to, resolved by
+ * {@link firestoreRulesConfig} as `firebase deploy` resolves them, with files
+ * as absolute paths.
+ */
+export function firestoreDatabases(
+  cwd: string,
+  config: FirebaseJson | null,
+  project: FirestoreRulesProject = {},
+): FirestoreRulesConfig {
+  const { projectId } = project;
+  const readRc = project.readRc ?? (() => readFirebaseRcSync(cwd));
+  try {
+    return firestoreRulesConfig(config?.firestore, {
+      targetDatabases: (target) => projectId === undefined ? [] : readRc()?.targets?.[projectId]?.firestore?.[target] ?? [],
+      resolveFile: (file) => isAbsolute(file) ? file : join(cwd, file),
+    });
+  } catch (error) {
+    throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * The rules file `firebase.json` deploys to the `(default)` Firestore
+ * database, else `firestore.rules` in `cwd` when `firebase.json` names none.
+ * Null when an array form deploys no rules to `(default)`. The file may not
+ * exist.
+ */
+export function firestoreRulesPath(
+  cwd: string,
+  config: FirebaseJson | null,
+  project: FirestoreRulesProject = {},
+): string | null {
+  return defaultFirestoreDatabase(firestoreDatabases(cwd, config, project))?.rulesFile ?? null;
+}
+
+/**
+ * Load the `(default)` database's rules per `firebase.json`, resolved by
+ * {@link firestoreDatabases}. Missing file with no explicit config, or no
+ * rules for `(default)` → `{ rules: null }` (serving without rules is fine;
+ * the runtime logs it). Missing file that IS explicitly configured → throw
+ * (the project says it should exist). `warnings` names each named database
+ * and unresolved target pyric does not serve yet.
  */
 export async function loadProjectRules(
   cwd: string,
   config: FirebaseJson | null,
+  project: FirestoreRulesProject = {},
 ): Promise<LoadedRules> {
-  const configured = config?.firestore?.rules;
-  const path = firestoreRulesPath(cwd, config);
+  const databases = firestoreDatabases(cwd, config, project);
+  const warnings = firestoreDatabaseWarnings(cwd, databases);
+  const entry = defaultFirestoreDatabase(databases);
+  const path = entry?.rulesFile;
+  const none: LoadedRules = { rules: null, rulesHash: null, sourcePath: null, moduleFiles: [], warnings };
+  if (entry === undefined || path === undefined) return none;
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      if (configured) {
-        throw new Error(`pyric sandbox: firebase.json points firestore.rules at ${path}, but it does not exist.`);
+      if (entry.configured) {
+        throw new Error(`pyric sandbox: ${entry.label} points Firestore rules at ${path}, but it does not exist.`);
       }
-      return { rules: null, rulesHash: null, sourcePath: null, moduleFiles: [] };
+      return none;
     }
     throw e;
   }
   const { rules, moduleFiles } = prepareProjectRules(raw, path);
-  return { rules, rulesHash: rulesHashOf(rules), sourcePath: path, moduleFiles };
+  return { rules, rulesHash: rulesHashOf(rules), sourcePath: path, moduleFiles, warnings };
+}
+
+/** One warning per Firestore database `firebase.json` declares that pyric does not serve yet, files named relative to `cwd`. */
+export function firestoreDatabaseWarnings(cwd: string, databases: FirestoreRulesConfig): string[] {
+  return unservedFirestoreDatabaseWarnings(databases, (file) => relativeToProject(cwd, file));
+}
+
+function relativeToProject(cwd: string, file: string): string {
+  const rel = relative(cwd, file);
+  const isInsideProject = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  return isInsideProject ? rel : file;
 }
 
 /**

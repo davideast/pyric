@@ -6,6 +6,7 @@ import {
 } from 'pyric/rules/internal/extract';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import { defaultFirestoreDatabase, firestoreRulesConfig } from 'pyric/sandbox/internal';
 
 type ExtractResult = ReturnType<ExtractFirestoreIndexesHandler['execute']>;
 
@@ -46,7 +47,7 @@ export async function runFirestoreIndexesGenerate(
   let configuredPath: string | undefined;
   if (typeof outFlag !== 'string') {
     try {
-      configuredPath = (await (deps.readFirebaseJson ?? readFirebaseJson)(cwd)).firestore?.indexes;
+      configuredPath = defaultFirestoreDatabase(firestoreRulesConfig((await (deps.readFirebaseJson ?? readFirebaseJson)(cwd)).firestore))?.indexesFile;
     } catch {
       configuredPath = undefined;
     }

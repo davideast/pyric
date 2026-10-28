@@ -15,7 +15,6 @@ it('firestore-non-finite-number-roundtrip, served', async () => {
         production: { nan: 'NaN', inf: 'Infinity', ninf: '-Infinity', neg0: '-0', nul: null },
         pyric: { nan: null, inf: null, ninf: null, neg0: 0, nul: null },
       },
-      { key: 'eq0', finding: 'FL-31: == 0 matches a -0 doc', production: ['neg0'], pyric: [] },
     ],
   });
 });

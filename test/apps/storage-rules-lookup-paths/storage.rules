@@ -1,0 +1,8 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /avatars/{file} {
+      allow write: if firestore.get(/databases/(default)/documents/users/$(request.resource.metadata.uid)).data.admin == true;
+    }
+  }
+}

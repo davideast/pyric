@@ -5,12 +5,12 @@
     "firestore-rules#199"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"re2-pattern-semantics\" (Coverage: RE2 pattern semantics). matches(), split() and replace() use RE2: \\s is ASCII whitespace only, . matches \\r, \\pL, [[:alpha:]] and \\Q..\\E are classes and quoting, split() does not return capture groups, and (?i) applies in split() and replace().",
-  "observedAt": "2026-10-27T02:32:40.512Z",
+  "observedAt": "2026-10-28T03:35:12.801Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "c12ddb427787735fca3f42c7d5f6ba7a6cd2baf10bd483ddc0ddefe12047ac5e"
+    "value": "44a0911b777622a35376e3e9e290c75e3f5d2545ba1e96725cdd4d560f08bc25"
   },
   "behavior": {
     "split on a capturing group returns two pieces": "ALLOW",
@@ -40,6 +40,12 @@
     "carriage return escape has size one": "ALLOW",
     "C0 escape has size one": "ALLOW",
     "real nbsp from data is not \\s": "ALLOW",
-    "real nbsp from data has size one": "ALLOW"
+    "real nbsp from data has size one": "ALLOW",
+    "split dot matches carriage return": "ALLOW",
+    "replace dot matches carriage return": "ALLOW",
+    "replace dot does not match newline (control)": "ALLOW",
+    "replace (?s) dot matches newline": "ALLOW",
+    "split (?i)k splits on the Kelvin sign": "ALLOW",
+    "replace (?i)k replaces the Kelvin sign": "ALLOW"
   }
 }

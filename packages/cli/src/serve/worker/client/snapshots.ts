@@ -34,6 +34,8 @@ export interface RawDocResult {
   path?: string;
   exists: boolean;
   data?: SerializedDocData;
+  /** Query listener frames only: this document's own `metadata.hasPendingWrites`. */
+  hasPendingWrites?: boolean;
 }
 
 const SETTLED_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: false });
@@ -67,14 +69,19 @@ export function makeDocSnapshot<T = DocumentData>(
 ): ClientDocSnapshot<T> {
   const isMalformed = !isDocumentResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed document result.');
-  let data: Record<string, unknown> | undefined;
   const serialized = raw.data;
-  const hasData = raw.exists && serialized !== undefined;
-  if (hasData) data = rehydrateDocData(serialized, port);
+  // Production builds a new object on every read, so a caller that mutates
+  // one result never changes the next (FP-13). The copy kept here is for
+  // cursor bounds only and is never handed out.
+  const freshData = (): Record<string, unknown> | undefined => {
+    const hasData = raw.exists && serialized !== undefined;
+    return hasData ? rehydrateDocData(serialized, port) : undefined;
+  };
+  const data = freshData();
   const path = raw.path ?? raw.id;
   const ref = reference ?? createDocumentReference<T>(port, path);
   const read = (): T | undefined => {
-    const document = data;
+    const document = freshData();
     const isMissing = document === undefined;
     if (isMissing) return undefined;
     const converter = ref.converter;
@@ -101,7 +108,7 @@ export function makeDocSnapshot<T = DocumentData>(
     metadata,
     data: read,
     // Production reads the stored field without the converter, as the in-page snapshot does.
-    get: (fieldPath) => readField(data, fieldPath),
+    get: (fieldPath) => readField(freshData(), fieldPath),
   };
   rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
   return docSnapshot;
@@ -229,11 +236,13 @@ export function makeQuerySnapshot(
   const isMalformed = !isQueryResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed query result.');
   const metadata = frameMetadata(raw);
+  // Each document carries its own pending state: production marks only the
+  // documents with a pending write, not every document in the snapshot (FP-5).
   const snapshotOf = (doc: RawDocResult) => makeDocSnapshot(
     doc,
     port,
     createDocumentReference(port, doc.path ?? doc.id, converter),
-    metadata,
+    frameMetadata(doc),
   );
   const docs = raw.docs.map(snapshotOf);
   const rows = raw.docs.map((doc) => ({ path: doc.path ?? doc.id, doc }));

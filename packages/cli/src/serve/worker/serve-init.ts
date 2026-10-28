@@ -31,7 +31,7 @@ import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
-import { parseToASTOrError, rulesSourceRejection } from 'pyric/rules/internal';
+import { rulesSourceRejection } from 'pyric/rules/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
@@ -270,14 +270,8 @@ export function applyServeInit(
   //    rules, surface loudly.
   if (payload.rules) {
     const rejection = rulesSourceRejection(payload.rules);
-    const parsed = rejection === null ? parseToASTOrError(payload.rules) : null;
-    const wrongService = parsed !== null && parsed.ok && parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore'
-      ? parsed.ast.service
-      : null;
-    if (rejection !== null || wrongService !== null) {
-      result.rulesParseError = wrongService !== null
-        ? `Firestore rules did not compile: Expected 'service cloud.firestore', got 'service ${wrongService.name}'.`
-        : `Firestore ${rejection!.message}`;
+    if (rejection !== null) {
+      result.rulesParseError = `Firestore ${rejection.message}`;
       console.error(
         '[pyric worker] firestore.rules not loaded, running WITHOUT your rules:',
         result.rulesParseError,

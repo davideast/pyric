@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#200","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"under rules_version 1 a recursive wildcard does not match zero segments; pyric matches it","issue":"FS2-SIM-12"}

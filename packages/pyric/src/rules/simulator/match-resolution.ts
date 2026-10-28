@@ -1,5 +1,6 @@
 import type { FirestoreRules, MatchBlock, FunctionDef } from '../grammar/FirestoreAST.js';
 import { collectRulesetScopes, type NameScope } from '../grammar/function-scopes.js';
+import { recursiveWildcardMinimum } from '../grammar/recursive-wildcard-minimum.js';
 import type { PathResolutionEntry } from '../test/spec.js';
 
 const indexedRulesets = new WeakSet<FirestoreRules>();
@@ -51,8 +52,9 @@ export function renderMatchBlockPath(block: MatchBlock): string {
  * helper scope. An optional recorder receives matched and rejected attempts
  * for simulator diagnostics.
  *
- * A recursive wildcard matches zero or more segments. Its placement in the
- * block's own path decides how far it reaches:
+ * A recursive wildcard matches zero or more segments under version 2, and
+ * one or more under version 1 (`recursiveWildcardMinimum`). Its placement in
+ * the block's own path decides how far it reaches:
  * - Followed by further segments (`/{path=**}/items/{id}`), it binds every
  *   segment except the ones those trailing segments match, so the block
  *   matches only a path that ends in them. Nested blocks are unreachable.
@@ -65,8 +67,10 @@ export function collectMatches(
   block: MatchBlock,
   pathSegments: string[],
   parentFunctions: FunctionDef[],
+  rulesVersion: string,
   recorder?: Recorder,
 ): MatchResult[] {
+  const minimum = recursiveWildcardMinimum(rulesVersion);
   const allFunctions = [...parentFunctions, ...block.functions];
   const pattern = block.path.segments;
   const bindings: Record<string, string> = {};
@@ -98,7 +102,7 @@ export function collectMatches(
     } else {
       const trailing = pattern.length - index - 1;
       const length = pathSegments.length - consumed - trailing;
-      if (length < 0) {
+      if (length < minimum) {
         failureReason = 'request-shorter';
         break;
       }
@@ -129,7 +133,7 @@ export function collectMatches(
   if (finalRecursive) {
     const results = [
       { block, pathVariables: bindings, candidateVariables, functions: allFunctions },
-      ...collectBelowRecursive(block, pathSegments, allFunctions, bindings, finalRecursive, recorder),
+      ...collectBelowRecursive(block, pathSegments, allFunctions, bindings, finalRecursive, rulesVersion, recorder),
     ];
     recorder?.push(entry({ matched: true }));
     return results;
@@ -138,7 +142,8 @@ export function collectMatches(
   const remaining = pathSegments.slice(consumed);
   const results: MatchResult[] = [];
   // When the block consumes the whole path, a nested block whose path is a
-  // single recursive wildcard still matches, binding zero segments.
+  // single recursive wildcard still matches under version 2, binding zero
+  // segments. Under version 1 its own resolution records the miss.
   const children = remaining.length > 0
     ? block.children
     : block.children.filter((child) => child.path.segments.every((segment) => segment.type === 'recursive'));
@@ -146,7 +151,7 @@ export function collectMatches(
     results.push({ block, pathVariables: bindings, candidateVariables, functions: allFunctions });
   }
   for (const child of children) {
-    for (const childResult of collectMatches(child, remaining, allFunctions, recorder)) {
+    for (const childResult of collectMatches(child, remaining, allFunctions, rulesVersion, recorder)) {
       childResult.pathVariables = { ...bindings, ...childResult.pathVariables };
       childResult.candidateVariables = [...candidateVariables, ...childResult.candidateVariables];
       results.push(childResult);
@@ -169,19 +174,21 @@ function collectBelowRecursive(
   functions: FunctionDef[],
   bindings: Record<string, string>,
   recursive: { name: string; start: number },
+  rulesVersion: string,
   recorder: Recorder | undefined,
 ): MatchResult[] {
   if (block.children.length === 0) return [];
+  const shortestEnd = recursive.start + recursiveWildcardMinimum(rulesVersion);
   const results: MatchResult[] = [];
   const resolved = new Set<MatchBlock>();
   let firstAttempts: PathResolutionEntry[] | undefined;
-  for (let end = pathSegments.length - 1; end >= recursive.start; end--) {
+  for (let end = pathSegments.length - 1; end >= shortestEnd; end--) {
     const remaining = pathSegments.slice(end);
     const prefix = { ...bindings, [recursive.name]: pathSegments.slice(recursive.start, end).join('/') };
     const attempts: PathResolutionEntry[] = [];
     let produced = false;
     for (const child of block.children) {
-      for (const childResult of collectMatches(child, remaining, functions, { push: (e) => attempts.push(e) })) {
+      for (const childResult of collectMatches(child, remaining, functions, rulesVersion, { push: (e) => attempts.push(e) })) {
         if (resolved.has(childResult.block)) continue;
         resolved.add(childResult.block);
         produced = true;

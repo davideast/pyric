@@ -49,7 +49,7 @@
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 import { parenthesizedGroups } from './paren-groups.js';
 import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
-import { normalizeRe2ForJsRegExp } from './re2-pattern.js';
+import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
 
 /** Most functions one call stack may hold; 22 is rejected. */
 export const CALL_DEPTH_LIMIT = 21;
@@ -225,16 +225,6 @@ function pushNesting(out: CompileLimitViolation[], expr: Expression, line: numbe
  * such as "Unexpected '/0'." and "mismatched input ')' expecting {'{', '/',
  * PATH_SEGMENT}"; only the first issue is reported here.
  */
-function isValidRe2Pattern(pattern: string): boolean {
-  if (/\\[1-9]/.test(pattern) || /\(\?<?[=!]/.test(pattern)) return false;
-  try {
-    new RegExp(`^(?:${normalizeRe2ForJsRegExp(pattern)})$`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function pushExpressionViolations(
   out: CompileLimitViolation[],
   expr: Expression,
@@ -252,10 +242,11 @@ function pushExpressionViolations(
   }
   if (isFirestore && expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
     const arg = expr.args[0];
-    if (arg?.type === 'literal' && typeof arg.value === 'string' && !isValidRe2Pattern(arg.value)) {
+    const problem = arg?.type === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
+    if (problem !== null) {
       out.push({
         code: 'INVALID_REGEX_PATTERN',
-        message: `Invalid regular expression pattern. Pattern: ${arg.value}.`,
+        message: problem,
         ...(line === undefined ? {} : { line }),
         ...(functionName === undefined ? {} : { functionName }),
       });
