@@ -44,7 +44,7 @@ export async function assertM66ArrayCoercionThresholds(): Promise<void> {
     ['non-integer', { 0: 'a', x: 'x' }, { 0: 'a', x: 'x' }],
   ] as const) {
     await api.set(api.ref(db, path), value);
-    expect((await api.get(api.ref(db, path))).val()).toEqual(expected);
+    expect((await api.get(api.ref(db, path))).val()).toStrictEqual(expected);
   }
   // A sparse node below the threshold is an array with a hole at the missing
   // index, not a null: upstream `ChildrenNode.val` assigns present keys only

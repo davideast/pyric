@@ -9,6 +9,7 @@ import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from '
 import { buildSandboxRef } from './references.js';
 import { assertGettablePath } from './info-read.js';
 import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
+import { errorPrefix, validateWrite } from './sandbox/normalize.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
 // ─── Reads ───────────────────────────────────────────────────────────
@@ -91,6 +92,7 @@ export function setWithPriority(
   validateWritablePath('setWithPriority', r._path);
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
+    validateWrite(value, r._path, errorPrefix('setWithPriority', 'value'));
     if (target.admin) {
       target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
     } else {
@@ -183,6 +185,8 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
     promise = Promise.resolve(pushRef);
   } else {
     promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), () => {
+      // The SDK names the parent's path, not the minted child's.
+      validateWrite(value, r._path, errorPrefix('push', 'value'));
       if (target.admin) target.backend.adminSet(childPath, value as JsonValue);
       else target.backend.set(authFor(target), childPath, value as JsonValue);
       return pushRef;

@@ -36,7 +36,8 @@
  *   - `core/snap/ChildrenNode.ts:194-230` (val array coercion)
  */
 import { SDK_VERSION } from '../../app/diagnostics.js';
-import type { JsonValue } from './data-tree.js';
+import { validateUpdatePaths } from '../writable-path.js';
+import { pathSegments, type JsonValue } from './data-tree.js';
 
 /** True for invalid Firebase keys. Mirrors `INVALID_KEY_REGEX_`
  *  (`validation.ts:45`): `.`, `#`, `$`, `/`, `[`, `]`, control chars. */
@@ -58,54 +59,105 @@ function isInvalidJSONNumber(value: unknown): boolean {
   );
 }
 
-/** The metadata keys RTDB exempts from key validation. */
-function isMetadataKey(key: string): boolean {
-  return key === '.priority' || key === '.value' || key === '.sv';
+/** Where in a write a validation error points, as the SDK prints it: the
+ *  path's segments joined with `.`, or nothing at the root
+ *  (`validationPathToErrorString`). */
+function propertyText(segments: readonly string[]): string {
+  return segments.length === 0 ? '' : `in property '${segments.join('.')}'`;
+}
+
+/** The start of the SDK's error for a refused argument, such as
+ *  `push failed: value argument ` (`util.errorPrefix`). */
+export function errorPrefix(fnName: string, argName: string): string {
+  return `${fnName} failed: ${argName} argument `;
+}
+
+/** The start of the SDK's error for a refused transaction result. */
+export const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
+
+/**
+ * Validate a value against RTDB's write rules, throwing the SDK's error (a
+ * plain `Error` with the same text) on the first violation. Mirrors
+ * `validateFirebaseData` (`@firebase/database` 1.1.3): `undefined`, a
+ * function, `NaN` or an infinity anywhere, an invalid key, or a `.value`
+ * key beside real children. An array hole is skipped, as the SDK's `each`
+ * skips it; an element that is explicitly `undefined` is not. `path` is the
+ * path the SDK names in the error (for `push`, the parent's), and `prefix`
+ * names the call, as {@link errorPrefix} builds it.
+ */
+export function validateWrite(value: unknown, path: string, prefix = errorPrefix('set', 'value')): void {
+  validateData(value, pathSegments(path), prefix);
+}
+
+/** Whether the SDK accepts `value` as a priority: null, a string, a finite
+ *  number, or a server value (`isValidPriority`). */
+function isValidPriority(value: unknown): boolean {
+  if (value === null || typeof value === 'string') return true;
+  if (typeof value === 'number') return !isInvalidJSONNumber(value);
+  return typeof value === 'object' && Object.hasOwn(value, '.sv');
 }
 
 /**
- * Validate a value against RTDB's write rules, throwing the upstream
- * error shape (a plain `Error`) on the first violation. Mirrors
- * `validateFirebaseData` (`validation.ts:112-199`). `pathPrefix` is the
- * absolute path the value is being written to — used for a prod-shaped
- * error message.
+ * Validate `update()` values as the SDK does before sending them
+ * (`validateFirebaseMergeDataArg`): an object, each value valid at its path,
+ * a valid priority under each key ending in `.priority`, then valid and
+ * non-overlapping keys. Returns the values.
  */
-export function validateWrite(value: unknown, pathPrefix: string): void {
-  validateData(value, pathPrefix, 'set');
+export function validateUpdate(values: unknown, path: string): Record<string, unknown> {
+  const prefix = errorPrefix('update', 'values');
+  if (values === null || typeof values !== 'object') {
+    throw new Error(`${prefix} must be an object containing the children to replace.`);
+  }
+  const patch = values as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    const keySegments = pathSegments(key);
+    validateData(value, [...pathSegments(path), ...keySegments], prefix);
+    const isPriorityKey = keySegments[keySegments.length - 1] === '.priority';
+    if (isPriorityKey && !isValidPriority(value)) {
+      throw new Error(
+        `${prefix}contains an invalid value for '/${keySegments.join('/')}', which must be a valid ` +
+          'Firebase priority (a string, finite number, server value, or null).',
+      );
+    }
+  }
+  validateUpdatePaths(patch);
+  return patch;
 }
 
-function validateData(value: unknown, path: string, fnName: string): void {
+function validateData(value: unknown, segments: readonly string[], prefix: string): void {
+  const where = propertyText(segments);
   if (value === undefined) {
-    throw new Error(`${fnName} failed: value argument contains undefined in property '${path}'`);
+    throw new Error(`${prefix}contains undefined ${where}`);
   }
   if (typeof value === 'function') {
-    throw new Error(`${fnName} failed: value argument contains a function in property '${path}'`);
+    throw new Error(`${prefix}contains a function ${where} with contents = ${String(value)}`);
   }
   if (isInvalidJSONNumber(value)) {
-    throw new Error(`${fnName} failed: value argument contains ${String(value)} in property '${path}'`);
+    throw new Error(`${prefix}contains ${String(value)} ${where}`);
   }
   if (value === null || typeof value !== 'object') {
     return;
   }
-  if (Array.isArray(value)) {
-    // Arrays validate per-element. Holes (`undefined`) are skipped (they
-    // become absent integer keys), matching `each` over a sparse array.
-    for (let i = 0; i < value.length; i++) {
-      if (!(i in value)) continue;
-      const el = value[i];
-      if (el === undefined) continue;
-      validateData(el, `${path}/${i}`, fnName);
-    }
-    return;
-  }
+  let hasDotValue = false;
+  let hasActualChild = false;
+  // Own enumerable keys, as the SDK's `each` walks them: an array hole is
+  // not a key, so it is skipped.
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (!isMetadataKey(key) && !isValidKey(key)) {
-      throw new Error(
-        `${fnName} failed: value argument contains an invalid key (${key}) in path ${path}. ` +
-          'Keys must be non-empty strings and can\'t contain ".", "#", "$", "/", "[", or "]"',
-      );
+    if (key === '.value') {
+      hasDotValue = true;
+    } else if (key !== '.priority' && key !== '.sv') {
+      hasActualChild = true;
+      if (!isValidKey(key)) {
+        throw new Error(
+          `${prefix} contains an invalid key (${key}) ${where}.  Keys must be non-empty strings ` +
+            'and can\'t contain ".", "#", "$", "/", "[", or "]"',
+        );
+      }
     }
-    validateData(child, `${path}/${key}`, fnName);
+    validateData(child, [...segments, key], prefix);
+  }
+  if (hasDotValue && hasActualChild) {
+    throw new Error(`${prefix} contains ".value" child ${where} in addition to actual children.`);
   }
 }
 
@@ -122,8 +174,8 @@ function validateData(value: unknown, path: string, fnName: string): void {
  * Leaf primitives (string / number / boolean) pass through unchanged —
  * including at the root (DB-B13: `set(ref(db), 'hello')` is legal).
  */
-export function normalizeWrite(value: unknown, pathPrefix: string): JsonValue {
-  validateWrite(value, pathPrefix);
+export function normalizeWrite(value: unknown, pathPrefix: string, prefix = errorPrefix('set', 'value')): JsonValue {
+  validateWrite(value, pathPrefix, prefix);
   return normalizeNode(value) as JsonValue;
 }
 
