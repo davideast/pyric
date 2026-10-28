@@ -18,7 +18,7 @@ import { createObservationGate } from '../../../conformance/src/observation-gate
 import { jwtShape, tamperSignature, type Secrets } from '../../../conformance/src/capture/app-check/redact.ts';
 import { initializeSandbox } from 'pyric/sandbox';
 import { mintAppCheckToken, signAppCheckToken } from 'pyric/sandbox/internal';
-import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
+import { cert, deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getAppCheck } from '../../src/app-check/index.js';
 
 const isClimb = process.env.PYRIC_CLIMB === '1';
@@ -178,6 +178,27 @@ const assertions: Record<string, () => Promise<void>> = {
     expect(describeResult(await service.verifyToken(token, { consume: true }))).toEqual(o.firstConsume);
     expect(describeResult(await service.verifyToken(token, { consume: true }))).toEqual(o.secondConsume);
     expect(describeResult(await service.verifyToken(token))).toEqual(o.plainVerifyAfterConsume);
+  },
+  'app-check-admin#project-from-cert': async () => {
+    // Upstream-documented (firebase-admin getExplicitProjectId); no capture.
+    const serviceAccount = { project_id: 'demo-cert', private_key: 'placeholder-private-key', client_email: 'sa@demo-cert.iam.gserviceaccount.com' };
+    const audience = async (options: Record<string, unknown>) => {
+      appSeq += 1;
+      const app = initializeApp({ sandbox: initializeSandbox(), ...options } as Parameters<typeof initializeApp>[0], `app-check-admin-${appSeq}`);
+      const service = getAppCheck(app) as unknown as AdminAppCheck;
+      const { token } = await service.createToken(APP_ID);
+      return { aud: (await service.verifyToken(token)).token.aud, options: app.options };
+    };
+    const savedEnv = process.env.GOOGLE_CLOUD_PROJECT;
+    process.env.GOOGLE_CLOUD_PROJECT = 'demo-env';
+    try {
+      expect(await audience({ credential: cert(serviceAccount) })).toEqual({ aud: [`projects/${PROJECT_NUMBER}`, 'projects/demo-cert'], options: {} });
+      expect((await audience({ credential: cert({ projectId: 'demo-camel' }) })).aud).toContain('projects/demo-camel');
+      expect((await audience({ projectId: 'demo-option', credential: cert(serviceAccount) })).aud).toContain('projects/demo-option');
+    } finally {
+      if (savedEnv === undefined) delete process.env.GOOGLE_CLOUD_PROJECT;
+      else process.env.GOOGLE_CLOUD_PROJECT = savedEnv;
+    }
   },
 };
 
