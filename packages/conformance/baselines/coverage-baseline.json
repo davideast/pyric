@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T16:30:33.870Z",
+  "generatedAt": "2026-10-28T20:10:47.494Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -203,6 +203,7 @@
     "ai#generate-modelversion-responseid": "conforms",
     "ai#generate-string-request": "conforms",
     "ai#generate-system-instruction": "conforms",
+    "ai#contents-role-assistant": "conforms",
     "ai#generate-structured-output": "conforms",
     "ai#generate-thinking-signature": "conforms",
     "ai#generate-abort-signal": "conforms",
@@ -236,6 +237,7 @@
     "ai#error-bad-api-key": "conforms",
     "ai#error-empty-contents": "conforms",
     "ai#error-bad-role": "conforms",
+    "ai#contents-role-system": "conforms",
     "ai#error-aierror-shape": "conforms",
     "ai#error-code-vocabulary": "conforms",
     "ai#request-roleless-contents": "bug",
@@ -273,6 +275,10 @@
     "ai#app-check-required": "conforms",
     "ai#app-check-initialize-after-getai": "conforms",
     "ai#app-check-attestation-failure": "conforms",
+    "ai#sandbox-app-check-required": "conforms",
+    "ai#sandbox-app-check-initialize-after-getai": "conforms",
+    "ai#sandbox-app-check-limited-use": "conforms",
+    "ai#sandbox-app-check-stream-and-count-tokens": "conforms",
     "auth#1": "conforms",
     "auth#2": "conforms",
     "auth#3": "unverified",
@@ -841,7 +847,7 @@
     "rtdb-modular#remote-update-event-order": "bug",
     "rtdb-modular#priority-change-child-changed": "bug",
     "rtdb-modular#priority-change-child-moved": "bug",
-    "rtdb-modular#val-key-order": "bug",
+    "rtdb-modular#val-key-order": "conforms",
     "rtdb-modular#served-event-order": "bug",
     "rtdb-modular#priority-window-limit-to-last": "conforms",
     "rtdb-modular#grandchild-priority-query-value": "bug",
@@ -1053,6 +1059,10 @@
     "app-check-admin#verify-token-rejections": "conforms",
     "app-check-admin#verify-token-content-checks": "unverified",
     "app-check-admin#verify-token-consume": "conforms",
+    "app-check-admin#verify-token-firebase-token": "diverged-documented",
+    "app-check-admin#verify-token-firebase-token-production-ai-mode": "unverified",
+    "app-check-admin#verify-token-firebase-token-consume": "diverged-documented",
+    "app-check-admin#project-from-cert": "unverified",
     "app-check-admin#create-token-limited-use-jti": "bug",
     "app-check-admin#create-token-option-type-checks": "bug",
     "app-check-admin#create-token-limited-use-ttl": "bug",
