@@ -8,7 +8,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
-import { getMetadata, getStorage, ref, uploadBytes } from '../../src/storage/index.js';
+import { getBytes, getMetadata, getStorage, ref, uploadBytes } from '../../src/storage/index.js';
 import {
   getStorageSandbox,
   lockUndeployedStorageBuckets,
@@ -139,5 +139,18 @@ describe('per-bucket Storage rules', () => {
     await deployHuntRules(sandbox);
     await replaceStorageRules(sandbox, null, { bucket: MEDIA_BUCKET });
     expect(await uploadOutcome(appStorage(sandbox, `gs://${MEDIA_BUCKET}`), 'a.txt')).toBe('storage/unauthorized');
+  });
+
+  it('locks a second app default bucket rather than share the first one objects (review of #1524)', async () => {
+    const sandbox = freshSandbox();
+    lockUndeployedStorageBuckets(sandbox);
+    const writeOnly = OPEN.replace('allow read, write: if true;', 'allow write: if true; allow read: if false;');
+    await replaceStorageRules(sandbox, writeOnly, { bucket: 'strict-bucket' });
+    await replaceStorageRules(sandbox, OPEN, { bucket: 'open-bucket' });
+    const strict = getStorage(createAppForSandbox(sandbox, { projectId: 'p', storageBucket: 'strict-bucket' }, uniqueName('a')));
+    const open = getStorage(createAppForSandbox(sandbox, { projectId: 'p', storageBucket: 'open-bucket' }, uniqueName('b')));
+    expect(await uploadOutcome(strict, 'x.txt')).toBe('ok');
+    await expect(getBytes(ref(strict, 'x.txt'))).rejects.toMatchObject({ code: 'storage/unauthorized' });
+    await expect(getBytes(ref(open, 'x.txt'))).rejects.toThrow('is a second default bucket in this sandbox, which already serves "strict-bucket"');
   });
 });

@@ -5,7 +5,11 @@
  * `lib/deploy/storage/prepare.js` and `release.js`):
  *
  * - A single `storage` object's `rules` deploys to the project's default
- *   bucket. Without `rules` it deploys nothing.
+ *   bucket. Without `rules` it deploys nothing. With a `target`, it deploys
+ *   as an array entry with that target does: `prepare.js` sets the default
+ *   bucket on it, and `release.js` checks `target` first.
+ * - A bucket name is used as written. A `gs://` URL is refused, since
+ *   `release.js` would release to a bucket by that literal name.
  * - An array entry with `target` deploys to every bucket `.firebaserc` maps
  *   under `targets.<project>.storage.<target>`. A target no mapping resolves
  *   is returned in `unresolved`; the caller decides what that means for it
@@ -97,7 +101,12 @@ function entryBuckets(
     const mapped = options.targetBuckets?.(entry.target);
     return Array.isArray(mapped) ? mapped.filter(nonEmptyString) : [];
   }
-  if (nonEmptyString(entry.bucket)) return [entry.bucket];
+  if (nonEmptyString(entry.bucket)) {
+    if (entry.bucket.startsWith('gs://')) {
+      throw new Error(`${label} names bucket "${entry.bucket}", a gs:// URL. firebase deploy releases to a bucket by that literal name. Write the bucket name without gs://, as "${entry.bucket.slice('gs://'.length).replace(/\/$/, '')}".`);
+    }
+    return [entry.bucket];
+  }
   throw new Error(`${label} names neither "bucket" nor "target", so firebase deploy has no bucket to release its rules to. Add "bucket": "<bucket name>".`);
 }
 
@@ -123,6 +132,16 @@ export function storageRulesConfig(
   if (storage === undefined || storage === null) {
     const file = resolveFile(DEFAULT_STORAGE_RULES_FILE);
     return { defaultRules: { file, label: 'firebase.json', configured: false }, buckets: [], unresolved: [] };
+  }
+  const targetedObject = !Array.isArray(storage) && typeof storage === 'object' && nonEmptyString((storage as StorageRulesEntry).target);
+  if (targetedObject) {
+    const resolved = storageRulesConfig([storage], options);
+    const relabel = (label: string): string => label.replace('storage[0]', 'storage');
+    return {
+      defaultRules: null,
+      buckets: resolved.buckets.map((target) => ({ ...target, label: relabel(target.label) })),
+      unresolved: resolved.unresolved.map((target) => ({ ...target, label: relabel(target.label) })),
+    };
   }
   if (!Array.isArray(storage)) {
     const rules = typeof storage === 'object' ? (storage as StorageRulesEntry).rules : undefined;

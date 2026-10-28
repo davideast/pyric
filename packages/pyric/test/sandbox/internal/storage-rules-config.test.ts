@@ -76,6 +76,24 @@ describe('storageRulesConfig', () => {
     });
   });
 
+  it('prepare.js and release.js: a single storage object with target deploys to the buckets the target maps to', () => {
+    const config = storageRulesConfig({ target: 'main', rules: 'a.rules' }, { targetBuckets: () => ['media'] });
+    expect(config).toEqual({
+      defaultRules: null,
+      buckets: [{ bucket: 'media', file: 'a.rules', label: 'firebase.json storage', configured: true }],
+      unresolved: [],
+    });
+    expect(storageRulesConfig({ target: 'main', rules: 'a.rules' }).unresolved).toEqual([
+      { target: 'main', label: 'firebase.json storage', file: 'a.rules' },
+    ]);
+  });
+
+  it('release.js releases to a bucket by its literal name, so a gs:// bucket name is refused', () => {
+    expect(() => storageRulesConfig([{ bucket: 'gs://media', rules: 'a.rules' }])).toThrow(
+      'firebase.json storage[0] names bucket "gs://media", a gs:// URL.',
+    );
+  });
+
   it('resolves each file through resolveFile', () => {
     const config = storageRulesConfig([{ bucket: 'b', rules: 'rules/b.rules' }], { resolveFile: (file) => `/p/${file}` });
     expect(config.buckets[0]?.file).toBe('/p/rules/b.rules');

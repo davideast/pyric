@@ -108,8 +108,11 @@ function rulesFor(service: StorageService, target: Target | undefined): StorageR
 /** Why a request with no rules to check denies. A locked bucket names the fix. */
 function noRulesReason(inForce: Exclude<StorageRulesInForce, { kind: 'rules' }>): string {
   if (inForce.kind === 'none') return 'No Storage rules configured; default deny.';
+  if (inForce.kind === 'second-default') {
+    return `Storage bucket "${inForce.bucket}" is a second default bucket in this sandbox, which already serves "${inForce.defaultBucket}" as its default bucket, so pyric denies every client operation on it rather than share that bucket's objects. Give each app the same storageBucket, or open the other bucket with getStorage(app, "gs://${inForce.bucket}").`;
+  }
   const { bucket } = inForce;
-  return `Storage bucket "${bucket}" has no rules deployed in firebase.json, so it denies every client operation, as a new production bucket does. Add {"bucket": "${bucket}", "rules": "<file>"} to the storage array.`;
+  return `Storage bucket "${bucket}" has no rules deployed in firebase.json, so pyric denies every client operation on it. Add {"bucket": "${bucket}", "rules": "<file>"} to the storage array.`;
 }
 
 /**

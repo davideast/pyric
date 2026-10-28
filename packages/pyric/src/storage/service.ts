@@ -176,6 +176,7 @@ interface StorageServiceCaches {
   readonly adminContextHandles: WeakMap<SandboxContext, Map<string, FirebaseStorage>>;
   readonly bareAdminHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
   bucketRules?: WeakMap<Sandbox, Map<string, BucketRules>>;
+  defaultStoreNames?: WeakMap<Sandbox, string>;
 }
 
 /** The rules deployed to one bucket, by name. */
@@ -203,6 +204,14 @@ const serviceCaches: StorageServiceCaches = (globalServiceCaches[SERVICE_CACHES_
  * every bucket.
  */
 const BUCKET_RULES = (serviceCaches.bucketRules ??= new WeakMap());
+
+/**
+ * The bucket name the default store is first used under, per `Sandbox`, once
+ * rules are deployed per bucket. The default store holds one bucket's
+ * objects, so a second name on it is locked rather than reading the first
+ * bucket's objects under its own rules.
+ */
+const DEFAULT_STORE_NAMES = (serviceCaches.defaultStoreNames ??= new WeakMap());
 
 /** One open storage service, with its opening configuration, per `Sandbox`. */
 const OPEN_SERVICES = serviceCaches.openServices;
@@ -372,7 +381,21 @@ export function deployStorageBucketRules(sandbox: Sandbox, bucket: string, sourc
 export type StorageRulesInForce =
   | { readonly kind: 'rules'; readonly rules: StorageRules }
   | { readonly kind: 'none' }
-  | { readonly kind: 'locked'; readonly bucket: string };
+  | { readonly kind: 'locked'; readonly bucket: string }
+  | { readonly kind: 'second-default'; readonly bucket: string; readonly defaultBucket: string };
+
+/**
+ * The name the default store answers to: the first name it is used under.
+ * Null when `target` is not on the default store or names no bucket.
+ */
+function pinnedDefaultName(target: SandboxTarget, name: string): string | null {
+  const unnamedDefault = !addressesDefaultBucket(target) || target.bucketName === undefined;
+  if (unnamedDefault) return null;
+  const pinned = DEFAULT_STORE_NAMES.get(target.sandbox);
+  if (pinned !== undefined) return pinned;
+  DEFAULT_STORE_NAMES.set(target.sandbox, name);
+  return name;
+}
 
 /** Whether a handle addresses the app's default bucket, the one stored under the default key. */
 function addressesDefaultBucket(target: SandboxTarget): boolean {
@@ -389,6 +412,8 @@ export function storageRulesInForce(service: StorageService, target: SandboxTarg
   const byBucket = BUCKET_RULES.get(target.sandbox);
   if (byBucket === undefined) return service.rules ? { kind: 'rules', rules: service.rules } : { kind: 'none' };
   const name = rulesBucketName(target.bucket, target.bucketName);
+  const pinned = pinnedDefaultName(target, name);
+  if (pinned !== null && pinned !== name) return { kind: 'second-default', bucket: name, defaultBucket: pinned };
   const deployed = byBucket.get(name);
   if (deployed !== undefined) return { kind: 'rules', rules: deployed.rules };
   const defaultRules = addressesDefaultBucket(target) ? service.rules : null;
