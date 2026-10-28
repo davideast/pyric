@@ -46,6 +46,7 @@ import { rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
+import { createStagedSignInResults, type StagedSignInResults } from './host/staged-sign-in-results.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
 
@@ -69,6 +70,18 @@ export function authSubsFor(ctx: HostCtx): Map<PortLike, Map<string, 'authState'
     _authSubs.set(ctx, m);
   }
   return m;
+}
+
+const _stagedSignInResults = new WeakMap<HostCtx, StagedSignInResults>();
+
+/** The sign-in results each of this host's ports staged (`auth.mockSignInResult`). */
+export function stagedSignInResultsFor(ctx: HostCtx): StagedSignInResults {
+  let staged = _stagedSignInResults.get(ctx);
+  if (!staged) {
+    staged = createStagedSignInResults();
+    _stagedSignInResults.set(ctx, staged);
+  }
+  return staged;
 }
 
 function portTenantsFor(ctx: HostCtx): Map<PortLike, string | null> {
@@ -257,6 +270,7 @@ export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   ctx.portSessions?.delete(port);
   portTenantsFor(ctx).delete(port);
   _lastAuthStateUid.delete(port);
+  stagedSignInResultsFor(ctx).clear(port);
 }
 
 // ─── Auth op handlers ─────────────────────────────────────────────────────
@@ -563,6 +577,14 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, providerId, isNewUser));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.mockSignInResult': {
+      try {
+        stagedSignInResultsFor(ctx).stage(port, msg.identity);
+        ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

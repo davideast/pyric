@@ -73,6 +73,7 @@ export const operationPersistence = {
   'auth.confirmPasswordReset': true,
   'auth.restorePortSession': false,
   'auth.acceptIdentity': true,
+  'auth.mockSignInResult': false,
   'auth.listUsers': false,
   'auth.adminCreateUser': true,
   'auth.adminUpdateUser': true,
