@@ -23,6 +23,8 @@ const result = await model.generateContent('Summarise this report.');
 
 During development, Pyric answers through a local engine instead of a Google AI endpoint. A normal production build runs the same application code through Firebase. Use the [Firebase AI Logic Web guide](https://firebase.google.com/docs/ai-logic/get-started?platform=web) for the application API.
 
+The sandbox refuses these requests too. If an app never calls `initializeAppCheck`, or calls it after `getAI`, `generateContent`, `generateContentStream`, `countTokens` and chat messages fail with the same 403 error production returns. Pyric prints how to fix it in the browser console and in the dev server terminal. Sandbox tokens from `initializeAppCheck` are accepted, with or without the debug provider.
+
 ## Start with deterministic responses
 
 With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
