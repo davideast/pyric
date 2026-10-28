@@ -254,9 +254,11 @@ export interface App {
    * free port, or on `port` when given, and waits until it serves the page and
    * `/__pyric/init.json`. The port is passed on the command line, which
    * overrides the config file. Passing the port of a server the scenario
-   * stopped brings a host back on the URL its pages already use.
+   * stopped brings a host back on the URL its pages already use. `cwd`
+   * (relative to the app directory) runs the dev server of a project the
+   * scenario created there, such as one `create-pyric` scaffolded.
    */
-  devServer(options?: { env?: Record<string, string>; name?: string; port?: number }): Promise<DevServer>;
+  devServer(options?: { env?: Record<string, string>; name?: string; port?: number; cwd?: string }): Promise<DevServer>;
   /** Runs `node --import @pyric/cli/register <script> ...args` to exit. Throws on a non-zero exit. */
   serverScript(script: string, args?: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /**
@@ -465,15 +467,16 @@ export class AppRun implements App {
     return hole.port;
   }
 
-  async devServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
+  async devServer(options: { env?: Record<string, string>; name?: string; port?: number; cwd?: string } = {}): Promise<DevServer> {
     const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
     const name = options.name ?? (this.serverCount === 1 ? 'dev server' : `dev server ${this.serverCount}`);
+    const projectDir = join(this.dir, options.cwd ?? '.');
     const child = new AppProcess(
       name,
       'node',
-      [join(this.dir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-      this.dir,
+      [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+      projectDir,
       appEnvironment(this.home, options.env),
     );
     this.processes.push(child);
