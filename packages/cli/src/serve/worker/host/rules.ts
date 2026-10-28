@@ -19,6 +19,7 @@ import {
   lintFirestoreRules,
   rulesSourceRejection,
   type CompileLimitViolation,
+  type RulesSourceRejection,
 } from 'pyric/rules/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { sandbox as rtdbSandbox } from 'pyric/database';
@@ -181,6 +182,40 @@ function compileLimitMessages(violations: readonly CompileLimitViolation[]) {
   }));
 }
 
+/** Production's refusal of a Firestore source, as error messages at the line and column it reports. */
+function rejectionMessages(rejection: RulesSourceRejection): ActiveRulesState['messages'] {
+  return rejection.kind === 'parse'
+    ? [{ severity: 'error', text: `Firestore ${rejection.message}`, line: rejection.line, column: rejection.column }]
+    : compileLimitMessages(rejection.violations);
+}
+
+/**
+ * The status of `source`, the Firestore rules the sandbox now enforces, for a
+ * path that installed them without {@link deployFirestoreRulesToHost} (a
+ * tool's seed, a promoted branch, a restored checkpoint). A source production
+ * would not load is `error` with production's reason, never `active`: the
+ * sandbox evaluates no request against it. `previous` is the status it
+ * replaces, whose rules stay the last known good ones.
+ */
+export function enforcedFirestoreRulesState(
+  source: string,
+  previous: ActiveRulesState | undefined,
+  activeMessages: ActiveRulesState['messages'] = [],
+): ActiveRulesState {
+  const rejection = rulesSourceRejection(source);
+  if (rejection === null) {
+    return { status: 'active', source, lastKnownGood: source, updatedAt: Date.now(), messages: activeMessages };
+  }
+  const lastKnownGood = previous?.status === 'active' ? previous.source : previous?.lastKnownGood;
+  return {
+    status: 'error',
+    source,
+    updatedAt: Date.now(),
+    messages: rejectionMessages(rejection),
+    ...(lastKnownGood === undefined ? {} : { lastKnownGood }),
+  };
+}
+
 /**
  * Deploy Firestore rules to the sandbox and update `ctx.activeRules.firestore`.
  * A source production's load check refuses (it does not parse, names a
@@ -196,11 +231,7 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
   const rejection = rulesSourceRejection(source);
   const refused = rejection !== null;
   const result = refused ? lintFirestoreRules(source) : setRules(ctx.sandbox, source);
-  const messages = rejection === null
-    ? firestoreRuleMessages(result)
-    : rejection.kind === 'parse'
-      ? [{ severity: 'error' as const, text: `Firestore ${rejection.message}`, line: rejection.line, column: rejection.column }]
-      : compileLimitMessages(rejection.violations);
+  const messages = rejection === null ? firestoreRuleMessages(result) : rejectionMessages(rejection);
   // `ok` reports whether the rules took effect. An installed ruleset with an
   // error-severity lint finding (an always-true `match /{document=**}`) is
   // in force, as production deploys it; its findings stay in `messages`.
@@ -226,13 +257,11 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
 export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: SandboxRuleSources): void {
   if (rules.firestore.length > 0) {
     ctx.activeRules ??= {};
-    ctx.activeRules.firestore = {
-      source: rules.firestore,
-      lastKnownGood: rules.firestore,
-      updatedAt: Date.now(),
-      status: 'active',
-      messages: firestoreRuleMessages(lintFirestoreRules(rules.firestore)),
-    };
+    ctx.activeRules.firestore = enforcedFirestoreRulesState(
+      rules.firestore,
+      ctx.activeRules.firestore,
+      firestoreRuleMessages(lintFirestoreRules(rules.firestore)),
+    );
   } else if (ctx.activeRules) {
     delete ctx.activeRules.firestore;
   }

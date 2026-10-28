@@ -692,6 +692,97 @@ service cloud.firestore {
       await host2.runtime.close();
     }
   },
+  async 'sw-hst-12'() {
+    const dir = realpathSync(makeTempDir('sw-hst-12-'));
+    const firestoreRules = (matchPath) => [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match ' + matchPath + ' { allow read, write: if true; }',
+      '  }',
+      '}',
+    ].join('\\n');
+    const openOnly = firestoreRules('/open/{id}');
+    const storageAllowAll = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /{allPaths=**} { allow read, write: if true; }',
+      '  }',
+      '}',
+    ].join('\\n');
+    const unparseable = openOnly.replace('if true;', 'if true');
+    const serviceReason = "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.";
+
+    const harness = createHarness(dir, { rules: openOnly });
+    const { runtime, sendOp } = await harness.start();
+    let toolSeq = 0;
+    async function callTool(name, args) {
+      const id = 'tool-' + (++toolSeq);
+      runtime.receive({ type: 'tool-call', callerId: 'agent', id, name, args });
+      const frame = await harness.waitForFrame((m) => m.type === 'tool-result' && m.id === id);
+      assert.equal(frame.ok, true, JSON.stringify(frame));
+      return frame.result;
+    }
+    const activeRules = async () => (await sendOp('tab-1', { method: 'getActiveRules', service: 'firestore' })).value;
+    async function expectRulesInForce(openPath, lockedPath) {
+      assert.equal((await sendOp('tab-1', { method: 'setDoc', path: openPath, data: { v: 1 } })).ok, true);
+      assert.equal((await sendOp('tab-1', { method: 'setDoc', path: lockedPath, data: { v: 1 } })).ok, false);
+    }
+
+    try {
+      await expectRulesInForce('open/a', 'locked/a');
+      const before = await activeRules();
+      assert.equal(before.status, 'active');
+      assert.equal(before.source, openOnly);
+
+      // FS2-ENF-3a: a Storage ruleset is refused with the shared reason.
+      const storage = await callTool('firestore_simulator_create', { rules: storageAllowAll, documents: { 'locked/b': { v: 1 } } });
+      assert.equal(storage.ok, false, JSON.stringify(storage));
+      assert.equal(storage.summary, serviceReason);
+      assert.equal(storage.data.code, 'RULES_REFUSED');
+      assert.deepEqual(await activeRules(), before);
+      await expectRulesInForce('open/b', 'locked/c');
+      assert.equal((await sendOp('tab-1', { method: 'getDoc', path: 'open/a' })).ok, true);
+
+      // FS2-ENF-3b: a source that does not parse is refused too.
+      const broken = await callTool('firestore_simulator_create', { rules: unparseable });
+      assert.equal(broken.ok, false, JSON.stringify(broken));
+      assert.match(broken.summary, /^Firestore rules did not parse at line 4, column \\d+: /);
+      assert.deepEqual(await activeRules(), before);
+      await expectRulesInForce('open/c', 'locked/d');
+
+      // A source production loads still seeds and reports active.
+      const otherOnly = firestoreRules('/other/{id}');
+      const loaded = await callTool('firestore_simulator_create', { rules: otherOnly });
+      assert.equal(loaded.ok, true, JSON.stringify(loaded));
+      const after = await activeRules();
+      assert.equal(after.status, 'active');
+      assert.equal(after.source, otherOnly);
+      await expectRulesInForce('other/a', 'open/d');
+
+      // A path that installs rules without the tool (a branch forked with
+      // candidate rules, then promoted) never reports a refused source active.
+      const forked = await runtime.runMethod(
+        { instanceId: runtime.instanceId, key: 'sandbox.fork', args: { branch: 'storage-rules', candidateRules: storageAllowAll }, projectDir: dir, allowProduction: false },
+        {},
+      );
+      assert.equal(forked.ok, true, JSON.stringify(forked));
+      const promoted = await runtime.runMethod(
+        { instanceId: runtime.instanceId, key: 'sandbox.promote', args: { branch: 'storage-rules', confirm: true }, projectDir: dir, allowProduction: false },
+        {},
+      );
+      assert.equal(promoted.ok, true, JSON.stringify(promoted));
+      const promotedRules = await activeRules();
+      assert.equal(promotedRules.status, 'error', JSON.stringify(promotedRules));
+      assert.equal(promotedRules.source, storageAllowAll);
+      assert.equal(promotedRules.lastKnownGood, otherOnly);
+      assert.deepEqual(promotedRules.messages.map((m) => m.text), [serviceReason]);
+      assert.equal((await sendOp('tab-1', { method: 'setDoc', path: 'other/b', data: { v: 1 } })).ok, false);
+    } finally {
+      await runtime.close();
+    }
+  },
 };
 
 const target = process.argv[2];
@@ -771,5 +862,9 @@ describe('hosted Node runtime & repro hunt regressions (SW-HST-1..10)', () => {
 
   test('SW-HST-11: caller defaultBucket aliases persist across Node host restarts so download URLs resolve on cold boot', () => {
     runScenario('sw-hst-11');
+  }, 30_000);
+
+  test('SW-HST-12: firestore_simulator_create refuses rules production would not load, and the host never reports a refused source active (FS2-ENF-3a, FS2-ENF-3b)', () => {
+    runScenario('sw-hst-12');
   }, 30_000);
 });

@@ -16,6 +16,7 @@ import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import {
   databaseInstanceRulesHost,
   deployFirestoreRulesToHost,
+  enforcedFirestoreRulesState,
   resetHostSandbox,
   normalizeDatabaseRules,
   setDatabaseRules,
@@ -295,10 +296,11 @@ export async function createHostedRuntime(
     }
   }
 
+  /** The Firestore status from the rules the sandbox enforces, never `active` for a source production would not load. */
   function syncFirestoreActiveRulesFromSandbox(): void {
     const source = getInternalEnv(ctx.sandbox).getRules();
     ctx.activeRules ??= {};
-    ctx.activeRules.firestore = { status: 'active', source, lastKnownGood: source, updatedAt: Date.now(), messages: [] };
+    ctx.activeRules.firestore = enforcedFirestoreRulesState(source, ctx.activeRules.firestore);
   }
 
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
