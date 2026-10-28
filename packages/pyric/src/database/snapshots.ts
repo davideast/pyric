@@ -1,4 +1,4 @@
-import { coerceArrays } from './sandbox/normalize.js';
+import { asSdkArray } from './sandbox/normalize.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { executeQuery, type Priority, type QueryRow } from './sandbox/query.js';
 import type { PriorityRecord } from './sandbox/priority-state.js';
@@ -45,11 +45,9 @@ function snapshotWithPriorities(
   priorityOf: PriorityLookup,
 ): DataSnapshot {
   const exists = val !== null;
-  // `val` is the STORED (integer-keyed) shape. Structural ops
+  // `val` is the stored (integer-keyed) shape. Structural ops
   // (`child`/`forEach`/`hasChildren`/`numChildren`) walk it directly;
-  // `val()`/`toJSON()` render the DB-B2 array coercion lazily so a list
-  // written as an array reads back as an array.
-  const coerced = coerceArrays(val);
+  // `val()`, `exportVal()` and `toJSON()` render it on each call.
   const childCount = (val !== null && typeof val === 'object' && !Array.isArray(val))
     ? Object.keys(val as Record<string, JsonValue>).length
     : 0;
@@ -60,7 +58,7 @@ function snapshotWithPriorities(
     size: childCount,
     priority,
     exists(): boolean { return exists; },
-    val(): JsonValue { return coerced; },
+    val(): JsonValue { return renderNode(priorityOf, refForSnap, val, false); },
     child(p: string): DataSnapshot {
       const segs = pathSegments(p);
       let cur: JsonValue = val;
@@ -81,16 +79,11 @@ function snapshotWithPriorities(
       return val !== null && typeof val === 'object' && !Array.isArray(val)
         && Object.keys(val as Record<string, JsonValue>).length > 0;
     },
-    exportVal(): JsonValue { return exportValueAt(priorityOf, refForSnap, val).value; },
-    toJSON(): JsonValue { return exportValueAt(priorityOf, refForSnap, val).value; },
+    exportVal(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
+    toJSON(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
     forEach(cb): boolean {
       if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
-      const rows = executeQuery(
-        val,
-        { orderBy: null, bounds: [], limit: null },
-        (key) => priorityOf(child(refForSnap, key)._path),
-      );
-      for (const { key, value } of rows) {
+      for (const { key, value } of childrenInPriorityOrder(priorityOf, refForSnap, val)) {
         const childRef = child(refForSnap, key);
         const childSnap = snapshotWithPriorities(target, childRef, value, priorityOf);
         if (cb(childSnap) === true) return true;
@@ -126,14 +119,16 @@ export function buildSandboxQuerySnap(
     val = obj;
   }
   const exists = rows.length > 0;
-  const coerced = coerceArrays(val);
+  const priorityOf = priorityLookup(target);
   const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
     size: rows.length,
     priority: target.backend.getPriority(refForSnap._path),
     exists(): boolean { return exists; },
-    val(): JsonValue { return coerced; },
+    // Like production, `val()` and `exportVal()` order the window's keys by
+    // priority, then key; only `forEach` follows the query's order (RT-7).
+    val(): JsonValue { return renderNode(priorityOf, refForSnap, val, false); },
     child(p: string): DataSnapshot {
       const segs = pathSegments(p);
       let cur: JsonValue = val;
@@ -151,8 +146,8 @@ export function buildSandboxQuerySnap(
       return this.child(p).exists();
     },
     hasChildren(): boolean { return rows.length > 0; },
-    exportVal(): JsonValue { return exportValueAt(priorityLookup(target), refForSnap, val).value; },
-    toJSON(): JsonValue { return exportValueAt(priorityLookup(target), refForSnap, val).value; },
+    exportVal(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
+    toJSON(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
     forEach(cb): boolean {
       for (const { key, value } of rows) {
         const childRef = child(refForSnap, key);
@@ -165,33 +160,43 @@ export function buildSandboxQuerySnap(
   return new DataSnapshot(implementation);
 }
 
-function exportValueAt(
+/** The children of a stored object in priority, then key order, as `forEach` walks them. */
+function childrenInPriorityOrder(
   priorityOf: PriorityLookup,
   refForSnap: DatabaseReference,
-  value: JsonValue,
-): { value: JsonValue; containsPriority: boolean } {
-  if (value === null) return { value: null, containsPriority: false };
-  const priority = priorityOf(refForSnap._path);
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    return priority === null
-      ? { value, containsPriority: false }
-      : { value: { '.value': value, '.priority': priority }, containsPriority: true };
-  }
-  const exported: Record<string, JsonValue> = {};
-  let containsPriority = priority !== null;
-  const rows = executeQuery(
+  value: Record<string, JsonValue>,
+): QueryRow[] {
+  return executeQuery(
     value,
     { orderBy: null, bounds: [], limit: null },
     (key) => priorityOf(child(refForSnap, key)._path),
   );
-  for (const { key, value: childValue } of rows) {
-    const childExport = exportValueAt(priorityOf, child(refForSnap, key), childValue);
-    exported[key] = childExport.value;
-    containsPriority ||= childExport.containsPriority;
+}
+
+/**
+ * A stored value as `val()` renders it (`exportFormat` false) or as
+ * `exportVal()` and `toJSON()` do (`exportFormat` true). Mirrors upstream
+ * `ChildrenNode.val(exportFormat)` and `LeafNode.val(exportFormat)`: keys
+ * are assigned in priority, then key order (RT-7); only `val()` renders an
+ * integer-keyed node as an array, with holes at missing indexes; only the
+ * export carries `.priority` and `.value` (RT-6, #1371).
+ */
+function renderNode(
+  priorityOf: PriorityLookup,
+  refForSnap: DatabaseReference,
+  value: JsonValue,
+  exportFormat: boolean,
+): JsonValue {
+  if (value === null) return null;
+  const priority = exportFormat ? priorityOf(refForSnap._path) : null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return priority === null ? value : { '.value': value, '.priority': priority };
   }
-  if (priority !== null) exported['.priority'] = priority;
-  return {
-    value: containsPriority ? exported : coerceArrays(exported),
-    containsPriority,
-  };
+  const rendered: Record<string, JsonValue> = {};
+  for (const { key, value: childValue } of childrenInPriorityOrder(priorityOf, refForSnap, value)) {
+    rendered[key] = renderNode(priorityOf, child(refForSnap, key), childValue, exportFormat);
+  }
+  if (!exportFormat) return asSdkArray(rendered) ?? rendered;
+  if (priority !== null) rendered['.priority'] = priority;
+  return rendered;
 }

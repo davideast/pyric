@@ -40,13 +40,18 @@ export async function assertM66ArrayCoercionThresholds(): Promise<void> {
   const db = setup();
   for (const [path, value, expected] of [
     ['dense', { 0: 'a', 1: 'b' }, ['a', 'b']],
-    ['sparse-below-threshold', { 0: 'a', 2: 'c' }, ['a', null, 'c']],
     ['at-threshold', { 0: 'a', 4: 'e' }, { 0: 'a', 4: 'e' }],
     ['non-integer', { 0: 'a', x: 'x' }, { 0: 'a', x: 'x' }],
   ] as const) {
     await api.set(api.ref(db, path), value);
     expect((await api.get(api.ref(db, path))).val()).toEqual(expected);
   }
+  // A sparse node below the threshold is an array with a hole at the missing
+  // index, not a null: upstream `ChildrenNode.val` assigns present keys only
+  // (hunt finding RT-6, #1371; this contract asserted a null there before).
+  await api.set(api.ref(db, 'sparse-below-threshold'), { 0: 'a', 2: 'c' });
+  const sparse = (await api.get(api.ref(db, 'sparse-below-threshold'))).val() as string[];
+  expect([Array.isArray(sparse), sparse.length, 1 in sparse, sparse[0], sparse[2]]).toEqual([true, 3, false, 'a', 'c']);
 }
 
 export function assertM69ConstraintConflicts(): void {
