@@ -11,4 +11,5 @@ import { runFirebaseImports } from '../nextjs-firebase-imports.ts';
 export default scenario((app) => runFirebaseImports(app, [
   { name: 'pyric sandbox -- next dev', nextFlags: [], hosted: false },
   { name: 'pyric sandbox -- next dev --turbopack', nextFlags: ['--turbopack'], hosted: false },
+  { name: 'PYRIC_GUARD=warn pyric sandbox -- next dev', nextFlags: [], hosted: false, guard: 'warn' },
 ]));

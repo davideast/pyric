@@ -28,6 +28,11 @@ export interface FirebaseImportsCase {
   /** Extra `next dev` flags, such as `--webpack` or `--turbopack`. */
   nextFlags: readonly string[];
   hosted: boolean;
+  /**
+   * `PYRIC_GUARD` for the run. Unset takes `withPyric`'s `block` default;
+   * `warn` names the mode, which the tripwire overrides anyway.
+   */
+  guard?: 'warn';
 }
 
 const PROJECT_ID = 'demo-firebase-imports';
@@ -203,11 +208,18 @@ export async function GET() {
   const { join } = process.getBuiltinModule('node:path');
   const load = createRequire(join(process.cwd(), 'package.json'));
   load(join(process.cwd(), 'node_modules', 'firebase-admin', 'lib', 'app', 'index.js'));
+  return Response.json({
+    code: await attempt(process.env.SCENARIO_FIRESTORE_URL),
+    unlisted: await attempt(process.env.SCENARIO_UNLISTED_URL),
+  });
+}
+
+async function attempt(url) {
   try {
-    await fetch(process.env.SCENARIO_FIRESTORE_URL);
-    return Response.json({ code: 'sent' });
+    await fetch(url, { method: 'POST' });
+    return 'sent';
   } catch (error) {
-    return Response.json({ code: error?.cause?.code ?? error?.code ?? String(error) });
+    return error?.cause?.code ?? error?.code ?? String(error);
   }
 }
 `;
@@ -319,6 +331,9 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
     CLOUDSDK_CONFIG: safety.emptyGcloud,
     NEXT_TELEMETRY_DISABLED: '1',
     SCENARIO_FIRESTORE_URL: `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/items/from-admin`,
+    // A Google API the endpoint catalog does not list, which the real firebase-admin calls for its token (#1475).
+    SCENARIO_UNLISTED_URL: 'https://oauth2.googleapis.com/token',
+    ...(testCase.guard === undefined ? {} : { PYRIC_GUARD: testCase.guard }),
   };
 
   const sandbox = await app.step(`${testCase.name}: Next serves the app`, async () => {
@@ -375,12 +390,14 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
     assert.deepEqual({ realFirebase, connections }, { realFirebase: [], connections: [] });
   });
 
-  // #1443 part 2: a load the register can't map still fails closed.
-  await app.step(`${testCase.name}: the real firebase-admin trips the guard, and Firestore is refused`, async () => {
+  // #1443 part 2: a load the register can't map still fails closed, over every Google host (#1475).
+  await app.step(`${testCase.name}: the real firebase-admin trips the guard, and Google APIs are refused`, async () => {
     const response = await fetch(`${nextUrl}/api/real-admin`, { signal: AbortSignal.timeout(120_000) });
     const body = await jsonFrom(response);
     const connections = escapedConnections(readSafetyLog(safetyLog));
-    assert.deepEqual({ body, connections }, { body: { code: 'PYRIC_GUARD_BLOCKED' }, connections: [] });
+    const refused = { code: 'PYRIC_GUARD_BLOCKED', unlisted: 'PYRIC_GUARD_BLOCKED' };
+    assert.deepEqual({ body, connections }, { body: refused, connections: [] });
+    assert.match(sandbox.output, /net-guard escalated to block: the real firebase-admin loaded/);
     assert.match(sandbox.output, /the real firebase-admin loaded from file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
     await page.close();
     await sandbox.stop();
