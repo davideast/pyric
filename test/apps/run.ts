@@ -22,8 +22,25 @@
  * way.
  *
  * Without --packages, the runner packs the current workspace build into
- * dist/packages. Apps that install the same packages share one `npm install`
- * per run, copied into each app (shared-installs.ts). Logs land in
+ * dist/packages. Apps that install the same packages share one install per
+ * run, copied into each app (shared-installs.ts). Each set's tree comes from
+ * the dependency store (dependency-store.ts), which keeps one installed tree
+ * per third-party dependency set and installs only the run's Pyric tarballs
+ * into it, offline. A set the store does not hold is warmed from the registry
+ * first. The runner prints one `[runner] dependency set` line per set, with
+ * where its tree came from and how long it took.
+ *
+ * Environment:
+ *   PYRIC_APPS_DEPS_STORE  the store's directory (default
+ *                          ~/.cache/pyric-app-scenarios/deps, shared by
+ *                          every worktree)
+ *   PYRIC_APPS_OFFLINE=1   install no shared set from the registry: a set the
+ *                          store does not hold fails at once, with its key
+ *                          and app. A scenario's own nested install
+ *                          (app.installProject) still goes online until it
+ *                          uses the store too
+ *
+ * Logs land in
  * test-results/apps/<name>/. Apps start longest first, by the times the last
  * run recorded in test-results/app-durations.json (schedule.ts).
  *
@@ -37,7 +54,8 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
-import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
+import { currentPlatform, DependencyStore, readPackedPackages } from './dependency-store.ts';
+import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
 import { takeHeavyRunSlot } from '../../scripts/lib/heavy-run-slots.ts';
 import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
@@ -129,7 +147,7 @@ async function runApp(name: string, context: {
     const installStarted = performance.now();
     // Under the app's timeout too: a shared install or copy that never settles
     // fails this app instead of holding the run.
-    const install = await withTimeout(context.installs.install(projectDir), APP_TIMEOUT_MS, run);
+    const install = await withTimeout(context.installs.install(projectDir, name), APP_TIMEOUT_MS, run);
     installSeconds = (performance.now() - installStarted) / 1000;
     logs.push({ name: 'npm install', text: install.output });
     if (install.code !== 0) throw new StepFailure('npm install', new Error(`npm install exited with code ${install.code}`));
@@ -196,6 +214,31 @@ function report(result: AppResult, dir: string): string {
   return lines.join('\n');
 }
 
+/** The install of an app that cannot share a set: from the registry, unless the run is offline. */
+function installAlone(npmCache: string, offline: boolean): (cwd: string) => Promise<CommandResult> {
+  if (offline) {
+    const output = '[runner] this app installs alone, outside the dependency store, and PYRIC_APPS_OFFLINE=1 installs nothing from the registry\n';
+    return async () => ({ code: 1, output });
+  }
+  return (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd }));
+}
+
+/** The dependency store for this run's tarballs, where PYRIC_APPS_DEPS_STORE points. */
+async function openStore(tarballs: Tarballs, npmCache: string, offline: boolean): Promise<DependencyStore> {
+  const dir = process.env.PYRIC_APPS_DEPS_STORE ?? join(homedir(), '.cache', 'pyric-app-scenarios', 'deps');
+  const npmVersion = await runCommand('npm', ['--version'], { cwd: root });
+  if (npmVersion.code !== 0) throw new Error(`npm --version exited with code ${npmVersion.code}:\n${npmVersion.output}`);
+  console.log(`▸ dependency store ${dir}${offline ? ' (offline: a set it does not hold fails)' : ''}`);
+  return new DependencyStore({
+    dir,
+    offline,
+    packed: readPackedPackages(tarballs),
+    platform: currentPlatform(npmVersion.output),
+    npmCache,
+    runNpm: (args, { cwd, timeoutMs }) => runTimedCommand('npm', args, { cwd, timeoutMs }),
+  });
+}
+
 async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
@@ -245,8 +288,13 @@ async function main(): Promise<void> {
   }
   const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
   rmSync(resultsDir, { recursive: true, force: true });
+  const offline = process.env.PYRIC_APPS_OFFLINE === '1';
+  const store = await openStore(tarballs, npmCache, offline);
   const installsDir = mkdtempSync(join(tmpdir(), 'pyric-app-installs-'));
-  const installs = new SharedInstalls(installsDir, (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd })));
+  const installs = new SharedInstalls(installsDir, installAlone(npmCache, offline), {
+    installSet: (dir, app) => store.provide(dir, app),
+    report: (line) => console.log(line),
+  });
 
   let browser: Promise<Browser> | undefined;
   const launch = () => (browser ??= chromium.launch({ headless: true }));
