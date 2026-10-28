@@ -421,10 +421,11 @@ automatically routes calls to a live Node host for the same project (reporting
 `--allow-production` (or `PYRIC_ALLOW_PRODUCTION=1`) enables `production`-effect
 methods.
 
-The served bridge (`pyric sandbox --bridge`, `pyric bridge`) advertises a
+The served bridge (`pyric sandbox --bridge`) advertises a
 second, separate contract: the **bridge transport surface** a browser sandbox
 peer executes, plus the rules, conformance, identity, and capture tools that
-run in the bridge process without a peer. It is **47** tool names (`BRIDGE_TOOL_NAMES`):
+run in the bridge process without a peer. The standalone `pyric bridge` has no
+browser socket and advertises only the in-process tools. It is **47** tool names (`BRIDGE_TOOL_NAMES`):
 **29** forwarded to the sandbox (`BRIDGE_FORWARDED_TOOL_NAMES`, including
 Firestore simulator/CRUD, RTDB inspect/simulate, `sandbox_inspect`,
 `auth_create_user` through `auth_custom_token`, and `messaging_deliveries`) and
