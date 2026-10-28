@@ -153,6 +153,41 @@ export function liveGroupMembers(group: number, readStat: ReadStat = readProcSta
   return members;
 }
 
+/** A process's command line, its arguments joined by spaces. */
+export type ReadCmdline = (pid: number) => string | undefined;
+
+const readProcCmdline: ReadCmdline = (pid) => {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0+$/, '').replaceAll('\0', ' ');
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * One line per live process in `group`: pid, parent, state and command line.
+ * For a command stopped at its time limit, it names what was still running,
+ * such as an install script npm started and is waiting on (#1476).
+ */
+export function describeGroupProcesses(
+  group: number,
+  readStat: ReadStat = readProcStat,
+  listPids: () => number[] = listProcPids,
+  readCmdline: ReadCmdline = readProcCmdline,
+): string {
+  if (!hasProc) return '(no /proc on this platform)';
+  const lines: string[] = [];
+  for (const pid of listPids()) {
+    const line = readStat(pid);
+    const stat = line === undefined ? undefined : parseProcStat(line);
+    const isMember = stat !== undefined && stat.group === group;
+    if (!isMember) continue;
+    const command = readCmdline(pid) || `(${stat.comm})`;
+    lines.push(`pid ${pid} parent ${stat.parent} state ${stat.state}: ${command}`);
+  }
+  return lines.length > 0 ? lines.join('\n') : '(none)';
+}
+
 function listProcPids(): number[] {
   return readdirSync('/proc').filter((entry) => /^\d+$/.test(entry)).map(Number);
 }

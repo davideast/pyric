@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppProcess, AppRun } from './driver.ts';
 import { runCommand } from './install.ts';
-import { decodeExitStatus, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit, type ProcStat } from './unreaped-exit.ts';
+import { decodeExitStatus, describeGroupProcesses, describeProcState, describeUnreapedExit, liveGroupMembers, parseProcStat, unreapedExit, watchUnreapedExit, type ProcStat } from './unreaped-exit.ts';
 
 const onLinux = process.platform === 'linux';
 const parents: ChildProcess[] = [];
@@ -237,5 +237,34 @@ describe('a child whose exit came without its close', () => {
     await waitForProc(() => (procStat(holderPid)?.comm === 'sleep' ? true : undefined), () => `pid ${holderPid} did not become sleep${describeProcState(holderPid)}`);
     const members = liveGroupMembers(parent.pid ?? 0);
     expect(members).toEqual([{ pid: holderPid, comm: 'sleep' }]);
+  });
+});
+
+describe('naming what a stopped command was running (#1476)', () => {
+  /** A /proc/<pid>/stat line with the fields the driver reads and zeros for the rest. */
+  const statLine = (pid: number, comm: string, state: string, parent: number, group: number) =>
+    `${pid} (${comm}) ${state} ${parent} ${group} ${Array.from({ length: 48 }, () => '0').join(' ')}`;
+  const stats = new Map([
+    [100, statLine(100, 'npm install', 'S', 1, 100)],
+    [101, statLine(101, 'sh', 'S', 100, 100)],
+    [102, statLine(102, 'node', 'S', 101, 100)],
+    [200, statLine(200, 'node', 'R', 1, 200)],
+  ]);
+  const cmdlines = new Map([
+    [100, 'npm install --prefer-offline'],
+    [101, 'sh -c prebuild-install || node-gyp rebuild'],
+  ]);
+  const describe100 = () => describeGroupProcesses(100, (pid) => stats.get(pid), () => [...stats.keys()], (pid) => cmdlines.get(pid));
+
+  test.if(onLinux)('each process in the group gets its pid, parent, state and command line; other groups are left out', () => {
+    expect(describe100().split('\n')).toEqual([
+      'pid 100 parent 1 state S: npm install --prefer-offline',
+      'pid 101 parent 100 state S: sh -c prebuild-install || node-gyp rebuild',
+      'pid 102 parent 101 state S: (node)',
+    ]);
+  });
+
+  test.if(onLinux)('a group with no process left reads as none', () => {
+    expect(describeGroupProcesses(300, (pid) => stats.get(pid), () => [...stats.keys()], () => undefined)).toBe('(none)');
   });
 });

@@ -22,7 +22,7 @@ import {
   type Tarballs,
   type TimedResult,
 } from './install.ts';
-import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
+import { describeGroupProcesses, describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
 
 /** How much of npm's debug log the job log gets when an install attempt times out. */
 const NPM_LOG_TAIL_LINES = 40;
@@ -153,6 +153,11 @@ export class AppProcess {
 
   get output(): string {
     return this.text;
+  }
+
+  /** The child's pid, which also numbers its process group (it is spawned detached). */
+  get pid(): number | undefined {
+    return this.child.pid;
   }
 
   get running(): boolean {
@@ -565,7 +570,7 @@ export class AppRun implements App {
     command: string,
     args: string[],
     options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
-  ): Promise<TimedResult & { timeoutMs: number }> {
+  ): Promise<TimedResult & { timeoutMs: number; running?: string }> {
     this.scriptCount += 1;
     const label = [command, ...args].join(' ');
     const child = new AppProcess(
@@ -579,8 +584,10 @@ export class AppRun implements App {
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
+      // Read before the stop ends them: what the command was still running.
+      const running = child.pid === undefined ? undefined : describeGroupProcesses(child.pid);
       await child.stop();
-      return { code: null, output: child.output, timedOut: true, timeoutMs };
+      return { code: null, output: child.output, timedOut: true, timeoutMs, running };
     }
     return { code: await child.exited, output: child.output, timedOut: false, timeoutMs };
   }
@@ -603,7 +610,11 @@ export class AppRun implements App {
       if (!result.timedOut) return { code: result.code, output: result.output, timedOut: false };
       // Printed now: the app's logs are saved only when it fails, and its home
       // is removed after it, so a retry that passes would lose this (#1494).
-      const note = `[runner] ${what} stopped after ${result.timeoutMs / 1000} s\n${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}`;
+      // npm's log does not cover what its install scripts do, such as a
+      // prebuilt binary a package downloads itself, so the processes npm was
+      // still running are named too.
+      const running = `[runner] processes in its group when it was stopped:\n${result.running ?? '(unknown)'}\n`;
+      const note = `[runner] ${what} stopped after ${result.timeoutMs / 1000} s\n${running}${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}`;
       report(note.trimEnd());
       return { code: result.code, output: `${result.output}\n${note}`, timedOut: true };
     };

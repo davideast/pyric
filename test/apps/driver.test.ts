@@ -188,8 +188,8 @@ describe('app ports', () => {
 
 /**
  * A stand-in npm: every call writes a debug log to its --logs-dir and leaves
- * a file in node_modules. The calls listed in `hangs` (1-based) then wait
- * until stopped; the others exit 0. A call that finds an earlier call's
+ * a file in node_modules. The calls listed in `hangs` (1-based) then wait on
+ * a child, as npm waits on an install script, until stopped; the others exit 0. A call that finds an earlier call's
  * node_modules says so in `leftovers`.
  */
 function fakeNpm(dir: string, hangs: number[]): string {
@@ -204,7 +204,7 @@ mkdir -p "$logs"
 printf '0 verbose cli fake npm call %s\\n1 http fetch GET https://registry.npmjs.org/stalled-%s\\n' "$n" "$n" > "$logs/2026-10-28T12_0\${n}_00_000Z-debug-0.log"
 [ -e node_modules/left-by-call ] && echo "call $n found node_modules from an earlier call" >> "${dir}/leftovers"
 mkdir -p node_modules && touch node_modules/left-by-call
-case " ${hangs.join(' ')} " in *" $n "*) exec sleep 30;; esac
+case " ${hangs.join(' ')} " in *" $n "*) sleep 31 & wait;; esac
 echo "added 1 package"
 `);
   chmodSync(script, 0o755);
@@ -233,6 +233,9 @@ describe('installProject when npm hangs (#1476)', () => {
       expect(read('leftovers')).toBe('');
       expect(lines).toHaveLength(3);
       expect(lines[0]).toStartWith('[runner] chat: npm install in my-chat stopped after 1 s');
+      expect(lines[0]).toContain('[runner] processes in its group when it was stopped:');
+      expect(lines[0]).toMatch(/pid \d+ parent \d+ state \w: \S*bash \S*fake-npm\.sh install/);
+      expect(lines[0]).toMatch(/pid \d+ parent \d+ state \w: sleep 31/);
       expect(lines[0]).toContain("[runner] the end of npm's debug log 2026-10-28T12_01_00_000Z-debug-0.log");
       expect(lines[0]).toContain('http fetch GET https://registry.npmjs.org/stalled-1');
       expect(lines[1]).toStartWith('[runner] infrastructure retry: chat: npm install in my-chat timed out');
