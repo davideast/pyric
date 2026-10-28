@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pyric/cli": "*",
+    "pyric": "*",
+    "vite": "7.3.2"
+  }
+}

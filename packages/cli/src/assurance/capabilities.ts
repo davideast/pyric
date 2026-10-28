@@ -2,8 +2,10 @@
 // (this runtime ships to the browser, so the Node-only `internal/rtdb` entry is
 // not reachable from here):
 //
-//   rulesSourceRejection — production's load check, the one every CLI load
-//   path runs: the source parses and is within the compile limits.
+//   rulesSourceRejection — production's Firestore load check, the one every
+//   CLI load path runs: the source parses, its service is cloud.firestore,
+//   and it is within the compile limits. rulesGrammarRejection is its parse
+//   and compile-limit half, for Storage, which checks its own service.
 //
 //   parseToASTOrError / MatchBlock / PathSegment — the public API exposes
 //   lint/simulate but no parsed AST, and the overlapping-match analysis below
@@ -16,6 +18,7 @@
 import {
   parseToASTOrError,
   parseRtdbExpression,
+  rulesGrammarRejection,
   rulesSourceRejection,
   type MatchBlock,
   type PathSegment,
@@ -119,21 +122,14 @@ export function rulesLoadRefusal(
       ? target.rules.firestore
       : target.rules.storage;
   if (typeof source !== "string" || source.trim().length === 0) return undefined;
-  const rejection = rulesSourceRejection(source);
-  if (rejection !== null) {
-    return `${service === "firestore" ? "Firestore" : "Storage"} ${rejection.message}`;
-  }
   if (service === "firestore") {
-    const parsed = parseToASTOrError(source);
-    if (
-      parsed.ok &&
-      parsed.ast.service?.name &&
-      parsed.ast.service.name !== "cloud.firestore"
-    ) {
-      return `Firestore rules did not compile: Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`;
-    }
-    return undefined;
+    const rejection = rulesSourceRejection(source);
+    return rejection === null ? undefined : `Firestore ${rejection.message}`;
   }
+  // Storage checks its own service in `compileStorageRules`; the shared
+  // check here is the parse and compile-limit half only.
+  const rejection = rulesGrammarRejection(source);
+  if (rejection !== null) return `Storage ${rejection.message}`;
   try {
     compileStorageRules(source);
     return undefined;

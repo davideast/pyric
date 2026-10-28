@@ -109,6 +109,18 @@ ${Array.from({ length: 12 }, (_, i) => `      let v${i} = ${i};`).join('\n')}
     );
   });
 
+  it('fails to prepare a Storage ruleset as Firestore rules, with the reason every plane gives', () => {
+    const storage = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} { allow read, write: if true; }
+  }
+}`;
+    expect(() => prepareProjectRules(storage, 'firestore.rules')).toThrow(
+      "pyric sandbox: firestore.rules: Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'. Fix the rules before serving.",
+    );
+  });
+
   it('fails to prepare a Storage ruleset with production\'s message', () => {
     const storage = `rules_version = '2';
 service firebase.storage {

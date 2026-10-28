@@ -139,9 +139,16 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
     source = resolved.data.resolved;
   }
   // Production rejects a ruleset that does not parse, or is past its compile
-  // limits, before it evaluates any request, so the sandbox does not serve
-  // one either: the check every rules load path runs.
+  // limits, or names a service other than cloud.firestore, before it
+  // evaluates any request, so the sandbox does not serve one either: the
+  // check every rules load path runs, with the reason every plane gives.
   const rejection = rulesSourceRejection(source);
+  if (rejection?.kind === 'parse' && rejection.otherService !== undefined) {
+    throw new RulesPrepareError(
+      `pyric sandbox: ${sourcePath}: Firestore ${rejection.message} Fix the rules before serving.`,
+      moduleFiles,
+    );
+  }
   if (rejection?.kind === 'parse') {
     throw new RulesPrepareError(
       `pyric sandbox: ${sourcePath} failed to parse (line ${rejection.line}, col ${rejection.column}). Fix the rules before serving.`,

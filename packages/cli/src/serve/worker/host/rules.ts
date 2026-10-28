@@ -17,7 +17,6 @@ import { LOCKED_DATABASE_RULES, withDatabaseRulesPreservedOnReset } from 'pyric/
 import { setRules } from 'pyric/sandbox/firestore';
 import {
   lintFirestoreRules,
-  parseToASTOrError,
   rulesSourceRejection,
   type CompileLimitViolation,
 } from 'pyric/rules/internal';
@@ -182,7 +181,12 @@ function compileLimitMessages(violations: readonly CompileLimitViolation[]) {
   }));
 }
 
-/** Deploy Firestore rules to the sandbox and update `ctx.activeRules.firestore`, refusing non-`cloud.firestore` services. */
+/**
+ * Deploy Firestore rules to the sandbox and update `ctx.activeRules.firestore`.
+ * A source production's load check refuses (it does not parse, names a
+ * service other than `cloud.firestore`, or is past a compile limit) is not
+ * installed, and is reported with the reason every plane gives.
+ */
 export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
   ok: boolean;
   warnings: ReturnType<typeof lintFirestoreRules>['warnings'];
@@ -190,27 +194,17 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
   rejectionMessage: string | null;
 } {
   const rejection = rulesSourceRejection(source);
-  const parsed = rejection === null ? parseToASTOrError(source) : null;
-  const wrongService = parsed !== null && parsed.ok && parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore'
-    ? parsed.ast.service
-    : null;
-  const refused = rejection !== null || wrongService !== null;
+  const refused = rejection !== null;
   const result = refused ? lintFirestoreRules(source) : setRules(ctx.sandbox, source);
-  const wrongServiceText = wrongService !== null
-    ? `Expected 'service cloud.firestore', got 'service ${wrongService.name}'.`
-    : null;
-  const messages = wrongService !== null
-    ? [{
-        severity: 'error' as const,
-        text: wrongServiceText!,
-        ...(wrongService.loc ? { line: wrongService.loc.line } : {}),
-      }]
-    : rejection === null
-      ? firestoreRuleMessages(result)
-      : rejection.kind === 'parse'
-        ? [{ severity: 'error' as const, text: `Firestore ${rejection.message}`, line: rejection.line, column: rejection.column }]
-        : compileLimitMessages(rejection.violations);
-  const okDeploy = !messages.some((m) => m.severity === 'error');
+  const messages = rejection === null
+    ? firestoreRuleMessages(result)
+    : rejection.kind === 'parse'
+      ? [{ severity: 'error' as const, text: `Firestore ${rejection.message}`, line: rejection.line, column: rejection.column }]
+      : compileLimitMessages(rejection.violations);
+  // `ok` reports whether the rules took effect. An installed ruleset with an
+  // error-severity lint finding (an always-true `match /{document=**}`) is
+  // in force, as production deploys it; its findings stay in `messages`.
+  const okDeploy = !refused;
   ctx.activeRules ??= {};
   const previous = ctx.activeRules.firestore?.status === 'active'
     ? ctx.activeRules.firestore.source
@@ -224,11 +218,7 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
     messages,
     ...(previous ? { lastKnownGood: previous } : {}),
   };
-  const rejectionMessage = wrongServiceText !== null
-    ? `Firestore rules did not compile: ${wrongServiceText}`
-    : rejection !== null
-      ? `Firestore ${rejection.message}`
-      : null;
+  const rejectionMessage = rejection !== null ? `Firestore ${rejection.message}` : null;
   return { ok: okDeploy, warnings: result.warnings, messages, rejectionMessage };
 }
 
