@@ -183,6 +183,8 @@
     "./package.json"
   ],
   "allowedFirebaseSdkImportEdges": [
+    "dist/register/app-bridge-admin-app-check.js -> firebase-admin/app",
+    "dist/register/app-bridge-admin-app-check.js -> firebase-admin/app-check",
     "dist/register/app-bridge-app-check.js -> firebase/app-check",
     "dist/register/app-bridge-shadow.js -> firebase/app",
     "dist/serve/entries/app-ai-passthrough.js -> firebase/app"

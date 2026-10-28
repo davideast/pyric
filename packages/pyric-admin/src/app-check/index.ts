@@ -10,12 +10,18 @@
  * One deliberate difference: the sandbox has no list of the project's
  * registered apps, so `createToken` accepts any app id (row
  * `app-check-admin#create-token-unknown-app`, diverged by design).
+ *
+ * A token whose `kid` is not the sandbox's came from Firebase. It goes to
+ * firebase-admin's own verifier when `@pyric/cli/register` installed one
+ * (production AI mode), and is refused with a message that says why otherwise
+ * (./firebase-token.ts).
  */
 import { checkAppCheckToken, mintAppCheckToken, type AppCheckTokenClaims } from 'pyric/sandbox/internal';
-import { PrefixedFirebaseError } from '../app/firebase-error.js';
 import { getApp, type PyricAdminApp } from '../app/index.js';
 import { explicitProjectId } from '../app/project-id.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { FirebaseAppCheckError } from './error.js';
+import { verifyFirebaseToken } from './firebase-token.js';
 
 const MINUTE_MILLIS = 60 * 1000;
 const MIN_TTL_MILLIS = 30 * MINUTE_MILLIS;
@@ -28,8 +34,6 @@ const MESSAGES = {
   algorithm: (alg: unknown) => `The provided App Check token has incorrect algorithm. Expected "RS256" but got "${String(alg)}".`,
   noSub: 'The provided App Check token has no "sub" (subject) claim.',
   emptySub: 'The provided App Check token has an empty string "sub" (subject) claim.',
-  noMatchingKid:
-    'The provided App Check token has "kid" claim which does not correspond to a known public key. Most likely the provided App Check token is expired, so get a fresh token from your client app and try again.',
   ttl: 'ttlMillis must be a duration in milliseconds between 30 minutes and 7 days (inclusive).',
   appId: '`appId` must be a non-empty string.',
   decode: 'Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token.',
@@ -45,15 +49,6 @@ const MESSAGES = {
 };
 
 const APP_CHECK_ISSUER = 'https://firebaseappcheck.googleapis.com/';
-
-type AppCheckErrorCode = 'invalid-argument' | 'invalid-credential' | 'app-check-token-expired' | 'unknown-error';
-
-/** firebase-admin's FirebaseAppCheckError: a PrefixedFirebaseError with prefix `app-check`. */
-class FirebaseAppCheckError extends PrefixedFirebaseError {
-  constructor(code: AppCheckErrorCode, message: string) {
-    super('app-check', code, message);
-  }
-}
 
 export interface AppCheckTokenOptions {
   ttlMillis?: number;
@@ -148,19 +143,38 @@ export class AppCheck {
     const projectId = this.#projectId();
     const check = await checkAppCheckToken(appCheckToken);
     if (!check.ok && check.reason === 'malformed') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.decode);
+    // A kid that names a key other than the sandbox's: the token came from
+    // Firebase, so firebase-admin runs every check, in production's order.
+    const isFirebaseToken = !check.ok && check.reason === 'kid';
+    if (isFirebaseToken) {
+      const verified = await verifyFirebaseToken(appCheckToken, projectId);
+      return this.#recordConsume(verified, appCheckToken, options);
+    }
     verifyContent(check.header, check.claims, projectId);
-    if (!check.ok && check.reason === 'kid') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.noMatchingKid);
     if (!check.ok) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
     verifyNotBefore(check.claims.nbf);
     verifyExpiry(check.claims.exp);
     const claims = check.claims as AppCheckTokenClaims;
     const result: VerifyAppCheckTokenResponse = { appId: claims.sub, token: { ...claims, app_id: claims.sub } };
-    if (options?.consume) {
-      const consumed = consumedFor(this.#app);
-      const tokenId = typeof claims.jti === 'string' ? claims.jti : appCheckToken;
-      result.alreadyConsumed = consumed.has(tokenId);
-      consumed.add(tokenId);
-    }
+    return this.#recordConsume(result, appCheckToken, options);
+  }
+
+  /**
+   * `consume: true` marks the token used, in this process, for sandbox and
+   * Firebase tokens alike. It is never forwarded to Firebase, which would need
+   * a credential with App Check permissions.
+   */
+  #recordConsume(
+    result: VerifyAppCheckTokenResponse,
+    appCheckToken: string,
+    options: VerifyAppCheckTokenOptions | undefined,
+  ): VerifyAppCheckTokenResponse {
+    if (!options?.consume) return result;
+    const consumed = consumedFor(this.#app);
+    const jti = result.token.jti;
+    const tokenId = typeof jti === 'string' ? jti : appCheckToken;
+    result.alreadyConsumed = consumed.has(tokenId);
+    consumed.add(tokenId);
     return result;
   }
 

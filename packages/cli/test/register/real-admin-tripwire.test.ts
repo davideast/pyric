@@ -12,6 +12,11 @@
  * records it. The guard installs later and wraps that patch, so it still sees
  * each host as the child wrote it.
  *
+ * The one deliberate load is production AI mode's App Check verifier bridge
+ * (#1552), whose firebase-admin app holds no credentials. Loading it, and the
+ * firebase-admin files it pulls in, does not trip; an app's own import of the
+ * real package afterwards still does.
+ *
  * Requires the CLI to be built (`dist/register/index.js`).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -28,6 +33,7 @@ const repoRoot = resolve(toolsRoot, '../..');
 const registerDist = join(toolsRoot, 'dist/register/index.js');
 const registerUrl = pathToFileURL(registerDist).href;
 const realAdminUrl = pathToFileURL(createRequire(join(repoRoot, 'package.json')).resolve('firebase-admin/app')).href;
+const adminBridgeUrl = pathToFileURL(join(toolsRoot, 'dist/register/app-bridge-admin-app-check.js')).href;
 
 const TRAP = `'use strict';
 const net = require('node:net');
@@ -61,6 +67,7 @@ net.Socket.prototype.connect = function (...args) {
 /** Tries each egress, then reports what the guard said and what escaped to the sink. */
 const PROBE = `import net from 'node:net';
 const outcome = {};
+if (process.env.LOAD_ADMIN_BRIDGE === '1') await import(process.env.ADMIN_BRIDGE_URL);
 if (process.env.LOAD_REAL_ADMIN === '1') await import(process.env.REAL_ADMIN_URL);
 try {
   await fetch('https://firestore.googleapis.com/v1/projects/demo-tripwire/databases/(default)/documents/a/b');
@@ -101,6 +108,7 @@ function runProbe(env: Record<string, string>): Promise<{ status: number | null;
       CLOUDSDK_CONFIG: join(fixtureDir, 'empty-gcloud'),
       TRIPWIRE_SINK_PORT: String((sink.address() as AddressInfo).port),
       REAL_ADMIN_URL: realAdminUrl,
+      ADMIN_BRIDGE_URL: adminBridgeUrl,
       PYRIC_SANDBOX: 'local',
       ...env,
     },
@@ -161,6 +169,23 @@ describe('@pyric/cli/register real firebase-admin tripwire (child process)', () 
     expect(res.outcome.escaped).toContain('169.254.169.254');
     expect(res.stderr).not.toContain('the real firebase-admin loaded');
     expect(res.stderr).not.toContain('escalated to block');
+  }, 30_000);
+
+  it("does not trip when production AI mode's App Check verifier bridge loads the real firebase-admin", async () => {
+    const res = await runProbe({ LOAD_ADMIN_BRIDGE: '1', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.outcome.metadata).toBe('sent');
+    expect(res.stderr).not.toContain('the real firebase-admin loaded');
+    expect(res.stderr).not.toContain('escalated to block');
+  }, 30_000);
+
+  it('still trips on an app import of the real firebase-admin after the bridge loaded it', async () => {
+    const res = await runProbe({ LOAD_ADMIN_BRIDGE: '1', LOAD_REAL_ADMIN: '1', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.outcome).toEqual({ fetch: 'PYRIC_GUARD_BLOCKED', metadata: 'PYRIC_GUARD_BLOCKED', escaped: [] });
+    const tripwire = res.stderr.split('\n').filter((line) => line.includes('the real firebase-admin loaded from'));
+    expect(tripwire, res.stderr).toHaveLength(1);
+    expect(tripwire[0]).toContain('probe.mjs');
   }, 30_000);
 
   it('stays off under PYRIC_GUARD=off', async () => {
