@@ -26,12 +26,10 @@ export function startChatDevServer(app: App, env: Record<string, string> = {}): 
 }
 
 /**
- * Opens the chat page, signs in through the sandbox's Google sign-in dialog,
- * picks the Direct mode (one AI Logic call, no agent), and sends `prompt`.
- * Returns the page once the reply's text is on it.
+ * Signs `page` in as Ada through the sandbox's Google sign-in dialog and waits
+ * for the signed-in chat.
  */
-export async function sendDirectPrompt(app: App, url: string, prompt: string, reply: string): Promise<Page> {
-  const page = await app.page(url);
+export async function signInAsAda(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Sign in to continue' }).click();
   const dialog = page.locator('dialog[data-pyric-auth][open]');
   await dialog.waitFor({ state: 'visible', timeout: 30_000 });
@@ -39,9 +37,23 @@ export async function sendDirectPrompt(app: App, url: string, prompt: string, re
   await dialog.locator('input[placeholder="Display name (optional)"]').fill('Ada');
   await dialog.locator('button.submit').click();
   await page.getByRole('button', { name: 'Sign out' }).waitFor({ timeout: 60_000 });
+}
+
+/** Picks the Direct mode (one AI Logic call, no agent) and sends `prompt` from the composer. */
+export async function sendDirectMessage(page: Page, prompt: string): Promise<void> {
   await page.getByRole('tab', { name: 'Direct' }).click();
   await page.getByRole('textbox', { name: 'Message' }).fill(prompt);
   await page.getByRole('button', { name: 'Send message' }).click();
+}
+
+/**
+ * Opens the chat page, signs in, and sends `prompt` in the Direct mode.
+ * Returns the page once the reply's text is on it.
+ */
+export async function sendDirectPrompt(app: App, url: string, prompt: string, reply: string): Promise<Page> {
+  const page = await app.page(url);
+  await signInAsAda(page);
+  await sendDirectMessage(page, prompt);
   await page.getByText(reply).first().waitFor({ timeout: 60_000 });
   return page;
 }
