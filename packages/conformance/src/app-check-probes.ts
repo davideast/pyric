@@ -17,6 +17,12 @@
  *
  * Requires PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG (same project).
  * Run: bun --env-file=<repo>/.env packages/conformance/src/app-check-probes.ts
+ *
+ * `--only=<name>,<name>` runs just those standalone browser probes
+ * (STANDALONE_BROWSER_PROBES) and skips the admin, wire, and main-flow
+ * probes. A selection that names an AI probe (AI_REQUEST_BROWSER_PROBES)
+ * reads AI Logic enforcement first, as a full run does, and refuses to run
+ * when it is on; a selection that names none sends no generateContent request.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
@@ -24,8 +30,9 @@ import { getAppCheck } from 'firebase-admin/app-check';
 import { accessHeaders, resolveServiceAccount } from './storage-stdlib-real-api.ts';
 import { registerDebugToken, deleteDebugToken, listRunTokens, sweepRunTokens } from './capture/app-check/debug-tokens.ts';
 import { runAdminProbes } from './capture/app-check/admin-probes.ts';
-import { runBrowserProbes } from './capture/app-check/browser-probes.ts';
+import { runBrowserProbes, STANDALONE_BROWSER_PROBES } from './capture/app-check/browser-probes.ts';
 import { runAiWireProbes } from './capture/app-check/ai-wire-probes.ts';
+import { runProbes } from './capture/app-check/enforcement-guard.ts';
 import type { Secrets } from './capture/app-check/redact.ts';
 
 interface WebConfig {
@@ -34,6 +41,21 @@ interface WebConfig {
   projectId: string;
   [key: string]: unknown;
 }
+
+function selectedProbes(): string[] | undefined {
+  const flag = process.argv.find((arg) => arg.startsWith('--only='));
+  if (!flag) return undefined;
+  const names = flag.slice('--only='.length).split(',').filter(Boolean);
+  const known: readonly string[] = STANDALONE_BROWSER_PROBES;
+  const unknown = names.filter((name) => !known.includes(name));
+  if (names.length === 0 || unknown.length > 0) {
+    console.error(`--only takes standalone browser probes (${known.join(', ')}); got: ${unknown.join(', ') || 'nothing'}. Nothing was run.`);
+    process.exit(1);
+  }
+  return names;
+}
+
+const only = selectedProbes();
 
 if (!process.env.PYRIC_ORACLE_SA_PATH || !process.env.PYRIC_AI_FIREBASE_CONFIG) {
   console.error('PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG are required; nothing was run.');
@@ -66,16 +88,12 @@ secrets.values.push(debugToken.value);
 const adminApp = initializeApp({ credential: cert(sa as Parameters<typeof cert>[0]), projectId: web.projectId }, `app-check-probe-${runId}`);
 
 try {
-  const validToken = await runAdminProbes(
-    { context, appCheck: getAppCheck(adminApp), appId: web.appId, apiKey: web.apiKey, debugToken: debugToken.value, unregisteredDebugToken },
-    failures,
-  );
-  const enforcementMode = await readAiLogicEnforcement();
-  if (enforcementMode !== 'UNENFORCED' && enforcementMode !== 'OFF') {
-    throw new Error(`firebaseml.googleapis.com enforcementMode is ${enforcementMode}; this run expects enforcement off`);
-  }
-  await runAiWireProbes({ context, appCheck: getAppCheck(adminApp), appId: web.appId, apiKey: web.apiKey, validToken, enforcementMode }, failures);
-  await runBrowserProbes({ context, firebaseConfig: web, debugToken: debugToken.value, unregisteredDebugToken }, failures);
+  await runProbes({
+    only,
+    readEnforcement: readAiLogicEnforcement,
+    runSelected: (names) => runBrowserProbes({ context, firebaseConfig: web, debugToken: debugToken.value, unregisteredDebugToken, only: [...names] }, failures),
+    runAll: runAllProbes,
+  });
 } catch (error) {
   failures.push('runner');
   const text = String(error);
@@ -86,6 +104,15 @@ try {
   console.log(`debug token deleted; run-scoped tokens remaining: ${remaining.length}`);
   if (remaining.length > 0) failures.push('cleanup');
   await deleteApp(adminApp);
+}
+
+async function runAllProbes(enforcementMode: string): Promise<void> {
+  const validToken = await runAdminProbes(
+    { context, appCheck: getAppCheck(adminApp), appId: web.appId, apiKey: web.apiKey, debugToken: debugToken.value, unregisteredDebugToken },
+    failures,
+  );
+  await runAiWireProbes({ context, appCheck: getAppCheck(adminApp), appId: web.appId, apiKey: web.apiKey, validToken, enforcementMode }, failures);
+  await runBrowserProbes({ context, firebaseConfig: web, debugToken: debugToken.value, unregisteredDebugToken }, failures);
 }
 
 console.log(failures.length > 0 ? `\n${failures.length} probe(s) failed: ${failures.join(', ')}` : '\nall probes captured');

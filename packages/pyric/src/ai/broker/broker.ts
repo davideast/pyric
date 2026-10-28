@@ -42,7 +42,14 @@ import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sand
 import type { AiEventOperation } from '../events.js';
 
 import { describeResponseBlock } from '../blocked.js';
-import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
+import {
+  AiBrokerError,
+  Synthesizer,
+  badRole,
+  emptyContents,
+  functionRoleRefused,
+  missingThoughtSignature,
+} from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
 import { GeminiEngine, GEMINI_DEFAULT_BASE_URL } from './gemini-engine.js';
@@ -59,25 +66,19 @@ import type {
 } from './types.js';
 
 /**
- * Roles production accepts, from the captured rejection text
- * (`ai-error-bad-role`): "Please use a valid role: SYSTEM, SYSTEM_1, USER,
- * ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER." — compared
- * case-insensitively (the SDK sends lowercase `user`/`model`). `FUNCTION` is
- * additionally accepted: the captured message omits it, yet production
- * accepted the SDK's function-response turn (`ai-function-response-round`),
- * and the installed SDK threads those turns with role `function`.
+ * Roles the broker accepts, from the 2026-10 `ai-error-bad-role` text:
+ * "Please use a valid role: MODEL, USER." Compared case-insensitively (the
+ * SDK sends lowercase `user`/`model`). Function responses ride under `user`.
+ * Role `function`, which the installed SDK's `ChatSession` sends, is refused
+ * with its own captured text (`ai-error-function-role-refused`, #1410).
  */
-const ACCEPTED_ROLES = new Set([
-  'SYSTEM',
-  'SYSTEM_1',
-  'USER',
-  'ASSISTANT',
-  'DEVELOPER',
-  'CONTEXT',
-  'USER_CONTEXT',
-  'MODEL',
-  'FUNCTION',
-]);
+const ACCEPTED_ROLES = new Set(['MODEL', 'USER']);
+
+/** The refusal production sends for a content role the broker does not accept. */
+function roleRefusal(role: string): AiBrokerError['envelope'] {
+  if (role.toUpperCase() === 'FUNCTION') return functionRoleRefused();
+  return badRole(role);
+}
 
 export interface AiBrokerOptions {
   /** Engine config, or a fully custom engine. Default: zero-config scripted. */
@@ -375,7 +376,7 @@ export class AiBroker {
     for (const content of contents as GenerateContentRequest['contents']) {
       const role = content.role ?? '';
       if (!ACCEPTED_ROLES.has(role.toUpperCase())) {
-        this.reject(model, badRole(role));
+        this.reject(model, roleRefusal(role));
       }
     }
   }

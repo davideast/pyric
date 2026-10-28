@@ -554,9 +554,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
+        const takeStaged = (providerId: string) => stagedSignInResultsFor(ctx).take(port, providerId);
         const { session, providerId, isNewUser } = signInWithCredentialPayload(auth, cred, {
           tenantId, ...portOriginScope(port),
-        });
+        }, takeStaged);
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, providerId, isNewUser));

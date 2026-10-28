@@ -7,8 +7,11 @@ import type { RigManifestRecord } from './types.ts';
  * `@firebase/ai` request shape, and freezes the deterministic facts — error
  * envelopes, SSE framing, response envelope key sets, function-call shape, and
  * countTokens behavior — as `ai-` observations. Generated text is never a
- * claim. Without PYRIC_AI_FIREBASE_CONFIG the runner exits before any network
- * call (it prints the missing-variable message and stops).
+ * claim. AI Logic on the oracle project rejects requests without a valid App
+ * Check token, so the runner mints one with firebase-admin and sends it on
+ * every request. Without PYRIC_AI_FIREBASE_CONFIG or PYRIC_ORACLE_SA_PATH the
+ * runner exits before any network call (it prints the missing-variable message
+ * and stops).
  */
 export const rig: RigManifestRecord = {
   description:
@@ -24,15 +27,22 @@ export const rig: RigManifestRecord = {
         description:
           'Single-line JSON web app config for a Firebase project with AI Logic enabled. The rig reads apiKey and projectId from it: projectId builds the firebasevertexai.googleapis.com resource path and apiKey is sent as the x-goog-api-key header on every request.',
       },
+      {
+        name: 'PYRIC_ORACLE_SA_PATH',
+        description:
+          'Service-account JSON path for the same project as PYRIC_AI_FIREBASE_CONFIG (the runner refuses a mismatch). Backs firebase-admin createToken, which mints the App Check token sent as the X-Firebase-AppCheck header on every request.',
+        permission: 'firebaseappcheck.tokens.mint (createToken)',
+      },
     ],
     projectFeatures: [
+      'Firebase App Check API enabled on the project.',
       'Firebase AI Logic enabled on the project, with the Gemini Developer API (GoogleAI) backend reachable through the firebasevertexai.googleapis.com proxy for the config web app.',
     ],
     local: [],
   },
   safety: {
     writes:
-      'No Firebase mutation — the probes only POST generateContent/streamGenerateContent/countTokens requests and read the responses. The only writes are the local observation JSON files under observations/ai/. Real inference requests consume model quota against the config project.',
+      'No Firebase mutation — the probes only POST generateContent/streamGenerateContent/countTokens requests and read the responses. The run mints short-lived App Check tokens with firebase-admin createToken, which changes nothing remote. The only writes are the local observation JSON files under observations/ai/. Real inference requests consume model quota against the config project.',
     cleanup:
       'Not applicable; the rig performs no remote mutation to clean up. It overwrites its own ai- observation files in place on each run.',
     unattendedSafe: true,

@@ -21,10 +21,12 @@ export interface TokenObserver {
 
 export interface AppCheckState {
   provider: AppCheckProvider;
-  /** The option `initializeAppCheck` was called with; a later call is compared with this. */
-  readonly initialAutoRefresh: boolean;
+  /** The raw option `initializeAppCheck` was called with, `undefined` included; a later call is compared with this. */
+  readonly initialAutoRefresh: boolean | undefined;
   isTokenAutoRefreshEnabled: boolean;
   cached: MintedToken | null;
+  /** The one mint in flight for this app; concurrent `getToken` calls share it, as upstream shares `exchangeTokenPromise`. */
+  inFlight: Promise<MintedToken> | null;
   observers: Set<TokenObserver>;
 }
 
@@ -34,8 +36,26 @@ export function stateOf(app: FirebaseApp): AppCheckState | undefined {
   return states.get(app);
 }
 
-export function activate(app: FirebaseApp, provider: AppCheckProvider, isTokenAutoRefreshEnabled: boolean): AppCheckState {
-  const state: AppCheckState = { provider, initialAutoRefresh: isTokenAutoRefreshEnabled, isTokenAutoRefreshEnabled, cached: null, observers: new Set() };
+const BLOCKED_REFRESH_WARNING =
+  '`isTokenAutoRefreshEnabled` is true but `automaticDataCollectionEnabled` was set to false during `initializeApp()`. This blocks automatic token refresh.';
+
+/** Upstream `_activate`: an omitted flag is `false`, and `automaticDataCollectionEnabled: false` blocks `true`. */
+function effectiveAutoRefresh(app: FirebaseApp, requested: boolean | undefined): boolean {
+  const wanted = requested ?? false;
+  const blocked = wanted && !app.automaticDataCollectionEnabled;
+  if (blocked) console.warn(BLOCKED_REFRESH_WARNING);
+  return wanted && app.automaticDataCollectionEnabled;
+}
+
+export function activate(app: FirebaseApp, provider: AppCheckProvider, isTokenAutoRefreshEnabled: boolean | undefined): AppCheckState {
+  const state: AppCheckState = {
+    provider,
+    initialAutoRefresh: isTokenAutoRefreshEnabled,
+    isTokenAutoRefreshEnabled: effectiveAutoRefresh(app, isTokenAutoRefreshEnabled),
+    cached: null,
+    inFlight: null,
+    observers: new Set(),
+  };
   states.set(app, state);
   return state;
 }
@@ -56,14 +76,26 @@ function isValid(token: MintedToken | null, nowMillis: number): token is MintedT
   return token !== null && token.expireTimeMillis > nowMillis;
 }
 
+/** Starts a mint unless one is in flight; only the call that starts it notifies observers. */
+function sharedMint(app: FirebaseApp, state: AppCheckState, now: number): Promise<MintedToken> {
+  if (state.inFlight) return state.inFlight;
+  const mint = mintAppCheckToken(identityOf(app), TTL_SECONDS, now).then((minted) => {
+    state.cached = minted;
+    notify(state.observers, { token: minted.token });
+    return minted;
+  });
+  state.inFlight = mint.finally(() => {
+    state.inFlight = null;
+  });
+  return state.inFlight;
+}
+
 export async function cachedOrMint(app: FirebaseApp, state: AppCheckState, forceRefresh: boolean): Promise<AppCheckTokenResult> {
   const now = Date.now();
   const reuse = !forceRefresh && isValid(state.cached, now);
   if (reuse) return { token: state.cached!.token };
-  state.cached = await mintAppCheckToken(identityOf(app), TTL_SECONDS, now);
-  const result = { token: state.cached.token };
-  notify(state.observers, result);
-  return result;
+  const minted = await sharedMint(app, state, now);
+  return { token: minted.token };
 }
 
 export async function mintLimitedUse(app: FirebaseApp): Promise<AppCheckTokenResult> {

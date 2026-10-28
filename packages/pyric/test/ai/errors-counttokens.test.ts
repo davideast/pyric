@@ -131,9 +131,8 @@ describe('ai: error envelopes', () => {
     );
     expect(error.customErrorData?.status).toBe(facts.httpStatus);
     const message = String(error.message);
-    for (const role of ['SYSTEM', 'SYSTEM_1', 'USER', 'ASSISTANT', 'DEVELOPER', 'CONTEXT', 'USER_CONTEXT', 'MODEL']) {
-      expect(message).toContain(role);
-    }
+    expect(facts.messageText).toBe("Role 'banana' is not supported. Please use a valid role: MODEL, USER.");
+    expect(message).toContain(facts.messageText);
   });
 
   rowTest('ai#error-aierror-shape HTTP failures surface as AIError with customErrorData', async () => {

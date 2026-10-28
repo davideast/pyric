@@ -84,6 +84,19 @@ export const PEER_REPLACED_CLOSE_CODE = 4001;
 /** Human-readable reason sent with {@link PEER_REPLACED_CLOSE_CODE}. */
 export const PEER_REPLACED_CLOSE_REASON = 'replaced by a newer sandbox peer';
 
+/**
+ * WS close code the standalone `pyric bridge` sends a page that opens its
+ * `/sandbox` socket. That bridge has no browser peer (#1468): the page is
+ * closed before it can register, and `connectBridge` stops instead of
+ * reconnecting. A page that needs a browser bridge runs under
+ * `pyric sandbox --bridge`, which serves the page and guards its socket.
+ */
+export const NO_BROWSER_PEER_CLOSE_CODE = 4010;
+
+/** Reason sent with {@link NO_BROWSER_PEER_CLOSE_CODE}; a close frame carries at most 123 bytes. */
+export const NO_BROWSER_PEER_CLOSE_REASON =
+  'pyric bridge does not accept a browser sandbox. Run pyric sandbox --bridge, which serves the page and its bridge.';
+
 // ── Bridge ↔ browser WebSocket protocol ──────────────────────────────
 //
 // All messages are JSON. Each message has a `type` discriminator.
