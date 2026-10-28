@@ -1,11 +1,10 @@
 import { evalOperand, type EvalCtx } from './rules-evaluator.js';
-import { RuleUnsupportedError } from './rules-evaluation-error.js';
 import { collectionMethods } from './rules-collection-methods.js';
 import { evalFirestoreBuiltin } from './rules-firestore-lookup.js';
 import { bytesMethods, evalHashingNamespace } from './rules-hashing-methods.js';
 import { evalLatLngNamespace, latlngMethods } from './rules-latlng.js';
 import { evalMathNamespace } from './rules-math-methods.js';
-import { evalArguments, type MethodCall, type NamespaceMethod, type ReceiverMethod, type ReceiverMethods } from './rules-method-calls.js';
+import { evalArguments, functionNotFound, type MethodCall, type NamespaceMethod, type ReceiverMethod, type ReceiverMethods } from './rules-method-calls.js';
 import { pathMethods } from './rules-path.js';
 import { stringMethods } from './rules-string-methods.js';
 import { evalDurationNamespace, evalTimestampNamespace, timeMethods } from './rules-time-methods.js';
@@ -37,11 +36,11 @@ const RECEIVER_METHODS: ReadonlyMap<string, ReceiverMethod> = mergeReceiverMetho
  * A bare `timestamp`, `duration`, `hashing`, `latlng`, `math`, or `firestore` identifier that
  * no local or path parameter shadows is a builtin namespace. Otherwise the
  * target is a receiver: it evaluates first, an error receiver propagates,
- * and the method's evaluator checks the receiver type. A modeled method on
- * a receiver that lacks it is production's function-not-found error, which
- * `&&`/`||` may absorb. An unmodeled method name is either unmodeled here or
- * rejected by production's compiler; its verdict is unknowable locally, so
- * it is unabsorbable and fails closed even under a determining operand.
+ * and the method's evaluator checks the receiver type. A method the
+ * receiver does not define, whether another type models it or no type does,
+ * is production's function-not-found error, which `&&`/`||` may absorb
+ * (rules-storage-h1-unknown-method-absorption captures `'a'.foo() || true`
+ * allowing), as the Firestore simulator's is.
  */
 export function evalMethodCall(expr: MethodCall, ctx: EvalCtx): unknown {
   const namespace = builtinNamespace(expr, ctx);
@@ -49,10 +48,7 @@ export function evalMethodCall(expr: MethodCall, ctx: EvalCtx): unknown {
   // (`evalNamespaceArguments`).
   if (namespace !== undefined) return namespace(expr, ctx);
 
-  const method = RECEIVER_METHODS.get(expr.method);
-  if (method === undefined) {
-    throw new RuleUnsupportedError(`unsupported method .${expr.method}()`);
-  }
+  const method = RECEIVER_METHODS.get(expr.method) ?? unknownMethod;
   const receiver = evalOperand(expr.target, ctx);
   // `resource.name.matches(…)` on an object whose `name` is absent: the
   // receiver is already production's absent-property error. Propagate it
@@ -63,6 +59,11 @@ export function evalMethodCall(expr: MethodCall, ctx: EvalCtx): unknown {
     return receiver;
   }
   return method(receiver, expr, ctx);
+}
+
+/** A method name no receiver type defines: production's function-not-found error. */
+function unknownMethod(_receiver: unknown, expr: MethodCall): never {
+  throw functionNotFound(expr.method);
 }
 
 /** The namespace a call names, when its target is an unshadowed builtin identifier. */

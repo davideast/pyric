@@ -32,10 +32,11 @@ describe('evaluateStorageRules — method dispatch', () => {
     expect(evalRead('resource.size.toSet().size() == 1 || true').allowed).toBe(true);
   });
 
-  it('fails closed on a method the evaluator does not model, even under || true', () => {
-    const r = evalRead("'a'.frobnicate() == 'a' || true");
+  it("gives a method no type defines production's function-not-found error, which || true absorbs", () => {
+    const r = evalRead("'a'.frobnicate() == 'a'");
     expect(r.allowed).toBe(false);
-    expect(r.reasons.join(' ')).toContain('unsupported method .frobnicate()');
+    expect(r.reasons.join(' ')).toContain('Function not found error: Name: [frobnicate].');
+    expect(evalRead("'a'.frobnicate() == 'a' || true").allowed).toBe(true);
   });
 
   it('gives a timestamp no string methods', () => {
