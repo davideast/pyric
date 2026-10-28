@@ -301,6 +301,53 @@ await probe('ai-error-bad-role', async () => {
   );
 });
 
+// Roles `system` and `assistant` inside `contents`: the bad-role text lists
+// MODEL, USER, while the function refusal lists both of these. Each probe
+// records whatever production answers, acceptance or refusal.
+function roleOutcome(r: RawResult): Record<string, unknown> {
+  if (r.status !== 200) return { accepted: false, ...errorFacts(r), raw: r.body };
+  const body = r.body as Record<string, unknown>;
+  const candidate = (body.candidates as Record<string, unknown>[] | undefined)?.[0];
+  const parts = (candidate?.content as { parts?: Record<string, unknown>[] } | undefined)?.parts ?? [];
+  return {
+    accepted: true,
+    httpStatus: r.status,
+    finishReason: candidate?.finishReason,
+    answerHasTextPart: parts.some((p) => typeof p.text === 'string'),
+    topLevelKeySet: sortedKeys(body),
+    raw: body,
+  };
+}
+
+await probe('ai-contents-role-system', async () => {
+  const r = await post(`models/${MODEL}:generateContent`, {
+    contents: [
+      { role: 'system', parts: [{ text: 'You only ever reply with the word: pyric' }] },
+      userTurn('Say anything.'),
+    ],
+  });
+  writeObservation(
+    'ai-contents-role-system',
+    'A generateContent whose contents opens with a turn under role system, followed by a user turn. No tools. Records whether production accepts role system inside contents (the top-level systemInstruction is a separate field, see ai-system-instruction-accepted).',
+    roleOutcome(r),
+  );
+});
+
+await probe('ai-contents-role-assistant', async () => {
+  const r = await post(`models/${MODEL}:generateContent`, {
+    contents: [
+      userTurn('Reply with exactly the word: pyric'),
+      { role: 'assistant', parts: [{ text: 'pyric' }] },
+      userTurn('Reply with exactly the word: pyric'),
+    ],
+  });
+  writeObservation(
+    'ai-contents-role-assistant',
+    'A generateContent whose contents carries a prior answer under role assistant between two user turns. No tools. Records whether production accepts role assistant inside contents.',
+    roleOutcome(r),
+  );
+});
+
 // The model turn from ai-function-call-shape: this run's response when that
 // probe ran, otherwise the committed capture. Its request is the same one the
 // round trip needs first, so threading it back saves a request per run.

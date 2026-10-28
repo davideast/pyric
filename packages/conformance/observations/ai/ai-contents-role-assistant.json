@@ -1,0 +1,56 @@
+{
+  "name": "ai-contents-role-assistant",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#contents-role-assistant"
+  ],
+  "description": "A generateContent whose contents carries a prior answer under role assistant between two user turns. No tools. Records whether production accepts role assistant inside contents.",
+  "observedAt": "2026-10-28T16:23:33.556Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "accepted": true,
+    "httpStatus": 200,
+    "finishReason": "STOP",
+    "answerHasTextPart": true,
+    "topLevelKeySet": [
+      "candidates",
+      "modelVersion",
+      "responseId",
+      "usageMetadata"
+    ],
+    "raw": {
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "pyric",
+                "thoughtSignature": "EmAKXgFpFH0TJURNc02THrjnbp1jZnCuYk4mLD5mErx74RiDd6uUsozbpn2ZDfdbhXnusxvObgqmCoqcpbCZu2lCaoV1puxhp1IuFli2Y11yT9uUee3OxRmfVTEfOsTGm2w="
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 21,
+        "candidatesTokenCount": 2,
+        "totalTokenCount": 23,
+        "promptTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 21
+          }
+        ],
+        "serviceTier": "standard"
+      },
+      "modelVersion": "gemini-3.5-flash-lite",
+      "responseId": "gyHiarKxONeQ-8YPgeOh0A4"
+    }
+  }
+}

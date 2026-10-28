@@ -127,6 +127,15 @@ function synthToolCallId(name: string, ordinal: number): string {
   return `call_${name}_${ordinal}`;
 }
 
+/**
+ * A model-authored turn: role `model`, or role `assistant`, which production
+ * also accepts inside `contents` (`ai-contents-role-assistant`).
+ */
+function isModelTurn(role: string | undefined): boolean {
+  const upper = (role ?? '').toUpperCase();
+  return upper === 'MODEL' || upper === 'ASSISTANT';
+}
+
 export function geminiToOpenAIRequest(
   model: string,
   req: GenerateContentRequest,
@@ -148,7 +157,7 @@ export function geminiToOpenAIRequest(
   for (const content of req.contents ?? []) {
     // A function response turn rides under role `user` on the production
     // wire (#1410); the SDK's role `function` never gets past the broker.
-    const isFunctionResponseTurn = content.role !== 'model' && content.parts.some((part) => part.functionResponse);
+    const isFunctionResponseTurn = !isModelTurn(content.role) && content.parts.some((part) => part.functionResponse);
     if (isFunctionResponseTurn) {
       // functionResponse turn -> one OpenAI `tool` message per part
       for (const part of content.parts) {
@@ -164,7 +173,7 @@ export function geminiToOpenAIRequest(
       continue;
     }
 
-    const role = content.role === 'model' ? 'assistant' : 'user';
+    const role = isModelTurn(content.role) ? 'assistant' : 'user';
     const textParts: string[] = [];
     const toolCalls: OpenAIToolCall[] = [];
 
