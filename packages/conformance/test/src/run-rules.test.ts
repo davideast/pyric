@@ -2,7 +2,14 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { diagnosticTable, existingLinkage, selectFirestoreScenarios } from '../../src/run-rules.ts';
+import {
+  diagnosticTable,
+  existingLinkage,
+  isRealDatabaseObservation,
+  ownedSkipLine,
+  partitionByOwner,
+  selectFirestoreScenarios,
+} from '../../src/run-rules.ts';
 
 describe('run-rules Firestore scenario selection', () => {
   it('selects exactly one scenario by id', () => {
@@ -84,5 +91,50 @@ describe('run-rules observation recapture', () => {
       matrixRow: '',
       rowIds: [],
     });
+  });
+});
+
+describe('run-rules leaves real-database observations to run-firestore-real.ts', () => {
+  function withObservation(content: unknown, check: (path: string) => void): void {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-rules-owner-'));
+    const path = join(dir, 'observation.json');
+    try {
+      writeFileSync(path, JSON.stringify(content));
+      check(path);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('recognizes productionDatabase diagnostics as the real-database rig', () => {
+    withObservation({ diagnostics: { productionDatabase: { soloPrimary: 'DENY' } } }, (path) => {
+      expect(isRealDatabaseObservation(path)).toBe(true);
+    });
+  });
+
+  it('recognizes hostedTestApiLimitation diagnostics as the real-database rig', () => {
+    withObservation({ diagnostics: { hostedTestApiLimitation: {} } }, (path) => {
+      expect(isRealDatabaseObservation(path)).toBe(true);
+    });
+  });
+
+  it('treats a Test API observation as its own', () => {
+    withObservation({ diagnostics: { 'held case': { notes: ['x'] } } }, (path) => {
+      expect(isRealDatabaseObservation(path)).toBe(false);
+    });
+  });
+
+  it('treats a missing observation as its own', () => {
+    expect(isRealDatabaseObservation(join(tmpdir(), `pyric-missing-${Date.now()}.json`))).toBe(false);
+  });
+
+  it('skips and names the committed getAfter/existsAfter scenario', () => {
+    const { capture, owned } = partitionByOwner(selectFirestoreScenarios([]));
+    const ownedIds = owned.map((scenario) => scenario.id);
+    expect(ownedIds).toContain('get-after-and-exists-after');
+    expect(capture.map((scenario) => scenario.id)).not.toContain('get-after-and-exists-after');
+    expect(ownedSkipLine(owned[ownedIds.indexOf('get-after-and-exists-after')]!)).toBe(
+      'get-after-and-exists-after: owned by run-firestore-real.ts, not captured here',
+    );
   });
 });
