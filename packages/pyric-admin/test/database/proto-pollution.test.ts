@@ -37,9 +37,10 @@ describe('pyric-admin/database sandbox — prototype-pollution guard', () => {
 
   test('update() through a `constructor` segment is rejected', async () => {
     const db = makeDb();
-    await expect(
+    // update() validates its keys synchronously, as firebase-admin does.
+    expect(() =>
       db.ref('/users').update({ 'constructor/polluted': true }),
-    ).rejects.toThrow(/constructor/);
+    ).toThrow(/constructor/);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 

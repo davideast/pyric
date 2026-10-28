@@ -1,11 +1,10 @@
 import type { Bound, QuerySpec } from './sandbox/query.js';
+import { errorPrefix, validateWrite } from './sandbox/normalize.js';
 
 const INVALID_PATH = /[.#$\[\]\u0000-\u001f\u007f]/;
 const INVALID_KEY = /[.#$/\[\]\u0000-\u001f\u007f]/;
 const KEY_ERROR_SUFFIX =
   'Firebase keys must be non-empty strings and can\'t contain ".", "#", "$", "/", "[", or "]").';
-const DATA_KEY_ERROR_SUFFIX =
-  'Keys must be non-empty strings and can\'t contain ".", "#", "$", "/", "[", or "]"';
 const PRIORITY_ERROR =
   'Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string).';
 const OBJECT_ENDPOINT_ERROR =
@@ -55,37 +54,6 @@ export function normalizeOptionalEndpointValue(
   return value === undefined && (name === 'startAt' || name === 'endAt') ? null : value;
 }
 
-/**
- * The SDK's `validationPathToErrorString`: the query path and the keys walked
- * into the value, joined with dots, or nothing at the root.
- */
-function inProperty(parts: readonly string[]): string {
-  return parts.length === 0 ? '' : `in property '${parts.join('.')}'`;
-}
-
-function validateEndpointData(name: EndpointName, value: unknown, parts: readonly string[]): void {
-  if (value === undefined) {
-    throw new Error(`${name} failed: value argument contains undefined ${inProperty(parts)}`);
-  }
-  if (typeof value === 'function') {
-    throw new Error(
-      `${name} failed: value argument contains a function ${inProperty(parts)} with contents = ${String(value)}`,
-    );
-  }
-  if (typeof value === 'number' && !Number.isFinite(value)) {
-    throw new Error(`${name} failed: value argument contains ${String(value)} ${inProperty(parts)}`);
-  }
-  if (value === null || typeof value !== 'object') return;
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (key !== '.sv' && (key.length === 0 || INVALID_KEY.test(key))) {
-      throw new Error(
-        `${name} failed: value argument  contains an invalid key (${key}) ${inProperty(parts)}.  ${DATA_KEY_ERROR_SUFFIX}`,
-      );
-    }
-    validateEndpointData(name, child, [...parts, key]);
-  }
-}
-
 function isServerValuePriority(value: unknown): boolean {
   return value !== null && typeof value === 'object'
     && Object.keys(value as Record<string, unknown>).length === 1
@@ -97,14 +65,15 @@ function isServerValuePriority(value: unknown): boolean {
  * location, which endpoint value errors name; the root names none.
  */
 export function validateQuerySpec(spec: QuerySpec, path = '/'): void {
-  const parts = path.split('/').filter(Boolean);
   if (spec.orderBy?.kind === 'child'
     && spec.orderBy.path.split('/').filter(Boolean).length === 0) {
     throw new Error('orderByChild: cannot pass in empty path. Use orderByValue() instead.');
   }
   for (const bound of spec.bounds) {
     const value = bound.value as unknown;
-    validateEndpointData(bound.kind, value, parts);
+    // The SDK validates an endpoint as data (`validateFirebaseDataArg`) and
+    // its error names the query's path.
+    validateWrite(value, path, errorPrefix(bound.kind, 'value'));
     switch (spec.orderBy?.kind ?? 'priority') {
       case 'key':
         if (typeof value !== 'string') throw new Error(KEY_ENDPOINT_ERROR);
