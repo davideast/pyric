@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T02:46:52.364Z",
+  "generatedAt": "2026-10-28T03:10:49.817Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -577,7 +577,7 @@
     "firestore#aggregate-non-finite": "bug",
     "firestore#composite-index-required": "diverged-documented",
     "firestore#query-disjunction-limits": "bug",
-    "firestore#negative-zero-equality": "bug",
+    "firestore#negative-zero-equality": "conforms",
     "firestore#listener-local-write-pending": "bug",
     "firestore#docchanges-metadata-ack": "bug",
     "firestore#write-server-limits": "bug",
