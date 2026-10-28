@@ -61,6 +61,9 @@ function stageFixture(): string {
     join(cwd, 'fixture/node_modules/firebase-functions'),
   );
   writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: PROJECT_ID } }));
+  // Under the /api/** rewrite, to show a file answers before the rewrite does.
+  mkdirSync(join(cwd, 'api'));
+  writeFileSync(join(cwd, 'api/static.txt'), 'a static file under /api');
   return cwd;
 }
 
@@ -94,9 +97,11 @@ describe('functions-http on the Vite plane', () => {
     const base = `http://127.0.0.1:${address && typeof address === 'object' ? address.port : 0}`;
     const echoUrl = `${base}/${PROJECT_ID}/us-central1/pyricHttpEcho`;
 
-    const beforePeer = await fetch(echoUrl);
-    expect(beforePeer.status).toBe(503);
-    expect(await beforePeer.text()).toMatch(/browser tab/);
+    for (const url of [echoUrl, `${base}/api/before-peer`]) {
+      const beforePeer = await fetch(url);
+      expect(beforePeer.status).toBe(503);
+      expect(await beforePeer.text()).toMatch(/browser tab/);
+    }
 
     const ctx = await createFunctionsWorkerHostCtx({
       persistenceKeyPrefix: 'functions-http-vite',
@@ -129,6 +134,23 @@ describe('functions-http on the Vite plane', () => {
     expect(((await after.json()) as { instanceId: string }).instanceId).toBe(before.instanceId);
     expect(logs.some((line) => line.includes('PYRIC_EXPECTED_ONREQUEST_UNCAUGHT'))).toBe(true);
 
+    // firebase.json rewrites /api/** to pyricHttpEcho; the function sees the full original URL.
+    const rewritten = await fetch(`${base}/api/items/7?y=2`, { headers: { cookie: 'drop=1; __session=keep' } });
+    expect(rewritten.status).toBe(200);
+    expect(await rewritten.json()).toMatchObject({ path: '/api/items/7', url: '/api/items/7?y=2', headerValues: { cookie: '__session=keep' } });
+    // A file the dev server serves wins over a rewrite that matches its path.
+    const file = await fetch(`${base}/api/static.txt`);
+    expect(file.status).toBe(200);
+    expect(await file.text()).toBe('a static file under /api');
+
     expect(logs.some((line) => line.includes('onRequest function'))).toBe(true);
+    // One execution record per served request (functions-http#21).
+    // A line is written when the response closes, which can trail the body the client read.
+    // The line names the path only; the query string can carry tokens.
+    for (const record of ['pyricHttpEcho ← POST /items 200', 'pyricHttpEcho ← GET /api/items/7 200']) {
+      const lines = () => logs.filter((line) => line.includes(record));
+      await waitFor(async () => lines().length > 0, 5_000, logs);
+      expect(lines()).toHaveLength(1);
+    }
   }, 240_000);
 });

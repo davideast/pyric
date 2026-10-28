@@ -231,7 +231,7 @@ export const functionsHttpRows: CompatibilityRow[] = [
     kind: 'observed',
     api: 'firebase.json hosting.rewrites[].function',
     behavior:
-      'A hosting rewrite to a function routes the full original path and query, honors { functionId, region } (us-central1 by default), and forwards only the __session cookie.',
+      "A hosting rewrite to a function routes the full original path and query, honors { functionId, region }, takes the region from the function's source when the rewrite names none (us-central1 only when the source names none either), cuts the request at Hosting's 60 s, and forwards only the __session cookie.",
     evidence:
       'upstream: firebase-tools appends the original req.url and forwards only `__session` plus X-Forwarded-Host and X-Original-Url (`lib/hosting/functionsProxy.js:20-31`, `lib/hosting/proxy.js:29-50`). Production behavior needs `functions-http-hosting-rewrite`.',
   }),
@@ -266,7 +266,9 @@ export const functionsHttpRows: CompatibilityRow[] = [
     api: 'onRequest routing',
     behavior:
       'A request to a discovered function while the child is starting, reloading, or waiting for a sandbox peer answers 503 with a message naming the cause, never a static 404.',
-    evidence: 'Pyric-owned lifecycle (`packages/cli/src/functions/development-runtime.ts`).',
+    evidence:
+      'Pyric-owned lifecycle (`packages/cli/src/functions/development-runtime.ts`, `functions/http/gateway.ts`). Each cause (waiting for a peer, starting, reloading, failed) is pinned in `packages/cli/test/functions-http/gateway.test.ts`; both planes answer 503 on the emulator path and a hosting rewrite before a peer connects.',
+    flip: { status: 'conforms', tests: [SUITE, 'packages/cli/test/functions-http/gateway.test.ts', VITE_PLANE] },
   }),
   row({
     ref: 21,
@@ -275,7 +277,8 @@ export const functionsHttpRows: CompatibilityRow[] = [
     behavior:
       'Each request a function serves lands one execution record with an http cause (method, path, status); in browser mode the first slice records it as a log line.',
     evidence:
-      'Pyric-owned: `execution_finished` on the sandbox event stream (`packages/cli/src/functions/events.ts`). Owner decision: log lines only in browser mode for the first slice.',
+      'Pyric-owned. Owner decision: log lines only, in browser mode, for the first slice; no `execution_finished` event on the sandbox stream yet. The line names the export, method, path, status, and duration (`packages/cli/src/functions/http/report.ts`); both planes print one per request.',
+    flip: { status: 'conforms', tests: [SUITE, 'packages/cli/test/functions-http/gateway.test.ts', VITE_PLANE] },
   }),
 ];
 
