@@ -1188,6 +1188,22 @@ The census now sees both runtime export names and exported type names. Instance
 methods, option-object fields, signature changes, and structural assignability
 remain outside its proof. Those require a later assignability gate.
 
+### Find out before a bump: the SDK drift job
+
+The `SDK drift` workflow (`.github/workflows/sdk-drift.yml`) runs this ahead of
+any bump. Every day, and on demand, it rewrites the `firebase` and
+`firebase-admin` specifiers in a runner's checkout, installs without the
+lockfile, builds, and runs the pyric, pyric-admin, conformance, and CLI suites
+plus `bun run compat:check` (`scripts/ci/sdk-drift.ts`). It has two tiers. The
+`in-range` tier tests the newest release pyric's declared range allows, and a
+failure turns the run red, because users inside that range are affected. The
+`latest` tier tests npm's `latest` tag, which may be a newer major; a failure
+opens or updates one `lane:reliability` issue per package and major, titled
+like "pyric fails against firebase 13.1.0", and the run stays green. Step 1
+above always fails on a new version, so the job reports it as observations to
+re-capture, not as a failure. The job summary lists the resolved versions and
+the failing tests.
+
 ## Known rough edges
 
 Documented so nobody has to rediscover them:
