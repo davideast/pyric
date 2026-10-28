@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T05:03:12.945Z",
+  "generatedAt": "2026-10-28T11:28:51.571Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -837,7 +837,7 @@
     "rtdb-modular#remote-update-event-order": "bug",
     "rtdb-modular#priority-change-child-changed": "bug",
     "rtdb-modular#priority-change-child-moved": "bug",
-    "rtdb-modular#val-key-order": "bug",
+    "rtdb-modular#val-key-order": "conforms",
     "rtdb-modular#served-event-order": "bug",
     "rtdb-modular#priority-window-limit-to-last": "conforms",
     "rtdb-modular#grandchild-priority-query-value": "bug",
@@ -1099,7 +1099,7 @@
     "firestore-rules#199": "diverged-documented",
     "firestore-rules#200": "conforms",
     "firestore-rules#201": "conforms",
-    "firestore-rules#202": "diverged-documented",
+    "firestore-rules#202": "conforms",
     "firestore-rules#203": "conforms",
     "storage-rules#94": "conforms",
     "storage-rules#95": "conforms",

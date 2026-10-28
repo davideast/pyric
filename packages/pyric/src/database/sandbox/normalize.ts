@@ -26,7 +26,8 @@
  * (post-sentinel) value before handing it to {@link DataTree}.
  *
  * Read-side array coercion (the inverse — integer-keyed objects render
- * back as arrays on `val()`) lives in {@link coerceArrays}, mirroring
+ * back as arrays on `val()`) lives in {@link coerceArrays} and
+ * {@link asSdkArray}, mirroring
  * `ChildrenNode.val()`'s `allIntegerKeys && maxKey < 2 * numKeys` rule.
  *
  * Upstream references (clone @ 6a9d3d18):
@@ -276,13 +277,14 @@ export function normalizeRuleWrite(value: unknown, priority: string | number | n
 
 /**
  * Read-side array coercion. RTDB renders an integer-keyed object back as
- * an array on `DataSnapshot.val()` when ALL keys are non-negative
- * integers AND the max key is `< 2 * numKeys` (a density heuristic that
+ * an array on `DataSnapshot.val()` when all keys are non-negative
+ * integers and the max key is `< 2 * numKeys` (a density heuristic that
  * avoids materializing a giant sparse array). Mirrors `ChildrenNode.val`
  * (`ChildrenNode.ts:196-230`). Recurses into children.
  *
- * Absent integer slots become array holes filled with `null` (matching
- * prod, where a coerced array's missing indices read back as `null`).
+ * Only the indexes that hold a value are assigned, so a missing index is
+ * an array hole, not `null`: upstream copies `array[key] = obj[key]` for
+ * the present keys only (RT-6, #1371).
  */
 export function coerceArrays(value: JsonValue): JsonValue {
   if (value === null || typeof value !== 'object') return value;
@@ -290,29 +292,30 @@ export function coerceArrays(value: JsonValue): JsonValue {
     // Already an array (shouldn't occur in stored data, but be defensive).
     return value.map((v) => coerceArrays(v));
   }
-  const obj = value as Record<string, JsonValue>;
-  const keys = Object.keys(obj);
-  let allIntegerKeys = keys.length > 0;
-  let maxKey = 0;
-  for (const k of keys) {
-    if (/^(0|[1-9]\d*)$/.test(k)) {
-      maxKey = Math.max(maxKey, Number(k));
-    } else {
-      allIntegerKeys = false;
-      break;
-    }
-  }
-  if (allIntegerKeys && maxKey < 2 * keys.length) {
-    const arr: JsonValue[] = [];
-    for (let i = 0; i <= maxKey; i++) {
-      const child = obj[String(i)];
-      arr[i] = child === undefined ? null : coerceArrays(child);
-    }
-    return arr;
-  }
   const out: Record<string, JsonValue> = {};
-  for (const [k, v] of Object.entries(obj)) {
+  for (const [k, v] of Object.entries(value as Record<string, JsonValue>)) {
     out[k] = coerceArrays(v);
   }
-  return out;
+  return asSdkArray(out) ?? out;
+}
+
+const INTEGER_KEY = /^(0|[1-9]\d*)$/;
+
+/**
+ * `children` as the array `val()` renders, or `null` when the SDK keeps
+ * them an object: some key is not an integer, or the largest is not below
+ * twice the key count. Children are copied as they are, without recursing.
+ */
+export function asSdkArray(children: Record<string, JsonValue>): JsonValue[] | null {
+  const keys = Object.keys(children);
+  if (keys.length === 0) return null;
+  let maxKey = 0;
+  for (const key of keys) {
+    if (!INTEGER_KEY.test(key)) return null;
+    maxKey = Math.max(maxKey, Number(key));
+  }
+  if (maxKey >= 2 * keys.length) return null;
+  const array: JsonValue[] = [];
+  for (const key of keys) array[Number(key)] = children[key];
+  return array;
 }
