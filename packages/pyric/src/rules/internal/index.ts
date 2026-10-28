@@ -79,6 +79,8 @@ export {
   renderMatchBlockPath,
 } from '../simulator/match-resolution.js';
 export type { MatchResult } from '../simulator/match-resolution.js';
+export { collectRootMatches, resolveRootMatch, rootGovernsEveryDocument } from '../simulator/root-match.js';
+export type { RootMatch } from '../simulator/root-match.js';
 export { evaluateQueryProof } from '../simulator/query-proof.js';
 export type {
   QueryConstraints,

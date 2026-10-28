@@ -37,8 +37,8 @@ import {
   reviveFirestoreNumbers,
 } from './firestore-values.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
+import { collectRootMatches, resolveRootMatch, rootMismatchNote } from './root-match.js';
 import {
-  collectMatches,
   indexRulesetScopes,
   renderMatchBlockPath,
   type MatchResult,
@@ -557,29 +557,17 @@ export class SimulateFirestoreRulesHandler {
     let failed = 0;
     let unsupported = 0;
 
-    // Resolve any wildcards on the root match (typically just one for
-    // the database segment) and bind each to '(default)'. The root
-    // wildcard can be named anything in production — `database`, `db`,
-    // `dbId` are all valid — and `get(/databases/$(name)/...)` paths
-    // inside rules expect that exact name to resolve. Previously we
-    // hardcoded `database` only, so any other name silently became
-    // `undefined` inside path interpolation and broke every `get()` /
-    // `exists()` call.
-    //
-    // `database` stays seeded as a default so rules that don't use a
-    // wildcard on the root match (or that hardcode `$(database)` in a
-    // `get()` path) still work.
+    // The root match is compared with each request below
+    // (`collectRootMatches`), and its wildcard bindings reach every block it
+    // resolves. `database` stays seeded so a rule that hardcodes
+    // `$(database)` in a `get()` path still resolves under a root that names
+    // its wildcard `db` or `dbId`.
     const rootBindings: Record<string, string> = { database: '(default)' };
-    for (const seg of ast.service.match.path.segments) {
-      if (seg.type === 'wildcard') {
-        rootBindings[seg.name] = '(default)';
-      }
-    }
 
     for (const tc of testCases) {
-      // Resolve the match block for this path.
-      // The root match is /databases/{database}/documents — skip it,
-      // start matching from its children directly.
+      // Resolve the match blocks for this path. The root match is compared
+      // with the request's full resource name first, and its children match
+      // what it leaves (FS2-ENF-1).
       // Both the document-relative form and the full resource name the
       // console shows mean the same request, so the full form is reduced
       // before a block is resolved against it and every message about this
@@ -689,9 +677,7 @@ export class SimulateFirestoreRulesHandler {
       // Fresh recorder per test case so each `TestResult.pathResolution`
       // captures only its own resolution attempts.
       const pathRecorder = new PathResolutionRecorder();
-      for (const child of evalAst.service.match.children) {
-        matches.push(...collectMatches(child, pathSegments, rootFunctions, pathRecorder));
-      }
+      matches.push(...collectRootMatches(evalAst, requestPath, rootFunctions, pathRecorder));
       // `list` targets a COLLECTION, but rules match blocks are document-
       // level: real Firestore evaluates a query against the doc block with
       // the document wildcard hypothetical (and `resource` undefined). When
@@ -713,10 +699,7 @@ export class SimulateFirestoreRulesHandler {
       const shouldWiden = isListMethod && (isCollectionPath || matches.length === 0);
       if (shouldWiden) {
         const widened = [...pathSegments, '__hypothetical_doc__'];
-        const widenedMatches: MatchResult[] = [];
-        for (const child of evalAst.service.match.children) {
-          widenedMatches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
-        }
+        const widenedMatches = collectRootMatches(evalAst, widened.join('/'), rootFunctions, pathRecorder);
         const isWidenedNonZero = widenedMatches.length > 0;
         if (isWidenedNonZero) {
           matches = widenedMatches;
@@ -741,10 +724,12 @@ export class SimulateFirestoreRulesHandler {
           decision: 'DENY',
           evaluatedExpressions: 0,
           trace: [],
-          notes: [
-            `No match block found for path '${requestPath}', so the request is denied by default.`,
-            DOCUMENT_PATH_FORM,
-          ],
+          notes: resolveRootMatch(evalAst, requestPath)
+            ? [
+              `No match block found for path '${requestPath}', so the request is denied by default.`,
+              DOCUMENT_PATH_FORM,
+            ]
+            : [rootMismatchNote(evalAst, requestPath)],
           pathResolution,
           ...(queryProof ? { queryProof } : {}),
         });
@@ -756,7 +741,7 @@ export class SimulateFirestoreRulesHandler {
       // first-match-wins and no way for one block to revoke another's
       // grant. So we evaluate each block independently and short-circuit on
       // the first ALLOW. Each block builds its OWN context with its OWN
-      // wildcard bindings (`rootBindings` carries the root-match wildcards
+      // wildcard bindings (each match carries the root-match wildcards
       // like `db`/`database` so `$(name)` interpolation inside
       // get()/exists() paths resolves; the block's own bindings override on
       // collision). Every rule-evaluation entry is tagged with its block's

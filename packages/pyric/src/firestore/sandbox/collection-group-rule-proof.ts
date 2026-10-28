@@ -3,6 +3,7 @@ import type {
   FunctionDef,
   MatchBlock,
 } from 'pyric/rules/internal';
+import { rootGovernsEveryDocument } from 'pyric/rules/internal';
 import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
@@ -20,13 +21,17 @@ import {
  * bindings, because a collection-group query has no single parent path or
  * document id to bind them to. Concrete collection matches never qualify: each
  * governs only one parent path, not the whole group. Nested blocks are
- * dropped. Returns null when no rule qualifies.
+ * dropped. Returns null when no rule qualifies, or when the root match does
+ * not govern every document of the database: a root such as
+ * `/databases/{database}/documents/z` reaches only the documents under `z`,
+ * and a group query spans every collection with its id (FS2-ENF-1).
  */
 export function proveCollectionGroupRules(
   ast: FirestoreRules | null,
   collectionId: string,
 ): FirestoreRules | null {
   if (!ast) return null;
+  if (!rootGovernsEveryDocument(ast)) return null;
 
   const outerFunctions = [
     ...(ast.functions ?? []),

@@ -26,7 +26,8 @@ import type {
 } from '../grammar/FirestoreAST.js';
 import { resolveAuthoredSourceLoc } from '../modules/resolver-core.js';
 import type { EvaluatedRuleInfo, ListQuery } from '../test/spec.js';
-import { collectMatches, type MatchResult } from './match-resolution.js';
+import type { MatchResult } from './match-resolution.js';
+import { collectRootMatches } from './root-match.js';
 import {
   evaluateQueryProof,
   type QueryConstraints,
@@ -145,18 +146,14 @@ export function proveListQuery(
   if (isAstDefined === false) {
     return { kind: 'no-rule' };
   }
-  const segments = relPath.split('/').filter((s) => s.length > 0);
-  // Like handler.ts, the root match (/databases/{db}/documents) is implicit:
-  // resolution starts at its children with every enclosing helper in scope.
+  // Like handler.ts, the root match is compared with the request first, and
+  // its children resolve what it leaves with every enclosing helper in scope.
   const rootFunctions = [
     ...(ast!.functions ?? []),
     ...(ast!.service.functions ?? []),
     ...ast!.service.match.functions,
   ];
-  const matches: MatchResult[] = [];
-  for (const child of ast!.service.match.children) {
-    matches.push(...collectMatches(child, segments, rootFunctions));
-  }
+  const matches: MatchResult[] = collectRootMatches(ast!, relPath, rootFunctions);
   const isMatchesEmpty = matches.length === 0;
   if (isMatchesEmpty) {
     return { kind: 'no-rule' };
