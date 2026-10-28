@@ -38,6 +38,17 @@ const TERMINAL_UNSAFE_CHARS =
   /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g;
 
 /**
+ * Replace control, bidi-override and line-separator characters with spaces,
+ * and change nothing else: no flattening, no whitespace collapsing, no cut.
+ * For one line of text a reader copies out of the terminal, such as a
+ * pasteable command or JSON fixture, where the exact spacing and the whole
+ * length matter. The caller splits lines first and bounds the total.
+ */
+export function stripTerminalControls(text: string): string {
+  return text.replace(TERMINAL_UNSAFE_CHARS, ' ');
+}
+
+/**
  * Flatten an upstream-authored string into ONE terminal-safe line.
  *
  * Broker rejection reasons are production's own messages, and several are
