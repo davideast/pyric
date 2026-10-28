@@ -6,6 +6,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'messaging',
   method: 'deliveries',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'deliveries(since?)',

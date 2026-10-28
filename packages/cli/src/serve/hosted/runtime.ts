@@ -244,7 +244,8 @@ export async function createHostedRuntime(
   });
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir, undefined, persistence.checkpoints);
   // A `database` method's `instance` resolves as a client's does on this host.
-  surfaceContext.databaseInstances = hostDatabaseInstances(ctx);
+  const hostInstances = hostDatabaseInstances(ctx);
+  surfaceContext.databaseInstances = async () => hostInstances;
   // Storage rules simulation binds the default bucket under the app's name for it.
   surfaceContext.storageBucketName = () => {
     const named = ctx.appOptions?.storageBucket;

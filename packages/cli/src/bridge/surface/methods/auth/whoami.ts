@@ -6,6 +6,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'whoami',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'whoami()',

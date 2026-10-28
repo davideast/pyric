@@ -17,6 +17,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'ai_logic',
   method: 'status',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'status()',

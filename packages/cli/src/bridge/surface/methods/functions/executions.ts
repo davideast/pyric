@@ -6,6 +6,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'functions',
   method: 'executions',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'executions(since?)',

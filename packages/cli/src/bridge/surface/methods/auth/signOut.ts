@@ -13,6 +13,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'signOut',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'signOut()',

@@ -1,12 +1,13 @@
 /** Remove one user from the sandbox auth pool. */
 import { z } from 'zod';
 import { RENAMES, uid } from '../../arguments/auth.js';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'auth',
   method: 'deleteUser',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-admin',
   effect: 'write',
   signature: 'deleteUser(uid)',

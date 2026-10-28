@@ -12,6 +12,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'signInAnonymously',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'signInAnonymously()',

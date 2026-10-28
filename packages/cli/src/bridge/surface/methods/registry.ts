@@ -10,24 +10,14 @@
  * and auditable under neither.
  */
 import { METHOD_RECORDS, TOOL_RECORDS } from '../manifest.generated.js';
-import { operationIds, type Method, type Tool } from '../method-types.js';
+import { operationIds, stampRecord, type Method, type Tool } from '../method-types.js';
 
 /** Methods of one tool, in the order the manifest lists them. */
 function methodsOf(tool: string): Method[] {
   const loaded: Method[] = [];
   for (const [owner, name, record] of METHOD_RECORDS) {
     if (owner !== tool) continue;
-    if (record.tool !== owner) {
-      throw new Error(
-        `method record methods/${owner}/${name}.ts declares tool '${record.tool}'`,
-      );
-    }
-    if (record.method !== name) {
-      throw new Error(
-        `method record methods/${owner}/${name}.ts declares method '${record.method}'`,
-      );
-    }
-    loaded.push({ ...record, key: `${owner}.${name}` });
+    loaded.push(stampRecord(owner, name, record));
   }
   return loaded;
 }

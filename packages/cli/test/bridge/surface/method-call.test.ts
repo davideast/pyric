@@ -18,6 +18,7 @@ function fakeMethod(overrides: Partial<Method> = {}): Method {
   return {
     tool: 'sandbox',
     method: 'echo',
+    runsIn: 'bridge',
     sdkOrigin: 'pyric',
     effect: 'read',
     signature: 'echo(value)',

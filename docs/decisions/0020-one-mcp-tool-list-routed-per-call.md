@@ -99,13 +99,13 @@ Options:
 
 - **A. A method frame on the bridge.** A new `method-call` frame carries
   `{ key, args, allowProduction, identity }` from the bridge process to the
-  page, and a page-side runner executes the record with `callMethod` against
-  the page's sandbox. The mount answers `/__pyric/hosted/method` by forwarding
-  that frame. Cost: a protocol addition (`bridge/protocol.ts`, request
-  envelope validation, peer forwarding, the worker client), and a split of the
-  method records into the browser-safe part and the part that reads the
-  project directory (rules files, checkpoints, fixtures), which stays in the
-  bridge process.
+  page, and the record runs with `callMethod` where the sandbox lives. The
+  mount answers `/__pyric/hosted/method` by forwarding that frame. Cost: a
+  protocol addition (`bridge/protocol.ts`, request envelope validation, peer
+  forwarding, the worker client), and a split of the method records into the
+  part that can run in a browser and the part that reads the project directory
+  (rules files, checkpoints, fixtures), imports a Node-only module, or
+  dispatches an in-process tool family, which stays in the bridge process.
 - **B. Records run in the bridge process against a remote sandbox.** The
   mount runs the record in Node with a context whose sandbox is the existing
   worker-op client (`createRemoteSandboxHandle` in `remote/index.ts`). No new
@@ -121,10 +121,42 @@ Options:
 
 A SharedWorker host runs method records through a `method-call` bridge frame.
 The bridge process forwards `{ key, args, allowProduction, identity }` to the
-page, and a page-side runner executes the record with `callMethod`. The page
-already runs the sandbox and the forwarded families, so a method frame reuses
-the bridge's routing, ordering, identity and timeout handling, and keeps one
-execution path per method. #1469 implements it.
+page, and the record runs with `callMethod` where the sandbox lives. A method
+frame reuses the bridge's routing, ordering, identity and timeout handling,
+and keeps one execution path per method. #1469 implements it.
+
+Where the sandbox lives (2026-10-28). On a SharedWorker host the sandbox lives
+in the SharedWorker, not the page: the page forwards each `tool-call` to the
+worker as a `{ t: 'tool' }` worker message, and its own sandbox is only a
+fallback the application never sees. A record run on the page would act on
+that fallback. So:
+
+- On the worker path, the page relays the `method-call` frame to the
+  SharedWorker as a `{ t: 'method' }` worker message, parallel to
+  `{ t: 'tool' }`. In the in-page fallback mode, the page runs the record
+  itself.
+- The worker runs `callMethod` against its own sandbox, with a context built
+  from that sandbox and the forwarded tool families only.
+- The steps the Node host runs after a call (deploying rules after
+  `rules.set`, restoring Firestore subscriptions and reconciling port sessions
+  after the seed, restore and reset methods) move out of
+  `serve/hosted/runtime.ts` into a host module both hosts share.
+- A record runs where the sandbox lives only when its module graph imports
+  nothing Node-only and it dispatches no in-process tool family. Every other
+  record stays in the bridge process.
+
+#1469 lands this in two parts:
+
+- **1a.** Each record declares `runsIn: 'sandbox'` or `runsIn: 'bridge'`. A
+  sandbox-side handler is given only a `SandboxSurfaceContext`
+  (`surface/sandbox-context.ts`): the sandbox, the forwarded families, the
+  held identity, and the RTDB instances the host serves. The generator renders
+  the sandbox-side records into `manifest.sandbox.generated.ts`, which
+  `surface/methods/sandbox-registry.ts` loads without the bridge's records, and
+  a test fails when a sandbox-side record's module graph reaches a Node-only
+  module or an in-process family. No bridge or worker message changes.
+- **1b.** The `method-call` frame, the `{ t: 'method' }` worker message, the
+  page and worker runners, and the shared after-call host module.
 
 B was not chosen because it touches every handler: each service's handlers
 would move from `LocalSandbox` to a narrower interface that the remote handle

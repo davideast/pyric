@@ -1,12 +1,13 @@
 /** Delete one Firestore document. */
 import { z } from 'zod';
 import { checkDocumentPath, RENAMES } from '../../arguments/firestore.js';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'firestore',
   method: 'deleteDoc',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'deleteDoc(path)',

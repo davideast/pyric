@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { AIError, AIErrorCode } from 'pyric/ai';
 import { script as scriptEngine } from 'pyric/ai/scripting';
 import { scriptMatchArgument, scriptResponseArgument } from '../../arguments/ai_logic.js';
-import { operationFailure } from '../../context.js';
+import { operationFailure } from '../../sandbox-context.js';
 import { aiFor } from '../../service-handles.js';
 import { matcherFor, respondFor, type ScriptMatch, type ScriptResponse } from '../../ai-logic-matchers.js';
 import type {
@@ -65,6 +65,7 @@ function refusePayloadMismatch(args: Args, ctx: MethodValidationContext): Invali
 export default {
   tool: 'ai_logic',
   method: 'script',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'script(match{substring?, model?}, response{type: text|json|error, payload})',

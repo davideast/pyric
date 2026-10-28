@@ -21,6 +21,7 @@ const MAX_DEPTH = 10;
 export default {
   tool: 'database',
   method: 'crawl',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `crawl(path?, depth? = ${DEFAULT_DEPTH}, maximum ${MAX_DEPTH}, instance?)`,

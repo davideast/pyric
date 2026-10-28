@@ -14,6 +14,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'impersonate',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'impersonate(uid, tenantId?, customClaims?)',

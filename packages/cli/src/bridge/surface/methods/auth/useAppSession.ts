@@ -22,6 +22,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'useAppSession',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'useAppSession()',

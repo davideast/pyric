@@ -13,6 +13,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'assurance',
   method: 'inspect',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'inspect(campaignId, probeId)',

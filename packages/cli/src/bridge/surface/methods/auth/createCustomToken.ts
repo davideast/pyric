@@ -14,6 +14,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'createCustomToken',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-admin',
   effect: 'read',
   signature: 'createCustomToken(uid, developerClaims?)',

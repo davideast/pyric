@@ -7,6 +7,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'rules',
   method: 'getStdlib',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `getStdlib(module, service?: ${SERVICES.join('|')})`,
