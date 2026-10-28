@@ -9,6 +9,7 @@ import {
   replaceStorageRules,
   resourceFromStored,
   rulesBucketName,
+  targetOf,
   storageFirestoreLookup,
 } from 'pyric/storage/internal';
 import { asSentence } from 'pyric/sandbox/internal';
@@ -39,13 +40,6 @@ function identityFor(
   const held = ctx.identity.authState();
   if (held === null) return null;
   return { uid: held.uid, token: held.token ?? {} };
-}
-
-/** The bucket a case's data names, which is the name its rules see. */
-function caseBucketName(data: unknown): string | undefined {
-  if (data === null || typeof data !== 'object') return undefined;
-  const bucket = (data as { bucket?: unknown }).bucket;
-  return typeof bucket === 'string' && bucket !== '' ? bucket : undefined;
 }
 
 /**
@@ -142,7 +136,6 @@ export const STORAGE_RULES: RulesEngine = {
     }
 
     const object = ref(storageFor(ctx), request.path);
-    const bucketName = rulesBucketName(object.bucket, caseBucketName(request.data) ?? ctx.storageBucketName?.());
     const service = await getStorageService(object.storage);
     const existing = object.fullPath
       ? await service.backend.getMetadata(object.fullPath, object.bucket)
@@ -165,7 +158,7 @@ export const STORAGE_RULES: RulesEngine = {
         resource: resourceFromStored(existing),
       },
       object.bucket,
-      bucketName,
+      rulesBucketName(object.bucket, targetOf(object.storage).bucketName),
     );
     const evaluated = evaluateStorageRules(
       parsed,

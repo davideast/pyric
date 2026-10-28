@@ -133,7 +133,9 @@ function emitOperation(
         result,
         origin,
         reasons,
-        detail: { bucket: target.bucket },
+        // The store key, and the name the rules saw it by, so a replay binds
+        // the same name (ST-H2-4).
+        detail: { bucket: target.bucket, bucketName: rulesBucketName(target.bucket, target.bucketName) },
         rulesDisposition: origin === 'admin'
           ? { kind: 'bypassed', reason: 'admin' }
           : evaluated

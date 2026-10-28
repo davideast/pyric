@@ -370,9 +370,9 @@ service firebase.storage {
 });
 
 /**
- * Simulate binds the bucket under the name the app knows it by, as the live
- * planes do (ST-H2-4): the case's `data.bucket`, else the served app's
- * `storageBucket`.
+ * Simulate and the `storage` methods bind the bucket under the served app's
+ * `storageBucket`, as the live planes do (ST-H2-4). A case's `data.bucket` is
+ * a `request.resource` field only.
  */
 describe('simulate bucket name', () => {
   const BUCKET = 'demo-app.appspot.com';
@@ -408,14 +408,42 @@ service firebase.storage {
     expect(allowed(named)).toBe(true);
   });
 
-  it('binds {bucket} and request.resource.bucket to the case data bucket', async () => {
+  it('binds {bucket} and request.resource.bucket to the served app storageBucket', async () => {
+    const ctx = freshContext();
+    ctx.storageBucketName = () => BUCKET;
+    const result = await STORAGE_RULES.simulate(ctx, {
+      operation: 'create',
+      path: 'docs/a.txt',
+      rules: BOUND,
+      data: { size: 1 },
+    });
+    expect(allowed(result)).toBe(true);
+  });
+
+  it('reads data.bucket as a request.resource field, not the bucket the case runs on', async () => {
     const result = await STORAGE_RULES.simulate(freshContext(), {
       operation: 'create',
       path: 'docs/a.txt',
       rules: BOUND,
       data: { bucket: BUCKET, size: 1 },
     });
-    expect(allowed(result)).toBe(true);
+    expect(allowed(result)).toBe(false);
+  });
+
+  it('runs the storage methods under the served app storageBucket, agreeing with simulate', async () => {
+    const ctx = freshContext();
+    ctx.storageBucketName = () => BUCKET;
+    ctx.identity.switchTo({ mode: 'uid', uid: 'alice' });
+    await STORAGE_RULES.install(ctx, LITERAL);
+    const upload = await METHODS_BY_KEY.get('storage.uploadBytes')!.handler(
+      { path: 'docs/a.txt', contentBase64: 'aGk=' },
+      ctx,
+    );
+    expect(upload.ok).toBe(true);
+    const read = await METHODS_BY_KEY.get('storage.getMetadata')!.handler({ path: 'docs/a.txt' }, ctx);
+    expect(read.ok).toBe(true);
+    const simulated = await STORAGE_RULES.simulate(ctx, { operation: 'get', path: 'docs/a.txt' });
+    expect(allowed(simulated)).toBe(true);
   });
 
   it('binds resource.bucket to the served app storageBucket', async () => {

@@ -12,7 +12,7 @@ import { getAdminDatabase, getDatabase, type Database } from 'pyric/database';
 import { getAdminFirestore, getFirestore, type Firestore } from 'pyric/firestore';
 import { getMessagingBroker, type MessagingBroker } from 'pyric/messaging/internal';
 import { getStorageSandbox, type FirebaseStorage } from 'pyric/storage';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { getAdminStorageSandbox, nameStorageBucket } from 'pyric/storage/internal';
 import type { SurfaceContext } from './types.js';
 
 /**
@@ -39,8 +39,12 @@ export function firestoreFor(ctx: SurfaceContext): Firestore {
 
 /** A Cloud Storage handle for the held identity. */
 export function storageFor(ctx: SurfaceContext): FirebaseStorage {
-  if (ctx.identity.bypassesRules()) return getAdminStorageSandbox(ctx.sandbox);
-  return getStorageSandbox(ctx.sandbox.withAuth(ctx.identity.authState()));
+  // Rules, and a simulation on this handle, see the default bucket under the
+  // served app's name for it, as the app's own requests do (ST-H2-4).
+  const handle = ctx.identity.bypassesRules()
+    ? getAdminStorageSandbox(ctx.sandbox)
+    : getStorageSandbox(ctx.sandbox.withAuth(ctx.identity.authState()));
+  return nameStorageBucket(handle, ctx.storageBucketName?.());
 }
 
 /**
