@@ -34,7 +34,7 @@ bun run build            # scripts/build.sh; or build:pyric for the engine alone
 | Corpus scenarios | `packages/conformance/rules-corpus/{rtdb,firestore,storage}/` |
 | Production observations | `packages/conformance/observations/{rtdb-rules,firestore-rules,storage}/`, plus SDK-level ones under `rtdb-modular/`, `firestore/`, `rtdb/` |
 | Registry rows | `packages/conformance/registry/rules.ts` and siblings |
-| Node counts | `packages/conformance/assurance-node-counts/<service>.json`; a registry row added or removed edits this file in the same change (AGENTS.md boundary 6) |
+| Node counts | `packages/conformance/assurance-node-counts/<service>/`; a registry row added or removed adds one `{ "delta": n }` file there, named for the change, in the same change (AGENTS.md boundary 6) |
 | Scorecards / baselines | `packages/conformance/baselines/*-scorecard.json`, `coverage-baseline.json` |
 | Score pins in tests | `packages/conformance/test/src/{conformance-model,generate-docs-scoreboard,rules-language-coverage,rules-scorecard-gate}.test.ts` |
 | RTDB runtime pins | `KNOWN_DIVERGENCES` in `packages/pyric/test/rules/rtdb/rules-conformance.test.ts` |

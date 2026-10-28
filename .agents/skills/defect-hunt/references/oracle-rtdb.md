@@ -93,7 +93,7 @@ divergence.
 - The observation lands in `packages/conformance/observations/rtdb-rules/`. It
   changes only by re-capture.
 - Add or extend the registry row in `packages/conformance/registry/rules.ts`,
-  and adjust `assurance-node-counts/` in the same change.
+  and add a delta file to `assurance-node-counts/rules/` in the same change.
 - Pin every disagreement in `KNOWN_DIVERGENCES` with both verdicts and the
   finding it belongs to.
 - Regenerate the scorecard and baselines; the score drops if production
