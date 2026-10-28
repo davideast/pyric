@@ -67,6 +67,26 @@ describe('can-i-use source template', () => {
     expect(source.split(JSON.stringify(shared)).length - 1).toBe(1);
   });
 
+  it('renders browser supports as positional rows instead of repeating field names', () => {
+    const source = renderBrowserQuery(model);
+    for (const field of ['feature', 'surface', 'importPaths', 'evidenceSlug', 'availability', 'fidelity', 'assurance', 'summary', 'caveats']) {
+      expect(source).not.toContain(`"${field}":`);
+    }
+  });
+
+  it('decodes every browser support row to exactly the model answer it was rendered from', async () => {
+    const browser = await loadBrowserSupports(renderBrowserQuery(model));
+    const expected = model.supports.map(({ claims: _claims, ...support }) => support);
+    expect(browser).toEqual(expected);
+    expect(JSON.stringify(browser)).toBe(JSON.stringify(expected));
+  }, 60_000);
+
+  it('gives each decoded browser row its own import path list', async () => {
+    const browser = await loadBrowserSupports(renderBrowserQuery(model)) as FeatureSupport[];
+    const lists = browser.map(({ importPaths }) => importPaths);
+    expect(new Set(lists).size).toBe(lists.length);
+  }, 60_000);
+
   it('round-trips repeated, empty, and special-character caveats through the browser projection', async () => {
     const special = 'quote " backslash \\ newline \n tab \t separator   emoji \u{1F600} `code` ${template} </script>';
     const supports = [
