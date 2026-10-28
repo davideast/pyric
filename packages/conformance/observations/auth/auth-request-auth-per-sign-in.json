@@ -1,0 +1,1294 @@
+{
+  "name": "auth-request-auth-per-sign-in",
+  "matrixRow": "auth #68c",
+  "rowIds": [
+    "auth#68c"
+  ],
+  "description": "What production RTDB rules see as auth for each sign-in kind (signed out, anonymous, email and password unverified, verified with a profile and phone number, custom token for a new uid with developer claims of each JSON type, custom token for an existing email account, custom claims set after sign-in then a forced refresh, a forced refresh seconds after sign-in, reload after Admin changes, the token after updateProfile, custom-token claims over stored claims and a later password sign-in, reload and password reauthentication of a custom-token session, and email link), with the decoded claim shapes and IdTokenResult formats; plus the Admin SDK answers for user management, custom tokens, custom-claims limits and verifyIdToken. Each RTDB probe is an equality or absence check built from the session's own decoded token, deployed on a dedicated instance and read with the live token. Values that identify the test accounts are replaced by placeholders; numbers are recorded as <int> or <float>. Every account is removed through the Admin SDK at the end and the removal proven; the instance rules are restored and read back.",
+  "observedAt": "2026-10-28T02:02:41.919Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "signedOut": {
+      "note": "no sign-in",
+      "signInProvider": null,
+      "claims": null,
+      "rtdb": {
+        "auth is null": "ALLOW"
+      }
+    },
+    "anonymous": {
+      "note": "signInAnonymously",
+      "signInProvider": "anonymous",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "exp": "<int>",
+        "firebase": {
+          "identities": {},
+          "sign_in_provider": "anonymous"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "provider_id": "anonymous",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.provider_id equals the decoded value": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.email is absent (reads null)": "ALLOW",
+        "token.email_verified is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.email is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "passwordUnverified": {
+      "note": "signInWithEmailAndPassword, unverified, no profile",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "passwordVerifiedProfile": {
+      "note": "signInWithEmailAndPassword, verified, profile and phone set through Admin",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": true,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ],
+            "phone": [
+              "<phoneNumber>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "<uid>-name",
+        "phone_number": "<phoneNumber>",
+        "picture": "https://example.com/pyric-hunt-auth.png",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.name equals the decoded value": "ALLOW",
+        "token.picture equals the decoded value": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.phone_number equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW"
+      }
+    },
+    "customTokenNewUid": {
+      "note": "signInWithCustomToken, new uid, developer claims of each JSON type",
+      "signInProvider": "custom",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "exp": "<int>",
+        "firebase": {
+          "identities": {},
+          "sign_in_provider": "custom"
+        },
+        "flag": true,
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "level": "<int>",
+        "nested": {
+          "team": "a"
+        },
+        "ratio": "<float>",
+        "role": "oracle",
+        "sub": "<uid>",
+        "tags": [
+          "x",
+          "y"
+        ],
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.role equals the decoded value": "ALLOW",
+        "token.level equals the decoded value": "ALLOW",
+        "token.ratio equals the decoded value": "ALLOW",
+        "token.flag equals the decoded value": "ALLOW",
+        "token.nested.team equals the decoded value": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.email is absent (reads null)": "ALLOW",
+        "token.email_verified is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.email is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "customTokenExistingEmailAccount": {
+      "note": "signInWithCustomToken for an existing email account",
+      "signInProvider": "custom",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": true,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ],
+            "phone": [
+              "<phoneNumber>"
+            ]
+          },
+          "sign_in_provider": "custom"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "<uid>-name",
+        "phone_number": "<phoneNumber>",
+        "picture": "https://example.com/pyric-hunt-auth.png",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.name equals the decoded value": "ALLOW",
+        "token.picture equals the decoded value": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.phone_number equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW"
+      }
+    },
+    "setCustomUserClaimsThenRefresh": {
+      "note": "custom claims set after sign-in, read after a forced refresh; some reuse standard names",
+      "signInProvider": "password",
+      "claims": {
+        "admin": true,
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "name": "custom-name",
+        "phone_number": "+15550000000",
+        "sub": "<uid>",
+        "tier": "<int>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.admin equals the decoded value": "ALLOW",
+        "token.tier equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.phone_number equals the decoded value": "ALLOW",
+        "token.name equals the decoded value": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "forcedRefreshLater": {
+      "note": "a forced refresh 3 s after sign-in: auth_time keeps the sign-in time",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": true
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "reloadAfterAdminChanges": {
+      "note": "the current token after reload(): Admin changes are not on it",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "facts": {
+        "userEmailVerifiedAfterReload": true
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW",
+        "the claim Admin set after sign-in is not on the token (admin reads null)": "ALLOW",
+        "email_verified is still false after reload": "ALLOW"
+      }
+    },
+    "updateProfileThenToken": {
+      "note": "token after updateProfile with no forced refresh",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "facts": {
+        "onIdTokenChangedFiresOnUpdateProfile": false,
+        "userDisplayNameUpdated": true
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "customTokenOverStoredClaims": {
+      "note": "custom-token developer claims over stored custom claims",
+      "signInProvider": "custom",
+      "claims": {
+        "admin": true,
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "custom"
+        },
+        "foo": "token",
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "key1": "kept",
+        "key2": "added",
+        "role": "editor",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "facts": {
+        "storedCustomClaimsAfterCustomTokenSignIn": {
+          "foo": "api",
+          "key1": "kept",
+          "role": "editor"
+        }
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.foo equals the decoded value": "ALLOW",
+        "token.key1 equals the decoded value": "ALLOW",
+        "token.role equals the decoded value": "ALLOW",
+        "token.key2 equals the decoded value": "ALLOW",
+        "token.admin equals the decoded value": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "passwordAfterCustomToken": {
+      "note": "password sign-in after a custom-token sign-in: which claims the token carries",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "foo": "api",
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "key1": "kept",
+        "role": "editor",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.foo equals the decoded value": "ALLOW",
+        "token.key1 equals the decoded value": "ALLOW",
+        "token.role equals the decoded value": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "customTokenReload": {
+      "note": "a custom-token session after reload(): sign_in_provider stays custom",
+      "signInProvider": "custom",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "custom"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW",
+        "sign_in_provider is custom after reload": "ALLOW"
+      }
+    },
+    "customTokenReauthPassword": {
+      "note": "the token after reauthenticating a custom-token session with a password credential",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": false,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "emailLink": {
+      "note": "signInWithEmailLink, new account",
+      "signInProvider": "password",
+      "claims": {
+        "aud": "<projectId>",
+        "auth_time": "<int>",
+        "email": "<email>",
+        "email_verified": true,
+        "exp": "<int>",
+        "firebase": {
+          "identities": {
+            "email": [
+              "<email>"
+            ]
+          },
+          "sign_in_provider": "password"
+        },
+        "iat": "<int>",
+        "iss": "https://securetoken.google.com/<projectId>",
+        "sub": "<uid>",
+        "user_id": "<uid>"
+      },
+      "idTokenResult": {
+        "authTime": "toUTCString",
+        "issuedAtTime": "toUTCString",
+        "expirationTime": "toUTCString",
+        "signInSecondFactor": null,
+        "keys": [
+          "authTime",
+          "claims",
+          "expirationTime",
+          "issuedAtTime",
+          "signInProvider",
+          "signInSecondFactor",
+          "token"
+        ],
+        "expMinusIat": 3600,
+        "authTimeBeforeIat": false
+      },
+      "rtdb": {
+        "auth is not null": "ALLOW",
+        "uid equals the session uid": "ALLOW",
+        "rtdb auth.provider equals the sign-in provider": "ALLOW",
+        "rtdb auth.provider equals token firebase.sign_in_provider": "ALLOW",
+        "token.sub equals uid": "ALLOW",
+        "token.user_id equals uid": "ALLOW",
+        "token.iss is securetoken plus token.aud": "ALLOW",
+        "token.exp minus token.iat is 3600": "ALLOW",
+        "token.auth_time is at or before token.iat": "ALLOW",
+        "token.iat is in the past": "ALLOW",
+        "token.auth_time is more than 5 s before evaluation": "ALLOW",
+        "token.iss equals the decoded value": "ALLOW",
+        "token.aud equals the decoded value": "ALLOW",
+        "token.auth_time equals the decoded value": "ALLOW",
+        "token.user_id equals the decoded value": "ALLOW",
+        "token.sub equals the decoded value": "ALLOW",
+        "token.iat equals the decoded value": "ALLOW",
+        "token.exp equals the decoded value": "ALLOW",
+        "token.email equals the decoded value": "ALLOW",
+        "token.email_verified equals the decoded value": "ALLOW",
+        "token.firebase.sign_in_provider equals the decoded value": "ALLOW",
+        "token.uid is absent (reads null)": "ALLOW",
+        "token.provider_id is absent (reads null)": "ALLOW",
+        "token.name is absent (reads null)": "ALLOW",
+        "token.picture is absent (reads null)": "ALLOW",
+        "token.phone_number is absent (reads null)": "ALLOW",
+        "token.sign_in_provider is absent (reads null)": "ALLOW",
+        "token.isAnonymous is absent (reads null)": "ALLOW",
+        "token.is_anonymous is absent (reads null)": "ALLOW",
+        "token.tenant is absent (reads null)": "ALLOW",
+        "token.admin is absent (reads null)": "ALLOW",
+        "token.firebase.tenant is absent (reads null)": "ALLOW",
+        "token.firebase.sign_in_second_factor is absent (reads null)": "ALLOW",
+        "token.firebase.second_factor_identifier is absent (reads null)": "ALLOW",
+        "token.firebase.identities.phone is absent (reads null)": "ALLOW"
+      }
+    },
+    "admin": {
+      "createCustomToken128Uid": {
+        "resolved": true
+      },
+      "createCustomToken129Uid": {
+        "code": "auth/argument-error",
+        "message": "`uid` argument must a uid with less than or equal to 128 characters.",
+        "threw": "synchronously"
+      },
+      "createCustomTokenEmptyUid": {
+        "code": "auth/argument-error",
+        "message": "`uid` argument must be a non-empty string uid.",
+        "threw": "synchronously"
+      },
+      "createCustomTokenNullClaims": {
+        "code": "auth/argument-error",
+        "message": "`developerClaims` argument must be a valid, non-null object containing the developer claims.",
+        "threw": "synchronously"
+      },
+      "createCustomTokenReservedAud": {
+        "code": "auth/argument-error",
+        "message": "Developer claim \"aud\" is reserved and cannot be specified.",
+        "threw": "synchronously"
+      },
+      "createCustomTokenReservedFirebase": {
+        "resolved": true
+      },
+      "createUserInvalidEmail": {
+        "code": "auth/invalid-email",
+        "message": "The email address is improperly formatted.",
+        "rejected": true
+      },
+      "createUserShortPassword": {
+        "code": "auth/invalid-password",
+        "message": "The password must be a string with at least 6 characters.",
+        "rejected": true
+      },
+      "createUserTakenEmail": {
+        "code": "auth/email-already-exists",
+        "message": "The email address is already in use by another account.",
+        "rejected": true
+      },
+      "createUserTakenUid": {
+        "code": "auth/uid-already-exists",
+        "message": "The user with the provided uid already exists.",
+        "rejected": true
+      },
+      "deleteUserMissing": {
+        "code": "auth/user-not-found",
+        "message": "There is no user record corresponding to the provided identifier.",
+        "rejected": true
+      },
+      "freshPasswordUserRecord": {
+        "creationTime": "toUTCString",
+        "customClaims": null,
+        "lastRefreshTime": null,
+        "lastSignInTime": "null",
+        "providerData": [
+          "password"
+        ],
+        "tenantId": null
+      },
+      "getUserByEmailMissing": {
+        "code": "auth/user-not-found",
+        "message": "There is no user record corresponding to the provided identifier.",
+        "rejected": true
+      },
+      "getUserByEmailOtherCase": {
+        "resolved": true
+      },
+      "getUserMissing": {
+        "code": "auth/user-not-found",
+        "message": "There is no user record corresponding to the provided identifier.",
+        "rejected": true
+      },
+      "setCustomUserClaims1100": {
+        "code": "auth/claims-too-large",
+        "message": "Developer claims payload should not exceed 1000 characters.",
+        "rejected": true
+      },
+      "setCustomUserClaimsMissing": {
+        "code": "auth/user-not-found",
+        "message": "There is no user record corresponding to the provided identifier.",
+        "rejected": true
+      },
+      "setCustomUserClaimsReserved": {
+        "code": "auth/reserved-claim",
+        "message": "Developer claim \"sub\" is reserved and cannot be specified.",
+        "rejected": true
+      },
+      "userRecordAfterSignIn": {
+        "lastRefreshTime": "toUTCString",
+        "lastSignInTime": "toUTCString"
+      },
+      "verifyIdTokenCheckRevokedDeleted": {
+        "code": "auth/user-not-found",
+        "message": "There is no user record corresponding to the provided identifier.",
+        "rejected": true
+      },
+      "verifyIdTokenCheckRevokedDisabled": {
+        "code": "auth/user-disabled",
+        "message": "The user record is disabled.",
+        "rejected": true
+      },
+      "verifyIdTokenDecoded": {
+        "authTimeEqualsToken": true,
+        "expMinusIat": "<int>",
+        "firebaseKeys": [
+          "identities",
+          "sign_in_provider"
+        ],
+        "keys": [
+          "aud",
+          "auth_time",
+          "email",
+          "email_verified",
+          "exp",
+          "firebase",
+          "iat",
+          "iss",
+          "sub",
+          "uid",
+          "user_id"
+        ],
+        "uidEqualsSub": true
+      },
+      "verifyIdTokenNoCheckDisabled": {
+        "resolved": true
+      },
+      "verifyIdTokenOfCustomToken": {
+        "code": "auth/argument-error",
+        "message": "verifyIdToken() expects an ID token, but was given a custom token. See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token.",
+        "rejected": true
+      }
+    },
+    "cleanup": {
+      "rulesRestored": true,
+      "runKeyAbsent": true,
+      "usersDeleted": true,
+      "usersCreated": 13
+    }
+  }
+}
