@@ -5,12 +5,16 @@
 // have a signed-out write denied by the template's rules, with no page error.
 // Before #1193 was fixed every load threw "Missing Pyric page initialization"
 // and nothing mounted.
-// The `--persist` case also asserts a known gap, that no state is saved
-// (#1194), so it fails when that is fixed.
+// The rewrite keeps the page's Next origin, and the host accepts it on the
+// guarded `/__pyric/*` routes (#1194): diagnostics answer without a 403, and
+// the `--persist` case saves `state.json`. A page on another local port still
+// gets 403, both through the rewrite and straight to the host.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { dirname, join } from 'node:path';
+import type { Page } from '@playwright/test';
 import { scenario, sleep, type App } from '../driver.ts';
 
 interface Case {
@@ -27,8 +31,8 @@ const CASES: readonly Case[] = [
   { name: 'pyric sandbox --persist -- next dev', hosted: false, webpack: false, persist: true },
 ];
 
-/** The 403 the host's origin guard answers through the rewrite (#1194): the one error response a page may get. */
-const KNOWN_ERROR_RESPONSE = /^\[page \d+ response 403\] POST http:\/\/127\.0\.0\.1:\d+\/__pyric\/diagnostics$/;
+/** Marks the other page's requests, so the host's 403s to them are the only ones expected. */
+const OTHER_PORT_PROBE = 'from=other-port';
 /** The console line Chromium prints for any failed response; the response lines say which. */
 const FAILED_RESOURCE = /^\[page \d+ console\.error\] Failed to load resource: /;
 
@@ -70,6 +74,62 @@ async function waitForNext(url: string, running: () => boolean): Promise<void> {
     if (await answers(`${url}/__pyric/init.json`) && await answers(`${url}/`)) return;
     assert.ok(Date.now() < deadline, `Next did not serve ${url}/ and ${url}/__pyric/init.json within 180s`);
     await sleep(500);
+  }
+}
+
+async function startOtherPortServer(port: number): Promise<Server> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>other</title><p>Another local app.</p>');
+  });
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+  return server;
+}
+
+/** Runs in the page: a CORS request naming the page's own port as the proxy's. */
+async function tryNamingOwnPort(input: { url: string; forwardedHost: string }): Promise<string> {
+  try {
+    const response = await fetch(input.url, { headers: { 'x-forwarded-host': input.forwardedHost } });
+    return `answered ${response.status}`;
+  } catch (error) {
+    return `threw ${String(error)}`;
+  }
+}
+
+/** Runs in the page: a POST a page can send without a preflight. */
+async function tryPost(url: string): Promise<string> {
+  try {
+    await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'content-type': 'text/plain' }, body: '{}' });
+    return 'sent';
+  } catch (error) {
+    return `threw ${String(error)}`;
+  }
+}
+
+/** The status the host answered a no-cors POST with, which only the network sees. */
+async function postStatus(page: Page, url: string): Promise<number> {
+  const answered = page.waitForResponse((response) => response.url() === url, { timeout: 30_000 });
+  assert.equal(await page.evaluate(tryPost, url), 'sent');
+  return (await answered).status();
+}
+
+/** A page on another port of the Next page's own host must not reach the guarded routes. */
+async function refusesOtherPort(app: App, testCase: Case, urls: { next: string; sandbox: string }): Promise<void> {
+  const otherPort = await app.freePort();
+  const other = await startOtherPortServer(otherPort);
+  try {
+    await app.step(`${testCase.name}: a page on another port gets 403 on a guarded route`, async () => {
+      const page = await app.page(`http://127.0.0.1:${otherPort}/`);
+      // First try to teach the host this port, naming it the way a proxy would.
+      const forwardedHost = `127.0.0.1:${otherPort}`;
+      await page.evaluate(tryNamingOwnPort, { url: `${urls.sandbox}/__pyric/not-a-route`, forwardedHost });
+      await page.evaluate(tryNamingOwnPort, { url: `${urls.next}/__pyric/not-a-route`, forwardedHost });
+      const throughRewrite = await postStatus(page, `${urls.next}/__pyric/diagnostics?${OTHER_PORT_PROBE}`);
+      const straightToHost = await postStatus(page, `${urls.sandbox}/__pyric/diagnostics?${OTHER_PORT_PROBE}`);
+      assert.deepEqual({ throughRewrite, straightToHost }, { throughRewrite: 403, straightToHost: 403 });
+      await page.close();
+    });
+  } finally {
+    await new Promise<void>((resolve) => other.close(() => resolve()));
   }
 }
 
@@ -137,15 +197,18 @@ async function runCase(app: App, testCase: Case): Promise<void> {
   });
 
   if (testCase.persist) {
-    // Known gap (#1194): the SharedWorker saves state through the rewrite with
-    // the Next origin, which the host's origin guard refuses, so nothing is
-    // saved. The driver does not see SharedWorker requests, so the file is the
-    // evidence. When #1194 lands this step fails: flip it to assert the file.
-    await app.step(`${testCase.name}: no state file is written yet (#1194)`, async () => {
+    // The SharedWorker saves state through the rewrite with the Next origin.
+    // The driver does not see SharedWorker requests, so the file is the evidence.
+    await app.step(`${testCase.name}: the sandbox saves its state, with the seeded post`, async () => {
       const stateFile = join(app.dir, '.pyric', 'state', 'state.json');
-      // Persistence debounces a save by 400 ms; 5 s is ample for one to land.
-      await sleep(5_000);
-      assert.equal(existsSync(stateFile), false, `${stateFile} was written, so #1194 is fixed: assert the save instead`);
+      const title = `seeded under ${testCase.name}`;
+      // Persistence debounces a save by 400 ms; 30 s is ample for one to land.
+      const deadline = Date.now() + 30_000;
+      const saved = () => existsSync(stateFile) && readFileSync(stateFile, 'utf8').includes(title);
+      while (!saved()) {
+        assert.ok(Date.now() < deadline, `${stateFile} did not save the post "${title}" within 30s`);
+        await sleep(250);
+      }
     });
   }
 
@@ -153,16 +216,20 @@ async function runCase(app: App, testCase: Case): Promise<void> {
     const lines = app.browserLog.slice(logStart);
     const pageErrors = lines.filter((line) => / error\] /.test(line));
     const consoleErrors = lines.filter((line) => / console\.error\] /.test(line) && !FAILED_RESOURCE.test(line));
-    const errorResponses = lines.filter((line) => / response \d+\] /.test(line) && !KNOWN_ERROR_RESPONSE.test(line));
+    const errorResponses = lines.filter((line) => / response \d+\] /.test(line));
     assert.deepEqual({ pageErrors, consoleErrors, errorResponses }, { pageErrors: [], consoleErrors: [], errorResponses: [] });
     await page.close();
-    await sandbox.stop();
   });
+
+  await refusesOtherPort(app, testCase, { next: nextUrl, sandbox: sandboxUrl });
+
+  await app.step(`${testCase.name}: pyric sandbox stops`, () => sandbox.stop());
 }
 
 export default scenario(async (app) => {
-  // The rewrite keeps the Next origin, which the host's origin guard refuses (#1194).
-  app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
+  // Only the other page is refused: its probes, and the requests that name its port.
+  app.expectHostError(new RegExp(`^403 POST /__pyric/diagnostics\\?${OTHER_PORT_PROBE}$`));
+  app.expectHostError(/^\d+ GET \/__pyric\/not-a-route$/);
   const scaffolded = await app.step('create-pyric scaffolds the nextjs template', () => scaffold(app));
   for (const testCase of CASES) await runCase(app, testCase);
   // Next rewrites a tsconfig.json it disagrees with on the first `next dev`,

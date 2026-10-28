@@ -31,7 +31,7 @@ import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/p
 import { pointerHeldByAnotherHost } from './discovery.js';
 import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
-import { createAppPorts } from './app-ports.js';
+import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
@@ -74,6 +74,10 @@ export interface BridgeMountOptions {
    *  it. A mount inside a dev server, such as the Vite plugin's, serves the
    *  page on its own port, which the connection's port already covers. */
   learnsProxyPorts?: boolean;
+  /** The app's ports, shared with the namespace's guarded routes. The caller
+   *  that passes them teaches them from each request, so the mount does not.
+   *  Absent, the mount keeps its own and learns when `learnsProxyPorts`. */
+  appPorts?: AppPorts;
 }
 
 export interface BridgeMount {
@@ -138,7 +142,9 @@ export interface BridgeHostAttachment {
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
   // The ports a page of this app may name in its Origin (see app-ports.ts).
-  const appPorts = createAppPorts(opts.upgradeGuard?.boundHost ?? 'localhost');
+  const sharesPorts = opts.appPorts !== undefined;
+  const appPorts = opts.appPorts ?? createAppPorts(opts.upgradeGuard?.boundHost ?? 'localhost');
+  const learnsHere = opts.learnsProxyPorts === true && !sharesPorts;
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
   let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
@@ -321,7 +327,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     instanceId: bridge.instanceId,
 
     async handler(req, res, url) {
-      if (opts.learnsProxyPorts === true) appPorts.learn(req);
+      if (learnsHere) appPorts.learn(req);
       const isHealthRequest = url.pathname === HEALTH_PATH;
       const isMcpRequest = url.pathname === MCP_PATH;
       const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
