@@ -40,7 +40,9 @@ concurrency:
   # (refs/heads/gh-readonly-queue/main/pr-<n>-<sha>), so a group never cancels,
   # and is never cancelled by, a pull request run, a main run, or another group.
   group: build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Runs on main queue instead: each merge is checked against its parent, so
+  # a coverage regression turns main red instead of becoming the next base.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   plan:

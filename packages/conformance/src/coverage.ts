@@ -342,6 +342,9 @@ export const ACCEPTANCES_DIR = 'packages/conformance/coverage-acceptances';
 /**
  * One acceptance file. The change that demotes a `conforms` row, or removes a
  * row, adds `coverage-acceptances/<row-id>.md` with the reason and the issue.
+ * A row accepted before gets `<row-id>.<pr-or-issue>.md` instead, since its
+ * first file already exists. Files sit directly in the directory, never in a
+ * subdirectory.
  * Only files the change adds count (loadAddedAcceptances): a file from an
  * earlier merge stays as a record and can never authorize a later change.
  */
@@ -352,12 +355,17 @@ export interface CoverageAcceptance {
   text: string;
 }
 
-const ACCEPTANCE_NAME = /^([A-Za-z0-9._-]+#[A-Za-z0-9._-]+)\.md$/;
+/** `<row-id>.md`, or `<row-id>.<pr-or-issue>.md`. No row id ends in `.<digits>`, so the suffix is unambiguous. */
+const ACCEPTANCE_NAME = /^([A-Za-z0-9._-]+#[A-Za-z0-9._-]+?)(?:\.\d+)?\.md$/;
 const ISSUE_REFERENCE = /#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+/;
 
 export function parseAcceptance(path: string, text: string): CoverageAcceptance {
+  const inSubdirectory = dirname(path) !== ACCEPTANCES_DIR;
+  if (inSubdirectory) {
+    throw new Error(`${path} is in a subdirectory: put it directly in ${ACCEPTANCES_DIR}/`);
+  }
   const name = ACCEPTANCE_NAME.exec(basename(path));
-  if (!name) throw new Error(`${path} is not named <row-id>.md`);
+  if (!name) throw new Error(`${path} is not named <row-id>.md or <row-id>.<pr-or-issue>.md`);
   if (text.trim() === '') throw new Error(`${path} is empty: give the reason and the issue`);
   if (!ISSUE_REFERENCE.test(text)) throw new Error(`${path} names no issue: add #<n> or the issue's URL`);
   const reason = text.replace(new RegExp(ISSUE_REFERENCE.source, 'g'), '').replace(/[\s.,;:()-]/g, '');

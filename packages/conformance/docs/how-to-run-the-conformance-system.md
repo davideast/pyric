@@ -425,11 +425,14 @@ Conformance gates job in `.github/workflows/build.yml`):
 - The base commit is the first parent: a PR's merge ref's first parent, or the
   previous commit on `main` (an octopus merge included). For a merge-queue
   group it is the queue's base, `merge_group.base_sha`.
-- Every run on `main` saves its own report to the Actions cache as
-  `coverage-report-<sha>`. Only `main` writes keys that PRs and merge groups can
-  read.
+- Every branch run (a push to `main`, the nightly run, or a manual
+  `workflow_dispatch` on a branch) saves its own report to the Actions cache as
+  `coverage-report-<sha>`. A cache entry is readable from its own branch and
+  from PRs that target that branch, so `main`'s reports serve PRs into `main`
+  and merge groups. PR and merge-group runs never save one. Runs on `main` are
+  never cancelled, so each merge is checked against its parent.
 - On a hit, the gate restores that report. On a miss (the base's run on `main`
-  has not finished, or it was cancelled), the script computes the base report
+  has not finished yet), the script computes the base report
   from a worktree of the base commit, with its own install and build, while the
   other gates run.
 
@@ -446,7 +449,14 @@ fix in #1234 lands.
 The gate honors only files the change adds (diffed against the base commit),
 and each one has to name a row that really regressed against the base report.
 Files from earlier merges stay as a record and can never authorize a later
-change. The other regressions have no acceptance file: fix them. A fixed row
+change.
+
+A row accepted once already has its `<row-id>.md`, so a later demotion of the
+same row adds `<row-id>.<pr-or-issue>.md`, for example `firestore#76.1520.md`.
+The gate reads the row id from the name before the number. Files go directly
+in `coverage-acceptances/`; a file in a subdirectory fails the gate.
+
+The other regressions have no acceptance file: fix them. A fixed row
 moving to `conforms` or a newly mirrored export needs nothing; the next base
 report includes it.
 
