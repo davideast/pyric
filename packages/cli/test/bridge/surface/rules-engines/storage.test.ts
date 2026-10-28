@@ -370,6 +370,94 @@ service firebase.storage {
 });
 
 /**
+ * Simulate and the `storage` methods bind the bucket under the served app's
+ * `storageBucket`, as the live planes do (ST-H2-4). A case's `data.bucket` is
+ * a `request.resource` field only.
+ */
+describe('simulate bucket name', () => {
+  const BUCKET = 'demo-app.appspot.com';
+  const LITERAL = `rules_version = '2';
+service firebase.storage {
+  match /b/${BUCKET}/o {
+    match /{file=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+  const BOUND = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{file} {
+      allow create: if bucket == '${BUCKET}' && request.resource.bucket == '${BUCKET}';
+      allow get: if resource.bucket == '${BUCKET}';
+    }
+  }
+}`;
+
+  function allowed(result: { ok: boolean; data?: unknown }): boolean {
+    expect(result.ok).toBe(true);
+    return (result.data as { allowed: boolean }).allowed;
+  }
+
+  it('binds the served app storageBucket in the match path', async () => {
+    const ctx = freshContext();
+    const unnamed = await STORAGE_RULES.simulate(ctx, { operation: 'get', path: 'a.txt', rules: LITERAL });
+    expect(allowed(unnamed)).toBe(false);
+    ctx.storageBucketName = () => BUCKET;
+    const named = await STORAGE_RULES.simulate(ctx, { operation: 'get', path: 'a.txt', rules: LITERAL });
+    expect(allowed(named)).toBe(true);
+  });
+
+  it('binds {bucket} and request.resource.bucket to the served app storageBucket', async () => {
+    const ctx = freshContext();
+    ctx.storageBucketName = () => BUCKET;
+    const result = await STORAGE_RULES.simulate(ctx, {
+      operation: 'create',
+      path: 'docs/a.txt',
+      rules: BOUND,
+      data: { size: 1 },
+    });
+    expect(allowed(result)).toBe(true);
+  });
+
+  it('reads data.bucket as a request.resource field, not the bucket the case runs on', async () => {
+    const result = await STORAGE_RULES.simulate(freshContext(), {
+      operation: 'create',
+      path: 'docs/a.txt',
+      rules: BOUND,
+      data: { bucket: BUCKET, size: 1 },
+    });
+    expect(allowed(result)).toBe(false);
+  });
+
+  it('runs the storage methods under the served app storageBucket, agreeing with simulate', async () => {
+    const ctx = freshContext();
+    ctx.storageBucketName = () => BUCKET;
+    ctx.identity.switchTo({ mode: 'uid', uid: 'alice' });
+    await STORAGE_RULES.install(ctx, LITERAL);
+    const upload = await METHODS_BY_KEY.get('storage.uploadBytes')!.handler(
+      { path: 'docs/a.txt', contentBase64: 'aGk=' },
+      ctx,
+    );
+    expect(upload.ok).toBe(true);
+    const read = await METHODS_BY_KEY.get('storage.getMetadata')!.handler({ path: 'docs/a.txt' }, ctx);
+    expect(read.ok).toBe(true);
+    const simulated = await STORAGE_RULES.simulate(ctx, { operation: 'get', path: 'docs/a.txt' });
+    expect(allowed(simulated)).toBe(true);
+  });
+
+  it('binds resource.bucket to the served app storageBucket', async () => {
+    const sandbox = initializeSandbox();
+    const ctx = createSurfaceContext(sandbox);
+    ctx.storageBucketName = () => BUCKET;
+    await STORAGE_RULES.install(ctx, OPEN_RULES);
+    await uploadBytes(ref(getStorageSandbox(sandbox), 'docs/a.txt'), new TextEncoder().encode('hi'));
+    const result = await STORAGE_RULES.simulate(ctx, { operation: 'get', path: 'docs/a.txt', rules: BOUND });
+    expect(allowed(result)).toBe(true);
+  });
+});
+
+/**
  * `request.resource` is built per verb, as the live planes build it
  * (ST-H2-5, ST-H2-6, ST-H3-2, ST-H3-3). Each expected verdict comes from the
  * same request made on the in-page plane in the same sandbox.
