@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@pyric/cli": "*",
+    "firebase": "12.12.0",
+    "vite": "7.3.2"
+  }
+}

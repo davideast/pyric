@@ -158,6 +158,26 @@ describe('prepareStorageRulesSource', () => {
     expect(message).toContain("expected '}' to close the match block opened at line 2. Fix the rules before serving.");
     expect(message).not.toContain('..');
   });
+
+  // The sandbox installs Storage rules with compileStorageRules, which refuses
+  // more than the parser does. A source in that gap must be refused here, so a
+  // reload the sandbox cannot install is reported as refused (#1331).
+  it('refuses an import under rules_version 2, naming the reason', () => {
+    const source = `rules_version = '2';
+import { isOwner } from './helpers';
+service firebase.storage { match /b/{bucket}/o { match /u/{f} { allow read: if true; } } }`;
+    expect(() => prepareStorageRulesSource(source, 'storage.rules')).toThrow(
+      "pyric sandbox: storage.rules does not compile: Import statements require rules_version = '2+modules'. Fix the rules before serving.",
+    );
+  });
+
+  it('refuses an invalid matches() pattern, naming the reason', () => {
+    const source = `rules_version = '2';
+service firebase.storage { match /b/{bucket}/o { match /u/{f} { allow read: if f.matches('('); } } }`;
+    expect(() => prepareStorageRulesSource(source, 'storage.rules')).toThrow(
+      'pyric sandbox: storage.rules does not compile: Invalid regular expression pattern. Pattern: (. Fix the rules before serving.',
+    );
+  });
 });
 
 describe('loadProjectRules', () => {
