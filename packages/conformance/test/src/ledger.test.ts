@@ -311,6 +311,29 @@ describe('oracle rig manifests', () => {
     });
     expect(problems.some((p) => p.includes('ambiguous longest-prefix match across rigs'))).toBe(true);
   });
+
+  test('gives a file to the rig with the longer prefix when one rig prefix nests under another', async () => {
+    const rigManifests = await loadRigManifests();
+    // 'admin-app-deleteapp' nests under the admin-app rig's 'admin-app-'.
+    // Longest-prefix match gives admin-app-deleteapp.json to the nested rig alone.
+    const nested: RigManifest = {
+      ...rigManifests.find((m) => m.id === 'admin-app')!,
+      id: 'admin-app-deleteapp-owner',
+      observationPrefixes: ['admin-app-deleteapp'],
+    };
+    const descriptorsWithNestedPrefix = [
+      ...surfaceDescriptors,
+      { ...surfaceDescriptors[0]!, observationPrefixes: ['admin-app-deleteapp'] },
+    ];
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: descriptorsWithNestedPrefix,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests: [...rigManifests, nested],
+    });
+    expect(problems.filter((p) => p.includes('across rigs'))).toEqual([]);
+  });
 });
 
 describe('rules corpus filename-twin integrity', () => {

@@ -9,12 +9,14 @@
   ],
   "privateRuntimeExports": [],
   "observationPrefixes": [
-    "ai-"
+    "ai-",
+    "ai-request-edge-"
   ],
   "coverage": true,
   "conformanceSuite": "packages/pyric/test/ai",
   "captureRigs": [
-    "ai-logic"
+    "ai-logic",
+    "ai-request-edge"
   ],
   "registry": "ai",
   "dispositions": [

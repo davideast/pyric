@@ -28,7 +28,7 @@ export interface ObservationContext {
   secrets: Secrets;
 }
 
-function assertNoSecret(serialized: string, secrets: Secrets, name: string): void {
+export function assertNoSecret(serialized: string, secrets: Secrets, name: string): void {
   const leaked = [secrets.appId, secrets.apiKey, ...secrets.values].filter((value) => value && serialized.includes(value));
   if (leaked.length > 0) throw new Error(`${name}: refusing to write an observation that contains a secret value`);
 }
