@@ -26,8 +26,10 @@ import {
   databaseRulesConfig,
   defaultFirestoreDatabase,
   firestoreRulesConfig,
+  storageRulesConfig,
   unservedFirestoreDatabaseWarnings,
   type DatabaseRulesConfig,
+  type StorageRulesConfig,
   type FirestoreRulesConfig,
 } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
@@ -342,36 +344,158 @@ export function formatStorageRulesRemoved(path: string): string {
   return `storage rules removed: ${path} does not exist, client Storage operations default to DENY`;
 }
 
+/** One Storage rules file deployed to one bucket, or to the app's default bucket. */
+export interface StorageRulesTarget {
+  /** The bucket by name, or null for the app's default bucket, whose name the page's app config gives. */
+  bucket: string | null;
+  /** Absolute path of the rules file. */
+  path: string;
+  /** The `firebase.json` entry, such as `firebase.json storage[0]`. */
+  label: string;
+  /** True when `firebase.json` names the file, so a missing file is an error. */
+  configured: boolean;
+}
+
+/** A Storage deploy target no `.firebaserc` mapping resolved at startup. Its buckets stay locked. */
+export interface PendingStorageRulesTarget {
+  target: string;
+  label: string;
+  /** Absolute path of the rules file. */
+  path: string;
+  /** Why the target did not resolve at startup. */
+  reason: string;
+}
+
+/** The buckets `firebase.json` deploys Storage rules to. */
+export interface StorageRulesTargets {
+  /** One entry per bucket, the default bucket's first when it has one. */
+  targets: StorageRulesTarget[];
+  /** Target entries no `.firebaserc` mapping resolved, in `firebase.json` order. */
+  pending: PendingStorageRulesTarget[];
+}
+
+/** One bucket's loaded rules. */
+export interface LoadedStorageBucketRules {
+  /** The bucket by name, or null for the app's default bucket. */
+  bucket: string | null;
+  rules: string;
+  rulesHash: string;
+  sourcePath: string;
+}
+
+export interface LoadedProjectStorageRules extends LoadedStorageRules, StorageRulesTargets {
+  /** The rules each bucket `firebase.json` names gets, by bucket name; the default bucket's are `rules`. */
+  buckets: Map<string, LoadedStorageBucketRules>;
+}
+
+/** How a Storage deploy names its bucket in a log line. */
+export function storageBucketLabel(bucket: string | null): string {
+  return bucket === null ? 'the default bucket' : `bucket ${bucket}`;
+}
+
 /**
- * Load the project's storage rules per `firebase.json` (`storage.rules`
- * path — the block may be a single object or an array of per-bucket
- * entries; v1 has one implicit bucket, so the FIRST entry with a `rules`
- * path wins, defaulting to `storage.rules` in cwd when the block is absent
- * but the file exists). Missing file with no explicit config → `{ rules:
- * null }` (serving without storage rules is fine — same posture as
- * `loadProjectRules`). Missing file that IS explicitly configured → throw
- * (the project says it should exist).
+ * The rules files `firebase.json` deploys to Storage and the bucket each
+ * deploys to, resolved as `firebase deploy` resolves them by the shared
+ * `storageRulesConfig`, with deploy targets mapped for the project
+ * {@link resolveFirebaseProject} resolved.
+ */
+export function storageRulesTargets(
+  cwd: string,
+  config: FirebaseJson | null,
+  project: DatabaseRulesProject = {},
+): StorageRulesTargets {
+  let rc: FirebaseRc | null | undefined;
+  const readRc = (): FirebaseRc | null => {
+    rc ??= (project.readRc ?? (() => readFirebaseRcSync(cwd)))();
+    return rc;
+  };
+  const projectId = project.projectId;
+  let resolved: StorageRulesConfig;
+  try {
+    resolved = storageRulesConfig(config?.storage, {
+      targetBuckets: (target) => projectId === undefined ? [] : readRc()?.targets?.[projectId]?.storage?.[target] ?? [],
+      resolveFile: (file) => databaseRulesFilePath(cwd, file),
+    });
+  } catch (error) {
+    throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const named: StorageRulesTarget[] = resolved.buckets.map((target) => ({
+    bucket: target.bucket,
+    path: target.file,
+    label: target.label,
+    configured: target.configured,
+  }));
+  const defaultRules = resolved.defaultRules;
+  const unnamed: StorageRulesTarget[] = defaultRules === null
+    ? []
+    : [{ bucket: null, path: defaultRules.file, label: defaultRules.label, configured: defaultRules.configured }];
+  return {
+    targets: [...unnamed, ...named],
+    pending: resolved.unresolved.map((target) => ({
+      target: target.target,
+      label: target.label,
+      path: target.file,
+      reason: projectId === undefined
+        ? 'no Firebase project is set'
+        : `project ${describeFirebaseProject(project)} has no .firebaserc mapping for it (firebase target:apply storage ${target.target} <bucket>)`,
+    })),
+  };
+}
+
+/** The startup warning for Storage deploy targets no project resolved: each target, why, and how to fix it. */
+export function formatUnresolvedStorageTargets(pending: readonly PendingStorageRulesTarget[]): string {
+  const lines = pending.map((target) =>
+    `  ⚠ Storage deploy target "${target.target}" (${target.label}) is unresolved: ${target.reason}. Its buckets deny every client operation.`);
+  lines.push(`    To set the project: ${FIREBASE_PROJECT_FIXES}.`);
+  return lines.join('\n');
+}
+
+/**
+ * Load one Storage rules file through the check every rules load path runs.
+ * Returns null for a missing file `firebase.json` does not name. Throws,
+ * naming the file, for a missing file it names.
+ */
+export async function loadStorageRulesTarget(target: StorageRulesTarget): Promise<LoadedStorageBucketRules | null> {
+  let raw: string;
+  try {
+    raw = await readFile(target.path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    if (!target.configured) return null;
+    throw new Error(`pyric sandbox: ${target.label} points the rules of ${storageBucketLabel(target.bucket)} at ${target.path}, but it does not exist.`);
+  }
+  const rules = prepareStorageRulesSource(raw, target.path);
+  return { bucket: target.bucket, rules, rulesHash: rulesHashOf(rules), sourcePath: target.path };
+}
+
+/**
+ * Load the project's Storage rules per bucket, as `firebase deploy` would
+ * release them. The default bucket's rules, from the single `storage` object
+ * or `storage.rules` with no `storage` key, are `rules`; each bucket an array
+ * entry names has its own in `buckets`. A bucket nothing deploys to is
+ * locked once the rules are installed.
  */
 export async function loadProjectStorageRules(
   cwd: string,
   config: FirebaseJson | null,
-): Promise<LoadedStorageRules> {
-  const configured = configuredStorageRules(config);
-  const path = storageRulesPath(cwd, config);
-  let raw: string;
-  try {
-    raw = await readFile(path, 'utf8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      if (configured) {
-        throw new Error(`pyric sandbox: firebase.json points storage.rules at ${path}, but it does not exist.`);
-      }
-      return { rules: null, rulesHash: null, sourcePath: null };
-    }
-    throw e;
+  project: DatabaseRulesProject = {},
+): Promise<LoadedProjectStorageRules> {
+  const targets = storageRulesTargets(cwd, config, project);
+  const buckets = new Map<string, LoadedStorageBucketRules>();
+  let defaultRules: LoadedStorageBucketRules | null = null;
+  for (const target of targets.targets) {
+    const loaded = await loadStorageRulesTarget(target);
+    if (loaded === null) continue;
+    if (target.bucket === null) defaultRules = loaded;
+    else buckets.set(target.bucket, loaded);
   }
-  const rules = prepareStorageRulesSource(raw, path);
-  return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
+  return {
+    ...targets,
+    buckets,
+    rules: defaultRules?.rules ?? null,
+    rulesHash: defaultRules?.rulesHash ?? null,
+    sourcePath: defaultRules?.sourcePath ?? null,
+  };
 }
 
 /**
