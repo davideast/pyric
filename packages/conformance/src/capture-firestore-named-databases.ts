@@ -17,12 +17,14 @@
  * Output: packages/conformance/observations/firestore/firestore-named-database-rules-api.json
  *         packages/conformance/observations/firestore/firestore-named-database-absent.json
  *
- * Credentials: PYRIC_ORACLE_SA_PATH (a service account for the oracle
- * project) and, for `absent-database`, PYRIC_AI_FIREBASE_CONFIG (the web app
+ * Credentials: `rules-api` uses the Rules Test API credential `run-rules.ts`
+ * uses (packages/pyric/test/rules/parity/credential.ts; PARITY_PROJECT_ID names
+ * the project). `absent-database` uses PYRIC_ORACLE_SA_PATH (a service account
+ * for the oracle project) and PYRIC_AI_FIREBASE_CONFIG (the web app
  * config JSON, or PYRIC_AI_FIREBASE_CONFIG_PATH naming a file that holds it).
  *
  * Usage:
- *   PYRIC_ORACLE_SA_PATH=<sa.json> bun run packages/conformance/src/capture-firestore-named-databases.ts rules-api
+ *   PARITY_PROJECT_ID=<project> bun run packages/conformance/src/capture-firestore-named-databases.ts rules-api
  *   PYRIC_ORACLE_SA_PATH=<sa.json> PYRIC_AI_FIREBASE_CONFIG="$(cat web.json)" \
  *     bun run packages/conformance/src/capture-firestore-named-databases.ts absent-database
  */
@@ -98,8 +100,14 @@ interface RulesApiResult {
   cases: Record<string, { decision: 'ALLOW' | 'DENY'; state: string; debugMessages: string[] }>;
 }
 
-async function testRuleset(sa: ServiceAccount, probe: RulesProbe): Promise<RulesApiResult> {
-  const headers = await accessHeaders(sa);
+/** The Rules Test API caller: the project and a bearer token for it. */
+interface RulesScope {
+  projectId: string;
+  resolveToken(): Promise<string>;
+}
+
+async function testRuleset(scope: RulesScope, probe: RulesProbe): Promise<RulesApiResult> {
+  const headers = { Authorization: `Bearer ${await scope.resolveToken()}`, 'Content-Type': 'application/json' };
   const testCases = RULES_CASES.map((c) => ({
     expectation: 'ALLOW',
     request: { auth: { uid: 'a', token: {} }, method: 'get', path: c.path },
@@ -110,7 +118,7 @@ async function testRuleset(sa: ServiceAccount, probe: RulesProbe): Promise<Rules
     testSuite: { testCases },
   });
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(`${RULES_API}/projects/${sa.project_id}:test`, { method: 'POST', headers: headers.json, body });
+    const res = await fetch(`${RULES_API}/projects/${scope.projectId}:test`, { method: 'POST', headers, body });
     const transient = res.status === 500 || res.status === 503;
     if (transient && attempt < 4) {
       await new Promise((r) => setTimeout(r, 2000 * attempt));
@@ -133,11 +141,11 @@ async function testRuleset(sa: ServiceAccount, probe: RulesProbe): Promise<Rules
   }
 }
 
-async function captureRulesApi(sa: ServiceAccount): Promise<void> {
+async function captureRulesApi(scope: RulesScope): Promise<void> {
   const behavior: Record<string, string> = {};
   const diagnostics: Record<string, unknown> = {};
   for (const [name, probe] of Object.entries(RULES_PROBES)) {
-    const result = await testRuleset(sa, probe);
+    const result = await testRuleset(scope, probe);
     for (const [description, outcome] of Object.entries(result.cases)) {
       behavior[`${name}:${description}`] = outcome.decision;
     }
@@ -151,7 +159,7 @@ async function captureRulesApi(sa: ServiceAccount): Promise<void> {
     description: 'Rules Test API (projects.test) evaluating Firestore rulesets against request paths in the named database `probes` and in `(default)`: what `database` and `request.path` bind to, whether a literal database segment matches, and whether a mocked get() of either database evaluates. The Test API deploys nothing.',
     observedAt: new Date().toISOString(),
     fbSdkVersion: FB_SDK_VERSION,
-    projectId: sa.project_id,
+    projectId: scope.projectId,
     method: 'One projects.test call per probe in RULES_PROBES, packages/conformance/src/capture-firestore-named-databases.ts; each runs a get of p/d1 as uid a under /databases/probes/documents and /databases/(default)/documents, expecting ALLOW (SUCCESS means granted).',
     behavior,
     diagnostics,
@@ -252,10 +260,15 @@ async function captureAbsentDatabase(sa: ServiceAccount, web: WebConfig): Promis
 
 async function main(): Promise<void> {
   const mode = process.argv[2];
+  if (mode === 'rules-api') {
+    // The Rules Test API credential run-rules.ts uses: GOOGLE_APPLICATION_CREDENTIALS,
+    // then a firebase-tools login, then gcloud ADC (test/rules/parity/credential.ts).
+    const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
+    return captureRulesApi(parityScope() as RulesScope);
+  }
   const saPath = process.env.PYRIC_ORACLE_SA_PATH;
   if (!saPath) throw new Error('PYRIC_ORACLE_SA_PATH is required');
   const sa = resolveServiceAccount(saPath);
-  if (mode === 'rules-api') return captureRulesApi(sa);
   if (mode === 'absent-database') {
     const configPath = process.env.PYRIC_AI_FIREBASE_CONFIG_PATH;
     const config = configPath ? readFileSync(configPath, 'utf8') : process.env.PYRIC_AI_FIREBASE_CONFIG;

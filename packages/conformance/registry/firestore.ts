@@ -348,6 +348,7 @@ export const firestoreRegistry = {
           statusNote: "`database` is always (default)",
           evidence: "`packages/pyric/test/firestore/named-database.test.ts` writes through a handle created for `reports`: a rule requiring `database == '(default)'` allows the write and a rule requiring `database == 'reports'` denies it.",
           conformanceTests: ["packages/pyric/test/firestore/named-database.test.ts"],
+          oracleObservations: ["firestore-named-database-rules-api"],
         }),
       ],
     },

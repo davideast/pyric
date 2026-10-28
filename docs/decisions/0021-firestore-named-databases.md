@@ -89,10 +89,18 @@ A fourth fact comes from capture C3, run for this record on 2026-10-28
    client is offline.` An id outside the naming rules (`Bad_Id`) and the keyword
    `default` get the same answer as a valid id that doesn't exist.
 
-Two captures could not run for this record. C1, the Rules Test API, was
-refused: the oracle service account lacks `firebaserules.rulesets.test`. C2,
-which deploys rules to `probes`, waits for David's approval. Where production's
-behavior still rests on them, this record says so.
+A fifth comes from capture C1, also run on 2026-10-28 (observation
+`firestore-named-database-rules-api`):
+
+5. **Rules bind `database` to the database the request addresses.** For a
+   request under `/databases/probes/documents/`, the Rules Test API binds the
+   `{database}` wildcard to `probes`, puts `probes` in `request.path[1]`, and
+   matches a literal `match /databases/probes/documents` block but not a
+   literal `(default)` one. A request under `(default)` gets the reverse.
+
+C2, which deploys rules to `probes`, has not run. It is the only capture that
+can show whether a deployed rule in one database reads another database's
+documents, so that question stays open (decision 3).
 
 ## Decisions
 
@@ -240,10 +248,15 @@ evaluating database's id:
   database but `(default)`. This one stays, on the evidence of
   `storage-rules#131` (Context, finding 3).
 
+C1 confirms the binding: the Rules Test API binds `database`, `request.path`
+and literal database matches to the addressed database.
+
 **`get()`, `exists()`, `getAfter()` and `existsAfter()` across databases.**
 Firebase's docs do not say whether a rule in one database may read a document
-in another. This record does not know production's answer. Until a capture
-settles it, a lookup whose path names a different database is an evaluation
+in another. C1 shows the language accepts such a path: a `get()` of the other
+database's path, answered by a function mock, evaluated in both directions. A
+mock answers whatever path it names, so this says nothing about a real read.
+This record does not know production's answer. Until C2 settles it, a lookup whose path names a different database is an evaluation
 error, so it denies. That keeps pyric from allowing what production might deny;
 if production allows the read, pyric denies a request production allows, and
 MD6 (decision 9) documents that until it's fixed.
@@ -525,7 +538,7 @@ The Cloud Functions priority picks them up, and the activity event's
 | MD1 | `packages/pyric/test/firestore/named-database.test.ts` rewritten to assert that two ids hold different documents and that the decision 1 errors match; production reference: the Manage databases page |
 | MD2 | the served-entry test asserting a named handle reaches its own database over a worker host, and the app scenario below |
 | MD3 | `packages/pyric-admin/test/firestore/named-database.test.ts` asserting isolation on both arms, and a new app scenario `admin-writes-named-firestore-database`, modeled on `admin-writes-named-rtdb-instance` |
-| MD4 | capture C1 or C2 observing what `database` binds to. Without one it stays `diverged-documented` with an updated note |
+| MD4 | C1's observation `firestore-named-database-rules-api`, linked from MD4, plus the rewritten `named-database.test.ts` replaying its cases |
 
 **New rows**, each added in the issue that builds it, with `firestore.json`'s
 count raised by the same number in the same change (AGENTS.md item 6;
@@ -600,25 +613,39 @@ production-capture lock.
   production state. If the API refuses the path or always binds `(default)`, C2
   settles MD4 instead.
 
-  Not run. The `run-rules.ts` corpus cannot express it, because
+  Run 2026-10-28, observation
+  `packages/conformance/observations/firestore/firestore-named-database-rules-api.json`,
+  linked from MD4. The `run-rules.ts` corpus cannot express it, because
   `normalizeDocPath` in `packages/pyric/src/rules/test/spec.ts` always prefixes
-  `/databases/(default)/documents/`, so the capture script's `rules-api` mode
-  posts its own test cases (`RULES_PROBES`: `database` against each id,
-  `request.path[1]`, a literal `match /databases/probes/documents`, and a mocked
-  `get()` of each database). On 2026-10-28 the API answered `403`: the
-  `digame-mas` service account lacks `firebaserules.rulesets.test`. It runs
-  unchanged once a credential that holds that permission is named.
+  `/databases/(default)/documents/`, so the script's `rules-api` mode posts its
+  own test cases with the credential `run-rules.ts` uses. Each probe is a `get`
+  of `p/d1` as uid `a`, expecting ALLOW. A first attempt with the oracle
+  service account was refused with 403, because that account lacks
+  `firebaserules.rulesets.test`.
+
+  | Probe | Under `probes` | Under `(default)` |
+  | --- | --- | --- |
+  | `allow read: if database == 'probes'` | ALLOW | DENY |
+  | `allow read: if database == '(default)'` | DENY | ALLOW |
+  | `allow read: if request.path[1] == 'probes'` | ALLOW | DENY |
+  | `request.path == /databases/$(database)/documents/p/$(d)` | ALLOW | ALLOW |
+  | `match /databases/probes/documents` (literal), `allow read: if true` | ALLOW | DENY |
+  | `match /databases/(default)/documents` (literal), `allow read: if true` | DENY | ALLOW |
+  | mocked `get(/databases/(default)/documents/c/x).data.v == 1` | ALLOW | ALLOW |
+  | mocked `get(/databases/probes/documents/c/x).data.v == 1` | ALLOW | ALLOW |
+
+  It settles MD4. It does not settle MD6, because a mock is not a read.
 - **C2: real SDK against `probes`.** A deploy-observe-restore capture, like
   `storage-stdlib-real.ts`, that deploys a ruleset to the `probes` database's
   release and to `(default)`'s, then observes: what `database` binds to; whether
   `get()` and `exists()` in each database can read the other; and that the same
-  path holds different documents. It settles MD4 and MD6 and gives MD1 an
-  oracle observation. Deploying rules to `probes` changes production state, so
+  path holds different documents. It settles MD6, adds deployed-rules evidence to MD4's, and gives MD1 an
+  isolation observation. Deploying rules to `probes` changes production state, so
   it waits for David's yes (Decision 2 for David). It must snapshot the
   `cloud.firestore/probes` release before it deploys, restore it, and read it
   back to confirm, and it touches no other database.
 
-  Not run yet: it waits for that yes.
+  Not run yet. It waits for David's yes, given to him directly.
 - **C3: a database that does not exist.** Run 2026-10-28, observation
   `packages/conformance/observations/firestore/firestore-named-database-absent.json`,
   linked from MD1. It reads one missing document from `pyric-absent-<run>`,
@@ -649,8 +676,6 @@ production-capture lock.
 - An older build refuses a version 7 host store and drops named databases from
   a newer bundle. Downgrades keep `(default)`.
 - Until C2 runs, a rule reading another database denies, and MD6 says so.
-  Until C1 or C2 runs, MD4 stays `diverged-documented` once #1316 lands, with a
-  note that pyric binds the handle's id on the docs' word alone.
 - A database nothing declares behaves as missing, so a project that created a
   database in the console must name it in `firebase.json` to use it in pyric.
 - `instances.ts`'s generic registry moves to a service-neutral module, a
@@ -665,11 +690,7 @@ production-capture lock.
    Decision 4 says where it goes and who refuses.
 2. **A capture against a named database.** The oracle project already has the
    `probes` named database, so nothing needs creating. Recommended: approve C2,
-   which deploys and then restores rules on `probes`. MD6 needs it whatever C1
-   shows, and while C1 is blocked it is also the only way to settle MD4.
-3. **A credential for C1.** The `digame-mas` service account lacks
-   `firebaserules.rulesets.test`. Recommended: grant that one permission to it,
-   or name the credential the parity harness uses, and C1 runs as written.
-   Granting it changes IAM in production, so it is yours to do.
-4. **The order.** Recommended: decision 10's order, which is the one proposed
+   which deploys and then restores rules on `probes`. It is the only way to
+   settle MD6 (rules reading across databases); C1 settled MD4.
+3. **The order.** Recommended: decision 10's order, which is the one proposed
    in #1314, with #1318 free to run beside #1319 and #1320.
