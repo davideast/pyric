@@ -163,9 +163,12 @@ function buildTestCase(
     requestTime: new Date(event.at).toISOString(),
   };
 
-  if (event.resourceBefore?.exists && event.resourceBefore.data !== null) {
-    testCase.resource = event.resourceBefore.data;
-  }
+  // A create's rules see no existing resource, as the simulator and the
+  // bridge bind it, even when the recorded create hit an existing document.
+  // The Rules Test API would bind one, so a case carrying it is refused.
+  const existing = event.resourceBefore?.exists ? event.resourceBefore.data : null;
+  const bindsExisting = existing !== null && method !== 'create';
+  if (bindsExisting) testCase.resource = existing;
 
   if (isWriteMethod(method)) {
     if (method !== 'delete') {
