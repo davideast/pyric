@@ -18,9 +18,11 @@
 #      rules-storage: each reaches a real Firebase project and needs a
 #      provisioned credential. oracle-run and messaging-send gate on their
 #      secrets; the two rules legs authenticate through Workload Identity
-#      Federation and gate on the GCP_WIF_PROVIDER repository variable. Each
-#      leg skips cleanly (a warning, a green run) when its guard is absent, so
-#      an unconfigured repo never sees a red run.
+#      Federation and gate on the GCP_WIF_PROVIDER repository variable.
+#      A leg whose `disabled` field names a blocking issue skips with that
+#      reason. Any other leg whose guard is absent fails on a scheduled run,
+#      so the weekly check never goes green with nothing checked against
+#      production. On a manual dispatch it skips with a warning instead.
 #
 # Deliberately excluded:
 #   - rtdb-rules      — the one rig that MUTATES a live project (deploys a
@@ -34,9 +36,10 @@
 #                       be added as another credentialed matrix leg (guard
 #                       PYRIC_AI_FIREBASE_CONFIG) when that trade is accepted.
 #
-# SAFETY: this lane never commits, pushes, or otherwise persists a changed
-# observation. On drift it fails loudly with the diff in the job summary; a
-# human reviews the affected rows and re-captures deliberately on a branch.
+# SAFETY: this lane never commits or pushes a changed observation. On drift it
+# fails loudly with the diff in the job summary and uploads the rewritten
+# observation files as a workflow artifact, kept 14 days; a human reviews the
+# affected rows and commits them deliberately on a branch.
 
 name: Oracle re-capture
 
@@ -88,7 +91,28 @@ jobs:
         # In-process probes of the installed firebase/app client registry.
         run: bun run packages/conformance/src/app-registry-probes.ts --write
       - name: Detect observation drift
+        id: drift
         run: bun scripts/ci/oracle-drift-report.ts "unattended rigs (admin-app, app-registry)"
+      # The diff above names the drifted files; these steps keep the
+      # rewritten files themselves, so a person can review and commit them.
+      # Timestamp-only rewrites come along too and are harmless to commit.
+      - name: Collect rewritten observations
+        if: failure() && steps.drift.outcome == 'failure'
+        run: |
+          dest="$RUNNER_TEMP/observation-drift"
+          mkdir -p "$dest"
+          git ls-files --modified --others --exclude-standard -z -- packages/conformance/observations |
+            while IFS= read -r -d '' path; do
+              if [ -f "$path" ]; then cp --parents "$path" "$dest"; fi
+            done
+      - name: Upload rewritten observations
+        if: failure() && steps.drift.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: observation-drift-unattended
+          path: ${{ runner.temp }}/observation-drift
+          retention-days: 14
+          if-no-files-found: warn
 
   credentialed:
     name: Credentialed rig (${{ matrix.rig }})
@@ -99,12 +123,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `disabled` names the issue that blocks a leg. A disabled leg
+          # never runs, even when its guard is set: the RTDB leg (#1323) adds
+          # PYRIC_ORACLE_FIREBASE_CONFIG, which must not start oracle-run.
           - rig: oracle-run
             script: packages/conformance/src/run.ts
             guard: PYRIC_ORACLE_FIREBASE_CONFIG
+            disabled: '#1270 and #1271 (credentials without a key file)'
           - rig: messaging-send
             script: packages/conformance/src/messaging-send-probes.ts
             guard: PYRIC_MESSAGING_SA_BASE64
+            disabled: '#1387 (credentials without a key file)'
           # The Rules Test API legs authenticate through Workload Identity
           # Federation, so their guard is the GCP_WIF_PROVIDER variable.
           - rig: rules-firestore
@@ -127,21 +156,31 @@ jobs:
           bun-version: '1.3.11'
       - name: Check credential availability
         id: secret-check
-        # Skip cleanly when this rig's guard (a secret, or GCP_WIF_PROVIDER for
-        # the wif legs) is absent. The guard var name is per-rig; ${!GUARD}
-        # reads whichever one this leg needs. A wif leg with a provider but no
-        # service account is a broken configuration and fails.
+        # A disabled leg skips with its blocking issue. Otherwise, when this
+        # rig's guard (a secret, or GCP_WIF_PROVIDER for the wif legs) is
+        # absent, a scheduled run fails and a dispatched run skips with a
+        # warning. The guard var name is per-rig; ${!GUARD} reads whichever
+        # one this leg needs. A wif leg with a provider but no service account
+        # is a broken configuration and fails.
         env:
           GUARD: ${{ matrix.guard }}
+          DISABLED: ${{ matrix.disabled }}
+          EVENT: ${{ github.event_name }}
           WIF: ${{ matrix.wif && 'true' || 'false' }}
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
           PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
           GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
           PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
         run: |
-          if [ -z "${!GUARD}" ]; then
+          if [ -n "$DISABLED" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::$GUARD not configured. ${{ matrix.rig }} re-capture skipped. Configure it to enable production drift detection for this rig."
+            echo "::notice::${{ matrix.rig }} is disabled until $DISABLED. Re-capture skipped."
+          elif [ -z "${!GUARD}" ] && [ "$EVENT" = "schedule" ]; then
+            echo "::error::$GUARD not configured, so ${{ matrix.rig }} checked nothing against production. Configure it, or mark the leg disabled with its blocking issue."
+            exit 1
+          elif [ -z "${!GUARD}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$GUARD not configured. ${{ matrix.rig }} re-capture skipped. A scheduled run fails here."
           elif [ "$WIF" = "true" ] && [ -z "$PARITY_SA_EMAIL" ]; then
             echo "::error::GCP_WIF_PROVIDER is set but PARITY_SA_EMAIL is not. Set both repository variables."
             exit 1
@@ -182,5 +221,26 @@ jobs:
           PARITY_REQUIRE_CREDENTIAL: ${{ matrix.wif && '1' || '' }}
         run: bun run ${{ matrix.script }}
       - name: Detect observation drift
+        id: drift
         if: steps.secret-check.outputs.available == 'true'
         run: bun scripts/ci/oracle-drift-report.ts "${{ matrix.rig }}"
+      # The diff above names the drifted files; these steps keep the
+      # rewritten files themselves, so a person can review and commit them.
+      # Timestamp-only rewrites come along too and are harmless to commit.
+      - name: Collect rewritten observations
+        if: failure() && steps.drift.outcome == 'failure'
+        run: |
+          dest="$RUNNER_TEMP/observation-drift"
+          mkdir -p "$dest"
+          git ls-files --modified --others --exclude-standard -z -- packages/conformance/observations |
+            while IFS= read -r -d '' path; do
+              if [ -f "$path" ]; then cp --parents "$path" "$dest"; fi
+            done
+      - name: Upload rewritten observations
+        if: failure() && steps.drift.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: observation-drift-${{ matrix.rig }}
+          path: ${{ runner.temp }}/observation-drift
+          retention-days: 14
+          if-no-files-found: warn
