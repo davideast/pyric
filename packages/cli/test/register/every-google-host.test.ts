@@ -91,6 +91,19 @@ describe('evaluateEgress after the tripwire', () => {
     expect(evaluateEgress('oauth2.googleapis.com', allow)).toMatchObject({ verdict: 'block' });
   });
 
+  it('lets Google Fonts through by exact name, while oauth2 and the metadata server stay refused', () => {
+    for (const host of ['fonts.googleapis.com', 'fonts.gstatic.com', 'FONTS.googleapis.com.']) {
+      expect(evaluateEgress(host, tripped), host).toBeNull();
+    }
+    // Exact names only: no subdomain, lookalike or sibling rides the exemption.
+    for (const host of ['x.fonts.googleapis.com', 'fonts.googleapis.com.evil.googleapis.com', 'oauth2.googleapis.com']) {
+      expect(evaluateEgress(host, tripped), host).toMatchObject({ verdict: 'block', permitted: false });
+    }
+    for (const name of METADATA_NAMES) {
+      expect(evaluateEgress(name, tripped), name).toMatchObject({ verdict: 'block', alwaysBlock: true });
+    }
+  });
+
   it('leaves other hosts alone', () => {
     expect(evaluateEgress('example.com', tripped)).toBeNull();
     expect(evaluateEgress('127.0.0.1', tripped)).toBeNull();
@@ -157,6 +170,7 @@ describe('NetGuard.escalate', () => {
         '*.cloudfunctions.net and *.run.app',
     );
     expect(escalation).toContain('the GCE metadata server (169.254.169.254, metadata.google.internal, metadata, fd20:ce::254)');
+    expect(escalation).toContain('except Google Fonts (fonts.googleapis.com and fonts.gstatic.com)');
     expect(escalation).toContain('PYRIC_GUARD_ALLOW permits a host on purpose, but never the metadata server');
     expect(escalation).not.toContain('Google/Firebase endpoints');
   });

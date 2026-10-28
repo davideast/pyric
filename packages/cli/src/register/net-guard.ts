@@ -124,6 +124,7 @@ import {
 } from '../google-endpoints.js';
 import {
   describeCatalogHosts,
+  describeGoogleFontsHosts,
   describeGoogleHostSuffixes,
   describeMetadataServerHosts,
   lookupGoogleHost,
@@ -713,7 +714,8 @@ function escalationLine(reason: string, scope: GuardScope): string {
   if (scope === 'google') {
     refused =
       `every connection to ${describeGoogleHostSuffixes()}, ` +
-      `and to the GCE metadata server (${describeMetadataServerHosts()})`;
+      `and to the GCE metadata server (${describeMetadataServerHosts()}), ` +
+      `except Google Fonts (${describeGoogleFontsHosts()})`;
   } else {
     refused = `every connection to the hosts in its endpoint catalog (${describeCatalogHosts()})`;
   }

@@ -9,7 +9,8 @@
  * Tasks, and whatever Google adds next. Once the tripwire has seen one, the
  * guard refuses every host below instead of keeping a list that lags Google's
  * APIs. `PYRIC_GUARD_ALLOW` is then the only way through, and never for the
- * metadata server.
+ * metadata server. Google Fonts is the one exemption, by exact name, so a
+ * dev server's `next/font/google` keeps working.
  */
 import {
   GOOGLE_ENDPOINT_CATALOG,
@@ -40,6 +41,18 @@ export const METADATA_SERVER_HOSTS: readonly GoogleEndpoint[] = [
   'fd20:ce::254',
 ].map((host) => ({ host, service: 'GCE metadata server', alwaysBlock: true, fingerprint: false }));
 
+/**
+ * Google Fonts, which a dev server fetches for `next/font/google` and which
+ * carries no credentials. Matched by exact name only, never as a suffix, so
+ * no other `googleapis.com` host rides on it.
+ */
+export const GOOGLE_FONTS_HOSTS: readonly string[] = ['fonts.googleapis.com', 'fonts.gstatic.com'];
+
+/** The fonts hosts as the guard's lines write them. */
+export function describeGoogleFontsHosts(): string {
+  return GOOGLE_FONTS_HOSTS.join(' and ');
+}
+
 /** The suffixes as the guard's lines write them: `*.googleapis.com, ... and *.run.app`. */
 export function describeGoogleHostSuffixes(): string {
   const patterns = GOOGLE_HOST_SUFFIXES.map((entry) => `*.${entry.host}`);
@@ -58,15 +71,17 @@ export function describeCatalogHosts(): string {
 }
 
 /**
- * The entry for any Google host, or `undefined` for every other host. A
- * catalog host keeps its catalog entry, so its service name and `alwaysBlock`
- * carry over. The metadata server's names match exactly; the suffixes match
- * on label boundaries.
+ * The entry for any Google host, or `undefined` for every other host and for
+ * the Google Fonts hosts. A catalog host keeps its catalog entry, so its
+ * service name and `alwaysBlock` carry over. The metadata server's names and
+ * the fonts hosts match exactly; the suffixes match on label boundaries.
  */
 export function lookupGoogleHost(hostname: string): GoogleEndpoint | undefined {
   const catalogEntry = lookupGoogleEndpoint(hostname);
   if (catalogEntry !== undefined) return catalogEntry;
   const host = normalizeHostname(hostname);
+  const isGoogleFonts = GOOGLE_FONTS_HOSTS.includes(host);
+  if (isGoogleFonts) return undefined;
   const metadataEntry = METADATA_SERVER_HOSTS.find((entry) => entry.host === host);
   if (metadataEntry !== undefined) return metadataEntry;
   return GOOGLE_HOST_SUFFIXES.find((entry) => matchesHostSuffix(host, entry.host));

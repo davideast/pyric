@@ -228,6 +228,21 @@ describe('@pyric/cli/register real firebase-admin tripwire (child process)', () 
     expect(res.stderr).toContain('refuses every connection to *.googleapis.com');
   }, 30_000);
 
+  it('lets Google Fonts through after the tripwire, by exact name', async () => {
+    const res = await runProbe({
+      LOAD_REAL_ADMIN: '1',
+      EXTRA_HOSTS: 'fonts.googleapis.com,fonts.gstatic.com,oauth2.googleapis.com',
+    });
+    // The fonts hosts reach the trap's sink on this machine and nowhere else.
+    expect(res.outcome.apis).toEqual({
+      'fonts.googleapis.com': 'ECONNRESET',
+      'fonts.gstatic.com': 'ECONNRESET',
+      'oauth2.googleapis.com': 'PYRIC_GUARD_BLOCKED',
+    });
+    expect(res.outcome.metadata).toBe('PYRIC_GUARD_BLOCKED');
+    expect(res.outcome.escaped).toEqual(['fonts.googleapis.com', 'fonts.gstatic.com']);
+  }, 30_000);
+
   it('lets PYRIC_GUARD_ALLOW through after the tripwire', async () => {
     const res = await runProbe({
       LOAD_REAL_ADMIN: '1',
