@@ -42,6 +42,6 @@ describe('rules-language production coverage', () => {
       unknownMethod('method:foo'),
     ]);
     expect(storage?.verifiedScenarioCount).toBe(45);
-    expect(storage?.verifiedConstructs).toBe(110);
+    expect(storage?.verifiedConstructs).toBe(112);
   }, FULL_GRAPH_TIMEOUT_MS);
 });
