@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow write: if request.auth != null
+        && request.auth.token.sub == uid
+        && request.auth.token.iss is string
+        && request.auth.token.aud is string
+        && request.auth.token.auth_time is int
+        && request.auth.token.exp > request.auth.token.iat;
+    }
+  }
+}

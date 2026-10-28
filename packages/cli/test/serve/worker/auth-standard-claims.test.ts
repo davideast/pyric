@@ -10,6 +10,7 @@ import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
+import { getClock } from 'pyric/sandbox/internal';
 import { cleanupPort, handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
 import { portSession } from '../../../src/serve/worker/host-auth.js';
 import type { OpMessage, OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
@@ -81,7 +82,7 @@ describe('worker-mode standard token claims in every rules engine', () => {
     });
   }
 
-  it('reauthentication keeps the standard claims on the port token, without the JWT registered claims', async () => {
+  it('reauthentication keeps the standard claims and the JWT registered claims on the port token', async () => {
     const { sandbox, context, port, send } = portHost('reauth');
     try {
       authSandbox.createUser(getAuth(sandbox), { email: 'ada@example.com', password: 'secret-pw', emailVerified: true });
@@ -92,9 +93,63 @@ describe('worker-mode standard token claims in every rules engine', () => {
       const token = portSession(context, port)?.state.token ?? {};
       expect(token.email_verified).toBe(true);
       expect(token.firebase).toEqual({ identities: { email: ['ada@example.com'] }, sign_in_provider: 'password' });
-      for (const key of ['sub', 'aud', 'iss', 'iat', 'exp', 'auth_time']) expect(key in token).toBe(false);
+      // Rules read the minted token's JWT registered claims (#1341). Firebase's
+      // docs: "`sub`: The user's Firebase UID" (firebase.google.com/docs/rules/rules-and-auth);
+      // RTDB capture r42 allows sub, iat, exp, iss, aud and auth_time in deployed
+      // rules. A custom claim cannot override any of them (`auth/reserved-claim`).
+      expect(token.sub).toBe(uid);
+      for (const key of ['aud', 'iss']) expect(typeof token[key]).toBe('string');
+      for (const key of ['iat', 'exp', 'auth_time']) expect(Number.isInteger(token[key])).toBe(true);
       expect(await send({ method: 'setDatabaseRules', source: VERIFIED_DATABASE_RULES })).toMatchObject({ ok: true });
       expect(await send({ method: 'rtdb.set', path: '/verified/v', value: 1 })).toMatchObject({ ok: true });
+    } finally { await cleanupPort(context, port); }
+  });
+});
+
+const JWT_CLAIMS_DATABASE_RULES = {
+  rules: {
+    claims: { '.write': 'auth != null && auth.token.sub == auth.uid && auth.token.iss != null && auth.token.aud != null' },
+    recent: { '.write': 'auth != null && auth.token.auth_time * 1000 > now - 300000' },
+  },
+};
+
+const JWT_CLAIMS_FIRESTORE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /claims/{id} {
+      allow write: if request.auth.token.sub == request.auth.uid
+        && request.auth.token.iss is string
+        && request.auth.token.auth_time is int
+        && request.auth.token.exp > request.auth.token.iat;
+    }
+  }
+}`;
+
+describe('worker-mode rules read the JWT registered claims (#1341)', () => {
+  it('Firestore and RTDB allow sub == uid, iss, aud, iat, exp and auth_time for a port session', async () => {
+    const { sandbox, context, port, send } = portHost('jwt-claims');
+    try {
+      const { getFirestore: adminFirestore } = await import('pyric/sandbox/admin-firestore');
+      adminFirestore(sandbox.withAuth(null)).setRules(JWT_CLAIMS_FIRESTORE_RULES);
+      authSandbox.createUser(getAuth(sandbox), { email: 'ada@example.com', password: 'secret-pw' });
+      expect(await send({ method: 'setDatabaseRules', source: JWT_CLAIMS_DATABASE_RULES })).toMatchObject({ ok: true });
+      expect(await send({ method: 'auth.signInEmail', email: 'ada@example.com', password: 'secret-pw' })).toMatchObject({ ok: true });
+      const uid = portSession(context, port)?.user.uid ?? 'missing';
+      expect(portSession(context, port)?.state.token?.sub).toBe(uid);
+      expect(await send({ method: 'rtdb.set', path: '/claims/v', value: 1 })).toMatchObject({ ok: true });
+      expect(await send({ method: 'setDoc', path: `claims/${uid}`, data: { ok: true } })).toMatchObject({ ok: true });
+    } finally { await cleanupPort(context, port); }
+  });
+
+  it('RTDB denies a recent-login rule once the port session signed in more than five minutes ago (auth-claims RA-1)', async () => {
+    const { sandbox, context, port, send } = portHost('jwt-recent');
+    try {
+      authSandbox.createUser(getAuth(sandbox), { email: 'ada@example.com', password: 'secret-pw' });
+      expect(await send({ method: 'setDatabaseRules', source: JWT_CLAIMS_DATABASE_RULES })).toMatchObject({ ok: true });
+      expect(await send({ method: 'auth.signInEmail', email: 'ada@example.com', password: 'secret-pw' })).toMatchObject({ ok: true });
+      expect(await send({ method: 'rtdb.set', path: '/recent/v', value: 1 })).toMatchObject({ ok: true });
+      getClock(sandbox).advance(6 * 60 * 1000);
+      expect(await send({ method: 'rtdb.set', path: '/recent/v', value: 2 })).toMatchObject({ ok: false });
     } finally { await cleanupPort(context, port); }
   });
 });

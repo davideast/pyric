@@ -26,9 +26,6 @@
 
 import { FirebaseError } from './firebase-error.js';
 
-/** JWT registered claims a minter adds around the account claim set. */
-const JWT_REGISTERED_CLAIMS = ['sub', 'aud', 'iss', 'auth_time', 'iat', 'exp'] as const;
-
 /**
  * Developer claim names the Admin SDK refuses with `auth/reserved-claim`
  * (`RESERVED_CLAIMS` in firebase-admin's `auth-api-request`, confirmed by the
@@ -52,12 +49,17 @@ export function assertNoReservedCustomClaims(claims: Record<string, unknown>): v
   throw new FirebaseError('auth/reserved-claim', message);
 }
 
-/** A token claim set without the JWT registered claims: the value rules
- *  read on `auth.token`. */
-export function withoutJwtClaims(tokenClaims: Record<string, unknown>): Record<string, unknown> {
-  const claims: Record<string, unknown> = { ...tokenClaims };
-  for (const key of JWT_REGISTERED_CLAIMS) delete claims[key];
-  return claims;
+/**
+ * The value rules read on `auth.token` for a signed-in session: the minted ID
+ * token's full claim set, with the JWT registered claims (`sub`, `aud`,
+ * `iss`, `iat`, `exp`, `auth_time`) at the values the minter put in the
+ * token. Firebase's docs name `sub` in the rules token
+ * (firebase.google.com/docs/rules/rules-and-auth), and RTDB capture r42 reads
+ * all six in deployed rules. `auth_time` stays at the last sign-in across
+ * refreshes, so a recent-login rule expires as it does in production.
+ */
+export function rulesTokenFromIdToken(claims: Record<string, unknown>): Record<string, unknown> {
+  return { ...claims };
 }
 
 /** The account fields the projection reads. */
