@@ -139,8 +139,17 @@ export function isShadowAppImporter(importer: string | undefined): boolean {
   return PACKAGE_ROOTS.some((root) => file.startsWith(root) && SHADOW_MODULE.test(file.slice(root.length)));
 }
 
-/** The SDK modules a shadow-app wrapper imports for itself. */
-const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/app-check']);
+/**
+ * The SDK modules a shadow-app wrapper imports for itself. The firebase-admin
+ * pair is the register's App Check verifier for production AI mode
+ * (`register/app-bridge-admin-app-check.ts`); no browser plane serves them.
+ */
+const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set([
+  'firebase/app',
+  'firebase/app-check',
+  'firebase-admin/app',
+  'firebase-admin/app-check',
+]);
 
 /** Whether this import is a shadow-app wrapper reaching the Firebase SDK it wraps. */
 export function isBypassedBridgeImport(specifier: string, importer: string | undefined): boolean {

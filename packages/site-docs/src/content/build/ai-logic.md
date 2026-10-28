@@ -175,6 +175,8 @@ Production mode works the same way on `pyric sandbox`, on the Vite plugin, and i
 
 The model id you request goes to the backend unchanged. A model the backend does not serve fails with the backend's own error, as it would in production, and `modelVersion` is the value the backend reports. Other Firebase modules, such as `firebase/firestore` and `firebase/auth`, still run against the local sandbox.
 
+In production mode the page's App Check tokens come from Firebase. A server started with `node --import @pyric/cli/register` and `PYRIC_AI_MODE=production` verifies them with `firebase-admin`, so install `firebase-admin` beside the server. Verification fetches Firebase's public keys and uses no credentials, and `verifyToken(token, { consume: true })` is recorded in the server process, not by Firebase. Tokens the sandbox minted still verify. In sandbox AI mode, a token from Firebase is refused with an `app-check/invalid-argument` error that says why.
+
 ### Project configuration requirements
 
 To use production pass-through successfully, your Firebase project configuration must be authorized for live cloud services:
