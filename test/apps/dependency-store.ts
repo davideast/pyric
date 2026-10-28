@@ -1,0 +1,438 @@
+/**
+ * A store of installed `node_modules` trees, one entry per third-party
+ * dependency set, shared by every run and worktree on the machine (#1514).
+ *
+ * Only the packed Pyric tarballs change from one run to the next, so an entry
+ * is keyed by everything else that decides its packages. Warming an entry is
+ * the only step that reaches the registry: an online `npm install` of the set,
+ * the way the runner always installed it. A run then copies the entry's tree
+ * into the set's directory, restamps the lockfile's Pyric entries from this
+ * run's tarballs, and runs `npm install --offline` with an empty npm cache
+ * and a registry nothing listens on, so npm installs the new tarballs and
+ * cannot fetch anything else. Third-party install scripts ran once, when the
+ * entry was warmed. Every third-party lockfile entry must come out of that
+ * install unchanged, or the set fails.
+ *
+ * Layout: `<store>/<key>/` holds `package.json`, `package-lock.json`,
+ * `node_modules` and `store.json` (the key's inputs, for debugging). An entry
+ * is built in `<store>/.warm-<key>-*` and renamed into place, so two runs
+ * warming one key leave one complete entry.
+ */
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
+import { gunzipSync } from 'node:zlib';
+import { removeTree } from './cleanup.ts';
+import { debugLogTail, npmInstall, npmOfflineInstallArgs, type CommandResult, type Tarballs, type TimedResult } from './install.ts';
+import { copyTree, installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
+
+/** Bumped when the layout or the key's inputs change, so old entries are never read. */
+export const STORE_FORMAT = 1;
+
+/** What a Pyric package's spec becomes in the key, so the tarball's path and version drop out. */
+const PYRIC_SPEC = '<pyric tarball>';
+
+/** The fields of a published package that name the third-party packages it installs. */
+const PUBLISHED_DEPENDENCY_FIELDS = ['dependencies', 'optionalDependencies', 'peerDependencies'] as const;
+
+/** The root lockfile fields that carry the project's own dependency specs. */
+const ROOT_DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const;
+
+/** Lockfile fields npm copies from a package's manifest. */
+const MANIFEST_LOCK_FIELDS = ['license', 'dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta', 'engines', 'os', 'cpu', 'funding'] as const;
+
+/** Lockfile fields that say where a package sits in the tree, not what it is. */
+const PLACEMENT_FIELDS = ['dev', 'optional', 'devOptional', 'peer', 'inBundle', 'extraneous'] as const;
+
+const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall'] as const;
+
+/** How long one attempt to warm an entry from the registry gets. */
+export const WARM_ATTEMPT_MS = 300_000;
+
+/** How long the offline install of a run's tarballs into a copied tree gets. */
+export const MATERIALIZE_MS = 60_000;
+
+/** A port nothing listens on: a request npm should not make fails at once. */
+const CLOSED_REGISTRY = 'http://127.0.0.1:9/';
+
+const STORE_RECORD = 'store.json';
+const NPM_LOG_TAIL_LINES = 40;
+
+/** What about the machine decides which third-party files an install writes. */
+export interface Platform {
+  nodeMajor: string;
+  npm: string;
+  os: string;
+  arch: string;
+}
+
+export function currentPlatform(npmVersion: string): Platform {
+  return { nodeMajor: process.versions.node.split('.')[0] ?? '', npm: npmVersion.trim(), os: process.platform, arch: process.arch };
+}
+
+export interface PackedManifest {
+  name: string;
+  version: string;
+  [field: string]: unknown;
+}
+
+/** One packed Pyric tarball: where it is, the integrity npm records for it, and its packed manifest. */
+export interface PackedPackage {
+  name: string;
+  file: string;
+  integrity: string;
+  manifest: PackedManifest;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** A NUL-terminated string field of a tar header. */
+function headerField(header: Buffer, start: number, length: number): string {
+  const field = header.subarray(start, start + length);
+  const end = field.indexOf(0);
+  return field.subarray(0, end === -1 ? length : end).toString('utf8');
+}
+
+/** The text of `package/package.json` in a gzipped tarball, as `npm pack` writes one. */
+function packedManifestText(file: string): string {
+  const tar = gunzipSync(readFileSync(file));
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    const name = headerField(header, 0, 100);
+    if (name === '') break;
+    const prefix = headerField(header, 345, 155);
+    const size = Number.parseInt(headerField(header, 124, 12).trim() || '0', 8);
+    const body = offset + 512;
+    const path = prefix === '' ? name : `${prefix}/${name}`;
+    if (path === 'package/package.json') return tar.subarray(body, body + size).toString('utf8');
+    offset = body + Math.ceil(size / 512) * 512;
+  }
+  throw new Error(`${file} has no package/package.json`);
+}
+
+export function readPackedPackage(file: string): PackedPackage {
+  const manifest = JSON.parse(packedManifestText(file)) as PackedManifest;
+  const integrity = `sha512-${createHash('sha512').update(readFileSync(file)).digest('base64')}`;
+  return { name: manifest.name, file, integrity, manifest };
+}
+
+export function readPackedPackages(tarballs: Tarballs): PackedPackage[] {
+  return [...tarballs.values()].map(readPackedPackage);
+}
+
+/** What decides a set's third-party packages, and nothing else. */
+export interface KeyInputs {
+  /** The set's package.json, its Pyric packages pinned to this run's tarballs. */
+  manifest: string;
+  npmrc?: string;
+  packed: readonly PackedPackage[];
+  platform: Platform;
+}
+
+/** Each dependency field with every Pyric package's spec replaced by one placeholder. */
+function withPyricPlaceholders(fields: Record<string, unknown>, pyricNames: ReadonlySet<string>): Record<string, unknown> {
+  const replace = (value: unknown) => {
+    if (!isRecord(value)) return value;
+    return Object.fromEntries(Object.entries(value).map(([name, spec]) => [name, pyricNames.has(name) ? PYRIC_SPEC : spec]));
+  };
+  return Object.fromEntries(Object.entries(fields).map(([field, value]) => [field, replace(value)]));
+}
+
+/** A published package's third-party dependencies: no Pyric package, no `workspace:` spec. */
+function thirdPartyDependencies(manifest: PackedManifest, pyricNames: ReadonlySet<string>): Record<string, unknown> {
+  const isThirdParty = ([name, spec]: [string, unknown]) => !pyricNames.has(name) && !String(spec).startsWith('workspace:');
+  const fields = PUBLISHED_DEPENDENCY_FIELDS.filter((field) => isRecord(manifest[field]));
+  return Object.fromEntries(fields.map((field) => [field, sortedObject(Object.fromEntries(Object.entries(manifest[field] as object).filter(isThirdParty)))]));
+}
+
+/** The key's inputs, written to `store.json` too. */
+export function storeKeyInputs(inputs: KeyInputs): Record<string, unknown> {
+  const manifest = JSON.parse(inputs.manifest) as Manifest;
+  const pyricNames = new Set(inputs.packed.map((pack) => pack.name));
+  const published = [...inputs.packed].sort((a, b) => a.name.localeCompare(b.name));
+  const { nodeMajor, npm, os, arch } = inputs.platform;
+  return {
+    format: STORE_FORMAT,
+    platform: { nodeMajor, npm, os, arch },
+    project: { name: manifest.name ?? null, ...withPyricPlaceholders(installManifest(manifest), pyricNames) },
+    npmrc: inputs.npmrc ?? null,
+    published: published.map((pack) => ({ name: pack.name, ...thirdPartyDependencies(pack.manifest, pyricNames) })),
+  };
+}
+
+export function storeKey(inputs: KeyInputs): string {
+  return createHash('sha256').update(JSON.stringify(storeKeyInputs(inputs))).digest('hex').slice(0, 24);
+}
+
+type LockEntry = Record<string, unknown>;
+
+export interface Lockfile {
+  packages?: Record<string, LockEntry>;
+  [field: string]: unknown;
+}
+
+/** The package name a lockfile path installs: `node_modules/a/node_modules/@s/b` is `@s/b`. */
+function lockName(path: string): string {
+  const marker = 'node_modules/';
+  return path.slice(path.lastIndexOf(marker) + marker.length);
+}
+
+function pick(source: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(fields.filter((field) => source[field] !== undefined).map((field) => [field, source[field]]));
+}
+
+/** A manifest's `bin` the way npm writes it into a lockfile. */
+function lockBin(manifest: PackedManifest): Record<string, string> | undefined {
+  const clean = (path: unknown) => String(path).replace(/^\.\//, '');
+  if (typeof manifest.bin === 'string') return { [manifest.name.split('/').pop() ?? manifest.name]: clean(manifest.bin) };
+  if (!isRecord(manifest.bin)) return undefined;
+  return Object.fromEntries(Object.entries(manifest.bin).map(([name, path]) => [name, clean(path)]));
+}
+
+function hasInstallScript(manifest: PackedManifest): boolean {
+  const scripts = isRecord(manifest.scripts) ? manifest.scripts : {};
+  return INSTALL_SCRIPTS.some((script) => scripts[script] !== undefined);
+}
+
+/** A Pyric package's lockfile entry, made from this run's tarball. */
+function restampEntry(entry: LockEntry, pack: PackedPackage, projectDir: string): LockEntry {
+  const bin = lockBin(pack.manifest);
+  return {
+    version: pack.manifest.version,
+    resolved: `file:${relative(projectDir, pack.file)}`,
+    integrity: pack.integrity,
+    ...pick(entry, PLACEMENT_FIELDS),
+    ...pick(pack.manifest, MANIFEST_LOCK_FIELDS),
+    ...(bin === undefined ? {} : { bin }),
+    ...(hasInstallScript(pack.manifest) ? { hasInstallScript: true } : {}),
+  };
+}
+
+/** The root entry, its Pyric specs taken from the project's package.json. */
+function restampRoot(entry: LockEntry, manifest: Manifest, pyricNames: ReadonlySet<string>): LockEntry {
+  const restamped: LockEntry = { ...entry };
+  for (const field of ROOT_DEPENDENCY_FIELDS) {
+    const locked = entry[field];
+    const declared = manifest[field];
+    if (!isRecord(locked) || !isRecord(declared)) continue;
+    const pyricSpecs = Object.entries(declared).filter(([name]) => pyricNames.has(name));
+    restamped[field] = { ...locked, ...Object.fromEntries(pyricSpecs) };
+  }
+  return restamped;
+}
+
+/** The stored lockfile with its Pyric entries pointing at this run's tarballs, for a tree in `projectDir`. */
+export function restampLockfile(lock: Lockfile, options: { projectDir: string; manifest: Manifest; packed: readonly PackedPackage[] }): Lockfile {
+  const byName = new Map(options.packed.map((pack) => [pack.name, pack]));
+  const pyricNames = new Set(byName.keys());
+  const restamp = ([path, entry]: [string, LockEntry]): [string, LockEntry] => {
+    if (path === '') return [path, restampRoot(entry, options.manifest, pyricNames)];
+    const pack = byName.get(lockName(path));
+    const isLink = entry.link === true;
+    return [path, pack === undefined || isLink ? entry : restampEntry(entry, pack, options.projectDir)];
+  };
+  return { ...lock, packages: Object.fromEntries(Object.entries(lock.packages ?? {}).map(restamp)) };
+}
+
+/** Whether every Pyric package the lockfile installs is already this run's tarball, byte for byte. */
+function pyricStampsMatch(lock: Lockfile, packed: readonly PackedPackage[]): boolean {
+  const byName = new Map(packed.map((pack) => [pack.name, pack]));
+  return Object.entries(lock.packages ?? {}).every(([path, entry]) => {
+    const pack = path === '' ? undefined : byName.get(lockName(path));
+    return pack === undefined || (entry.integrity === pack.integrity && entry.version === pack.manifest.version);
+  });
+}
+
+/** Every third-party lockfile entry that `after` adds, removes or changes; the root and Pyric entries do not count. */
+export function changedThirdPartyEntries(before: Lockfile, after: Lockfile, pyricNames: ReadonlySet<string>): string[] {
+  const isThirdParty = (path: string) => path !== '' && !pyricNames.has(lockName(path));
+  const paths = new Set([...Object.keys(before.packages ?? {}), ...Object.keys(after.packages ?? {})].filter(isThirdParty));
+  const canonical = (entry: unknown) => JSON.stringify(sortedObject(entry) ?? null);
+  return [...paths].filter((path) => canonical(before.packages?.[path]) !== canonical(after.packages?.[path])).sort();
+}
+
+/** Runs npm with `args` in `cwd`, stopping it at `timeoutMs`. */
+export type RunNpm = (args: string[], options: { cwd: string; timeoutMs: number }) => Promise<TimedResult>;
+
+export interface DependencyStoreOptions {
+  /** The store's directory; locally `~/.cache/pyric-app-scenarios/deps`. */
+  dir: string;
+  /** With PYRIC_APPS_OFFLINE=1: a missing entry fails, and nothing installs from the registry. */
+  offline: boolean;
+  packed: readonly PackedPackage[];
+  platform: Platform;
+  /** The npm cache a warm installs through. */
+  npmCache: string;
+  runNpm: RunNpm;
+  /** The registry the offline install is pointed at; by default a closed local port. */
+  offlineRegistry?: string;
+  warmAttemptMs?: number;
+  materializeMs?: number;
+}
+
+/** A set's tree, made in its directory from the store. */
+export interface ProvidedSet extends SetInstallResult {
+  source: string;
+  retryable: boolean;
+}
+
+function readJson<T>(path: string): T {
+  return JSON.parse(readFileSync(path, 'utf8')) as T;
+}
+
+function readOptional(path: string): string | undefined {
+  return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function secondsSince(started: number): string {
+  return ((performance.now() - started) / 1000).toFixed(1);
+}
+
+export class DependencyStore {
+  private readonly warming = new Map<string, Promise<CommandResult>>();
+  private readonly pyricNames: ReadonlySet<string>;
+
+  constructor(private readonly options: DependencyStoreOptions) {
+    this.pyricNames = new Set(options.packed.map((pack) => pack.name));
+  }
+
+  /** The store key of the project in `projectDir`. */
+  keyOf(projectDir: string): string {
+    return storeKey(this.keyInputs(projectDir));
+  }
+
+  /**
+   * Make the tree of the project in `projectDir` (its package.json written,
+   * no node_modules yet) from the store, warming its entry first on a miss
+   * unless the store is offline. The caller owns the retry: a failed warm is
+   * worth a second attempt; a miss offline and a failed offline install are not.
+   */
+  async provide(projectDir: string, app?: string): Promise<ProvidedSet> {
+    const inputs = this.keyInputs(projectDir);
+    const key = storeKey(inputs);
+    const entry = join(this.options.dir, key);
+    const isMiss = !existsSync(entry);
+    if (isMiss && this.options.offline) return this.offlineMiss(key, app);
+    const warm = isMiss ? await this.warmOnce(key, inputs) : undefined;
+    if (warm !== undefined && warm.code !== 0) return { ...warm, source: `warming store entry ${key} from the registry`, retryable: true };
+    const { note, ...materialized } = await this.materialize(entry, projectDir);
+    const source = warm === undefined ? `from the store, entry ${key}` : `warmed store entry ${key} from the registry`;
+    return { ...materialized, output: `${warm?.output ?? ''}${materialized.output}`, source: `${source}${note}` };
+  }
+
+  private keyInputs(projectDir: string): KeyInputs {
+    return {
+      manifest: readFileSync(join(projectDir, 'package.json'), 'utf8'),
+      npmrc: readOptional(join(projectDir, '.npmrc')),
+      packed: this.options.packed,
+      platform: this.options.platform,
+    };
+  }
+
+  private offlineMiss(key: string, app: string | undefined): ProvidedSet {
+    const forApp = app === undefined ? '' : ` for ${app}`;
+    const output = `[runner] the dependency store has no entry ${key}${forApp} in ${this.options.dir}, and PYRIC_APPS_OFFLINE=1 installs nothing from the registry. Run without PYRIC_APPS_OFFLINE once to warm it.\n`;
+    return { code: 1, output, source: `missing from the store, entry ${key}`, retryable: false };
+  }
+
+  /** One warm per key in this run, however many sets ask for it at once. */
+  private warmOnce(key: string, inputs: KeyInputs): Promise<CommandResult> {
+    const running = this.warming.get(key);
+    if (running !== undefined) return running;
+    const warm = this.warm(key, inputs).finally(() => this.warming.delete(key));
+    this.warming.set(key, warm);
+    return warm;
+  }
+
+  /** Install the set from the registry into a new directory, and rename it into place. */
+  private async warm(key: string, inputs: KeyInputs): Promise<CommandResult> {
+    const started = performance.now();
+    const header = `[runner] warming store entry ${key} from the registry\n`;
+    mkdirSync(this.options.dir, { recursive: true });
+    const building = mkdtempSync(join(this.options.dir, `.warm-${key}-`));
+    try {
+      writeFileSync(join(building, 'package.json'), inputs.manifest);
+      if (inputs.npmrc !== undefined) writeFileSync(join(building, '.npmrc'), inputs.npmrc);
+      const result = await this.installFromRegistry(building);
+      if (result.code !== 0) return { code: result.code ?? 1, output: `${header}${result.output}` };
+      if (!existsSync(join(building, 'package-lock.json'))) return { code: 1, output: `${header}${result.output}[runner] npm wrote no package-lock.json\n` };
+      const record = { format: STORE_FORMAT, key, inputs: storeKeyInputs(inputs), warmedAt: new Date().toISOString(), warmSeconds: Number(secondsSince(started)) };
+      writeFileSync(join(building, STORE_RECORD), `${JSON.stringify(record, null, 2)}\n`);
+      this.publish(building, join(this.options.dir, key));
+      return { code: 0, output: `${header}${result.output}` };
+    } catch (error) {
+      return { code: 1, output: `${header}[runner] warming failed: ${messageOf(error)}\n` };
+    } finally {
+      if (existsSync(building)) await removeTree(building);
+    }
+  }
+
+  /** One online `npm install`, with its debug log; the log's end joins the output of an attempt that timed out. */
+  private async installFromRegistry(dir: string): Promise<TimedResult> {
+    const logsDir = join(dir, '.npm-logs');
+    const timeoutMs = this.options.warmAttemptMs ?? WARM_ATTEMPT_MS;
+    const result = await npmInstall(this.options.npmCache, (args) => this.options.runNpm(args, { cwd: dir, timeoutMs }), logsDir);
+    const tail = result.timedOut ? debugLogTail(logsDir, NPM_LOG_TAIL_LINES) : '';
+    rmSync(logsDir, { recursive: true, force: true });
+    return { ...result, code: result.timedOut ? null : result.code, output: `${result.output}${tail}` };
+  }
+
+  /** Rename a built entry into place. When another run got there first, its entry stands and this one is dropped. */
+  private publish(building: string, entry: string): void {
+    try {
+      renameSync(building, entry);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const lostTheRace = (code === 'ENOTEMPTY' || code === 'EEXIST') && existsSync(entry);
+      if (!lostTheRace) throw error;
+    }
+  }
+
+  /**
+   * Copy the entry's tree into `projectDir`, restamp its lockfile for this
+   * run's tarballs, and install those offline. When the entry already holds
+   * this run's tarballs, there is nothing to install.
+   */
+  private async materialize(entry: string, projectDir: string): Promise<CommandResult & { note: string; retryable: boolean }> {
+    const failed = (output: string) => ({ code: 1, output, note: '', retryable: false });
+    try {
+      const stored = readJson<Lockfile>(join(entry, 'package-lock.json'));
+      await copyTree(join(entry, 'node_modules'), join(projectDir, 'node_modules'));
+      const manifest = readJson<Manifest>(join(projectDir, 'package.json'));
+      const lock = restampLockfile(stored, { projectDir, manifest, packed: this.options.packed });
+      writeFileSync(join(projectDir, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
+      if (pyricStampsMatch(stored, this.options.packed)) return { code: 0, output: '', note: ', its Pyric packages already this run\'s', retryable: false };
+      return await this.installOffline(stored, projectDir);
+    } catch (error) {
+      return failed(`[runner] making the set from store entry ${entry} failed: ${messageOf(error)}\n`);
+    }
+  }
+
+  private async installOffline(stored: Lockfile, projectDir: string): Promise<CommandResult & { note: string; retryable: boolean }> {
+    const started = performance.now();
+    const cache = mkdtempSync(join(tmpdir(), 'pyric-offline-npm-cache-'));
+    try {
+      const args = npmOfflineInstallArgs(cache, this.options.offlineRegistry ?? CLOSED_REGISTRY);
+      const result = await this.options.runNpm(args, { cwd: projectDir, timeoutMs: this.options.materializeMs ?? MATERIALIZE_MS });
+      const header = `[runner] npm install --offline of this run's Pyric tarballs: ${result.timedOut ? 'timed out' : `exit ${result.code}`} in ${secondsSince(started)} s\n`;
+      const output = `${header}${result.output}`;
+      if (result.timedOut || result.code !== 0) return { code: result.code ?? 1, output, note: '', retryable: false };
+      const changed = changedThirdPartyEntries(stored, readJson<Lockfile>(join(projectDir, 'package-lock.json')), this.pyricNames);
+      if (changed.length > 0) {
+        const list = changed.map((path) => `  ${path}`).join('\n');
+        return { code: 1, output: `${output}[runner] the offline install changed third-party lockfile entries the store holds:\n${list}\n`, note: '', retryable: false };
+      }
+      return { code: 0, output, note: ', its Pyric packages installed offline', retryable: false };
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  }
+}
