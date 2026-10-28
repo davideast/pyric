@@ -13,9 +13,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { posix } from 'node:path';
 import type { FunctionsChildHttpReady } from '../child-protocol.js';
-import type { HttpFunctionInfo } from './discovery.js';
+import { DEFAULT_REGION, type HttpFunctionInfo } from './discovery.js';
 import { proxyToChild } from './proxy.js';
-import { rewriteTarget, sessionCookieOnly, type HostingRewrite } from './rewrites.js';
+import { rewriteTarget, sessionCookieOnly, type HostingRewrite, type RewriteFunction } from './rewrites.js';
 import { matchEmulatorPath } from './routes.js';
 
 export type FunctionsHttpState =
@@ -50,6 +50,8 @@ export interface FunctionsHttpGatewayOptions {
   /** Whether a static file answers this (undecoded, normalized) path; Hosting serves a file before any rewrite. */
   staticFileExists?(pathname: string): boolean;
   onServed?(record: FunctionsHttpRecord): void;
+  /** A rewrite whose target pyric had to guess; reported once per function. */
+  onWarning?(warning: string): void;
 }
 
 export interface FunctionsHttpGateway {
@@ -61,6 +63,20 @@ export interface FunctionsHttpGateway {
 
 /** Firebase's request timeout when a function sets none. */
 const DEFAULT_TIMEOUT_SECONDS = 60;
+/** Hosting cuts a rewritten request at 60 s, whatever the function's own timeoutSeconds. */
+const HOSTING_REWRITE_TIMEOUT_SECONDS = 60;
+/** The longest timeoutSeconds production allows an HTTP function; it also keeps setTimeout's delay in range. */
+const MAX_TIMEOUT_SECONDS = 3_600;
+
+/**
+ * How long a request may run before it gets a 504. A rewritten request is
+ * capped at Hosting's 60 s (firebase.google.com/docs/hosting/functions); the
+ * emulator path keeps the function's own timeout.
+ */
+export function requestTimeoutSeconds(fn: HttpFunctionInfo, route: { viaRewrite: boolean }): number {
+  const own = Math.min(fn.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
+  return route.viaRewrite ? Math.min(own, HOSTING_REWRITE_TIMEOUT_SECONDS) : own;
+}
 
 const PLAIN_TEXT = { 'content-type': 'text/plain; charset=utf-8' };
 
@@ -92,6 +108,31 @@ function unavailableReason(state: FunctionsHttpState): string | null {
   }
 }
 
+type RewriteMatch =
+  | { kind: 'function'; fn: HttpFunctionInfo; warning: string | null }
+  | { kind: 'unknown'; key: string };
+
+/**
+ * The function a rewrite reaches. A rewrite that names a region needs the
+ * function in it. One that names none takes the region from the source: the
+ * function's us-central1 deployment when it has one, otherwise its only
+ * region; with several and no us-central1, the first, with a warning.
+ */
+export function rewriteFunction(target: RewriteFunction, functions: readonly HttpFunctionInfo[]): RewriteMatch {
+  const named = functions.find((candidate) => candidate.exportName === target.functionId);
+  if (target.region !== null) {
+    const servesRegion = named?.regions.includes(target.region) ?? false;
+    return named && servesRegion ? { kind: 'function', fn: named, warning: null } : { kind: 'unknown', key: `${target.region}-${target.functionId}` };
+  }
+  if (!named) return { kind: 'unknown', key: target.functionId };
+  const isUnambiguous = named.regions.includes(DEFAULT_REGION) || named.regions.length === 1;
+  if (isUnambiguous) return { kind: 'function', fn: named, warning: null };
+  const warning =
+    `firebase.json hosting rewrite to ${named.exportName} names no region, and ${named.exportName} deploys to ` +
+    `${named.regions.join(', ')} but not ${DEFAULT_REGION}; pyric routes it to ${named.regions[0]}. Add "region" to the rewrite to choose one.`;
+  return { kind: 'function', fn: named, warning };
+}
+
 /** A rewrite names a function the source does not serve (in that region). */
 function unknownRewriteTarget(key: string, functions: readonly HttpFunctionInfo[]): string {
   const served = functions.flatMap((fn) => fn.regions.map((region) => `${region}-${fn.exportName}`));
@@ -112,6 +153,12 @@ export function hostingPathname(rawUrl: string): string {
 export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions): FunctionsHttpGateway {
   let current = options.initial;
   const rewrites = options.rewrites ?? [];
+  const warned = new Set<string>();
+  const warnOnce = (exportName: string, warning: string | null): void => {
+    if (warning === null || warned.has(exportName)) return;
+    warned.add(exportName);
+    options.onWarning?.(warning);
+  };
 
   const resolve = (rawUrl: string, functions: readonly HttpFunctionInfo[] | null): Resolved | null => {
     const emulator = matchEmulatorPath(rawUrl, { projectId: options.projectId, functions });
@@ -121,9 +168,10 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     const target = rewriteTarget(rewrites, pathname);
     if (target === null || options.staticFileExists?.(pathname)) return null;
     if (functions === null) return { kind: 'pending' };
-    const fn = functions.find((candidate) => candidate.exportName === target.functionId && candidate.regions.includes(target.region));
-    if (!fn) return { kind: 'unknown', key: `${target.region}-${target.functionId}` };
-    return { kind: 'function', fn, forwardUrl: rawUrl, viaRewrite: true };
+    const match = rewriteFunction(target, functions);
+    if (match.kind === 'unknown') return match;
+    warnOnce(match.fn.exportName, match.warning);
+    return { kind: 'function', fn: match.fn, forwardUrl: rawUrl, viaRewrite: true };
   };
 
   return {
@@ -160,7 +208,7 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         port: http.port,
         exportName: resolved.fn.exportName,
         forwardUrl: resolved.forwardUrl,
-        timeoutMs: (resolved.fn.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1_000,
+        timeoutMs: requestTimeoutSeconds(resolved.fn, resolved) * 1_000,
         ...(headerOverrides ? { headerOverrides } : {}),
       });
       options.onServed?.({

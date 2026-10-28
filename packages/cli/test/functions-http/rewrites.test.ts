@@ -249,11 +249,11 @@ describe('hostingRewrites', () => {
     },
   });
 
-  test('reads every function destination form, with us-central1 by default', () => {
-    expect(rewriteTarget(rewrites, '/api/items')).toEqual({ functionId: 'api', region: 'us-central1' });
+  test('reads every function destination form, with no region when the rewrite names none', () => {
+    expect(rewriteTarget(rewrites, '/api/items')).toEqual({ functionId: 'api', region: null });
     expect(rewriteTarget(rewrites, '/east/x')).toEqual({ functionId: 'east', region: 'us-east1' });
     expect(rewriteTarget(rewrites, '/legacy/x')).toEqual({ functionId: 'legacy', region: 'europe-west1' });
-    expect(rewriteTarget(rewrites, '/rx/12')).toEqual({ functionId: 'byRegex', region: 'us-central1' });
+    expect(rewriteTarget(rewrites, '/rx/12')).toEqual({ functionId: 'byRegex', region: null });
   });
 
   test('the first matching rewrite wins, so a function after a ** destination is never reached', () => {
@@ -268,7 +268,7 @@ describe('hostingRewrites', () => {
     }, (warning) => warnings.push(warning));
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('hosting.rewrites[0]');
-    expect(rewriteTarget(parsed, '/api/x')).toEqual({ functionId: 'api', region: 'us-central1' });
+    expect(rewriteTarget(parsed, '/api/x')).toEqual({ functionId: 'api', region: null });
   });
 
   test('a multi-site array uses the first site, and no hosting config has no rewrites', () => {

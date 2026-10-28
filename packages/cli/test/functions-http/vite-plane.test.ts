@@ -146,7 +146,8 @@ describe('functions-http on the Vite plane', () => {
     expect(logs.some((line) => line.includes('onRequest function'))).toBe(true);
     // One execution record per served request (functions-http#21).
     // A line is written when the response closes, which can trail the body the client read.
-    for (const record of ['pyricHttpEcho ← POST /items?x=1 200', 'pyricHttpEcho ← GET /api/items/7?y=2 200']) {
+    // The line names the path only; the query string can carry tokens.
+    for (const record of ['pyricHttpEcho ← POST /items 200', 'pyricHttpEcho ← GET /api/items/7 200']) {
       const lines = () => logs.filter((line) => line.includes(record));
       await waitFor(async () => lines().length > 0, 5_000, logs);
       expect(lines()).toHaveLength(1);

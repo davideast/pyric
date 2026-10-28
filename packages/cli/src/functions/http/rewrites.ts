@@ -4,20 +4,31 @@
  * Hosting tries rewrites in order and the first match wins, so a function
  * rewrite only applies when no earlier rewrite (a `**` to `/index.html`, say)
  * matched first, and only when no static file answers the path. The function
- * sees the full original URL (firebase-tools `lib/hosting/proxy.js`), and the
- * region defaults to us-central1 (`lib/hosting/functionsProxy.js:20-31`).
+ * sees the full original URL (firebase-tools `lib/hosting/proxy.js`). A
+ * rewrite that names no region keeps `region: null`: the CLI takes the region
+ * from the function's source and falls back to us-central1 only when the
+ * source names none (firebase.google.com/docs/hosting/functions), so the
+ * gateway resolves it against the discovered functions.
  *
  * Matching is superstatic 10.0.0's (`lib/utils/patterns.js`): a `source` is
  * `minimatch(path, source)` with minimatch 6.2.3 defaults, and a `regex` is
- * `new RegExp(regex, 'u')`, both against `hostingPathname` (gateway.ts).
+ * `new RegExp(regex, 'u')`, both against `hostingPathname` (gateway.ts). A
+ * `regex` runs as a JavaScript regular expression here, while production
+ * Hosting evaluates it with RE2, so a pattern RE2 rejects (a lookahead or a
+ * backreference) can match in pyric and fail to deploy.
  */
 import { Minimatch } from 'minimatch';
-import { DEFAULT_REGION } from './discovery.js';
 
 export interface HostingRewrite {
   matches(pathname: string): boolean;
   /** Present when the rewrite's destination is a function. */
-  function: { functionId: string; region: string } | null;
+  function: RewriteFunction | null;
+}
+
+export interface RewriteFunction {
+  functionId: string;
+  /** The rewrite's `region`, or null when it names none. */
+  region: string | null;
 }
 
 interface RewriteConfig {
@@ -27,13 +38,17 @@ interface RewriteConfig {
   region?: unknown;
 }
 
+function namedRegion(region: unknown): string | null {
+  return typeof region === 'string' && region.length > 0 ? region : null;
+}
+
 function functionTarget(rewrite: RewriteConfig): HostingRewrite['function'] {
   if (typeof rewrite.function === 'string') {
-    return { functionId: rewrite.function, region: typeof rewrite.region === 'string' ? rewrite.region : DEFAULT_REGION };
+    return { functionId: rewrite.function, region: namedRegion(rewrite.region) };
   }
   const target = rewrite.function as { functionId?: unknown; region?: unknown } | undefined;
   if (typeof target === 'object' && target !== null && typeof target.functionId === 'string') {
-    return { functionId: target.functionId, region: typeof target.region === 'string' ? target.region : DEFAULT_REGION };
+    return { functionId: target.functionId, region: namedRegion(target.region) };
   }
   return null;
 }

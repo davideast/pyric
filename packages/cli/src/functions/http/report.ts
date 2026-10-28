@@ -55,8 +55,10 @@ export function servedLine(record: FunctionsHttpRecord): { failed: boolean; line
   const outcome = record.status === null ? 'no response' : String(record.status);
   const timedOut = record.timedOut ? ' timed out' : '';
   const failed = record.status === null || record.status >= 500 || record.timedOut;
+  // The query string can carry tokens, so the terminal sees the path only.
+  const pathOnly = record.path.split(/[?#]/, 1)[0];
   return {
     failed,
-    line: `function  ${record.exportName} ← ${record.method} ${record.path} ${outcome}${timedOut} (${record.durationMs} ms)`,
+    line: `function  ${record.exportName} ← ${record.method} ${pathOnly} ${outcome}${timedOut} (${record.durationMs} ms)`,
   };
 }

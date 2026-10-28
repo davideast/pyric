@@ -178,6 +178,7 @@ export function attachViteFunctionsDevelopment(
     initial: { kind: 'starting' },
     ...(options.rewrites ? { rewrites: options.rewrites } : {}),
     ...(options.staticFileExists ? { staticFileExists: options.staticFileExists } : {}),
+    onWarning: (warning) => options.logger.warn(`  ⚠ [pyric] ${warning}`),
     onServed: (record) => {
       const { failed, line } = servedLine(record);
       if (failed) options.logger.error(`  ✖ [pyric] ${line}`);

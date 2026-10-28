@@ -231,7 +231,7 @@ export const functionsHttpRows: CompatibilityRow[] = [
     kind: 'observed',
     api: 'firebase.json hosting.rewrites[].function',
     behavior:
-      'A hosting rewrite to a function routes the full original path and query, honors { functionId, region } (us-central1 by default), and forwards only the __session cookie.',
+      "A hosting rewrite to a function routes the full original path and query, honors { functionId, region }, takes the region from the function's source when the rewrite names none (us-central1 only when the source names none either), cuts the request at Hosting's 60 s, and forwards only the __session cookie.",
     evidence:
       'upstream: firebase-tools appends the original req.url and forwards only `__session` plus X-Forwarded-Host and X-Original-Url (`lib/hosting/functionsProxy.js:20-31`, `lib/hosting/proxy.js:29-50`). Production behavior needs `functions-http-hosting-rewrite`.',
   }),

@@ -994,6 +994,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
           (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         ),
         staticFileExists: (pathname) => runtime !== undefined && resolveStaticFile(runtime.publicDir, pathname) !== null,
+        onWarning: (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         onServed: (record) => {
           const { failed, line } = servedLine(record);
           if (failed) process.stderr.write(`✖ ${line}\n`);

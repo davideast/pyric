@@ -6,9 +6,12 @@ import type { DiscoveredOnRequest } from '../../src/functions/http/discovery.js'
 import type { AddressInfo } from 'node:net';
 import {
   createFunctionsHttpGateway,
+  requestTimeoutSeconds,
   type FunctionsHttpGateway,
   type FunctionsHttpRecord,
 } from '../../src/functions/http/gateway.js';
+import type { HttpFunctionInfo } from '../../src/functions/http/discovery.js';
+import { servedLine } from '../../src/functions/http/report.js';
 import { hostingRewrites } from '../../src/functions/http/rewrites.js';
 import { FUNCTION_TARGET_HEADER } from '../../src/functions/http/child-server.js';
 
@@ -212,4 +215,79 @@ describe('functions HTTP gateway', () => {
       { status: null, timedOut: true },
     ]);
   }, 10_000);
+
+  test('a rewrite without a region finds the function where its source deploys it, preferring us-central1', async () => {
+    const seen: string[] = [];
+    const child = await listen(createServer((req, res) => {
+      seen.push(String(req.headers[FUNCTION_TARGET_HEADER]));
+      res.end('ok');
+    }));
+    const warnings: string[] = [];
+    const gateway = createFunctionsHttpGateway({
+      projectId: 'demo-app',
+      initial: { kind: 'starting' },
+      rewrites: hostingRewrites({
+        hosting: {
+          rewrites: [
+            { source: '/eu/**', function: 'eu' },
+            { source: '/both/**', function: 'both' },
+            { source: '/far/**', function: 'far' },
+            { source: '/none/**', function: 'none' },
+          ],
+        },
+      }),
+      onWarning: (warning) => warnings.push(warning),
+    });
+    const info = (exportName: string, regions: string[]): HttpFunctionInfo => ({
+      exportName, regions, platform: 'gcfv2', privateInvoker: false, timeoutSeconds: null,
+    });
+    gateway.update({
+      kind: 'ready',
+      http: {
+        port: Number(new URL(child).port),
+        functions: [
+          info('eu', ['europe-west1']),
+          info('both', ['europe-west1', 'us-central1']),
+          info('far', ['asia-east1', 'europe-west1']),
+        ],
+      },
+    });
+    const base = await plane(gateway);
+    // onRequest({ region: 'europe-west1' }, h) behind a rewrite that names no region: production serves it.
+    expect((await fetch(`${base}/eu/x`)).status).toBe(200);
+    expect((await fetch(`${base}/both/x`)).status).toBe(200);
+    expect(warnings).toEqual([]);
+    expect((await fetch(`${base}/far/x`)).status).toBe(200);
+    expect((await fetch(`${base}/far/y`)).status).toBe(200);
+    expect(warnings).toEqual([
+      'firebase.json hosting rewrite to far names no region, and far deploys to asia-east1, europe-west1 but not us-central1; pyric routes it to asia-east1. Add "region" to the rewrite to choose one.',
+    ]);
+    const missing = await fetch(`${base}/none/x`);
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toBe(
+      'Function none named by a hosting rewrite does not exist, valid functions are: europe-west1-eu, europe-west1-both, us-central1-both, asia-east1-far, europe-west1-far',
+    );
+    expect(seen).toEqual(['eu', 'both', 'far', 'far']);
+  });
+
+  test('a rewritten request is cut at Hosting\'s 60 s, and the emulator path keeps the function\'s own timeout', () => {
+    const fn = (timeoutSeconds: number | null): HttpFunctionInfo => ({
+      exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds,
+    });
+    expect(requestTimeoutSeconds(fn(null), { viaRewrite: false })).toBe(60);
+    expect(requestTimeoutSeconds(fn(300), { viaRewrite: false })).toBe(300);
+    expect(requestTimeoutSeconds(fn(5), { viaRewrite: false })).toBe(5);
+    expect(requestTimeoutSeconds(fn(null), { viaRewrite: true })).toBe(60);
+    expect(requestTimeoutSeconds(fn(300), { viaRewrite: true })).toBe(60);
+    expect(requestTimeoutSeconds(fn(5), { viaRewrite: true })).toBe(5);
+    // Clamped so the timer cannot overflow setTimeout's 32-bit delay.
+    expect(requestTimeoutSeconds(fn(10_000_000), { viaRewrite: false })).toBe(3600);
+  });
+
+  test('the request log line names the path without its query string', () => {
+    const { line } = servedLine({
+      exportName: 'api', method: 'GET', path: '/api/items?token=secret&x=1', status: 200, timedOut: false, durationMs: 3,
+    });
+    expect(line).toBe('function  api ← GET /api/items 200 (3 ms)');
+  });
 });
