@@ -12,12 +12,20 @@
  * images. `--keep-deployed` skips the deletion; `--check-permissions` only
  * tests the deployer's IAM permissions and changes nothing.
  *
+ * It runs the workspace's firebase-tools 15.23.0, never `firebase` from PATH.
+ * The deploy runs without `--force`, so firebase-tools sets no Artifact
+ * Registry cleanup policy. A region with none makes it exit 1 after every
+ * function deployed, and the harness reads exactly that error as deployed.
+ * Before deploying it records the run in `fixture/capture-state.json`; a run
+ * that never reaches its cleanup leaves the file, and the next start deletes
+ * that run's channel, functions, and images before doing anything else.
+ *
  * Nothing secret is printed: the key file is read for its project id and
  * client email only, access tokens never leave request headers, and run.app
  * URLs are logged by shape.
  */
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +34,14 @@ import { resolvePackageVersion } from '../../package-version.ts';
 import { functionsHttpProbes } from './probes.ts';
 import type { FunctionsHttpProbe } from './probe-types.ts';
 import { sendProbe, sendProbeRequest, type ProbeTargets } from './send.ts';
+import {
+  clearCaptureState,
+  deployOutcome,
+  readCaptureState,
+  resolveFirebaseTools,
+  writeCaptureState,
+  type CaptureState,
+} from './deploy.ts';
 
 interface ServiceAccount {
   project_id: string;
@@ -43,6 +59,7 @@ const REPO_ROOT = join(HERE, '..', '..', '..', '..', '..');
 const CONFIG_PATH = join(HERE, 'firebase.json');
 const FIXTURE_DIR = join(HERE, 'fixture');
 const RUNTIME_PATH = join(FIXTURE_DIR, 'runtime.cjs');
+const STATE_PATH = join(FIXTURE_DIR, 'capture-state.json');
 const OBS_DIR = join(REPO_ROOT, 'packages', 'conformance', 'observations', 'functions-http');
 const CODEBASE = 'pyric-functions-http-oracle';
 const CHANNEL_EXPIRES = '1d';
@@ -98,17 +115,60 @@ function need(name: string): string {
   return value;
 }
 
-function firebase(args: string[], env: Record<string, string>, capture = false): string {
-  const result = spawnSync('firebase', args, {
-    cwd: REPO_ROOT,
-    env: { ...process.env, ...env },
-    stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
-    encoding: 'utf8',
+const firebaseTools = resolveFirebaseTools();
+
+interface FirebaseRun {
+  status: number | null;
+  /** What firebase-tools wrote to stdout; its logger writes errors there too. */
+  stdout: string;
+  /** stdout and stderr together, in arrival order. */
+  output: string;
+}
+
+/** Runs the pinned firebase-tools, passing its output through as it arrives. */
+function runFirebase(args: string[], env: Record<string, string>): Promise<FirebaseRun> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn('node', [firebaseTools.bin, ...args], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let output = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+      process.stdout.write(chunk);
+      stdout += chunk;
+      output += chunk;
+    });
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      process.stderr.write(chunk);
+      output += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (status, signal) => {
+      if (signal) reject(new Error(`firebase ${args[0]} terminated by ${signal}`));
+      else resolvePromise({ status, stdout, output });
+    });
   });
-  if (result.error) throw result.error;
-  if (result.signal) throw new Error(`firebase ${args[0]} terminated by ${result.signal}`);
+}
+
+async function firebase(args: string[], env: Record<string, string>): Promise<string> {
+  const result = await runFirebase(args, env);
   if (result.status !== 0) throw new Error(`firebase ${args[0]} exited ${result.status}`);
-  return capture ? result.stdout : '';
+  return result.stdout;
+}
+
+/** Deploys the fixture codebase; a region left without a cleanup policy still counts as deployed. */
+async function deployFixture(projectId: string, env: Record<string, string>): Promise<void> {
+  const result = await runFirebase(
+    ['deploy', '--config', CONFIG_PATH, '--project', projectId, '--only', `functions:${CODEBASE}`, '--non-interactive'],
+    env,
+  );
+  const outcome = deployOutcome(result.status, result.output);
+  if (outcome === 'failed') throw new Error(`firebase deploy exited ${result.status}`);
+  if (outcome === 'deployed-without-cleanup-policy') {
+    console.log('Functions deployed. No cleanup policy was set; this run deletes its own images.');
+  }
 }
 
 async function googleApi(token: string, url: string, init: RequestInit = {}): Promise<unknown> {
@@ -150,11 +210,10 @@ async function runServiceUri(token: string, projectId: string, fn: FixtureFuncti
   return uri.replace(/\/$/, '');
 }
 
-function deployChannel(channel: string, projectId: string, env: Record<string, string>): string {
-  const output = firebase(
+async function deployChannel(channel: string, projectId: string, env: Record<string, string>): Promise<string> {
+  const output = await firebase(
     ['hosting:channel:deploy', channel, '--expires', CHANNEL_EXPIRES, '--config', CONFIG_PATH, '--project', projectId, '--json', '--non-interactive'],
     env,
-    true,
   );
   const parsed = JSON.parse(output) as { result?: Record<string, { url?: string }> };
   const url = Object.values(parsed.result ?? {})[0]?.url;
@@ -239,6 +298,40 @@ function ensureFixtureInstalled(): void {
   if (result.status !== 0) throw new Error('npm ci in the fixture failed');
 }
 
+/**
+ * Deletes one run's channel, every fixture function, and their images, then
+ * reads back what remains. True when no fixture function is left deployed.
+ */
+async function cleanUp(state: CaptureState, env: Record<string, string>, deleteChannel: boolean): Promise<boolean> {
+  if (deleteChannel) {
+    try {
+      await firebase(['hosting:channel:delete', state.channel, '--project', state.projectId, '--force', '--non-interactive'], env);
+      console.log(`Deleted hosting channel ${state.channel}.`);
+    } catch (error) {
+      console.error(`Cleanup could not delete channel ${state.channel}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  for (const region of [...new Set(FIXTURE_FUNCTIONS.map((fn) => fn.region))]) {
+    const names = FIXTURE_FUNCTIONS.filter((fn) => fn.region === region).map((fn) => fn.name);
+    try {
+      await firebase(['functions:delete', ...names, '--region', region, '--project', state.projectId, '--force', '--non-interactive'], env);
+    } catch (error) {
+      console.error(`Cleanup could not delete functions in ${region}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  try {
+    const token = await accessToken();
+    const images = await deleteImages(token, state.projectId);
+    console.log(`Deleted ${images.length} images: ${images.join(', ') || 'none'}`);
+    const remaining = await remainingFunctions(token, state.projectId);
+    console.log(remaining.length === 0 ? 'No fixture functions remain.' : `Fixture functions still deployed: ${remaining.join(', ')}`);
+    return remaining.length === 0;
+  } catch (error) {
+    console.error(`Cleanup verification failed: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
 const saPath = need('PYRIC_ORACLE_SA_PATH');
 if (!existsSync(saPath)) throw new Error('PYRIC_ORACLE_SA_PATH does not name a file');
 const serviceAccountJson = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount & Record<string, string>;
@@ -258,23 +351,32 @@ if (checkOnly) {
     await deleteApp(app).catch(() => undefined);
   }
 } else {
-  const runId = `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
-  const channel = `pyric-fn-http-${runId}`;
   const deployEnv = { GOOGLE_APPLICATION_CREDENTIALS: saPath };
+  const leftover = readCaptureState(STATE_PATH);
+  if (leftover) {
+    console.log(`Run ${leftover.runId} (started ${leftover.startedAt}) never finished its cleanup; cleaning it up first.`);
+    const cleaned = await cleanUp(leftover, deployEnv, true);
+    if (!cleaned) {
+      await deleteApp(app).catch(() => undefined);
+      throw new Error(`Run ${leftover.runId} still has fixture functions deployed; ${STATE_PATH} is kept for the next start.`);
+    }
+    clearCaptureState(STATE_PATH);
+  }
+
+  const runId = `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
+  const state: CaptureState = { runId, channel: `pyric-fn-http-${runId}`, projectId, startedAt: new Date().toISOString() };
   let deployAttempted = false;
   let channelAttempted = false;
   let completed = false;
   try {
     ensureFixtureInstalled();
     writeFileSync(RUNTIME_PATH, `module.exports = { serviceAccount: ${JSON.stringify(serviceAccountJson.client_email)} };\n`);
+    writeCaptureState(STATE_PATH, state);
     deployAttempted = true;
-    firebase(
-      ['deploy', '--config', CONFIG_PATH, '--project', projectId, '--only', `functions:${CODEBASE}`, '--non-interactive'],
-      deployEnv,
-    );
+    await deployFixture(projectId, deployEnv);
     channelAttempted = true;
-    const hostingBase = deployChannel(channel, projectId, deployEnv);
-    console.log(`Hosting channel ${channel} deployed (expires in ${CHANNEL_EXPIRES}).`);
+    const hostingBase = await deployChannel(state.channel, projectId, deployEnv);
+    console.log(`Hosting channel ${state.channel} deployed (expires in ${CHANNEL_EXPIRES}).`);
 
     const token = await accessToken();
     const runUris = new Map<string, string>();
@@ -299,34 +401,13 @@ if (checkOnly) {
     completed = true;
   } finally {
     if (existsSync(RUNTIME_PATH)) unlinkSync(RUNTIME_PATH);
-    if (!keepDeployed) {
-      if (channelAttempted) {
-        try {
-          firebase(['hosting:channel:delete', channel, '--project', projectId, '--force', '--non-interactive'], deployEnv);
-          console.log(`Deleted hosting channel ${channel}.`);
-        } catch (error) {
-          console.error(`Cleanup could not delete channel ${channel}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      if (deployAttempted) {
-        for (const region of [...new Set(FIXTURE_FUNCTIONS.map((fn) => fn.region))]) {
-          const names = FIXTURE_FUNCTIONS.filter((fn) => fn.region === region).map((fn) => fn.name);
-          try {
-            firebase(['functions:delete', ...names, '--region', region, '--project', projectId, '--force', '--non-interactive'], deployEnv);
-          } catch (error) {
-            console.error(`Cleanup could not delete functions in ${region}: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-        try {
-          const token = await accessToken();
-          const images = await deleteImages(token, projectId);
-          console.log(`Deleted ${images.length} images: ${images.join(', ') || 'none'}`);
-          const remaining = await remainingFunctions(token, projectId);
-          console.log(remaining.length === 0 ? 'No fixture functions remain.' : `Fixture functions still deployed: ${remaining.join(', ')}`);
-        } catch (error) {
-          console.error(`Cleanup verification failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
+    const keptDeployed = keepDeployed && deployAttempted;
+    if (keptDeployed) {
+      console.log(`--keep-deployed: run ${runId} stays deployed, and ${STATE_PATH} makes the next start clean it up.`);
+    } else if (deployAttempted) {
+      const cleaned = await cleanUp(state, deployEnv, channelAttempted);
+      if (cleaned) clearCaptureState(STATE_PATH);
+      else console.error(`Fixture functions remain; ${STATE_PATH} is kept so the next start cleans up run ${runId}.`);
     }
     await deleteApp(app).catch(() => undefined);
     if (!completed) console.error(`Capture failed for run ${runId}; cleanup was attempted.`);
