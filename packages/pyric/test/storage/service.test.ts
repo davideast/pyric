@@ -29,7 +29,7 @@ function uniqueDbName(label: string): string {
 }
 
 describe('getStorageSandbox', () => {
-  it('getStorage accepts a sandbox app and ignores Firebase bucket routing', () => {
+  it('getStorage opens the bucket a URL names, apart from the default bucket (#1313)', () => {
     const sandbox = initializeSandbox({});
     const app = createAppForSandbox(
       sandbox,
@@ -38,7 +38,8 @@ describe('getStorageSandbox', () => {
     );
     const storage = getStorage(app, 'gs://production-bucket');
 
-    expect(targetOf(storage).bucket).toBe('pyric-default');
+    expect(targetOf(storage).bucket).toBe('production-bucket');
+    expect(targetOf(getStorage(app)).bucket).toBe('pyric-default');
   });
 
   it('accepts a bare Sandbox and wires up an anonymous context', () => {
