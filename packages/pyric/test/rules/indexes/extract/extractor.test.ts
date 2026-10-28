@@ -544,3 +544,35 @@ describe('extractIndexes — Layer 2.5 annotation propagation', () => {
     expect(budget!.message).toContain('1');
   });
 });
+
+describe('extractIndexes — dynamic collection id', () => {
+  const twoConstraints = `
+        q = query(q, where("status", "==", s));
+        q = query(q, orderBy("createdAt", "desc"));
+        return q;`;
+
+  test('a query whose collection id is dynamic emits no index and warns once', () => {
+    const data = extract(`
+      function listChildren(parentId, childCollection) {
+        let q = query(collection(db, "parents", parentId, childCollection));${twoConstraints}
+      }
+    `);
+    expect(data.config.indexes).toEqual([]);
+    expect(data.signals.map(s => s.collectionGroup)).not.toContain('{*}');
+    const skipped = data.warnings.filter(w => w.code === 'dynamic-collection-id');
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].message).toContain('index for a wildcard collection id skipped: name the collection');
+    expect(skipped[0].message).toContain('listChildren');
+  });
+
+  test('a literal collection id under a dynamic parent still emits its index', () => {
+    const data = extract(`
+      function listPosts(uid) {
+        let q = query(collection(db, "users", uid, "posts"));${twoConstraints}
+      }
+    `);
+    expect(data.config.indexes).toHaveLength(1);
+    expect(data.config.indexes[0].collectionGroup).toBe('posts');
+    expect(data.warnings.filter(w => w.code === 'dynamic-collection-id')).toEqual([]);
+  });
+});

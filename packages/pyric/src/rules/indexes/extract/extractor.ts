@@ -8,7 +8,7 @@
  *   - `signals` — per-collection over-shoot hints the agent layer can
  *     act on (Layer 2: add `@firestore-mutex` annotations).
  *   - `warnings` — per-file diagnostics (partial-base, unknown-callee,
- *     dynamic-arg).
+ *     dynamic-arg, dynamic-collection-id).
  */
 import ts from 'typescript';
 import { iterFunctionBodies, parseSource } from './ast.js';
@@ -16,6 +16,7 @@ import { collectAnnotations } from './annotation-collect.js';
 import { scanFunctionBody, type CallResolver, type ResolvedCall } from './dataflow.js';
 import { enumerateShapes, pruneByAnnotations } from './enumerate.js';
 import { needsCompositeIndex, shapeToIndexEntry, indexEntryKey } from './composite.js';
+import { hasDynamicCollectionId } from './classify.js';
 import type {
   AnnotationApplied,
   ExtractOptions,
@@ -116,6 +117,14 @@ export function extractIndexes(options: ExtractOptions): ExtractResult {
           file: file.name,
           code: 'partial-base',
           message: `Function '${fnName}' uses '${queryVarName}' but no INIT (\`query(collection(...))\`) found in the same body or any same-file caller — base may live in another module (cross-file following NYI).`,
+        });
+        continue;
+      }
+      if (hasDynamicCollectionId(decl.collectionPath)) {
+        warnings.push({
+          file: file.name,
+          code: 'dynamic-collection-id',
+          message: `Function '${fnName}' queries '${decl.collectionPath}': index for a wildcard collection id skipped: name the collection.`,
         });
         continue;
       }
