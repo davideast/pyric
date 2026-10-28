@@ -12,6 +12,7 @@ import {
 describe('firestoreRulesConfig', () => {
   test('without a firestore key, firestore.rules goes to (default), unconfigured', () => {
     expect(firestoreRulesConfig(undefined)).toEqual({
+      form: 'absent',
       databases: [{ database: '(default)', rulesFile: 'firestore.rules', label: 'firebase.json', configured: false }],
       unresolved: [],
     });
@@ -24,10 +25,18 @@ describe('firestoreRulesConfig', () => {
     ]);
   });
 
-  test('an object with a database deploys to that database', () => {
+  test('an object with a named database deploys to it, and pyric still serves its rules on (default)', () => {
     const config = firestoreRulesConfig({ database: 'reports', rules: 'reports.rules' });
     expect(config.databases.map((entry) => entry.database)).toEqual(['reports']);
-    expect(defaultFirestoreDatabase(config)).toBeUndefined();
+    // Pyric enforced this file on (default) before it modeled named databases; it keeps doing so.
+    expect(defaultFirestoreDatabase(config)?.rulesFile).toBe('reports.rules');
+    expect(unservedFirestoreDatabaseWarnings(config)).toEqual([
+      'firebase.json deploys reports.rules to Firestore database "reports". Pyric serves only (default) for now, so it enforces reports.rules on (default), and getFirestore(app, "reports") reads and writes (default). See https://github.com/davideast/pyric/issues/1314.',
+    ]);
+  });
+
+  test('an object with a named database and no rules keeps the firestore.rules fallback', () => {
+    expect(defaultFirestoreDatabase(firestoreRulesConfig({ database: 'reports' }))?.rulesFile).toBe('firestore.rules');
   });
 
   test('an object that names no rules keeps the firestore.rules fallback for (default)', () => {
@@ -97,6 +106,22 @@ describe('firestoreRulesConfig', () => {
       { database: '(default)', rules: 'a.rules' },
       { database: '(default)', rules: 'b.rules' },
     ])).toThrow('firebase.json deploys two rules files to Firestore database "(default)": a.rules from firebase.json firestore[0] and b.rules from firebase.json firestore[1].');
+  });
+
+  test('a pyric rules override replaces the rules a target maps to (default), without a second entry', () => {
+    const config = firestoreRulesConfig([
+      { target: 'main', rules: 'a.rules' },
+      { pyricRulesOverride: 'firestore.modules.rules' },
+    ], { targetDatabases: (target) => (target === 'main' ? ['(default)'] : undefined) });
+    expect(config.databases).toEqual([
+      { database: '(default)', rulesFile: 'firestore.modules.rules', label: 'the pyric rules override', configured: true },
+    ]);
+  });
+
+  test('a pyric rules override adds (default) when the array deploys nothing to it', () => {
+    const config = firestoreRulesConfig([{ database: 'reports', rules: 'r.rules' }, { pyricRulesOverride: 'o.rules' }]);
+    expect(defaultFirestoreDatabase(config)?.rulesFile).toBe('o.rules');
+    expect(config.databases.map((entry) => entry.database)).toEqual(['reports', '(default)']);
   });
 
   test('the same rules file twice for one database is one deploy', () => {

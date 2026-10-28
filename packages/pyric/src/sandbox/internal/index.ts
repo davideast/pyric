@@ -223,6 +223,7 @@ export {
   DEFAULT_FIRESTORE_DATABASE,
   DEFAULT_FIRESTORE_RULES_FILE,
   FIRESTORE_NAMED_DATABASES_ISSUE,
+  FIRESTORE_RULES_OVERRIDE_KEY,
   defaultFirestoreDatabase,
   firestoreRulesConfig,
   unservedFirestoreDatabaseWarnings,

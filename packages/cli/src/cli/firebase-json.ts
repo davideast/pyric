@@ -49,23 +49,27 @@ export interface FirestoreConfig {
 export interface FirestoreConfigEntry extends FirestoreConfig {
   /** A deploy target that `.firebaserc` maps to database ids. Wins over `database`. */
   target?: string;
+  /**
+   * Pyric's own key, never in a `firebase.json`: the rules file a Vite or
+   * `pyric.config` override serves on `(default)`. See `withDefaultFirestoreRules`.
+   */
+  pyricRulesOverride?: string;
 }
 
 /**
- * `firestore` with `rules` deployed to `(default)` in place of what it names
- * there: an object gets the `rules` key, and an array's `(default)` entries
- * get it, or a `(default)` entry is added when it has none.
+ * `firestore` with `rules` served on `(default)` in place of what it names
+ * there. An object gets the `rules` key. An array gets a
+ * `{ pyricRulesOverride: rules }` entry, which `firestoreRulesConfig` applies
+ * after it resolves the array, so the override reaches `(default)` however
+ * the array deploys to it, through `database` or a `.firebaserc` target.
  */
 export function withDefaultFirestoreRules(
   firestore: FirebaseJson['firestore'],
   rules: string,
 ): FirestoreConfig | FirestoreConfigEntry[] {
   if (!Array.isArray(firestore)) return { ...firestore, rules };
-  const isDefaultEntry = (entry: FirestoreConfigEntry): boolean =>
-    entry.target === undefined && entry.database === '(default)';
-  const hasDefaultEntry = firestore.some(isDefaultEntry);
-  if (!hasDefaultEntry) return [...firestore, { database: '(default)', rules }];
-  return firestore.map((entry) => (isDefaultEntry(entry) ? { ...entry, rules } : entry));
+  const entries = firestore.filter((entry) => entry.pyricRulesOverride === undefined);
+  return [...entries, { pyricRulesOverride: rules }];
 }
 
 /** The single-object `database` form: `rules` deploys to the default instance. */

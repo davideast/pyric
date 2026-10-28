@@ -14,6 +14,8 @@ import { join } from 'node:path';
 import { firestoreRules, serverTimestamp, type FirestoreCase } from 'pyric/rules';
 import { resolveModules } from 'pyric/rules/internal/node';
 import { firestoreRulesPath, loadProjectRules, prepareRulesSource, prepareStorageRulesSource } from '../../src/serve/rules.js';
+import { resolveViteRulesConfig } from '../../src/serve/vite-rules-source.js';
+import { withDefaultFirestoreRules } from '../../src/cli/firebase-json.js';
 
 const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
 const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'cli', 'index.ts');
@@ -163,6 +165,26 @@ service cloud.firestore {
     expect(loaded.warnings).toEqual([]);
   });
 
+  test('a Vite rules override reaches (default) through a .firebaserc target, with no second entry', async () => {
+    const dir = arrayProject();
+    writeFileSync(join(dir, 'firestore.modules.rules'), DEFAULT_RULES);
+    writeFileSync(join(dir, '.firebaserc'), JSON.stringify({
+      projects: { default: 'demo' },
+      targets: { demo: { firestore: { main: ['(default)'] } } },
+    }));
+    const config = resolveViteRulesConfig(dir, undefined, { firestore: [{ target: 'main', rules: 'reports.rules' }] });
+    const loaded = await loadProjectRules(dir, config, { projectId: 'demo' });
+    expect(loaded.sourcePath).toBe(join(dir, 'firestore.modules.rules'));
+    expect(loaded.warnings).toEqual([]);
+  });
+
+  test('a pyric.config rules override replaces the (default) entry of an array', async () => {
+    const dir = arrayProject();
+    writeFileSync(join(dir, 'override.rules'), DEFAULT_RULES);
+    const config = { firestore: withDefaultFirestoreRules(ARRAY_CONFIG.firestore, 'override.rules') };
+    expect((await loadProjectRules(dir, config)).sourcePath).toBe(join(dir, 'override.rules'));
+  });
+
   test('an entry with neither target nor database refuses to load, naming the entry', async () => {
     await expect(loadProjectRules(arrayProject(), { firestore: [{ rules: 'firestore.default.rules' }] })).rejects.toThrow(
       'pyric sandbox: firebase.json firestore[0]: Must supply either "target" or "databaseId" in firestore config',
@@ -173,5 +195,39 @@ service cloud.firestore {
     await expect(loadProjectRules(arrayProject(), { firestore: [{ database: '(default)', rules: 'gone.rules' }] })).rejects.toThrow(
       /firebase\.json firestore\[0\] points Firestore rules at .*gone\.rules, but it does not exist/,
     );
+  });
+});
+
+/**
+ * An object `firestore` that names a database other than `(default)`: pyric
+ * enforced its rules on `(default)` before it modeled named databases, and it
+ * keeps doing so, with a warning, until the named-database work (#1316 on).
+ */
+describe('a firebase.json whose firestore object names a database', () => {
+  const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /locked/{id} { allow read: if true; allow write: if false; }
+  }
+}
+`;
+
+  test('the dev server serves the object rules on (default) and warns', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-firestore-object-'));
+    writeFileSync(join(dir, 'r.rules'), RULES);
+    const loaded = await loadProjectRules(dir, { firestore: { database: 'reports', rules: 'r.rules' } });
+    expect(loaded.sourcePath).toBe(join(dir, 'r.rules'));
+    expect(loaded.rules).toBe(RULES);
+    expect(loaded.warnings).toEqual([
+      'firebase.json deploys r.rules to Firestore database "reports". Pyric serves only (default) for now, so it enforces r.rules on (default), and getFirestore(app, "reports") reads and writes (default). See https://github.com/davideast/pyric/issues/1314.',
+    ]);
+  });
+
+  test('a Vite rules override on that object takes effect', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-firestore-object-'));
+    writeFileSync(join(dir, 'r.rules'), RULES);
+    writeFileSync(join(dir, 'firestore.modules.rules'), RULES);
+    const config = resolveViteRulesConfig(dir, undefined, { firestore: { database: 'reports', rules: 'r.rules' } });
+    expect((await loadProjectRules(dir, config)).sourcePath).toBe(join(dir, 'firestore.modules.rules'));
   });
 });
