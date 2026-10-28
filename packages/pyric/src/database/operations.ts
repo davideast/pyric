@@ -111,6 +111,9 @@ export function setWithPriority(
  *
  * Both behaviors are sandbox-implemented per the RtdbBackend's
  * `update` method (`rtdb-modular`-spec atomic claim, matrix row #23).
+ *
+ * Applies when called, as `set()` does, so a client's writes land in call
+ * order (RT-1, #1359; upstream applies each write to its local view at once).
  */
 export function update(
   r: DatabaseReference,
@@ -119,17 +122,11 @@ export function update(
   const target = targetOf(r as unknown as object);
   validateUpdatePaths(values);
   return runSdkWrite(beginDatabaseActivity(r, 'update', 'operation'), () => {
-    return Promise.resolve().then(() => {
-      if (target.admin) {
-        target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
-      } else {
-        target.backend.update(
-          authFor(target),
-          r._path,
-          values as Record<string, JsonValue>,
-        );
-      }
-    });
+    if (target.admin) {
+      target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
+    } else {
+      target.backend.update(authFor(target), r._path, values as Record<string, JsonValue>);
+    }
   });
 }
 
