@@ -121,11 +121,23 @@ export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
 }
 
 /**
- * `npm install` as the runner runs it: quiet, with the shared cache. Offline
- * first by default; `online` revalidates the cached package listings.
+ * How long npm waits on one registry request before it fails it. npm's default
+ * is 5 minutes, longer than an install gets here. With this, a stalled request
+ * at least ends its wait and shows in npm's debug log; npm retries it twice
+ * with backoff, so a request that stalls every time can still outlast an
+ * attempt (#1476).
  */
-export function npmInstallArgs(npmCache: string, metadata: 'offline' | 'online' = 'offline'): string[] {
-  return ['install', '--no-audit', '--no-fund', '--loglevel=error', `--prefer-${metadata}`, '--cache', npmCache];
+const FETCH_TIMEOUT_MS = 60_000;
+
+/**
+ * `npm install` as the runner runs it: quiet, with the shared cache. Offline
+ * first by default; `online` revalidates the cached package listings. With
+ * `logsDir`, npm writes its debug log there, so a hang can be read back.
+ */
+export function npmInstallArgs(npmCache: string, metadata: 'offline' | 'online' = 'offline', logsDir?: string): string[] {
+  const quiet = ['--no-audit', '--no-fund', '--loglevel=error', '--progress=false', '--update-notifier=false'];
+  const logs = logsDir ? [`--logs-dir=${logsDir}`] : [];
+  return ['install', ...quiet, `--fetch-timeout=${FETCH_TIMEOUT_MS}`, `--prefer-${metadata}`, '--cache', npmCache, ...logs];
 }
 
 /** npm's codes for a version range the cached package listing has no match for. */
@@ -143,10 +155,70 @@ export function shouldRetryOnline(result: CommandResult): boolean {
 }
 
 /** Run `npm install` offline first, and once more with `--prefer-online` when stale metadata failed it. */
-export async function npmInstall(npmCache: string, run: (args: string[]) => Promise<CommandResult>): Promise<CommandResult> {
-  const first = await run(npmInstallArgs(npmCache));
+export async function npmInstall<R extends CommandResult>(
+  npmCache: string,
+  run: (args: string[]) => Promise<R>,
+  logsDir?: string,
+): Promise<R> {
+  const first = await run(npmInstallArgs(npmCache, 'offline', logsDir));
   if (!shouldRetryOnline(first)) return first;
   const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
-  const second = await run(npmInstallArgs(npmCache, 'online'));
-  return { code: second.code, output: `${first.output}${note}${second.output}` };
+  const second = await run(npmInstallArgs(npmCache, 'online', logsDir));
+  return { ...second, output: `${first.output}${note}${second.output}` };
+}
+
+/**
+ * How long one nested `npm install` (`app.installProject`) gets before the
+ * runner calls it hung. On CI a passing one took 52 to 71 s; a hung one never
+ * finished in 240 s (#1476). The app's 300 s limit covers its whole scenario,
+ * so two hung attempts (220 s), their stops (up to 10 s each) and the
+ * node_modules removal leave about 50 s for the scenario's other steps, and a
+ * second hang still ends as an install error, not the app's timeout.
+ */
+export const NESTED_INSTALL_ATTEMPT_MS = 110_000;
+
+export interface TimedResult extends CommandResult {
+  /** True when the runner stopped the command at its time limit. */
+  timedOut: boolean;
+}
+
+function outcome(result: TimedResult): string {
+  return result.timedOut ? 'timed out' : `exited ${result.code}`;
+}
+
+function secondsSince(started: number): number {
+  return Math.round((performance.now() - started) / 1000);
+}
+
+/**
+ * Runs `attempt`, and once more after `reset` when it timed out. This is an
+ * infrastructure retry: an attempt that exits, with any code, is never run
+ * again. `report` gets one line every run, retried or not, so CI logs can
+ * count how often the retry happens and what it costs (#1485).
+ */
+export async function retryOnceOnTimeout(
+  attempt: () => Promise<TimedResult>,
+  options: { what: string; reset: () => Promise<void>; report: (line: string) => void },
+): Promise<TimedResult> {
+  const started = performance.now();
+  const first = await attempt();
+  if (!first.timedOut) {
+    options.report(`[runner] ${options.what} ${outcome(first)} in ${secondsSince(started)} s, 1 attempt`);
+    return first;
+  }
+  options.report(`[runner] infrastructure retry: ${options.what} timed out after ${secondsSince(started)} s; trying it once more`);
+  await options.reset();
+  const second = await attempt();
+  options.report(`[runner] ${options.what} ${outcome(second)} in ${secondsSince(started)} s, 2 attempts (1 infrastructure retry)`);
+  const note = '\n[runner] infrastructure retry: the attempt above timed out; trying it once more\n';
+  return { ...second, output: `${first.output}${note}${second.output}` };
+}
+
+/** The last `lines` lines of the newest npm debug log in `logsDir`, named, or a note that there is none. */
+export function debugLogTail(logsDir: string, lines: number): string {
+  const logs = existsSync(logsDir) ? readdirSync(logsDir).filter((name) => name.endsWith('.log')).sort() : [];
+  const newest = logs.at(-1);
+  if (!newest) return `[runner] no npm debug log in ${logsDir}\n`;
+  const text = readFileSync(join(logsDir, newest), 'utf8').trimEnd().split('\n').slice(-lines).join('\n');
+  return `[runner] the end of npm's debug log ${newest}:\n${text}\n`;
 }
