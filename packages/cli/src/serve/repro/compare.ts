@@ -11,7 +11,8 @@
  *   replayed values back before comparing. A recorded id bound to two replayed
  *   ids is a divergence.
  * - Times compare equal to times: epoch milliseconds, `{ seconds, nanoseconds }`
- *   timestamps, ISO and HTTP dates, and the `iat`, `exp` and `auth_time` claims.
+ *   timestamps, ISO and HTTP dates, and the `iat`, `exp` and `auth_time` claims,
+ *   also inside a sandbox ID token string, which carries its claims as JSON.
  *
  * Everything else must be equal.
  */
@@ -21,6 +22,8 @@ const TOKEN_SPLIT = /([^A-Za-z0-9_-]+)/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const HTTP_DATE = /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/;
 const TIME_CLAIMS = new Set(['iat', 'exp', 'auth_time']);
+/** A sandbox ID token: `sandbox-id-token-<uid>-<serial>:` and its claims as JSON. */
+const SANDBOX_ID_TOKEN = /^(sandbox-id-token-[^:]*):(\{.*\})$/s;
 export const TIME = '<time>';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -45,6 +48,11 @@ export function normalize(value: unknown): unknown {
   if (typeof value === 'string') {
     const isTime = ISO_DATE.test(value) || HTTP_DATE.test(value) || (/^\d{13}$/.test(value));
     if (isTime) return TIME;
+    const sandboxIdToken = SANDBOX_ID_TOKEN.exec(value);
+    if (sandboxIdToken !== null) {
+      const claims = normalize(sandboxIdToken[2]);
+      return { sandboxIdToken: sandboxIdToken[1], claims };
+    }
     const mayBeJson = value.startsWith('{') || value.startsWith('[');
     if (mayBeJson) {
       try {
