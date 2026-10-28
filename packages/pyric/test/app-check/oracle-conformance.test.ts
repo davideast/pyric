@@ -124,6 +124,36 @@ const assertions: Record<string, Assertion> = {
     });
   },
 
+  'app-check#initialize-twice-unset-auto-refresh': async () => {
+    const o = obs('app-check-client-initialize-twice-unset-auto-refresh');
+    const unset = {};
+    const off = { isTokenAutoRefreshEnabled: false };
+    const cases = [
+      { key: 'unsetThenFalse', label: 'twice-unset-false', firstOptions: unset, secondOptions: off },
+      { key: 'falseThenUnset', label: 'twice-false-unset', firstOptions: off, secondOptions: unset },
+      { key: 'unsetThenUnset', label: 'twice-unset-unset', firstOptions: unset, secondOptions: unset },
+    ] as const;
+    for (const { key, label, firstOptions, secondOptions } of cases) {
+      const expected = o[key];
+      const app = freshApp(label);
+      const shared = provider();
+      const first = appCheck.initializeAppCheck(app, { provider: shared, ...firstOptions });
+      let second: unknown;
+      const outcome = await rejection(() => {
+        second = appCheck.initializeAppCheck(app, { provider: shared, ...secondOptions });
+      });
+      if (!expected.threw) {
+        expect({ threw: outcome.threw, returnsSameInstance: second === first }).toEqual(expected);
+        continue;
+      }
+      expect(outcome).toEqual({
+        ...expected,
+        message: withAppName(expected.message, expected.customData.appName, app.name),
+        customData: { appName: app.name },
+      });
+    }
+  },
+
   'app-check#providers-construct': async () => {
     const o = obs('app-check-client-debug-get-token');
     let calls = 0;
@@ -176,6 +206,22 @@ const assertions: Record<string, Assertion> = {
     const forced = await appCheck.getToken(handle, true);
     expect(second.token === first.token).toBe(o.secondEqualsFirst);
     expect(forced.token !== first.token).toBe(o.forceRefreshDiffersFromFirst);
+  },
+
+  'app-check#get-token-concurrent': async () => {
+    const o = obs('app-check-client-get-token-concurrent');
+    const handle = appCheck.initializeAppCheck(freshApp('concurrent'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const [firstA, firstB] = await Promise.all([appCheck.getToken(handle), appCheck.getToken(handle)]);
+    const [forcedA, forcedB] = await Promise.all([appCheck.getToken(handle, true), appCheck.getToken(handle, true)]);
+    expect({
+      concurrentFirstShareOneToken: firstB.token === firstA.token,
+      concurrentForcedShareOneToken: forcedB.token === forcedA.token,
+      forcedDiffersFromFirst: forcedA.token !== firstA.token,
+    }).toEqual({
+      concurrentFirstShareOneToken: o.concurrentFirstShareOneToken,
+      concurrentForcedShareOneToken: o.concurrentForcedShareOneToken,
+      forcedDiffersFromFirst: o.forcedDiffersFromFirst,
+    });
   },
 
   'app-check#limited-use-token': async () => {
@@ -290,6 +336,62 @@ const assertions: Record<string, Assertion> = {
   },
 };
 
+describe('concurrent getToken listener calls (unit)', () => {
+  // Production in debug mode never notifies listeners from getToken (row
+  // app-check#on-token-changed-refresh, by design). The sandbox follows the
+  // provider path: one notification per shared exchange.
+  it('notifies a listener once per shared exchange', async () => {
+    const handle = appCheck.initializeAppCheck(freshApp('concurrent-listener'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const seen: string[] = [];
+    const unsubscribe = appCheck.onTokenChanged(handle, (result) => seen.push(result.token));
+    const [first] = await Promise.all([appCheck.getToken(handle), appCheck.getToken(handle)]);
+    await sleep(50);
+    expect(seen).toEqual([first.token]);
+    const [forced] = await Promise.all([appCheck.getToken(handle, true), appCheck.getToken(handle, true)]);
+    await sleep(50);
+    unsubscribe();
+    expect(seen).toEqual([first.token, forced.token]);
+  });
+});
+
+describe('initializeAppCheck auto-refresh and automaticDataCollectionEnabled (unit)', () => {
+  const BLOCKED_WARNING =
+    '`isTokenAutoRefreshEnabled` is true but `automaticDataCollectionEnabled` was set to false during `initializeApp()`. This blocks automatic token refresh.';
+
+  function warningsDuring(operation: () => void): unknown[][] {
+    const original = console.warn;
+    const calls: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      calls.push(args);
+    };
+    try {
+      operation();
+    } finally {
+      console.warn = original;
+    }
+    return calls;
+  }
+
+  it('warns when automaticDataCollectionEnabled: false blocks an explicit true', () => {
+    const app = initializeApp(OPTIONS, { name: 'blocked-refresh', automaticDataCollectionEnabled: false });
+    const calls = warningsDuring(() => appCheck.initializeAppCheck(app, { provider: provider(), isTokenAutoRefreshEnabled: true }));
+    expect(calls.map((args) => args.join(' '))).toEqual([BLOCKED_WARNING]);
+  });
+
+  it('does not warn when auto-refresh is unset, false, or allowed', () => {
+    const blocked = { automaticDataCollectionEnabled: false };
+    const cases = [
+      { settings: blocked, refresh: undefined },
+      { settings: blocked, refresh: false },
+      { settings: { automaticDataCollectionEnabled: true }, refresh: true },
+    ];
+    for (const [index, { settings, refresh }] of cases.entries()) {
+      const app = initializeApp(OPTIONS, { name: `quiet-refresh-${index}`, ...settings });
+      expect(warningsDuring(() => appCheck.initializeAppCheck(app, { provider: provider(), isTokenAutoRefreshEnabled: refresh }))).toEqual([]);
+    }
+  });
+});
+
 const isExpectedGreen = (status: string) => status === 'conforms' || status === 'diverged-documented';
 const clientRows = appCheckRows.filter((row) => row.surface === 'app-check');
 
@@ -311,7 +413,7 @@ describe('oracle conformance (app-check client)', () => {
 
   (isClimb ? it : it.skip)('completeness: every observations/app-check/ capture is asserted (prefix gate)', () => {
     const report = gate.report();
-    expect(report.committed.length).toBe(10);
+    expect(report.committed.length).toBe(12);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });
