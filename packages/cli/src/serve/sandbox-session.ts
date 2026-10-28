@@ -43,6 +43,7 @@ import {
 import { restoredStateCounts, stateForSummary } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
 import { inlineStorage } from './state-objects.js';
+import type { AppPorts } from './app-ports.js';
 import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
 import {
   runProjectFixturesOnRulesReload,
@@ -52,6 +53,8 @@ import {
 export interface SandboxSessionOptions {
   boundHost?: string;
   allowedHosts?: string[];
+  /** The app's ports under `pyric sandbox` (see `NamespaceOptions.appPorts`). */
+  appPorts?: AppPorts;
   flow?: FlowConfig;
   projectDir: string;
   firebaseConfig: FirebaseJson | null;
@@ -424,6 +427,7 @@ export async function createSandboxSession(
     const namespace = createPyricNamespace({
       boundHost: options.boundHost,
       allowedHosts: options.allowedHosts,
+      appPorts: options.appPorts,
       indexes: createIndexConfigStore(options.projectDir),
       thresholds: createThresholdConfigStore(options.projectDir),
       rateCaptures: createRateCaptureStore(options.projectDir),

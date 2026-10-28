@@ -38,6 +38,7 @@ import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
+import { createAppPorts } from '../serve/app-ports.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
 import {
@@ -359,6 +360,9 @@ async function startServeRuntime(opts: {
   }
   const bundleMs = Math.round(performance.now() - t0);
 
+  // `pyric sandbox -- next dev` serves the page from Next's port, so the
+  // bridge and the guarded `/__pyric/*` routes accept the port they learn.
+  const appPorts = createAppPorts(opts.host ?? 'localhost');
   const needsBridge = Boolean(opts.bridge || opts.hosted);
   let bridgeMount: ReturnType<typeof createBridgeMount> | null = null;
   if (needsBridge) {
@@ -368,8 +372,8 @@ async function startServeRuntime(opts: {
         projectKey: opts.cwd,
         disableAuditLog: opts.disableAuditLog,
         upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
-        // `pyric sandbox -- next dev` serves the page from Next's port.
         learnsProxyPorts: true,
+        appPorts,
     });
   }
   const mount = bridgeMount;
@@ -409,6 +413,7 @@ async function startServeRuntime(opts: {
   try {
     session = await createSandboxSession({
       projectDir: opts.cwd,
+      appPorts,
       firebaseConfig: config,
       sdk: { dir: bundle.outDir, workerVersion },
       seedFile: opts.seed,
@@ -464,14 +469,13 @@ async function startServeRuntime(opts: {
   }
   const payload = session.payload;
   const hosted = usesHostedSandbox ? { projectKey: opts.cwd } : undefined;
-  let namespaceHandler: SandboxSession['handle'] = session.handle;
-  if (hasBridge) {
-    namespaceHandler = async (req, res, url) => {
-      const handledByBridge = await mount.handler(req, res, url);
-      if (handledByBridge) return true;
-      return session.handle(req, res, url);
-    };
-  }
+  // Learn before any guard runs: a page's first request may be a guarded write.
+  const namespaceHandler: SandboxSession['handle'] = async (req, res, url) => {
+    appPorts.learn(req);
+    const handledByBridge = hasBridge && await mount.handler(req, res, url);
+    if (handledByBridge) return true;
+    return session.handle(req, res, url);
+  };
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
   try {
     handle = await startStaticServer({
