@@ -4,10 +4,10 @@
   "rowIds": [
     "ai#fncall-round-trip"
   ],
-  "description": "A full function-calling round trip is accepted when the model functionCall turn is threaded back verbatim from a real response, preserving thoughtSignature (see ai-error-fncall-missing-thought-signature for the rejection without it).",
-  "observedAt": "2026-07-10T01:47:16.974Z",
+  "description": "A full function-calling round trip is accepted when the model functionCall turn is threaded back verbatim from a real response, preserving thoughtSignature (see ai-error-fncall-missing-thought-signature for the rejection without it). The model turn is the one in ai-function-call-shape, and the function response rides under role user (see ai-error-function-role-refused).",
+  "observedAt": "2026-10-28T11:41:00.327Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
   "behavior": {
@@ -22,8 +22,8 @@
           "content": {
             "parts": [
               {
-                "text": "The weather in Paris is clear with a temperature of 22°C.",
-                "thoughtSignature": "EjQKMgERTTIPevU90Ul2ojBMEUvswVEQtpH2CCkaYfhCK46N4QViRsL43qnucf+qpsd7e0Nd"
+                "text": "The weather in Paris is currently clear with a temperature of 22°C.",
+                "thoughtSignature": "EmAKXgFpFH0TKfsyrUQz/DxHdVKyVT9LpDK4DL4xqptWM0Ifk5lrSCDcq84uYM3M/gc7JOa3GYW4JZrxaE/n62OZogfTCFhnsQd8oW+LHFuoYu02Gn1kpC78qOqYEkrRESk="
               }
             ],
             "role": "model"
@@ -34,8 +34,8 @@
       ],
       "usageMetadata": {
         "promptTokenCount": 89,
-        "candidatesTokenCount": 16,
-        "totalTokenCount": 105,
+        "candidatesTokenCount": 17,
+        "totalTokenCount": 106,
         "promptTokensDetails": [
           {
             "modality": "TEXT",
@@ -44,8 +44,8 @@
         ],
         "serviceTier": "standard"
       },
-      "modelVersion": "gemini-3.1-flash-lite",
-      "responseId": "JE9QavatJPON_PUP2quBsQw"
+      "modelVersion": "gemini-3.5-flash-lite",
+      "responseId": "S9_hatjGHqixsOIP26Sl8QQ"
     }
   }
 }

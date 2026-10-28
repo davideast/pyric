@@ -29,11 +29,17 @@
  * firebase-admin createToken. Error-envelope probes send it too, so they reach
  * the error they pin. The token is never printed or written.
  *
+ * Function responses ride under role `user`: production refuses the role
+ * `function` that @firebase/ai 2.12.0's ChatSession sends (#1410), and
+ * `ai-error-function-role-refused` pins that refusal.
+ *
  * Requires: PYRIC_AI_FIREBASE_CONFIG (single-line JSON web app config) and
  * PYRIC_ORACLE_SA_PATH (service account for the same project).
- * Run: bun --env-file=<repo>/.env packages/conformance/src/ai-probes.ts
+ * Run: bun --env-file=<repo>/.env packages/conformance/src/ai-probes.ts [--only=<name>,<name>]
+ * `--only` runs just the named probes, so a re-capture spends only the
+ * requests it needs.
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cert, initializeApp } from 'firebase-admin/app';
@@ -145,8 +151,13 @@ function errorFacts(r: RawResult) {
   };
 }
 
+const onlyArg = process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length);
+const onlyProbes = onlyArg ? new Set(onlyArg.split(',').filter((name) => name.length > 0)) : null;
+
 let failures = 0;
 async function probe(name: string, fn: () => Promise<void>): Promise<void> {
+  if (onlyProbes && !onlyProbes.has(name)) return;
+  onlyProbes?.delete(name);
   try {
     await fn();
   } catch (e) {
@@ -290,6 +301,19 @@ await probe('ai-error-bad-role', async () => {
   );
 });
 
+// The model turn from ai-function-call-shape: this run's response when that
+// probe ran, otherwise the committed capture. Its request is the same one the
+// round trip needs first, so threading it back saves a request per run.
+let capturedFunctionCallTurn: unknown = null;
+
+function functionCallTurn(): unknown {
+  if (capturedFunctionCallTurn !== null) return capturedFunctionCallTurn;
+  const capture = JSON.parse(readFileSync(join(OBS_DIR, 'ai-function-call-shape.json'), 'utf8')) as {
+    behavior: { raw: { candidates: { content: unknown }[] } };
+  };
+  return capture.behavior.raw.candidates[0]!.content;
+}
+
 // 9. Function calling: the functionCall part shape under forced tool use.
 await probe('ai-function-call-shape', async () => {
   const r = await post(`models/${MODEL}:generateContent`, {
@@ -316,6 +340,7 @@ await probe('ai-function-call-shape', async () => {
   const candidate = (body.candidates as Record<string, unknown>[])[0]!;
   const parts = (candidate.content as { parts: Record<string, unknown>[] }).parts;
   const fcPart = parts.find((p) => 'functionCall' in p) as { functionCall?: { name?: string; args?: unknown } };
+  capturedFunctionCallTurn = candidate.content;
   writeObservation(
     'ai-function-call-shape',
     'functionCall part shape under toolConfig mode ANY. The fact that args arrives as a parsed JSON object (not a string) is the load-bearing difference from OpenAI-shaped tool_calls.',
@@ -350,22 +375,24 @@ const WEATHER_TOOLS = [
   },
 ];
 
+const functionResponseTurn = (role: 'user' | 'function') => ({
+  role,
+  parts: [{ functionResponse: { name: 'get_weather', response: { temperature: '22C', sky: 'clear' } } }],
+});
+
 await probe('ai-error-fncall-missing-thought-signature', async () => {
   const r = await post(`models/${MODEL}:generateContent`, {
     contents: [
       userTurn('What is the weather in Paris?'),
       { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }] },
-      {
-        role: 'function',
-        parts: [{ functionResponse: { name: 'get_weather', response: { temperature: '22C', sky: 'clear' } } }],
-      },
+      functionResponseTurn('user'),
     ],
     tools: WEATHER_TOOLS,
   });
   if (r.status === 200) throw new Error('expected an error');
   writeObservation(
     'ai-error-fncall-missing-thought-signature',
-    'A function-calling round trip whose model functionCall turn lacks thoughtSignature is REJECTED 400 INVALID_ARGUMENT. No SDK typing or reference doc states this; the error message cites ai.google.dev/gemini-api/docs/thought-signatures and names the call as `default_api:get_weather`. A mirror and any translation engine must mint and thread thought signatures through tool round trips.',
+    'A function-calling round trip whose model functionCall turn lacks thoughtSignature is REJECTED 400 INVALID_ARGUMENT. The function response rides under role user, because production refuses role function (ai-error-function-role-refused) before it checks the signature. No SDK typing or reference doc states this; the error message cites ai.google.dev/gemini-api/docs/thought-signatures and names the call as `default_api:get_weather`. A mirror and any translation engine must mint and thread thought signatures through tool round trips.',
     { ...errorFacts(r), raw: r.body },
   );
 });
@@ -373,23 +400,9 @@ await probe('ai-error-fncall-missing-thought-signature', async () => {
 // 10b. Function response round: accepted when the model turn is threaded
 // verbatim from a real response (thoughtSignature preserved).
 await probe('ai-function-response-round', async () => {
-  const first = await post(`models/${MODEL}:generateContent`, {
-    contents: [userTurn('What is the weather in Paris?')],
-    tools: WEATHER_TOOLS,
-    toolConfig: { functionCallingConfig: { mode: 'ANY' } },
-  });
-  if (first.status !== 200) throw new Error(`setup call failed: ${first.status}`);
-  const firstBody = first.body as Record<string, unknown>;
-  const modelTurn = ((firstBody.candidates as Record<string, unknown>[])[0]!).content;
+  const modelTurn = functionCallTurn();
   const r = await post(`models/${MODEL}:generateContent`, {
-    contents: [
-      userTurn('What is the weather in Paris?'),
-      modelTurn,
-      {
-        role: 'function',
-        parts: [{ functionResponse: { name: 'get_weather', response: { temperature: '22C', sky: 'clear' } } }],
-      },
-    ],
+    contents: [userTurn('What is the weather in Paris?'), modelTurn, functionResponseTurn('user')],
     tools: WEATHER_TOOLS,
   });
   if (r.status !== 200) throw new Error(`expected 200, got ${r.status}: ${r.text}`);
@@ -398,7 +411,7 @@ await probe('ai-function-response-round', async () => {
   const parts = (candidate.content as { parts: Record<string, unknown>[] }).parts;
   writeObservation(
     'ai-function-response-round',
-    'A full function-calling round trip is accepted when the model functionCall turn is threaded back verbatim from a real response, preserving thoughtSignature (see ai-error-fncall-missing-thought-signature for the rejection without it).',
+    'A full function-calling round trip is accepted when the model functionCall turn is threaded back verbatim from a real response, preserving thoughtSignature (see ai-error-fncall-missing-thought-signature for the rejection without it). The model turn is the one in ai-function-call-shape, and the function response rides under role user (see ai-error-function-role-refused).',
     {
       httpStatus: r.status,
       finishReason: candidate.finishReason,
@@ -407,6 +420,21 @@ await probe('ai-function-response-round', async () => {
       threadedModelTurnHadThoughtSignature: JSON.stringify(modelTurn).includes('thoughtSignature'),
       raw: body,
     },
+  );
+});
+
+// 10c. The same round trip with the function response under role `function`,
+// the role @firebase/ai 2.12.0's ChatSession sends: production refuses it.
+await probe('ai-error-function-role-refused', async () => {
+  const r = await post(`models/${MODEL}:generateContent`, {
+    contents: [userTurn('What is the weather in Paris?'), functionCallTurn(), functionResponseTurn('function')],
+    tools: WEATHER_TOOLS,
+  });
+  if (r.status === 200) throw new Error('expected an error');
+  writeObservation(
+    'ai-error-function-role-refused',
+    'The accepted round trip of ai-function-response-round, with the function response under role function instead of user, is refused 400 INVALID_ARGUMENT. @firebase/ai 2.12.0 ChatSession sends role function for function responses, so a real SDK chat with tools fails here. The message names the refused role and lists a longer role vocabulary than ai-error-bad-role.',
+    { ...errorFacts(r), raw: r.body },
   );
 });
 
@@ -487,5 +515,9 @@ await probe('ai-system-instruction-accepted', async () => {
   );
 });
 
+for (const unknown of onlyProbes ?? []) {
+  failures++;
+  console.error(`✗ ${unknown}: no probe has that name`);
+}
 console.log(failures > 0 ? `\n${failures} probe(s) failed` : '\nall probes captured');
 process.exit(failures > 0 ? 1 : 0);
