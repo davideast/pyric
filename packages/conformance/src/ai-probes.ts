@@ -24,25 +24,58 @@
  * rowIds are empty: the ai surface is pre-admission (climbing under CDD,
  * map #92); registry rows land at admission (#100) and cite these captures.
  *
- * Requires: PYRIC_AI_FIREBASE_CONFIG (single-line JSON web app config).
+ * App Check: AI Logic on the oracle project answers 403 to any request without
+ * a valid App Check token (#1199), so every request carries one minted with
+ * firebase-admin createToken. Error-envelope probes send it too, so they reach
+ * the error they pin. The token is never printed or written.
+ *
+ * Requires: PYRIC_AI_FIREBASE_CONFIG (single-line JSON web app config) and
+ * PYRIC_ORACLE_SA_PATH (service account for the same project).
  * Run: bun --env-file=<repo>/.env packages/conformance/src/ai-probes.ts
  */
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cert, initializeApp } from 'firebase-admin/app';
+import { getAppCheck } from 'firebase-admin/app-check';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { resolveServiceAccount } from './storage-stdlib-real-api.ts';
+import { mintWithRetry } from './capture/app-check/mint.ts';
+import { aiLogicHeaders, tokenNeedsRemint, type MintedToken } from './capture/ai/request-headers.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // ai-* observations belong to the 'ai' surface.
 const OBS_DIR = join(HERE, '..', 'observations', 'ai');
 
 const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG;
-if (!rawConfig) {
-  console.error('✗ PYRIC_AI_FIREBASE_CONFIG is not set.');
+const serviceAccountPath = process.env.PYRIC_ORACLE_SA_PATH;
+if (!rawConfig || !serviceAccountPath) {
+  console.error('✗ PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH are required; nothing was run.');
   process.exit(1);
 }
-const config = JSON.parse(rawConfig) as { apiKey: string; projectId: string };
-const { apiKey, projectId } = config;
+const config = JSON.parse(rawConfig) as { apiKey: string; appId: string; projectId: string };
+const { apiKey, appId, projectId } = config;
+const serviceAccount = resolveServiceAccount(serviceAccountPath);
+if (serviceAccount.project_id !== projectId) {
+  console.error('✗ PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH name different projects; nothing was run.');
+  process.exit(1);
+}
+
+const adminApp = initializeApp(
+  { credential: cert(serviceAccount as Parameters<typeof cert>[0]), projectId },
+  `ai-probes-${Date.now().toString(36)}`,
+);
+const appCheck = getAppCheck(adminApp);
+let current: (MintedToken & { token: string }) | null = null;
+
+/** The App Check token for the next request, minted again near expiry. */
+async function appCheckToken(): Promise<string> {
+  if (current && !tokenNeedsRemint(current, Date.now())) return current.token;
+  const mintedAtMs = Date.now();
+  const minted = await mintWithRetry(appCheck, appId);
+  current = { token: minted.token, ttlMillis: minted.ttlMillis, mintedAtMs };
+  return current.token;
+}
 
 const fbSdkVersion = resolvedFirebaseVersion();
 
@@ -59,7 +92,7 @@ interface RawResult {
 async function post(path: string, payload: unknown, overrideKey?: string): Promise<RawResult> {
   const res = await fetch(`${BASE}/${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': overrideKey ?? apiKey },
+    headers: aiLogicHeaders(overrideKey ?? apiKey, await appCheckToken()),
     body: JSON.stringify(payload),
   });
   const text = await res.text();
