@@ -27,7 +27,12 @@ export interface FirebaseTools {
 }
 
 function readWorkspaceManifest(): FirebaseToolsManifest & { dir: string } {
-  const manifestPath = createRequire(FIREBASE_TOOLS_OWNER).resolve('firebase-tools/package.json');
+  let manifestPath: string;
+  try {
+    manifestPath = createRequire(FIREBASE_TOOLS_OWNER).resolve('firebase-tools/package.json');
+  } catch {
+    throw new Error('firebase-tools is not installed in the workspace (packages/playground); run bun install at the repository root.');
+  }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as FirebaseToolsManifest;
   return { ...manifest, dir: dirname(manifestPath) };
 }

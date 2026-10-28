@@ -48,10 +48,18 @@ describe('deployOutcome', () => {
 });
 
 describe('resolveFirebaseTools', () => {
-  it('resolves the workspace install at the version the rows cite', () => {
-    const tools = resolveFirebaseTools();
-    expect(tools.version).toBe(FIREBASE_TOOLS_VERSION);
-    expect(tools.bin).toEndWith(join('lib', 'bin', 'firebase.js'));
+  // The default reader resolves packages/playground's install, which CI's
+  // conformance job does not install, so these cases inject the manifest.
+  it('runs the bin script of the pinned version', () => {
+    const tools = resolveFirebaseTools(() => ({
+      version: FIREBASE_TOOLS_VERSION,
+      bin: { firebase: './lib/bin/firebase.js' },
+      dir: join('/workspace', 'node_modules', 'firebase-tools'),
+    }));
+    expect(tools).toEqual({
+      version: FIREBASE_TOOLS_VERSION,
+      bin: join('/workspace', 'node_modules', 'firebase-tools', 'lib', 'bin', 'firebase.js'),
+    });
   });
 
   it('refuses another version', () => {
