@@ -12,6 +12,10 @@
  * confirmed throws an error that names the release and the ruleset to restore
  * by hand, so the process exits non-zero instead of leaving the project's rules
  * modified without notice.
+ *
+ * RTDB rules live on the database itself, not in a Rules API release.
+ * `deployRtdb` records the database's rules source verbatim before it writes,
+ * and `restoreAll` writes that source back and reads it back to confirm it.
  */
 import { RequestBudget } from './storage-stdlib-real-budget.ts';
 import { restoreRulesRelease } from './storage-stdlib-real-rules.ts';
@@ -19,6 +23,66 @@ import { restoreRulesRelease } from './storage-stdlib-real-rules.ts';
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
 export type OracleRulesOutcome = 'fresh' | 'merged' | 'already-configured';
+
+/** One RTDB instance's rules endpoint and the token source it accepts. */
+export interface OracleRtdbRulesTarget {
+  /** The database URL, such as `https://<instance>.firebaseio.com`. */
+  databaseUrl: string;
+  /**
+   * Returns a token with the `firebase.database` and `userinfo.email` scopes,
+   * which the rules endpoint requires. Called again when the restore starts.
+   */
+  accessToken: () => Promise<string>;
+}
+
+/** The RTDB target for one database. */
+export function rtdbOracleTarget(databaseUrl: string, accessToken: () => Promise<string>): OracleRtdbRulesTarget {
+  return { databaseUrl, accessToken };
+}
+
+const ORACLE_RTDB_NAMESPACE_KEY = 'pyric_oracle';
+
+// Grants the harness read and write under `/pyric_oracle/*`. The `.indexOn`
+// at `$run/$probe/list` lets the query probes (orderByChild, equalTo) run:
+// RTDB rejects queries on unindexed fields. The indexed fields are the union of
+// what the modular-SDK query probes use.
+const ORACLE_RTDB_BLOCK = {
+  '.read': 'auth != null',
+  '.write': 'auth != null',
+  $run: {
+    $probe: {
+      list: {
+        '.indexOn': ['pos', 'group'],
+      },
+    },
+  },
+};
+
+type RtdbRulesMerge = { outcome: 'already-configured' } | { outcome: 'fresh' | 'merged'; next: string };
+
+/**
+ * Merge the oracle block into an RTDB rules source. Every other top-level key
+ * is kept. A block whose shape has drifted from `ORACLE_RTDB_BLOCK` is
+ * replaced, so a new indexed field is deployed on the next run.
+ */
+export function mergeOracleRtdbRules(source: string): RtdbRulesMerge {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`parse RTDB rules failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const current = (parsed ?? {}) as { rules?: Record<string, unknown> };
+  const currentRules = current.rules ?? {};
+  const existing = currentRules[ORACLE_RTDB_NAMESPACE_KEY];
+  const blockMatches = JSON.stringify(existing) === JSON.stringify(ORACLE_RTDB_BLOCK);
+  if (existing !== undefined && blockMatches) return { outcome: 'already-configured' };
+  const isEmpty = Object.keys(currentRules).length === 0;
+  const rules = isEmpty
+    ? { '.read': false, '.write': false, [ORACLE_RTDB_NAMESPACE_KEY]: ORACLE_RTDB_BLOCK }
+    : { ...currentRules, [ORACLE_RTDB_NAMESPACE_KEY]: ORACLE_RTDB_BLOCK };
+  return { outcome: isEmpty ? 'fresh' : 'merged', next: JSON.stringify({ rules }) };
+}
 
 /** One service's release, the block merged into it, and the source for a release that does not exist yet. */
 export interface OracleRulesTarget {
@@ -102,13 +166,23 @@ export interface OracleRulesSessionOptions {
   fetch?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
-interface Baseline {
+interface ReleaseBaseline {
+  kind: 'release';
   service: OracleRulesTarget['service'];
   releaseName: string;
   releaseUrl: string;
   /** The ruleset the release pointed to before the session wrote, or `null` when the release did not exist. */
   rulesetName: string | null;
 }
+
+interface RtdbBaseline {
+  kind: 'rtdb';
+  target: OracleRtdbRulesTarget;
+  /** The rules source read before the session wrote, byte for byte. */
+  source: string;
+}
+
+type Baseline = ReleaseBaseline | RtdbBaseline;
 
 const RESTORE_ATTEMPTS = 3;
 
@@ -184,7 +258,7 @@ export class OracleRulesSession {
     }
 
     // Recorded before the first write: a deployment that fails partway is still restored.
-    this.baselines.push({ service, releaseName, releaseUrl, rulesetName });
+    this.baselines.push({ kind: 'release', service, releaseName, releaseUrl, rulesetName });
 
     const created = await this.request<{ name: string }>(
       `${RULES_API}/projects/${project}/rulesets`,
@@ -220,6 +294,38 @@ export class OracleRulesSession {
   }
 
   /**
+   * Merge the oracle block into an RTDB instance's rules. The rules source is
+   * recorded before the write, so `restoreAll` puts it back even when the
+   * write fails partway.
+   */
+  async deployRtdb(target: OracleRtdbRulesTarget): Promise<OracleRulesOutcome> {
+    const token = await target.accessToken();
+    const source = await this.readRtdbRules(target.databaseUrl, token);
+    const merge = mergeOracleRtdbRules(source);
+    if (merge.outcome === 'already-configured') return merge.outcome;
+    this.baselines.push({ kind: 'rtdb', target, source });
+    await this.writeRtdbRules(target.databaseUrl, token, merge.next, 'deploy RTDB oracle rules');
+    return merge.outcome;
+  }
+
+  private async readRtdbRules(databaseUrl: string, token: string): Promise<string> {
+    const response = await this.send(rtdbRulesUrl(databaseUrl, token));
+    const text = await response.text();
+    if (!response.ok) throw new Error(`read RTDB rules failed: ${response.status} ${text}`);
+    return text;
+  }
+
+  private async writeRtdbRules(databaseUrl: string, token: string, source: string, label: string): Promise<void> {
+    // RTDB takes a full replacement; `print=silent` drops the echoed body.
+    const response = await this.send(`${rtdbRulesUrl(databaseUrl, token)}&print=silent`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: source,
+    });
+    if (!response.ok) throw new Error(`${label} failed: ${response.status} ${await response.text()}`);
+  }
+
+  /**
    * Point every release this session changed back at the ruleset recorded for
    * it and read each one back. Every release is attempted even when an earlier
    * one fails. Throws one error naming each release that could not be
@@ -238,6 +344,10 @@ export class OracleRulesSession {
     }
     for (const baseline of pending) {
       try {
+        if (baseline.kind === 'rtdb') {
+          await this.restoreRtdb(baseline);
+          continue;
+        }
         if (tokenError) {
           throw new Error(
             `could not obtain an access token: ${tokenError instanceof Error ? tokenError.message : String(tokenError)}`,
@@ -247,12 +357,9 @@ export class OracleRulesSession {
       } catch (error) {
         const cause = error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : '';
         const detail = (error instanceof Error ? error.message : String(error)) + cause;
-        const how = baseline.rulesetName
-          ? `PATCH ${baseline.releaseName} with rulesetName ${baseline.rulesetName}`
-          : `DELETE ${baseline.releaseName}`;
         failures.push(
-          `${baseline.service} (${baseline.releaseName}): ${detail}. ` +
-          `The live rules may still contain the oracle block. Restore by hand: ${how}.`,
+          `${baselineLabel(baseline)}: ${detail}. ` +
+          `The live rules may still contain the oracle block. Restore by hand: ${restoreByHand(baseline)}.`,
         );
       }
     }
@@ -261,7 +368,23 @@ export class OracleRulesSession {
     }
   }
 
-  private async restore(baseline: Baseline): Promise<void> {
+  private async restoreRtdb(baseline: RtdbBaseline): Promise<void> {
+    const { databaseUrl } = baseline.target;
+    const token = await baseline.target.accessToken();
+    for (let attempt = 1; attempt <= RESTORE_ATTEMPTS; attempt += 1) {
+      const isLastAttempt = attempt === RESTORE_ATTEMPTS;
+      try {
+        await this.writeRtdbRules(databaseUrl, token, baseline.source, 'restore RTDB rules');
+        const readBack = await this.readRtdbRules(databaseUrl, token);
+        if (readBack === baseline.source) return;
+        if (isLastAttempt) throw new Error('the rules read back after restoring do not match the rules recorded before the run');
+      } catch (error) {
+        if (isLastAttempt) throw error;
+      }
+    }
+  }
+
+  private async restore(baseline: ReleaseBaseline): Promise<void> {
     if (baseline.rulesetName === null) {
       await this.request(baseline.releaseUrl, { method: 'DELETE', headers: this.headers.auth }, 'delete oracle release');
       const after = await this.send(baseline.releaseUrl, { headers: this.headers.auth });
@@ -283,6 +406,23 @@ export class OracleRulesSession {
       throw new Error(`the release read back after restoring does not point to ${baseline.rulesetName}`);
     }
   }
+}
+
+function rtdbRulesUrl(databaseUrl: string, token: string): string {
+  return `${databaseUrl}/.settings/rules.json?access_token=${encodeURIComponent(token)}`;
+}
+
+function baselineLabel(baseline: Baseline): string {
+  if (baseline.kind === 'rtdb') return `RTDB (${baseline.target.databaseUrl})`;
+  return `${baseline.service} (${baseline.releaseName})`;
+}
+
+function restoreByHand(baseline: Baseline): string {
+  if (baseline.kind === 'rtdb') {
+    return `PUT ${baseline.target.databaseUrl}/.settings/rules.json with the rules recorded before the run:\n${baseline.source}\n`;
+  }
+  if (baseline.rulesetName) return `PATCH ${baseline.releaseName} with rulesetName ${baseline.rulesetName}`;
+  return `DELETE ${baseline.releaseName}`;
 }
 
 /**
