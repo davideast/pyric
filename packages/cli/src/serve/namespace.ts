@@ -745,7 +745,11 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       const file = join(opts.sdkDir, basename(url.pathname));
       const missingFile = !existsSync(file);
       if (missingFile) {
-        res.writeHead(404).end('not found');
+        const isRealSdk = basename(url.pathname).startsWith('firebase-sdk-');
+        const body = isRealSdk
+          ? 'pyric sandbox: the Firebase SDK was not built. Install firebase where pyric starts (production AI mode).'
+          : 'not found';
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end(body);
         return true;
       }
       const isSourceMap = file.endsWith('.map');

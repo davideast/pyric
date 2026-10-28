@@ -209,11 +209,49 @@ export function resolveProjectFirebase(projectDir: string): ProjectFirebase {
     dir = parent;
   }
   throw new Error(
-    `pyric sandbox: production AI mode (PYRIC_AI_MODE=production) serves the Firebase SDK from this project, ` +
+    `pyric sandbox: production AI mode (${productionModeSetting(process.env)}) serves the Firebase SDK from this project, ` +
       `but no firebase package resolves from ${projectDir}. Install it with \`npm install firebase\`, ` +
-      `or unset PYRIC_AI_MODE to answer firebase/ai from the Pyric sandbox.`,
+      `or unset ${productionModeSetting(process.env).split('=')[0]} to answer firebase/ai from the Pyric sandbox.`,
   );
 }
+
+/**
+ * The environment setting that turned production AI mode on, for messages.
+ * `PYRIC_AI_MODE=production` wins; otherwise the passthrough switch did it.
+ */
+export function productionModeSetting(env: NodeJS.ProcessEnv): string {
+  const isModeSet = env.PYRIC_AI_MODE === 'production';
+  return isModeSet ? 'PYRIC_AI_MODE=production' : 'PYRIC_AI_PASSTHROUGH=1';
+}
+
+export interface ProjectFirebasePlan {
+  /** Pass to `bundleSdk`; absent when the real-SDK build is skipped. */
+  projectFirebase?: { projectDir: string };
+  /** One line to log when the build is skipped. */
+  warning?: string;
+}
+
+/**
+ * Decide whether production AI mode builds the Firebase SDK. Plain
+ * `pyric sandbox` serves the page itself, so a missing `firebase` throws.
+ * With a child command the child resolves `firebase` on its own, so a
+ * missing one only skips the build and warns.
+ */
+export function planProjectFirebase(projectDir: string, hasChildCommand: boolean, env: NodeJS.ProcessEnv = process.env): ProjectFirebasePlan {
+  try {
+    resolveProjectFirebase(projectDir);
+  } catch (error) {
+    if (!hasChildCommand) throw error;
+    return {
+      warning:
+        `  ⚠ production AI mode (${productionModeSetting(env)}): no firebase package resolves from ${projectDir}, ` +
+        `so the Firebase SDK is not built. Pages the sandbox serves itself (import map) need firebase installed where pyric starts; ` +
+        `your command resolves firebase on its own.`,
+    };
+  }
+  return { projectFirebase: { projectDir } };
+}
+
 
 const REAL_SDK_NAMESPACE = 'pyric-firebase-sdk';
 

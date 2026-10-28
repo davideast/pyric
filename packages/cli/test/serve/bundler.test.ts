@@ -11,6 +11,7 @@ import {
   pyricPackageRoot,
   pyricVersion,
   resolveProjectFirebase,
+  planProjectFirebase,
   resolveSiteUiDir,
   sourceTreeHash,
   workerEntryPath,
@@ -418,6 +419,34 @@ describe('the real wrapper entries (plan step 1.2)', () => {
   it('a project without firebase fails with a message that says to install it', () => {
     const project = mkdtempSync(join(tmpdir(), 'pyric-serve-no-firebase-'));
     expect(() => resolveProjectFirebase(project)).toThrow(/npm install firebase/);
+  });
+
+  it('the install message names the setting that turned production mode on', () => {
+    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-no-firebase-'));
+    const saved = { mode: process.env.PYRIC_AI_MODE, passthrough: process.env.PYRIC_AI_PASSTHROUGH };
+    try {
+      process.env.PYRIC_AI_MODE = 'production';
+      expect(() => resolveProjectFirebase(project)).toThrow(/PYRIC_AI_MODE=production/);
+      delete process.env.PYRIC_AI_MODE;
+      process.env.PYRIC_AI_PASSTHROUGH = '1';
+      let message = '';
+      try { resolveProjectFirebase(project); } catch (error) { message = (error as Error).message; }
+      expect(message).toContain('PYRIC_AI_PASSTHROUGH=1');
+      expect(message).not.toContain('PYRIC_AI_MODE');
+    } finally {
+      for (const [key, value] of [['PYRIC_AI_MODE', saved.mode], ['PYRIC_AI_PASSTHROUGH', saved.passthrough]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+  });
+
+  it('plans no build and a warning for a child command when firebase does not resolve', () => {
+    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-no-firebase-'));
+    const plan = planProjectFirebase(project, true, { PYRIC_AI_PASSTHROUGH: '1' });
+    expect(plan.projectFirebase).toBeUndefined();
+    expect(plan.warning).toContain('PYRIC_AI_PASSTHROUGH=1');
+    expect(plan.warning).toContain('firebase installed where pyric starts');
+    expect(() => planProjectFirebase(project, false)).toThrow(/npm install firebase/);
   });
 
   it('built bundles export the section 3c tier-2 surface (import-time failure class)', async () => {

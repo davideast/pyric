@@ -16,7 +16,7 @@ import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
   materializeServeAssets,
@@ -214,6 +214,8 @@ async function startServeRuntime(opts: {
   /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
   permissive?: boolean;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
+  /** A child command runs beside the server and resolves `firebase` itself. */
+  hasChildCommand?: boolean;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
 
@@ -339,7 +341,12 @@ async function startServeRuntime(opts: {
   const aiMode = resolveAiMode(undefined, process.env);
   // Production AI mode serves the project's own Firebase SDK for firebase/ai,
   // firebase/app and firebase/app-check (#1290).
-  const projectFirebase = aiMode === 'production' ? { projectDir: opts.cwd } : undefined;
+  let projectFirebase: { projectDir: string } | undefined;
+  if (aiMode === 'production') {
+    const firebasePlan = planProjectFirebase(opts.cwd, Boolean(opts.hasChildCommand));
+    projectFirebase = firebasePlan.projectFirebase;
+    if (firebasePlan.warning) logger.note(firebasePlan.warning);
+  }
   if (usesEmbeddedAssets) {
     bundle = await materializeServeAssets();
     workerVersion = embeddedWorkerVersion();
@@ -1000,6 +1007,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       allowedHosts,
       project: firebaseProject.projectId,
       firebaseProject,
+      hasChildCommand: plan !== null,
     });
   } catch (e) {
     const message = serveErrorMessage(e);
