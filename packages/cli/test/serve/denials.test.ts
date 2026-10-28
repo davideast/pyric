@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDenialThrottle, createPyricNamespace, formatDenialBlock } from '../../src/serve/namespace.js';
+import { createDenialThrottle, createPyricNamespace, DENIAL_BODY_LIMIT_BYTES, formatDenialBlock } from '../../src/serve/namespace.js';
 import { startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
 function fixture() {
@@ -164,6 +164,56 @@ describe('/__pyric/denials', () => {
     expect(notes.length).toBe(0);
   });
 
+  it('refuses a cross-origin POST with 403 and prints nothing', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const res = await fetch(`${h.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', origin: 'http://localhost:1' },
+      body: JSON.stringify(denialBody({ message: 'forged from another page' })),
+    });
+    expect(res.status).toBe(403);
+    expect(notes).toEqual([]);
+  });
+
+  it('accepts a POST whose Origin is the page this server serves', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const res = await fetch(`${h.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: new URL(h.url).origin },
+      body: JSON.stringify(denialBody()),
+    });
+    expect(res.status).toBe(204);
+    expect(notes.length).toBe(1);
+  });
+
+  it('answers 413 for a body over the limit and prints nothing', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const res = await fetch(`${h.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(denialBody({ message: 'x'.repeat(DENIAL_BODY_LIMIT_BYTES) })),
+    });
+    expect(res.status).toBe(413);
+    expect(notes).toEqual([]);
+  });
+
+  it('prints a same-origin denial carrying terminal escapes as one safe block', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const res = await fetch(`${h.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(denialBody({ message: 'x\u001b]0;OWNED\u0007\nFAKE pyric line' })),
+    });
+    expect(res.status).toBe(204);
+    expect(notes.length).toBe(1);
+    expect(notes[0]).not.toContain('\u001b');
+    expect(notes[0]!.split('\n')[0]).toBe('  ⚠ [pyric] denied: x ]0;OWNED FAKE pyric line');
+  });
+
   it('drops output entirely when no logger is wired', async () => {
     const { site, sdk } = fixture();
     const ns = createPyricNamespace({
@@ -288,6 +338,42 @@ describe('formatDenialBlock', () => {
     const block = formatDenialBlock({ message: 'denied', denialContext: { auth: null } });
     expect(block).toContain('anonymous');
     expect(block.split('\n').length).toBe(2); // message + auth only
+  });
+
+  it('flattens control, bidi and newline characters in every page-supplied field', () => {
+    const hostile = 'a\u001b[2Jb\r\nFAKE\u202ec';
+    const block = formatDenialBlock({
+      message: hostile,
+      instance: hostile,
+      remediation: hostile,
+      denialContext: {
+        engine: 'rtdb',
+        auth: { uid: hostile },
+        request: { method: hostile, path: hostile },
+        matchedPath: hostile,
+        matchedRule: hostile,
+      },
+      owners: [{ kind: 'frame', file: hostile, line: 1, function: hostile, stack: [
+        { file: hostile, line: 1 }, { file: hostile, line: 2 },
+      ] }],
+    });
+    expect(block).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202e]/);
+    // Message, request, auth, rule, two remediation lines, owner, stack.
+    const lines = block.split('\n');
+    expect(lines.length).toBe(8);
+    expect(lines.slice(1).every((line) => line.startsWith('      '))).toBe(true);
+  });
+
+  it('keeps a multi-line remediation as indented lines, each sanitized', () => {
+    const block = formatDenialBlock({
+      message: 'list denied',
+      remediation: "Add the matching where(...) constraint:\n  .where('owner', '==', request.auth.uid)\n\u001b[2Jforged",
+    });
+    expect(block.split('\n').slice(2)).toEqual([
+      '      Add the matching where(...) constraint:',
+      "      .where('owner', '==', request.auth.uid)",
+      '      [2Jforged',
+    ]);
   });
 
   it('prefers payload-root remediation (the sandbox error sibling) over the nested fallback', () => {
