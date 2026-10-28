@@ -42,7 +42,9 @@ import { emitSandboxEvent, getClock, makeSandboxOperationEvent } from 'pyric/san
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import {
   storageOperationProvenance,
+  storageRulesInForce,
   type CrossServiceIam,
+  type StorageRulesInForce,
   type StorageService,
   type Target,
 } from './service.js';
@@ -71,10 +73,11 @@ export function enforceRules(
     emitOperation(target, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
     return;
   }
-  if (!service.rules) {
-    const reasons = ['No Storage rules configured; default deny.'];
-    emitOperation(target, input, 'deny', reasons, 'user', false, boundProvenance);
-    throw unauthorized(input.request.method, input.request.path, ' — No Storage rules configured; default deny.');
+  const inForce = rulesFor(service, target);
+  if (inForce.kind !== 'rules') {
+    const reason = noRulesReason(inForce);
+    emitOperation(target, input, 'deny', [reason], 'user', false, boundProvenance);
+    throw unauthorized(input.request.method, input.request.path, ` — ${reason}`);
   }
   const evaluationInput = target ? withCanonicalRulesPath(input, target) : input;
   // `request.time` is the sandbox's clock when the caller has a sandbox handle,
@@ -82,7 +85,7 @@ export function enforceRules(
   // evaluation with no target keeps the evaluator's own wall-clock default.
   const requestTime = target ? getClock(target.sandbox).date() : undefined;
   const result = evaluateStorageRules(
-    service.rules,
+    inForce.rules,
     evaluationInput,
     requestTime,
     firestoreLookupFor(target, service.crossServiceIam),
@@ -93,6 +96,20 @@ export function enforceRules(
     throw unauthorized(input.request.method, input.request.path, detail);
   }
   emitOperation(target, input, 'allow', result.reasons, 'user', true, boundProvenance);
+}
+
+/** The rules a request is checked against: its bucket's, through a sandbox handle. */
+function rulesFor(service: StorageService, target: Target | undefined): StorageRulesInForce {
+  if (target !== undefined) return storageRulesInForce(service, target);
+  if (service.rules) return { kind: 'rules', rules: service.rules };
+  return { kind: 'none' };
+}
+
+/** Why a request with no rules to check denies. A locked bucket names the fix. */
+function noRulesReason(inForce: Exclude<StorageRulesInForce, { kind: 'rules' }>): string {
+  if (inForce.kind === 'none') return 'No Storage rules configured; default deny.';
+  const { bucket } = inForce;
+  return `Storage bucket "${bucket}" has no rules deployed in firebase.json, so it denies every client operation, as a new production bucket does. Add {"bucket": "${bucket}", "rules": "<file>"} to the storage array.`;
 }
 
 /**

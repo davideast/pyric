@@ -288,10 +288,10 @@ export const storageRegistry = {
         row1({
           rowRef: "11",
           featureKeys: ["getStorage"],
-          behavior: "`getStorage(app, bucketUrl?)` accepts Firebase's bucket argument; the sandbox remains bound to its configured single bucket",
+          behavior: "`getStorage(app, bucketUrl?)` opens the bucket the URL names, with its own objects and the rules deployed to it; the app's default bucket is stored under the key `pyric-default`",
           status: "diverged-documented",
-          evidence: "Package resolution owns production selection. The sandbox accepts the canonical argument but does not model production multi-bucket routing; `unit:service.test.ts` pins the configured `pyric-default` bucket.",
-          conformanceTests: ["packages/pyric/test/storage/service.test.ts"],
+          evidence: "Package resolution owns production selection. `unit:service.test.ts` pins a bucket URL other than the app's `storageBucket` opening its own bucket, and the default bucket's store key `pyric-default`; `unit:storage/per-bucket-rules.test.ts` pins each bucket's objects and rules apart. The in-page plane still reports the default bucket as `pyric-default` in metadata and references (#1519).",
+          conformanceTests: ["packages/pyric/test/storage/service.test.ts","packages/pyric/test/storage/per-bucket-rules.test.ts"],
         }),
         row1({
           rowRef: "117",
@@ -447,7 +447,7 @@ export const storageRegistry = {
           api: "ref(storage, url).bucket",
           behavior: "Production gives a reference on the URL's bucket, including a bucket other than the app's default. The sandbox serves one bucket, so the reference is on that bucket, at the URL's path",
           status: "diverged-documented",
-          evidence: "Production observation `client-storage-ref-urls` (firebase 12.13.0) records `gsOtherBucket` and `firebaseDownloadUrlOtherBucket` (`bucket: 'other-bucket'`) and `gsDefaultBucket` (`bucket: 'b'`, the configured bucket). The sandbox serves one bucket, as `getStorage(app, bucketUrl?)` does (storage#11): an object an app wrote through another bucket's handle is in that one bucket, so a URL naming another bucket reads it there. The storage oracle suite replays it against the engine's `ref()`, and `storage-ref-urls.test.ts` against the served page client's `ref()`: both pin production's `other-bucket` beside the sandbox's bucket and the URL's `fullPath`.",
+          evidence: "Production observation `client-storage-ref-urls` (firebase 12.13.0) records `gsOtherBucket` and `firebaseDownloadUrlOtherBucket` (`bucket: 'other-bucket'`) and `gsDefaultBucket` (`bucket: 'b'`, the configured bucket). `ref()` keeps the handle's bucket: a URL naming another bucket reads that path in the handle's bucket. To reach another bucket, an app opens it with `getStorage(app, bucketUrl)` (storage#11). The storage oracle suite replays it against the engine's `ref()`, and `storage-ref-urls.test.ts` against the served page client's `ref()`: both pin production's `other-bucket` beside the sandbox's bucket and the URL's `fullPath`.",
           risk: ["specific-field"],
           riskScore: 1,
           riskReasons: ["asserts a specific field/property value"],

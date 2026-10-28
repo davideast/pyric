@@ -1,0 +1,6 @@
+{
+  "storage": [
+    { "bucket": "media-bucket", "rules": "media.rules" },
+    { "bucket": "demo-app.appspot.com", "rules": "storage.rules" }
+  ]
+}

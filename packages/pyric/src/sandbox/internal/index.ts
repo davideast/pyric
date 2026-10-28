@@ -232,6 +232,17 @@ export {
   type FirestoreRulesConfigOptions,
   type UnresolvedFirestoreTarget,
 } from './firestore-rules-config.js';
+// The Storage rules a firebase.json deploys to each bucket, shared by every
+// plane that loads them.
+export {
+  DEFAULT_STORAGE_RULES_FILE,
+  storageRulesConfig,
+  type StorageRulesBucketTarget,
+  type StorageRulesConfig,
+  type StorageRulesConfigOptions,
+  type StorageRulesFile,
+  type UnresolvedStorageRulesTarget,
+} from './storage-rules-config.js';
 export { parsePyricSandbox, isRemoteActivation, type PyricSandboxActivation } from './sandbox-activation.js';
 export {
   clearProcessActivation,

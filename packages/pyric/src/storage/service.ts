@@ -33,6 +33,7 @@ import {
   compileStorageRules,
   type StorageRulesResolution,
 } from './rules-resolution.js';
+import { rulesBucketName } from './sandbox/rules-bucket-name.js';
 
 /**
  * Default sandbox bucket identifier. v1 has a single implicit
@@ -174,6 +175,14 @@ interface StorageServiceCaches {
   readonly bareSandboxHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
   readonly adminContextHandles: WeakMap<SandboxContext, Map<string, FirebaseStorage>>;
   readonly bareAdminHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
+  bucketRules?: WeakMap<Sandbox, Map<string, BucketRules>>;
+}
+
+/** The rules deployed to one bucket, by name. */
+interface BucketRules {
+  readonly source: string;
+  readonly rules: StorageRules;
+  readonly resolution: StorageRulesResolution;
 }
 
 const globalServiceCaches = globalThis as { [SERVICE_CACHES_KEY]?: StorageServiceCaches };
@@ -186,6 +195,14 @@ const serviceCaches: StorageServiceCaches = (globalServiceCaches[SERVICE_CACHES_
   adminContextHandles: new WeakMap(),
   bareAdminHandles: new WeakMap(),
 });
+
+/**
+ * The rules deployed to each bucket by name, per `Sandbox`. A sandbox has an
+ * entry once a host deploys rules per bucket (see
+ * {@link lockUndeployedStorageBuckets}); until then its one ruleset governs
+ * every bucket.
+ */
+const BUCKET_RULES = (serviceCaches.bucketRules ??= new WeakMap());
 
 /** One open storage service, with its opening configuration, per `Sandbox`. */
 const OPEN_SERVICES = serviceCaches.openServices;
@@ -285,7 +302,15 @@ function rejectDifferingLateConfig(
  * The new ruleset reaches the root service and every per-bucket scoped
  * service, because each holds its own reference to the parsed rules.
  */
-export async function replaceStorageRules(sandbox: Sandbox, source: string | null): Promise<void> {
+export async function replaceStorageRules(
+  sandbox: Sandbox,
+  source: string | null,
+  options: { bucket?: string } = {},
+): Promise<void> {
+  if (options.bucket !== undefined) {
+    await replaceBucketRules(sandbox, source, options.bucket);
+    return;
+  }
   const compiled = source === null ? { rules: null, resolution: null } : compileStorageRules(source);
   const open = OPEN_SERVICES.get(sandbox);
   if (open === undefined) {
@@ -305,6 +330,75 @@ export async function replaceStorageRules(sandbox: Sandbox, source: string | nul
     const scoped = await scopedPromise;
     scoped.rules = compiled.rules;
   }
+}
+
+/**
+ * Deploy rules per bucket from here on: each bucket enforces the rules
+ * deployed to it by name, the default bucket also enforces the rules
+ * {@link replaceStorageRules} installs without a bucket, and a bucket nothing
+ * deploys to is locked, denying every client operation, as production
+ * creates a bucket. Without this call the sandbox's one ruleset governs every
+ * bucket. Idempotent.
+ */
+export function lockUndeployedStorageBuckets(sandbox: Sandbox): void {
+  if (!BUCKET_RULES.has(sandbox)) BUCKET_RULES.set(sandbox, new Map());
+}
+
+/** {@link replaceStorageRules} for one named bucket. */
+async function replaceBucketRules(sandbox: Sandbox, source: string | null, bucket: string): Promise<void> {
+  deployStorageBucketRules(sandbox, bucket, source);
+}
+
+/**
+ * Deploy `source` to one bucket by name, and deploy per bucket from here on
+ * (see {@link lockUndeployedStorageBuckets}). A null source removes the
+ * bucket's rules, which locks it. A source that does not compile throws and
+ * leaves the bucket's rules as they were. The service need not be open: the
+ * rules apply to every handle on the bucket once it is.
+ */
+export function deployStorageBucketRules(sandbox: Sandbox, bucket: string, source: string | null): void {
+  const compiled = source === null ? null : compileStorageRules(source);
+  lockUndeployedStorageBuckets(sandbox);
+  const byBucket = BUCKET_RULES.get(sandbox)!;
+  const name = rulesBucketName(bucket, bucket);
+  if (source === null || compiled === null) {
+    byBucket.delete(name);
+    return;
+  }
+  byBucket.set(name, { source, rules: compiled.rules, resolution: compiled.resolution });
+}
+
+/** The rules one request is checked against, or why there are none. */
+export type StorageRulesInForce =
+  | { readonly kind: 'rules'; readonly rules: StorageRules }
+  | { readonly kind: 'none' }
+  | { readonly kind: 'locked'; readonly bucket: string };
+
+/** Whether a handle addresses the app's default bucket, the one stored under the default key. */
+function addressesDefaultBucket(target: SandboxTarget): boolean {
+  return target.bucket === DEFAULT_BUCKET;
+}
+
+/**
+ * The rules a request through `target` is checked against: the rules
+ * deployed to its bucket by name, else for the default bucket the rules
+ * installed without a bucket. Once a host deploys per bucket, any other
+ * bucket is locked.
+ */
+export function storageRulesInForce(service: StorageService, target: SandboxTarget): StorageRulesInForce {
+  const byBucket = BUCKET_RULES.get(target.sandbox);
+  if (byBucket === undefined) return service.rules ? { kind: 'rules', rules: service.rules } : { kind: 'none' };
+  const name = rulesBucketName(target.bucket, target.bucketName);
+  const deployed = byBucket.get(name);
+  if (deployed !== undefined) return { kind: 'rules', rules: deployed.rules };
+  const defaultRules = addressesDefaultBucket(target) ? service.rules : null;
+  if (defaultRules) return { kind: 'rules', rules: defaultRules };
+  return { kind: 'locked', bucket: name };
+}
+
+/** The bucket names rules are deployed to by name, in deploy order. */
+export function storageBucketsWithRules(sandbox: Sandbox): string[] {
+  return [...(BUCKET_RULES.get(sandbox)?.keys() ?? [])];
 }
 
 /**
@@ -658,5 +752,11 @@ export function getStorageService(storage: FirebaseStorage): Promise<StorageServ
 export function getStorageRulesResolution(
   storage: FirebaseStorage,
 ): StorageRulesResolution | null {
-  return OPEN_SERVICES.get(targetOf(storage).sandbox)?.rulesResolution ?? null;
+  const target = targetOf(storage);
+  const name = rulesBucketName(target.bucket, target.bucketName);
+  const deployed = BUCKET_RULES.get(target.sandbox)?.get(name);
+  if (deployed !== undefined) return deployed.resolution;
+  const byBucket = BUCKET_RULES.has(target.sandbox);
+  if (byBucket && !addressesDefaultBucket(target)) return null;
+  return OPEN_SERVICES.get(target.sandbox)?.rulesResolution ?? null;
 }
