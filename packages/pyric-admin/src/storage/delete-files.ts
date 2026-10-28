@@ -7,7 +7,7 @@
  * started. With `force`, every file is tried, and the call rejects with the
  * array of errors when any failed, as the library's callback receives them.
  */
-import { everyListedName, type DeleteFilesOptions } from './file-query.js';
+import { entryOf, everyListedName, resumesAfter, type DeleteFilesOptions } from './file-query.js';
 
 /** How many deletes `@google-cloud/storage` runs at once. */
 const PARALLEL_DELETES = 10;
@@ -37,4 +37,23 @@ export async function deleteListedFiles(
   if (errors.length === 0) return;
   if (!force) throw errors[0];
   throw errors;
+}
+
+/**
+ * A stop rule for names arriving in name order: true once they hold the
+ * `maxResults` files `deleteFiles(query)` deletes. Without `maxResults` it
+ * deletes every listed file, so it needs every name.
+ */
+export function deletedNamesFound(query: DeleteFilesOptions): (name: string) => boolean {
+  const maxResults = query.maxResults ?? 0;
+  const limited = maxResults > 0;
+  if (!limited) return () => false;
+  const after = resumesAfter(query);
+  let found = 0;
+  return (name) => {
+    const entry = entryOf(name, query);
+    const listedFile = entry !== undefined && !entry.rolledUp && (after === undefined || entry.key > after);
+    if (listedFile) found += 1;
+    return found >= maxResults;
+  };
 }
