@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { discoverOnValueCreated } from '../../src/functions-rtdb/discovery.js';
-import { executeOnValueCreated } from '../../src/functions-rtdb/event.js';
+import { discoverOnValueCreated } from '../../src/functions/rtdb/discovery.js';
+import { executeOnValueCreated } from '../../src/functions/rtdb/event.js';
 
 const requireFromConformance = createRequire(
   join(import.meta.dir, '../../../conformance/package.json'),

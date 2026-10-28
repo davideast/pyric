@@ -1,11 +1,10 @@
 import type { ChildProcess } from 'node:child_process';
+import type { FunctionsChildEvent, FunctionsChildReady } from './child-protocol.js';
 import {
-  spawnFunctionsRtdbChild,
-  type FunctionsRtdbChildEvent,
-  type FunctionsRtdbChildHandle,
-  type FunctionsRtdbChildReady,
-  type SpawnFunctionsRtdbChildOptions,
-} from './child.js';
+  spawnFunctionsChild,
+  type FunctionsChildHandle,
+  type SpawnFunctionsChildOptions,
+} from './spawn.js';
 import { buildChildEnv, createLinePrefixer } from '../cli/sandbox-runner.js';
 
 const INITIAL_PEER_TIMEOUT_MS = 30_000;
@@ -17,12 +16,12 @@ export interface FunctionsPeerReadiness {
 }
 
 export type FunctionsDevelopmentResult =
-  | { kind: 'ready'; ready: FunctionsRtdbChildReady }
+  | { kind: 'ready'; ready: FunctionsChildReady }
   | { kind: 'no-peer' }
   | { kind: 'failed'; error: Error };
 
 export type FunctionsDevelopmentEvent =
-  | { type: 'child-event'; event: FunctionsRtdbChildEvent }
+  | { type: 'child-event'; event: FunctionsChildEvent }
   | { type: 'output'; stream: 'stdout' | 'stderr'; line: string }
   | { type: 'unexpected-exit'; code: number };
 
@@ -52,7 +51,7 @@ export interface FunctionsDevelopmentRuntimeOptions {
   readiness: FunctionsPeerReadiness;
   onEvent?(event: FunctionsDevelopmentEvent): void;
   /** Internal test seam; production adapters use the real isolated child. */
-  spawn?(options: SpawnFunctionsRtdbChildOptions): FunctionsRtdbChildHandle;
+  spawn?(options: SpawnFunctionsChildOptions): FunctionsChildHandle;
   initialPeerTimeoutMs?: number;
   reloadPeerTimeoutMs?: number;
 }
@@ -178,10 +177,10 @@ function attachOutput(
 export function createFunctionsDevelopmentRuntime(
   options: FunctionsDevelopmentRuntimeOptions,
 ): FunctionsDevelopmentRuntime {
-  const spawn = options.spawn ?? spawnFunctionsRtdbChild;
+  const spawn = options.spawn ?? spawnFunctionsChild;
   const emit = (event: FunctionsDevelopmentEvent): void => options.onEvent?.(event);
-  const expectedStops = new WeakSet<FunctionsRtdbChildHandle>();
-  let activeChild: FunctionsRtdbChildHandle | null = null;
+  const expectedStops = new WeakSet<FunctionsChildHandle>();
+  let activeChild: FunctionsChildHandle | null = null;
   let activeWait: AbortController | null = null;
   let closed = false;
   let startPromise: Promise<FunctionsDevelopmentResult> | null = null;
@@ -189,7 +188,7 @@ export function createFunctionsDevelopmentRuntime(
   let reloadQueued = false;
   let closePromise: Promise<void> | null = null;
 
-  const stopChild = async (child: FunctionsRtdbChildHandle | null): Promise<void> => {
+  const stopChild = async (child: FunctionsChildHandle | null): Promise<void> => {
     if (!child) return;
     expectedStops.add(child);
     if (activeChild === child) activeChild = null;
@@ -215,7 +214,7 @@ export function createFunctionsDevelopmentRuntime(
     }
     if (!connected || closed) return { kind: 'no-peer' };
 
-    let handle: FunctionsRtdbChildHandle;
+    let handle: FunctionsChildHandle;
     try {
       handle = spawn({
         cwd: options.sourceDir,

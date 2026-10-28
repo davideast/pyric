@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  spawnFunctionsRtdbChild,
-  type FunctionsRtdbChildEvent,
-  type FunctionsRtdbChildHandle,
-} from '../../src/functions-rtdb/child.js';
+  spawnFunctionsChild,
+  type FunctionsChildHandle,
+} from '../../src/functions/spawn.js';
+import { type FunctionsChildEvent } from '../../src/functions/child-protocol.js';
 import {
   buildChildEnv,
   registerModuleUrl,
@@ -23,13 +23,13 @@ import {
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
-const childModule = join(cliRoot, 'dist/functions-rtdb/child.js');
+const childModule = join(cliRoot, 'dist/functions/child.js');
 
 let fixtureDir: string;
 let runtime: ServeRuntime;
 let peer: { close(): Promise<void> };
 let observer: RemoteSandbox;
-let child: FunctionsRtdbChildHandle | undefined;
+let child: FunctionsChildHandle | undefined;
 
 async function waitForValue(path: string, expected: unknown): Promise<void> {
   const deadline = Date.now() + 5_000;
@@ -44,7 +44,7 @@ async function waitForValue(path: string, expected: unknown): Promise<void> {
  * Wait for `count` events. The child reports an execution after the function
  * returns, so its writes can land before its event does.
  */
-async function waitForEvents(events: readonly FunctionsRtdbChildEvent[], count: number): Promise<void> {
+async function waitForEvents(events: readonly FunctionsChildEvent[], count: number): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (events.length < count && Date.now() < deadline) {
     await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
@@ -158,8 +158,8 @@ afterAll(async () => {
 
 describe('isolated Functions RTDB child', () => {
   test('loads unchanged CommonJS source and writes back into the same remote sandbox', async () => {
-    const events: FunctionsRtdbChildEvent[] = [];
-    child = spawnFunctionsRtdbChild({
+    const events: FunctionsChildEvent[] = [];
+    child = spawnFunctionsChild({
       cwd: join(fixtureDir, 'functions'),
       entry: join(fixtureDir, 'functions/index.js'),
       childModuleUrl: pathToFileURL(childModule),
@@ -212,8 +212,8 @@ describe('isolated Functions RTDB child', () => {
   }, 15_000);
 
   test('loads unchanged ESM source and writes back into the same remote sandbox', async () => {
-    const events: FunctionsRtdbChildEvent[] = [];
-    child = spawnFunctionsRtdbChild({
+    const events: FunctionsChildEvent[] = [];
+    child = spawnFunctionsChild({
       cwd: join(fixtureDir, 'functions-esm'),
       entry: join(fixtureDir, 'functions-esm/index.js'),
       childModuleUrl: pathToFileURL(childModule),
@@ -249,7 +249,7 @@ describe('isolated Functions RTDB child', () => {
     delete cleanEnv.GCLOUD_PROJECT;
     delete cleanEnv.FIREBASE_CONFIG;
     let stderr = '';
-    child = spawnFunctionsRtdbChild({
+    child = spawnFunctionsChild({
       cwd: join(fixtureDir, 'functions'),
       entry: join(fixtureDir, 'functions/index.js'),
       childModuleUrl: pathToFileURL(childModule),
@@ -279,7 +279,7 @@ exports.makeUppercase = onValueCreated(
   event => event.data.ref.parent.child('uppercase').set(event.data.val().toUpperCase()),
 );
 `);
-    child = spawnFunctionsRtdbChild({
+    child = spawnFunctionsChild({
       cwd: join(fixtureDir, 'functions'),
       entry,
       childModuleUrl: pathToFileURL(childModule),
@@ -314,7 +314,7 @@ exports.makeUppercase = onValueCreated(
 exports.first = onValueCreated({ ref: '/first/{id}', instance: 'first-rtdb' }, () => undefined);
 exports.second = onValueCreated({ ref: '/second/{id}', instance: 'second-rtdb' }, () => undefined);
 `);
-    child = spawnFunctionsRtdbChild({
+    child = spawnFunctionsChild({
       cwd: join(fixtureDir, 'functions'),
       entry,
       childModuleUrl: pathToFileURL(childModule),

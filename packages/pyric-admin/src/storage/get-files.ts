@@ -10,8 +10,11 @@
  */
 import {
   apiResponseOf,
+  entryOf,
   listingPage,
+  pageSizeOf,
   readsEveryPage,
+  resumesAfter,
   type GetFilesApiResponse,
   type GetFilesOptions,
 } from './file-query.js';
@@ -37,4 +40,26 @@ function onePage<F>(names: readonly string[], query: GetFilesOptions, fileOf: (n
   const token = page.nextPageToken;
   const nextQuery = token === undefined ? null : { ...query, pageToken: token };
   return [page.names.map(fileOf), nextQuery, apiResponseOf(page)];
+}
+
+/**
+ * A stop rule for names arriving in name order: true once they hold every
+ * entry the result for `query` needs. A single page needs one entry past its
+ * size, to know there is a next page; reading every page needs every name.
+ */
+export function pageNamesFound(query: GetFilesOptions): (name: string) => boolean {
+  if (readsEveryPage(query)) return () => false;
+  const after = resumesAfter(query);
+  const wanted = pageSizeOf(query) + 1;
+  let found = 0;
+  let lastKey: string | undefined;
+  return (name) => {
+    const key = entryOf(name, query)?.key;
+    const listed = key !== undefined && (after === undefined || key > after);
+    const isNewEntry = listed && key !== lastKey;
+    if (!isNewEntry) return false;
+    lastKey = key;
+    found += 1;
+    return found >= wanted;
+  };
 }

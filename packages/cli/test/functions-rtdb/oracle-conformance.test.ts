@@ -24,10 +24,8 @@ import {
   startupProbe,
   wildcardProbe,
 } from '@pyric/conformance/functions-rtdb-fixture';
-import {
-  spawnFunctionsRtdbChild,
-  type FunctionsRtdbChildEvent,
-} from '../../src/functions-rtdb/child.js';
+import { spawnFunctionsChild } from '../../src/functions/spawn.js';
+import { type FunctionsChildEvent } from '../../src/functions/child-protocol.js';
 import { buildChildEnv, registerModuleUrl } from '../../src/cli/sandbox-runner.js';
 import { startServe } from '../../src/cli/serve.js';
 import { connectRemoteSandbox } from '../../src/remote/index.js';
@@ -46,7 +44,7 @@ type AssertionSpec = { observation: string; assert(local: Behavior, production: 
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
-const childModule = join(cliRoot, 'dist/functions-rtdb/child.js');
+const childModule = join(cliRoot, 'dist/functions/child.js');
 const EXACT_NEGATIVE_OBSERVATION_MS = 1_000;
 const STARTUP_OBSERVATION_MS = 15_000;
 
@@ -130,8 +128,8 @@ async function runFixtureOnce(): Promise<RuntimeOutcomes> {
   const runId = 'local-replay';
   const base = `/pyric_oracle/functions/${runId}`;
   await observer.rtdb.set(startupProbe.inputPath(runId), startupProbe.inputValue);
-  const events: FunctionsRtdbChildEvent[] = [];
-  const child = spawnFunctionsRtdbChild({
+  const events: FunctionsChildEvent[] = [];
+  const child = spawnFunctionsChild({
     cwd: join(cwd, 'functions'),
     entry: join(cwd, 'functions/index.cjs'),
     childModuleUrl: pathToFileURL(childModule),

@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from 'node:http';
 import type { ViteDevServer } from 'vite';
-import type { FunctionsRtdbProject } from '../functions-rtdb/project.js';
+import type { FunctionsProject } from '../functions/project.js';
 import type {
   BridgeHostAttachment,
   BridgeHostOptions,
@@ -19,7 +19,7 @@ export function createViteGenerationBridge(input: {
   projectDir: string;
   hosted?: boolean;
   options: Omit<BridgeMountOptions, 'upgradeGuard'> | null;
-  functionsProject: FunctionsRtdbProject | null;
+  functionsProject: FunctionsProject | null;
   functionsProjectId: string | null;
   createBridge(options: BridgeMountOptions): BridgeMount;
 }): BridgeMount | null {

@@ -1,6 +1,6 @@
 /** List the runs `fire` caused: cause, duration, and result or error. */
 import { z } from 'zod';
-import { listExecutions } from '../../../../functions-rtdb/execution-log.js';
+import { listExecutions } from '../../../../functions/execution-log.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {

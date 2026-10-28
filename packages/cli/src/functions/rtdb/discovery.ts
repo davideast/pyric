@@ -1,3 +1,5 @@
+import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
   normalizeRtdbReference,
   supportsRtdbReference,
@@ -27,55 +29,13 @@ export interface OnValueCreatedInspection {
 
 export const CREATED_EVENT_TYPE = 'google.firebase.database.ref.v1.created';
 
-export type FirebaseEndpointFunction = RtdbCreatedCallable & {
-  __endpoint?: {
-    omit?: unknown;
-    region?: unknown;
-    eventTrigger?: {
-      eventType?: unknown;
-      eventFilters?: Record<string, unknown>;
-      eventFilterPathPatterns?: Record<string, unknown>;
-    };
-    callableTrigger?: unknown;
-    httpsTrigger?: unknown;
-    scheduleTrigger?: unknown;
-    taskQueueTrigger?: unknown;
-  };
-};
-
-/** Walk exports using the same hyphenated nested names as Firebase's loader. */
-export function listFirebaseEndpoints(
-  exported: Record<string, unknown>,
-): Array<{ exportName: string; callable: FirebaseEndpointFunction }> {
-  const endpoints: Array<{ exportName: string; callable: FirebaseEndpointFunction }> = [];
-  const visit = (
-    value: Record<string, unknown>,
-    prefix: string,
-    ancestors: ReadonlySet<object>,
-  ): void => {
-    if (ancestors.has(value)) return;
-    const nestedAncestors = new Set(ancestors).add(value);
-    for (const [name, candidate] of Object.entries(value)) {
-      const exportName = `${prefix}${name}`;
-      const callable = candidate as FirebaseEndpointFunction;
-      if (typeof candidate === 'function' && callable.__endpoint) {
-        endpoints.push({ exportName, callable });
-      } else if (typeof candidate === 'object' && candidate !== null) {
-        visit(candidate as Record<string, unknown>, `${exportName}-`, nestedAncestors);
-      }
-    }
-  };
-  visit(exported, '', new Set());
-  return endpoints;
-}
-
 /** Classify unchanged v2 RTDB create exports against the admitted first slice. */
 export function inspectOnValueCreated(
   exported: Record<string, unknown>,
 ): OnValueCreatedInspection {
   const triggers: DiscoveredOnValueCreated[] = [];
   const unsupported: UnsupportedOnValueCreated[] = [];
-  for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
+  for (const { exportName, callable } of listFirebaseEndpoints<RtdbCreatedCallable>(exported)) {
     const endpoint = callable.__endpoint;
     const trigger = endpoint?.eventTrigger;
     if (trigger?.eventType !== CREATED_EVENT_TYPE) continue;
@@ -134,3 +94,9 @@ export function discoverOnValueCreated(
 ): DiscoveredOnValueCreated[] {
   return inspectOnValueCreated(exported).triggers;
 }
+
+/** The RTDB create family: it claims every `onValueCreated` endpoint. */
+export const rtdbCreatedFamily: FunctionsTriggerFamily = {
+  claims: (endpoint: FirebaseEndpoint) => endpoint.eventTrigger?.eventType === CREATED_EVENT_TYPE,
+  unsupported: (exported) => inspectOnValueCreated(exported).unsupported,
+};

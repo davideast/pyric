@@ -1,4 +1,4 @@
-import type { RemoteRtdb } from '../remote/index.js';
+import type { RemoteRtdb } from '../../remote/index.js';
 import type { RtdbTriggerDelivery } from './delivery.js';
 
 /** Existing remote RTDB value subscriptions adapted to the execution seam. */
