@@ -1675,9 +1675,9 @@ export const rtdbRegistry = {
           featureKeys: ["get"],
           behavior: "Read-side array coercion: a dense integer-keyed object renders back as an array on `snap.val()` (`allIntegerKeys && maxKey < 2 * numKeys`), with a hole at each missing index; `exportVal()` and `toJSON()` keep it an object (DB-B2, RT-6)",
           status: "conforms",
-          evidence: "Sandbox aligned: `unit:modular/normalization.test.ts` (\"a dense integer-keyed object reads back as an array\") and `unit:modular/snapshot-serialization.test.ts` (holes, export shape, #1371); upstream `core/snap/ChildrenNode.ts:196-230`",
+          evidence: "Sandbox aligned: `unit:modular/normalization.test.ts` (\"a dense integer-keyed object reads back as an array\") and `unit:modular/snapshot-serialization.test.ts` (holes, export shape, #1371); `packages/cli/test/serve/worker/client/rtdb-sparse-array-holes.test.ts` reads the holes back on the SharedWorker plane and on the Node host under Node, whose JSON transport writes them as `null`; upstream `core/snap/ChildrenNode.ts:196-230`",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/database/modular/normalization.test.ts", "packages/pyric/test/database/modular/snapshot-serialization.test.ts"],
+          conformanceTests: ["packages/pyric/test/database/modular/normalization.test.ts", "packages/pyric/test/database/modular/snapshot-serialization.test.ts", "packages/cli/test/serve/worker/client/rtdb-sparse-array-holes.test.ts"],
           rowNumber: 66,
         }),
         row5({
