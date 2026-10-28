@@ -27,6 +27,19 @@ function assertRequiredPath(message: Record<string, unknown>): void {
   }
 }
 
+/** The `ResolvedIdentity` the picker hands over and a served test stages. */
+function requireResolvedIdentity(identity: unknown): void {
+  requireRecord(identity, 'identity');
+  requireString(identity.uid, 'identity.uid');
+  requireString(identity.providerId, 'identity.providerId');
+  for (const field of ['email', 'displayName', 'photoURL']) {
+    const value = identity[field];
+    const isNullableString = value === undefined || value === null || typeof value === 'string';
+    requireShape(isNullableString, `identity.${field}`);
+  }
+  requireOptionalRecord(identity.customClaims, 'identity.customClaims');
+}
+
 function assertSharedAuthFields(message: Record<string, unknown>): void {
   const method = message.method;
   const isAuthMethod = typeof method === 'string' && method.startsWith('auth.');
@@ -384,19 +397,10 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       }
       return;
     }
-    case 'auth.acceptIdentity': {
-      const identity = message.identity;
-      requireRecord(identity, 'identity');
-      requireString(identity.uid, 'identity.uid');
-      requireString(identity.providerId, 'identity.providerId');
-      for (const field of ['email', 'displayName', 'photoURL']) {
-        const value = identity[field];
-        const isNullableString = value === undefined || value === null || typeof value === 'string';
-        requireShape(isNullableString, `identity.${field}`);
-      }
-      requireOptionalRecord(identity.customClaims, 'identity.customClaims');
+    case 'auth.acceptIdentity':
+    case 'auth.mockSignInResult':
+      requireResolvedIdentity(message.identity);
       return;
-    }
     case 'auth.adminCreateUser':
       requireRecord(message.request, 'request');
       return;

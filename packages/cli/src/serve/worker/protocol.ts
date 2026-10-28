@@ -236,6 +236,9 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.confirmPasswordReset'; code: string; newPassword: string }
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }
+  // Stage the identity the port's next federated `signInWithCredential` for
+  // `identity.providerId` signs in as (served `sandbox.mockSignInResult`).
+  | { t: 'op'; id: string; method: 'auth.mockSignInResult'; identity: ResolvedIdentity }
   | { t: 'op'; id: string; method: 'auth.listUsers' }
   | { t: 'op'; id: string; method: 'auth.adminCreateUser'; request: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'auth.adminUpdateUser'; uid: string; request: Record<string, unknown> }
