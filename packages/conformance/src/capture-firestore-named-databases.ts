@@ -12,7 +12,10 @@
  * - `absent-database`: reads one document that does not exist from databases
  *   the project does not have (a valid id, an id outside the naming rules, and
  *   `default`), through the client SDK, the Admin SDK and the REST API, plus
- *   the same read against `(default)` and `probes` as controls. Reads only.
+ *   the same read against `(default)` and `probes` as controls. Against the
+ *   missing databases only, it also tries a client `setDoc`, a client
+ *   `onSnapshot` and an Admin `set()`. A write to a database that does not
+ *   exist creates nothing.
  *
  * Output: packages/conformance/observations/firestore/firestore-named-database-rules-api.json
  *         packages/conformance/observations/firestore/firestore-named-database-absent.json
@@ -87,6 +90,19 @@ const RULES_PROBES: Record<string, RulesProbe> = {
       args: [{ exactValue: `/databases/${NAMED}/documents/c/x` }],
       result: { value: { data: { v: 1 } } },
     }],
+  },
+  // A file with one literal root block per database: does it compile, and
+  // does each database get only its own block?
+  'two-literal-root-blocks': {
+    ruleset: firestoreRuleset(`  match /databases/${NAMED}/documents {\n    match /p/{d} {\n      allow read: if true;\n    }\n  }\n  match /databases/(default)/documents {\n    match /p/{d} {\n      allow read: if false;\n    }\n  }`),
+  },
+  // The same file with the verdicts swapped, so each block's own verdict shows.
+  'two-literal-root-blocks-swapped': {
+    ruleset: firestoreRuleset(`  match /databases/${NAMED}/documents {\n    match /p/{d} {\n      allow read: if false;\n    }\n  }\n  match /databases/(default)/documents {\n    match /p/{d} {\n      allow read: if true;\n    }\n  }`),
+  },
+  // Under a literal root, is `database` bound at all?
+  'database-under-literal-root': {
+    ruleset: firestoreRuleset(`  match /databases/${NAMED}/documents {\n    match /p/{d} {\n      allow read: if database == '${NAMED}';\n    }\n  }`),
   },
 };
 
@@ -195,6 +211,49 @@ async function bounded(read: () => Promise<boolean>): Promise<ReadOutcome> {
   return result;
 }
 
+function describeOutcome(result: ReadOutcome): string {
+  if (result.outcome === 'exists') return 'resolved';
+  return result.code ? `${result.outcome}:${result.code}` : result.outcome;
+}
+
+type ListenOutcome =
+  | { kind: 'snapshot'; fromCache: boolean; exists: boolean; afterMs: number }
+  | { kind: 'error'; code: string; message: string; afterMs: number }
+  | { kind: 'timeout' };
+
+function describeListen(result: ListenOutcome): string {
+  switch (result.kind) {
+    case 'snapshot': return `snapshot:fromCache=${result.fromCache}:exists=${result.exists}`;
+    case 'error': return `error:${result.code}`;
+    case 'timeout': return 'timeout';
+  }
+}
+
+/** The first event an `onSnapshot` listener delivers within the timeout. */
+async function firstSnapshot(
+  listen: typeof import('firebase/firestore').onSnapshot,
+  ref: import('firebase/firestore').DocumentReference,
+): Promise<ListenOutcome> {
+  const started = Date.now();
+  return new Promise<ListenOutcome>((resolveListen) => {
+    let unsubscribe = (): void => {};
+    const timer = setTimeout(() => {
+      unsubscribe();
+      resolveListen({ kind: 'timeout' });
+    }, TIMEOUT_MS);
+    const settle = (outcome: ListenOutcome): void => {
+      clearTimeout(timer);
+      unsubscribe();
+      resolveListen(outcome);
+    };
+    unsubscribe = listen(
+      ref,
+      (snapshot) => settle({ kind: 'snapshot', fromCache: snapshot.metadata.fromCache, exists: snapshot.exists(), afterMs: Date.now() - started }),
+      (error) => settle({ kind: 'error', code: String((error as { code?: unknown }).code ?? ''), message: error.message, afterMs: Date.now() - started }),
+    );
+  });
+}
+
 async function restRead(sa: ServiceAccount, databaseId: string, path: string): Promise<ReadOutcome> {
   const headers = await accessHeaders(sa);
   const url = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/${encodeURIComponent(databaseId)}/documents/${path}`;
@@ -209,7 +268,7 @@ async function restRead(sa: ServiceAccount, databaseId: string, path: string): P
 
 async function captureAbsentDatabase(sa: ServiceAccount, web: WebConfig): Promise<void> {
   const { initializeApp: initializeClient } = await import('firebase/app');
-  const { getFirestore: clientFirestore, doc, getDoc, terminate } = await import('firebase/firestore');
+  const { getFirestore: clientFirestore, doc, getDoc, setDoc, onSnapshot, terminate } = await import('firebase/firestore');
   const { initializeApp: initializeAdmin, cert } = await import('firebase-admin/app');
   const { getFirestore: adminFirestore } = await import('firebase-admin/firestore');
 
@@ -238,13 +297,36 @@ async function captureAbsentDatabase(sa: ServiceAccount, web: WebConfig): Promis
     behavior[`${label}:rest`] = rest.status !== undefined ? `${rest.outcome}:${rest.status}` : rest.outcome;
     diagnostics[label] = { databaseId, client: clientRead, admin: adminRead, rest };
     console.log(`  ${label.padEnd(18)} client=${behavior[`${label}:client`]} admin=${behavior[`${label}:admin`]} rest=${behavior[`${label}:rest`]}`);
+
+    // Writes and a listener only against databases that do not exist, where a
+    // write cannot land: production holds no database to write into.
+    const isAbsent = label !== 'control-default' && label !== 'control-probes';
+    if (!isAbsent) continue;
+    const writeDb = clientFirestore(client, databaseId);
+    const clientWrite = await bounded(async () => {
+      await setDoc(doc(writeDb, docPath), { probe: runId });
+      return true;
+    });
+    await terminate(writeDb);
+    const listenDb = clientFirestore(client, databaseId);
+    const clientListen = await firstSnapshot(onSnapshot, doc(listenDb, docPath));
+    await terminate(listenDb);
+    const adminWrite = await bounded(async () => {
+      await adminFirestore(admin, databaseId).doc(docPath).set({ probe: runId });
+      return true;
+    });
+    behavior[`${label}:client-setDoc`] = describeOutcome(clientWrite);
+    behavior[`${label}:client-onSnapshot`] = describeListen(clientListen);
+    behavior[`${label}:admin-set`] = describeOutcome(adminWrite);
+    diagnostics[`${label}:writes`] = { databaseId, clientSetDoc: clientWrite, clientOnSnapshot: clientListen, adminSet: adminWrite };
+    console.log(`  ${label.padEnd(18)} setDoc=${behavior[`${label}:client-setDoc`]} onSnapshot=${behavior[`${label}:client-onSnapshot`]} admin.set=${behavior[`${label}:admin-set`]}`);
   }
 
   const observation = {
     name: 'firestore-named-database-absent',
     matrixRow: 'firestore MD1',
     rowIds: ['firestore#MD1'],
-    description: 'Reading a document that does not exist from a database the project lacks (a valid id, an id outside the naming rules, and the keyword `default`) through the client SDK (unauthenticated), the Admin SDK and the REST API, with `(default)` and the existing named database `probes` as controls. Reads only; nothing is created.',
+    description: 'Reading a document that does not exist from a database the project lacks (a valid id, an id outside the naming rules, and the keyword `default`) through the client SDK (unauthenticated), the Admin SDK and the REST API, with `(default)` and the existing named database `probes` as controls; then, against the missing databases only, a client setDoc, the first event of a client onSnapshot, and an Admin set(). No write targets a database that exists, so nothing is created.',
     observedAt: new Date().toISOString(),
     fbSdkVersion: FB_SDK_VERSION,
     adminSdkVersion: ADMIN_SDK_VERSION,
