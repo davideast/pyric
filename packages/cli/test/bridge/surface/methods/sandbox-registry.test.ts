@@ -94,8 +94,13 @@ function moduleGraph(entry: string): { files: string[]; bare: GraphEdge[] } {
   return { files: [...files], bare };
 }
 
+/** A Node-only package by its own name, or any subpath below it. */
+function isNodeOnlyPackage(specifier: string): boolean {
+  return NODE_ONLY_PACKAGES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
+}
+
 function isNodeOnly(specifier: string): boolean {
-  return isBuiltin(specifier) || NODE_ONLY_PACKAGES.includes(specifier);
+  return isBuiltin(specifier) || isNodeOnlyPackage(specifier);
 }
 
 /** Why one entry's graph cannot run in a browser, one line per reason. */
@@ -163,6 +168,14 @@ describe('records that run where the sandbox lives', () => {
 });
 
 describe('the check itself', () => {
+  it('treats a subpath of a Node-only package as Node-only', () => {
+    expect(isNodeOnly('@modelcontextprotocol/sdk/server/mcp.js')).toBe(true);
+    expect(isNodeOnly('ws/lib/websocket.js')).toBe(true);
+    expect(isNodeOnly('pyric/sandbox/checkpoints/directory')).toBe(true);
+    expect(isNodeOnly('wsx')).toBe(false);
+    expect(isNodeOnly('pyric/sandbox/checkpoints')).toBe(false);
+  });
+
   it('fails a sandbox-side graph that reaches a Node-only module', () => {
     expect(browserViolations(recordPath('firestore.writeIndexes'))).toContainEqual(
       "src/bridge/surface/methods/firestore/writeIndexes.ts imports Node-only 'node:fs'",

@@ -133,15 +133,19 @@ interface MethodRecordFields {
 /** A record whose handler runs wherever the sandbox lives. */
 export interface SandboxMethodRecord extends MethodRecordFields {
   runsIn: 'sandbox';
-  /** The one implementation. */
-  handler(args: Args, ctx: SandboxSurfaceContext): Promise<OperationResult>;
+  /**
+   * The one implementation. Declared as a property, not a method, so its
+   * parameter is checked strictly: a handler that annotates `ctx` as the wider
+   * `SurfaceContext` to reach `projectDir` does not compile.
+   */
+  handler: (args: Args, ctx: SandboxSurfaceContext) => Promise<OperationResult>;
 }
 
 /** A record whose handler runs only in the bridge process. */
 export interface BridgeMethodRecord extends MethodRecordFields {
   runsIn: 'bridge';
   /** The one implementation. */
-  handler(args: Args, ctx: SurfaceContext): Promise<OperationResult>;
+  handler: (args: Args, ctx: SurfaceContext) => Promise<OperationResult>;
 }
 
 /**
