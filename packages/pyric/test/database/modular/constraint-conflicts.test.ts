@@ -58,6 +58,7 @@ describe('DB-B5 — constraint-conflict validation', () => {
     const { db } = setup();
     expect(() =>
       query(ref(db, 'col'), orderByChild('a'), equalTo(2), endAt(5)),
-    ).toThrow(/Ending point was already set/);
+      // The SDK's endAt text says "Starting point" for the end point (hunt finding RT-14).
+    ).toThrow('endAt: Starting point was already set (by another call to endAt, endBefore or equalTo).');
   });
 });
