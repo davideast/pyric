@@ -216,7 +216,7 @@ describe('functions HTTP gateway', () => {
     ]);
   }, 10_000);
 
-  test('a rewrite without a region finds the function where its source deploys it, preferring us-central1', async () => {
+  test('a rewrite without a region finds the function where its source deploys it, and refuses an ambiguous one', async () => {
     const seen: string[] = [];
     const child = await listen(createServer((req, res) => {
       seen.push(String(req.headers[FUNCTION_TARGET_HEADER]));
@@ -257,17 +257,45 @@ describe('functions HTTP gateway', () => {
     expect((await fetch(`${base}/eu/x`)).status).toBe(200);
     expect((await fetch(`${base}/both/x`)).status).toBe(200);
     expect(warnings).toEqual([]);
-    expect((await fetch(`${base}/far/x`)).status).toBe(200);
-    expect((await fetch(`${base}/far/y`)).status).toBe(200);
-    expect(warnings).toEqual([
-      'firebase.json hosting rewrite to far names no region, and far deploys to asia-east1, europe-west1 but not us-central1; pyric routes it to asia-east1. Add "region" to the rewrite to choose one.',
-    ]);
+    // Several regions, none us-central1: firebase-tools 15.23.0 refuses the rewrite
+    // (`lib/deploy/hosting/convertConfig.js:48-56`), so pyric does too.
+    const ambiguousMessage =
+      'More than one backend found for function name: far. If the function is deployed in multiple regions, you must specify a region.';
+    for (const path of ['/far/x', '/far/y']) {
+      const ambiguous = await fetch(`${base}${path}`);
+      expect(ambiguous.status).toBe(404);
+      expect(await ambiguous.text()).toBe(ambiguousMessage);
+    }
+    expect(warnings).toEqual([`firebase.json hosting rewrite: ${ambiguousMessage}`]);
     const missing = await fetch(`${base}/none/x`);
     expect(missing.status).toBe(404);
     expect(await missing.text()).toBe(
       'Function none named by a hosting rewrite does not exist, valid functions are: europe-west1-eu, europe-west1-both, us-central1-both, asia-east1-far, europe-west1-far',
     );
-    expect(seen).toEqual(['eu', 'both', 'far', 'far']);
+    expect(seen).toEqual(['eu', 'both']);
+  });
+
+  test('the gateway cuts a rewritten request at the Hosting cap, and the emulator path runs to the function timeout', async () => {
+    const child = await listen(createServer((_req, res) => {
+      setTimeout(() => res.end('late'), 600);
+    }));
+    const gateway = createFunctionsHttpGateway({
+      projectId: 'demo-app',
+      initial: { kind: 'starting' },
+      rewrites: hostingRewrites({ hosting: { rewrites: [{ source: '/api/**', function: 'api' }] } }),
+      // A short stand-in for Hosting's 60 s, so the test runs in under a second.
+      hostingRewriteTimeoutSeconds: 0.2,
+    });
+    gateway.update({
+      kind: 'ready',
+      http: { port: Number(new URL(child).port), functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: 5 }] },
+    });
+    const base = await plane(gateway);
+    const [rewritten, direct] = await Promise.all([fetch(`${base}/api/slow`), fetch(`${base}/demo-app/us-central1/api/slow`)]);
+    expect(rewritten.status).toBe(504);
+    expect(await rewritten.text()).toBe("pyric: api did not respond within Hosting's 0.2 s limit for a rewritten request.");
+    expect(direct.status).toBe(200);
+    expect(await direct.text()).toBe('late');
   });
 
   test('a rewritten request is cut at Hosting\'s 60 s, and the emulator path keeps the function\'s own timeout', () => {

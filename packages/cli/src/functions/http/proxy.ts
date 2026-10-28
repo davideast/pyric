@@ -18,6 +18,8 @@ export interface ProxyTarget {
   headerOverrides?: Record<string, string | undefined>;
   /** Cut the request after this long. */
   timeoutMs: number;
+  /** The 504 body when the cut comes before any of the response. */
+  timeoutMessage: string;
 }
 
 /** How a forwarded request ended. */
@@ -80,7 +82,7 @@ export function proxyToChild(req: IncomingMessage, res: ServerResponse, target: 
       upstream.destroy();
       status = 504;
       res.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end(`pyric: ${target.exportName} did not respond within its timeout (${target.timeoutMs / 1000} s).`);
+      res.end(target.timeoutMessage);
     }, target.timeoutMs);
     timer.unref();
     upstream.on('response', (response) => {
