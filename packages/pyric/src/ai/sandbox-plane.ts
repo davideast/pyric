@@ -22,6 +22,7 @@ import { beginAiActivity } from './activity.js';
 import {
   AiBrokerError,
   errorEnvelope,
+  type AppCheckClaim,
   unknownModel,
   type CountTokensResponse,
   type GenerateContentRequest,
@@ -29,6 +30,7 @@ import {
   type WireResponse,
 } from './broker/index.js';
 import { toAIError } from './errors.js';
+import { isAppCheckRefusal } from './app-check-gate.js';
 import {
   aggregateResponses,
   createEnhancedContentResponse,
@@ -105,6 +107,15 @@ function normalizeRequest<T>(request: T): T {
   return JSON.parse(JSON.stringify(request)) as T;
 }
 
+
+
+/** Translate a failure to the SDK's error, logging pyric's App Check guidance once per app beside it. */
+function planeError(target: AITarget, err: unknown, modelResource: string, op: string): unknown {
+  const error = toAIError(err, modelResource, op);
+  if (isAppCheckRefusal(error)) target.appCheck?.warnRefused();
+  return error;
+}
+
 export async function planeGenerateContent(
   target: AITarget,
   modelResource: string,
@@ -117,13 +128,17 @@ export async function planeGenerateContent(
     checkSignal(singleRequestOptions);
     validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
+    // A handle with no app has no claim, and its dispatch takes no extra turn.
+    let appCheck: AppCheckClaim | undefined;
+    const attachment = target.appCheck;
+    if (attachment !== undefined) appCheck = await attachment.claim();
     const response = await (target.kind === 'transport' ? target.transport : target.broker)
-      .generateContent(normalized, modelResource);
+      .generateContent(normalized, modelResource, appCheck);
     activity.finish(response);
     return { response: createEnhancedContentResponse(response) };
   } catch (err) {
     activity.fail(err);
-    throw toAIError(err, modelResource, 'generateContent');
+    throw planeError(target, err, modelResource, 'generateContent');
   }
 }
 
@@ -140,13 +155,20 @@ export async function planeGenerateContentStream(
     checkSignal(singleRequestOptions);
     validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
-    // Broker validation runs eagerly here — a bad request throws before
-    // iteration, the way production answers HTTP errors instead of a stream.
+    // A handle with no app has no claim, and its dispatch takes no extra turn.
+    let appCheck: AppCheckClaim | undefined;
+    const attachment = target.appCheck;
+    if (attachment !== undefined) appCheck = await attachment.claim();
+    // The App Check gate and broker validation run eagerly here — a refused
+    // or bad request throws before iteration, the way production answers
+    // HTTP errors instead of a stream.
+    const admitsBeforeStream = target.kind === 'sandbox' && appCheck !== undefined;
+    if (admitsBeforeStream) await target.broker.admitAppCheck(modelResource, appCheck);
     inner = (target.kind === 'transport' ? target.transport : target.broker)
-      .streamGenerateContent(normalized, modelResource);
+      .streamGenerateContent(normalized, modelResource, appCheck);
   } catch (err) {
     activity.fail(err);
-    throw toAIError(err, modelResource, 'streamGenerateContent');
+    throw planeError(target, err, modelResource, 'streamGenerateContent');
   }
 
   // Pump eagerly (upstream tees the body stream): the aggregate resolves
@@ -169,7 +191,7 @@ export async function planeGenerateContentStream(
       }
     } catch (err) {
       activity.fail(err);
-      failure = toAIError(err, modelResource, 'streamGenerateContent');
+      failure = planeError(target, err, modelResource, 'streamGenerateContent');
       wake();
       throw failure;
     } finally {
@@ -224,11 +246,15 @@ export async function planeCountTokens(
     const normalized = normalizeRequest(request) as unknown as Parameters<
       typeof dispatch.countTokens
     >[0];
-    const result = await dispatch.countTokens(normalized, modelResource);
+    // A handle with no app has no claim, and its dispatch takes no extra turn.
+    let appCheck: AppCheckClaim | undefined;
+    const attachment = target.appCheck;
+    if (attachment !== undefined) appCheck = await attachment.claim();
+    const result = await dispatch.countTokens(normalized, modelResource, appCheck);
     activity.finish(result);
     return result;
   } catch (err) {
     activity.fail(err);
-    throw toAIError(err, modelResource, 'countTokens');
+    throw planeError(target, err, modelResource, 'countTokens');
   }
 }
