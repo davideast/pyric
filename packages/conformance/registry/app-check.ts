@@ -367,6 +367,16 @@ const adminRows: CompatibilityRow[] = [
     observations: ['app-check-admin-verify-consume'],
     notes: 'Covered: consumes through one sandbox handle in one process, including the require and import copies of `pyric-admin/app-check` (the consumed set sits behind `Symbol.for`). Not covered: production consumes once per project, server side, while the sandbox keeps the consumed set in process memory, so it is lost on restart and each process on one dev server keeps its own (#1297).',
   }),
+  row({
+    plane: 'app-check-admin',
+    rowRef: 'project-from-cert',
+    section: SEC_ADMIN,
+    api: 'initializeApp({ credential: cert(serviceAccount) }), then getAppCheck().createToken and verifyToken',
+    featureKeys: ['createToken', 'verifyToken'],
+    behavior: 'An app initialized with only a cert credential finds its project in the service account\'s `project_id` (or `projectId`), so `createToken` mints a token whose `aud` names `projects/<project_id>` and `verifyToken` accepts it. The `projectId` app option wins over the credential, and the credential wins over `GOOGLE_CLOUD_PROJECT` and `GCLOUD_PROJECT`. The project id is not copied into `app.options`.',
+    evidence: 'Upstream-documented only: firebase-admin 13.6.0 `lib/utils/index.js` (`getExplicitProjectId`) and `lib/app/credential-internal.js` (`ServiceAccount`, `copyAttr`). No capture; the project is resolved locally in the Admin SDK.',
+    notes: 'Unverified until a capture vouches for it: the project is resolved locally in firebase-admin, but a capture needs a real service account, so the assertion set runs in the climb lane and packages/pyric-admin/test/app-check/project-id.test.ts pins the sandbox side on every run. Not claimed: production\'s `cert()` throws on a service account without a private key or client email, or on a file it cannot parse. Pyric\'s `cert()` is inert by design, keeps only the project id, and never throws, so apps run without a key on disk; a credential without a project id falls through to the environment.',
+  }),
 ];
 
 export const appCheckRows: CompatibilityRow[] = [...initRows, ...tokenRows, ...listenRows, ...wireRows, ...adminRows];
