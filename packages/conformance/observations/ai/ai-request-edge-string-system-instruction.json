@@ -1,0 +1,69 @@
+{
+  "name": "ai-request-edge-string-system-instruction",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#request-string-system-instruction"
+  ],
+  "description": "generateContent with systemInstruction sent as a top-level string instead of a Content object. Records the HTTP status and error envelope production returns.",
+  "observedAt": "2026-10-28T02:26:34.132Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "request": {
+      "model": "gemini-flash-lite-latest",
+      "body": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Reply with one word: pong"
+              }
+            ]
+          }
+        ],
+        "systemInstruction": "Answer in lowercase."
+      },
+      "headerNames": [
+        "Content-Type",
+        "x-goog-api-key",
+        "X-Firebase-AppCheck"
+      ]
+    },
+    "appCheckTokenSource": "firebase-admin createToken(appId)",
+    "httpStatus": 400,
+    "isJson": true,
+    "errorKeySet": [
+      "code",
+      "details",
+      "message",
+      "status"
+    ],
+    "errorCode": 400,
+    "errorStatus": "INVALID_ARGUMENT",
+    "detailTypes": [
+      "type.googleapis.com/google.rpc.BadRequest"
+    ],
+    "messageText": "Invalid value at 'system_instruction' (type.googleapis.com/google.ai.generativelanguage.v1beta.Content), \"Answer in lowercase.\"",
+    "raw": {
+      "error": {
+        "code": 400,
+        "message": "Invalid value at 'system_instruction' (type.googleapis.com/google.ai.generativelanguage.v1beta.Content), \"Answer in lowercase.\"",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "system_instruction",
+                "description": "Invalid value at 'system_instruction' (type.googleapis.com/google.ai.generativelanguage.v1beta.Content), \"Answer in lowercase.\""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

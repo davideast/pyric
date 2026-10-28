@@ -1,0 +1,54 @@
+{
+  "name": "ai-request-edge-model-gemini-pro",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#request-model-gemini-pro"
+  ],
+  "description": "generateContent addressed to the model name gemini-pro. Records the HTTP status and error envelope production returns for that model name.",
+  "observedAt": "2026-10-28T02:26:34.277Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "apiVersion": "v1beta",
+  "model": "gemini-pro",
+  "behavior": {
+    "request": {
+      "model": "gemini-pro",
+      "body": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Reply with one word: pong"
+              }
+            ]
+          }
+        ]
+      },
+      "headerNames": [
+        "Content-Type",
+        "x-goog-api-key",
+        "X-Firebase-AppCheck"
+      ]
+    },
+    "appCheckTokenSource": "firebase-admin createToken(appId)",
+    "httpStatus": 404,
+    "isJson": true,
+    "errorKeySet": [
+      "code",
+      "message",
+      "status"
+    ],
+    "errorCode": 404,
+    "errorStatus": "NOT_FOUND",
+    "detailTypes": [],
+    "messageText": "models/gemini-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+    "raw": {
+      "error": {
+        "code": 404,
+        "message": "models/gemini-pro is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+        "status": "NOT_FOUND"
+      }
+    }
+  }
+}
