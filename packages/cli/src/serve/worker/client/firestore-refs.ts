@@ -19,6 +19,7 @@ import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handl
 import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
 import { encodeDocValue, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
+import { normalizeQueryOrders } from 'pyric/firestore/internal/implicit-order';
 import { generateAutoId } from 'pyric/sandbox/internal';
 import type { DocumentData, FieldPath, FirestoreDataConverter, QueryConstraintType } from 'pyric/firestore';
 import { rawClientSnapshotForCursor, type RawCursorSnapshot } from './snapshots.js';
@@ -236,20 +237,9 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
     }
   }
 
-  const normalizedOrders = [...explicitOrders];
-  const seen = new Set(normalizedOrders.map((order) => order.field));
-  const lastDirection: 'asc' | 'desc' = explicitOrders.length > 0
-    ? explicitOrders[explicitOrders.length - 1]!.direction
-    : 'asc';
-  for (const field of inequalityFields) {
-    if (field !== KEY_FIELD && !seen.has(field)) {
-      seen.add(field);
-      normalizedOrders.push({ field, direction: lastDirection });
-    }
-  }
-  if (!seen.has(KEY_FIELD)) {
-    normalizedOrders.push({ field: KEY_FIELD, direction: lastDirection });
-  }
+  // One normalization for every plane: inequality fields in field-path
+  // order, then the document key (#1364, FL-4).
+  const normalizedOrders = normalizeQueryOrders(explicitOrders, inequalityFields);
 
   // Place normalized `orderBy` clauses before resolved snapshot cursors so host
   // positional cursor normalization sees every sort slot including `__name__`.

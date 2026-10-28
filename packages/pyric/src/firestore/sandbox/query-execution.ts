@@ -5,6 +5,7 @@ import { topK } from './topk.js';
 import { firestoreValuesEqual } from './value-equality.js';
 import { compareValues, typeOrderRank } from './query-value-order.js';
 import { FirestoreCompatError } from './firestore-compat-error.js';
+import { normalizeQueryOrders } from '../internal/implicit-order.js';
 import type { DocStore } from './local-state.js';
 import type { QueryConstraints, QueryWhereConstraint } from './list-query-proof.js';
 import type { FirestoreSimError } from './errors.js';
@@ -458,36 +459,10 @@ function applyOrder(
 }
 
 
-/** Field paths compare segment by segment (`FieldPath.comparator`). */
-function compareFieldPaths(a: string, b: string): number {
-  const aSegments = a.split('.');
-  const bSegments = b.split('.');
-  const n = Math.min(aSegments.length, bSegments.length);
-  for (let i = 0; i < n; i++) {
-    const cmp = compareValues(aSegments[i], bSegments[i]);
-    if (cmp !== 0) return cmp;
-  }
-  return aSegments.length - bSegments.length;
-}
-
-/** Upstream `queryNormalizedOrderBy`: the explicit orders, then each
- *  inequality field not already ordered, in field-path order (the SDK keeps
- *  them in a sorted set, FL-4), then the document key. */
+/** Upstream `queryNormalizedOrderBy`, shared with the served client
+ *  ({@link normalizeQueryOrders}). */
 export function normalizedQueryOrders(spec: QueryExecutionSpec): QueryOrderClause[] {
-  const out: QueryOrderClause[] = [...spec.orders];
-  const seen = new Set(out.map((order) => order.field));
-  const lastDirection: QueryOrderDirection =
-    spec.orders.length > 0 ? spec.orders[spec.orders.length - 1]!.direction : 'asc';
-  const implicitFields = new Set(spec.filters.flatMap(inequalityFields));
-  const unordered = [...implicitFields].filter((field) => field !== KEY_FIELD && !seen.has(field));
-  for (const field of unordered.sort(compareFieldPaths)) {
-    seen.add(field);
-    out.push({ field, direction: lastDirection });
-  }
-  if (!seen.has(KEY_FIELD)) {
-    out.push({ field: KEY_FIELD, direction: lastDirection });
-  }
-  return out;
+  return normalizeQueryOrders(spec.orders, spec.filters.flatMap(inequalityFields));
 }
 
 export function executeQuery(
