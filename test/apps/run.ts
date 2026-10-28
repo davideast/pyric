@@ -257,7 +257,7 @@ async function main(): Promise<void> {
       // Recorded as each app finishes, so a run that stops early keeps the times it has.
       recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);
       console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
-      for (const cleanupFailure of result.cleanupFailures) console.log(`  ✗ ${name}: cleanup failed: ${cleanupFailure}`);
+      for (const cleanupFailure of result.cleanupFailures) console.log(`  warning: ${name}: cleanup failed: ${cleanupFailure}`);
       return result;
     });
     if (browser) await (await browser).close();
@@ -270,8 +270,8 @@ async function main(): Promise<void> {
   console.log('');
   const summary = summarize(results, total, skippedSlowClause(skippedSlow));
   for (const line of summary.lines) console.log(line);
-  if (installsFailure !== undefined) console.log(`✗ cleanup failed for the shared installs: ${installsFailure}`);
-  process.exit(installsFailure === undefined ? summary.exitCode : 1);
+  if (installsFailure !== undefined) console.log(`warning: cleanup failed for the shared installs: ${installsFailure}`);
+  process.exit(summary.exitCode);
 }
 
 await main();

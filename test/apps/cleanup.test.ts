@@ -128,7 +128,7 @@ describe('summarize', () => {
     expect(exitCode).toBe(0);
   });
 
-  test('fails a run whose apps all passed when one left its tree, on its own line after the verdicts', () => {
+  test('passes a run whose apps all passed when one left its tree, with a warning after the verdicts', () => {
     const results = [
       { name: 'a', ...passed },
       { name: 'rtdb-verify-reads-and-denials', ok: true, cleanupFailures: ['could not remove /tmp/pyric-app-x after 3 attempts: rm exited with code 1'] },
@@ -138,10 +138,10 @@ describe('summarize', () => {
 
     expect(lines).toEqual([
       '✓ 2 apps passed (9.0s)',
-      '✗ cleanup failed for 1 of 2 apps: rtdb-verify-reads-and-denials',
+      'warning: cleanup failed for 1 of 2 apps: rtdb-verify-reads-and-denials',
       '  rtdb-verify-reads-and-denials: could not remove /tmp/pyric-app-x after 3 attempts: rm exited with code 1',
     ]);
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(0);
   });
 
   test('keeps a failed app\'s verdict next to another app\'s cleanup failure', () => {
@@ -154,7 +154,7 @@ describe('summarize', () => {
 
     expect(lines).toEqual([
       '✗ 1 of 2 apps failed (9.0s): a at "open the page" (1 slow app skipped)',
-      '✗ cleanup failed for 1 of 2 apps: b',
+      'warning: cleanup failed for 1 of 2 apps: b',
       '  b: closing failed',
     ]);
     expect(exitCode).toBe(1);

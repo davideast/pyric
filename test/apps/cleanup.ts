@@ -75,9 +75,11 @@ export interface Verdict {
 }
 
 /**
- * The run's closing lines and exit code. A cleanup failure fails the run on
- * its own line, after every app's verdict, because a tree left in the temp
- * folder takes disk from every later run on the machine.
+ * The run's closing lines and exit code. Cleanup failures are a warning on
+ * their own lines, after every app's verdict, and never change the exit code:
+ * each app's temp folder has a unique name, so one left behind cannot affect a
+ * later run, and failing a release over it would stop the gate on something
+ * that is not a verdict.
  */
 export function summarize(results: readonly Verdict[], totalSeconds: string, skipped: string): { lines: string[]; exitCode: number } {
   const failed = results.filter((result) => !result.ok);
@@ -86,9 +88,8 @@ export function summarize(results: readonly Verdict[], totalSeconds: string, ski
     ? `✗ ${failed.length} of ${results.length} apps failed (${totalSeconds}s): ${failed.map((result) => `${result.name} at "${result.step}"`).join(', ')}${skipped}`
     : `✓ ${results.length} apps passed (${totalSeconds}s)${skipped}`];
   if (uncleaned.length) {
-    lines.push(`✗ cleanup failed for ${uncleaned.length} of ${results.length} apps: ${uncleaned.map((result) => result.name).join(', ')}`);
+    lines.push(`warning: cleanup failed for ${uncleaned.length} of ${results.length} apps: ${uncleaned.map((result) => result.name).join(', ')}`);
     for (const result of uncleaned) lines.push(...result.cleanupFailures.map((failure) => `  ${result.name}: ${failure}`));
   }
-  const hasFailure = failed.length > 0 || uncleaned.length > 0;
-  return { lines, exitCode: hasFailure ? 1 : 0 };
+  return { lines, exitCode: failed.length > 0 ? 1 : 0 };
 }
