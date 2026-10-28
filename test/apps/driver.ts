@@ -286,6 +286,13 @@ export interface App {
    * scenario created there, such as one `create-pyric` scaffolded.
    */
   devServer(options?: { env?: Record<string, string>; name?: string; port?: number; cwd?: string }): Promise<DevServer>;
+  /**
+   * Starts the installed `pyric sandbox` (no Vite: the import-map plane) on a
+   * free port, or on `port` when given, from the app directory, and waits
+   * until it serves the page and `/__pyric/init.json`. It serves the
+   * directory `firebase.json`'s `hosting.public` names and runs no command.
+   */
+  sandboxServer(options?: { env?: Record<string, string>; name?: string; port?: number }): Promise<DevServer>;
   /** Runs `node --import @pyric/cli/register <script> ...args` to exit. Throws on a non-zero exit. */
   serverScript(script: string, args?: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /**
@@ -507,6 +514,19 @@ export class AppRun implements App {
       appEnvironment(this.home, options.env),
     );
     this.processes.push(child);
+    return this.servedHost(name, port, child);
+  }
+
+  async sandboxServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
+    const port = options.port ?? await freePort(this.ports);
+    this.serverCount += 1;
+    const name = options.name ?? (this.serverCount === 1 ? 'pyric sandbox' : `pyric sandbox ${this.serverCount}`);
+    const child = this.pyricProcess(['sandbox', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], { env: options.env });
+    return this.servedHost(name, port, child);
+  }
+
+  /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`. */
+  private async servedHost(name: string, port: number, child: AppProcess): Promise<DevServer> {
     const url = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
     for (;;) {
@@ -674,7 +694,8 @@ export class AppRun implements App {
     const page = await context.newPage();
     const index = context.pages().length;
     page.on('console', (message) => this.browserLog.push(`[page ${index} console.${message.type()}] ${message.text()}`));
-    page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack ?? error.message}`));
+    // A module that fails to resolve throws with an empty stack, so the message stands in for it.
+    page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack || `${error.name}: ${error.message}`}`));
     page.on('response', (response) => {
       if (response.status() < 400) return;
       this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
