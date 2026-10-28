@@ -146,7 +146,10 @@ export function geminiToOpenAIRequest(
   let callOrdinal = 0;
 
   for (const content of req.contents ?? []) {
-    if (content.role === 'function') {
+    // A function response turn rides under role `user` on the production
+    // wire (#1410); the SDK's role `function` never gets past the broker.
+    const isFunctionResponseTurn = content.role !== 'model' && content.parts.some((part) => part.functionResponse);
+    if (isFunctionResponseTurn) {
       // functionResponse turn -> one OpenAI `tool` message per part
       for (const part of content.parts) {
         if (!part.functionResponse) continue;
