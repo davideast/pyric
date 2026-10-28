@@ -29,9 +29,9 @@
  */
 import { chromium, type Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
 import { AppRun, StepFailure, type Scenario } from './driver.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
@@ -77,6 +77,8 @@ interface AppResult {
   installSeconds: number;
   step?: string;
   error?: string;
+  /** What went wrong closing the app or removing its directory, after its verdict was known. */
+  cleanupFailures: string[];
   logs: Array<{ name: string; text: string }>;
 }
 
@@ -140,17 +142,18 @@ async function runApp(name: string, context: {
     }
   } catch (error) {
     failure = error;
-  } finally {
-    await run.close();
   }
-  for (const child of run.processes) logs.push({ name: child.name, text: child.header + child.output });
-  if (run.browserLog.length) logs.push({ name: 'browser', text: run.browserLog.join('\n') });
-  const ok = failure === undefined;
   // The tree is removed off the event loop, which every running app's steps
   // share. An rmSync of one app's installed tree held it for over 4 s on CI,
   // and the apps still running timed that stall as their own.
+  const cleanupFailures = await cleanUpApp({
+    close: () => run.close(),
+    remove: async () => (context.keep ? undefined : removeTree(work)),
+  });
   if (context.keep) console.log(`  ${name}: installed at ${projectDir}`);
-  else await rm(work, { recursive: true, force: true });
+  for (const child of run.processes) logs.push({ name: child.name, text: child.header + child.output });
+  if (run.browserLog.length) logs.push({ name: 'browser', text: run.browserLog.join('\n') });
+  const ok = failure === undefined;
   return {
     name,
     ok,
@@ -158,6 +161,7 @@ async function runApp(name: string, context: {
     installSeconds,
     step: ok ? undefined : failure instanceof StepFailure ? failure.step : run.currentStep,
     error: ok ? undefined : describeError(failure),
+    cleanupFailures,
     logs,
   };
 }
@@ -170,6 +174,7 @@ function saveLogs(result: AppResult): string {
     writeFileSync(join(dir, file.slice(0, 120)), log.text);
   }
   if (!result.ok) writeFileSync(join(dir, 'failure.txt'), `step: ${result.step}\n\n${result.error}\n`);
+  if (result.cleanupFailures.length) writeFileSync(join(dir, 'cleanup-failure.txt'), `${result.cleanupFailures.join('\n')}\n`);
   return dir;
 }
 
@@ -244,6 +249,7 @@ async function main(): Promise<void> {
   const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;
   console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${jobs} at a time (${load}), longest first`);
   let results: AppResult[];
+  let installsFailure: string | undefined;
   try {
     results = await pool(names, jobs, async (name) => {
       const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
@@ -251,22 +257,21 @@ async function main(): Promise<void> {
       // Recorded as each app finishes, so a run that stops early keeps the times it has.
       recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);
       console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
+      for (const cleanupFailure of result.cleanupFailures) console.log(`  warning: ${name}: cleanup failed: ${cleanupFailure}`);
       return result;
     });
     if (browser) await (await browser).close();
   } finally {
     if (options.keep) console.log(`  shared installs: ${installsDir}`);
-    else rmSync(installsDir, { recursive: true, force: true });
+    else installsFailure = await removeTree(installsDir);
   }
 
-  const failed = results.filter((result) => !result.ok);
   const total = ((performance.now() - started) / 1000).toFixed(1);
   console.log('');
-  const skipped = skippedSlowClause(skippedSlow);
-  console.log(failed.length
-    ? `✗ ${failed.length} of ${results.length} apps failed (${total}s): ${failed.map((result) => `${result.name} at "${result.step}"`).join(', ')}${skipped}`
-    : `✓ ${results.length} apps passed (${total}s)${skipped}`);
-  process.exit(failed.length ? 1 : 0);
+  const summary = summarize(results, total, skippedSlowClause(skippedSlow));
+  for (const line of summary.lines) console.log(line);
+  if (installsFailure !== undefined) console.log(`warning: cleanup failed for the shared installs: ${installsFailure}`);
+  process.exit(summary.exitCode);
 }
 
 await main();

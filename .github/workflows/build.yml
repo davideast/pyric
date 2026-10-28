@@ -437,7 +437,7 @@ jobs:
       - name: Pack the published packages
         run: bash scripts/pack-packages.sh --skip-build
       - name: Test the app selection and the driver
-        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/install.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts
+        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/install.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts
       - name: Restore the app scenario times
         # test/apps/run.ts starts the apps that took longest in the last run
         # first, from test-results/app-durations.json. The order only affects
