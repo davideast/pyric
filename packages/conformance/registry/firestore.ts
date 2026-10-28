@@ -339,6 +339,7 @@ export const firestoreRegistry = {
           statusNote: "no database id parameter; every call resolves to (default)",
           evidence: "`packages/pyric-admin/test/firestore/named-database.test.ts` writes through `getFirestore(app, 'reports')` and reads the document through `getFirestore(app)` and `getFirestore(app, 'archive')`.",
           conformanceTests: ["packages/pyric-admin/test/firestore/named-database.test.ts"],
+          oracleObservations: ["firestore-named-database-admin-mixing"],
         }),
         namedDatabaseRow({
           rowRef: "MD4",
@@ -348,7 +349,7 @@ export const firestoreRegistry = {
           statusNote: "`database` is always (default)",
           evidence: "`packages/pyric/test/firestore/named-database.test.ts` writes through a handle created for `reports`: a rule requiring `database == '(default)'` allows the write and a rule requiring `database == 'reports'` denies it.",
           conformanceTests: ["packages/pyric/test/firestore/named-database.test.ts"],
-          oracleObservations: ["firestore-named-database-rules-api"],
+          oracleObservations: ["firestore-named-database-rules-api", "firestore-named-database-cross-database"],
         }),
       ],
     },

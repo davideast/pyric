@@ -107,6 +107,10 @@ const NOT_APPLICABLE: Record<string, string> = {
     "records production's answer to a read from a database the project lacks (ADR-0021 C3). The sandbox models one database per app today (row MD1), so every id reads (default); #1316 replaces this entry with a replay once a missing database answers as production does.",
   'firestore-named-database-rules-api.json':
     "records what the Rules Test API binds `database` and `request.path` to for a request in the named database `probes` (ADR-0021 C1). The rules simulator binds `(default)` for every request today (row MD4); #1316 replaces this entry with a replay once `database` binds the handle's id.",
+  'firestore-named-database-cross-database.json':
+    "records deployed rules in the named database `probes` reading `(default)` through get() and exists() (ADR-0021 C2): every cross-database lookup is an error value that denies, and `|| true` still grants. The sandbox models one database per app today (row MD4); #1316 replaces this entry with a replay (row MD6).",
+  'firestore-named-database-admin-mixing.json':
+    "records the Admin SDK mixing `(default)` and `probes` (ADR-0021 C4): a reference field to the other database commits, and a batch or transaction spanning both fails with INVALID_ARGUMENT. pyric-admin takes no database id today (row MD3); #1316 replaces this entry with a replay (row MD7).",
 };
 
 // Instrumented completeness gate: `load(name)` records which behavior fields are

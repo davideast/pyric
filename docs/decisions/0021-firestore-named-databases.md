@@ -99,9 +99,23 @@ copies that shape wherever Firestore allows it, and names the places it can't.
 
    A request under `(default)` gets the reverse in each case.
 
-C2, which deploys rules to `probes`, has not run. It is the only capture that
-can show whether a deployed rule in one database reads another database's
-documents (decision 3).
+6. **A deployed rule cannot read another database** (C2, 2026-10-28). In
+   `probes`, every `get()` and `exists()` of a `(default)` path denies, whether
+   the document exists in `(default)`, exists only in `probes`, or carries a
+   value the rule expects. `!exists()` of such a path also denies, and
+   `get(...) == 'x' || true` grants, so the lookup is an error value, not
+   `false` and not a read of the evaluating database. A `get()` through
+   `/databases/$(database)/` in the same rules reads `probes` normally.
+7. **The Admin SDK can store a reference to another database, but not write
+   to two** (C4, 2026-10-28). An Admin `set()` in `(default)` of a field
+   holding a `probes` reference commits, and the backend stores the full name
+   `projects/<p>/databases/probes/documents/...`. Reading it back, Admin SDK
+   13.10.0 returns a reference whose `firestore` is the `(default)` handle, so
+   the database is lost on read. A `WriteBatch` from `(default)` with a set in
+   each database, and a `(default)` transaction that reads and writes a
+   `probes` document, both fail with code 3, `INVALID_ARGUMENT: The request was
+   for database 'projects/<p>/databases/(default)' but was attempting to access
+   database 'projects/<p>/databases/probes'`. Nothing from either is written.
 
 ## Decisions
 
@@ -305,11 +319,13 @@ evaluating database's id:
 
 **`get()`, `exists()`, `getAfter()` and `existsAfter()` across databases
 (MD6).** Firebase's docs do not say whether a rule in one database may read a
-document in another. C1 shows the language accepts such a path: a mocked
-`get()` of the other database evaluated in both directions. A mock answers
-whatever path it names, so that says nothing about a real read. Until C2
-settles it, a lookup of another database fails closed. Three requirements make
-that true:
+document in another. C1 shows the language accepts such a path, but a mock
+answers whatever path it names. C2 shows production refuses the real read: in
+`probes`, a `get()` or `exists()` of a `(default)` path is an error value
+(context fact 6). So a lookup of another database fails closed in pyric, as in
+production. C2 covers `get()` and `exists()` from `probes` into `(default)`;
+`getAfter()` and `existsAfter()`, and the reverse direction, follow the same
+rule and are unverified. Three requirements make that true:
 
 1. **The strip follows the evaluating database.** Only
    `/databases/<evaluating id>/documents/` is stripped. In `reports`,
@@ -323,8 +339,6 @@ that true:
    too. `!exists(other)` is an error, so it denies.
 3. **Storage's `firestore.get` reads `(default)` by name**, as above.
 
-If C2 shows production allows the read, pyric denies a request production
-allows, and MD6 documents that until it is fixed.
 
 **Existence.** Pyric can't see the console, so a database exists in pyric
 when it is declared. Data alone never declares one. Ways to declare:
@@ -645,9 +659,15 @@ are not the Admin SDK's. In `@google-cloud/firestore` 7.11.6:
 - the serializer doesn't check a reference field's database.
 
 So an Admin write of a reference to another database, or a batch spanning two
-databases, reaches the backend, and the backend's answer is unknown. Until a
-capture (C4) records it, pyric refuses both with its own `invalid-argument`
-message. MD7's Admin half is marked unverified.
+databases, reaches the backend. C4 records its answer (context fact 7), and
+pyric matches it:
+
+- a batch or transaction that touches a second database fails with
+  `invalid-argument` and production's message, naming both databases, and
+  writes nothing;
+- a reference field to another database is stored with its full name. Read
+  back through `pyric-admin`, it resolves against the reading handle, as Admin
+  SDK 13.10.0 does.
 
 The pyric-specific `getFirestore(ctx)` form gains the same optional id
 (decision 1).
@@ -720,10 +740,10 @@ The Cloud Functions priority picks them up, and the activity event's
 
 | Row | Flips to `conforms` on |
 | --- | --- |
-| MD1 | `packages/pyric/test/firestore/named-database.test.ts` rewritten to assert that two ids hold different documents and that decision 1's errors match. The production reference is the Manage databases page; C3 shows only how a missing database answers. C2 adds an oracle observation of isolation |
+| MD1 | `packages/pyric/test/firestore/named-database.test.ts` rewritten to assert that two ids hold different documents and that decision 1's errors match. The production reference is the Manage databases page; C3 shows only how a missing database answers. C2's observation `firestore-named-database-cross-database` records the same path holding different documents in `(default)` and `probes` |
 | MD2 | the served-entry test asserting a named handle reaches its own database over a worker host, and the app scenario below |
 | MD3 | `packages/pyric-admin/test/firestore/named-database.test.ts` asserting isolation on both arms, and a new app scenario `admin-writes-named-firestore-database`, modeled on `admin-writes-named-rtdb-instance` |
-| MD4 | C1's observation `firestore-named-database-rules-api`, linked from MD4, replayed by the rewritten `named-database.test.ts`: wildcard binding, `request.path`, literal roots, several root blocks, and `database` unbound under a literal root. This is Rules Test API evidence; C2 confirms deployed rules enforce it |
+| MD4 | C1's observation `firestore-named-database-rules-api`, linked from MD4, replayed by the rewritten `named-database.test.ts`: wildcard binding, `request.path`, literal roots, several root blocks, and `database` unbound under a literal root. This is Rules Test API evidence. C2's `firestore-named-database-cross-database`, also linked from MD4, shows deployed rules on `probes` evaluating `database` as `probes` |
 
 **New rows**, each added in the issue that builds it, with `firestore.json`'s
 count raised by the same number in the same change (AGENTS.md item 6;
@@ -732,8 +752,8 @@ count raised by the same number in the same change (AGENTS.md item 6;
 | Row | Behavior | Issue |
 | --- | --- | --- |
 | MD5 | `getFirestore(databaseId)` with the default app, and `initializeFirestore(app, settings, databaseId)` | #1316 |
-| MD6 | rules `get()`, `exists()`, `getAfter()`, `existsAfter()` of another database | #1316, status from C2 |
-| MD7 | client SDK: a reference field, or a batch or transaction reference, from another database is refused with the SDK's message. Admin SDK: refused with pyric's message, unverified until C4 | #1316 |
+| MD6 | rules `get()`, `exists()`, `getAfter()`, `existsAfter()` of another database are an error value that denies (C2 for `get()` and `exists()`) | #1316 |
+| MD7 | client SDK: a reference field, or a batch or transaction reference, from another database is refused with the SDK's message. Admin SDK (C4): a batch or transaction spanning databases fails with production's `INVALID_ARGUMENT` message; a reference field to another database is stored | #1316 |
 | MD8 | a declared database without deployed rules denies client access (the docs' description of production mode) | #1319 |
 | MD9 | a database nothing declares: C3's Admin `NOT_FOUND` on reads and writes, and the client's offline `getDoc`, `onSnapshot` and pending `setDoc` | #1316 |
 | MD10 | per-database rules from the `firestore` array, `target` and `database` forms | #1319 |
@@ -840,11 +860,28 @@ production-capture lock.
   4. restore the release, read it back, and confirm it matches the snapshot;
   5. remove its run-scoped documents and touch no other database.
 
-  It settles MD6 in that direction, adds deployed-rules evidence to MD4, and
-  gives MD1 an oracle observation of isolation. Deploying rules to `probes`
-  changes production state.
+  It ran on 2026-10-28, on David's yes, through
+  `capture-firestore-named-databases-deployed.ts cross-database`. The
+  observation is
+  `packages/conformance/observations/firestore/firestore-named-database-cross-database.json`,
+  linked from MD4. It merged one run-scoped block into the `probes` release,
+  which before the run denied every request, read each case three times with
+  the client SDK 12.13.0 (no sign-in), then restored the release, read it back
+  at the snapshot's ruleset, and deleted its ruleset and documents.
 
-  Not run yet. It waits for David's yes, given to the session that runs it.
+  | Case in `probes` | Verdict |
+  | --- | --- |
+  | `true` / `false` (controls) | allowed / denied |
+  | `get(/databases/$(database)/...).data.v == 'probes'` | allowed |
+  | `get((default) path).data.v == 'default'`, the value `(default)` holds | denied |
+  | `get((default) path).data.v == 'probes'`, the value `probes` holds | denied |
+  | `exists()` of a `(default)` path that exists only in `(default)` | denied |
+  | `exists()` of a `(default)` path that exists only in `probes` | denied |
+  | `!exists()` of a `(default)` path that exists only in `(default)` | denied |
+  | `get((default) path).data.v == 'nothing' \|\| true` | allowed |
+
+  It settles MD6 from `probes` into `(default)`, adds deployed-rules evidence
+  to MD4, and gives MD1 an oracle observation of isolation.
 - **C3: a database that does not exist.** It ran on 2026-10-28. The observation
   is
   `packages/conformance/observations/firestore/firestore-named-database-absent.json`,
@@ -868,9 +905,14 @@ production-capture lock.
   It settles decision 3's handling of a missing database, MD9, and decision 1's
   reading of `default`.
 - **C4: the Admin SDK mixing databases.** An Admin write of a reference to
-  another database, and a batch spanning `(default)` and `probes`. It records
-  the backend's answer for MD7's Admin half. Its writes land in real databases
-  (run-scoped, then removed), so it waits for David's yes with C2.
+  another database, a batch spanning `(default)` and `probes`, and a
+  `(default)` transaction that reads and writes a `probes` document. It ran on
+  2026-10-28, on David's yes, through
+  `capture-firestore-named-databases-deployed.ts admin-mixing`, with Admin SDK
+  13.10.0. The observation is
+  `packages/conformance/observations/firestore/firestore-named-database-admin-mixing.json`,
+  linked from MD3 until #1316 adds MD7. The results are context fact 7. Every
+  run-scoped document was deleted and read back missing.
 
 ## Consequences
 
@@ -900,9 +942,9 @@ production-capture lock.
 - **Downgrades lose named data.** An older build refuses a version 7 host
   store. It reads a newer bundle as `(default)` only, and if it then saves, the
   named databases' data is gone for good.
-- Until C2 runs, a rule reading another database denies, and MD6 says so.
-  Until C4 runs, pyric refuses Admin writes that mix databases under its own
-  message.
+- A rule reading another database denies, as C2 shows production does.
+  An Admin batch or transaction that mixes databases fails with production's
+  message, and a reference to another database is stored, as C4 shows.
 - `getInternalEnv` stops being a silent default, and every caller states which
   database it means.
 - `instances.ts`'s generic registry moves to a service-neutral module, a
@@ -916,9 +958,9 @@ production-capture lock.
 1. **The worker protocol version field.** Decided 2026-10-27: add it now.
    Decision 4 says where it goes, who refuses, and how a named-database frame
    waits for the answer.
-2. **Captures that write to the oracle project.** The oracle project already has
-   the `probes` named database, so nothing needs creating. Recommended: approve
-   both:
+2. **Captures that write to the oracle project.** Decided 2026-10-28: both
+   approved, and both ran (C2 and C4 above). The oracle project already has
+   the `probes` named database, so nothing needed creating:
    - C2, which deploys and then restores rules on `probes`. It is the only way
      to settle MD6;
    - C4, which writes run-scoped Admin documents to `(default)` and `probes`
