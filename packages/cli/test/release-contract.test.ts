@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
+import {
+  BRIDGE_IN_PROCESS_TOOL_NAMES,
+  BRIDGE_TOOL_NAMES,
+  DEFAULT_MCP_TOOL_NAMES,
+} from '../src/bridge/server/mcp-contract.js';
 import { TOOLS } from '../src/bridge/surface/methods/registry.js';
 
 interface ReleaseContract {
@@ -14,6 +18,8 @@ interface ReleaseContract {
   removedExports: string[];
   mcpTools: string[];
   mcpToolMethods: Record<string, string[]>;
+  bridgeTools: string[];
+  standaloneBridgeTools: string[];
 }
 
 const workspaceRoot = join(import.meta.dir, '../../..');
@@ -85,5 +91,13 @@ describe('ratified @pyric/cli release contract', () => {
       pinnedMethods[tool] = [...methods].sort();
     }
     expect(actualMethods).toEqual(pinnedMethods);
+  });
+
+  it('pins the served bridge transport surface and the standalone bridge in-process subset', () => {
+    // The packaging gate's packed bridge smoke lists tools against these
+    // fixture rows, and it only runs on main. Pinning them here makes a
+    // surface change fail on the pull request that makes it (#1549).
+    expect([...contract.bridgeTools].sort()).toEqual([...BRIDGE_TOOL_NAMES].sort());
+    expect([...contract.standaloneBridgeTools].sort()).toEqual([...BRIDGE_IN_PROCESS_TOOL_NAMES].sort());
   });
 });
