@@ -25,10 +25,6 @@ on:
     workflows: ['Build & Test']
     types: [completed]
     branches: [main]
-  # Temporary: workflow_dispatch needs this file on main, so this branch
-  # proves the dry run against two past runs on push. Removed before review.
-  push:
-    branches: [ci/main-failure-rerun-and-file]
   workflow_dispatch:
     inputs:
       run_id:
@@ -49,33 +45,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Temporary, read-only evidence job. Removed before review.
-  dry-run-evidence:
-    name: Dry run against run ${{ matrix.run_id }}
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      contents: read
-      issues: read
-    strategy:
-      fail-fast: false
-      matrix:
-        run_id: ['40809480887', '40812332276']
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.11'
-      - name: Classify the run
-        env:
-          RUN_ID: ${{ matrix.run_id }}
-          DRY_RUN: 'true'
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: bun scripts/ci/main-failure.ts
-
   classify:
     name: Rerun once and file
     # Only push runs on main. An attempt this lane reran itself is handled by
