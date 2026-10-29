@@ -12,3 +12,4 @@ export interface DnsQuestion {
 export function parseQuestion(message: Buffer): DnsQuestion | null;
 export function nxdomainFor(message: Buffer, question: DnsQuestion): Buffer;
 export function queryEvent(question: Pick<DnsQuestion, 'name' | 'type'>, time?: Date): NamespaceDnsEvent;
+export function serveDns(logPath: string): Promise<import('node:dgram').Socket>;

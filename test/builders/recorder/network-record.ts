@@ -1,8 +1,10 @@
 /**
  * A run's `network.jsonl`: one JSON line per event. The Node layer
- * (`node-egress.mjs`) and the namespace's resolver (`dns-log.mjs`) append as
- * processes run; the harness appends the browser's events from the NetLog
- * once the browser server has stopped.
+ * (`node-egress.mjs`), the sandbox's resolver (`dns-log.mjs`) and its
+ * catch-all listener (`catch-all-log.mjs`) append as processes run, and the
+ * canary's Node plants add a marker line before each plant. The harness
+ * appends the browser's events from the NetLog once the browser server has
+ * stopped.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import type { BrowserEvent } from './chromium-netlog.ts';
@@ -17,7 +19,8 @@ export interface NodeNetworkEvent {
   pid: number;
   thread: number;
   process: string;
-  kind: 'start' | 'request' | 'dns' | 'connect';
+  /** `plant` is the canary's marker: the events after it, from the same pid, are that plant's. */
+  kind: 'start' | 'plant' | 'request' | 'dns' | 'connect';
   via: string;
   host?: string;
   port?: number;
@@ -28,9 +31,11 @@ export interface NodeNetworkEvent {
   metadata?: boolean;
   service?: string;
   action?: NodeAction;
+  /** On a `plant` marker: the plant whose events follow. */
+  plant?: string;
 }
 
-/** One DNS query the namespace's resolver (`dns-log.mjs`) answered NXDOMAIN. */
+/** One DNS query the sandbox's resolver (`dns-log.mjs`) answered NXDOMAIN. */
 export interface NamespaceDnsEvent {
   time: string;
   layer: 'namespace';
@@ -45,7 +50,24 @@ export interface NamespaceDnsEvent {
   action: 'refused';
 }
 
-export type NetworkEvent = NodeNetworkEvent | NamespaceDnsEvent | (BrowserEvent & { time: string });
+/** One TCP connection the sandbox's catch-all listener (`catch-all-log.mjs`) took and reset. */
+export interface NamespaceConnectEvent {
+  time: string;
+  layer: 'namespace';
+  kind: 'connect';
+  via: 'catch-all';
+  /** The address the client dialed. */
+  address: string;
+  port: number;
+  host: string;
+  google: boolean;
+  catalogGap: boolean;
+  metadata: boolean;
+  service?: string;
+  action: 'refused';
+}
+
+export type NetworkEvent = NodeNetworkEvent | NamespaceDnsEvent | NamespaceConnectEvent | (BrowserEvent & { time: string });
 
 /** Every whole line of a network record. A missing file is an empty record. */
 export function readNetworkRecord(path: string): NetworkEvent[] {

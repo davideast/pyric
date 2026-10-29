@@ -9,11 +9,11 @@
  *   canary [--build] [--packages <dir>]
  *       The scripted builder: installs the packed packages into a scratch app,
  *       plants requests to Google hosts from Node, from the harness browser
- *       and from Bun and curl inside the run's network namespace, and exits
+ *       and from Bun and curl inside the run's sandbox, and exits
  *       non-zero if a recorder misses one or one succeeds. Run it before
  *       every round.
  *
- * Every command refuses to run (exit 2) where the network namespace is
+ * Every command refuses to run (exit 2) where the sandbox is
  * unavailable; there is no fallback without it.
  */
 import { runCanary } from './canary/canary.ts';

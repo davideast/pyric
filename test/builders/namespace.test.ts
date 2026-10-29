@@ -1,13 +1,15 @@
-// The run's network namespace and its recording resolver. The namespace test
-// starts a real one; inside it only loopback exists, and the only lookups are
-// of `.invalid` names, so nothing here can leave the machine.
+// The run's sandbox, its recording resolver and its catch-all listener. The
+// sandbox test starts a real one; inside it only loopback exists, every
+// address routes to loopback, and the only lookups are of `.invalid` names,
+// so nothing here can leave the machine.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
 import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
-import { NamespaceUnavailable, startEgressNamespace } from './namespace.ts';
+import { NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
 
 /** A DNS query for `name`, type A, recursion desired. */
 function query(name: string, id = 0x1234): Buffer {
@@ -52,6 +54,76 @@ describe('dns-log.mjs', () => {
   });
 });
 
+describe('catch-all-log.mjs', () => {
+  test('records the address a client dialed, without the dual-stack prefix', () => {
+    expect(plainAddress('::ffff:169.254.169.254')).toBe('169.254.169.254');
+    expect(plainAddress('2001:db8::1')).toBe('2001:db8::1');
+    expect(connectEvent('::ffff:169.254.169.254', 80, new Date(0))).toMatchObject({
+      layer: 'namespace',
+      kind: 'connect',
+      via: 'catch-all',
+      address: '169.254.169.254',
+      port: 80,
+      metadata: true,
+      action: 'refused',
+    });
+  });
+});
+
+describe('sandboxArgs', () => {
+  const layout = {
+    runRoot: '/home/u/pyric-builders/canary/run',
+    readOnly: ['/home/u/.cache/npm', '/home/u/repo', '/home/u/repo'],
+    resolvConf: '/home/u/pyric-builders/canary/run/resolv.conf',
+    hosts: '/home/u/pyric-builders/canary/run/hosts',
+    etc: ['ld.so.cache', 'ssl'],
+  };
+  const args = sandboxArgs(layout);
+  /** Each `--flag a b` triple's destination, by flag. */
+  const destinations = (flag: string) => args.flatMap((arg, index) => (arg === flag ? [args[index + 2]] : []));
+  const mounted = (flag: string) => args.flatMap((arg, index) => (arg === flag ? [args[index + 1]] : []));
+
+  test('unshares every namespace, as root of its own, with only the network capabilities it needs', () => {
+    expect(args.slice(0, 10)).toEqual(['--unshare-all', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_NET_BIND_SERVICE', '--die-with-parent']);
+    expect(args).not.toContain('--share-net');
+  });
+
+  test('binds only the allowlist read-only, and only the run directory read-write', () => {
+    expect(destinations('--ro-bind').sort()).toEqual(['/etc/hosts', '/etc/ld.so.cache', '/etc/resolv.conf', '/etc/ssl', '/home/u/.cache/npm', '/home/u/repo', '/usr', ...destinations('--ro-bind').filter((dest) => ['/bin', '/lib', '/lib64', '/sbin'].includes(dest ?? ''))].sort());
+    expect(destinations('--bind')).toEqual([layout.runRoot]);
+    expect(args.slice(-3)).toEqual(['--bind', layout.runRoot, layout.runRoot]);
+  });
+
+  test('gives the sandbox a fresh /dev, /proc, /tmp and /run, and no /mnt or host root', () => {
+    expect(mounted('--tmpfs')).toEqual(['/tmp', '/run']);
+    expect(mounted('--dev')).toEqual(['/dev']);
+    expect(mounted('--proc')).toEqual(['/proc']);
+    expect(args.some((arg) => arg === '/mnt' || arg.startsWith('/mnt/') || arg.startsWith('/run/'))).toBe(false);
+    expect(destinations('--ro-bind')).not.toContain('/');
+    expect(destinations('--bind')).not.toContain('/');
+  });
+
+  test('uses the run’s own resolv.conf and hosts', () => {
+    const resolvIndex = args.indexOf('/etc/resolv.conf');
+    expect(args[resolvIndex - 1]).toBe(layout.resolvConf);
+    expect(args[args.indexOf('/etc/hosts') - 1]).toBe(layout.hosts);
+  });
+});
+
+describe('overlayScript', () => {
+  test('mounts each overlay with its upper layer in the sandbox /tmp', () => {
+    expect(overlayScript(['/c/npm'])).toBe('mkdir -p /tmp/.overlay/0/upper /tmp/.overlay/0/work && mount -t overlay overlay -o lowerdir=/c/npm,upperdir=/tmp/.overlay/0/upper,workdir=/tmp/.overlay/0/work /c/npm');
+    expect(overlayScript([])).toBe('');
+  });
+});
+
+describe('ownDirs', () => {
+  test('is the run root, the sandbox /tmp, and TMPDIR when set', () => {
+    expect(ownDirs('/r', {})).toEqual(['/r', '/tmp']);
+    expect(ownDirs('/r', { TMPDIR: '/tmp/x/' })).toEqual(['/r', '/tmp', '/tmp/x']);
+  });
+});
+
 describe('startEgressNamespace', () => {
   test('refuses, rather than running without the block, when the tools are missing', async () => {
     const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
@@ -64,25 +136,33 @@ describe('startEgressNamespace', () => {
     }
   });
 
-  test('runs a command with only loopback, and records its lookups', async () => {
+  test('runs a command with only loopback and the allowlisted files, and records its lookups and connections', async () => {
     const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
     const networkLog = join(root, 'network.jsonl');
     const namespace = await startEgressNamespace({ networkLog, runRoot: root });
+    const run = (command: string, args: string[]) => {
+      const entered = namespace.enter(command, args, root);
+      return spawnSync(entered.command, entered.args, { encoding: 'utf8', timeout: 120_000 });
+    };
     try {
-      const links = namespace.enter('ip', ['-o', 'link', 'show'], root);
-      const linkResult = spawnSync(links.command, links.args, { encoding: 'utf8' });
-      expect(linkResult.stdout.trim().split('\n').map((line) => line.split(':')[1]?.trim())).toEqual(['lo']);
+      const links = run('ip', ['-o', 'link', 'show']);
+      expect(links.stdout.trim().split('\n').map((line) => line.split(':')[1]?.trim())).toEqual(['lo']);
 
-      const lookup = namespace.enter('getent', ['hosts', 'canary-probe.invalid'], root);
-      const lookupResult = spawnSync(lookup.command, lookup.args, { encoding: 'utf8', timeout: 15_000 });
-      expect(lookupResult.status).not.toBe(0);
+      expect(run('pwd', []).stdout.trim()).toBe(root);
+      expect(run('ls', ['-A', '/run']).stdout.trim()).toBe('');
 
-      const connect = namespace.enter('node', ['-e', "require('node:net').connect(80, '192.0.2.1').on('error', (e) => console.log(e.code))"], root);
-      expect(spawnSync(connect.command, connect.args, { encoding: 'utf8', timeout: 15_000 }).stdout.trim()).toBe('ENETUNREACH');
+      const inventory = run('node', [join(import.meta.dir, 'sandbox-inventory.ts'), ...ownDirs(root)]);
+      expect(JSON.parse(inventory.stdout).problems).toEqual([]);
+
+      expect(run('getent', ['hosts', 'canary-probe.invalid']).status).not.toBe(0);
+
+      const connect = run('node', ['-e', "require('node:net').connect(80, '192.0.2.1').on('error', (e) => console.log(e.code)).on('close', () => console.log('closed'))"]);
+      expect(connect.stdout.trim().split('\n')[0]).toBe('ECONNRESET');
     } finally {
       await namespace.stop();
     }
-    const hosts = readFileSync(networkLog, 'utf8').trim().split('\n').map((line) => (JSON.parse(line) as { host: string }).host);
-    expect(hosts).toContain('canary-probe.invalid');
+    const events = readFileSync(networkLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { kind: string; host: string; port?: number });
+    expect(events.filter((event) => event.kind === 'dns').map((event) => event.host)).toContain('canary-probe.invalid');
+    expect(events.filter((event) => event.kind === 'connect')).toEqual([expect.objectContaining({ via: 'catch-all', address: '192.0.2.1', port: 80 })]);
   });
 });
