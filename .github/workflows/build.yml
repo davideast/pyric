@@ -565,7 +565,7 @@ jobs:
       - name: Test the app selection and the driver
         # One shard runs these, and the plan counts their time against it.
         if: matrix.shard.runnerTests
-        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/install.test.ts test/apps/dependency-store.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts
+        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/driver-network.test.ts test/apps/install.test.ts test/apps/dependency-store.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts
       - name: Write the shard plan
         env:
           APP_PLAN: ${{ needs.plan.outputs.app-plan }}

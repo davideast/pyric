@@ -10,7 +10,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import type { DependencyStore } from './dependency-store.ts';
 import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
@@ -339,7 +339,11 @@ export interface App {
    * Throws on a failed install.
    */
   installProject(path: string): Promise<ScriptResult>;
-  /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
+  /**
+   * The browser context for this app. Requests and page WebSockets to hosts
+   * other than 127.0.0.1 and localhost are blocked and logged unless a route
+   * (`route` or `routeWebSocket`) answers them.
+   */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
   page(url: string): Promise<Page>;
@@ -352,7 +356,7 @@ export interface App {
    * closed port behaves under WSL mirrored networking. Held until the run ends.
    */
   blackholedPort(): Promise<number>;
-  /** Every page's console lines, page errors, and error responses so far, in order. */
+  /** Every page's console lines, page errors, error responses, and blocked external connections so far, in order. */
   readonly browserLog: readonly string[];
   /**
    * Declares that a page request to a `/__pyric/` route may answer with an
@@ -466,6 +470,57 @@ async function answers(url: string): Promise<boolean> {
 }
 
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * Chromium's resolver rules for scenario pages: every name and address but
+ * the local ones fails to resolve. The routes in `browser()` block and log;
+ * these rules stop what no route sees, such as a WebSocket a worker opens,
+ * before it leaves the machine (#1606).
+ */
+export const LOCAL_ONLY_RESOLVER_RULES = [
+  'MAP * ~NOTFOUND',
+  ...[...LOCAL_HOSTS].map((host) => `EXCLUDE ${host.replace(/^\[(.*)\]$/, '$1')}`),
+].join(', ');
+
+/**
+ * Launches the Chromium that every scenario's pages run in, headless, with
+ * the local-only resolver rules added to any `args` in `options`. A scenario
+ * that needs its own browser, such as one with the back-forward cache
+ * enabled, launches it here and guards its contexts with `guardContext`.
+ */
+export function launchScenarioBrowser(options: LaunchOptions = {}): Promise<Browser> {
+  const args = [...(options.args ?? []), `--host-resolver-rules=${LOCAL_ONLY_RESOLVER_RULES}`];
+  return chromium.launch({ headless: true, ...options, args });
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * A WebSocket URL to any host but the local ones. It is a RegExp, not a
+ * function, so Playwright connects a local socket in the page itself instead
+ * of relaying each of its frames through the driver.
+ */
+const EXTERNAL_WEBSOCKET = new RegExp(`^wss?://(?!(?:${[...LOCAL_HOSTS].map(escapeRegExp).join('|')})(?::\\d+)?/)`);
+
+/**
+ * Blocks and logs to `log` every request and page WebSocket from `context`
+ * to a host other than the local ones. Register it before a scenario's own
+ * routes: the first route registered runs last, so those answer first.
+ */
+export async function guardContext(context: BrowserContext, log: string[]): Promise<void> {
+  await context.route(() => true, async (route) => {
+    const url = new URL(route.request().url());
+    const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
+    if (isLocal) return route.continue();
+    log.push(`[blocked external request] ${route.request().method()} ${url.href}`);
+    return route.abort('blockedbyclient');
+  });
+  // `route` never sees a WebSocket. The page sees the connection close without opening.
+  await context.routeWebSocket(EXTERNAL_WEBSOCKET, async (socket) => {
+    log.push(`[blocked external WebSocket] ${socket.url()}`);
+    await socket.close({ code: 1008, reason: 'blocked by the app scenario driver' });
+  });
+}
 
 /** One run of one app: the state behind the `App` a scenario receives. */
 export class AppRun implements App {
@@ -697,14 +752,7 @@ export class AppRun implements App {
     if (this.context) return this.context;
     const browser = await this.launchBrowser();
     const context = await browser.newContext();
-    // The first route registered runs last, so a scenario's own routes answer first.
-    await context.route(() => true, async (route) => {
-      const url = new URL(route.request().url());
-      const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
-      if (isLocal) return route.continue();
-      this.browserLog.push(`[blocked external request] ${route.request().method()} ${url.href}`);
-      return route.abort('blockedbyclient');
-    });
+    await guardContext(context, this.browserLog);
     this.context = context;
     return context;
   }
