@@ -96,9 +96,12 @@ COMMANDS
                              A firebase.json Functions source is discovered automatically;
                              supported RTDB onValueCreated exports run in isolated Node.
   run [--sandbox URL]        Run a command against a sandbox host that is already
-                             running (a Vite dev server with the pyric plugin, or
-                             \`pyric sandbox\`), with the environment \`pyric sandbox\`
-                             gives its child. --sandbox URL names the host; without
+                             running, with the environment \`pyric sandbox\` gives
+                             its child. The host is \`pyric sandbox --hosted\`, or a
+                             Vite dev server with \`pyric({ hosted: true })\` in
+                             vite.config.ts. A Vite server with the in-page
+                             \`pyric()\` plugin has no host, and is refused.
+                             --sandbox URL names the host; without
                              it, PYRIC_SANDBOX=remote:<url>, then .pyric/serve.json.
                              The register module is passed by absolute file URL, so
                              the command can run outside pyric's install tree.

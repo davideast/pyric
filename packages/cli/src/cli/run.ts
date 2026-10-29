@@ -1,7 +1,7 @@
 /**
  * `pyric run [--sandbox <url>] -- <command...>`: run one command against a
- * sandbox host that is already running, such as a Vite dev server with the
- * pyric plugin or a `pyric sandbox` in another terminal.
+ * sandbox host that is already running, such as a Vite dev server with
+ * `pyric({ hosted: true })` or a `pyric sandbox --hosted` in another terminal.
  *
  * The child gets the environment `pyric sandbox` gives its own child
  * (`buildChildEnv`): the activator, the host's identity, and `--import` with
@@ -16,7 +16,7 @@ import {
   spawnSandboxChild,
   type SandboxChildPlan,
 } from './sandbox-runner.js';
-import { discoverServe, probeHostUrl } from '../serve/discovery.js';
+import { discoverServe, probeHostUrlAnswer, servesViteClient } from '../serve/discovery.js';
 
 export interface RunInvocation {
   /** The host URL named by `--sandbox` or `PYRIC_SANDBOX=remote:<url>`; null to discover it. */
@@ -92,6 +92,24 @@ export async function pollUntil<T>(
   }
 }
 
+/**
+ * The refusal for a URL that answers but is not a sandbox host (#1568). A Vite
+ * dev server whose plugin is in-page, `pyric()` with no `hosted`, is the
+ * common one: it has no sandbox host, and `hosted: true` gives it one.
+ */
+export function notAHostMessage(hostUrl: string, isVite: boolean): string {
+  if (isVite) {
+    return (
+      `pyric run: reached an in-page Vite server at ${hostUrl}. It has no sandbox host, so it can't run this command.\n` +
+      '  Set pyric({ hosted: true }) in vite.config.ts, restart Vite, then run this command again.\n'
+    );
+  }
+  return (
+    `pyric run: ${hostUrl} answers, but it is not a sandbox host: /__pyric/health did not return a health reply.\n` +
+    '  Start a host with pyric sandbox --hosted, or for a Vite dev server set pyric({ hosted: true }) in vite.config.ts.\n'
+  );
+}
+
 export async function runRun(parsed: ParsedArgs): Promise<number> {
   const invocation = parseRunInvocation(parsed, process.env);
   if (typeof invocation === 'string') {
@@ -103,14 +121,22 @@ export async function runRun(parsed: ParsedArgs): Promise<number> {
   let instanceId: string | null;
   if (invocation.hostUrl !== null) {
     const hostUrl = invocation.hostUrl;
-    const host = await pollUntil(() => probeHostUrl(hostUrl), { timeoutMs: invocation.waitMs });
-    if (host === null) {
+    // A server that answers but is not a sandbox host will not become one, so only silence is waited out.
+    const answer = await pollUntil(async () => {
+      const probed = await probeHostUrlAnswer(hostUrl);
+      return probed.kind === 'no-answer' ? null : probed;
+    }, { timeoutMs: invocation.waitMs });
+    if (answer === null) {
       const waited = invocation.waitMs > 0 ? ` after waiting ${invocation.waitMs / 1000}s` : '';
       process.stderr.write(`pyric run: no sandbox host answers at ${hostUrl}/__pyric/health${waited}.\n`);
       return 2;
     }
-    serveUrl = host.base;
-    instanceId = host.instanceId;
+    if (answer.kind === 'not-a-host') {
+      process.stderr.write(notAHostMessage(hostUrl, await servesViteClient(answer.base)));
+      return 2;
+    }
+    serveUrl = answer.host.base;
+    instanceId = answer.host.instanceId;
   } else {
     const log = (line: string): void => void process.stderr.write(`pyric run: ${line}\n`);
     const host = await pollUntil(() => discoverServe(cwd, log), { timeoutMs: invocation.waitMs });

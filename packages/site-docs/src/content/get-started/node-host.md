@@ -46,6 +46,8 @@ npx pyric sandbox --hosted
 npx pyric sandbox --hosted -- npm run dev
 ```
 
+`pyric sandbox` serves your built `hosting.public` directory, so it needs a build first. For a Vite dev server, set `pyric({ hosted: true })` in `vite.config.ts` instead, as the next section shows.
+
 When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` imports in your child command connect to the Node host.
 
 Client Firebase SDKs in the child connect to the Node host too. `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` run as the process's own signed-in user, so your rules apply to server code as they do in production. The app must use the same Firebase options as your pages. `firebase/ai` and `firebase/messaging` in a server process fail with `failed-precondition`; use `firebase-admin` for those. Against the browser-hosted sandbox (`pyric sandbox` without `--hosted`), client SDKs in a server process fail with `failed-precondition` and name the Node host.

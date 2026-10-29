@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, it, expect } from 'bun:test';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { DEFAULT_WAIT_SECONDS, parseRunInvocation, pollUntil } from '../../src/cli/run.js';
+import { runDispatch } from './run-cli.js';
 
 const parse = (argv: string[], env: NodeJS.ProcessEnv = {}) => parseRunInvocation(parseArgs(['run', ...argv]), env);
 
@@ -87,5 +90,58 @@ describe('pollUntil', () => {
     const { now, sleep } = clock();
     expect(await pollUntil(async () => { attempts += 1; return null; }, { timeoutMs: 0, now, sleep })).toBeNull();
     expect(attempts).toBe(1);
+  });
+});
+
+describe('pyric run --sandbox against a server that is not a sandbox host (#1568)', () => {
+  const servers: Server[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => new Promise<void>((done) => server.close(() => done()))));
+  });
+
+  /** A server that answers 404 to everything except `paths`, as an in-page Vite server answers a JSON request. */
+  async function serveOnly(paths: string[]): Promise<string> {
+    const server = createServer((req, res) => {
+      const isServed = paths.includes(req.url ?? '');
+      if (isServed) res.writeHead(200, { 'content-type': 'text/javascript' }).end('export {}');
+      else res.writeHead(404).end();
+    });
+    servers.push(server);
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', () => done()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+
+  async function runAgainst(url: string): Promise<{ code: number; stderr: string; ms: number }> {
+    const started = Date.now();
+    const { code, stderr } = await runDispatch(['run', '--sandbox', url, '--wait=5', '--', 'node', '-e', '0']);
+    return { code, stderr, ms: Date.now() - started };
+  }
+
+  it('refuses an in-page Vite server at once and names pyric({ hosted: true })', async () => {
+    const url = await serveOnly(['/@vite/env']);
+    const { code, stderr, ms } = await runAgainst(url);
+    expect(code).toBe(2);
+    expect(stderr).toContain(`reached an in-page Vite server at ${url}`);
+    expect(stderr).toContain('pyric({ hosted: true }) in vite.config.ts');
+    expect(ms).toBeLessThan(4000);
+  });
+
+  it('refuses any other server at once and names both ways to start a host', async () => {
+    const url = await serveOnly([]);
+    const { code, stderr, ms } = await runAgainst(url);
+    expect(code).toBe(2);
+    expect(stderr).toContain(`${url} answers, but it is not a sandbox host`);
+    expect(stderr).toContain('pyric sandbox --hosted');
+    expect(stderr).toContain('pyric({ hosted: true })');
+    expect(ms).toBeLessThan(4000);
+  });
+});
+
+describe('pyric run --help', () => {
+  it('says the Vite dev server must be hosted', async () => {
+    const { code, stdout } = await runDispatch(['run', '--help']);
+    expect(code).toBe(0);
+    expect(stdout).toMatch(/run \[--sandbox URL\][\s\S]*pyric\(\{ hosted: true \}\)/);
   });
 });
