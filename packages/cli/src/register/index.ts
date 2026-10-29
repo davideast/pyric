@@ -18,12 +18,17 @@
  * `module.register()` (ESM-only) with a warning that CJS require() is not
  * rewritten.
  *
+ * Swap or stop (ADR 0022, `./swap-or-stop.js`): an import that resolves into
+ * the real `firebase-admin`, or into the real client SDK where the swap table
+ * didn't choose it, throws `PYRIC_REAL_SDK_STOPPED` before the file loads.
+ *
  * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
  * refuses egress from this process to live Google/Firebase endpoints, or only
  * reports it under `PYRIC_GUARD=warn`. See that module for the policy and the
- * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs. With the guard in place it
+ * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs. Whatever the guard mode, it
  * wraps `worker_threads.Worker` (`./worker-guard.js`) so every worker thread
- * loads this module as well, including those Node starts without preloads.
+ * loads this module as well, including those Node starts without preloads,
+ * and gets the swap and the stop.
  *
  * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
  * `POST /__pyric/beacon` when the activator carries a bridge URL, plus a
@@ -36,13 +41,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
-import { packageNameOf, resolvesIntoPackage } from './package-identity.js';
+import { resolvesIntoPackage } from './package-identity.js';
+import { createStopReporter, stopFor } from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
-import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode, type NetGuard } from './net-guard.js';
+import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { remoteSandbox } from '../remote/index.js';
-import { isBypassedBridgeImport, resolveAiMode } from '../serve/firebase-module-swap.js';
+import { resolveAiMode } from '../serve/firebase-module-swap.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
  *  returning the lazy branded handle. `Symbol.for` so both packages agree
@@ -152,60 +158,26 @@ const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
   return resolveMapped(mapped, context, nextResolve);
 };
 
-const REAL_ADMIN_ISSUE_URL = 'https://github.com/davideast/pyric/issues/1443';
-
-/** A path segment that can hold `firebase-admin`, under its own name or Turbopack's rename. */
-const ADMIN_SEGMENT = /\/firebase-admin(-[0-9a-f]{16})?\//;
-
-/** Whether a resolved URL is a file of the real `firebase-admin` package. */
-function isRealAdminFile(url: string): boolean {
-  const mayBeAdmin = ADMIN_SEGMENT.test(url);
-  return mayBeAdmin && packageNameOf(url) === 'firebase-admin';
-}
-
 /**
- * Whether a real `firebase-admin` file is loaded on Pyric's behalf: by the App
- * Check verifier bridge (production AI mode, #1552), or by another real
- * `firebase-admin` file that one loaded. An app's own import has another
- * parent, so it still trips.
+ * Swap or stop (ADR 0022): a resolve that lands in the real `firebase-admin`,
+ * or in the real client SDK where the swap table didn't choose it, throws
+ * before the file loads, and the stop is written to stderr once per file. It
+ * does not depend on the network guard, so `PYRIC_GUARD=off` keeps it.
  */
-function isPyricAdminLoad(specifier: string, parentURL: string | undefined): boolean {
-  const fromBridge = isBypassedBridgeImport(specifier, parentURL);
-  const fromRealAdmin = parentURL !== undefined && isRealAdminFile(parentURL);
-  return fromBridge || fromRealAdmin;
-}
-
-/**
- * The tripwire (#1443): `pyric-admin` has no runtime dependency on
- * `firebase-admin`, and the hook maps every form of the import it recognizes,
- * so a real `firebase-admin` file in a registered process is a missed import
- * holding this machine's credentials. The first one escalates the guard to
- * `block`, even under an explicit `PYRIC_GUARD=warn`, so the metadata server
- * and every catalog host refuse with `PYRIC_GUARD_BLOCKED` instead of reaching
- * production. `PYRIC_GUARD=off` installs no guard and so no tripwire.
- *
- * The one deliberate load is the App Check verifier bridge in production AI
- * mode, whose firebase-admin app holds no credentials; it and the files it
- * loads do not trip.
- *
- * Only the sync hook gets one: the async fallback runs on Node's loader
- * thread, which cannot reach this process's guard.
- */
-function withRealAdminTripwire(resolve: SyncResolve, guard: NetGuard | null): SyncResolve {
-  if (guard === null) return resolve;
-  let tripped = false;
+function withSwapOrStop(resolve: SyncResolve): SyncResolve {
+  const report = createStopReporter((line) => void process.stderr.write(line));
+  const allowedUrls = new Set<string>();
   return (specifier, context, nextResolve) => {
     const result = resolve(specifier, context, nextResolve);
-    const trips = !tripped && isRealAdminFile(result.url) && !isPyricAdminLoad(specifier, context.parentURL);
-    if (!trips) return result;
-    tripped = true;
-    process.stderr.write(
-      `@pyric/cli/register: the real firebase-admin loaded from ${result.url} ` +
-        `(import '${specifier}' from ${context.parentURL ?? 'the entry point'}), which the register ` +
-        `did not route to the sandbox. Please report it: ${REAL_ADMIN_ISSUE_URL}\n`,
-    );
-    guard.escalate('the real firebase-admin loaded in a process pyric registered');
-    return result;
+    const stop = stopFor({
+      specifier,
+      canonical: canonicalFirebaseSpecifier(specifier),
+      importer: context.parentURL,
+      url: result.url,
+    }, allowedUrls);
+    if (stop === null) return result;
+    report(stop);
+    throw stop;
   };
 }
 
@@ -230,9 +202,12 @@ function activate(): void {
   // Published so code that learns a destination later, such as the Vite
   // plugin's configured AI upstream, can permit it (`permitGuardHost`).
   if (guard !== null) (globalThis as unknown as Record<symbol, unknown>)[NET_GUARD_GLOBAL] = guard;
-  // Built-ins are per thread: every worker this process starts loads this
-  // module too, including the kinds Node starts without running preloads.
-  if (guard !== null) installWorkerGuard(import.meta.url);
+  // Built-ins and resolve hooks are per thread: every worker this process
+  // starts loads this module too, including the kinds Node starts without
+  // running preloads. Whatever PYRIC_GUARD says, since the worker's swap and
+  // stop come from this module; the worker installs its own network guard, or
+  // none under `off`, exactly as this thread does.
+  installWorkerGuard(import.meta.url);
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,
@@ -242,7 +217,7 @@ function activate(): void {
   if (typeof moduleApi.registerHooks === 'function') {
     hooksInstalled = true;
     moduleApi.registerHooks({
-      resolve: withRealAdminTripwire(resolveFirebase, guard),
+      resolve: withSwapOrStop(resolveFirebase),
     });
   } else {
     process.stderr.write(

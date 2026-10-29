@@ -235,4 +235,13 @@ export type EngineConfig =
       /** Injectable fetch for tests; defaults to globalThis.fetch. */
       fetch?: typeof fetch;
     }
-  | { kind: 'gemini'; baseUrl?: string; apiKey?: string; fetch?: typeof fetch };
+  | {
+      kind: 'gemini';
+      baseUrl?: string;
+      apiKey?: string;
+      fetch?: typeof fetch;
+      /** @internal Set by Pyric's dev server on a browser engine whose
+       *  `baseUrl` is the server's gemini proxy: the server attaches the
+       *  credentials, so the engine sends none. */
+      serverAttachesAuth?: boolean;
+    };

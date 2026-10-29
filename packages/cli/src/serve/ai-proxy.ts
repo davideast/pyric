@@ -287,6 +287,25 @@ export async function fetchAiUpstream(
 }
 
 /**
+ * Read an AI proxy request's body, at most {@link AI_PROXY_BODY_LIMIT_BYTES}.
+ * Past the limit it answers 413, and on a broken upload 400, and returns
+ * null: the caller sends nothing upstream. Both proxy routes read through it.
+ */
+export async function readAiProxyBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  try {
+    return await collectRawBody(req, AI_PROXY_BODY_LIMIT_BYTES);
+  } catch (error) {
+    const tooLarge = (error as { code?: unknown }).code === BODY_TOO_LARGE_CODE;
+    const status = tooLarge ? 413 : 400;
+    res.writeHead(status, { 'content-type': 'text/plain' }).end(tooLarge ? 'Payload Too Large' : 'Bad Request');
+    return null;
+  }
+}
+
+/**
  * Handle `POST /__pyric/ai-proxy/<suffix>`: a same-origin passthrough to the
  * configured OpenAI-compatible upstream, so the browser openai engine
  * (running in the served page or the SharedWorker host) reaches a localhost
@@ -330,15 +349,8 @@ export async function handleAiProxy(
   const target = `${upstreamBase}${suffix}${url.search}`;
 
   // The request body is a bounded JSON payload, read once; the RESPONSE streams.
-  let body: Uint8Array<ArrayBuffer>;
-  try {
-    body = await collectRawBody(req, AI_PROXY_BODY_LIMIT_BYTES);
-  } catch (error) {
-    const tooLarge = (error as { code?: unknown }).code === BODY_TOO_LARGE_CODE;
-    const status = tooLarge ? 413 : 400;
-    res.writeHead(status, { 'content-type': 'text/plain' }).end(tooLarge ? 'Payload Too Large' : 'Bad Request');
-    return;
-  }
+  const body = await readAiProxyBody(req, res);
+  if (body === null) return;
 
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
@@ -364,6 +376,16 @@ export async function handleAiProxy(
     return;
   }
 
+  await relayAiUpstream(upstream, res);
+}
+
+/**
+ * Send an upstream's answer to the caller: its status and content type, then
+ * the body chunk by chunk. SSE passthrough must never buffer. A dropped
+ * client cancels the upstream read so an abandoned stream doesn't keep the
+ * upstream generating.
+ */
+export async function relayAiUpstream(upstream: Response, res: ServerResponse): Promise<void> {
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
   if (contentType) responseHeaders['content-type'] = contentType;
@@ -374,8 +396,6 @@ export async function handleAiProxy(
   }
   (res as ServerResponse & { flushHeaders?: () => void }).flushHeaders?.();
 
-  // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
-  // so an abandoned SSE stream doesn't keep the upstream generating.
   const reader = upstream.body.getReader();
   res.on('close', () => {
     void reader.cancel().catch(() => {});

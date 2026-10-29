@@ -73,6 +73,7 @@ import {
 } from '../serve/sandbox-session.js';
 import { resolveAvatarsConfig } from '../serve/avatars-config.js';
 import { createVerifyHint } from '../serve/verify-hint.js';
+import { missingPublicDirHint } from './public-dir-hint.js';
 
 interface HostingConfig {
   public?: string;
@@ -285,14 +286,7 @@ async function startServeRuntime(opts: {
   const publicDir = resolve(opts.cwd, hosting?.public ?? '.');
   const isPublicDirectoryMissing = !existsSync(publicDir);
   if (isPublicDirectoryMissing) {
-    // A missing `dist/` almost always means "no build yet" — the web scaffold's
-    // hosting.public is the Vite output. Point at the dev/build loop instead of
-    // a bare path error (serve previews a build; `vite dev` is the dev server).
-    const looksLikeBuildOutput = /(^|[\\/])(dist|build|out)$/.test(publicDir);
-    const hint = looksLikeBuildOutput
-      ? `\n  No build yet? Run \`bun run dev\` for the live sandbox dev server, ` +
-        `or \`bun run build\` then \`pyric sandbox\` to preview the production build.`
-      : '';
+    const hint = missingPublicDirHint(publicDir, { cwd: opts.cwd, hosted: opts.hosted === true });
     throw new Error(`pyric sandbox: hosting.public directory does not exist: ${publicDir}${hint}`);
   }
 

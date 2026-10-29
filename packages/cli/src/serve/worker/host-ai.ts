@@ -10,7 +10,9 @@ import { packAiEvidence, setAiEvidence, type AiEvidence } from 'pyric/ai/interna
  *   2. The openai engine's default base URL in this (browser) context is the
  *      same-origin `/__pyric/ai-proxy` route, so a localhost upstream (Ollama)
  *      needs no CORS setup. Relative URLs resolve against the worker script's
- *      origin, so the plain path works from inside the SharedWorker.
+ *      origin, so the plain path works from inside the SharedWorker. The
+ *      gemini engine sends through `/__pyric/ai-proxy/gemini`, where the
+ *      server attaches the key, so the key never enters the browser.
  *   3. `ai.generateContent` / `ai.countTokens` are unary ops exactly like
  *      `rtdb.*` / `auth.*`; `ai.streamGenerateContent` is a FINITE
  *      subscription that delivers `{ chunk }` snaps in order, then a terminal
@@ -31,9 +33,9 @@ import { getAI, TARGET_SYMBOL, type AIOptions } from 'pyric/ai';
 
 import { serializeError, type OpMessage, type AiStreamSubMessage, type AiEngineConfigWire } from './protocol.js';
 import { type HostCtx, type PortLike, type AiBrokerLike, post, ok, fail } from './host-context.js';
+import { AI_PROXY_PATH, browserGeminiEngine } from './ai-proxy-paths.js';
 
-/** The serve proxy route the browser openai engine defaults to (#98.2). */
-export const AI_PROXY_PATH = '/__pyric/ai-proxy';
+export { AI_PROXY_PATH } from './ai-proxy-paths.js';
 
 /** Is this op an AI op (routed here instead of handleOp)? */
 export function isAiOp(method: OpMessage['method']): boolean {
@@ -50,7 +52,11 @@ type AiOpMessage = Extract<OpMessage, { method: 'ai.generateContent' | 'ai.count
  * plain authoring shapes; predicate matchers never made it across the port —
  * structured clone rejects functions loudly at send time).
  */
-function resolveEngineConfig(wire: AiEngineConfigWire, upstream: HostCtx['aiUpstream']): NonNullable<AIOptions['engine']> {
+function resolveEngineConfig(
+  wire: AiEngineConfigWire,
+  upstream: HostCtx['aiUpstream'],
+  runsInBrowser: boolean,
+): NonNullable<AIOptions['engine']> {
   if (wire.kind === 'openai') {
     const configuredUrl = wire.baseUrl ?? AI_PROXY_PATH;
     const usesProxy = configuredUrl.replace(/\/$/, '') === AI_PROXY_PATH;
@@ -65,18 +71,10 @@ function resolveEngineConfig(wire: AiEngineConfigWire, upstream: HostCtx['aiUpst
   }
   const isGeminiWire = wire.kind === 'gemini';
   if (isGeminiWire) {
-    const result: Record<string, unknown> = {
-      kind: 'gemini',
-    };
-    const hasBaseUrl = wire.baseUrl !== undefined;
-    if (hasBaseUrl) {
-      result.baseUrl = wire.baseUrl;
-    }
-    const hasApiKey = wire.apiKey !== undefined;
-    if (hasApiKey) {
-      result.apiKey = wire.apiKey;
-    }
-    return result as unknown as NonNullable<AIOptions['engine']>;
+    // Node reads the key from its own environment. A browser worker has
+    // none, so it sends through the dev server's gemini proxy.
+    const config = runsInBrowser ? browserGeminiEngine(wire) : wire;
+    return { ...config } as NonNullable<AIOptions['engine']>;
   }
   return {
     kind: 'scripted',
@@ -100,7 +98,7 @@ function resolveEngineConfig(wire: AiEngineConfigWire, upstream: HostCtx['aiUpst
 export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLike {
   if (ctx.aiBroker) return ctx.aiBroker;
   const wire = ctx.aiEngine ?? opEngine;
-  const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire, ctx.aiUpstream) } : undefined);
+  const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire, ctx.aiUpstream, ctx.aiRunsInBrowser === true) } : undefined);
   const target = (ai as unknown as {
     [TARGET_SYMBOL]?: { broker: AiBrokerLike };
   })[TARGET_SYMBOL];

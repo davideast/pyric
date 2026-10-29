@@ -282,6 +282,13 @@ export interface HostCtx {
   /** Server-only OpenAI transport. Browser workers retain the same-origin proxy. */
   aiUpstream?: { baseUrl: string; fetch: typeof fetch };
   /**
+   * The broker's engines run in the browser SharedWorker, which has no server
+   * environment: the gemini engine sends through the dev server's gemini
+   * proxy, which attaches the key (#1584). Set by the worker entry only; a
+   * Node host and a Node repro replay leave it unset.
+   */
+  aiRunsInBrowser?: boolean;
+  /**
    * Lazily-built agent tool dispatcher (the canonical sandbox tool set) bound to
    * THIS worker's sandbox. The bridge peer forwards `tool` messages here so the
    * agent executes against the one shared sandbox, not a separate in-page
