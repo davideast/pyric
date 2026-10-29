@@ -118,15 +118,19 @@ class ShardLoad {
   constructor(readonly index: number, readonly runnerTests: boolean, private readonly seconds: Record<string, number>) {}
 
   /**
-   * How long the shard takes: its apps and set installs spread over the
-   * apps it runs at once, but never less than its longest app after that
-   * app's set install, plus the runner tests when it runs them.
+   * How long the shard takes. Its first apps wait on their sets' installs
+   * together, so every slot loses about one install at the start; after
+   * that, its apps and each further set install spread over the apps it
+   * runs at once. Never less than its longest app after that app's set
+   * install, plus the runner tests when it runs them. Fitted to the first
+   * sharded run (#1583), where a shard's apps waited on installs that the
+   * recorded times, which leave installs out, did not show.
    */
   predicted(extra?: Unit): number {
     const apps = extra ? [...this.apps, ...extra.apps] : this.apps;
     const sets = extra ? new Set([...this.sets, extra.set]) : this.sets;
     if (apps.length === 0) return this.runnerTests ? RUNNER_TESTS_SECONDS : 0;
-    const spread = (sum(apps.map((name) => this.seconds[name]!)) + sets.size * SET_INSTALL_SECONDS) / APPS_AT_ONCE;
+    const spread = SET_INSTALL_SECONDS + (sum(apps.map((name) => this.seconds[name]!)) + (sets.size - 1) * SET_INSTALL_SECONDS) / APPS_AT_ONCE;
     const longest = Math.max(...apps.map((name) => this.seconds[name]!)) + SET_INSTALL_SECONDS;
     return Math.max(spread, longest) + (this.runnerTests ? RUNNER_TESTS_SECONDS : 0);
   }
@@ -158,6 +162,24 @@ function setUnits(set: string, apps: string[], seconds: Record<string, number>, 
   return units;
 }
 
+/**
+ * The order a shard starts its apps in: longest first, counting each set's
+ * install against the longest app of that set, so an app that starts a set's
+ * install starts early instead of making the shard wait on it at the end.
+ */
+function startOrder(names: readonly string[], setOf: ReadonlyMap<string, string>, seconds: Record<string, number>): string[] {
+  const order = byTimeThenName(seconds);
+  const opens = new Set<string>();
+  const seen = new Set<string>();
+  for (const name of [...names].sort(order)) {
+    const set = setOf.get(name)!;
+    if (!seen.has(set)) opens.add(name);
+    seen.add(set);
+  }
+  const effective = Object.fromEntries(names.map((name) => [name, seconds[name]! + (opens.has(name) ? SET_INSTALL_SECONDS : 0)]));
+  return [...names].sort(byTimeThenName(effective));
+}
+
 /** The shard that ends up shortest with the unit on it. */
 function placeUnit(shards: readonly ShardLoad[], unit: Unit): ShardLoad {
   return shards.reduce((choice, shard) => (shard.predicted(unit) < choice.predicted(unit) ? shard : choice));
@@ -183,10 +205,12 @@ export function planShards(planned: readonly PlannedApp[], recorded: Durations):
   const bySet = new Map<string, string[]>();
   for (const app of apps) bySet.set(app.set, [...(bySet.get(app.set) ?? []), app.name]);
   const work = (sum(Object.values(secondsByApp)) + bySet.size * SET_INSTALL_SECONDS) / APPS_AT_ONCE + RUNNER_TESTS_SECONDS;
-  const count = Math.min(MOST_SHARDS, names.length, Math.max(1, Math.ceil(work / TARGET_SHARD_SECONDS)));
+  // Each shard also loses about one install at its start (ShardLoad.predicted).
+  const count = Math.min(MOST_SHARDS, names.length, Math.max(1, Math.ceil(work / (TARGET_SHARD_SECONDS - SET_INSTALL_SECONDS))));
   const capacity = work / count;
 
   const order = byTimeThenName(secondsByApp);
+  const setOf = new Map(apps.map((app) => [app.name, app.set]));
   const units = [...bySet].flatMap(([set, members]) => setUnits(set, members.sort(order), secondsByApp, capacity));
   units.sort((a, b) => unitSeconds(b, secondsByApp) - unitSeconds(a, secondsByApp) || a.apps[0]!.localeCompare(b.apps[0]!));
   const shards = Array.from({ length: count }, (_, index) => new ShardLoad(index + 1, index === 0, secondsByApp));
@@ -198,7 +222,7 @@ export function planShards(planned: readonly PlannedApp[], recorded: Durations):
     apps: names,
     shards: used.map((shard, position) => ({
       index: position + 1,
-      apps: [...shard.apps].sort(order),
+      apps: startOrder(shard.apps, setOf, secondsByApp),
       sets: [...shard.sets].sort(),
       runnerTests: shard.runnerTests,
       predictedSeconds: shard.predicted(),

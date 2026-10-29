@@ -114,8 +114,16 @@ describe('the shard plan', () => {
     }
   });
 
+  test('a short app that starts its set\'s install starts before longer apps whose set is already installing', () => {
+    const planned = [...apps(3, 'vite'), { name: 'lone', set: 'lone' }];
+    const plan = planShards(planned, { 'vite-00': 40, 'vite-01': 30, 'vite-02': 20, lone: 15 });
+    expect(plan.shards).toHaveLength(1);
+    // lone counts 15 + 30 for its install, which puts it after vite-00 (40 + 30) and before vite-01 (30).
+    expect(plan.shards[0]!.apps).toEqual(['vite-00', 'lone', 'vite-01', 'vite-02']);
+  });
+
   test('keeps a dependency set in one shard when the balance allows, so each set installs once', () => {
-    const planned = [...apps(12, 'vite'), ...apps(12, 'admin')];
+    const planned = [...apps(8, 'vite'), ...apps(8, 'admin')];
     const plan = planShards(planned, durationsOf(planned, 22));
     expect(plan.shards).toHaveLength(2);
     for (const shard of plan.shards) expect(shard.sets).toHaveLength(1);
@@ -127,8 +135,8 @@ describe('the shard plan', () => {
     const withTests = plan.shards.filter((shard) => shard.runnerTests);
     expect(withTests).toHaveLength(1);
     for (const shard of plan.shards) {
-      // Four apps run at once, and a set's install holds one of those four slots while it runs.
-      const work = (shard.apps.reduce((sum, name) => sum + plan.secondsByApp[name]!, 0) + shard.sets.length * SET_INSTALL_SECONDS) / 4;
+      // Four apps run at once. The first apps wait on their installs together, and each further set holds one slot.
+      const work = SET_INSTALL_SECONDS + (shard.apps.reduce((sum, name) => sum + plan.secondsByApp[name]!, 0) + (shard.sets.length - 1) * SET_INSTALL_SECONDS) / 4;
       const longest = 40 + SET_INSTALL_SECONDS;
       const runnerTests = shard.runnerTests ? RUNNER_TESTS_SECONDS : 0;
       expect(shard.predictedSeconds).toBeCloseTo(Math.max(work, longest) + runnerTests, 5);
