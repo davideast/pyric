@@ -526,8 +526,10 @@ export function noteAiDiagnostic(
  *  denied on two instances prints once for each.
  *  Answers 204 (best-effort diagnostics: a malformed body or a caller with no
  *  logger wired must never fail the page that reported the refusal), except
- *  413 for a body over {@link DENIAL_BODY_LIMIT_BYTES}. The namespace runs
- *  the loopback guard first, so only this server's own pages reach here. */
+ *  413 for a body over {@link DENIAL_BODY_LIMIT_BYTES}. On the 0.1.0-alpha.30
+ *  line the namespace runs no loopback guard before this route, so a page on
+ *  any origin can reach here; the body limit and the terminal-text sanitizing
+ *  still apply. */
 async function handleDenials(
   throttle: DenialThrottle,
   logger: ServeLogger | undefined,

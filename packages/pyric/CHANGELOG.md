@@ -24,23 +24,29 @@ and the gemini engine works on the Vite plugin's default SharedWorker plane.
   origins and request bodies over their size limit, so another site can't
   spend your AI key (#1431, #1592).
 
-### Known issue: proxied AI engines under `pyric sandbox -- next dev`
+### Known issue: proxied AI engines under `pyric sandbox -- <cmd>`
 
-- On this release a Next page that uses a proxied AI engine is refused with a
-  403. That covers the openai engine, and the gemini engine on the SharedWorker
-  or in-page plane. The Next dev server serves the page on its own port, which
-  this release's AI proxy guard does not accept. The fix comes in alpha.31.
+- On this release a page served by a dev server that `pyric sandbox -- <cmd>`
+  wraps, such as `next dev`, is refused with a 403 when it uses a proxied AI
+  engine. That covers the openai engine, and the gemini engine on the
+  SharedWorker or in-page plane. The wrapped dev server serves the page on its
+  own port, which this release's AI proxy guard does not accept. The fix comes
+  in alpha.31.
 
-### Fixed: the gemini engine on the SharedWorker plane
+### Fixed: the gemini engine on the SharedWorker and in-page planes
 
 - With `ai: { engine: { kind: "gemini" } }` on the Vite plugin's default
-  SharedWorker plane, requests now go through the dev server, which adds the
-  Gemini key from its own environment. Apps get Gemini's answer instead of
-  `process is not defined`. The key never reaches the browser, and Gemini
-  errors relayed to the page have the key removed (#1592).
+  SharedWorker plane or the in-page plane, requests now go through the dev
+  server, which adds the Gemini key from its own environment. Apps get
+  Gemini's answer instead of `process is not defined`. The key never reaches
+  the browser, and Gemini errors relayed to the page have the key removed
+  (#1592).
 
 ### Fixed: dev server
 
+- `/__pyric/denials` refuses a request body over 64 KiB with a 413 (#1431).
+- Control and bidi characters in relayed denial text are replaced with spaces
+  before it reaches the terminal (#1431).
 - A denial's suggested fix prints in full in the terminal instead of being
   cut short (#1431).
 
