@@ -731,7 +731,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const isGeminiProxyRequest = isGeminiProxyPath(url.pathname);
     if (isGeminiProxyRequest) {
       // It spends the server's key, so only this app's pages may call it.
-      const hostRefused = !guardLoopback(req, res, opts);
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
       if (hostRefused) return true;
       return geminiProxy(req, res, url).then(() => true);
     }
