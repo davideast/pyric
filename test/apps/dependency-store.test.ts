@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { createServer as createTcpServer, type Server as TcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -64,16 +64,23 @@ interface FakeManifest {
   dependencies?: Record<string, string>;
 }
 
-function packageTarball(manifest: FakeManifest, source: string): Buffer {
-  return tarGz({ 'package/package.json': JSON.stringify(manifest), 'package/index.js': source });
+function packageTarball(manifest: FakeManifest, source: string, extra: Record<string, string> = {}): Buffer {
+  const files = Object.fromEntries(Object.entries(extra).map(([path, text]) => [`package/${path}`, text]));
+  return tarGz({ 'package/package.json': JSON.stringify(manifest), 'package/index.js': source, ...files });
 }
 
 function integrityOf(bytes: Buffer): string {
   return `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
 }
 
+/** One build of the fake Pyric packages: what their index.js says, and files each package gains, by name. */
+interface FakeBuild {
+  label?: string;
+  extra?: Record<string, Record<string, string>>;
+}
+
 /** Writes the fake Pyric packages at `version` into `dir`, named as `npm pack` names them. */
-function fakePyric(dir: string, version: string): Tarballs {
+function fakePyric(dir: string, version: string, build: FakeBuild = {}): Tarballs {
   mkdirSync(dir, { recursive: true });
   const manifests: FakeManifest[] = [
     { name: 'pyric', version, dependencies: { 'fake-b': '^1.0.0' } },
@@ -82,7 +89,8 @@ function fakePyric(dir: string, version: string): Tarballs {
   const tarballs: Tarballs = new Map();
   for (const manifest of manifests) {
     const file = join(dir, `${manifest.name}-${version}.tgz`);
-    writeFileSync(file, packageTarball(manifest, `module.exports = ${JSON.stringify(version)};\n`));
+    const source = `module.exports = ${JSON.stringify(build.label ?? version)};\n`;
+    writeFileSync(file, packageTarball(manifest, source, build.extra?.[manifest.name]));
     tarballs.set(manifest.name, file);
   }
   return tarballs;
@@ -102,7 +110,7 @@ function setDir(tarballs: Tarballs, dependencies: Record<string, string> = { 'fa
 }
 
 function packed(name: string, version: string, dependencies: Record<string, string> = {}, extra: Partial<PackedPackage['manifest']> = {}): PackedPackage {
-  return { name, file: `/packs/${version}/${name}-${version}.tgz`, integrity: `sha512-${name}-${version}`, manifest: { name, version, dependencies, ...extra } };
+  return { name, file: `/packs/${version}/${name}-${version}.tgz`, integrity: `sha512-${name}-${version}`, manifest: { name, version, dependencies, ...extra }, files: new Map() };
 }
 
 function manifestPinnedTo(version: string, dependencies: Record<string, string> = { firebase: '^12.0.0' }): string {
@@ -211,18 +219,24 @@ describe('the third-party check', () => {
   });
 });
 
-/** An npm stand-in: a warm writes a tree and a lockfile; the offline install runs `onOffline` and exits `offlineCode`. */
-function scriptedNpm(options: { warmDelayMs?: number; onOffline?: (cwd: string) => void; offlineCode?: number } = {}) {
+/**
+ * An npm stand-in: a warm writes a tree and a lockfile; the offline install
+ * runs `onOffline`, installs pyric unless `installsPyric` is false, and exits
+ * `offlineCode`. Its pyric package holds no files, as the store's `packed` says.
+ */
+function scriptedNpm(options: { warmDelayMs?: number; onOffline?: (cwd: string) => void; offlineCode?: number; installsPyric?: boolean } = {}) {
   const calls: Array<{ args: string[]; cwd: string }> = [];
   const runNpm: RunNpm = async (args, { cwd }) => {
     calls.push({ args, cwd });
     if (args.includes('--offline')) {
       options.onOffline?.(cwd);
+      if (options.installsPyric !== false) mkdirSync(join(cwd, 'node_modules/pyric'), { recursive: true });
       const code = options.offlineCode ?? 0;
       return { code, output: code === 0 ? 'changed 2 packages\n' : 'npm error code ENOTCACHED\n', timedOut: false };
     }
     await new Promise((resolve) => setTimeout(resolve, options.warmDelayMs ?? 0));
     mkdirSync(join(cwd, 'node_modules/fake-a'), { recursive: true });
+    mkdirSync(join(cwd, 'node_modules/pyric'), { recursive: true });
     writeFileSync(join(cwd, 'node_modules/fake-a/package.json'), '{"name":"fake-a","version":"1.0.0"}');
     const packages = {
       '': { name: 'app' },
@@ -313,6 +327,18 @@ describe('the store', () => {
     expect(result.retryable).toBe(false);
     expect(result.output).toContain('ENOTCACHED');
     expect(result.output).toContain(`delete ${join(storeDir, store.keyOf(dir))}`);
+  });
+
+  test('an offline install that exits 0 but leaves a Pyric package other than this run\'s fails, naming the package (#1596)', async () => {
+    const storeDir = join(tempDir(), 'deps');
+    await scriptedStore(storeDir, scriptedNpm()).provide(scriptedSetDir('0.1.0-alpha.1'));
+    // As npm answered in the report: "up to date", exit 0, and nothing extracted.
+    const npm = scriptedNpm({ installsPyric: false });
+    const result = await scriptedStore(storeDir, npm, '0.1.0-alpha.2').provide(scriptedSetDir('0.1.0-alpha.2'));
+    expect(result.code).not.toBe(0);
+    expect(result.retryable).toBe(false);
+    expect(result.output).toContain('do not hold this run\'s tarballs');
+    expect(result.output).toContain('node_modules/pyric: not installed');
   });
 
   test('a set whose Pyric packages changed restamps the lockfile and installs them offline', async () => {
@@ -499,6 +525,28 @@ function thirdPartyFiles(projectDir: string, pyricNames: Set<string>): Record<st
   return files;
 }
 
+/** Every file under `dir`, but a nested `node_modules`, with a hash of its contents. */
+function filesIn(dir: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  const walk = (at: string) => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory() && entry.name !== 'node_modules') walk(path);
+      if (entry.isFile()) files[relative(dir, path)] = createHash('sha256').update(readFileSync(path)).digest('hex');
+    }
+  };
+  walk(dir);
+  return files;
+}
+
+/** The files a tarball holds under `package/`, with a hash of each, extracted by tar. */
+async function tarballFiles(file: string): Promise<Record<string, string>> {
+  const out = tempDir();
+  const extracted = await runCommand('tar', ['-xzf', file, '-C', out], { cwd: out });
+  expect(extracted.code).toBe(0);
+  return filesIn(join(out, 'package'));
+}
+
 describe('a set materialized from the store, with real npm', () => {
   let registry: { server: HttpServer; url: string };
   let counter: { server: TcpServer; url: string; connections: () => number };
@@ -562,6 +610,61 @@ describe('a set materialized from the store, with real npm', () => {
     const lockOf = (dir: string) => JSON.parse(readFileSync(join(dir, 'package-lock.json'), 'utf8')) as Lockfile;
     expect(changedThirdPartyEntries(lockOf(materialized), lockOf(fresh), pyricNames)).toEqual([]);
     expect(lockOf(materialized).packages?.['node_modules/pyric']).toEqual(lockOf(fresh).packages?.['node_modules/pyric']);
+  }, 120_000);
+
+  /**
+   * The offline install, after a copy that left the hidden lockfile older than
+   * the directories copied after it, as a copy of a large tree does. npm then
+   * rejects the hidden lockfile and reads the tree from disk.
+   */
+  const staleHiddenLockfileNpm: RunNpm = (args, options) => {
+    const hidden = join(options.cwd, 'node_modules', '.package-lock.json');
+    if (args.includes('--offline') && existsSync(hidden)) utimesSync(hidden, new Date(0), new Date(0));
+    return onlineNpm(args, options);
+  };
+
+  test('installs this run\'s tarballs over an entry warmed from an earlier build at the same version (#1596)', async () => {
+    const work = tempDir();
+    const storeDir = join(work, 'deps');
+    const npmCache = join(work, 'npm-cache');
+    const packs = join(work, 'dist', 'packages');
+    const version = '0.1.0-alpha.30';
+    // As in the report: one worktree, so one pack directory, and a source change between runs.
+    const earlier = fakePyric(packs, version, { label: 'earlier build' });
+    const warmed = await new DependencyStore({ dir: storeDir, offline: false, packed: packedOf(earlier), platform: PLATFORM, npmCache, runNpm: onlineNpm }).provide(setDir(earlier));
+    if (warmed.code !== 0) console.error(warmed.output);
+    expect(warmed.code).toBe(0);
+
+    const current = fakePyric(packs, version, { label: 'current build', extra: { pyric: { 'dist/ai/broker/gemini-upstream.js': 'export const upstream = true;\n' } } });
+    const store = new DependencyStore({ dir: storeDir, offline: true, packed: packedOf(current), platform: PLATFORM, npmCache, runNpm: staleHiddenLockfileNpm, offlineRegistry: counter.url });
+    const materialized = setDir(current);
+    const result = await store.provide(materialized, 'fake-app');
+    if (result.code !== 0) console.error(result.output);
+    expect(result.code).toBe(0);
+    for (const [name, file] of current) {
+      expect({ name, files: filesIn(join(materialized, 'node_modules', name)) }).toEqual({ name, files: await tarballFiles(file) });
+    }
+  }, 120_000);
+
+  test('an entry whose Pyric package lost its dist is not used as it is: the set gets this run\'s tarball (#1585)', async () => {
+    const work = tempDir();
+    const storeDir = join(work, 'deps');
+    const npmCache = join(work, 'npm-cache');
+    const tarballs = fakePyric(join(work, 'packs'), '0.1.0-alpha.30', { extra: { 'pyric-admin': { 'dist/index.js': 'export const admin = true;\n' } } });
+    const options = { dir: storeDir, platform: PLATFORM, npmCache, packed: packedOf(tarballs) };
+    const warmed = await new DependencyStore({ ...options, offline: false, runNpm: onlineNpm }).provide(setDir(tarballs));
+    expect(warmed.code).toBe(0);
+    // The entry, as the report found it: its lockfile names this run's tarball, and its pyric-admin has no dist.
+    const [key] = readdirSync(storeDir);
+    rmSync(join(storeDir, key ?? '', 'node_modules', 'pyric-admin', 'dist'), { recursive: true });
+
+    const materialized = setDir(tarballs);
+    const result = await new DependencyStore({ ...options, offline: true, runNpm: onlineNpm, offlineRegistry: counter.url }).provide(materialized, 'fake-app');
+    if (result.code !== 0) console.error(result.output);
+    expect(result.code).toBe(0);
+    expect(result.source).toContain('node_modules/pyric-admin: missing dist/index.js');
+    expect(filesIn(join(materialized, 'node_modules', 'pyric-admin'))).toEqual(await tarballFiles(tarballs.get('pyric-admin') ?? ''));
+    expect(counter.connections()).toBe(0);
   }, 120_000);
 });
 
