@@ -14,8 +14,9 @@
  *
  * The real SDK is allowed only where the swap table chooses it
  * (`choosesRealFirebase` in `mapping.ts`), or when an SDK file this hook
- * already allowed imports its own SDK: a firebase-admin file reaches only
- * firebase-admin, and a client SDK file only `@firebase/*`. The importer's
+ * already allowed imports what its entry needs: a firebase-admin file
+ * reaches only the verifier bridge pair's files, and a client SDK file only
+ * the `@firebase/*` packages the production AI entries import. The importer's
  * URL alone is no proof, since `createRequire` can name any file, so each
  * hook keeps the URLs it allowed. In sandbox AI mode that set stays empty.
  * `firebase-admin` is never chosen, with one exception: the App Check verifier
@@ -29,7 +30,14 @@
  */
 import { packageNameOf, pathInPackageOf } from './package-identity.js';
 import { choosesRealFirebase } from './mapping.js';
-import { SDK_MODULES, isBypassedBridgeImport, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+import {
+  SDK_MODULES,
+  isAdminBridgeFile,
+  isBypassedBridgeImport,
+  isProductionAiSdkPackage,
+  resolveAiMode,
+  type AiMode,
+} from '../serve/firebase-module-swap.js';
 
 /** The code on the error a stopped import throws. */
 export const REAL_SDK_STOPPED_CODE = 'PYRIC_REAL_SDK_STOPPED';
@@ -66,18 +74,23 @@ function isInstalledFile(url: string): boolean {
 }
 
 /**
- * Whether this load is an SDK file the hook already allowed, importing its
- * own SDK: firebase-admin reaches only firebase-admin, and the client SDK only
- * `@firebase/*`.
+ * Whether this load is an SDK file the hook already allowed, importing what
+ * that SDK entry needs: a firebase-admin file reaches only the files of the
+ * verifier bridge's `firebase-admin/app` and `firebase-admin/app-check`, and a
+ * client SDK file only the `@firebase/*` packages that `firebase/ai`,
+ * `firebase/app` and `firebase/app-check` import. So a `createRequire` forge
+ * from an allowed file gets no further than the entry it came from.
  */
 function isFromAllowedSdkFile(load: ResolvedLoad, packageName: string, allowedUrls: ReadonlySet<string>): boolean {
   const importer = load.importer;
   const isAllowedImporter = importer !== undefined && allowedUrls.has(importer);
   if (!isAllowedImporter) return false;
   const importerFamily = sdkFamilyOf((load.nameOf ?? packageNameOf)(importer));
-  if (importerFamily === 'admin') return packageName === 'firebase-admin';
-  if (importerFamily === 'client') return packageName.startsWith('@firebase/');
-  return false;
+  if (importerFamily === 'client') return isProductionAiSdkPackage(packageName);
+  const isAdminTarget = importerFamily === 'admin' && packageName === 'firebase-admin';
+  if (!isAdminTarget) return false;
+  const pathOf = load.pathInPackage ?? pathInPackageOf;
+  return isAdminBridgeFile(pathOf(load.url, packageName));
 }
 
 /** Whether this load may reach the real SDK. */

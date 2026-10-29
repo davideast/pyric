@@ -107,6 +107,42 @@ const PRODUCTION_AI_SDK_PACKAGES: ReadonlySet<string> = new Set([
   '@firebase/util',
 ]);
 
+/**
+ * The firebase-admin files the App Check verifier bridge's
+ * `firebase-admin/app` and `firebase-admin/app-check` load, by path inside the
+ * package. Traced from a `verifyToken` run of the built bridge against
+ * firebase-admin 13.10.0: the ESM wrappers, `lib/app/`, `lib/app-check/`,
+ * `lib/utils/` and the manifest `lib/utils/index.js` reads for the version.
+ * A firebase-admin release that reaches further fails closed: the stop fires
+ * and the `ai-production-app-check` scenario shows it.
+ */
+const ADMIN_BRIDGE_FILES: readonly string[] = [
+  'package.json',
+  'lib/esm/app/',
+  'lib/esm/app-check/',
+  'lib/app/',
+  'lib/app-check/',
+  'lib/utils/',
+];
+
+/** Whether a path inside a package is `entry`, or lies under it when `entry` is a folder (ends in `/`). */
+function isUnderEntry(pathInPackage: string, entry: string): boolean {
+  const isFolder = entry.endsWith('/');
+  if (isFolder) return pathInPackage.startsWith(entry);
+  return pathInPackage === entry;
+}
+
+/** Whether a firebase-admin file, by its path inside the package, is one the verifier bridge's pair loads. */
+export function isAdminBridgeFile(pathInPackage: string | null): boolean {
+  if (pathInPackage === null) return false;
+  return ADMIN_BRIDGE_FILES.some((entry) => isUnderEntry(pathInPackage, entry));
+}
+
+/** Whether a client SDK package is one that `firebase/ai`, `firebase/app` and `firebase/app-check` import. */
+export function isProductionAiSdkPackage(packageName: string): boolean {
+  return PRODUCTION_AI_SDK_PACKAGES.has(packageName);
+}
+
 /** The `firebase` package's own folders for the {@link REAL_SDK_ENTRIES}: `ai`, `app` and `app-check`. */
 const PRODUCTION_AI_FIREBASE_FOLDERS: ReadonlySet<string> = new Set(
   [...REAL_SDK_ENTRIES.keys()].map((specifier) => specifier.slice('firebase/'.length)),
@@ -121,7 +157,7 @@ const PRODUCTION_AI_FIREBASE_FOLDERS: ReadonlySet<string> = new Set(
  * only for `firebase`.
  */
 export function isProductionAiSdkFile(packageName: string, pathInPackage: () => string | null): boolean {
-  if (PRODUCTION_AI_SDK_PACKAGES.has(packageName)) return true;
+  if (isProductionAiSdkPackage(packageName)) return true;
   if (packageName !== 'firebase') return false;
   const folder = pathInPackage()?.split('/')[0];
   return folder !== undefined && PRODUCTION_AI_FIREBASE_FOLDERS.has(folder);

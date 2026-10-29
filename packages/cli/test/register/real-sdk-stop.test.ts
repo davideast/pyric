@@ -160,6 +160,39 @@ outcome.escaped = globalThis[Symbol.for('stop.escaped')];
 console.log('OUTCOME ' + JSON.stringify(outcome));
 `;
 
+/**
+ * A forge in two steps, in production AI mode: first reach a real SDK file
+ * the register allows, then use that file as the importer for the rest of
+ * the SDK.
+ */
+const PROBE_FORGE_TWO_STEPS = `${LOAD_OBSERVER}
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+const outcome = {};
+async function step(name, run) {
+  try {
+    await run();
+    outcome[name] = 'loaded';
+  } catch (error) {
+    outcome[name] = error?.code ?? String(error);
+  }
+}
+const firstFile = (part) => loaded.find((url) => url.includes(part));
+if (process.env.FORGE === 'admin-pair') {
+  await step('first', () => createRequire(join(process.env.CLI_ROOT, 'dist/register/app-bridge-admin-app-check.js'))('firebase-admin/app'));
+  const approved = firstFile('/firebase-admin/lib/app/');
+  await step('firestore', () => createRequire(approved)('../firestore/index.js'));
+  await step('auth', () => createRequire(approved)('../auth/index.js'));
+} else {
+  await step('first', () => import('firebase/ai'));
+  const approved = firstFile('/firebase/ai/');
+  await step('firestore', () => createRequire(approved)('@firebase/firestore'));
+  await step('auth', () => createRequire(approved)('@firebase/auth'));
+}
+outcome.escaped = globalThis[Symbol.for('stop.escaped')];
+console.log('OUTCOME ' + JSON.stringify(outcome));
+`;
+
 /** A worker Node starts without the register's preload: an eval CommonJS worker, or one given its own execArgv. */
 const PROBE_WORKER = `import { Worker } from 'node:worker_threads';
 const target = process.env.REAL_ADMIN_FILE;
@@ -193,6 +226,9 @@ let sink: Server;
 
 interface Outcome {
   bridge?: string;
+  first?: string;
+  firestore?: string;
+  auth?: string;
   load: string;
   realAdmin?: boolean;
   escaped: string[];
@@ -272,6 +308,7 @@ beforeAll(async () => {
   writeFileSync(join(fixtureDir, 'production-ai.mjs'), PROBE_PRODUCTION_AI);
   writeFileSync(join(fixtureDir, 'bridge-then-app.mjs'), PROBE_BRIDGE_THEN_APP);
   writeFileSync(join(fixtureDir, 'forge.mjs'), PROBE_FORGE);
+  writeFileSync(join(fixtureDir, 'forge-two-steps.mjs'), PROBE_FORGE_TWO_STEPS);
   writeFileSync(join(fixtureDir, 'worker.mjs'), PROBE_WORKER);
   sink = createServer((socket) => socket.destroy());
   await new Promise<void>((resolveListen) => sink.listen(0, '127.0.0.1', resolveListen));
@@ -341,6 +378,26 @@ describe('@pyric/cli/register keeps the real firebase-admin out of a createRequi
     const production = await runProbe('forge.mjs', { FORGE: 'shadow-name', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
     expect(sandbox.outcome, sandbox.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
     expect(production.outcome, production.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
+  }, 30_000);
+
+  it("stops a second forge from the firebase-admin file the verifier bridge's pair allowed, in production AI mode", async () => {
+    const res = await runProbe('forge-two-steps.mjs', { FORGE: 'admin-pair', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    expect(res.outcome, res.stderr).toEqual({
+      first: 'loaded',
+      firestore: 'PYRIC_REAL_SDK_STOPPED',
+      auth: 'PYRIC_REAL_SDK_STOPPED',
+      escaped: [],
+    });
+  }, 30_000);
+
+  it('stops a second forge from the firebase/ai file production AI mode allowed', async () => {
+    const res = await runProbe('forge-two-steps.mjs', { FORGE: 'client-ai', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    expect(res.outcome, res.stderr).toEqual({
+      first: 'loaded',
+      firestore: 'PYRIC_REAL_SDK_STOPPED',
+      auth: 'PYRIC_REAL_SDK_STOPPED',
+      escaped: [],
+    });
   }, 30_000);
 
   it('swaps firebase-admin for the App Check verifier bridge in sandbox AI mode', async () => {

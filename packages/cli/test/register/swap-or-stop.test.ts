@@ -22,6 +22,7 @@ const PACKAGES: ReadonlyArray<readonly [segment: string, name: string]> = [
   ['/node_modules/@firebase/firestore/', '@firebase/firestore'],
   ['/node_modules/@firebase/ai/', '@firebase/ai'],
   ['/node_modules/@firebase/util/', '@firebase/util'],
+  ['/node_modules/@firebase/auth/', '@firebase/auth'],
   ['/node_modules/firebase-functions/', 'firebase-functions'],
   ['/node_modules/next/', 'next'],
   ['/work/app/', 'app'],
@@ -101,6 +102,15 @@ describe('stopFor: firebase-admin', () => {
     expect([...allowed]).toEqual([ADMIN_FILE, ADMIN_UTILS_FILE]);
   });
 
+  it("stops a forge from an allowed firebase-admin file beyond the verifier bridge pair's own files", () => {
+    const allowed = new Set([ADMIN_FILE]);
+    const fromApp = (url: string) => load({ url, importer: ADMIN_FILE, aiMode: 'production' });
+    expect(stopFor(fromApp('file:///work/app/node_modules/firebase-admin/lib/firestore/index.js'), allowed)).not.toBeNull();
+    expect(stopFor(fromApp('file:///work/app/node_modules/firebase-admin/lib/auth/index.js'), allowed)).not.toBeNull();
+    expect(stopFor(fromApp('file:///work/app/node_modules/firebase-admin/lib/app-check/token-verifier.js'), allowed)).toBeNull();
+    expect(stopFor(fromApp('file:///work/app/node_modules/firebase-admin/package.json'), allowed)).toBeNull();
+  });
+
   it('stops a createRequire forge of a firebase-admin importer the hook never allowed', () => {
     const forgedImporter = 'file:///work/app/node_modules/firebase-admin/x.js';
     expect(stopFor(load({ specifier: './lib/app/index.js', url: ADMIN_FILE, importer: forgedImporter }), noneAllowed())).not.toBeNull();
@@ -135,6 +145,13 @@ describe('stopFor: the client SDK', () => {
   it('lets a firebase file the hook allowed import @firebase/*', () => {
     const allowed = new Set([FIREBASE_AI_FILE]);
     expect(stopFor(load({ url: AT_AI_FILE, importer: FIREBASE_AI_FILE }), allowed)).toBeNull();
+  });
+
+  it('stops a forge from an allowed firebase/ai file into @firebase/* packages the production AI entries never import', () => {
+    const allowed = new Set([FIREBASE_AI_FILE]);
+    const fromAi = (url: string) => load({ url, importer: FIREBASE_AI_FILE, aiMode: 'production' });
+    expect(stopFor(fromAi(AT_FIRESTORE_FILE), allowed)).not.toBeNull();
+    expect(stopFor(fromAi('file:///work/app/node_modules/@firebase/auth/dist/node-esm/index.js'), allowed)).not.toBeNull();
   });
 
   it('stops a createRequire forge of a firebase importer the hook never allowed', () => {
