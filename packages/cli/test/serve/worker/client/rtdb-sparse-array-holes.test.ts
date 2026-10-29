@@ -21,10 +21,13 @@ const HOLE ={ isArray: true, length: 3, hasIndex1: false, first: 'a', last: 'c' 
 
 let directory = '';
 let nodeProbe = '';
+/** Bundling the Node probe takes seconds on a loaded runner, past the 5 s default (#1593). */
+const BUILD_TIMEOUT_MS = 60_000;
+
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'pyric-sparse-probe-'));
   nodeProbe = await buildForNode(directory, 'sparse-array-probe.ts');
-});
+}, BUILD_TIMEOUT_MS);
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
 async function probe(plane: 'worker' | 'node'): Promise<unknown> {
