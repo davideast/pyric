@@ -29,6 +29,7 @@ import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
 import { pointerHeldByAnotherHost } from './discovery.js';
+import { boundedFetch } from '../bounded-request.js';
 import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
 import { createAppPorts, type AppPorts } from './app-ports.js';
@@ -600,11 +601,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         if (hasNoCollisionProbe) return;
         const cannotProbe = !currentOrigin?.port || attachmentClosed;
         if (cannotProbe) return;
+        // By default a bounded request, connect included, so a family whose
+        // connect never completes leaves no socket pending past 1 s (#1167).
+        const probeHealth = (url: string): Promise<Response> => {
+          const injected = collision.fetchImpl;
+          if (injected) return injected(url, { signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]) });
+          return boundedFetch(url, { deadlineMs: 1000, signal: collisionAbort.signal });
+        };
         for (const probe of [`http://127.0.0.1:${currentOrigin.port}`, `http://[::1]:${currentOrigin.port}`]) {
           try {
-            const response = await (collision.fetchImpl ?? fetch)(`${probe}${HEALTH_PATH}`, {
-              signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]),
-            });
+            const response = await probeHealth(`${probe}${HEALTH_PATH}`);
             if (attachmentClosed) return;
             const isUnavailable = response.status !== 200;
             if (isUnavailable) continue;
