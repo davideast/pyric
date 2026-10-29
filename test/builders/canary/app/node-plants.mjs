@@ -3,8 +3,12 @@
 // NODE_OPTIONS, under pyric's default guard. Each plant reaches for a Google
 // host or the metadata server in one of the ways a server can; the recorder
 // must record it and refuse it. One local request must work. Prints one JSON
-// line: { plants: [{ name, host, outcome }], local: { outcome } }.
+// line: { plants: [{ name, host, outcome }], local: { name, url, outcome } }.
+//
+// Before each plant it appends a marker line to the network record, so the
+// verdict judges each plant by its own events: several plants share a host.
 import dns from 'node:dns';
+import { appendFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -18,6 +22,15 @@ if (globalThis[Symbol.for('pyric.builders.node-egress')] !== true) {
 }
 const LOCAL_URL = process.env.CANARY_LOCAL_URL;
 if (!LOCAL_URL) throw new Error('CANARY_LOCAL_URL is not set');
+const NETWORK_LOG = process.env.PYRIC_BUILDER_NETWORK_LOG;
+if (!NETWORK_LOG) throw new Error('PYRIC_BUILDER_NETWORK_LOG is not set');
+const LOCAL_NAME = 'local request';
+
+/** The marker before a plant: this process's events after it, until the next marker, are that plant's. */
+function markPlant(plant) {
+  const marker = { time: new Date().toISOString(), layer: 'node', pid: process.pid, thread: 0, process: 'node-plants.mjs', kind: 'plant', via: 'canary', plant };
+  appendFileSync(NETWORK_LOG, `${JSON.stringify(marker)}\n`);
+}
 const PLANT_TIMEOUT_MS = 5_000;
 const SUCCEEDED = 'succeeded';
 
@@ -121,9 +134,11 @@ const PLANTS = [
 
 const plants = [];
 for (const [name, host, run] of PLANTS) {
+  markPlant(name);
   plants.push({ name, host, outcome: await withTimeout(run()) });
 }
-const local = { url: LOCAL_URL, outcome: await withTimeout(fetchOutcome(LOCAL_URL)) };
+markPlant(LOCAL_NAME);
+const local = { name: LOCAL_NAME, url: LOCAL_URL, outcome: await withTimeout(fetchOutcome(LOCAL_URL)) };
 proxy.close();
 console.log(JSON.stringify({ plants, local }));
 process.exit(0);
