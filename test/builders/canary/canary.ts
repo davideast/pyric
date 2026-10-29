@@ -1,7 +1,7 @@
 /**
  * The canary: a scripted builder with no model, and the harness's integration
  * test. It installs the packed packages into a scratch app the way a builder
- * run does, then, inside the run's network namespace, starts the app's Vite
+ * run does, then, inside the run's sandbox, starts the app's Vite
  * dev server and a `node --import @pyric/cli/register` script under the
  * recorder and plants requests to Google hosts and the metadata server from
  * Node, from the harness browser, and from clients no recorder hooks (Bun,
@@ -13,12 +13,13 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Browser } from '@playwright/test';
 import { takeHeavyRunSlot } from '../../../scripts/lib/heavy-run-slots.ts';
 import { AppRun } from '../../apps/driver.ts';
-import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from '../../apps/install.ts';
+import { npmInstall, npmOfflineInstallArgs, packWorkspace, prepareApp, runCommand, tarballsIn, type CommandResult, type Tarballs } from '../../apps/install.ts';
+import { playwrightBrowsersPath } from '../browser-server.ts';
 import { startEgressNamespace, type EgressNamespace } from '../namespace.ts';
 import { browserEvents, readNetLog } from '../recorder/chromium-netlog.ts';
 import { appendBrowserEvents, readNetworkRecord } from '../recorder/network-record.ts';
@@ -32,6 +33,12 @@ const PLANT_PHASE = fileURLToPath(new URL('./plant-phase.ts', import.meta.url));
 const BUILDERS_TESTS = fileURLToPath(new URL('..', import.meta.url));
 
 const INSTALL_TIMEOUT_MS = 300_000;
+/** The registry the shared cache was warmed from; an offline install reads its cached listings under this URL. */
+const NPM_REGISTRY = 'https://registry.npmjs.org/';
+/** What npm says when an offline install needs something the cache doesn't hold. */
+const COLD_CACHE = /\bENOTCACHED\b/;
+/** No package's install scripts run, inside the sandbox or out. */
+const IGNORE_SCRIPTS = '--ignore-scripts';
 
 export interface CanaryOptions {
   /** Build the workspace before packing it. */
@@ -62,28 +69,48 @@ async function packages(options: CanaryOptions): Promise<Tarballs> {
 /** AppRun's own browser is never used: the plant phase drives the harness browser. */
 const noDriverBrowser = (): Promise<Browser> => Promise.reject(new Error('the canary uses the harness browser server'));
 
+function npmCacheDir(): string {
+  return process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
+}
+
 /**
- * `npm install` needs the registry, so it runs before the namespace starts:
- * under the Node recorder, which refuses any Google host, but outside the
- * kernel-level block. Nothing is planted in this phase.
+ * `npm install --ignore-scripts --offline` inside the sandbox, from the warm
+ * shared cache (read-only, under an overlay whose writes stay in the
+ * sandbox), under the Node recorder. Only when the
+ * cache is cold for this app does it install outside the sandbox, still with
+ * `--ignore-scripts` and under the recorder, which refuses any Google host;
+ * the kernel does not block that one. Nothing is planted in either.
  */
-async function install(dirs: RunDirs): Promise<void> {
-  step('npm install, under the recorder, before the namespace starts');
+async function install(namespace: EgressNamespace, dirs: RunDirs): Promise<void> {
+  step('npm install --ignore-scripts --offline, from the warm cache, inside the sandbox');
   const app = new AppRun('builders-canary install', dirs.app, dirs.home, noDriverBrowser);
-  const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
+  const npmCache = npmCacheDir();
   const recorded = recorderEnvironment(dirs.networkLog);
+  const run = (command: string, args: string[]) => app.command(command, args, { env: recorded, timeoutMs: INSTALL_TIMEOUT_MS });
   try {
-    const result = await npmInstall(npmCache, (args) => app.command('npm', args, { env: recorded, timeoutMs: INSTALL_TIMEOUT_MS }));
-    writeFileSync(join(dirs.logs, '00-npm-install.log'), result.output);
-    if (result.code !== 0) throw new Error(`npm install failed (exit ${result.code}):\n${result.output}`);
+    const offlineArgs = [...npmOfflineInstallArgs(npmCache, NPM_REGISTRY), IGNORE_SCRIPTS, `--logs-dir=${dirs.logs}`];
+    const entered = namespace.enter('npm', offlineArgs, dirs.app);
+    const inside = await run(entered.command, entered.args);
+    writeFileSync(join(dirs.logs, '00-npm-install-sandbox.log'), inside.output);
+    if (inside.code === 0) return;
+    if (!isColdCache(inside)) throw new Error(`npm install inside the sandbox failed (exit ${inside.code}):\n${inside.output}`);
+    step('the npm cache is cold for this app: npm install --ignore-scripts outside the sandbox, under the recorder');
+    const outside = await npmInstall(npmCache, (args) => run('npm', [...args, IGNORE_SCRIPTS]));
+    writeFileSync(join(dirs.logs, '00-npm-install-outside.log'), outside.output);
+    if (outside.code !== 0) throw new Error(`npm install failed (exit ${outside.code}):\n${outside.output}`);
   } finally {
     await app.close();
   }
 }
 
-/** Runs the plant phase inside the run's namespace and reads what it wrote. */
+/** Whether an offline install failed only because the cache lacks something the app needs. */
+export function isColdCache(result: CommandResult): boolean {
+  return result.code !== 0 && COLD_CACHE.test(result.output);
+}
+
+/** Runs the plant phase inside the run's sandbox and reads what it wrote. */
 async function plantInNamespace(namespace: EgressNamespace, dirs: RunDirs): Promise<PlantOutput> {
-  step('plant phase, inside the network namespace');
+  step('plant phase, inside the sandbox');
   const { command, args } = namespace.enter(process.execPath, [PLANT_PHASE, dirs.root], REPO_ROOT);
   const result = await runCommand(command, args, { cwd: REPO_ROOT });
   process.stdout.write(result.output);
@@ -107,15 +134,16 @@ export async function runCanary(options: CanaryOptions): Promise<boolean> {
     const stamp = runStamp();
     const dirs = createRunDirs(join(buildersRoot(), 'canary', stamp));
     step(`run directory ${dirs.root}`);
-    // Started first, so a machine without the namespace refuses before any work.
-    step('starting the network namespace: loopback only, with a recording resolver');
-    const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root });
+    // Started first, so a machine without the sandbox refuses before any work.
+    step('starting the sandbox: allowlisted files, loopback only, a recording resolver and catch-all listener');
+    const readOnly = [playwrightBrowsersPath(), ...(options.packages === undefined ? [] : [resolve(options.packages)])];
+    const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
     let output: PlantOutput;
     try {
       const tarballs = await packages(options);
       prepareApp({ appDir: CANARY_APP, projectDir: dirs.app, tarballs });
       writeFakeFirebaseConfig(dirs.app, demoProjectId(`canary-${stamp.slice(0, 10)}`));
-      await install(dirs);
+      await install(namespace, dirs);
       output = await plantInNamespace(namespace, dirs);
     } finally {
       await namespace.stop();

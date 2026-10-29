@@ -1,11 +1,13 @@
 /**
- * The canary's plant phase. `canary.ts` runs it inside the run's network
- * namespace, so it and everything it starts can reach only loopback:
+ * The canary's plant phase. `canary.ts` runs it inside the run's sandbox, so
+ * it and everything it starts see only the allowlisted files and loopback:
  *
- *   nsenter -t <pid> -U -n -m --preserve-credentials bun plant-phase.ts <run dir>
+ *   nsenter -t <pid> -U -m -n -p -i -u -C --preserve-credentials --root env -C <repo> bun plant-phase.ts <run dir>
  *
- * It starts the harness browser, the app's Vite dev server and the plant
- * scripts, then writes what each plant saw to `<run dir>/plants.json`.
+ * Before anything else it runs the sandbox inventory itself, so a caller that
+ * skips the sandbox fails before any plant runs. Then it starts the harness
+ * browser, the app's Vite dev server and the plant scripts, and writes what
+ * each plant saw to `<run dir>/plants.json`.
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 import type { Browser } from '@playwright/test';
 import { AppRun } from '../../apps/driver.ts';
 import { BROWSER_WS_ENV, startBrowserServer, type BrowserServer } from '../browser-server.ts';
+import { ownDirs } from '../namespace.ts';
+import { sandboxInventory } from '../sandbox-inventory.ts';
 import { recorderEnvironment, runDirsAt, type RunDirs } from '../scratch.ts';
 import type { CanaryObservations } from './verdict.ts';
 
@@ -45,7 +49,11 @@ function saveProcessLogs(app: AppRun, dirs: RunDirs): void {
   }
 }
 
-/** Requests from clients no recorder hooks. Only the namespace stops them, and its resolver records their lookups. */
+/**
+ * Requests from clients no recorder hooks. Only the sandbox stops them: its
+ * resolver records their lookups, and its catch-all listener records a
+ * connection by address.
+ */
 function unhookedPlants(bun: string): { name: string; host: string; command: string; args: string[] }[] {
   const bunFetch = (url: string) => [
     '-e',
@@ -87,7 +95,7 @@ async function plant(app: AppRun, recorded: Record<string, string>, browser: Bro
     throw new Error(`browser-plants.ts exited ${browserRun.code}; preflight ${JSON.stringify(browserResult.preflight)}:\n${browserRun.output}`);
   }
 
-  step('unhooked plants: Bun and curl, which only the namespace stops');
+  step('unhooked plants: Bun and curl, which only the sandbox stops');
   const unhooked = [];
   for (const planted of unhookedPlants(process.execPath)) {
     const result = await app.command(planted.command, planted.args, { env: recorded, timeoutMs: UNHOOKED_TIMEOUT_MS });
@@ -96,7 +104,15 @@ async function plant(app: AppRun, recorded: Record<string, string>, browser: Bro
   return { node, browser: browserResult, unhooked: { plants: unhooked } };
 }
 
+/** Throws, before anything is planted, unless this process is inside a run's sandbox. */
+export function assertInsideSandbox(root: string): void {
+  const { problems, walked } = sandboxInventory(ownDirs(root));
+  if (problems.length > 0) throw new Error(`refusing to plant: this process is not inside a run's sandbox:\n- ${problems.join('\n- ')}`);
+  step(`sandbox inventory: loopback only, resolv.conf names 127.0.0.1, no /mnt, /run/WSL or /run/user, no foreign socket in ${walked} directories`);
+}
+
 async function main(root: string): Promise<void> {
+  assertInsideSandbox(root);
   const dirs = runDirsAt(root);
   const recorded = recorderEnvironment(dirs.networkLog);
   const app = new AppRun('builders-canary', dirs.app, dirs.home, noDriverBrowser);
