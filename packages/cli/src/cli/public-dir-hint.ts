@@ -13,7 +13,7 @@ import { join } from 'node:path';
 const VITE_CONFIG_FILES = ['vite.config.ts', 'vite.config.mts', 'vite.config.js', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
 /** The Vite config file in `cwd`, or `null` when the project has none. */
-function viteConfigIn(cwd: string): string | null {
+export function viteConfigIn(cwd: string): string | null {
   return VITE_CONFIG_FILES.find((file) => existsSync(join(cwd, file))) ?? null;
 }
 

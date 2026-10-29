@@ -1,8 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
-import type { BridgeMount } from './bridge-mount.js';
+import { answerMountClosed, HEALTH_PATH, type BridgeMount } from './bridge-mount.js';
 import type { SandboxSession } from './sandbox-session.js';
 import { isAllowedHost } from './server.js';
+
+/** The request's path, from the URL before Connect stripped the `/__pyric` mount. */
+function requestPath(req: IncomingMessage & { originalUrl?: string }): string {
+  const raw = req.originalUrl ?? req.url ?? '/';
+  const queryAt = raw.indexOf('?');
+  return queryAt === -1 ? raw : raw.slice(0, queryAt);
+}
 
 /** Attach one generation's guarded namespace handler to Vite's permanent Connect stack. */
 export function attachViteGenerationMiddleware(input: {
@@ -18,6 +25,15 @@ export function attachViteGenerationMiddleware(input: {
     '/__pyric',
     (req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
       if (!active) {
+        // A closed generation's mount still says it is closing, as the mount
+        // itself does once closed, so `pyric run --wait` waits for the
+        // replacement instead of reading Vite's 404 as "not a host" (#1568).
+        const isHealthRequest = requestPath(req) === HEALTH_PATH;
+        const answersClosing = bridge !== null && isHealthRequest;
+        if (answersClosing) {
+          answerMountClosed(res);
+          return;
+        }
         next();
         return;
       }

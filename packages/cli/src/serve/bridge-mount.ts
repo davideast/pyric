@@ -42,8 +42,14 @@ import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-
 
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
-const HEALTH_PATH = '/__pyric/health';
+export const HEALTH_PATH = '/__pyric/health';
 const BRIDGE_VERSION = pyricVersion();
+
+/** The 503 a closed mount answers its routes with, so a client knows the host is going away. */
+export function answerMountClosed(res: ServerResponse): void {
+  res.writeHead(503, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
+}
 
 /**
  * Test-only: `PYRIC_TEST_PEER_LIVENESS_MS` shortens the host's peer liveness
@@ -337,8 +343,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
       const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes);
       if (rejectsClosedRequest) {
-        res.writeHead(503, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
+        answerMountClosed(res);
         return true;
       }
       if (isHealthRequest) {

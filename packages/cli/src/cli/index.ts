@@ -100,7 +100,7 @@ COMMANDS
                              its child. The host is \`pyric sandbox --hosted\`, or a
                              Vite dev server with \`pyric({ hosted: true })\` in
                              vite.config.ts. A Vite server with the in-page
-                             \`pyric()\` plugin has no host, and is refused.
+                             \`pyric()\` plugin has no host, so pyric run refuses it.
                              --sandbox URL names the host; without
                              it, PYRIC_SANDBOX=remote:<url>, then .pyric/serve.json.
                              The register module is passed by absolute file URL, so

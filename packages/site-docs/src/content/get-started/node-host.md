@@ -46,7 +46,7 @@ npx pyric sandbox --hosted
 npx pyric sandbox --hosted -- npm run dev
 ```
 
-`pyric sandbox` serves your built `hosting.public` directory, so it needs a build first. For a Vite dev server, set `pyric({ hosted: true })` in `vite.config.ts` instead, as the next section shows.
+`pyric sandbox` serves the directory `hosting.public` names. When that is a build output such as `dist`, run the build first. For a Vite dev server, set `pyric({ hosted: true })` in `vite.config.ts` instead, as the next section shows.
 
 When running `-- <command>`, Pyric automatically activates `@pyric/cli/register` in the child environment via `NODE_OPTIONS`. Unchanged `firebase-admin` imports in your child command connect to the Node host.
 

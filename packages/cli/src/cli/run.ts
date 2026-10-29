@@ -17,6 +17,7 @@ import {
   type SandboxChildPlan,
 } from './sandbox-runner.js';
 import { discoverServe, probeHostUrlAnswer, servesViteClient } from '../serve/discovery.js';
+import { viteConfigIn } from './public-dir-hint.js';
 
 export interface RunInvocation {
   /** The host URL named by `--sandbox` or `PYRIC_SANDBOX=remote:<url>`; null to discover it. */
@@ -97,16 +98,16 @@ export async function pollUntil<T>(
  * dev server whose plugin is in-page, `pyric()` with no `hosted`, is the
  * common one: it has no sandbox host, and `hosted: true` gives it one.
  */
-export function notAHostMessage(hostUrl: string, isVite: boolean): string {
+export function notAHostMessage(hostUrl: string, isVite: boolean, viteConfig: string): string {
   if (isVite) {
     return (
-      `pyric run: reached an in-page Vite server at ${hostUrl}. It has no sandbox host, so it can't run this command.\n` +
-      '  Set pyric({ hosted: true }) in vite.config.ts, restart Vite, then run this command again.\n'
+      `pyric run: reached a Vite server without a hosted pyric sandbox at ${hostUrl}, so it can't run this command.\n` +
+      `  Set pyric({ hosted: true }) in ${viteConfig}, restart Vite, then run this command again.\n`
     );
   }
   return (
     `pyric run: ${hostUrl} answers, but it is not a sandbox host: /__pyric/health did not return a health reply.\n` +
-    '  Start a host with pyric sandbox --hosted, or for a Vite dev server set pyric({ hosted: true }) in vite.config.ts.\n'
+    `  Start a host with pyric sandbox --hosted, or for a Vite dev server set pyric({ hosted: true }) in ${viteConfig}.\n`
   );
 }
 
@@ -132,7 +133,8 @@ export async function runRun(parsed: ParsedArgs): Promise<number> {
       return 2;
     }
     if (answer.kind === 'not-a-host') {
-      process.stderr.write(notAHostMessage(hostUrl, await servesViteClient(answer.base)));
+      const viteConfig = viteConfigIn(cwd) ?? 'vite.config.ts';
+      process.stderr.write(notAHostMessage(hostUrl, await servesViteClient(answer.base), viteConfig));
       return 2;
     }
     serveUrl = answer.host.base;

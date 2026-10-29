@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect } from 'bun:test';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { parseArgs } from '../../src/cli/parse-args.js';
-import { DEFAULT_WAIT_SECONDS, parseRunInvocation, pollUntil } from '../../src/cli/run.js';
+import { DEFAULT_WAIT_SECONDS, notAHostMessage, parseRunInvocation, pollUntil } from '../../src/cli/run.js';
 import { runDispatch } from './run-cli.js';
 
 const parse = (argv: string[], env: NodeJS.ProcessEnv = {}) => parseRunInvocation(parseArgs(['run', ...argv]), env);
@@ -122,7 +122,7 @@ describe('pyric run --sandbox against a server that is not a sandbox host (#1568
     const url = await serveOnly(['/@vite/env']);
     const { code, stderr, ms } = await runAgainst(url);
     expect(code).toBe(2);
-    expect(stderr).toContain(`reached an in-page Vite server at ${url}`);
+    expect(stderr).toContain(`reached a Vite server without a hosted pyric sandbox at ${url}`);
     expect(stderr).toContain('pyric({ hosted: true }) in vite.config.ts');
     expect(ms).toBeLessThan(4000);
   });
@@ -135,6 +135,20 @@ describe('pyric run --sandbox against a server that is not a sandbox host (#1568
     expect(stderr).toContain('pyric sandbox --hosted');
     expect(stderr).toContain('pyric({ hosted: true })');
     expect(ms).toBeLessThan(4000);
+  });
+});
+
+describe('notAHostMessage', () => {
+  it('names the Vite config file it is given, in both refusals', () => {
+    for (const isVite of [true, false]) {
+      expect(notAHostMessage('http://localhost:5173', isVite, 'vite.config.mjs')).toContain('pyric({ hosted: true }) in vite.config.mjs');
+    }
+  });
+
+  it('claims only what the Vite check shows', () => {
+    const message = notAHostMessage('http://localhost:5173', true, 'vite.config.ts');
+    expect(message).toContain('a Vite server without a hosted pyric sandbox');
+    expect(message).not.toContain('in-page');
   });
 });
 
