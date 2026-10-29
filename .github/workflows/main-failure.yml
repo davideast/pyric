@@ -4,17 +4,24 @@
 # classifies it (scripts/ci/main-failure.ts):
 #   - attempt 1 failed: rerun only its failed jobs, once, and wait for
 #     attempt 2 in the same job, since a rerun started with the workflow
-#     token does not start this workflow again;
+#     token does not start this workflow again. Build & Test on main cancels
+#     an in-progress run when another starts, and a rerun joins that group,
+#     so it reruns only while the commit is still the head of main and no
+#     newer push run is pending. Otherwise the failures go to the one
+#     "Unconfirmed failures on main: " issue;
 #   - attempt 2 passed: each test that failed in attempt 1 (or its job, when
 #     the log names no test) is a flake, filed as one lane:velocity issue
-#     titled "Flaky on main: `<test>`";
+#     titled "Flaky on main: `<test>`", or commented on an open issue that
+#     already names the test file;
 #   - attempt 2 failed: open or update the one "Main is red: " issue, naming
 #     the commit, the failing jobs and tests, and both attempts;
-#   - any green run closes that issue with a comment naming the run;
-#   - attempt 3 or later, or a cancelled run, does nothing, so it cannot loop.
+#   - attempt 2 cancelled: attempt 1's failures go to the unconfirmed issue;
+#   - any green run closes the red issue with a comment naming the run;
+#   - nothing is rerun past attempt 1, so it cannot loop.
 #
 # A manual dispatch classifies a past run by id. With dry_run (the default) it
 # prints what it would rerun and file for every attempt, and changes nothing.
+# Without dry_run it refuses any run but a push run of Build & Test on main.
 #
 # It never runs on pull requests and never gates one.
 
@@ -62,6 +69,8 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
