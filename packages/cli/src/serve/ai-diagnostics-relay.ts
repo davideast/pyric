@@ -11,7 +11,8 @@ import { capTerminalText } from './ai-terminal-text.js';
  * agent driving `pyric dev` in process therefore saw NOTHING.
  *
  *   - `request_rejected`: a bad role, empty `contents`, a missing thought
- *     signature, or an engine that answered an error envelope.
+ *     signature, a request without a valid App Check token, or an engine
+ *     that answered an error envelope.
  *   - `response_blocked`: the SILENT refusal. A safety / recitation /
  *     blocklist filter answers HTTP 200 with an empty candidate, so nothing
  *     throws anywhere and the app simply renders nothing.
@@ -73,6 +74,8 @@ interface AiRejectionRelayPayload {
   code?: number;
   /** The rejection reason: production's own message for shape errors. */
   message: string;
+  /** Pyric's guidance beside production's message, such as the App Check gate's. */
+  hint?: string;
 }
 
 /** Shape POSTed for a `response_blocked` event. Carries the wire's own
@@ -148,6 +151,8 @@ function toRejectionPayload(event: ServiceMutation): AiRejectionRelayPayload | n
   payload.engine = detailText(detail, 'engine');
   payload.status = detailText(detail, 'status');
   if (typeof detail.code === 'number') payload.code = detail.code;
+  const hint = detailText(detail, 'hint');
+  if (hint !== undefined) payload.hint = hint;
   return payload;
 }
 

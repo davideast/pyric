@@ -7,6 +7,7 @@ import {
   onTokenChanged,
   setTokenAutoRefreshEnabled,
 } from "firebase/app-check";
+import { runAiChecks } from "./ai-checks.js";
 
 const app = initializeApp({
   apiKey: "AIzaSyDemoKeyForReproOnly000000000000",
@@ -49,3 +50,5 @@ window.runAppCheck = async () => {
     twice,
   };
 };
+
+window.runAiChecks = runAiChecks;

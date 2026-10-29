@@ -24,6 +24,7 @@ import {
   type OutboundMessage,
   type AuthPersistenceMode,
   type AiEngineConfigWire,
+  type AiAppCheckWire,
   type AppConfigMessage,
 } from './protocol.js';
 
@@ -40,9 +41,11 @@ import {
  */
 export interface AiBrokerLike {
   observationIdentity?(model: string): import('pyric/ai/internal').AiEvidence;
-  generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
-  streamGenerateContent(req: Record<string, unknown>, model: string): AsyncIterable<Record<string, unknown>>;
-  countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
+  /** AI Logic's App Check gate; a request with no claim passes. */
+  admitAppCheck(model: string, appCheck: AiAppCheckWire | undefined): Promise<void>;
+  generateContent(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): Promise<Record<string, unknown>>;
+  streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): AsyncIterable<Record<string, unknown>>;
+  countTokens(req: Record<string, unknown>, model: string, appCheck?: AiAppCheckWire): Promise<Record<string, unknown>>;
 }
 
 // ─── Port interface ───────────────────────────────────────────────────────
@@ -278,6 +281,13 @@ export interface HostCtx {
   aiEngine?: AiEngineConfigWire;
   /** Server-only OpenAI transport. Browser workers retain the same-origin proxy. */
   aiUpstream?: { baseUrl: string; fetch: typeof fetch };
+  /**
+   * The broker's engines run in the browser SharedWorker, which has no server
+   * environment: the gemini engine sends through the dev server's gemini
+   * proxy, which attaches the key (#1584). Set by the worker entry only; a
+   * Node host and a Node repro replay leave it unset.
+   */
+  aiRunsInBrowser?: boolean;
   /**
    * Lazily-built agent tool dispatcher (the canonical sandbox tool set) bound to
    * THIS worker's sandbox. The bridge peer forwards `tool` messages here so the

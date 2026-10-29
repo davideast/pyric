@@ -23,7 +23,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { collectBody } from '../bridge/server/peer.js';
+import { BODY_TOO_LARGE_CODE, collectBody } from '../bridge/server/peer.js';
 import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
@@ -32,7 +32,9 @@ import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowe
 import type { InitPayload } from './init-payload.js';
 import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
+import { createGeminiProxy, isGeminiProxyPath, type GeminiProxyConfig } from './gemini-proxy.js';
 import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
+import { sanitizeForTerminal, stripTerminalControls } from './ai-terminal-text.js';
 import { createSiteTreeHandler } from './site-tree.js';
 import { handleAvatar } from './assets/avatar-route.js';
 import { ASSETS_ROUTE_PREFIX } from './assets/avatar-url.js';
@@ -147,6 +149,10 @@ export interface NamespaceOptions {
    *  (local Ollama). Always mounted — the route only touches the network
    *  when a request arrives. */
   aiProxyUpstream?: string;
+  /** The gemini engine `/__pyric/ai-proxy/gemini` sends for a browser engine
+   *  (#1584): the Vite plugin's `ai.engine` when it is gemini. Absent, it
+   *  sends to Google AI Studio with the key from this process's environment. */
+  aiGemini?: GeminiProxyConfig;
   /** Receives one handshake beacon per pyric-launched child (`POST
    *  /__pyric/beacon`, sent by `@pyric/cli/register` once its hooks and
    *  net-guard are installed). Absent means the route still 204s; the child
@@ -354,6 +360,11 @@ async function handleCapture(
 
 const DENIAL_THROTTLE_MS = 5_000;
 
+/** Largest relayed denial the route reads. A real one is a message, a path, a
+ *  uid and a short owner stack, a few KiB at most; the index route's 64 KiB
+ *  leaves room for a deep stack without letting a page grow the server. */
+export const DENIAL_BODY_LIMIT_BYTES = 64 * 1024;
+
 /** Loosely-typed mirror of the client's relay payload — JSON from the served
  *  page, read defensively since nothing here enforces the wire shape. */
 interface DenialRelayPayload {
@@ -397,27 +408,48 @@ export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
 }
 export type DenialThrottle = ReturnType<typeof createDenialThrottle>;
 
+/** A page-supplied string as one terminal-safe line. Every field of a relayed
+ *  denial comes from the served page, which need not be the developer's own
+ *  code, so none of it reaches the terminal with control characters intact. */
+function pageText(value: string): string {
+  return sanitizeForTerminal(value);
+}
+
+/** A multi-line page-supplied string (a query-proof remediation) as indented
+ *  terminal lines. Each line keeps its spacing and its whole length, because a
+ *  reader pastes the `pyric rules test` command and the `Fixture case:` JSON
+ *  out of it; only control and bidi characters are replaced. The denial body
+ *  limit bounds the total, so no line or line count is cut here. */
+function pageLines(value: string): string[] {
+  const lines = value.split(/\r?\n/).map((line) => stripTerminalControls(line).trimEnd());
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first === -1) return [];
+  let last = lines.length - 1;
+  while (lines[last]!.length === 0) last -= 1;
+  return lines.slice(first, last + 1).map((line) => (line.length > 0 ? `      ${line}` : ''));
+}
+
 /** Format a relayed denial into the compact terminal block: the message,
  *  then (when present) the request method/path, the auth uid, and any
  *  remediation guidance. A few lines, never a JSON dump. */
 export function formatDenialBlock(payload: DenialRelayPayload): string {
   const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
-  const lines = [`  ⚠ [pyric] denied: ${message}`];
+  const lines = [`  ⚠ [pyric] denied: ${pageText(message)}`];
   const ctx = payload.denialContext;
   const request = ctx?.request;
   if (request?.method && request?.path) {
-    const instance = typeof payload.instance === 'string' ? ` (${payload.instance})` : '';
-    lines.push(`      ${request.method} ${request.path}${instance}`);
+    const instance = typeof payload.instance === 'string' ? ` (${pageText(payload.instance)})` : '';
+    lines.push(`      ${pageText(String(request.method))} ${pageText(String(request.path))}${instance}`);
   }
   const uid = ctx?.auth?.uid;
-  lines.push(`      auth: ${uid ?? 'anonymous'}`);
+  lines.push(`      auth: ${uid === undefined || uid === null ? 'anonymous' : pageText(String(uid))}`);
   // An RTDB message names no rule, so the block names the deciding one.
   if (ctx?.engine === 'rtdb' && typeof ctx.matchedRule === 'string') {
-    const node = typeof ctx.matchedPath === 'string' ? `${ctx.matchedPath} ` : '';
-    lines.push(`      rule: ${node}${ctx.matchedRule}`);
+    const node = typeof ctx.matchedPath === 'string' ? `${pageText(ctx.matchedPath)} ` : '';
+    lines.push(`      rule: ${node}${pageText(ctx.matchedRule)}`);
   }
   const remediation = typeof payload.remediation === 'string' ? payload.remediation : ctx?.remediation;
-  if (remediation) lines.push(`      ${remediation}`);
+  if (remediation) lines.push(...pageLines(String(remediation)));
   lines.push(...ownerLines(payload.owners));
   return lines.join('\n');
 }
@@ -437,7 +469,7 @@ function isRelayedFrame(value: unknown): value is RelayedFrame {
 /** A frame's file as a reader looks for it: a served URL loses its origin and query. */
 function frameLocation(frame: RelayedFrame): string {
   const path = frame.file.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').replace(/[?#].*$/, '');
-  return `${path}:${frame.line}`;
+  return pageText(`${path}:${frame.line}`);
 }
 
 /**
@@ -450,7 +482,7 @@ function ownerLines(owners: unknown): string[] {
   if (!Array.isArray(owners)) return [];
   const frame = owners.find((owner) => (owner as { kind?: unknown })?.kind === 'frame');
   if (!isRelayedFrame(frame)) return [];
-  const name = typeof frame.function === 'string' && frame.function.length > 0 ? `${frame.function} ` : '';
+  const name = typeof frame.function === 'string' && frame.function.length > 0 ? `${pageText(frame.function)} ` : '';
   const lines = [`      owner: ${name}${frameLocation(frame)}`];
   const stack = (frame as { stack?: unknown }).stack;
   const chain = Array.isArray(stack) ? stack.filter(isRelayedFrame) : [];
@@ -492,8 +524,12 @@ export function noteAiDiagnostic(
  *  (target, reason) per window is the right volume for every one of them. A
  *  rules denial's target also names its RTDB instance, so the same path
  *  denied on two instances prints once for each.
- *  Always 204s (best-effort diagnostics: a malformed body or a caller with no
- *  logger wired must never fail the page that reported the refusal). */
+ *  Answers 204 (best-effort diagnostics: a malformed body or a caller with no
+ *  logger wired must never fail the page that reported the refusal), except
+ *  413 for a body over {@link DENIAL_BODY_LIMIT_BYTES}. On the 0.1.0-alpha.30
+ *  line the namespace runs no loopback guard before this route, so a page on
+ *  any origin can reach here; the body limit and the terminal-text sanitizing
+ *  still apply. */
 async function handleDenials(
   throttle: DenialThrottle,
   logger: ServeLogger | undefined,
@@ -505,7 +541,7 @@ async function handleDenials(
     return;
   }
   try {
-    const payload = (await collectBody(req)) as DenialRelayPayload & AiDiagnosticPayload;
+    const payload = (await collectBody(req, DENIAL_BODY_LIMIT_BYTES)) as DenialRelayPayload & AiDiagnosticPayload;
     const isAiDiagnostic = aiTerminalBlockFor(payload.kind) !== null;
     if (isAiDiagnostic) {
       noteAiDiagnostic(throttle, logger, payload);
@@ -519,7 +555,12 @@ async function handleDenials(
         logger.note(formatDenialBlock(payload));
       }
     }
-  } catch {
+  } catch (error) {
+    const tooLarge = (error as { code?: unknown } | null)?.code === BODY_TOO_LARGE_CODE;
+    if (tooLarge) {
+      res.writeHead(413, { 'content-type': 'text/plain' }).end('Payload Too Large');
+      return;
+    }
     /* malformed body: drop it; this is a diagnostics side channel */
   }
   res.writeHead(204).end();
@@ -573,6 +614,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     ? createSiteTreeHandler(siteUiDir, opts.workerVersion, hostedStudioProject(opts))
     : null;
   const denialThrottle = createDenialThrottle();
+  const geminiProxy = createGeminiProxy(opts.aiGemini, denialThrottle, opts.logger);
   // Issued once per server boot. The outer static/Vite host guard protects
   // init.json before this capability is disclosed to the served runtime.
   const activity = opts.activity;
@@ -688,8 +730,18 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       events.handle(req, res);
       return true;
     }
+    const isGeminiProxyRequest = isGeminiProxyPath(url.pathname);
+    if (isGeminiProxyRequest) {
+      // It spends the server's key, so only this app's pages may call it.
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      return geminiProxy(req, res, url).then(() => true);
+    }
     const isAiProxyRequest = url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`);
     if (isAiProxyRequest) {
+      // The upstream may carry the developer's key, so only this server's pages may spend it.
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
       return handleAiProxy(opts.aiProxyUpstream, denialThrottle, req, res, url, opts.logger).then(
         () => true,
       );
@@ -700,6 +752,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     const isDenialRequest = url.pathname === '/__pyric/denials';
     if (isDenialRequest) {
+      // No origin guard on the 0.1.0-alpha.30 line: without the learned proxy
+      // ports from #1497, it would refuse the Next dev server's page under
+      // `pyric sandbox -- next dev`. The body limit still applies.
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
     }
     const isInitRequest = url.pathname === '/__pyric/init.json';

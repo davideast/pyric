@@ -1,8 +1,9 @@
-// A chat app written against the upstream Firebase AI API: 'firebase/app'
-// and 'firebase/ai' are the ONLY imports. Under `pyric sandbox` the import map
-// serves the pyric mirror for these; the same file, built for production,
-// talks to real Firebase AI.
+// A chat app written against the upstream Firebase API: 'firebase/app',
+// 'firebase/app-check' and 'firebase/ai' are the only imports. Under
+// `pyric sandbox` the import map serves the pyric mirror for these; the same
+// file, built for production, talks to real Firebase AI.
 import { initializeApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAI, getGenerativeModel, Schema, FunctionCallingMode } from 'firebase/ai';
 
 // ── Engine selection (URL-driven) ──────────────────────────────────────────
@@ -49,6 +50,16 @@ const engine =
 
 // ── The app, exactly as it would be written against real Firebase ─────────
 const app = initializeApp({ apiKey: 'demo-key', projectId: 'demo-project' });
+// AI Logic requires App Check from November 2, 2026, and getAI reads App Check
+// when it starts, so initializeAppCheck runs first. On localhost the debug
+// provider stands in for reCAPTCHA. Replace the site key with your reCAPTCHA
+// v3 key from Firebase console > App Check > Apps.
+const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+if (isLocalhost) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+initializeAppCheck(app, {
+  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
+  isTokenAutoRefreshEnabled: true,
+});
 const ai = getAI(app, { engine });
 const model = getGenerativeModel(ai, { model: 'gemini-flash-lite-latest' });
 const chat = model.startChat();
