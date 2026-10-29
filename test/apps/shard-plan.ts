@@ -22,24 +22,27 @@
  * This file imports only node built-ins and the runner's own pure modules, so
  * the plan job runs it without a `bun install`.
  */
+import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { recordDurations, readDurations, type Durations } from './schedule.ts';
 import { dependencySetKey } from './shared-installs.ts';
 
 /**
- * The work one shard should hold, in seconds of app scenarios and installs,
- * not counting the job's setup (about 55 s).
+ * How long one shard's App scenarios step should take: its apps and set
+ * installs, the install its first apps wait on included, but not the job's
+ * setup (32 to 49 s on #1583's run).
  */
 export const TARGET_SHARD_SECONDS = 90;
 
 /**
  * The most app shards one run starts. #1571 decision 3 gives the planner a
- * budget of about 30 jobs per pull request run (the account runs 40 at once);
- * a pull request with the `ci-packaging` label starts about 22 other jobs.
- * Past this, shards get longer instead of more numerous.
+ * budget of about 30 jobs per pull request run (the account runs 40 at once).
+ * A pull request with the `ci-packaging` label starts 23 jobs besides the
+ * app shards, so 7 shards make 30. Past this, shards get longer instead of
+ * more numerous.
  */
-export const MOST_SHARDS = 8;
+export const MOST_SHARDS = 7;
 
 /** Apps a shard runs at once: one per thread of an ubuntu-latest runner, as `defaultJobs` picks on CI. */
 export const APPS_AT_ONCE = 4;
@@ -115,7 +118,7 @@ class ShardLoad {
   readonly apps: string[] = [];
   readonly sets = new Set<string>();
 
-  constructor(readonly index: number, readonly runnerTests: boolean, private readonly seconds: Record<string, number>) {}
+  constructor(readonly index: number, public runnerTests: boolean, private readonly seconds: Record<string, number>) {}
 
   /**
    * How long the shard takes. Its first apps wait on their sets' installs
@@ -192,7 +195,7 @@ function placeUnit(shards: readonly ShardLoad[], unit: Unit): ShardLoad {
  * shard, unless it holds more than a shard's share; then it is split into
  * chunks. Units go longest first onto the shard that ends up shortest.
  */
-export function planShards(planned: readonly PlannedApp[], recorded: Durations): AppPlan {
+export function planShards(planned: readonly PlannedApp[], recorded: Durations, options: { mostShards?: number } = {}): AppPlan {
   if (planned.length === 0) throw new Error('no app scenario to plan: test/apps has no scenario.ts that is not slow');
   const apps = [...planned].sort((a, b) => a.name.localeCompare(b.name));
   const names = apps.map((app) => app.name);
@@ -205,8 +208,9 @@ export function planShards(planned: readonly PlannedApp[], recorded: Durations):
   const bySet = new Map<string, string[]>();
   for (const app of apps) bySet.set(app.set, [...(bySet.get(app.set) ?? []), app.name]);
   const work = (sum(Object.values(secondsByApp)) + bySet.size * SET_INSTALL_SECONDS) / APPS_AT_ONCE + RUNNER_TESTS_SECONDS;
-  // Each shard also loses about one install at its start (ShardLoad.predicted).
-  const count = Math.min(MOST_SHARDS, names.length, Math.max(1, Math.ceil(work / (TARGET_SHARD_SECONDS - SET_INSTALL_SECONDS))));
+  // The work estimate leaves out the install each shard's first apps wait on
+  // together, so a shard holds TARGET_SHARD_SECONDS less that install of it.
+  const count = Math.min(options.mostShards ?? MOST_SHARDS, names.length, Math.max(1, Math.ceil(work / (TARGET_SHARD_SECONDS - SET_INSTALL_SECONDS))));
   const capacity = work / count;
 
   const order = byTimeThenName(secondsByApp);
@@ -217,6 +221,12 @@ export function planShards(planned: readonly PlannedApp[], recorded: Durations):
   for (const unit of units) placeUnit(shards, unit).add(unit);
   // A shard the units never reached would run nothing, so it is left out.
   const used = shards.filter((shard) => shard.apps.length > 0);
+  // The runner tests were charged to the first shard; when no unit reached
+  // it, they go to the first shard that runs anything instead.
+  const carriesTests = used.some((shard) => shard.runnerTests);
+  if (!carriesTests) used[0]!.runnerTests = true;
+  const carriers = used.filter((shard) => shard.runnerTests).length;
+  if (carriers !== 1) throw new Error(`the plan gives the runner unit tests to ${carriers} shards, and exactly one must run them`);
   return {
     format: PLAN_FORMAT,
     apps: names,
@@ -319,6 +329,16 @@ export function shardApps(plan: AppPlan, index: number): string[] {
   return shard.apps;
 }
 
+/**
+ * A short digest of the plan. Each shard's report artifact carries it in its
+ * name, and CI / required downloads only this plan's reports, so a report a
+ * shard of an earlier plan left in the run (a rerun that replanned) is
+ * never counted.
+ */
+export function planId(plan: AppPlan): string {
+  return createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 12);
+}
+
 export function readPlan(text: string): AppPlan {
   const plan = JSON.parse(text) as AppPlan;
   if (plan.format !== PLAN_FORMAT) throw new Error(`the app plan has format ${String(plan.format)}, and this runner reads format ${PLAN_FORMAT}`);
@@ -353,12 +373,29 @@ export function writeShardReport(file: string, report: ShardReport): void {
   writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`);
 }
 
+/** Why the plan's shards do not hold its app list exactly once each, or nothing when they do. */
+function checkShardsCoverPlan(plan: AppPlan): string[] {
+  const failures: string[] = [];
+  const placed = plan.shards.flatMap((shard) => shard.apps);
+  const listed = new Set(plan.apps);
+  const counts = new Map<string, number>();
+  for (const name of placed) counts.set(name, (counts.get(name) ?? 0) + 1);
+  for (const name of [...listed].sort()) {
+    if (!counts.has(name)) failures.push(`the plan lists ${name}, but none of its shards holds it`);
+  }
+  for (const [name, count] of [...counts].sort(([a], [b]) => a.localeCompare(b))) {
+    if (!listed.has(name)) failures.push(`the plan's shard holds ${name}, which the plan's app list does not name`);
+    else if (count > 1) failures.push(`the plan puts ${name} in ${count} shards`);
+  }
+  return failures;
+}
+
 /**
  * Why the shards' reports do not show every planned app run exactly once in
  * its own shard, or nothing when they do.
  */
 export function checkCompleteness(plan: AppPlan, reports: readonly ShardReport[]): string[] {
-  const failures: string[] = [];
+  const failures: string[] = [...checkShardsCoverPlan(plan)];
   const planned = new Map(plan.shards.flatMap((shard) => shard.apps.map((name) => [name, shard.index] as const)));
   const reportsByShard = new Map<number, number>();
   for (const report of reports) reportsByShard.set(report.index, (reportsByShard.get(report.index) ?? 0) + 1);
@@ -421,10 +458,13 @@ function runPlan(argv: readonly string[]): void {
   }
   if (plan.unrecorded.length) console.log(`no recorded time, planned at ${plan.secondsByApp[plan.unrecorded[0]!]} s: ${plan.unrecorded.join(', ')}`);
   const matrix = plan.shards.map((shard) => ({ index: shard.index, total: plan.shards.length, runnerTests: shard.runnerTests }));
+  const id = planId(plan);
+  console.log(`plan ${id}`);
   const output = process.env.GITHUB_OUTPUT;
   if (output) {
     appendFileSync(output, `app-plan=${JSON.stringify(plan)}\n`);
     appendFileSync(output, `app-shards=${JSON.stringify(matrix)}\n`);
+    appendFileSync(output, `app-plan-id=${id}\n`);
   }
 }
 

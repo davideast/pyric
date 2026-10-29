@@ -61,6 +61,7 @@ jobs:
       app-scenarios: ${{ steps.plan.outputs.app-scenarios }}
       app-plan: ${{ steps.app-plan.outputs.app-plan }}
       app-shards: ${{ steps.app-plan.outputs.app-shards }}
+      app-plan-id: ${{ steps.app-plan.outputs.app-plan-id }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch PR endpoints and resolve merge base
@@ -104,18 +105,23 @@ jobs:
           CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: bun scripts/ci/plan.ts
       - name: Restore the app scenario times main recorded
-        # Only main saves these (in CI / required), so a pull request plans
-        # from the latest main run's times. A miss plans every app at the
+        # Only main saves app-durations-main-* (in CI / required), so a pull
+        # request plans from the latest main run's times. The older
+        # app-durations-* entries, which pull requests saved too, are read
+        # only until main has saved one. A miss plans every app at the
         # default time, which still runs every app.
         uses: actions/cache/restore@v4
         with:
           path: test-results/app-durations.json
-          key: app-durations-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: app-durations-
+          key: app-durations-main-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            app-durations-main-
+            app-durations-
       - name: Plan the app scenario shards
         # test/apps/shard-plan.ts groups the apps by dependency set and packs
-        # them into shards of about 90 s by those times, at most 8 (#1571).
-        # It always plans, so the App scenarios matrix is never empty.
+        # them into shards whose App scenarios step should take about 90 s, at most 7 (#1571).
+        # It always plans, so the App scenarios matrix is never empty, and
+        # prints the plan's id, which names each shard's report artifact.
         id: app-plan
         run: bun test/apps/shard-plan.ts plan --durations test-results/app-durations.json
 
@@ -583,7 +589,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-shard-report-${{ matrix.shard.index }}
+          name: app-shard-report-${{ needs.plan.outputs.app-plan-id }}-${{ matrix.shard.index }}
           path: test-results/app-shards/
           if-no-files-found: ignore
           overwrite: true
@@ -1090,11 +1096,13 @@ jobs:
         run: bun scripts/ci/required.ts
       - name: Download the app shard reports
         if: always() && needs.plan.outputs.app-scenarios == 'true'
-        # No report at all (every shard stopped early) is left to the check below.
+        # No report at all (every shard stopped early) is left to the check
+        # below. Only this plan's reports are read: a rerun that planned
+        # differently leaves the earlier plan's reports under another id.
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          pattern: app-shard-report-*
+          pattern: app-shard-report-${{ needs.plan.outputs.app-plan-id }}-*
           path: test-results/app-shards
           merge-multiple: true
       - name: Check the shards ran every planned app exactly once
@@ -1114,4 +1122,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: test-results/app-durations.json
-          key: app-durations-${{ github.run_id }}-${{ github.run_attempt }}
+          key: app-durations-main-${{ github.run_id }}-${{ github.run_attempt }}

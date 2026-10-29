@@ -9,6 +9,7 @@ import {
   discoverPlannedApps,
   mergeDurations,
   MOST_SHARDS,
+  planId,
   planShards,
   publishedPackageNames,
   RUNNER_TESTS_SECONDS,
@@ -143,6 +144,23 @@ describe('the shard plan', () => {
     }
   });
 
+  test('when the first shard ends up empty, the runner tests move to a shard that runs', () => {
+    const planned = [{ name: 'app0', set: 'set1' }, { name: 'app1', set: 'set0' }, { name: 'app2', set: 'set0' }];
+    const plan = planShards(planned, { app0: 91, app1: 6, app2: 97 });
+    expect(plan.shards.filter((shard) => shard.runnerTests)).toHaveLength(1);
+    expect(plan.shards.flatMap((shard) => shard.apps).toSorted()).toEqual(['app0', 'app1', 'app2']);
+  });
+
+  test('exactly one shard runs the runner tests, whatever the shard count', () => {
+    for (const count of [1, 2, 3, 5, 9, 17, 40, 200]) {
+      for (const seconds of [3, 30, 97, 300]) {
+        const planned = Array.from({ length: count }, (_, index) => ({ name: `app-${index}`, set: `set-${index % 3}` }));
+        const durations = Object.fromEntries(planned.map((app, index) => [app.name, seconds + (index % 7) * 11]));
+        expect(planShards(planned, durations).shards.filter((shard) => shard.runnerTests)).toHaveLength(1);
+      }
+    }
+  });
+
   test('is the same plan for the same inputs', () => {
     const { planned, durations } = todaysApps();
     expect(planShards(planned, durations)).toEqual(planShards([...planned].reverse(), durations));
@@ -266,6 +284,17 @@ describe('shard completeness', () => {
     ]);
   });
 
+  test('a plan whose shards do not hold its app list exactly once fails', () => {
+    const broken: AppPlan = structuredClone(plan);
+    const moved = broken.shards[0]!.apps.pop()!;
+    broken.shards[1]!.apps.push('extra', broken.shards[1]!.apps[0]!);
+    const reports = broken.shards.map((shard) => ({ index: shard.index, apps: shard.apps.map((name) => ({ name, ok: true, scenarioSeconds: 1 })) }));
+    const failures = checkCompleteness(broken, reports);
+    expect(failures).toContain(`the plan lists ${moved}, but none of its shards holds it`);
+    expect(failures).toContain(`the plan puts ${broken.shards[1]!.apps[0]} in 2 shards`);
+    expect(failures).toContain("the plan's shard holds extra, which the plan's app list does not name");
+  });
+
   test('two reports from one shard, or a report from a shard the plan does not have, fail', () => {
     expect(checkCompleteness(plan, [...allReports(), { index: 1, apps: [] }])).toContain('shard 1 sent 2 reports');
     expect(checkCompleteness(plan, [...allReports(), { index: 99, apps: [] }])).toContain('shard 99 sent a report, but the plan has no such shard');
@@ -308,9 +337,19 @@ describe('the workflow runs the shards the plan makes', () => {
     expect(run?.run).toContain('--skip-slow');
   });
 
-  test('every shard uploads its report, whatever its result', () => {
-    const upload = steps('app-scenarios').find((step) => step.with?.name === 'app-shard-report-${{ matrix.shard.index }}');
+  test('every shard uploads its report under the plan\'s id, whatever its result, and only this plan\'s reports are checked', () => {
+    const upload = steps('app-scenarios').find((step) => step.with?.name === 'app-shard-report-${{ needs.plan.outputs.app-plan-id }}-${{ matrix.shard.index }}');
     expect(upload?.if).toBe('always()');
+    const download = steps('required').find((step) => step.uses?.startsWith('actions/download-artifact'));
+    expect(download?.with?.pattern).toBe('app-shard-report-${{ needs.plan.outputs.app-plan-id }}-*');
+    expect(workflow.jobs.plan?.outputs?.['app-plan-id']).toBe('${{ steps.app-plan.outputs.app-plan-id }}');
+  });
+
+  test('plans read main\'s times first, and main saves under a prefix pull requests never wrote', () => {
+    const restore = steps('plan').find((step) => step.uses?.startsWith('actions/cache/restore'));
+    expect(restore?.with?.['restore-keys']?.trim().split('\n')).toEqual(['app-durations-main-', 'app-durations-']);
+    const save = steps('required').find((step) => step.uses?.startsWith('actions/cache/save'));
+    expect(save?.with?.key).toStartWith('app-durations-main-');
   });
 
   test('CI / required checks the shards ran every planned app once, and only main records the times', () => {
@@ -338,6 +377,7 @@ describe('the planner on the command line', () => {
     const lines = readFileSync(output, 'utf8').trim().split('\n');
     const plan = JSON.parse(lines.find((line) => line.startsWith('app-plan='))!.slice('app-plan='.length)) as AppPlan;
     const shards = JSON.parse(lines.find((line) => line.startsWith('app-shards='))!.slice('app-shards='.length)) as Array<{ index: number; total: number; runnerTests: boolean }>;
+    expect(lines.find((line) => line.startsWith('app-plan-id='))).toBe(`app-plan-id=${planId(plan)}`);
     expect(shards.map((shard) => shard.index)).toEqual(plan.shards.map((shard) => shard.index));
     expect(shards.every((shard) => shard.total === plan.shards.length)).toBe(true);
     expect(plan.apps).toEqual(discoverPlannedApps(root).map((app) => app.name));
