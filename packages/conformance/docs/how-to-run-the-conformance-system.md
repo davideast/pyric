@@ -101,7 +101,11 @@ or baseline rather than the generated file.
 
 CI runs these same gates in `.github/workflows/build.yml`, plus
 `compat:lint-terms` and the audit gate, and publishes the coverage table to the
-job summary.
+job summary. When a push run on main fails, `.github/workflows/main-failure.yml`
+reruns its failed jobs once. If the rerun passes, it opens or updates one
+`lane:velocity` issue per flaky test, titled like "Flaky on main: `<test>`". If
+the rerun fails, it opens or updates the one "Main is red: " issue, and the next
+green run on main closes it.
 
 ## The command inventory
 
