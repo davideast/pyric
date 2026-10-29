@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { createGeminiProxy, geminiProxyConfig, GEMINI_PROXY_PATH } from '../../src/serve/gemini-proxy.js';
+import { AI_PROXY_BODY_LIMIT_BYTES } from '../../src/serve/ai-proxy.js';
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
 
 const KEY_VARS = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY', 'VITE_GEMINI_API_KEY'] as const;
@@ -114,6 +115,50 @@ describe('/__pyric/ai-proxy/gemini', () => {
     const response = await post(`${h.url}${CALL}`);
     expect(response.status).toBe(429);
     expect(await response.json()).toEqual(quota);
+  });
+
+  it('masks the key in an upstream error that quotes the request URL', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const upstream = standIn((url) => Response.json(
+      { error: { code: 400, message: `Request to ${url.href} was refused.`, status: 'INVALID_ARGUMENT' } },
+      { status: 400 },
+    ));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${CALL}`);
+    expect(response.status).toBe(400);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    const text = await response.text();
+    expect(upstream.seen[0]!.url).toContain(`key=${KEY}`);
+    expect(text).not.toContain(KEY);
+    expect(JSON.parse(text).error).toEqual({
+      code: 400,
+      message: `Request to ${upstream.url}/v1beta/models/gemini-2.5-flash:generateContent?key=*** was refused.`,
+      status: 'INVALID_ARGUMENT',
+    });
+  });
+
+  it('masks the key in a stream error, sent with &key= after alt=sse', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const upstream = standIn((url) => new Response(`gateway refused ${url.href}`, { status: 502 }));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    expect(new URL(upstream.seen[0]!.url).searchParams.get('alt')).toBe('sse');
+    expect(new URL(upstream.seen[0]!.url).searchParams.get('key')).toBe(KEY);
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe(`gateway refused ${upstream.url}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=***`);
+  });
+
+  it('answers 413 for a body over the limit and never calls the upstream', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const upstream = standIn();
+    const h = await startServe(upstream.url);
+    const response = await fetch(`${h.url}${CALL}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES + 1),
+    });
+    expect(response.status).toBe(413);
+    expect(upstream.seen).toEqual([]);
   });
 
   it('sends only the three Gemini calls, so no page can spend the key on anything else', async () => {

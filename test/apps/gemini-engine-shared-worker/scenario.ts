@@ -8,17 +8,25 @@
 // real key is used. The same page then runs on the in-page sandbox and on
 // `hosted: true`, and gets the same results. The in-page step runs last:
 // its init script forces every later page in the context in-page.
+//
+// The stand-in refuses one model with an error that quotes the request URL,
+// key included, as a gateway can. The browser must get `key=***` instead.
+// Playwright reports no SharedWorker fetches, so for that plane the scenario
+// reads the worker's route itself, with the worker's request.
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { BrowserContext } from 'playwright';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
 declare function runGemini(tag: string, withAppCheck: boolean): Promise<Record<string, unknown>>;
+declare function runGeminiError(tag: string): Promise<{ ok: boolean; status?: number; message?: string }>;
 
 /** A made-up key. The stand-in accepts only this one. */
 const SERVER_KEY = 'scenario-gemini-key-1584';
 const ANSWER = 'Hello from the Gemini stand-in.';
 const MODEL = 'gemini-2.5-flash';
+/** The model the stand-in refuses with an error that quotes the request URL. */
+const ECHO_MODEL = 'gemini-echo-url';
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
 function refusal(op: string) {
@@ -44,6 +52,8 @@ const ANSWERED = {
 
 /** What the stand-in saw: the action and the key each request carried. */
 interface Seen { action: string; key: string | null }
+/** An error the stand-in sent that quotes the request URL. */
+interface Echoed { url: string; body: string }
 
 const RESPONSE = {
   candidates: [{ content: { role: 'model', parts: [{ text: ANSWER }] }, finishReason: 'STOP', index: 0 }],
@@ -63,17 +73,29 @@ function answer(action: string, response: import('node:http').ServerResponse): v
   response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
 }
 
+function echoError(url: string, response: import('node:http').ServerResponse): string {
+  const body = JSON.stringify({ error: { code: 400, message: `Request to ${url} was refused by the gateway.`, status: 'INVALID_ARGUMENT' } });
+  response.writeHead(400, { 'content-type': 'application/json' }).end(body);
+  return body;
+}
+
 /** The Gemini REST API, as far as these three calls go. */
-function geminiStandIn(): Promise<{ url: string; seen: Seen[]; server: Server }> {
+function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[]; server: Server }> {
   const seen: Seen[] = [];
+  const echoed: Echoed[] = [];
   const server = createServer((request, response) => {
-    const url = request.url ?? '';
-    const action = url.match(new RegExp(`^/v1beta/models/${MODEL}:(\\w+)`))?.[1] ?? `unexpected ${request.method} ${url}`;
-    // The engine appends `?key=` after the stream's `?alt=sse`, so read the key with a pattern.
-    const key = url.match(/[?&]key=([^&]*)/)?.[1] ?? null;
-    seen.push({ action, key: key === null ? null : decodeURIComponent(key) });
+    const path = request.url ?? '';
+    const isEcho = path.startsWith(`/v1beta/models/${ECHO_MODEL}:`);
+    const action = path.match(new RegExp(`^/v1beta/models/${MODEL}:(\\w+)`))?.[1] ?? `unexpected ${request.method} ${path}`;
+    const key = path.match(/[?&]key=([^&]*)/)?.[1] ?? null;
+    if (!isEcho) seen.push({ action, key: key === null ? null : decodeURIComponent(key) });
     request.resume();
     request.on('end', () => {
+      if (isEcho) {
+        const url = `http://${request.headers.host}${path}`;
+        echoed.push({ url, body: echoError(url, response) });
+        return;
+      }
       if (key !== SERVER_KEY) {
         response.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify(INVALID_KEY));
         return;
@@ -85,9 +107,31 @@ function geminiStandIn(): Promise<{ url: string; seen: Seen[]; server: Server }>
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
-      resolve({ url: `http://127.0.0.1:${port}`, seen, server });
+      resolve({ url: `http://127.0.0.1:${port}`, seen, echoed, server });
     });
   });
+}
+
+/**
+ * Send the request the SharedWorker sends for the echo model, from the page's
+ * origin, and return what the dev server answers it.
+ */
+async function workerRouteAnswer(host: DevServer): Promise<{ status: number; text: string }> {
+  const response = await fetch(new URL(`/__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`, host.url), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: new URL(host.url).origin },
+    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Say hi' }] }] }),
+  });
+  return { status: response.status, text: await response.text() };
+}
+
+/** The page's refusal for the echo model: the stand-in's 400, with the key masked. */
+function assertMaskedRefusal(result: { ok: boolean; status?: number; message?: string }): void {
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 400);
+  assert.match(result.message ?? '', /was refused by the gateway/);
+  assert.match(result.message ?? '', /key=\*\*\*/);
+  assert.ok(!(result.message ?? '').includes(SERVER_KEY), result.message);
 }
 
 /** Every body the browser received, so the scenario can look for the key in them. */
@@ -138,6 +182,17 @@ export default scenario(async (app) => {
       assert.deepEqual(standIn.seen, answeredAt(1));
     });
 
+    await app.step('SharedWorker: an upstream error that quotes the key reaches the browser with the key masked', async () => {
+      assertMaskedRefusal(await page.evaluate(() => runGeminiError('error-quotes-url')));
+      assert.equal(standIn.echoed.length, 1);
+      assert.ok(standIn.echoed[0]!.body.includes(`key=${SERVER_KEY}`), 'the stand-in quoted the key');
+      const answer = await workerRouteAnswer(host);
+      assert.equal(answer.status, 400);
+      assert.ok(!answer.text.includes(SERVER_KEY), answer.text);
+      assert.match(answer.text, /key=\*\*\*/);
+      assert.equal(standIn.echoed.length, 2);
+    });
+
     const hostedServer = await app.step('start the dev server with hosted: true', () =>
       app.devServer({ name: 'hosted-dev-server', env: { ...env, HOSTED: '1' } }));
 
@@ -156,6 +211,9 @@ export default scenario(async (app) => {
       const inPage = await openPage(app, host);
       assert.deepEqual(await inPage.evaluate(() => runGemini('in-page-no-app-check', false)), REFUSED);
       assert.deepEqual(await inPage.evaluate(() => runGemini('in-page-app-check-first', true)), ANSWERED);
+      // In-page fetches are reported to the context, so the last step checks this error's body too.
+      app.expectHostError(new RegExp(`^400 POST /__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`));
+      assertMaskedRefusal(await inPage.evaluate(() => runGeminiError('in-page-error-quotes-url')));
       assert.deepEqual(standIn.seen, answeredAt(3));
     });
 

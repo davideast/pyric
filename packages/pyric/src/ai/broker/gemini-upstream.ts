@@ -5,10 +5,10 @@
  *
  * Credentials come from the explicit key, else `GEMINI_API_KEY`,
  * `GOOGLE_GENAI_API_KEY`, `VITE_GEMINI_API_KEY`, else Google Cloud
- * Application Default Credentials. A base URL that is a same-origin path,
- * such as the dev server's `/__pyric/ai-proxy/gemini`, is Pyric's own server,
- * which attaches the credentials itself, so none are sent: a browser engine
- * never holds the key.
+ * Application Default Credentials. A browser engine is built with
+ * `serverAttachesAuth`: its base URL is the dev server's
+ * `/__pyric/ai-proxy/gemini`, which attaches the credentials itself, so none
+ * are sent and the browser never holds the key.
  */
 
 import { AiBrokerError, errorEnvelope, redactUrl } from './synthesizer.js';
@@ -118,6 +118,9 @@ export interface GeminiUpstreamOptions {
   printAdcToken?: () => Promise<string>;
   /** Clock for the ADC token lifetime, in milliseconds. Defaults to `Date.now`. */
   now?: () => number;
+  /** The base URL is Pyric's dev server, which attaches the credentials, so
+   *  none are resolved or sent. Set only for a browser engine. */
+  serverAttachesAuth?: boolean;
 }
 
 interface UpstreamAuth {
@@ -133,6 +136,8 @@ const SERVER_ATTACHES_AUTH: UpstreamAuth = { token: '', isBearer: false, isAdc: 
 
 export class GeminiUpstream {
   readonly baseUrl: string;
+  /** The base URL is Pyric's server, which attaches the credentials. */
+  readonly serverAttachesAuth: boolean;
   private readonly fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   private readonly explicitKey?: string;
   private readonly printAdcToken: () => Promise<string>;
@@ -146,11 +151,7 @@ export class GeminiUpstream {
     this.explicitKey = options?.apiKey;
     this.printAdcToken = options?.printAdcToken ?? printAdcTokenWithGcloud;
     this.now = options?.now ?? Date.now;
-  }
-
-  /** The base URL is a same-origin path: Pyric's server attaches the credentials. */
-  get serverAttachesAuth(): boolean {
-    return this.baseUrl.startsWith('/');
+    this.serverAttachesAuth = options?.serverAttachesAuth === true;
   }
 
   /**
@@ -273,7 +274,9 @@ export class GeminiUpstream {
       headers['Authorization'] = `Bearer ${auth.token}`;
       return { url, headers };
     }
-    return { url: `${url}?key=${encodeURIComponent(auth.token)}`, headers };
+    // The stream's action already carries `?alt=sse`.
+    const separator = url.includes('?') ? '&' : '?';
+    return { url: `${url}${separator}key=${encodeURIComponent(auth.token)}`, headers };
   }
 
   private async post(
