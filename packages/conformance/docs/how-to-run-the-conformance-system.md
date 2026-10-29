@@ -1055,6 +1055,33 @@ The lane runs two of the three tiers from
   the highest-drift-risk records, the purely server-side `messaging-admin`
   facts, so it is the one to prioritize provisioning.
 
+A green run does not mean production was checked, so every leg ends by
+recording what it did, and a report job at the end of the run says so. Each leg
+writes one line to its job summary and uploads a status file as the artifact
+`oracle-leg-<rig>`. A leg ends in one of these states:
+
+| State | Meaning |
+|---|---|
+| checked, no drift | The capture ran and the observations did not change. |
+| checked, drift found | The capture ran and a captured fact changed. The leg is red. |
+| capture failed | The capture, the install, or the sign-in failed before the comparison. The leg is red. |
+| not run: disabled until #n | The leg names a blocking issue. The run stays green. |
+| not run: `<variable>` not set | The credential variable is absent. A scheduled run fails the leg. A dispatch leaves it green. |
+| not run: job ended before recording | No status file arrived, for example when the job timed out. |
+
+The report job runs after every leg, even when one failed. Its run summary
+opens with a headline such as "Production checked by 0 of 4 credentialed legs.
+Not run: 4." and lists every leg, the unattended one included. Read the headline
+before trusting a green run.
+
+On a scheduled run the report job also files the result. It opens one
+`lane:reliability` issue titled with the count of legs that need a person,
+comments the table on it each week, and closes it once every leg has checked
+production with no drift. A disabled leg keeps the issue open, because it checks
+nothing. A manual dispatch files nothing unless you start it with `file-issue`
+set to true. Only the report job can write issues. The script is
+`scripts/ci/oracle-leg-report.ts`, and the report job runs its tests first.
+
 Three rigs are deliberately left out. `messaging-web` is human-witnessed
 (headed Chromium, persistent profile) and cannot run on a CI worker. `ai-logic`
 is credentialed but every run consumes paid model quota, so it stays a manual
