@@ -25,7 +25,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import workerThreads from 'node:worker_threads';
-import { classifyHost } from './google-hosts.ts';
+import { classifyHost, isGoogleOrMetadata } from './google-hosts.ts';
 
 const LOG_ENV = 'PYRIC_BUILDER_NETWORK_LOG';
 const INSTALLED = Symbol.for('pyric.builders.node-egress');
@@ -54,8 +54,6 @@ function hostFields(host) {
   };
 }
 
-/** The recorder refuses every Google host and the metadata server. */
-const isRefusedHost = (fields) => fields.google || fields.metadata;
 
 /**
  * What the recorder did: `refused` or `allowed` for a DNS query, a socket and
@@ -67,7 +65,7 @@ const ALLOWED = 'allowed';
 const RECORDED = 'recorded';
 
 function decided(event) {
-  return { ...event, action: isRefusedHost(event) ? REFUSED : ALLOWED };
+  return { ...event, action: isGoogleOrMetadata(event) ? REFUSED : ALLOWED };
 }
 
 function refusalError(host, via) {
@@ -111,7 +109,7 @@ function installSocketHook() {
     const target = connectTarget(args);
     if (target === null) return originalConnect.apply(this, args);
     const hosts = target.hosts.map(hostFields);
-    const refused = hosts.find(isRefusedHost);
+    const refused = hosts.find(isGoogleOrMetadata);
     const action = refused === undefined ? ALLOWED : REFUSED;
     for (const fields of hosts) record({ kind: 'connect', via: 'socket', port: Number(target.port), ...fields, action });
     if (refused === undefined) return originalConnect.apply(this, args);

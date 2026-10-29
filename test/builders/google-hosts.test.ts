@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { GOOGLE_HOST_SUFFIXES, classifyHost, isLoopbackHost, isRefusedHost } from './recorder/google-hosts.ts';
+import { GOOGLE_HOST_SUFFIXES, classifyHost, isGoogleOrMetadata, isLoopbackHost, isRefusedHost } from './recorder/google-hosts.ts';
 
 describe('classifyHost', () => {
   test('a host in pyric’s catalog is Google, with the catalog’s service, and no gap', () => {
@@ -42,8 +42,44 @@ describe('classifyHost', () => {
     }
   });
 
+  test('Google’s analytics, tag, update, reCAPTCHA, PKI and video hosts are Google', () => {
+    for (const host of ['region1.app-measurement.com', 'www.google-analytics.com', 'www.googletagmanager.com', 'redirector.gvt1.com', 'www.recaptcha.net', 'pki.goog', 'dns.google', 'www.youtube.com']) {
+      expect(classifyHost(host)).toMatchObject({ host, google: true, catalogGap: true });
+    }
+  });
+
+  test('Google’s country domains are Google, and look-alikes are not', () => {
+    for (const host of ['google.de', 'www.google.co.uk', 'google.com.au', 'www.google.co.jp']) {
+      expect(classifyHost(host)).toMatchObject({ google: true, catalogGap: true });
+    }
+    for (const host of ['notgoogle.de', 'google.example', 'google.de.example.com']) {
+      expect(classifyHost(host).google).toBe(false);
+    }
+  });
+
+  test('Google’s own addresses are Google, however they are spelled', () => {
+    for (const spelling of ['8.8.8.8', '8.8.4.4', '142.250.1.1', '0x08080808', '::ffff:8.8.8.8', '2001:4860:4860::8888', '[2001:4860:4860::8844]', '2a00:1450:4001:80b::200e']) {
+      expect(classifyHost(spelling)).toMatchObject({ google: true, catalogGap: true, metadata: false });
+    }
+  });
+
+  test('addresses next to Google’s ranges are not Google', () => {
+    for (const address of ['8.8.7.255', '8.8.9.0', '142.252.0.0', '1.1.1.1', '2001:4861::1', '2606:4700::1111', '::1']) {
+      expect(classifyHost(address).google).toBe(false);
+    }
+  });
+
   test('hosts are compared in one spelling', () => {
     expect(classifyHost(' Firestore.GoogleAPIs.com. ').host).toBe('firestore.googleapis.com');
+  });
+});
+
+describe('isGoogleOrMetadata', () => {
+  test('is true for a Google host or the metadata server, and false without either flag', () => {
+    expect(isGoogleOrMetadata({ google: true, metadata: false })).toBe(true);
+    expect(isGoogleOrMetadata({ google: false, metadata: true })).toBe(true);
+    expect(isGoogleOrMetadata({ google: false, metadata: false })).toBe(false);
+    expect(isGoogleOrMetadata({})).toBe(false);
   });
 });
 

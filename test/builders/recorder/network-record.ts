@@ -68,8 +68,3 @@ export function appendBrowserEvents(path: string, events: readonly BrowserEvent[
   const lines = events.map((event) => `${JSON.stringify({ time: stamp, ...event })}\n`);
   if (lines.length > 0) appendFileSync(path, lines.join(''));
 }
-
-/** Google hosts and the metadata server: every one is a finding in a builder run. */
-export function isGoogleEvent(event: { google?: boolean; metadata?: boolean }): boolean {
-  return event.google === true || event.metadata === true;
-}

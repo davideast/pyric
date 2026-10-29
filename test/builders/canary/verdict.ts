@@ -11,8 +11,8 @@
  */
 import { normalizeHostname } from '../../../packages/cli/src/google-endpoints.ts';
 import type { BrowserConnect, BrowserRequest } from '../recorder/chromium-netlog.ts';
-import { isLoopbackHost } from '../recorder/google-hosts.ts';
-import { isGoogleEvent, type NamespaceDnsEvent, type NetworkEvent, type NodeNetworkEvent } from '../recorder/network-record.ts';
+import { isGoogleOrMetadata, isLoopbackHost } from '../recorder/google-hosts.ts';
+import { type NamespaceDnsEvent, type NetworkEvent, type NodeNetworkEvent } from '../recorder/network-record.ts';
 
 export interface NodePlantResult {
   name: string;
@@ -83,7 +83,7 @@ function refuser(outcome: string): string {
 function judgeNodePlant(plant: NodePlantResult, events: readonly NodeNetworkEvent[]): CanaryCheck {
   const host = normalizeHostname(plant.host);
   const matching = events.filter((event) => event.host === host);
-  const isRecorded = matching.some(isGoogleEvent);
+  const isRecorded = matching.some(isGoogleOrMetadata);
   const wasAllowed = matching.some((event) => event.action === 'allowed');
   const isRefusedByRecorder = plant.outcome.includes(REFUSED_BY_RECORDER);
   const ok = isRecorded && isRefusedByRecorder && !wasAllowed;
@@ -98,7 +98,7 @@ function judgeNodePlant(plant: NodePlantResult, events: readonly NodeNetworkEven
 function judgeNodeLocal(local: { url: string; outcome: string }, events: readonly NodeNetworkEvent[]): CanaryCheck {
   const host = normalizeHostname(new URL(local.url).hostname);
   const matching = events.filter((event) => event.host === host);
-  const isFlagged = matching.some(isGoogleEvent);
+  const isFlagged = matching.some(isGoogleOrMetadata);
   const ok = local.outcome === SUCCEEDED && matching.length > 0 && !isFlagged;
   const detail = `${local.outcome}; ${matching.length} events for ${host}${isFlagged ? ', flagged as Google' : ''}`;
   return { name: `node: local request to ${local.url}`, ok, detail };
@@ -116,7 +116,7 @@ function netLogPresence(matching: readonly BrowserRequest[], isRecorded: boolean
 
 function judgeBrowserPlant(plant: BrowserPlantResult, requests: readonly BrowserRequest[]): CanaryCheck {
   const matching = requests.filter((request) => request.url === plant.url);
-  const isRecorded = matching.length > 0 && matching.every(isGoogleEvent);
+  const isRecorded = matching.length > 0 && matching.every(isGoogleOrMetadata);
   const isRefusedByRules = matching.length > 0 && matching.every((request) => request.netErrorName === REFUSED_BY_RESOLVER_RULES);
   const ok = isRecorded && isRefusedByRules && hasFailed(plant.outcome);
   const detail = [
@@ -129,14 +129,14 @@ function judgeBrowserPlant(plant: BrowserPlantResult, requests: readonly Browser
 function judgeBrowserLocal(local: { url: string; outcome: string }, requests: readonly BrowserRequest[]): CanaryCheck {
   const matching = requests.filter((request) => request.url === local.url);
   const completed = matching.some((request) => request.netError === 0);
-  const isFlagged = matching.some(isGoogleEvent);
+  const isFlagged = matching.some(isGoogleOrMetadata);
   const ok = local.outcome === SUCCEEDED && completed && !isFlagged;
   const detail = `${local.outcome}; ${completed ? 'completed in the NetLog' : 'not completed in the NetLog'}${isFlagged ? ', flagged as Google' : ''}`;
   return { name: `browser: local request to ${local.url}`, ok, detail };
 }
 
 function judgeNoAllowedGoogle(events: readonly NodeNetworkEvent[]): CanaryCheck {
-  const allowed = events.filter((event) => isGoogleEvent(event) && event.action === 'allowed');
+  const allowed = events.filter((event) => isGoogleOrMetadata(event) && event.action === 'allowed');
   const detail = allowed.length === 0 ? 'none' : allowed.map((event) => `${event.via} ${event.host} in ${event.process}`).join('; ');
   return { name: 'node: no Google host or metadata connection allowed', ok: allowed.length === 0, detail };
 }
@@ -159,7 +159,7 @@ function unhookedRecordDetail(needsLookup: boolean, isRecorded: boolean): string
 function judgeUnhookedPlant(plant: UnhookedPlantResult, queries: readonly NamespaceDnsEvent[]): CanaryCheck {
   const host = normalizeHostname(plant.host);
   const needsLookup = !isIpAddress(host);
-  const isRecorded = queries.some((query) => query.host === host && isGoogleEvent(query));
+  const isRecorded = queries.some((query) => query.host === host && isGoogleOrMetadata(query));
   const ok = hasFailed(plant.outcome) && (isRecorded || !needsLookup);
   const detail = [unhookedRecordDetail(needsLookup, isRecorded), hasFailed(plant.outcome) ? `stopped by the namespace (${plant.outcome})` : 'the request succeeded'].join('; ');
   return { name: `unhooked: ${plant.name}`, ok, detail };
@@ -188,6 +188,6 @@ export function judgeCanary(observations: CanaryObservations): CanaryVerdict {
   return {
     ok: checks.every((check) => check.ok),
     checks,
-    googleEvents: observations.record.filter(isGoogleEvent).length,
+    googleEvents: observations.record.filter(isGoogleOrMetadata).length,
   };
 }
