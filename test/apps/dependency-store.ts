@@ -7,11 +7,13 @@
  * the only step that reaches the registry: an online `npm install` of the set,
  * the way the runner always installed it. A run then copies the entry's tree
  * into the set's directory, restamps the lockfile's Pyric entries from this
- * run's tarballs, and runs `npm install --offline` with an empty npm cache
- * and a registry nothing listens on, so npm installs the new tarballs and
- * cannot fetch anything else. Third-party install scripts ran once, when the
- * entry was warmed. Every third-party lockfile entry must come out of that
- * install unchanged, or the set fails.
+ * run's tarballs, removes the files of each copied Pyric package that is not
+ * this run's, and runs `npm install --offline` with an empty npm cache and a
+ * registry nothing listens on, so npm installs the new tarballs and cannot
+ * fetch anything else.
+ * Third-party install scripts ran once, when the entry was warmed. Every
+ * third-party lockfile entry must come out of that install unchanged, and
+ * every Pyric package must hold exactly its tarball's files, or the set fails.
  *
  * Layout: `<store>/<key>/` holds `package.json`, `package-lock.json`,
  * `node_modules` and `store.json` (the key's inputs, for debugging). An entry
@@ -19,13 +21,15 @@
  * warming one key leave one complete entry.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { removeTree } from './cleanup.ts';
 import { debugLogTail, npmInstall, npmOfflineInstallArgs, pinPyricPackages, runCommand, type CommandResult, type Tarballs, type TimedResult } from './install.ts';
 import type { NestedProject } from './nested-projects.ts';
+import { installedFileProblems, tarFiles } from './packed-files.ts';
 import { copyTree, installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
 
 /** Bumped when the layout or the key's inputs change, so old entries are never read. */
@@ -84,47 +88,30 @@ export interface PackedManifest {
   [field: string]: unknown;
 }
 
-/** One packed Pyric tarball: where it is, the integrity npm records for it, and its packed manifest. */
+/** One packed Pyric tarball: where it is, the integrity npm records for it, its packed manifest, and the size of each file it holds. */
 export interface PackedPackage {
   name: string;
   file: string;
   integrity: string;
   manifest: PackedManifest;
+  /** Each file under the package directory, by path, with its size: what an install of the tarball must hold. */
+  files: ReadonlyMap<string, number>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** A NUL-terminated string field of a tar header. */
-function headerField(header: Buffer, start: number, length: number): string {
-  const field = header.subarray(start, start + length);
-  const end = field.indexOf(0);
-  return field.subarray(0, end === -1 ? length : end).toString('utf8');
-}
-
-/** The text of `package/package.json` in a gzipped tarball, as `npm pack` writes one. */
-function packedManifestText(file: string): string {
-  const tar = gunzipSync(readFileSync(file));
-  let offset = 0;
-  while (offset + 512 <= tar.length) {
-    const header = tar.subarray(offset, offset + 512);
-    const name = headerField(header, 0, 100);
-    if (name === '') break;
-    const prefix = headerField(header, 345, 155);
-    const size = Number.parseInt(headerField(header, 124, 12).trim() || '0', 8);
-    const body = offset + 512;
-    const path = prefix === '' ? name : `${prefix}/${name}`;
-    if (path === 'package/package.json') return tar.subarray(body, body + size).toString('utf8');
-    offset = body + Math.ceil(size / 512) * 512;
-  }
-  throw new Error(`${file} has no package/package.json`);
-}
-
+/** A gzipped tarball, as `npm pack` writes one: its manifest, and the size of each file. */
 export function readPackedPackage(file: string): PackedPackage {
-  const manifest = JSON.parse(packedManifestText(file)) as PackedManifest;
-  const integrity = `sha512-${createHash('sha512').update(readFileSync(file)).digest('base64')}`;
-  return { name: manifest.name, file, integrity, manifest };
+  const bytes = readFileSync(file);
+  const files = tarFiles(gunzipSync(bytes));
+  const manifestFile = files.find((entry) => entry.path === 'package.json');
+  if (manifestFile === undefined) throw new Error(`${file} has no package/package.json`);
+  const manifest = JSON.parse(manifestFile.body.toString('utf8')) as PackedManifest;
+  const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+  const sizes = new Map(files.map((entry) => [entry.path, entry.body.length]));
+  return { name: manifest.name, file, integrity, manifest, files: sizes };
 }
 
 export function readPackedPackages(tarballs: Tarballs): PackedPackage[] {
@@ -246,13 +233,58 @@ export function restampLockfile(lock: Lockfile, options: { projectDir: string; m
   return { ...lock, packages: Object.fromEntries(Object.entries(lock.packages ?? {}).map(restamp)) };
 }
 
-/** Whether every Pyric package the lockfile installs is already this run's tarball, byte for byte. */
-function pyricStampsMatch(lock: Lockfile, packed: readonly PackedPackage[]): boolean {
+/** A lockfile path that installs a Pyric package, and the tarball it must hold. */
+interface PyricInstall {
+  path: string;
+  pack: PackedPackage;
+  /** Whether the lockfile entry already names this tarball, byte for byte. */
+  isThisRuns: boolean;
+}
+
+/** Every path in the lockfile that installs a Pyric package from a tarball; a link holds no files of its own. */
+function pyricInstalls(lock: Lockfile, packed: readonly PackedPackage[]): PyricInstall[] {
   const byName = new Map(packed.map((pack) => [pack.name, pack]));
-  return Object.entries(lock.packages ?? {}).every(([path, entry]) => {
-    const pack = path === '' ? undefined : byName.get(lockName(path));
-    return pack === undefined || (entry.integrity === pack.integrity && entry.version === pack.manifest.version);
+  return Object.entries(lock.packages ?? {}).flatMap(([path, entry]) => {
+    const isPackage = path !== '' && entry.link !== true;
+    const pack = isPackage ? byName.get(lockName(path)) : undefined;
+    if (pack === undefined) return [];
+    const isThisRuns = entry.integrity === pack.integrity && entry.version === pack.manifest.version;
+    return [{ path, pack, isThisRuns }];
   });
+}
+
+/** The package names of `installs`, once each, for the runner line. */
+function packageNames(installs: readonly PyricInstall[]): string {
+  return [...new Set(installs.map(({ pack }) => pack.name))].join(', ');
+}
+
+/** How the Pyric packages in `projectDir` differ from their tarballs, one line each, naming the package. */
+function pyricFileProblems(projectDir: string, installs: readonly PyricInstall[]): string[] {
+  return installs.flatMap(({ path, pack }) => installedFileProblems(join(projectDir, path), pack.files).map((problem) => `${path}: ${problem}`));
+}
+
+/**
+ * Remove each copied Pyric package's own files, keeping its nested
+ * `node_modules`, which holds third-party packages the store installed. npm
+ * then finds no package there and extracts this run's tarball.
+ *
+ * Without this, npm can keep the copied files (#1596). When the copy leaves
+ * the hidden lockfile older than the directories copied after it, npm rejects
+ * that lockfile and reads the tree from disk, taking each package's integrity
+ * from package-lock.json, just restamped for this run's tarballs. A copied
+ * package at the same version then looks like this run's, and npm reports
+ * the set up to date.
+ */
+async function clearPyricFiles(projectDir: string, installs: readonly PyricInstall[]): Promise<void> {
+  const removals = installs.flatMap(({ path }) => {
+    const dir = join(projectDir, path);
+    if (!existsSync(dir)) return [];
+    const names = readdirSync(dir);
+    const own = names.filter((name) => name !== 'node_modules');
+    const hasNested = own.length < names.length;
+    return hasNested ? own.map((name) => join(dir, name)) : [dir];
+  });
+  await Promise.all(removals.map((path) => rm(path, { recursive: true, force: true })));
 }
 
 /** Every third-party lockfile entry that `after` adds, removes or changes; the root and Pyric entries do not count. */
@@ -316,6 +348,12 @@ function messageOf(error: unknown): string {
  */
 function deleteToRewarm(entry: string): string {
   return `[runner] every later run fails the same way while this entry stands: delete ${entry} and the next run warms it again\n`;
+}
+
+/** The failure when npm's offline install left Pyric packages that are not this run's tarballs. */
+function notThisRunsPackages(problems: readonly string[]): string {
+  const list = problems.map((problem) => `  ${problem}`).join('\n');
+  return `[runner] npm install --offline left Pyric packages that do not hold this run's tarballs, so the scenario would test other code:\n${list}\n`;
 }
 
 function secondsSince(started: number): string {
@@ -423,8 +461,10 @@ export class DependencyStore {
 
   /**
    * Copy the entry's tree into `projectDir`, restamp its lockfile for this
-   * run's tarballs, and install those offline. When the entry already holds
-   * this run's tarballs, there is nothing to install.
+   * run's tarballs, and install offline each Pyric package the entry does not
+   * already hold as this run's tarball, file for file. When it holds them
+   * all, there is nothing to install. Either way, the set is used only once
+   * each Pyric package holds exactly its tarball's files.
    */
   private async materialize(entry: string, projectDir: string): Promise<CommandResult & { note: string; retryable: boolean }> {
     const failed = (output: string) => ({ code: 1, output, note: '', retryable: false });
@@ -434,8 +474,20 @@ export class DependencyStore {
       const manifest = readJson<Manifest>(join(projectDir, 'package.json'));
       const lock = restampLockfile(stored, { projectDir, manifest, packed: this.options.packed });
       writeFileSync(join(projectDir, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
-      if (pyricStampsMatch(stored, this.options.packed)) return { code: 0, output: '', note: ', its Pyric packages already this run\'s', retryable: false };
-      return await this.installOffline(stored, entry, projectDir);
+      const copied = pyricInstalls(stored, this.options.packed);
+      // A copy whose lockfile entry names this run's tarball but whose files differ is not used as it is (#1585).
+      const copyProblems = copied.filter((install) => install.isThisRuns).flatMap((install) => pyricFileProblems(projectDir, [install]).map((problem) => ({ path: install.path, problem })));
+      const brokenPaths = new Set(copyProblems.map(({ path }) => path));
+      const toInstall = copied.filter((install) => !install.isThisRuns || brokenPaths.has(install.path));
+      if (toInstall.length === 0) return { code: 0, output: '', note: ', its Pyric packages already this run\'s', retryable: false };
+      await clearPyricFiles(projectDir, toInstall);
+      const installed = await this.installOffline(stored, entry, projectDir);
+      if (installed.code !== 0) return installed;
+      const problems = pyricFileProblems(projectDir, pyricInstalls(readJson<Lockfile>(join(projectDir, 'package-lock.json')), this.options.packed));
+      if (problems.length > 0) return failed(`${installed.output}${notThisRunsPackages(problems)}`);
+      const firstProblem = copyProblems[0]?.problem;
+      const repaired = firstProblem === undefined ? '' : `, as the entry's own copies did not match its lockfile (${firstProblem})`;
+      return { ...installed, note: `${installed.note} (${packageNames(toInstall)})${repaired}` };
     } catch (error) {
       return failed(`[runner] making the set from store entry ${entry} failed: ${messageOf(error)}\n${deleteToRewarm(entry)}`);
     }
