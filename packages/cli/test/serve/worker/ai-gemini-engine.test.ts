@@ -1,6 +1,6 @@
 /**
- * The gemini engine in the worker host (#1584). A browser worker has no
- * server environment, so it sends through the dev server's gemini proxy with
+ * The gemini engine in the worker host (#1584). A browser worker
+ * (`aiRunsInBrowser`, set by the worker entry) has no server environment, so it sends through the dev server's gemini proxy with
  * no credentials, and only after the App Check gate admits the request. The
  * Node host keeps the configured target and reads its own environment.
  *
@@ -64,7 +64,7 @@ const request = { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] };
 
 describe('the gemini engine in a browser worker', () => {
   it('sends through /__pyric/ai-proxy/gemini with no key, whatever base URL the config names', async () => {
-    const ctx = ctxWith({ aiEngine: { kind: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com' } });
+    const ctx = ctxWith({ aiRunsInBrowser: true, aiEngine: { kind: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com' } });
     const res = await sendOp(ctx, {
       t: 'op', id: 'g1', method: 'ai.generateContent', model: MODEL, request, appCheck: { token: await appCheckToken() },
     });
@@ -73,7 +73,7 @@ describe('the gemini engine in a browser worker', () => {
   });
 
   it('is refused by the App Check gate before the proxy is called', async () => {
-    const ctx = ctxWith({ aiEngine: { kind: 'gemini' } });
+    const ctx = ctxWith({ aiRunsInBrowser: true, aiEngine: { kind: 'gemini' } });
     const res = await sendOp(ctx, { t: 'op', id: 'g2', method: 'ai.generateContent', model: MODEL, request, appCheck: { token: null } });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.aiEnvelope?.error).toMatchObject({ code: 403, status: 'PERMISSION_DENIED' });
@@ -81,13 +81,20 @@ describe('the gemini engine in a browser worker', () => {
   });
 
   it('keeps its own target when the config holds its own key', async () => {
-    const ctx = ctxWith({ aiEngine: { kind: 'gemini', baseUrl: 'http://gemini.test', apiKey: 'page-key' } });
+    const ctx = ctxWith({ aiRunsInBrowser: true, aiEngine: { kind: 'gemini', baseUrl: 'http://gemini.test', apiKey: 'page-key' } });
     await sendOp(ctx, { t: 'op', id: 'g3', method: 'ai.countTokens', model: MODEL, request });
     expect(sent.map((s) => s.url)).toEqual(['http://gemini.test/v1beta/models/gemini-2.5-flash:countTokens?key=page-key']);
   });
 });
 
 describe('the gemini engine on the Node host', () => {
+  it('a host that is not marked as a browser worker keeps the configured target, as before', async () => {
+    // A Node repro replay builds a worker ctx with no aiUpstream and no browser flag.
+    const ctx = ctxWith({ aiEngine: { kind: 'gemini', baseUrl: 'http://gemini.test' } });
+    await sendOp(ctx, { t: 'op', id: 'g5', method: 'ai.countTokens', model: MODEL, request });
+    expect(sent.map((s) => s.url)).toEqual(['http://gemini.test/v1beta/models/gemini-2.5-flash:countTokens?key=server-only-key']);
+  });
+
   it('keeps the configured target and reads the key from its own environment', async () => {
     const aiUpstream = { baseUrl: 'http://127.0.0.1:11434/v1', fetch: globalThis.fetch };
     const ctx = ctxWith({ aiUpstream, aiEngine: { kind: 'gemini', baseUrl: 'http://gemini.test' } });

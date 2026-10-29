@@ -117,12 +117,10 @@ export function errorEnvelope(code: number, message: string, status: string): Wi
  * are defensive for sibling engines / future upstreams).
  *
  * Matched with a direct regex over the raw string rather than
- * `new URL(...).searchParams` — the streaming action string embeds its own
- * `?alt=sse` before the `?key=` is appended (a pre-existing, unrelated
- * quirk this fix does not touch), which the strict `URLSearchParams` parser
- * would fold into a single malformed pair and fail to redact. A regex on
- * "`[?&]<param>=`" catches the value regardless of how the surrounding
- * query string is (mal)formed.
+ * `new URL(...).searchParams`: the text is often not a URL at all (an error
+ * body or a fetch message that quotes one), and an upstream may echo a
+ * malformed query back. A regex on "`[?&]<param>=`" catches the value
+ * regardless of how the surrounding query string is (mal)formed.
  */
 const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[^&\s]*/gi;
 

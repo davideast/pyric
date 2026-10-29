@@ -5,9 +5,11 @@
  * must never reach it. The browser engine sends each request here with no
  * credentials. The dev server sends it on with the gemini engine's own
  * request code (`GeminiUpstream` from `pyric/ai/internal`): the key from the
- * server's environment or ADC, to the server's configured base URL. The
- * upstream's answer streams back unchanged, so the browser engine reads
- * Gemini's own errors as it would directly.
+ * server's environment or ADC, to the server's configured base URL. A
+ * successful answer streams back unchanged. An error comes back with its
+ * status and with any credential it quotes masked, so the browser engine
+ * reads Gemini's own error and never the key. The body is bounded as the
+ * openai route's is.
  *
  * The browser chooses only the model and the call. The target and the
  * credentials are the server's, so no page can send the key anywhere else.
@@ -15,9 +17,9 @@
  * browser engine.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { GeminiUpstream, type GeminiUpstreamOptions } from 'pyric/ai/internal';
+import { GeminiUpstream, redactUrl, type GeminiUpstreamOptions } from 'pyric/ai/internal';
 import type { ServeLogger } from './server.js';
-import { fetchAiUpstream, relayAiUpstream, type AiDiagnosticThrottle } from './ai-proxy.js';
+import { fetchAiUpstream, readAiProxyBody, relayAiUpstream, type AiDiagnosticThrottle } from './ai-proxy.js';
 import { GEMINI_PROXY_PATH } from './worker/ai-proxy-paths.js';
 import { serializeError, type AiEngineConfigWire } from './worker/protocol.js';
 
@@ -64,24 +66,25 @@ function geminiCall(url: URL): { resource: string; action: string } | null {
   return { resource, action: `${call}${url.search}` };
 }
 
-function readBody(req: IncomingMessage): Promise<Uint8Array<ArrayBuffer>> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => {
-      const raw = Buffer.concat(chunks);
-      const body = new Uint8Array(raw.byteLength);
-      body.set(raw);
-      resolve(body);
-    });
-    req.on('error', reject);
-  });
-}
-
 /** Answer with a Gemini error envelope, as the upstream would. */
 function sendEnvelope(res: ServerResponse, code: number, message: string, status: string): void {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify({ error: { code, message, status } }));
+}
+
+/**
+ * Send a non-2xx upstream answer with every credential in it masked. An
+ * upstream or a gateway can quote the request URL back, and with a static
+ * key that URL carries `key=<key>`: the browser gets `key=***`, as the
+ * engine's own error text always had it.
+ */
+async function relayRedactedError(upstream: Response, res: ServerResponse): Promise<void> {
+  const text = redactUrl(await upstream.text().catch(() => ''));
+  const headers: Record<string, string> = { 'cache-control': 'no-store' };
+  const contentType = upstream.headers.get('content-type');
+  if (contentType) headers['content-type'] = contentType;
+  res.writeHead(upstream.status, headers);
+  res.end(text);
 }
 
 /**
@@ -114,7 +117,8 @@ export function createGeminiProxy(
       sendEnvelope(res, 404, `pyric dev ai-proxy: ${url.pathname} is not a Gemini call the proxy sends.`, 'NOT_FOUND');
       return;
     }
-    const body = await readBody(req);
+    const body = await readAiProxyBody(req, res);
+    if (body === null) return;
     let response: Response;
     try {
       response = await upstream.send(call.resource, call.action, body);
@@ -126,6 +130,10 @@ export function createGeminiProxy(
       sendEnvelope(res, envelope.error.code, envelope.error.message, envelope.error.status);
       return;
     }
-    await relayAiUpstream(response, res);
+    if (response.ok) {
+      await relayAiUpstream(response, res);
+      return;
+    }
+    await relayRedactedError(response, res);
   };
 }

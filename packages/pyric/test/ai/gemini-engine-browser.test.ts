@@ -1,8 +1,9 @@
 /**
  * The gemini engine in a browser page or SharedWorker (#1584). A browser has
  * no `process`, so the engine must never read it there, and its key must
- * never reach the browser: a same-origin base URL is Pyric's dev server,
- * which attaches the credentials, so the engine sends none.
+ * never reach the browser: a browser engine is built with
+ * `serverAttachesAuth`, its base URL is Pyric's dev server, which attaches
+ * the credentials, and the engine sends none.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { GeminiEngine, GeminiUpstream, hasGeminiStaticKey, type GenerateContentRequest } from '../../src/ai/broker/index.js';
@@ -37,23 +38,33 @@ afterEach(() => {
   }
 });
 
-/** Run `body` as a browser would, with no `process` global. */
+/** Run `body` as a browser would, with no `process` global at all. */
 async function withoutProcess<T>(body: () => Promise<T> | T): Promise<T> {
   const g = globalThis as { process?: unknown };
   const real = g.process;
-  g.process = undefined;
+  delete g.process;
   try {
+    expect('process' in globalThis).toBe(false);
     return await body();
   } finally {
     g.process = real;
   }
 }
 
-describe('a same-origin base URL: the dev server attaches the credentials', () => {
+const browserEngine = (sent: Sent[]) =>
+  new GeminiEngine({ baseUrl: PROXY, serverAttachesAuth: true, fetch: recordingFetch(sent) });
+
+async function drain(stream: AsyncIterable<unknown>): Promise<number> {
+  let chunks = 0;
+  for await (const _chunk of stream) chunks += 1;
+  return chunks;
+}
+
+describe('a browser engine: the dev server attaches the credentials', () => {
   it('sends no key and no Authorization header, even with a key in the environment', async () => {
     process.env.GEMINI_API_KEY = 'server-only-key';
     const sent: Sent[] = [];
-    const engine = new GeminiEngine({ baseUrl: PROXY, fetch: recordingFetch(sent), printAdcToken: async () => 'adc' });
+    const engine = new GeminiEngine({ baseUrl: PROXY, serverAttachesAuth: true, fetch: recordingFetch(sent), printAdcToken: async () => 'adc' });
     await engine.generateContent(REQUEST, 'models/gemini-2.5-flash');
     await engine.countTokens(REQUEST, 'gemini-2.5-flash');
     expect(sent.map((s) => s.url)).toEqual([
@@ -65,40 +76,70 @@ describe('a same-origin base URL: the dev server attaches the credentials', () =
 
   it('asks for the stream as server-sent events, with nothing appended', async () => {
     const sent: Sent[] = [];
-    const engine = new GeminiEngine({ baseUrl: PROXY, fetch: recordingFetch(sent) });
-    const stream = engine.streamGenerateContent(REQUEST, 'gemini-2.5-flash');
-    for await (const _chunk of stream) { /* drain */ }
+    await drain(browserEngine(sent).streamGenerateContent(REQUEST, 'gemini-2.5-flash'));
     expect(sent.map((s) => s.url)).toEqual([`${PROXY}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`]);
   });
 });
 
 describe('with no process global, as in a browser', () => {
-  it('answers through the proxy without reading the environment', async () => {
+  it('answers all three calls through the proxy without reading the environment', async () => {
     const sent: Sent[] = [];
-    const engine = new GeminiEngine({ baseUrl: PROXY, fetch: recordingFetch(sent) });
-    const response = await withoutProcess(() => engine.generateContent(REQUEST, 'gemini-2.5-flash'));
-    expect(response.candidates?.[0]?.content?.parts).toEqual([{ text: 'ok' }]);
-    expect(sent).toHaveLength(1);
+    const engine = browserEngine(sent);
+    await withoutProcess(async () => {
+      const response = await engine.generateContent(REQUEST, 'gemini-2.5-flash');
+      expect(response.candidates?.[0]?.content?.parts).toEqual([{ text: 'ok' }]);
+      expect(await drain(engine.streamGenerateContent(REQUEST, 'gemini-2.5-flash'))).toBe(0);
+      await engine.countTokens(REQUEST, 'gemini-2.5-flash');
+    });
+    expect(sent.map((s) => s.url)).toEqual([
+      `${PROXY}/v1beta/models/gemini-2.5-flash:generateContent`,
+      `${PROXY}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`,
+      `${PROXY}/v1beta/models/gemini-2.5-flash:countTokens`,
+    ]);
   });
 
   it('reports no key configured instead of throwing', async () => {
     process.env.GEMINI_API_KEY = 'server-only-key';
     expect(await withoutProcess(() => hasGeminiStaticKey(undefined))).toBe(false);
-    expect(await withoutProcess(() => new GeminiEngine({ baseUrl: PROXY }).hasKeyConfigured())).toBe(false);
+    expect(await withoutProcess(() => browserEngine([]).hasKeyConfigured())).toBe(false);
     expect(await withoutProcess(() => hasGeminiStaticKey('explicit'))).toBe(true);
   });
 
-  it('a direct engine with no key fails with its own 401, not a ReferenceError', async () => {
+  it('a direct engine with no key fails each call with its own 401, not a ReferenceError', async () => {
     const engine = new GeminiEngine({ fetch: recordingFetch([]) });
-    const failure = await withoutProcess(() => engine.generateContent(REQUEST, 'gemini-2.5-flash').then(() => null, (e: unknown) => e));
-    expect((failure as { envelope?: { error: { code: number; status: string } } }).envelope?.error).toMatchObject({
-      code: 401,
-      status: 'UNAUTHENTICATED',
-    });
+    const calls = [
+      () => engine.generateContent(REQUEST, 'gemini-2.5-flash'),
+      () => drain(engine.streamGenerateContent(REQUEST, 'gemini-2.5-flash')),
+      () => engine.countTokens(REQUEST, 'gemini-2.5-flash'),
+    ];
+    for (const call of calls) {
+      const failure = await withoutProcess(() => call().then(() => null, (e: unknown) => e));
+      expect((failure as { envelope?: { error: { code: number; status: string } } }).envelope?.error).toMatchObject({
+        code: 401,
+        status: 'UNAUTHENTICATED',
+      });
+    }
   });
 });
 
 describe('GeminiUpstream on the server', () => {
+  it('a same-origin base URL without the flag still attaches the key, as before', async () => {
+    process.env.GEMINI_API_KEY = 'server-only-key';
+    const sent: Sent[] = [];
+    await new GeminiEngine({ baseUrl: '/gemini', fetch: recordingFetch(sent) }).countTokens(REQUEST, 'gemini-2.5-flash');
+    expect(sent.map((s) => s.url)).toEqual(['/gemini/v1beta/models/gemini-2.5-flash:countTokens?key=server-only-key']);
+  });
+
+  it('joins the key to the stream\'s query with &', async () => {
+    process.env.GEMINI_API_KEY = 'server-only-key';
+    const sent: Sent[] = [];
+    await new GeminiUpstream({ fetch: recordingFetch(sent) }).send('models/gemini-2.5-flash', 'streamGenerateContent?alt=sse', '{}');
+    expect(sent.map((s) => s.url)).toEqual([
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=server-only-key',
+    ]);
+    expect(new URL(sent[0]!.url).searchParams.get('key')).toBe('server-only-key');
+  });
+
   it('attaches the environment key to the configured base URL and returns the raw answer', async () => {
     process.env.GEMINI_API_KEY = 'server-only-key';
     const sent: Sent[] = [];

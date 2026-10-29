@@ -31,3 +31,12 @@ window.runGemini = async (tag, withAppCheck) => {
     countTokens: await outcome(async () => String((await model.countTokens("Say hi")).totalTokens)),
   };
 };
+
+// A model the scenario's stand-in refuses with an error that quotes the request URL.
+window.runGeminiError = async (tag) => {
+  const app = initializeApp(options, tag);
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider("site-key"), isTokenAutoRefreshEnabled: true });
+  const model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), { model: "gemini-echo-url" });
+  return outcome(async () => (await model.generateContent("Say hi")).response.text());
+};

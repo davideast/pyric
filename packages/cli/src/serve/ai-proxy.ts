@@ -287,6 +287,25 @@ export async function fetchAiUpstream(
 }
 
 /**
+ * Read an AI proxy request's body, at most {@link AI_PROXY_BODY_LIMIT_BYTES}.
+ * Past the limit it answers 413, and on a broken upload 400, and returns
+ * null: the caller sends nothing upstream. Both proxy routes read through it.
+ */
+export async function readAiProxyBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  try {
+    return await collectRawBody(req, AI_PROXY_BODY_LIMIT_BYTES);
+  } catch (error) {
+    const tooLarge = (error as { code?: unknown }).code === BODY_TOO_LARGE_CODE;
+    const status = tooLarge ? 413 : 400;
+    res.writeHead(status, { 'content-type': 'text/plain' }).end(tooLarge ? 'Payload Too Large' : 'Bad Request');
+    return null;
+  }
+}
+
+/**
  * Handle `POST /__pyric/ai-proxy/<suffix>`: a same-origin passthrough to the
  * configured OpenAI-compatible upstream, so the browser openai engine
  * (running in the served page or the SharedWorker host) reaches a localhost
@@ -330,15 +349,8 @@ export async function handleAiProxy(
   const target = `${upstreamBase}${suffix}${url.search}`;
 
   // The request body is a bounded JSON payload, read once; the RESPONSE streams.
-  let body: Uint8Array<ArrayBuffer>;
-  try {
-    body = await collectRawBody(req, AI_PROXY_BODY_LIMIT_BYTES);
-  } catch (error) {
-    const tooLarge = (error as { code?: unknown }).code === BODY_TOO_LARGE_CODE;
-    const status = tooLarge ? 413 : 400;
-    res.writeHead(status, { 'content-type': 'text/plain' }).end(tooLarge ? 'Payload Too Large' : 'Bad Request');
-    return;
-  }
+  const body = await readAiProxyBody(req, res);
+  if (body === null) return;
 
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {

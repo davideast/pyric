@@ -52,7 +52,11 @@ type AiOpMessage = Extract<OpMessage, { method: 'ai.generateContent' | 'ai.count
  * plain authoring shapes; predicate matchers never made it across the port —
  * structured clone rejects functions loudly at send time).
  */
-function resolveEngineConfig(wire: AiEngineConfigWire, upstream: HostCtx['aiUpstream']): NonNullable<AIOptions['engine']> {
+function resolveEngineConfig(
+  wire: AiEngineConfigWire,
+  upstream: HostCtx['aiUpstream'],
+  runsInBrowser: boolean,
+): NonNullable<AIOptions['engine']> {
   if (wire.kind === 'openai') {
     const configuredUrl = wire.baseUrl ?? AI_PROXY_PATH;
     const usesProxy = configuredUrl.replace(/\/$/, '') === AI_PROXY_PATH;
@@ -67,9 +71,8 @@ function resolveEngineConfig(wire: AiEngineConfigWire, upstream: HostCtx['aiUpst
   }
   const isGeminiWire = wire.kind === 'gemini';
   if (isGeminiWire) {
-    // Node (the host) reads the key from its own environment. A browser
-    // worker has none, so it sends through the dev server's gemini proxy.
-    const runsInBrowser = upstream === undefined;
+    // Node reads the key from its own environment. A browser worker has
+    // none, so it sends through the dev server's gemini proxy.
     const config = runsInBrowser ? browserGeminiEngine(wire) : wire;
     return { ...config } as NonNullable<AIOptions['engine']>;
   }
@@ -95,7 +98,7 @@ function resolveEngineConfig(wire: AiEngineConfigWire, upstream: HostCtx['aiUpst
 export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLike {
   if (ctx.aiBroker) return ctx.aiBroker;
   const wire = ctx.aiEngine ?? opEngine;
-  const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire, ctx.aiUpstream) } : undefined);
+  const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire, ctx.aiUpstream, ctx.aiRunsInBrowser === true) } : undefined);
   const target = (ai as unknown as {
     [TARGET_SYMBOL]?: { broker: AiBrokerLike };
   })[TARGET_SYMBOL];

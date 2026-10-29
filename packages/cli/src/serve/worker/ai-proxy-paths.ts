@@ -16,6 +16,10 @@ export const GEMINI_PROXY_PATH = `${AI_PROXY_PATH}/gemini`;
 
 type GeminiWire = Extract<AiEngineConfigWire, { kind: 'gemini' }>;
 
+/** A browser gemini engine config: the wire shape, plus the flag that tells
+ *  the engine the dev server attaches the credentials. */
+export type BrowserGeminiEngine = GeminiWire & { serverAttachesAuth?: true };
+
 /**
  * The gemini engine config for a browser. The browser has no server
  * environment, so a config without its own `apiKey` sends through the dev
@@ -24,8 +28,8 @@ type GeminiWire = Extract<AiEngineConfigWire, { kind: 'gemini' }>;
  * config with an `apiKey` already holds its key in the browser, so it keeps
  * its own target.
  */
-export function browserGeminiEngine(wire: GeminiWire): GeminiWire {
+export function browserGeminiEngine(wire: GeminiWire): BrowserGeminiEngine {
   const holdsItsOwnKey = wire.apiKey !== undefined;
   if (holdsItsOwnKey) return { ...wire };
-  return { kind: 'gemini', baseUrl: GEMINI_PROXY_PATH };
+  return { kind: 'gemini', baseUrl: GEMINI_PROXY_PATH, serverAttachesAuth: true };
 }
