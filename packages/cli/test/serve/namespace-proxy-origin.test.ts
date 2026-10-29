@@ -70,6 +70,26 @@ test('a guarded route accepts the server\'s own port with learned ports', async 
   });
 });
 
+async function postDenial(url: string, origin: string): Promise<number> {
+  const body = { kind: 'read', method: 'get', path: '/databases/(default)/documents/notes/a', message: 'denied from next' };
+  const response = await fetch(`${url}/__pyric/denials`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify(body),
+  });
+  await response.arrayBuffer();
+  return response.status;
+}
+
+test('the denials route accepts the Next origin once the proxy port is learned', async () => {
+  const appPorts = createAppPorts('localhost');
+  appPorts.learn(forwardedFromNext());
+  await withServer(appPorts, async (url) => {
+    expect(await postDenial(url, `http://127.0.0.1:${NEXT_PORT}`)).toBe(204);
+    expect(await postDenial(url, 'http://127.0.0.1:4000')).toBe(403);
+  });
+});
+
 test('without app ports, as under the Vite plugin, a guarded route refuses the Next origin', async () => {
   await withServer(undefined, async (url) => {
     expect(await postDiagnostics(url, `http://127.0.0.1:${NEXT_PORT}`)).toBe(403);

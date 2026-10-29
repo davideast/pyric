@@ -739,7 +739,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const isAiProxyRequest = url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`);
     if (isAiProxyRequest) {
       // The upstream may carry the developer's key, so only this server's pages may spend it.
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       return handleAiProxy(opts.aiProxyUpstream, denialThrottle, req, res, url, opts.logger).then(
         () => true,
@@ -752,7 +752,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     const isDenialRequest = url.pathname === '/__pyric/denials';
     if (isDenialRequest) {
       // A page on another origin must not be able to write to the developer's terminal.
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      const hostRefused = !guardLoopback(req, res, opts);
       if (hostRefused) return true;
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
     }
