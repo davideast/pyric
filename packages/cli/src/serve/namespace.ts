@@ -737,9 +737,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     const isDenialRequest = url.pathname === '/__pyric/denials';
     if (isDenialRequest) {
-      // A page on another origin must not be able to write to the developer's terminal.
-      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
-      if (hostRefused) return true;
+      // No origin guard on the 0.1.0-alpha.30 line: without the learned proxy
+      // ports from #1497, it would refuse the Next dev server's page under
+      // `pyric sandbox -- next dev`. The body limit still applies.
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
     }
     const isInitRequest = url.pathname === '/__pyric/init.json';

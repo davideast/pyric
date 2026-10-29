@@ -1,8 +1,10 @@
-// The dev server's denial relay and AI proxy answer only the pages it serves.
-// The app's own page still prints its rules denial in the terminal and still
-// reaches the AI upstream through the proxy. A page on another localhost port
-// cannot print to the terminal or spend the upstream, and an oversized body is
-// refused before it is buffered. The AI upstream is a local stub.
+// The dev server's AI proxy answers only the pages it serves. The app's own
+// page still prints its rules denial in the terminal and still reaches the AI
+// upstream through the proxy. A page on another localhost port cannot spend
+// the upstream, and an oversized body is refused before it is buffered. The AI
+// upstream is a local stub. On the 0.1.0-alpha.30 line the denial relay has no
+// origin guard, because without #1497's learned proxy ports it would refuse
+// the Next dev server's page.
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { scenario } from '../driver.ts';
@@ -106,23 +108,18 @@ export default scenario(async (app) => {
       assert.doesNotMatch(printed, /^FORGED line/m);
     });
 
-    app.expectHostError(/^403 POST \/__pyric\/(denials|ai-proxy\/chat\/completions)$/);
-    await app.step('a page on another port cannot print to the terminal or spend the upstream', async () => {
-      const since = host.process.mark();
+    app.expectHostError(/^403 POST \/__pyric\/ai-proxy\/chat\/completions$/);
+    await app.step('a page on another port cannot spend the upstream', async () => {
       const hitsBefore = hits.length;
       const attacker = await app.page(`http://localhost:${otherPort}/`);
       const statuses = await attacker.evaluate(async (target) => {
         const post = (path: string, body: string) => fetch(`${target}${path}`, {
           method: 'POST', mode: 'no-cors', headers: { 'content-type': 'text/plain' }, body,
         }).then(() => 'sent', (error) => `threw ${String(error)}`);
-        return [
-          await post('/__pyric/denials', JSON.stringify({ message: 'printed by another site', denialContext: { request: { method: 'get', path: 'x' } } })),
-          await post('/__pyric/ai-proxy/chat/completions', JSON.stringify({ model: 'stub-model', messages: [] })),
-        ];
+        return [await post('/__pyric/ai-proxy/chat/completions', JSON.stringify({ model: 'stub-model', messages: [] }))];
       }, host.url);
       await new Promise((resolve) => setTimeout(resolve, 500));
-      assert.deepEqual(statuses, ['sent', 'sent']);
-      assert.doesNotMatch(host.process.output.slice(since), /printed by another site/);
+      assert.deepEqual(statuses, ['sent']);
       assert.equal(hits.length, hitsBefore, `the proxy forwarded another site's request: ${JSON.stringify(hits.slice(hitsBefore))}`);
       await attacker.close();
     });

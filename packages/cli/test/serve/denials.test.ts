@@ -164,16 +164,17 @@ describe('/__pyric/denials', () => {
     expect(notes.length).toBe(0);
   });
 
-  it('refuses a cross-origin POST with 403 and prints nothing', async () => {
-    const { logger, notes } = recordingLogger();
+  // The 0.1.0-alpha.30 line has no origin guard here, since without #1497's
+  // learned proxy ports it would refuse the Next dev server's page.
+  it('accepts a POST from another origin on this release line', async () => {
+    const { logger } = recordingLogger();
     const h = await startServe(logger);
     const res = await fetch(`${h.url}/__pyric/denials`, {
       method: 'POST',
-      headers: { 'content-type': 'text/plain', origin: 'http://localhost:1' },
-      body: JSON.stringify(denialBody({ message: 'forged from another page' })),
+      headers: { 'content-type': 'application/json', origin: 'http://localhost:1' },
+      body: JSON.stringify(denialBody({ message: 'from a proxying dev server' })),
     });
-    expect(res.status).toBe(403);
-    expect(notes).toEqual([]);
+    expect(res.status).toBe(204);
   });
 
   it('accepts a POST whose Origin is the page this server serves', async () => {
