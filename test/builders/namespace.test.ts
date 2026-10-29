@@ -1,0 +1,88 @@
+// The run's network namespace and its recording resolver. The namespace test
+// starts a real one; inside it only loopback exists, and the only lookups are
+// of `.invalid` names, so nothing here can leave the machine.
+import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
+import { NamespaceUnavailable, startEgressNamespace } from './namespace.ts';
+
+/** A DNS query for `name`, type A, recursion desired. */
+function query(name: string, id = 0x1234): Buffer {
+  const labels = name.split('.').map((label) => Buffer.concat([Buffer.from([label.length]), Buffer.from(label)]));
+  const header = Buffer.from([id >> 8, id & 0xff, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]);
+  return Buffer.concat([header, ...labels, Buffer.from([0, 0, 1, 0, 1])]);
+}
+
+describe('dns-log.mjs', () => {
+  test('reads the question of a query', () => {
+    expect(parseQuestion(query('oauth2.googleapis.com'))).toEqual({ id: 0x1234, name: 'oauth2.googleapis.com', type: 'A', end: 39 });
+  });
+
+  test('ignores a message too short or with a compressed name', () => {
+    expect(parseQuestion(Buffer.alloc(8))).toBeNull();
+    const pointer = Buffer.concat([query('a.b').subarray(0, 12), Buffer.from([0xc0, 0x0c, 0, 1, 0, 1])]);
+    expect(parseQuestion(pointer)).toBeNull();
+  });
+
+  test('answers NXDOMAIN with the same id and question and no records', () => {
+    const message = query('firestore.googleapis.com', 0xbeef);
+    const question = parseQuestion(message);
+    if (question === null) throw new Error('no question');
+    const answer = nxdomainFor(message, question);
+    expect(answer.readUInt16BE(0)).toBe(0xbeef);
+    expect(answer[2]! & 0x80).toBe(0x80);
+    expect(answer[3]! & 0x0f).toBe(3);
+    expect([answer.readUInt16BE(4), answer.readUInt16BE(6), answer.readUInt16BE(8), answer.readUInt16BE(10)]).toEqual([1, 0, 0, 0]);
+    expect(answer.subarray(12)).toEqual(message.subarray(12, question.end));
+  });
+
+  test('records a query with the host’s classification', () => {
+    expect(queryEvent({ name: 'oauth2.googleapis.com', type: 'AAAA' }, new Date(0))).toMatchObject({
+      layer: 'namespace',
+      kind: 'dns',
+      queryType: 'AAAA',
+      host: 'oauth2.googleapis.com',
+      google: true,
+      catalogGap: true,
+      action: 'refused',
+    });
+  });
+});
+
+describe('startEgressNamespace', () => {
+  test('refuses, rather than running without the block, when the tools are missing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const path = process.env.PATH;
+    process.env.PATH = mkdtempSync(join(tmpdir(), 'builders-empty-path-'));
+    try {
+      await expect(startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root })).rejects.toBeInstanceOf(NamespaceUnavailable);
+    } finally {
+      process.env.PATH = path;
+    }
+  });
+
+  test('runs a command with only loopback, and records its lookups', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const networkLog = join(root, 'network.jsonl');
+    const namespace = await startEgressNamespace({ networkLog, runRoot: root });
+    try {
+      const links = namespace.enter('ip', ['-o', 'link', 'show'], root);
+      const linkResult = spawnSync(links.command, links.args, { encoding: 'utf8' });
+      expect(linkResult.stdout.trim().split('\n').map((line) => line.split(':')[1]?.trim())).toEqual(['lo']);
+
+      const lookup = namespace.enter('getent', ['hosts', 'canary-probe.invalid'], root);
+      const lookupResult = spawnSync(lookup.command, lookup.args, { encoding: 'utf8', timeout: 15_000 });
+      expect(lookupResult.status).not.toBe(0);
+
+      const connect = namespace.enter('node', ['-e', "require('node:net').connect(80, '192.0.2.1').on('error', (e) => console.log(e.code))"], root);
+      expect(spawnSync(connect.command, connect.args, { encoding: 'utf8', timeout: 15_000 }).stdout.trim()).toBe('ENETUNREACH');
+    } finally {
+      await namespace.stop();
+    }
+    const hosts = readFileSync(networkLog, 'utf8').trim().split('\n').map((line) => (JSON.parse(line) as { host: string }).host);
+    expect(hosts).toContain('canary-probe.invalid');
+  });
+});
