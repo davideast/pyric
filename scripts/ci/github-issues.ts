@@ -34,15 +34,27 @@ export function findOpenIssue(gh: Gh, prefix: string): number | undefined {
   return issues.find((issue) => issue.title.startsWith(prefix))?.number;
 }
 
-/** Opens the issue, or retitles the open one and comments the body file on it.
+/** Opens the issue, or comments the body file on the open one and then retitles
+ *  it. The comment goes first, so a failed retitle cannot lose the week's
+ *  table; the retitle failure then fails the step, naming the issue.
  *  Returns what `gh` printed: the new issue's URL or the comment's URL. */
 export function openOrUpdateIssue(gh: Gh, filing: IssueFiling): string {
   const existing = findOpenIssue(gh, filing.prefix);
   if (existing === undefined) {
     return gh(['issue', 'create', '--title', filing.title, '--label', filing.label, '--body-file', filing.bodyFile]).trim();
   }
-  gh(['issue', 'edit', String(existing), '--title', filing.title]);
-  return gh(['issue', 'comment', String(existing), '--body-file', filing.bodyFile]).trim();
+  const commented = gh(['issue', 'comment', String(existing), '--body-file', filing.bodyFile]).trim();
+  retitleIssue(gh, existing, filing.title);
+  return commented;
+}
+
+function retitleIssue(gh: Gh, number: number, title: string): void {
+  try {
+    gh(['issue', 'edit', String(number), '--title', title]);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Commented on #${number}, but retitling it failed: ${reason}`);
+  }
 }
 
 /** Comments the body file on the open issue, then closes it. Returns the

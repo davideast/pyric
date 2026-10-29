@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Gh } from './github-issues.ts';
@@ -19,13 +19,15 @@ import {
   type LegState,
   type LegStatus,
   type RecordInput,
+  type ReportContext,
 } from './oracle-leg-report.ts';
 
 const ROOT = resolve(import.meta.dir, '../..');
 const RUN_URL = 'https://github.com/davideast/pyric/actions/runs/1';
+const CONTEXT: ReportContext = { runUrl: RUN_URL, downloadFailed: false };
 
 function recordInput(overrides: Partial<RecordInput>): RecordInput {
-  return { rig: 'rules-firestore', disabled: '', missing: '', available: 'true', driftOutcome: 'success', ...overrides };
+  return { rig: 'rules-firestore', disabled: '', missing: '', available: 'true', driftOutcome: 'success', driftFound: '', ...overrides };
 }
 
 function status(rig: string, state: LegState, detail = ''): LegStatus {
@@ -96,10 +98,16 @@ describe('recording a leg', () => {
     expect(describeState(recorded)).toBe('checked, no drift');
   });
 
-  test('a failed drift check is checked, drift found', () => {
-    const recorded = recordLeg(recordInput({ driftOutcome: 'failure' }));
+  test('a failed drift check that reported drift is checked, drift found', () => {
+    const recorded = recordLeg(recordInput({ driftOutcome: 'failure', driftFound: 'true' }));
     expect(recorded.state).toBe('checked-drift');
     expect(describeState(recorded)).toBe('checked, drift found');
+  });
+
+  test('a failed drift check that did not report drift crashed, so the capture failed', () => {
+    const recorded = recordLeg(recordInput({ driftOutcome: 'failure', driftFound: '' }));
+    expect(recorded.state).toBe('capture-failed');
+    expect(describeState(recorded)).toBe('capture failed (the drift check crashed)');
   });
 
   test('a drift check skipped after the capture step failed is capture failed', () => {
@@ -128,10 +136,22 @@ describe('recording a leg', () => {
   });
 });
 
+/** Writes a leg's status file where download-artifact puts it: in a folder
+ *  named for the artifact, `oracle-leg-<rig>-<attempt>`. */
+function writeStatus(dir: string, entry: LegStatus, attempt = 1, text = JSON.stringify(entry)): void {
+  const folder = join(dir, `oracle-leg-${entry.rig}-${attempt}`);
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, `${entry.rig}.json`), text);
+}
+
+function scratchDir(): string {
+  return mkdtempSync(join(tmpdir(), 'oracle-leg-report-test-'));
+}
+
 describe('reading the status files', () => {
   test('a leg with no file is not run: job ended before recording', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oracle-leg-report-test-'));
-    writeFileSync(join(dir, 'unattended.json'), JSON.stringify(status('unattended', 'checked-clean')));
+    const dir = scratchDir();
+    writeStatus(dir, status('unattended', 'checked-clean'));
     const statuses = readStatuses(dir);
     expect(statuses).toHaveLength(LEGS.length);
     expect(statuses[0]?.state).toBe('checked-clean');
@@ -140,17 +160,22 @@ describe('reading the status files', () => {
     expect(describeState(missing as LegStatus)).toBe('not run: job ended before recording (no status file)');
   });
 
+  test('a directory that was never downloaded reads every leg as no record', () => {
+    const statuses = readStatuses(join(scratchDir(), 'never-downloaded'));
+    expect(statuses.map((entry) => entry.state)).toEqual(LEGS.map(() => 'no-record'));
+  });
+
   test('an unreadable file counts as no record', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oracle-leg-report-test-'));
-    writeFileSync(join(dir, 'rules-storage.json'), '{ not json');
-    writeFileSync(join(dir, 'rules-firestore.json'), JSON.stringify({ state: 'verified' }));
+    const dir = scratchDir();
+    writeStatus(dir, status('rules-storage', 'checked-clean'), 1, '{ not json');
+    writeStatus(dir, status('rules-firestore', 'checked-clean'), 1, JSON.stringify({ state: 'verified' }));
     const statuses = readStatuses(dir);
     expect(statuses.find((entry) => entry.rig === 'rules-storage')?.state).toBe('no-record');
     expect(statuses.find((entry) => entry.rig === 'rules-firestore')?.state).toBe('no-record');
   });
 
   test('every state survives the round trip through a file', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oracle-leg-report-test-'));
+    const dir = scratchDir();
     const written = [
       status('unattended', 'checked-drift'),
       status('oracle-run', 'disabled', '#1270'),
@@ -158,8 +183,34 @@ describe('reading the status files', () => {
       status('rules-firestore', 'capture-failed', 'the drift check skipped'),
       status('rules-storage', 'checked-clean'),
     ];
-    for (const entry of written) writeFileSync(join(dir, `${entry.rig}.json`), JSON.stringify(entry));
+    for (const entry of written) writeStatus(dir, entry);
     expect(readStatuses(dir)).toEqual(written);
+  });
+
+  test('a re-run reads the latest attempt of each leg, and keeps the others', () => {
+    const dir = scratchDir();
+    for (const leg of LEGS) writeStatus(dir, status(leg.rig, 'checked-clean'), 1);
+    writeStatus(dir, status('rules-storage', 'capture-failed', 'first try'), 1);
+    writeStatus(dir, status('rules-storage', 'checked-drift', 'second try'), 2);
+    writeStatus(dir, status('rules-storage', 'capture-failed', 'tenth try'), 10);
+    const statuses = readStatuses(dir);
+    expect(statuses.find((entry) => entry.rig === 'rules-storage')?.detail).toBe('tenth try');
+    expect(statuses.find((entry) => entry.rig === 'rules-firestore')?.state).toBe('checked-clean');
+  });
+
+  test('an attempt that uploaded no file falls back to the earlier one', () => {
+    const dir = scratchDir();
+    writeStatus(dir, status('rules-storage', 'checked-drift'), 1);
+    mkdirSync(join(dir, 'oracle-leg-rules-storage-2'));
+    expect(readStatuses(dir).find((entry) => entry.rig === 'rules-storage')?.state).toBe('checked-drift');
+  });
+
+  test('one leg is not read as another', () => {
+    const dir = scratchDir();
+    writeStatus(dir, status('rules-firestore', 'checked-drift'), 1);
+    const statuses = readStatuses(dir);
+    expect(statuses.find((entry) => entry.rig === 'rules-storage')?.state).toBe('no-record');
+    expect(statuses.find((entry) => entry.rig === 'rules-firestore')?.state).toBe('checked-drift');
   });
 });
 
@@ -209,31 +260,47 @@ describe('the headline and the table', () => {
     expect(table.split('\n')).toHaveLength(LEGS.length + 2);
   });
 
-  test('the issue title counts the legs that need a person; disabled legs do not need one', () => {
+  test('the issue title counts the legs that need a person and the legs that are disabled', () => {
     expect(issueTitle(summarize(nothingChecked()))).toBe(
-      `${ISSUE_TITLE_PREFIX}0 of 4 credentialed legs, 2 need a person`,
+      `${ISSUE_TITLE_PREFIX}0 of 4 credentialed legs, 2 need a person, 2 disabled`,
     );
     const one = allLegs({ 'rules-storage': status('rules-storage', 'checked-drift') });
     expect(issueTitle(summarize(one))).toBe(`${ISSUE_TITLE_PREFIX}4 of 4 credentialed legs, 1 needs a person`);
+  });
+
+  test('the title never reads "0 need a person" while a leg is disabled', () => {
+    const held = allLegs({ 'oracle-run': status('oracle-run', 'disabled', '#1270') });
+    expect(issueTitle(summarize(held))).toBe(`${ISSUE_TITLE_PREFIX}3 of 4 credentialed legs, 1 disabled`);
+  });
+
+  test('a leg with no status file counts as needing a person in the title', () => {
+    const lost = allLegs({ 'rules-storage': status('rules-storage', 'no-record') });
+    expect(issueTitle(summarize(lost))).toBe(`${ISSUE_TITLE_PREFIX}3 of 4 credentialed legs, 1 needs a person`);
+  });
+
+  test('a failed download is named in the headline, not read as legs that ended early', () => {
+    const summary = summarize(nothingChecked());
+    expect(headline(summary, true)).toContain('The leg status files could not be downloaded');
+    expect(headline(summary)).not.toContain('could not be downloaded');
   });
 });
 
 describe('the issue', () => {
   test('a run that does not file issues touches nothing', () => {
     const { gh, calls } = fakeGh([]);
-    const outcome = applyIssueAction(gh, nothingChecked(), false, RUN_URL, scratchFile());
+    const outcome = applyIssueAction(gh, nothingChecked(), false, CONTEXT, scratchFile());
     expect(outcome.action).toBe('none');
     expect(calls).toEqual([]);
   });
 
   test('with no open issue, a failing run opens one labeled lane:reliability', () => {
     const { gh, calls } = fakeGh([]);
-    const outcome = applyIssueAction(gh, nothingChecked(), true, RUN_URL, scratchFile());
+    const outcome = applyIssueAction(gh, nothingChecked(), true, CONTEXT, scratchFile());
     expect(outcome.action).toBe('open-or-update');
     const create = calls.find((call) => call.args[1] === 'create');
     expect(create?.args).toContain('lane:reliability');
     expect(create?.args[create.args.indexOf('--title') + 1]).toBe(
-      `${ISSUE_TITLE_PREFIX}0 of 4 credentialed legs, 2 need a person`,
+      `${ISSUE_TITLE_PREFIX}0 of 4 credentialed legs, 2 need a person, 2 disabled`,
     );
     expect(create?.bodyFile).toContain('Production checked by 0 of 4 credentialed legs. Not run: 4.');
     expect(create?.bodyFile).toContain(RUN_URL);
@@ -243,7 +310,8 @@ describe('the issue', () => {
   test('with an open issue, a failing run retitles it and comments the table', () => {
     const open = [{ number: 77, title: `${ISSUE_TITLE_PREFIX}0 of 4 credentialed legs, 4 need a person` }];
     const { gh, calls } = fakeGh(open);
-    applyIssueAction(gh, nothingChecked(), true, RUN_URL, scratchFile());
+    applyIssueAction(gh, nothingChecked(), true, CONTEXT, scratchFile());
+    expect(calls.map((call) => call.args[1])).toEqual(['list', 'comment', 'edit']);
     expect(calls.some((call) => call.args[1] === 'create')).toBe(false);
     const edit = calls.find((call) => call.args[1] === 'edit');
     expect(edit?.args.slice(0, 3)).toEqual(['issue', 'edit', '77']);
@@ -252,10 +320,23 @@ describe('the issue', () => {
     expect(comment?.bodyFile).toContain('| oracle-run | credentialed |');
   });
 
+  test('a failed retitle still leaves the comment, and fails with the issue named', () => {
+    const open = [{ number: 77, title: `${ISSUE_TITLE_PREFIX}0 of 4 credentialed legs, 4 need a person` }];
+    const { gh, calls } = fakeGh(open);
+    const failingEdit: Gh = (args) => {
+      if (args[1] === 'edit') throw new Error('gh issue edit failed: GraphQL error');
+      return gh(args);
+    };
+    expect(() => applyIssueAction(failingEdit, nothingChecked(), true, CONTEXT, scratchFile())).toThrow(
+      'Commented on #77, but retitling it failed',
+    );
+    expect(calls.some((call) => call.args[1] === 'comment')).toBe(true);
+  });
+
   test('a run that missed a status file still opens the issue', () => {
     const { gh, calls } = fakeGh([]);
     const statuses = allLegs({ 'rules-storage': status('rules-storage', 'no-record') });
-    applyIssueAction(gh, statuses, true, RUN_URL, scratchFile());
+    applyIssueAction(gh, statuses, true, CONTEXT, scratchFile());
     const create = calls.find((call) => call.args[1] === 'create');
     expect(create?.bodyFile).toContain('| rules-storage | credentialed | not run: job ended before recording (no status file) |');
   });
@@ -263,7 +344,7 @@ describe('the issue', () => {
   test('when every leg checks production with no drift, the open issue gets a comment and closes', () => {
     const open = [{ number: 77, title: `${ISSUE_TITLE_PREFIX}2 of 4 credentialed legs, 2 need a person` }];
     const { gh, calls } = fakeGh(open);
-    const outcome = applyIssueAction(gh, allLegs(), true, RUN_URL, scratchFile());
+    const outcome = applyIssueAction(gh, allLegs(), true, CONTEXT, scratchFile());
     expect(outcome).toEqual({ action: 'close', detail: 'closed #77' });
     const verbs = calls.map((call) => `${call.args[0]} ${call.args[1]}`);
     expect(verbs).toEqual(['issue list', 'issue comment', 'issue close']);
@@ -273,7 +354,7 @@ describe('the issue', () => {
 
   test('when every leg is clean and no issue is open, nothing is filed or closed', () => {
     const { gh, calls } = fakeGh([]);
-    const outcome = applyIssueAction(gh, allLegs(), true, RUN_URL, scratchFile());
+    const outcome = applyIssueAction(gh, allLegs(), true, CONTEXT, scratchFile());
     expect(outcome).toEqual({ action: 'close', detail: 'no open issue to close' });
     expect(calls.map((call) => call.args[1])).toEqual(['list']);
   });
@@ -289,10 +370,21 @@ describe('the issue', () => {
   });
 });
 
+interface WorkflowStep {
+  id?: string;
+  name?: string;
+  if?: string;
+  uses?: string;
+  run?: string;
+  env?: Record<string, string>;
+  with?: Record<string, string>;
+}
+
 interface WorkflowJob {
   permissions?: Record<string, string>;
   needs?: string[];
   if?: string;
+  steps?: WorkflowStep[];
   strategy?: { matrix: { include: { rig: string }[] } };
 }
 
@@ -300,6 +392,22 @@ function workflow(): { on: Record<string, unknown>; permissions: Record<string, 
   const text = readFileSync(resolve(ROOT, '.github/workflows/oracle-recapture.yml'), 'utf8');
   return Bun.YAML.parse(text) as ReturnType<typeof workflow>;
 }
+
+function stepsOf(jobName: string): WorkflowStep[] {
+  return workflow().jobs[jobName]?.steps ?? [];
+}
+
+function stepRunning(steps: WorkflowStep[], command: string): WorkflowStep | undefined {
+  return steps.find((step) => step.run?.includes(command));
+}
+
+function uploadOfLegState(steps: WorkflowStep[]): WorkflowStep | undefined {
+  return steps.find((step) => step.uses?.startsWith('actions/upload-artifact') && step.with?.name?.startsWith('oracle-leg-'));
+}
+
+const LEG_JOBS = ['unattended', 'credentialed'] as const;
+const RECORD_COMMAND = 'oracle-leg-report.ts record';
+const REPORT_COMMAND = 'oracle-leg-report.ts report';
 
 describe('the workflow', () => {
   test('its legs are the legs this report knows', () => {
@@ -323,5 +431,92 @@ describe('the workflow', () => {
   test('it never runs on pull requests', () => {
     const triggers = Object.keys(workflow().on);
     expect(triggers.sort()).toEqual(['schedule', 'workflow_dispatch']);
+  });
+});
+
+describe.each(LEG_JOBS)('the %s job records its state', (jobName) => {
+  const steps = stepsOf(jobName);
+  const record = stepRunning(steps, RECORD_COMMAND);
+  const upload = uploadOfLegState(steps);
+  const drift = steps.find((step) => step.id === 'drift');
+
+  test('a step with id drift decides checked or not', () => {
+    expect(drift?.run).toContain('oracle-drift-report.ts');
+    expect(drift?.if).not.toBe('always()');
+  });
+
+  test('the record step always runs and reads the drift step outcome and output', () => {
+    expect(record?.if).toBe('always()');
+    expect(record?.env?.DRIFT_OUTCOME).toBe('${{ steps.drift.outcome }}');
+    expect(record?.env?.DRIFT_FOUND).toBe('${{ steps.drift.outputs.found }}');
+    expect(record?.env?.STATUS_DIR).toBe('${{ runner.temp }}/oracle-leg');
+  });
+
+  test('the upload always runs, follows the record step, and is named for the leg and attempt', () => {
+    expect(upload?.if).toBe('always()');
+    expect(upload?.with?.name).toMatch(/^oracle-leg-.+-\$\{\{ github\.run_attempt \}\}$/);
+    expect(upload?.with?.path).toBe('${{ runner.temp }}/oracle-leg');
+    const order = [drift, record, upload].map((step) => steps.findIndex((candidate) => candidate === step));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+});
+
+describe('the credentialed job records what its credential check decided', () => {
+  const steps = stepsOf('credentialed');
+  const record = stepRunning(steps, RECORD_COMMAND);
+
+  test('the record step reads the rig, the disabled field and the credential check outputs', () => {
+    expect(steps.some((step) => step.id === 'secret-check')).toBe(true);
+    expect(record?.env?.RIG).toBe('${{ matrix.rig }}');
+    expect(record?.env?.DISABLED).toBe('${{ matrix.disabled }}');
+    expect(record?.env?.MISSING).toBe('${{ steps.secret-check.outputs.missing }}');
+    expect(record?.env?.AVAILABLE).toBe('${{ steps.secret-check.outputs.available }}');
+  });
+
+  test('the artifact name carries the rig and the attempt', () => {
+    expect(uploadOfLegState(steps)?.with?.name).toBe('oracle-leg-${{ matrix.rig }}-${{ github.run_attempt }}');
+  });
+});
+
+describe('the unattended job records a fixed rig', () => {
+  const steps = stepsOf('unattended');
+  const record = stepRunning(steps, RECORD_COMMAND);
+
+  test('the record step names the rig and says the capture ran', () => {
+    expect(record?.env?.RIG).toBe('unattended');
+    expect(record?.env?.AVAILABLE).toBe('true');
+  });
+
+  test('the artifact name carries the rig and the attempt', () => {
+    expect(uploadOfLegState(steps)?.with?.name).toBe('oracle-leg-unattended-${{ github.run_attempt }}');
+  });
+});
+
+describe('the report job', () => {
+  const steps = stepsOf('report');
+  const download = steps.find((step) => step.uses?.startsWith('actions/download-artifact'));
+  const report = stepRunning(steps, REPORT_COMMAND);
+  const reportTest = stepRunning(steps, 'bun test scripts/ci/oracle-leg-report.test.ts');
+
+  test('it downloads every leg artifact into its own folder, so attempts do not collide', () => {
+    expect(download?.id).toBe('download');
+    expect(download?.with?.pattern).toBe('oracle-leg-*');
+    expect(download?.with?.path).toBe('${{ runner.temp }}/oracle-leg');
+    expect(download?.with).not.toHaveProperty('merge-multiple');
+  });
+
+  test('the report step always runs, reads the download outcome, and files only when asked', () => {
+    expect(report?.if).toBe('always()');
+    expect(report?.env?.DOWNLOAD_OUTCOME).toBe('${{ steps.download.outcome }}');
+    expect(report?.env?.STATUS_DIR).toBe('${{ runner.temp }}/oracle-leg');
+    expect(report?.env?.FILE_ISSUE).toContain("github.event_name == 'schedule'");
+    expect(report?.env?.FILE_ISSUE).toContain('inputs.file-issue == true');
+  });
+
+  test('the report test runs before the report, and the PR check lists do not include it', () => {
+    expect(reportTest).toBeDefined();
+    expect(steps.indexOf(reportTest as WorkflowStep)).toBeLessThan(steps.indexOf(report as WorkflowStep));
+    expect(readFileSync(resolve(ROOT, 'scripts/ci/check-set.ts'), 'utf8')).not.toContain('oracle-leg-report');
   });
 });

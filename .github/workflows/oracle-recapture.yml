@@ -26,10 +26,10 @@
 #
 # Every leg ends by recording its state (checked with no drift, checked with
 # drift, capture failed, or not run with the reason) as a summary line and the
-# artifact oracle-leg-<rig>. The report job reads them all, writes a headline
-# and a table of every leg to the run summary, and a leg whose record never
-# arrived counts as not run. A disabled leg leaves the run green but is listed
-# as not run. On a scheduled run, or a dispatch with file-issue set, the report
+# artifact oracle-leg-<rig>-<attempt>. The report job reads the latest attempt
+# of each, writes a headline and a table of every leg to the run summary, and
+# counts a leg whose record never arrived as not run. A disabled leg leaves the
+# run green but is listed as not run. On a scheduled run, or a dispatch with file-issue set, the report
 # also opens or updates one lane:reliability issue and comments the table, and
 # closes it once every leg has checked production with no drift
 # (scripts/ci/oracle-leg-report.ts).
@@ -135,13 +135,14 @@ jobs:
           RIG: unattended
           AVAILABLE: 'true'
           DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+          DRIFT_FOUND: ${{ steps.drift.outputs.found }}
           STATUS_DIR: ${{ runner.temp }}/oracle-leg
         run: bun scripts/ci/oracle-leg-report.ts record
       - name: Upload this leg's state
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-leg-unattended
+          name: oracle-leg-unattended-${{ github.run_attempt }}
           path: ${{ runner.temp }}/oracle-leg
           retention-days: 14
           if-no-files-found: warn
@@ -288,13 +289,14 @@ jobs:
           MISSING: ${{ steps.secret-check.outputs.missing }}
           AVAILABLE: ${{ steps.secret-check.outputs.available }}
           DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+          DRIFT_FOUND: ${{ steps.drift.outputs.found }}
           STATUS_DIR: ${{ runner.temp }}/oracle-leg
         run: bun scripts/ci/oracle-leg-report.ts record
       - name: Upload this leg's state
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-leg-${{ matrix.rig }}
+          name: oracle-leg-${{ matrix.rig }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/oracle-leg
           retention-days: 14
           if-no-files-found: warn
@@ -317,19 +319,25 @@ jobs:
         with:
           bun-version: '1.3.11'
       # A leg that never uploaded has no file here, which the report counts as
-      # not run, so a failed download cannot hide a leg.
+      # not run, and the report names a failed download in its headline. Each
+      # artifact lands in its own folder, since a re-run of failed legs uploads
+      # under a new attempt number and the report reads the latest of each leg.
       - name: Download the leg states
+        id: download
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: oracle-leg-*
-          merge-multiple: true
           path: ${{ runner.temp }}/oracle-leg
       - name: Test the report script
         run: bun test scripts/ci/oracle-leg-report.test.ts
+      # Runs even when the report test fails, so a failing test cannot hide the
+      # headline or the issue.
       - name: Report the leg states
+        if: always()
         env:
           STATUS_DIR: ${{ runner.temp }}/oracle-leg
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
           FILE_ISSUE: ${{ (github.event_name == 'schedule' || inputs.file-issue == true) && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
         run: bun scripts/ci/oracle-leg-report.ts report

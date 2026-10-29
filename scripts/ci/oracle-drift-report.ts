@@ -23,6 +23,7 @@
  *
  * Usage: bun scripts/ci/oracle-drift-report.ts <rig-label>
  * Exit:  0 = no drift; 1 = drift detected; 2 = usage error.
+ * Output: `found=true` in GITHUB_OUTPUT when it detects drift.
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -187,6 +188,12 @@ if (summaryPath) {
 } else {
   console.log(report);
 }
+
+// Tells the workflow this exit is drift. A crash also exits non-zero but never
+// reaches this line, and scripts/ci/oracle-leg-report.ts records it as a
+// failed capture.
+const outputPath = process.env.GITHUB_OUTPUT;
+if (outputPath) appendFileSync(outputPath, 'found=true\n');
 
 console.error(`::error::Oracle observation drift detected for ${label} — see the job summary for the diff.`);
 process.exit(1);

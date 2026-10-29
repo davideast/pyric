@@ -7,7 +7,8 @@
 //   bun scripts/ci/oracle-leg-report.ts report   in the report job, after all legs
 //
 // `record` writes one small JSON status file per leg, which the leg uploads as
-// the artifact `oracle-leg-<rig>`. `report` reads them all and writes a
+// the artifact `oracle-leg-<rig>-<attempt>`. `report` reads the latest attempt
+// of each and writes a
 // headline and a table of every leg to the run summary. A leg whose file never
 // arrived is reported as not run, so a leg that died early cannot look like a
 // leg that checked production. On a scheduled run, or a dispatch that asks for
@@ -17,7 +18,7 @@
 // Both commands read their inputs from the environment (see `inputFromEnv`
 // and `reportOptionsFromEnv`).
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { closeOpenIssue, openOrUpdateIssue, spawnGh, type Gh } from './github-issues.ts';
 
@@ -72,6 +73,9 @@ export interface RecordInput {
   available: string;
   /** The drift step's outcome: success, failure, skipped or cancelled. */
   driftOutcome: string;
+  /** The drift step's `found` output: 'true' when it reported drift. A step
+   *  that fails without it crashed. */
+  driftFound: string;
 }
 
 /** The state of one leg, from what the workflow's steps decided. */
@@ -80,7 +84,8 @@ export function recordLeg(input: RecordInput): LegStatus {
   const isDisabled = input.disabled !== '';
   const lacksCredential = input.missing !== '';
   const capturedAgainstProduction = input.available === 'true';
-  const driftFound = input.driftOutcome === 'failure';
+  const driftStepFailed = input.driftOutcome === 'failure';
+  const driftReported = input.driftFound === 'true';
   const noDriftFound = input.driftOutcome === 'success';
 
   if (isDisabled) return { rig, state: 'disabled', detail: input.disabled };
@@ -88,7 +93,8 @@ export function recordLeg(input: RecordInput): LegStatus {
   if (!capturedAgainstProduction) {
     return { rig, state: 'capture-failed', detail: 'the credential check did not finish' };
   }
-  if (driftFound) return { rig, state: 'checked-drift', detail: '' };
+  if (driftStepFailed && driftReported) return { rig, state: 'checked-drift', detail: '' };
+  if (driftStepFailed) return { rig, state: 'capture-failed', detail: 'the drift check crashed' };
   if (noDriftFound) return { rig, state: 'checked-clean', detail: '' };
   return { rig, state: 'capture-failed', detail: `the drift check ${input.driftOutcome || 'did not run'}` };
 }
@@ -102,6 +108,7 @@ export function inputFromEnv(env: NodeJS.ProcessEnv): RecordInput {
     missing: env.MISSING ?? '',
     available: env.AVAILABLE ?? '',
     driftOutcome: env.DRIFT_OUTCOME ?? '',
+    driftFound: env.DRIFT_FOUND ?? '',
   };
 }
 
@@ -144,11 +151,32 @@ function noRecord(rig: string): LegStatus {
   return { rig, state: 'no-record', detail: '' };
 }
 
-/** One status per leg. A missing or unreadable file is `no-record`. */
+/** The attempt number in an artifact folder named `oracle-leg-<rig>-<attempt>`,
+ *  or undefined when the folder belongs to another leg. */
+function attemptOf(folder: string, rig: string): number | undefined {
+  const prefix = `oracle-leg-${rig}-`;
+  if (!folder.startsWith(prefix)) return undefined;
+  const attempt = folder.slice(prefix.length);
+  return /^\d+$/.test(attempt) ? Number(attempt) : undefined;
+}
+
+/** The status file of the latest attempt that uploaded one for `rig`. */
+function latestStatusFile(dir: string, rig: string): string | undefined {
+  if (!existsSync(dir)) return undefined;
+  const attempts = readdirSync(dir)
+    .map((folder) => ({ folder, attempt: attemptOf(folder, rig) }))
+    .filter((entry): entry is { folder: string; attempt: number } => entry.attempt !== undefined)
+    .sort((a, b) => b.attempt - a.attempt);
+  const files = attempts.map((entry) => join(dir, entry.folder, `${rig}.json`));
+  return files.find((file) => existsSync(file));
+}
+
+/** One status per leg, from the latest attempt that recorded one. A leg with
+ *  no file, or an unreadable one, is `no-record`. */
 export function readStatuses(dir: string): LegStatus[] {
   return LEGS.map((leg) => {
-    const file = join(dir, `${leg.rig}.json`);
-    if (!existsSync(file)) return noRecord(leg.rig);
+    const file = latestStatusFile(dir, leg.rig);
+    if (file === undefined) return noRecord(leg.rig);
     return parseStatus(leg.rig, readFileSync(file, 'utf8')) ?? noRecord(leg.rig);
   });
 }
@@ -162,6 +190,8 @@ export interface Summary {
   checked: number;
   /** Credentialed legs that did not run at all. */
   notRun: number;
+  /** Legs held back by a blocking issue. They are part of `notRun`. */
+  disabled: number;
   /** Credentialed legs whose capture failed. */
   captureFailed: number;
   /** Credentialed legs that found drift. */
@@ -192,6 +222,7 @@ export function summarize(statuses: LegStatus[]): Summary {
     credentialedLegs: credentialed.length,
     checked: countStates(credentialed, ['checked-clean', 'checked-drift']),
     notRun: countStates(credentialed, ['disabled', 'guard-missing', 'no-record']),
+    disabled: countStates(statuses, ['disabled']),
     captureFailed: countStates(credentialed, ['capture-failed']),
     drifted: countStates(credentialed, ['checked-drift']),
     needPerson: statuses.filter((status) => needsPerson(status.state)).length,
@@ -200,20 +231,37 @@ export function summarize(statuses: LegStatus[]): Summary {
   };
 }
 
-export function headline(summary: Summary): string {
+export interface ReportContext {
+  runUrl: string | undefined;
+  /** The step that downloads the leg status files failed. */
+  downloadFailed: boolean;
+}
+
+const DOWNLOAD_FAILED_NOTICE =
+  'The leg status files could not be downloaded, so the legs below read as not run for that reason.';
+
+export function headline(summary: Summary, downloadFailed = false): string {
   const parts = [`Production checked by ${summary.checked} of ${summary.credentialedLegs} credentialed legs.`];
   if (summary.notRun > 0) parts.push(`Not run: ${summary.notRun}.`);
   if (summary.captureFailed > 0) parts.push(`Capture failed: ${summary.captureFailed}.`);
   if (summary.drifted > 0) parts.push(`Drift found: ${summary.drifted}.`);
   if (summary.unattendedNeedsPerson) parts.push('The unattended rigs need a person.');
-  const nothingWrong = summary.notRun + summary.captureFailed + summary.drifted === 0 && !summary.unattendedNeedsPerson;
+  if (downloadFailed) parts.push(DOWNLOAD_FAILED_NOTICE);
+  const nothingWrong = summary.notRun + summary.captureFailed + summary.drifted === 0
+    && !summary.unattendedNeedsPerson && !downloadFailed;
   if (nothingWrong) parts.push('No drift.');
   return parts.join(' ');
 }
 
+/** The title counts the legs that need a person and the legs that are disabled,
+ *  so an open issue never reads as if nothing were wrong while a leg is held back. */
 export function issueTitle(summary: Summary): string {
   const verb = summary.needPerson === 1 ? 'needs' : 'need';
-  return `${ISSUE_TITLE_PREFIX}${summary.checked} of ${summary.credentialedLegs} credentialed legs, ${summary.needPerson} ${verb} a person`;
+  const counts: string[] = [];
+  if (summary.needPerson > 0) counts.push(`${summary.needPerson} ${verb} a person`);
+  if (summary.disabled > 0) counts.push(`${summary.disabled} disabled`);
+  const checked = `${summary.checked} of ${summary.credentialedLegs} credentialed legs`;
+  return `${ISSUE_TITLE_PREFIX}${[checked, ...counts].join(', ')}`;
 }
 
 export function legTable(statuses: LegStatus[]): string {
@@ -224,16 +272,16 @@ export function legTable(statuses: LegStatus[]): string {
   return ['| Leg | Tier | Result |', '|---|---|---|', ...rows].join('\n');
 }
 
-export function reportMarkdown(statuses: LegStatus[], runUrl: string | undefined): string {
-  const lines = [`## Oracle re-capture: ${headline(summarize(statuses))}`, ''];
-  if (runUrl) lines.push(`Run: ${runUrl}`, '');
+export function reportMarkdown(statuses: LegStatus[], context: ReportContext): string {
+  const lines = [`## Oracle re-capture: ${headline(summarize(statuses), context.downloadFailed)}`, ''];
+  if (context.runUrl) lines.push(`Run: ${context.runUrl}`, '');
   lines.push(legTable(statuses), '');
   return lines.join('\n');
 }
 
-export function closingMarkdown(statuses: LegStatus[], runUrl: string | undefined): string {
+export function closingMarkdown(statuses: LegStatus[], context: ReportContext): string {
   const lines = ['Every leg checked production with no drift on this run, so this issue is closed.', ''];
-  if (runUrl) lines.push(`Run: ${runUrl}`, '');
+  if (context.runUrl) lines.push(`Run: ${context.runUrl}`, '');
   lines.push(legTable(statuses), '');
   return lines.join('\n');
 }
@@ -259,18 +307,18 @@ export function applyIssueAction(
   gh: Gh,
   statuses: LegStatus[],
   fileIssue: boolean,
-  runUrl: string | undefined,
+  context: ReportContext,
   bodyFile: string,
 ): IssueOutcome {
   const summary = summarize(statuses);
   const action = issueAction(summary, fileIssue);
   if (action === 'none') return { action, detail: '' };
   if (action === 'close') {
-    writeFileSync(bodyFile, closingMarkdown(statuses, runUrl));
+    writeFileSync(bodyFile, closingMarkdown(statuses, context));
     const closed = closeOpenIssue(gh, ISSUE_TITLE_PREFIX, bodyFile);
     return { action, detail: closed === undefined ? 'no open issue to close' : `closed #${closed}` };
   }
-  writeFileSync(bodyFile, reportMarkdown(statuses, runUrl));
+  writeFileSync(bodyFile, reportMarkdown(statuses, context));
   const detail = openOrUpdateIssue(gh, {
     prefix: ISSUE_TITLE_PREFIX,
     title: issueTitle(summary),
@@ -310,13 +358,16 @@ function record(env: NodeJS.ProcessEnv): void {
 function report(env: NodeJS.ProcessEnv): void {
   const dir = statusDirFromEnv(env);
   const statuses = readStatuses(dir);
-  const runUrl = runUrlFromEnv(env);
-  const markdown = reportMarkdown(statuses, runUrl);
+  const context: ReportContext = {
+    runUrl: runUrlFromEnv(env),
+    downloadFailed: env.DOWNLOAD_OUTCOME === 'failure',
+  };
+  const markdown = reportMarkdown(statuses, context);
   console.log(markdown);
   appendToStepSummary(markdown);
 
   const fileIssue = env.FILE_ISSUE === 'true';
-  const outcome = applyIssueAction(spawnGh(process.cwd()), statuses, fileIssue, runUrl, join(dir, 'issue-body.md'));
+  const outcome = applyIssueAction(spawnGh(process.cwd()), statuses, fileIssue, context, join(dir, 'issue-body.md'));
   if (outcome.action === 'none') {
     console.log('This run does not file issues.');
     return;
