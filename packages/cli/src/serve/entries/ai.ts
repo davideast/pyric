@@ -16,8 +16,11 @@
  * config with no `baseUrl` targets serve's same-origin `/__pyric/ai-proxy`
  * route (which forwards to the configured upstream, default
  * `http://localhost:11434/v1`) — so a localhost Ollama needs no CORS setup
- * on EITHER path. A custom AnswerEngine OBJECT can't cross the port and is
- * rejected in worker mode rather than creating a second page-local backend.
+ * on EITHER path. A gemini config without its own `apiKey` sends through
+ * `/__pyric/ai-proxy/gemini`, where the server attaches the key from its
+ * environment, so the key never reaches the page. A custom AnswerEngine
+ * OBJECT can't cross the port and is rejected in worker mode rather than
+ * creating a second page-local backend.
  * Direct/in-process `pyric/ai` sandboxes still accept custom engines.
  *
  * Engine config is per-sandbox (#98.4) and first-call-wins at the worker
@@ -34,6 +37,7 @@ import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
 import { isSandboxAppDeleted } from 'pyric/app/internal';
 import type { AiEngineConfigWire } from '../worker/protocol.js';
 import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../worker/client.js';
+import { AI_PROXY_PATH, browserGeminiEngine } from '../worker/ai-proxy-paths.js';
 import { useWorker } from './worker-runtime.js';
 import { workerClientForApp } from './app-client.js';
 
@@ -80,9 +84,6 @@ export {
 
 type EngineOption = NonNullable<ipAi.AIOptions['engine']>;
 type AnswerTransport = Parameters<typeof createTransportAI>[2];
-
-/** The serve proxy route the browser openai engine defaults to (#98.2). */
-const AI_PROXY_PATH = '/__pyric/ai-proxy';
 
 /** A custom AnswerEngine object (vs a plain, worker-cloneable EngineConfig). */
 function isAnswerEngine(engine: EngineOption): boolean {
@@ -151,20 +152,7 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
     } as EngineOption;
   }
   const isGeminiWire = wire.kind === 'gemini';
-  if (isGeminiWire) {
-    const result: Record<string, unknown> = {
-      kind: 'gemini',
-    };
-    const hasBaseUrl = wire.baseUrl !== undefined;
-    if (hasBaseUrl) {
-      result.baseUrl = wire.baseUrl;
-    }
-    const hasApiKey = wire.apiKey !== undefined;
-    if (hasApiKey) {
-      result.apiKey = wire.apiKey;
-    }
-    return result as unknown as EngineOption;
-  }
+  if (isGeminiWire) return browserGeminiEngine(wire) as EngineOption;
   return {
     kind: 'scripted',
     ...(wire.script !== undefined
@@ -173,13 +161,20 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
   } as EngineOption;
 }
 
-/** In-page path: default an openai config's absent baseUrl to the proxy. */
+/**
+ * In-page path: default an openai config's absent baseUrl to the proxy, and
+ * send a gemini config without its own key through the gemini proxy.
+ */
 function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined {
   const engine = options?.engine;
   if (!engine || isAnswerEngine(engine)) return options;
   const config = engine as { kind?: string; baseUrl?: string };
   if (config.kind === 'openai' && config.baseUrl === undefined) {
     return { ...options, engine: { ...config, baseUrl: AI_PROXY_PATH } as EngineOption };
+  }
+  const isKeylessGemini = config.kind === 'gemini' && (engine as { apiKey?: string }).apiKey === undefined;
+  if (isKeylessGemini) {
+    return { ...options, engine: browserGeminiEngine({ kind: 'gemini' }) as EngineOption };
   }
   return options;
 }

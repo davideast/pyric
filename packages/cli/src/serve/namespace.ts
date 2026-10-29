@@ -32,6 +32,7 @@ import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowe
 import type { InitPayload } from './init-payload.js';
 import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
+import { createGeminiProxy, isGeminiProxyPath, type GeminiProxyConfig } from './gemini-proxy.js';
 import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
 import { sanitizeForTerminal, stripTerminalControls } from './ai-terminal-text.js';
 import { createSiteTreeHandler } from './site-tree.js';
@@ -148,6 +149,10 @@ export interface NamespaceOptions {
    *  (local Ollama). Always mounted — the route only touches the network
    *  when a request arrives. */
   aiProxyUpstream?: string;
+  /** The gemini engine `/__pyric/ai-proxy/gemini` sends for a browser engine
+   *  (#1584): the Vite plugin's `ai.engine` when it is gemini. Absent, it
+   *  sends to Google AI Studio with the key from this process's environment. */
+  aiGemini?: GeminiProxyConfig;
   /** Receives one handshake beacon per pyric-launched child (`POST
    *  /__pyric/beacon`, sent by `@pyric/cli/register` once its hooks and
    *  net-guard are installed). Absent means the route still 204s; the child
@@ -607,6 +612,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     ? createSiteTreeHandler(siteUiDir, opts.workerVersion, hostedStudioProject(opts))
     : null;
   const denialThrottle = createDenialThrottle();
+  const geminiProxy = createGeminiProxy(opts.aiGemini, denialThrottle, opts.logger);
   // Issued once per server boot. The outer static/Vite host guard protects
   // init.json before this capability is disclosed to the served runtime.
   const activity = opts.activity;
@@ -721,6 +727,13 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       if (hostRefused) return true;
       events.handle(req, res);
       return true;
+    }
+    const isGeminiProxyRequest = isGeminiProxyPath(url.pathname);
+    if (isGeminiProxyRequest) {
+      // It spends the server's key, so only this app's pages may call it.
+      const hostRefused = !guardLoopback(req, res, opts);
+      if (hostRefused) return true;
+      return geminiProxy(req, res, url).then(() => true);
     }
     const isAiProxyRequest = url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`);
     if (isAiProxyRequest) {

@@ -12,8 +12,10 @@ export type { AppCheckClaim } from './broker/types.js';
 /** Host-only seam for the dev server's terminal diagnostics: the credential
  *  masking every printed upstream URL goes through, and the gemini endpoint
  *  the startup banner names when no `baseUrl` overrides it. Published here so
- *  `@pyric/cli` reads one definition instead of copying both. */
-export { GEMINI_DEFAULT_BASE_URL, hasGeminiStaticKey, redactUrl } from './broker/index.js';
+ *  `@pyric/cli` reads one definition instead of copying both. `GeminiUpstream`
+ *  is the gemini engine's own request and credentials, which the dev server's
+ *  `/__pyric/ai-proxy/gemini` route sends for a browser engine. */
+export { GEMINI_DEFAULT_BASE_URL, GeminiUpstream, hasGeminiStaticKey, redactUrl, type GeminiUpstreamOptions } from './broker/index.js';
 
 const transportHandles = new WeakMap<FirebaseApp, Map<string, AI>>();
 

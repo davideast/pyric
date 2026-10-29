@@ -33,6 +33,7 @@ import { resolveAvatarsConfig, type PyricAvatarsOptions } from './avatars-config
 import { resolveViteRulesConfig } from './vite-rules-source.js';
 import type { ViteWorkerRuntime, ViteWorkerRuntimeStatus } from './vite-worker-runtime.js';
 import { viteWorkerEpochSalt } from './vite-ai-config.js';
+import { geminiProxyConfig } from './gemini-proxy.js';
 import {
   attachViteGenerationBridge,
   createViteGenerationBridge,
@@ -278,6 +279,7 @@ export async function createViteSandboxGeneration(
       ai: aiOptions,
       avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,
+      aiGemini: geminiProxyConfig(ai.engineWire),
       activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
       logger: {
         info: (message) => server.config.logger.info(message),

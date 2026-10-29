@@ -364,6 +364,16 @@ export async function handleAiProxy(
     return;
   }
 
+  await relayAiUpstream(upstream, res);
+}
+
+/**
+ * Send an upstream's answer to the caller: its status and content type, then
+ * the body chunk by chunk. SSE passthrough must never buffer. A dropped
+ * client cancels the upstream read so an abandoned stream doesn't keep the
+ * upstream generating.
+ */
+export async function relayAiUpstream(upstream: Response, res: ServerResponse): Promise<void> {
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
   if (contentType) responseHeaders['content-type'] = contentType;
@@ -374,8 +384,6 @@ export async function handleAiProxy(
   }
   (res as ServerResponse & { flushHeaders?: () => void }).flushHeaders?.();
 
-  // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
-  // so an abandoned SSE stream doesn't keep the upstream generating.
   const reader = upstream.body.getReader();
   res.on('close', () => {
     void reader.cancel().catch(() => {});
