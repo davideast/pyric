@@ -38,11 +38,15 @@ import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
 import { remoteSandbox } from '../remote/index.js';
+import { resolveAiMode } from '../serve/firebase-module-swap.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
  *  returning the lazy branded handle. `Symbol.for` so both packages agree
  *  without importing each other's types. */
 const SANDBOX_FACTORY = Symbol.for('pyric.remote.sandboxFactory');
+
+/** The seam with pyric-admin's App Check mirror: firebase-admin's verifier for tokens from Firebase (#1552). */
+const APP_CHECK_FIREBASE_VERIFIER = Symbol.for('pyric.admin.appCheck.firebaseVerifier');
 
 interface SyncResolveContext {
   parentURL?: string;
@@ -170,6 +174,8 @@ function activate(): void {
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
     remoteSandbox({ configuredUrl: opts?.url, instanceId: process.env.PYRIC_SANDBOX_INSTANCE });
 
+  installAppCheckVerifier();
+
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +
       `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
@@ -185,6 +191,23 @@ function activate(): void {
     hooks: hooksInstalled,
     sandbox: process.env.PYRIC_SANDBOX ?? '',
   });
+}
+
+/**
+ * Production AI mode only: the page's App Check tokens come from Firebase, so
+ * pyric-admin's mirror hands them to firebase-admin's own verifier (#1552).
+ * The bridge, and firebase-admin with it, loads on the first such token, so a
+ * server that never verifies one never loads firebase-admin. In sandbox AI
+ * mode nothing is installed, and the mirror refuses such a token with a
+ * message that says why.
+ */
+function installAppCheckVerifier(): void {
+  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
+  if (!isProductionAiMode) return;
+  (globalThis as Record<symbol, unknown>)[APP_CHECK_FIREBASE_VERIFIER] = async (token: string, projectId: string) => {
+    const bridge = await import('./app-bridge-admin-app-check.js');
+    return bridge.verifyFirebaseAppCheckToken(token, projectId);
+  };
 }
 
 /**

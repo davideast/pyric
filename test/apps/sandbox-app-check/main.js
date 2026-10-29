@@ -36,6 +36,7 @@ window.runAppCheck = async () => {
     twice = e.code;
   }
   const c = claims(first.token);
+  window.appCheckToken = first.token;
   return {
     segments: first.token.split(".").length,
     cached: again.token === first.token,

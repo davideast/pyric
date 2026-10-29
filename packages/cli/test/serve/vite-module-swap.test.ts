@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
 import { SDK_MODULES, pyricPackageRoot } from '../../src/serve/bundler.js';
+import { REAL_SDK_ENTRIES } from '../../src/serve/firebase-module-swap.js';
 import {
   createViteModuleContext,
   createViteModuleSwap,
@@ -106,6 +107,13 @@ describe('import map and Vite resolver agree', () => {
           continue;
         }
         const key = mapped.slice('/__pyric/sdk/'.length, -'.js'.length);
+        // The import map's Firebase SDK build (production firebase/ai) is the
+        // module Vite resolves itself, unswapped.
+        const isProjectFirebase = [...REAL_SDK_ENTRIES.values()].includes(key);
+        if (isProjectFirebase) {
+          expect({ specifier, viteEntry }).toEqual({ specifier, viteEntry: null });
+          continue;
+        }
         expect({ specifier, viteEntry }).toEqual({ specifier, viteEntry: context.entries[key] });
       }
       expect(Object.keys(importMap).every((specifier) => (SDK_MODULES as readonly string[]).includes(specifier))).toBe(true);

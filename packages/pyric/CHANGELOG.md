@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.1.0-alpha.30.1
+
+Hotfix for production AI mode. Production AI mode now verifies real App Check
+tokens on the server.
+
+### Fixed: App Check in production AI mode
+
+- A server running under `@pyric/cli/register` in production AI mode verifies
+  the page's real App Check token with firebase-admin's own `verifyToken`, so
+  it returns the page's app id instead of throwing `app-check/invalid-credential`.
+  In sandbox AI mode such a token is refused with a message that says why
+  (#1558).
+- `cert(serviceAccount)` keeps the service account's project id, so App Check
+  `createToken` and `verifyToken` work without `projectId` or
+  `GOOGLE_CLOUD_PROJECT` (#1532).
+- When the shadow Firebase app cannot be created in production AI mode,
+  `initializeAppCheck` throws an error that names the app and the cause
+  (#1534).
+- Production AI mode on plain `pyric sandbox` serves the real `firebase/app`,
+  `firebase/ai` and `firebase/app-check` from the project's own firebase
+  install, so the page loads instead of failing on `firebase/ai` (#1537).
+
+### Fixed: packaging
+
+- The release contract's allowed Firebase SDK import edges drop a stale row,
+  and a unit test derives the list from `packages/cli/src` (#1560).
+
 ## Unreleased
 
 ### Breaking: `pyric/database` is the canonical sandbox-only mirror
