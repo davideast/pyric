@@ -16,6 +16,13 @@
  *   --keep            keep each app's installed directory
  *   --skip-slow       leave out the apps whose scenario.ts exports `slow = true`
  *   --only-slow       run only those apps
+ *   --shard-plan <file> --shard <n>
+ *                     run shard n of a plan from shard-plan.ts. The run
+ *                     first checks that the plan's apps are exactly the
+ *                     apps this run would select without it, then runs
+ *                     only shard n's, and writes the apps it ran to
+ *                     test-results/app-shards/shard-<n>.json for the
+ *                     completeness check in `CI / required`
  *
  * A slow app waits on real timeouts. Pull requests skip it; the "Slow app
  * scenarios" workflow runs it. An app named on the command line runs either
@@ -49,7 +56,7 @@
  * packs the workspace, and waits while two other heavy runs hold both slots.
  */
 import { chromium, type Browser } from '@playwright/test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
@@ -61,11 +68,13 @@ import { takeHeavyRunSlot } from '../../scripts/lib/heavy-run-slots.ts';
 import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
 import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
+import { checkPlanCoversSelection, readPlan, shardApps, takeShardOptions, writeShardReport, type ShardOption } from './shard-plan.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
 const resultsDir = join(root, 'test-results/apps');
 const durationsFile = join(root, 'test-results/app-durations.json');
+const shardReportsDir = join(root, 'test-results/app-shards');
 const APP_TIMEOUT_MS = Number(process.env.PYRIC_APP_TIMEOUT_MS ?? 300_000);
 const LOG_TAIL_LINES = 200;
 
@@ -252,8 +261,24 @@ async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R
   return results;
 }
 
+/** The apps of one shard of a plan, after checking the plan covers exactly the apps this run selects. */
+function planShard(shard: ShardOption, selected: readonly string[]): string[] {
+  const plan = readPlan(readFileSync(shard.planFile, 'utf8'));
+  const mismatches = checkPlanCoversSelection(plan, selected);
+  if (mismatches.length > 0) {
+    console.error(`the shard plan ${shard.planFile} does not cover this run's apps:\n${mismatches.map((line) => `- ${line}`).join('\n')}`);
+    process.exit(2);
+  }
+  return shardApps(plan, shard.index);
+}
+
 async function main(): Promise<void> {
-  const options = parseArguments(process.argv.slice(2), process.env);
+  const { argv, shard } = takeShardOptions(process.argv.slice(2));
+  const options = parseArguments(argv, process.env);
+  if (shard && options.names.length > 0) {
+    console.error('--shard runs the apps its plan gives it, so it takes no app names');
+    process.exit(2);
+  }
   const available = discoverApps();
   const unknown = options.names.filter((name) => !available.includes(name));
   if (unknown.length) {
@@ -266,7 +291,9 @@ async function main(): Promise<void> {
   const { skippedSlow } = selection;
   // Apps named on the command line run in the order given; a whole run starts the longest first.
   const isWholeRun = options.names.length === 0;
-  const names = isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run;
+  // A shard runs its apps in the plan's order, which is longest first by main's recorded times.
+  const wholeRunOrder = () => (isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run);
+  const names = shard ? planShard(shard, selection.run) : wholeRunOrder();
   await takeHeavyRunSlot();
   // Measured before packing, so the runner's own build and pack do not count as load.
   const machine = await sampleMachineLoad();
@@ -320,6 +347,11 @@ async function main(): Promise<void> {
     else installsFailure = await removeTree(installsDir);
   }
 
+  if (shard) {
+    mkdirSync(shardReportsDir, { recursive: true });
+    const apps = results.map((result) => ({ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }));
+    writeShardReport(join(shardReportsDir, `shard-${shard.index}.json`), { index: shard.index, apps });
+  }
   const total = ((performance.now() - started) / 1000).toFixed(1);
   console.log('');
   const summary = summarize(results, total, skippedSlowClause(skippedSlow));
