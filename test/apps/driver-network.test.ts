@@ -11,9 +11,11 @@ import { AppRun, launchScenarioBrowser } from './driver.ts';
 
 /** A reserved name that never resolves, under a production-looking parent. */
 const BLOCKED_HOST = 'blocked.firebaseio.invalid';
+/** How a local socket closes: the page closes it, and the host ends the connection without a close frame. */
+const LOCAL_CLOSE = 'close 1006';
 const HANDSHAKE_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
-/** Opens a WebSocket and resolves with what it saw: open, its first message, error, close. */
+/** Opens a WebSocket and resolves with what it saw: open, its first message, error, and close with its code. */
 const OPEN_SOCKET = `
 const openSocket = (url) => new Promise((resolve) => {
   const events = [];
@@ -21,7 +23,7 @@ const openSocket = (url) => new Promise((resolve) => {
   socket.onopen = () => events.push('open');
   socket.onmessage = (event) => { events.push('message ' + event.data); socket.close(); };
   socket.onerror = () => events.push('error');
-  socket.onclose = () => { events.push('close'); resolve(events); };
+  socket.onclose = (event) => { events.push('close ' + event.code); resolve(events); };
   setTimeout(() => resolve([...events, 'no close after 5s']), 5000);
 });`;
 
@@ -85,8 +87,8 @@ function answer(socket: Socket, head: string): void {
   socket.end(httpResponse('text/html', PAGE));
 }
 
-/** A local host over node:net, so the WebSocket handshake does not depend on the runtime's HTTP upgrade. */
-function localHost(): Promise<Server> {
+/** A local host over node:net on `address`, so the WebSocket handshake does not depend on the runtime's HTTP upgrade. */
+function localHost(address: string): Promise<Server> {
   const server = createServer((socket) => {
     let head = '';
     socket.on('error', () => {});
@@ -98,23 +100,27 @@ function localHost(): Promise<Server> {
     };
     socket.on('data', readHead);
   });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+  return new Promise((resolve) => server.listen(0, address, () => resolve(server)));
 }
 
 let server: Server;
+/** The same host on ::1, so a test can reach it as [::1]. */
+let server6: Server;
 let origin: string;
+const portOf = (listening: Server) => (listening.address() as AddressInfo).port;
 let browser: Promise<Browser> | undefined;
 // The runner's own launch, so its resolver rules are under test too.
 const launch = () => (browser ??= launchScenarioBrowser());
 
 beforeAll(async () => {
-  server = await localHost();
-  origin = `127.0.0.1:${(server.address() as AddressInfo).port}`;
+  server = await localHost('127.0.0.1');
+  server6 = await localHost('::1');
+  origin = `127.0.0.1:${portOf(server)}`;
 });
 
 afterAll(async () => {
   if (browser) await (await browser).close();
-  await new Promise((resolve) => server.close(resolve));
+  for (const listening of [server, server6]) await new Promise((resolve) => listening.close(resolve));
 });
 
 async function openedRun(): Promise<{ run: AppRun; page: Page }> {
@@ -150,7 +156,14 @@ const blockedLines = (run: AppRun) => run.browserLog.filter((line) => line.start
 describe('the browser reaches only local hosts (#1606)', () => {
   test('a page WebSocket to another host never opens, and the block is logged', () => withPage(async (run, page) => {
     const url = `wss://${BLOCKED_HOST}/.ws?ns=demo-app`;
-    expect(await inPage(page, 'openSocket', url)).not.toContain('open');
+    // 1008 is the driver's close: a socket it let through would open, or fail to resolve with 1006.
+    expect(await inPage(page, 'openSocket', url)).toEqual(['close 1008']);
+    expect(run.browserLog).toContain(`[blocked external WebSocket] ${url}`);
+  }), 30_000);
+
+  test('a host that only starts with a local name is another host', () => withPage(async (run, page) => {
+    const url = 'ws://localhost.blocked.invalid/';
+    expect(await inPage(page, 'openSocket', url)).toEqual(['close 1008']);
     expect(run.browserLog).toContain(`[blocked external WebSocket] ${url}`);
   }), 30_000);
 
@@ -160,8 +173,10 @@ describe('the browser reaches only local hosts (#1606)', () => {
     expect(run.browserLog).toContain(`[blocked external request] GET ${url}`);
   }), 30_000);
 
-  test('a page WebSocket to 127.0.0.1 opens and gets its message', () => withPage(async (run, page) => {
-    expect(await inPage(page, 'openSocket', `ws://${origin}/`)).toEqual(['open', 'message hello', 'close']);
+  test('page WebSockets to 127.0.0.1, localhost and [::1] open and get their message', () => withPage(async (run, page) => {
+    for (const url of [`ws://${origin}/`, `ws://localhost:${portOf(server)}/`, `ws://[::1]:${portOf(server6)}/`]) {
+      expect({ url, events: await inPage(page, 'openSocket', url) }).toEqual({ url, events: ['open', 'message hello', LOCAL_CLOSE] });
+    }
     expect(blockedLines(run)).toEqual([]);
   }), 30_000);
 
@@ -169,8 +184,8 @@ describe('the browser reaches only local hosts (#1606)', () => {
   // A *.localhost name resolves to loopback without them, so this reaches
   // nothing outside the machine either way.
   test('a worker WebSocket cannot resolve a name the driver does not allow', () => withPage(async (_run, page) => {
-    const port = (server.address() as AddressInfo).port;
-    expect(await inPage(page, 'openSocketInWorker', `ws://127.0.0.1:${port}/`)).toEqual(['open', 'message hello', 'close']);
-    expect(await inPage(page, 'openSocketInWorker', `ws://pyric-check.localhost:${port}/`)).not.toContain('open');
+    const port = portOf(server);
+    expect(await inPage(page, 'openSocketInWorker', `ws://127.0.0.1:${port}/`)).toEqual(['open', 'message hello', LOCAL_CLOSE]);
+    expect(await inPage(page, 'openSocketInWorker', `ws://pyric-check.localhost:${port}/`)).toEqual(['error', 'close 1006']);
   }), 30_000);
 });

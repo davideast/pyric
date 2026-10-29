@@ -10,7 +10,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
 import type { DependencyStore } from './dependency-store.ts';
 import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
@@ -482,9 +482,15 @@ export const LOCAL_ONLY_RESOLVER_RULES = [
   ...[...LOCAL_HOSTS].map((host) => `EXCLUDE ${host.replace(/^\[(.*)\]$/, '$1')}`),
 ].join(', ');
 
-/** Launches the Chromium that every scenario's pages run in. */
-export function launchScenarioBrowser(): Promise<Browser> {
-  return chromium.launch({ headless: true, args: [`--host-resolver-rules=${LOCAL_ONLY_RESOLVER_RULES}`] });
+/**
+ * Launches the Chromium that every scenario's pages run in, headless, with
+ * the local-only resolver rules added to any `args` in `options`. A scenario
+ * that needs its own browser, such as one with the back-forward cache
+ * enabled, launches it here and guards its contexts with `guardContext`.
+ */
+export function launchScenarioBrowser(options: LaunchOptions = {}): Promise<Browser> {
+  const args = [...(options.args ?? []), `--host-resolver-rules=${LOCAL_ONLY_RESOLVER_RULES}`];
+  return chromium.launch({ headless: true, ...options, args });
 }
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -495,6 +501,26 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
  * of relaying each of its frames through the driver.
  */
 const EXTERNAL_WEBSOCKET = new RegExp(`^wss?://(?!(?:${[...LOCAL_HOSTS].map(escapeRegExp).join('|')})(?::\\d+)?/)`);
+
+/**
+ * Blocks and logs to `log` every request and page WebSocket from `context`
+ * to a host other than the local ones. Register it before a scenario's own
+ * routes: the first route registered runs last, so those answer first.
+ */
+export async function guardContext(context: BrowserContext, log: string[]): Promise<void> {
+  await context.route(() => true, async (route) => {
+    const url = new URL(route.request().url());
+    const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
+    if (isLocal) return route.continue();
+    log.push(`[blocked external request] ${route.request().method()} ${url.href}`);
+    return route.abort('blockedbyclient');
+  });
+  // `route` never sees a WebSocket. The page sees the connection close without opening.
+  await context.routeWebSocket(EXTERNAL_WEBSOCKET, async (socket) => {
+    log.push(`[blocked external WebSocket] ${socket.url()}`);
+    await socket.close({ code: 1008, reason: 'blocked by the app scenario driver' });
+  });
+}
 
 /** One run of one app: the state behind the `App` a scenario receives. */
 export class AppRun implements App {
@@ -726,19 +752,7 @@ export class AppRun implements App {
     if (this.context) return this.context;
     const browser = await this.launchBrowser();
     const context = await browser.newContext();
-    // The first route registered runs last, so a scenario's own routes answer first.
-    await context.route(() => true, async (route) => {
-      const url = new URL(route.request().url());
-      const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
-      if (isLocal) return route.continue();
-      this.browserLog.push(`[blocked external request] ${route.request().method()} ${url.href}`);
-      return route.abort('blockedbyclient');
-    });
-    // `route` never sees a WebSocket. The page sees the connection close without opening.
-    await context.routeWebSocket(EXTERNAL_WEBSOCKET, async (socket) => {
-      this.browserLog.push(`[blocked external WebSocket] ${socket.url()}`);
-      await socket.close({ code: 1008, reason: 'blocked by the app scenario driver' });
-    });
+    await guardContext(context, this.browserLog);
     this.context = context;
     return context;
   }
