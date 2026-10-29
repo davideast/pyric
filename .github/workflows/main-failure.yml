@@ -1,0 +1,75 @@
+# Main failure lane: rerun a failed main run once, then file what happened.
+#
+# When a Build & Test run started by a push to main completes, this lane
+# classifies it (scripts/ci/main-failure.ts):
+#   - attempt 1 failed: rerun only its failed jobs, once, and wait for
+#     attempt 2 in the same job, since a rerun started with the workflow
+#     token does not start this workflow again;
+#   - attempt 2 passed: each test that failed in attempt 1 (or its job, when
+#     the log names no test) is a flake, filed as one lane:velocity issue
+#     titled "Flaky on main: `<test>`";
+#   - attempt 2 failed: open or update the one "Main is red: " issue, naming
+#     the commit, the failing jobs and tests, and both attempts;
+#   - any green run closes that issue with a comment naming the run;
+#   - attempt 3 or later, or a cancelled run, does nothing, so it cannot loop.
+#
+# A manual dispatch classifies a past run by id. With dry_run (the default) it
+# prints what it would rerun and file for every attempt, and changes nothing.
+#
+# It never runs on pull requests and never gates one.
+
+name: Main failure
+
+on:
+  workflow_run:
+    workflows: ['Build & Test']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Build & Test run id to classify
+        required: true
+        type: string
+      dry_run:
+        description: Print the plan without rerunning or filing
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-failure-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    name: Rerun once and file
+    # Only push runs on main. An attempt this lane reran itself is handled by
+    # the job that reran it, so its completion is skipped here.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.run_attempt == 1 ||
+      github.event.workflow_run.triggering_actor.login != 'github-actions[bot]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Classify the run
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bun scripts/ci/main-failure.ts
