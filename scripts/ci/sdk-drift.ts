@@ -15,9 +15,10 @@
 // `file-issues` opens or updates one issue per package and major for a
 // failed `latest` run.
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { openOrUpdateIssue, spawnGh } from './github-issues.ts';
 
 export const SDK_PACKAGES = ['firebase', 'firebase-admin'] as const;
 export type SdkPackage = (typeof SDK_PACKAGES)[number];
@@ -305,20 +306,6 @@ async function run(tier: Tier, resultPath: string): Promise<number> {
   return failed ? 1 : 0;
 }
 
-function gh(args: string[]): string {
-  const out = spawnSync('gh', args, { cwd: REPO_ROOT, encoding: 'utf8' });
-  if (out.status !== 0) throw new Error(`gh ${args[0]} ${args[1]} failed: ${out.stderr}`);
-  return out.stdout;
-}
-
-function findOpenIssue(prefix: string): number | undefined {
-  const issues = JSON.parse(gh([
-    'issue', 'list', '--state', 'open', '--limit', '50', '--json', 'number,title',
-    '--search', `"${prefix}" in:title`,
-  ])) as { number: number; title: string }[];
-  return issues.find((issue) => issue.title.startsWith(prefix))?.number;
-}
-
 function issueBody(result: DriftResult): string {
   const run = result.runUrl ? `Run: ${result.runUrl}\n\n` : '';
   return [
@@ -335,18 +322,17 @@ function fileIssues(resultPath: string): void {
     console.log('The run passed; no issue to file.');
     return;
   }
+  const gh = spawnGh(REPO_ROOT);
   const bodyFile = `${resultPath}.issue.md`;
   writeFileSync(bodyFile, issueBody(result));
   for (const name of blamedPackages(result.selected, result.ranges)) {
     const version = result.selected[name];
-    const title = issueTitle(name, version);
-    const existing = findOpenIssue(issueTitlePrefix(name, version));
-    if (existing === undefined) {
-      console.log(gh(['issue', 'create', '--title', title, '--label', ISSUE_LABEL, '--body-file', bodyFile]).trim());
-      continue;
-    }
-    gh(['issue', 'edit', String(existing), '--title', title]);
-    console.log(gh(['issue', 'comment', String(existing), '--body-file', bodyFile]).trim());
+    console.log(openOrUpdateIssue(gh, {
+      prefix: issueTitlePrefix(name, version),
+      title: issueTitle(name, version),
+      label: ISSUE_LABEL,
+      bodyFile,
+    }));
   }
 }
 

@@ -18,10 +18,10 @@
 //
 // Playwright disables the back-forward cache by default and its headless
 // shell refuses it, so this app launches full Chromium in new headless mode
-// with the cache enabled.
+// with the cache enabled, with the driver's resolver rules and context guards.
 import assert from 'node:assert/strict';
-import { chromium, type BrowserContext, type Page } from '@playwright/test';
-import { scenario, sleep } from '../driver.ts';
+import type { BrowserContext, Page } from '@playwright/test';
+import { guardContext, launchScenarioBrowser, scenario, sleep } from '../driver.ts';
 
 declare const presence: { goOnline(user: string): Promise<void>; read(user: string): Promise<unknown> };
 declare const restoredFromCache: boolean | undefined;
@@ -54,13 +54,13 @@ export default scenario(async (app) => {
   const host = await app.step('start the hosted dev server with a 40s liveness window', () =>
     app.devServer({ env: { PYRIC_TEST_PEER_LIVENESS_MS: String(WINDOW_MS) } }));
 
-  const browser = await chromium.launch({
-    headless: true,
+  const browser = await launchScenarioBrowser({
     channel: 'chromium',
     ignoreDefaultArgs: ['--disable-back-forward-cache'],
   });
   try {
     const context = await browser.newContext();
+    await guardContext(context, app.browserLog as string[]);
     const observer = await context.newPage();
     await observer.goto(host.url);
     await observer.waitForFunction(() => 'presence' in window);
