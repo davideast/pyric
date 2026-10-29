@@ -34,11 +34,11 @@
  *   PYRIC_APPS_DEPS_STORE  the store's directory (default
  *                          ~/.cache/pyric-app-scenarios/deps, shared by
  *                          every worktree)
- *   PYRIC_APPS_OFFLINE=1   install no shared set from the registry: a set the
+ *   PYRIC_APPS_OFFLINE=1   install nothing from the registry: a set the
  *                          store does not hold fails at once, with its key
  *                          and app. A scenario's own nested install
- *                          (app.installProject) still goes online until it
- *                          uses the store too
+ *                          (app.installProject, declared in
+ *                          nested-projects.ts) comes from the store too
  *
  * Logs land in
  * test-results/apps/<name>/. Apps start longest first, by the times the last
@@ -126,7 +126,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, run: AppRun): Promise<T
 
 async function runApp(name: string, context: {
   tarballs: Tarballs;
-  npmCache: string;
+  store: DependencyStore;
   installs: SharedInstalls;
   keep: boolean;
   browser: () => Promise<Browser>;
@@ -137,7 +137,7 @@ async function runApp(name: string, context: {
   const home = join(work, 'home');
   mkdirSync(projectDir);
   mkdirSync(join(home, '.config'), { recursive: true });
-  const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, npmCache: context.npmCache });
+  const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, store: context.store });
   const logs: AppResult['logs'] = [];
   let failure: unknown;
   let installSeconds = 0;
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
   let installsFailure: string | undefined;
   try {
     results = await pool(names, jobs, async (name) => {
-      const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
+      const result = await runApp(name, { tarballs, store, installs, keep: options.keep, browser: launch });
       const dir = saveLogs(result);
       // Recorded as each app finishes, so a run that stops early keeps the times it has.
       recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);

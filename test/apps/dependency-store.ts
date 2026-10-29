@@ -19,12 +19,13 @@
  * warming one key leave one complete entry.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { removeTree } from './cleanup.ts';
-import { debugLogTail, npmInstall, npmOfflineInstallArgs, type CommandResult, type Tarballs, type TimedResult } from './install.ts';
+import { debugLogTail, npmInstall, npmOfflineInstallArgs, pinPyricPackages, runCommand, type CommandResult, type Tarballs, type TimedResult } from './install.ts';
+import type { NestedProject } from './nested-projects.ts';
 import { copyTree, installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
 
 /** Bumped when the layout or the key's inputs change, so old entries are never read. */
@@ -285,7 +286,17 @@ export interface DependencyStoreOptions {
 export interface ProvidedSet extends SetInstallResult {
   source: string;
   retryable: boolean;
+  /** True when warming the entry was stopped at its time limit. */
+  timedOut?: boolean;
 }
+
+/** What one `provide` call may change. */
+export interface ProvideOptions {
+  /** How long one warm gets, in place of the store's limit; a nested install keeps its own (#1476). */
+  warmAttemptMs?: number;
+}
+
+type WarmResult = CommandResult & { timedOut?: boolean };
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
@@ -312,7 +323,7 @@ function secondsSince(started: number): string {
 }
 
 export class DependencyStore {
-  private readonly warming = new Map<string, Promise<CommandResult>>();
+  private readonly warming = new Map<string, Promise<WarmResult>>();
   private readonly pyricNames: ReadonlySet<string>;
 
   constructor(private readonly options: DependencyStoreOptions) {
@@ -330,13 +341,13 @@ export class DependencyStore {
    * unless the store is offline. The caller owns the retry: a failed warm is
    * worth a second attempt; a miss offline and a failed offline install are not.
    */
-  async provide(projectDir: string, app?: string): Promise<ProvidedSet> {
+  async provide(projectDir: string, app?: string, options: ProvideOptions = {}): Promise<ProvidedSet> {
     const inputs = this.keyInputs(projectDir);
     const key = storeKey(inputs);
     const entry = join(this.options.dir, key);
     const isMiss = !existsSync(entry);
     if (isMiss && this.options.offline) return this.offlineMiss(key, app);
-    const warm = isMiss ? await this.warmOnce(key, inputs) : undefined;
+    const warm = isMiss ? await this.warmOnce(key, inputs, options) : undefined;
     if (warm !== undefined && warm.code !== 0) return { ...warm, source: `warming store entry ${key} from the registry`, retryable: true };
     const { note, ...materialized } = await this.materialize(entry, projectDir);
     const source = warm === undefined ? `from the store, entry ${key}` : `warmed store entry ${key} from the registry`;
@@ -359,16 +370,16 @@ export class DependencyStore {
   }
 
   /** One warm per key in this run, however many sets ask for it at once. */
-  private warmOnce(key: string, inputs: KeyInputs): Promise<CommandResult> {
+  private warmOnce(key: string, inputs: KeyInputs, options: ProvideOptions): Promise<WarmResult> {
     const running = this.warming.get(key);
     if (running !== undefined) return running;
-    const warm = this.warm(key, inputs).finally(() => this.warming.delete(key));
+    const warm = this.warm(key, inputs, options).finally(() => this.warming.delete(key));
     this.warming.set(key, warm);
     return warm;
   }
 
   /** Install the set from the registry into a new directory, and rename it into place. */
-  private async warm(key: string, inputs: KeyInputs): Promise<CommandResult> {
+  private async warm(key: string, inputs: KeyInputs, options: ProvideOptions): Promise<WarmResult> {
     const started = performance.now();
     const header = `[runner] warming store entry ${key} from the registry\n`;
     mkdirSync(this.options.dir, { recursive: true });
@@ -376,8 +387,8 @@ export class DependencyStore {
     try {
       writeFileSync(join(building, 'package.json'), inputs.manifest);
       if (inputs.npmrc !== undefined) writeFileSync(join(building, '.npmrc'), inputs.npmrc);
-      const result = await this.installFromRegistry(building);
-      if (result.code !== 0) return { code: result.code ?? 1, output: `${header}${result.output}` };
+      const result = await this.installFromRegistry(building, options.warmAttemptMs ?? this.options.warmAttemptMs ?? WARM_ATTEMPT_MS);
+      if (result.code !== 0) return { code: result.code ?? 1, output: `${header}${result.output}`, timedOut: result.timedOut };
       if (!existsSync(join(building, 'package-lock.json'))) return { code: 1, output: `${header}${result.output}[runner] npm wrote no package-lock.json\n` };
       const record = { format: STORE_FORMAT, key, inputs: storeKeyInputs(inputs), warmedAt: new Date().toISOString(), warmSeconds: Number(secondsSince(started)) };
       writeFileSync(join(building, STORE_RECORD), `${JSON.stringify(record, null, 2)}\n`);
@@ -391,9 +402,8 @@ export class DependencyStore {
   }
 
   /** One online `npm install`, with its debug log; the log's end joins the output of an attempt that timed out. */
-  private async installFromRegistry(dir: string): Promise<TimedResult> {
+  private async installFromRegistry(dir: string, timeoutMs: number): Promise<TimedResult> {
     const logsDir = join(dir, '.npm-logs');
-    const timeoutMs = this.options.warmAttemptMs ?? WARM_ATTEMPT_MS;
     const result = await npmInstall(this.options.npmCache, (args) => this.options.runNpm(args, { cwd: dir, timeoutMs }), logsDir);
     const tail = result.timedOut ? debugLogTail(logsDir, NPM_LOG_TAIL_LINES) : '';
     rmSync(logsDir, { recursive: true, force: true });
@@ -449,5 +459,55 @@ export class DependencyStore {
     } finally {
       rmSync(cache, { recursive: true, force: true });
     }
+  }
+}
+
+/** How the store keys a nested project: the create-pyric command that scaffolds a template, and the run's tarballs. */
+export interface NestedManifestOptions {
+  /** The directory that holds the apps, test/apps/. */
+  appsDir: string;
+  /** The command that runs create-pyric, such as `['node', 'node_modules/create-pyric/dist/bin.js']`. */
+  createPyric: readonly string[];
+  tarballs: Tarballs;
+}
+
+/** A nested project's package.json and .npmrc, as `installProject` keys them. */
+export interface NestedManifest {
+  manifest: string;
+  npmrc?: string;
+}
+
+/** Writes the project's package.json (and .npmrc) at its path under `appDir`, from its template or its directory in the app. */
+async function writeNestedProject(project: NestedProject, appDir: string, options: NestedManifestOptions): Promise<void> {
+  const source = project.manifest;
+  const projectDir = join(appDir, project.path);
+  if ('dir' in source) {
+    const from = join(options.appsDir, project.app, source.dir);
+    mkdirSync(projectDir, { recursive: true });
+    copyFileSync(join(from, 'package.json'), join(projectDir, 'package.json'));
+    if (existsSync(join(from, '.npmrc'))) copyFileSync(join(from, '.npmrc'), join(projectDir, '.npmrc'));
+    return;
+  }
+  const [command = 'node', ...args] = options.createPyric;
+  // As the scenario runs it: from the app directory, with the project's path.
+  const result = await runCommand(command, [...args, project.path, '--template', source.template], { cwd: appDir });
+  if (result.code !== 0) throw new Error(`create-pyric --template ${source.template} exited with code ${result.code}:\n${result.output}`);
+}
+
+/**
+ * The manifest a declared nested project has when `installProject` keys it:
+ * scaffolded from its create-pyric template or copied from its directory in
+ * the app, then pinned to the run's tarballs as `installProject` pins it.
+ * With it, a project's store key is known before the run.
+ */
+export async function nestedProjectManifest(project: NestedProject, options: NestedManifestOptions): Promise<NestedManifest> {
+  const work = mkdtempSync(join(tmpdir(), 'pyric-nested-manifest-'));
+  try {
+    const projectDir = join(work, project.path);
+    await writeNestedProject(project, work, options);
+    pinPyricPackages(projectDir, options.tarballs);
+    return { manifest: readFileSync(join(projectDir, 'package.json'), 'utf8'), npmrc: readOptional(join(projectDir, '.npmrc')) };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
   }
 }

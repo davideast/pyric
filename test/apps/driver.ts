@@ -8,23 +8,15 @@
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
-import {
-  debugLogTail,
-  NESTED_INSTALL_ATTEMPT_MS,
-  npmInstall,
-  pinPyricPackages,
-  retryOnceOnTimeout,
-  type Tarballs,
-  type TimedResult,
-} from './install.ts';
+import type { DependencyStore } from './dependency-store.ts';
+import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
+import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
 import {
   DEFAULT_EXIT_TIMING,
-  describeGroupProcesses,
   describeProcState,
   endGroup,
   watchChildExit,
@@ -32,18 +24,19 @@ import {
   type LiveProcess,
 } from './unreaped-exit.ts';
 
-/** How much of npm's debug log the job log gets when an install attempt times out. */
-const NPM_LOG_TAIL_LINES = 40;
-
-/** How `installProject` runs npm. Tests pass a stand-in npm, a short limit, and their own report. */
-export interface NestedNpm {
-  command: string;
-  attemptMs: number;
+/**
+ * How `installProject` installs a nested project: from the run's dependency
+ * store, with the run's tarballs. Tests pass a store over a stand-in npm, a
+ * short limit, and their own report.
+ */
+export interface NestedInstalls {
+  tarballs: Tarballs;
+  store: Pick<DependencyStore, 'provide'>;
+  /** How long one warm of the project's store entry gets; NESTED_INSTALL_ATTEMPT_MS by default. */
+  attemptMs?: number;
   /** Where the `[runner]` lines go; the run's output by default. */
   report?: (line: string) => void;
 }
-
-const NPM_INSTALL: NestedNpm = { command: 'npm', attemptMs: NESTED_INSTALL_ATTEMPT_MS };
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -341,7 +334,8 @@ export interface App {
   /**
    * Installs a project the scenario created inside the app directory, such
    * as one `create-pyric` scaffolded: its Pyric dependencies point at the
-   * packed tarballs, as the app's own do, and `npm install` runs in it.
+   * packed tarballs, as the app's own do, and its tree comes from the
+   * dependency store. `path` must be declared in test/apps/nested-projects.ts.
    * Throws on a failed install.
    */
   installProject(path: string): Promise<ScriptResult>;
@@ -492,8 +486,8 @@ export class AppRun implements App {
     readonly dir: string,
     private readonly home: string,
     private readonly launchBrowser: () => Promise<Browser>,
-    /** The packed Pyric packages and npm cache the runner installed the app with. */
-    private readonly packages?: { tarballs: Tarballs; npmCache: string; npm?: NestedNpm },
+    /** The packed Pyric packages the runner installed the app with, and the store nested projects come from. */
+    private readonly packages?: NestedInstalls,
     /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
     private readonly ports: PortIssuer = runPorts,
     /** The waits every process the run starts uses. */
@@ -616,7 +610,7 @@ export class AppRun implements App {
     command: string,
     args: string[],
     options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
-  ): Promise<TimedResult & { timeoutMs: number; running?: string }> {
+  ): Promise<TimedResult & { timeoutMs: number }> {
     this.scriptCount += 1;
     const label = [command, ...args].join(' ');
     const child = new AppProcess(
@@ -632,47 +626,43 @@ export class AppRun implements App {
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
-      // Read before the stop ends them: what the command was still running.
-      const running = child.pid === undefined ? undefined : describeGroupProcesses(child.pid);
       await child.stop();
-      return { code: null, output: child.output, timedOut: true, timeoutMs, running };
+      return { code: null, output: child.output, timedOut: true, timeoutMs };
     }
     return { code: await child.exited, output: child.output, timedOut: false, timeoutMs };
   }
 
   /**
-   * `npm install` in `path`, under a limit per attempt. An attempt that hangs
-   * is stopped, its node_modules removed, and tried once more (#1476); npm's
-   * debug log goes to the app's home, and its end joins the output of an
-   * attempt that timed out, so the hang can be read from the app's log.
+   * The project in `path`, from the dependency store, keyed by its
+   * package.json. A warm of its entry that hangs is stopped and tried once
+   * more (#1476); the warm builds in a directory of its own, so nothing is
+   * left to reset, and its output, with the processes npm was running and
+   * the end of npm's debug log, is printed at once.
    */
   async installProject(path: string): Promise<ScriptResult> {
+    if (nestedProject(this.name, path) === undefined) {
+      throw new Error(`${this.name} installs the nested project ${path}, which ${NESTED_PROJECTS_FILE} does not declare. Nested installs come from the dependency store, keyed before the run: add { app: '${this.name}', path: '${path}', manifest } to that list.`);
+    }
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
-    const { npmCache, tarballs, npm = NPM_INSTALL } = this.packages;
-    pinPyricPackages(join(this.dir, path), tarballs);
-    const logsDir = join(this.home, 'npm-logs', path);
-    const what = `${this.name}: npm install in ${path}`;
-    const report = npm.report ?? ((line: string) => console.log(line));
-    const attempt = async (args: string[]): Promise<TimedResult> => {
-      const result = await this.timedCommand(npm.command, args, { cwd: path, timeoutMs: npm.attemptMs });
-      if (!result.timedOut) return { code: result.code, output: result.output, timedOut: false };
+    const { tarballs, store, attemptMs = NESTED_INSTALL_ATTEMPT_MS } = this.packages;
+    const report = this.packages.report ?? ((line: string) => console.log(line));
+    const projectDir = join(this.dir, path);
+    pinPyricPackages(projectDir, tarballs);
+    const what = `${this.name}: install of ${path} from the dependency store`;
+    let source = '';
+    const attempt = async (): Promise<TimedResult> => {
+      const result = await store.provide(projectDir, `${this.name}, nested project ${path}`, { warmAttemptMs: attemptMs });
+      source = result.source;
+      const timedOut = result.timedOut === true;
       // Printed now: the app's logs are saved only when it fails, and its home
       // is removed after it, so a retry that passes would lose this (#1494).
-      // npm's log does not cover what its install scripts do, such as a
-      // prebuilt binary a package downloads itself, so the processes npm was
-      // still running are named too.
-      const running = `[runner] processes in its group when it was stopped:\n${result.running ?? '(unknown)'}\n`;
-      const note = `[runner] ${what} stopped after ${result.timeoutMs / 1000} s\n${running}${debugLogTail(logsDir, NPM_LOG_TAIL_LINES)}`;
-      report(note.trimEnd());
-      return { code: result.code, output: `${result.output}\n${note}`, timedOut: true };
+      if (timedOut) report(`[runner] ${what} stopped after ${attemptMs / 1000} s\n${result.output.trimEnd()}`);
+      return { code: result.code, output: result.output, timedOut };
     };
-    const result = await retryOnceOnTimeout(() => npmInstall(npmCache, attempt, logsDir), {
-      what,
-      reset: () => rm(join(this.dir, path, 'node_modules'), { recursive: true, force: true }),
-      report,
-    });
-    if (result.timedOut) throw new Error(`npm install in ${path} timed out on both attempts:\n${result.output}`);
-    if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
+    const result = await retryOnceOnTimeout(attempt, { what, reset: async () => {}, report });
+    report(`[runner] nested project ${path} for ${this.name}: ${source}`);
+    if (result.timedOut) throw new Error(`the install of ${path} timed out on both attempts:\n${result.output}`);
+    if (result.code !== 0) throw new Error(`the install of ${path} failed with exit ${result.code}:\n${result.output}`);
     return { code: result.code, output: result.output };
   }
 
