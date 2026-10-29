@@ -19,12 +19,21 @@ interface Answer {
   readonly nexted: boolean;
 }
 
-function attach(hasBridge: boolean): { handler: PyricMiddleware; dispose: () => void } {
-  let handler: PyricMiddleware | undefined;
+/** A Vite server stub whose Connect stack records the last middleware attached to it. */
+function viteServer(): { server: ViteDevServer; last: () => PyricMiddleware | undefined } {
+  let attached: PyricMiddleware | undefined;
   const server = {
     config: { server: { allowedHosts: [], host: 'localhost' } },
-    middlewares: { use(_route: string, middleware: PyricMiddleware) { handler = middleware; } },
+    middlewares: { use(_route: string, middleware: PyricMiddleware) { attached = middleware; } },
   } as unknown as ViteDevServer;
+  return { server, last: () => attached };
+}
+
+function attach(
+  hasBridge: boolean,
+  onto: ReturnType<typeof viteServer> = viteServer(),
+): { handler: PyricMiddleware; dispose: () => void } {
+  const { server } = onto;
   const bridge = {
     handler(_req: IncomingMessage, res: ServerResponse) {
       res.writeHead(200, { 'content-type': 'application/json' }).end('{"mode":"sandbox"}');
@@ -33,6 +42,7 @@ function attach(hasBridge: boolean): { handler: PyricMiddleware; dispose: () => 
   } as unknown as BridgeMount;
   const session = { handle: async () => false } as unknown as SandboxSession;
   const dispose = attachViteGenerationMiddleware({ server, bridge: hasBridge ? bridge : null, session });
+  const handler = onto.last();
   if (handler === undefined) throw new Error('no /__pyric middleware was attached');
   return { handler, dispose };
 }
@@ -75,6 +85,24 @@ describe('a closed Vite generation', () => {
     const { handler, dispose } = attach(false);
     dispose();
     expect((await call(handler, '/__pyric/health')).nexted).toBe(true);
+  });
+
+  it('passes /__pyric/health through to a live generation on the same stack', async () => {
+    const stack = viteServer();
+    const first = attach(true, stack);
+    first.dispose();
+    attach(true, stack);
+    expect((await call(first.handler, '/__pyric/health')).nexted).toBe(true);
+  });
+
+  it('answers /__pyric/health with 503 again once the later generation on the stack closes too', async () => {
+    const stack = viteServer();
+    const first = attach(true, stack);
+    first.dispose();
+    const second = attach(true, stack);
+    second.dispose();
+    second.dispose();
+    expect((await call(first.handler, '/__pyric/health')).statusCode).toBe(503);
   });
 
   it('answers /__pyric/health from the mount while it is active', async () => {
