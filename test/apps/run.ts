@@ -55,12 +55,12 @@
  * slot (scripts/lib/heavy-run-slots.ts) before it samples the machine and
  * packs the workspace, and waits while two other heavy runs hold both slots.
  */
-import { chromium, type Browser } from '@playwright/test';
+import type { Browser } from '@playwright/test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
-import { AppRun, StepFailure, type Scenario } from './driver.ts';
+import { AppRun, launchScenarioBrowser, StepFailure, type Scenario } from './driver.ts';
 import { currentPlatform, DependencyStore, readPackedPackages } from './dependency-store.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
@@ -324,7 +324,7 @@ async function main(): Promise<void> {
   });
 
   let browser: Promise<Browser> | undefined;
-  const launch = () => (browser ??= chromium.launch({ headless: true }));
+  const launch = () => (browser ??= launchScenarioBrowser());
 
   const jobs = options.jobs ?? defaultJobs(machine, process.env);
   const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;

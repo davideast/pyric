@@ -5,7 +5,7 @@ Each directory here is a plain user project: a `package.json`, a `vite.config.js
 - **Install.** The app is copied to a temporary directory and installed with `npm install`. The Pyric packages come from packed tarballs (`scripts/pack-packages.sh`), never from workspace sources. `firebase`, `firebase-admin`, and `vite` come from the npm registry at the versions the app's `package.json` names.
 - **Host.** The app's own Vite dev server runs as a child process on a free port.
 - **Server.** Server scripts run as `node --import @pyric/cli/register <script>` from the app directory.
-- **Browser.** Pages open in Playwright Chromium. Requests to any host other than `127.0.0.1` or `localhost` are aborted unless the scenario answers them with a route, so no scenario reaches a Google or Firebase production endpoint.
+- **Browser.** Pages open in Playwright Chromium, and no scenario reaches a Google or Firebase production endpoint. Requests to any host other than `127.0.0.1` or `localhost`, including those a service worker makes, are aborted and logged in `app.browserLog` unless the scenario answers them with `route`. A page WebSocket to another host is closed before it opens, and logged, unless the scenario answers it with `routeWebSocket`. Chromium also launches with host resolver rules that leave only `localhost`, `127.0.0.1` and `::1` resolvable, so a connection no route sees, such as a WebSocket a worker opens, fails to resolve. The driver's own tests for this are in `driver-network.test.ts`.
 
 Every app process gets a fresh `HOME` and no inherited credentials or API keys.
 
@@ -82,12 +82,12 @@ The dev server port comes from the command line, which overrides any `server.por
 | `app.command(command, args, { cwd, env, timeoutMs })` | Runs a command a user types, such as `npm run dev` or `node node_modules/create-pyric/dist/bin.js`, from `cwd` inside the app directory until it exits. Returns the exit code and output rather than throwing. |
 | `app.installProject(path)` | Installs a project the scenario created in the app directory, such as one `create-pyric` scaffolded: its Pyric dependencies point at the packed tarballs, then `npm install` runs in it. |
 | `app.page(url)` | Opens a page in the app's browser context. |
-| `app.browser()` | The app's browser context, for routes that answer external requests. |
+| `app.browser()` | The app's browser context, for routes (`route`, `routeWebSocket`) that answer external requests and WebSockets. |
 | `process.waitForLog(pattern, { since })` | Waits for a log line. `process.mark()` gives the `since` offset. |
 | `app.readFile` / `app.writeFile` | Read or edit a file in the installed app, for example `vite.config.js`. |
 | `app.freePort()` | A port nothing listens on. |
 | `app.blackholedPort()` | A port whose connects never complete and never refuse, as a closed port behaves under WSL mirrored networking. |
-| `app.browserLog` | Every page's console lines, page errors, and error responses so far, for asserting what a user would see in the console. |
+| `app.browserLog` | Every page's console lines, page errors, and error responses so far, for asserting what a user would see in the console. It also holds a line for each blocked external request (`[blocked external request]`) and WebSocket (`[blocked external WebSocket]`). |
 | `app.expectHostError(pattern)` | Allows a page request to a `/__pyric/` route to answer with an error, matched against `"<status> <method> <path>?<query>"`. |
 
 `process.stop()` sends SIGTERM to the process group, then SIGKILL after 5 seconds. A process that still has not closed 5 seconds after that, such as one whose pipes another process holds open, is recorded as gone with a note in its log, so a step and the run's teardown never wait on it longer. When a spawn fails with `EBADF` before the process writes any output, which Bun's `spawn` does now and then under concurrency (#997), the driver starts it once more and says so in its log.
