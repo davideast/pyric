@@ -52,8 +52,8 @@ export interface LegStatus {
   /** What the state names: the blocking issue of a disabled leg, the variable
    *  a leg lacks, or why a capture failed. Empty when there is nothing to name. */
   detail: string;
-  /** Set only when the latest attempt left no status file and an earlier
-   *  attempt's file was read instead: the attempt that file came from. */
+  /** Set only when the status file came from an attempt before the run's
+   *  current one: the attempt that file came from. */
   fallbackAttempt?: number;
 }
 
@@ -166,8 +166,6 @@ function attemptOf(folder: string, rig: string): number | undefined {
 interface StatusFile {
   file: string;
   attempt: number;
-  /** The highest attempt number that has an artifact folder for this leg. */
-  latestAttempt: number;
 }
 
 /** The status file of the latest attempt that uploaded one for `rig`. */
@@ -177,25 +175,25 @@ function latestStatusFile(dir: string, rig: string): StatusFile | undefined {
     .map((folder) => ({ folder, attempt: attemptOf(folder, rig) }))
     .filter((entry): entry is { folder: string; attempt: number } => entry.attempt !== undefined)
     .sort((a, b) => b.attempt - a.attempt);
-  const latestAttempt = attempts[0]?.attempt ?? 0;
   for (const entry of attempts) {
     const file = join(dir, entry.folder, `${rig}.json`);
-    if (existsSync(file)) return { file, attempt: entry.attempt, latestAttempt };
+    if (existsSync(file)) return { file, attempt: entry.attempt };
   }
   return undefined;
 }
 
 /** One status per leg, from the latest attempt that recorded one. A leg with
- *  no file, or an unreadable one, is `no-record`. A leg read from an earlier
- *  attempt carries that attempt's number. */
-export function readStatuses(dir: string): LegStatus[] {
+ *  no file, or an unreadable one, is `no-record`. A leg whose file came from
+ *  an attempt before `runAttempt` carries that attempt's number: it was not
+ *  re-run, or died in this attempt before it could upload. */
+export function readStatuses(dir: string, runAttempt?: number): LegStatus[] {
   return LEGS.map((leg) => {
     const found = latestStatusFile(dir, leg.rig);
     if (found === undefined) return noRecord(leg.rig);
     const status = parseStatus(leg.rig, readFileSync(found.file, 'utf8'));
     if (status === undefined) return noRecord(leg.rig);
-    const readEarlierAttempt = found.attempt < found.latestAttempt;
-    if (!readEarlierAttempt) return status;
+    const fromEarlierAttempt = runAttempt !== undefined && found.attempt < runAttempt;
+    if (!fromEarlierAttempt) return status;
     return { ...status, fallbackAttempt: found.attempt };
   });
 }
@@ -361,6 +359,11 @@ function runUrlFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   return `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
 }
 
+function runAttemptFromEnv(env: NodeJS.ProcessEnv): number | undefined {
+  const attempt = Number(env.RUN_ATTEMPT);
+  return Number.isInteger(attempt) && attempt > 0 ? attempt : undefined;
+}
+
 function statusDirFromEnv(env: NodeJS.ProcessEnv): string {
   if (!env.STATUS_DIR) throw new Error('STATUS_DIR is not set');
   return resolve(env.STATUS_DIR);
@@ -377,7 +380,7 @@ function record(env: NodeJS.ProcessEnv): void {
 
 export function report(env: NodeJS.ProcessEnv): void {
   const dir = statusDirFromEnv(env);
-  const statuses = readStatuses(dir);
+  const statuses = readStatuses(dir, runAttemptFromEnv(env));
   const context: ReportContext = {
     runUrl: runUrlFromEnv(env),
     downloadFailed: env.DOWNLOAD_OUTCOME === 'failure',

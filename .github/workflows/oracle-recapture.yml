@@ -338,6 +338,7 @@ jobs:
         env:
           STATUS_DIR: ${{ runner.temp }}/oracle-leg
           DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           FILE_ISSUE: ${{ (github.event_name == 'schedule' || inputs.file-issue == true) && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
         run: bun scripts/ci/oracle-leg-report.ts report

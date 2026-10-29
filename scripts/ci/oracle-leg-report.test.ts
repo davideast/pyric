@@ -199,24 +199,30 @@ describe('reading the status files', () => {
     expect(statuses.find((entry) => entry.rig === 'rules-firestore')?.state).toBe('checked-clean');
   });
 
-  test('an attempt that uploaded no file falls back to the earlier one, and the table says so', () => {
+  test('a leg that uploaded nothing in a re-run reads its earlier attempt, and the table says so', () => {
     const dir = scratchDir();
     writeStatus(dir, status('rules-storage', 'checked-drift'), 1);
-    mkdirSync(join(dir, 'oracle-leg-rules-storage-2'));
-    const statuses = readStatuses(dir);
+    const statuses = readStatuses(dir, 2);
     const storage = statuses.find((entry) => entry.rig === 'rules-storage');
     expect(storage?.state).toBe('checked-drift');
     expect(storage?.fallbackAttempt).toBe(1);
     expect(legTable(statuses)).toContain('| rules-storage | credentialed | checked, drift found (attempt 1) |');
   });
 
-  test('a leg read from its latest attempt carries no attempt note', () => {
+  test('a leg read from the run\'s own attempt carries no attempt note', () => {
     const dir = scratchDir();
     writeStatus(dir, status('rules-storage', 'checked-clean'), 1);
     writeStatus(dir, status('rules-storage', 'checked-drift'), 2);
-    const statuses = readStatuses(dir);
+    const statuses = readStatuses(dir, 2);
     expect(statuses.find((entry) => entry.rig === 'rules-storage')?.fallbackAttempt).toBeUndefined();
     expect(legTable(statuses)).not.toContain('(attempt');
+  });
+
+  test('a first attempt, or an unknown attempt, never carries a note', () => {
+    const dir = scratchDir();
+    writeStatus(dir, status('rules-storage', 'checked-clean'), 1);
+    expect(legTable(readStatuses(dir, 1))).not.toContain('(attempt');
+    expect(legTable(readStatuses(dir))).not.toContain('(attempt');
   });
 
   test('one leg is not read as another', () => {
@@ -323,6 +329,20 @@ describe('the report command', () => {
 
   test('a download that succeeded is not named', () => {
     expect(runReport('success')).not.toContain('could not be downloaded');
+  });
+
+  test('it reads the run attempt, so a leg from an earlier attempt is noted in the table', () => {
+    const dir = scratchDir();
+    writeStatus(dir, status('rules-storage', 'checked-clean'), 1);
+    const summaryFile = join(scratchDir(), 'summary.md');
+    writeFileSync(summaryFile, '');
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      report({ STATUS_DIR: dir, FILE_ISSUE: 'false', RUN_ATTEMPT: '2', GITHUB_STEP_SUMMARY: summaryFile });
+    } finally {
+      log.mockRestore();
+    }
+    expect(readFileSync(summaryFile, 'utf8')).toContain('| rules-storage | credentialed | checked, no drift (attempt 1) |');
   });
 
   test('it writes the headline and the table to the run summary', () => {
@@ -569,6 +589,7 @@ describe('the report job', () => {
   test('the report step always runs, reads the download outcome, and files only when asked', () => {
     expect(report?.if).toBe('always()');
     expect(report?.env?.DOWNLOAD_OUTCOME).toBe('${{ steps.download.outcome }}');
+    expect(report?.env?.RUN_ATTEMPT).toBe('${{ github.run_attempt }}');
     expect(report?.env?.STATUS_DIR).toBe('${{ runner.temp }}/oracle-leg');
     expect(report?.env?.FILE_ISSUE).toContain("github.event_name == 'schedule'");
     expect(report?.env?.FILE_ISSUE).toContain('inputs.file-issue == true');
