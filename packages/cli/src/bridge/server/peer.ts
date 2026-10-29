@@ -449,6 +449,54 @@ export function createConsumerSession(
  *  code lets a route answer 413 instead of treating it as malformed JSON. */
 export const BODY_TOO_LARGE_CODE = 'PYRIC_BODY_TOO_LARGE';
 
+function bodyTooLarge(): Error {
+  return Object.assign(new Error('request body too large'), { code: BODY_TOO_LARGE_CODE });
+}
+
+/**
+ * Read a request body as bytes, for a route that forwards it verbatim.
+ *
+ * Unlike {@link collectBody} the limit is required: the bytes are held in
+ * memory once as received chunks and once as the joined copy, so an
+ * unbounded read would let one request grow the process twice over. Past the
+ * limit the rest of the upload is read and discarded, as `collectBody` does,
+ * so the caller's 413 reaches the client.
+ */
+export async function collectRawBody(
+  req: IncomingMessage,
+  limitBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  return await new Promise<Uint8Array<ArrayBuffer>>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let overLimit = false;
+    req.on('data', (chunk: Buffer) => {
+      if (overLimit) return;
+      total += chunk.byteLength;
+      const withinLimit = total <= limitBytes;
+      if (withinLimit) {
+        chunks.push(chunk);
+        return;
+      }
+      overLimit = true;
+      chunks.length = 0;
+      reject(bodyTooLarge());
+    });
+    req.on('end', () => {
+      if (overLimit) return;
+      // A plain-ArrayBuffer view: fetch's BodyInit typing rejects Buffer's ArrayBufferLike backing.
+      const body = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      resolve(body);
+    });
+    req.on('error', reject);
+  });
+}
+
 /**
  * Read a request body and parse it as JSON.
  *
@@ -474,7 +522,7 @@ export async function collectBody(
       if (limitBytes === undefined || Buffer.byteLength(raw) <= limitBytes) return;
       overLimit = true;
       raw = '';
-      reject(Object.assign(new Error('request body too large'), { code: BODY_TOO_LARGE_CODE }));
+      reject(bodyTooLarge());
     });
     req.on('end', () => {
       if (!raw) {
