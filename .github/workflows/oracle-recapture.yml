@@ -24,6 +24,16 @@
 #      so the weekly check never goes green with nothing checked against
 #      production. On a manual dispatch it skips with a warning instead.
 #
+# Every leg ends by recording its state (checked with no drift, checked with
+# drift, capture failed, or not run with the reason) as a summary line and the
+# artifact oracle-leg-<rig>-<attempt>. The report job reads the latest attempt
+# of each, writes a headline and a table of every leg to the run summary, and
+# counts a leg whose record never arrived as not run. A disabled leg leaves the
+# run green but is listed as not run. On a scheduled run, or a dispatch with
+# file-issue set, the report also opens or updates one lane:reliability issue
+# and comments the table, and closes it once every leg has checked production
+# with no drift (scripts/ci/oracle-leg-report.ts).
+#
 # Deliberately excluded:
 #   - rtdb-rules      — the one rig that MUTATES a live project (deploys a
 #                       ruleset, then restores). Its deploy/capture/restore/
@@ -39,7 +49,8 @@
 # SAFETY: this lane never commits or pushes a changed observation. On drift it
 # fails loudly with the diff in the job summary and uploads the rewritten
 # observation files as a workflow artifact, kept 14 days; a human reviews the
-# affected rows and commits them deliberately on a branch.
+# affected rows and commits them deliberately on a branch. Only the report job
+# can write to issues. The lane never runs on pull requests.
 
 name: Oracle re-capture
 
@@ -49,9 +60,14 @@ on:
     # and playground (10:43) crons.
     - cron: '0 6 * * 1'
   workflow_dispatch:
+    inputs:
+      file-issue:
+        description: Open or update the lane:reliability issue, as a scheduled run does
+        type: boolean
+        default: false
 
 # Read-only: drift surfaces as a red run with the diff in the summary. The lane
-# writes nothing back to the repository.
+# writes nothing back to the repository. The report job adds issues: write.
 permissions:
   contents: read
 
@@ -113,6 +129,23 @@ jobs:
           path: ${{ runner.temp }}/observation-drift
           retention-days: 14
           if-no-files-found: warn
+      - name: Record this leg's state
+        if: always()
+        env:
+          RIG: unattended
+          AVAILABLE: 'true'
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+          DRIFT_FOUND: ${{ steps.drift.outputs.found }}
+          STATUS_DIR: ${{ runner.temp }}/oracle-leg
+        run: bun scripts/ci/oracle-leg-report.ts record
+      - name: Upload this leg's state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-leg-unattended-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oracle-leg
+          retention-days: 14
+          if-no-files-found: warn
 
   credentialed:
     name: Credentialed rig (${{ matrix.rig }})
@@ -161,7 +194,8 @@ jobs:
         # absent, a scheduled run fails and a dispatched run skips with a
         # warning. The guard var name is per-rig; ${!GUARD} reads whichever
         # one this leg needs. A wif leg with a provider but no service account
-        # is a broken configuration and fails.
+        # is a broken configuration and fails. The `missing` output names the
+        # variable a leg lacks, for the state recorded at the end of the job.
         env:
           GUARD: ${{ matrix.guard }}
           DISABLED: ${{ matrix.disabled }}
@@ -176,12 +210,15 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice::${{ matrix.rig }} is disabled until $DISABLED. Re-capture skipped."
           elif [ -z "${!GUARD}" ] && [ "$EVENT" = "schedule" ]; then
+            echo "missing=$GUARD" >> "$GITHUB_OUTPUT"
             echo "::error::$GUARD not configured, so ${{ matrix.rig }} checked nothing against production. Configure it, or mark the leg disabled with its blocking issue."
             exit 1
           elif [ -z "${!GUARD}" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "missing=$GUARD" >> "$GITHUB_OUTPUT"
             echo "::warning::$GUARD not configured. ${{ matrix.rig }} re-capture skipped. A scheduled run fails here."
           elif [ "$WIF" = "true" ] && [ -z "$PARITY_SA_EMAIL" ]; then
+            echo "missing=PARITY_SA_EMAIL" >> "$GITHUB_OUTPUT"
             echo "::error::GCP_WIF_PROVIDER is set but PARITY_SA_EMAIL is not. Set both repository variables."
             exit 1
           else
@@ -244,3 +281,64 @@ jobs:
           path: ${{ runner.temp }}/observation-drift
           retention-days: 14
           if-no-files-found: warn
+      - name: Record this leg's state
+        if: always()
+        env:
+          RIG: ${{ matrix.rig }}
+          DISABLED: ${{ matrix.disabled }}
+          MISSING: ${{ steps.secret-check.outputs.missing }}
+          AVAILABLE: ${{ steps.secret-check.outputs.available }}
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+          DRIFT_FOUND: ${{ steps.drift.outputs.found }}
+          STATUS_DIR: ${{ runner.temp }}/oracle-leg
+        run: bun scripts/ci/oracle-leg-report.ts record
+      - name: Upload this leg's state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-leg-${{ matrix.rig }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oracle-leg
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Says which legs checked production, and opens, updates or closes the one
+  # lane:reliability issue. Runs even when a leg failed or never started. Its
+  # own failure is a failed issue call, never a leg's result.
+  report:
+    name: Report which legs checked production
+    needs: [unattended, credentialed]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      # A leg that never uploaded has no file here, which the report counts as
+      # not run, and the report names a failed download in its headline. Each
+      # artifact lands in its own folder, since a re-run of failed legs uploads
+      # under a new attempt number and the report reads the latest of each leg.
+      - name: Download the leg states
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: oracle-leg-*
+          path: ${{ runner.temp }}/oracle-leg
+      - name: Test the report script
+        run: bun test scripts/ci/oracle-leg-report.test.ts
+      # Runs even when the report test fails, so a failing test cannot hide the
+      # headline or the issue.
+      - name: Report the leg states
+        if: always()
+        env:
+          STATUS_DIR: ${{ runner.temp }}/oracle-leg
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          FILE_ISSUE: ${{ (github.event_name == 'schedule' || inputs.file-issue == true) && 'true' || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/ci/oracle-leg-report.ts report
