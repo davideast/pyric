@@ -91,7 +91,8 @@ describe('browserEvents', () => {
   test('TCP and UDP connects carry their address, split into host and port', () => {
     expect(connects(chromiumLayout(PAGE_EVENTS)).map(({ protocol, host, port, google }) => ({ protocol, host, port, google }))).toEqual([
       { protocol: 'tcp', host: '127.0.0.1', port: 5173, google: false },
-      { protocol: 'udp', host: '2001:4860:4860::8888', port: 443, google: false },
+      // Chromium's IPv6 reachability check, to Google Public DNS: a Google address, though no packet is sent.
+      { protocol: 'udp', host: '2001:4860:4860::8888', port: 443, google: true },
     ]);
   });
 
