@@ -19,7 +19,11 @@ interface TarFile {
 
 const BLOCK = 512;
 
-/** Tar entry types that are a regular file. */
+/**
+ * Tar entry types that are a regular file. A hard link (`1`) or a symlink
+ * (`2`) is left out: npm's extract filter drops every link entry, so an
+ * install holds no file for one.
+ */
 const REGULAR_TYPES = new Set(['0', '\0', '7']);
 
 /** A pax extended header (`x`) or a GNU long name (`L`) names the entry after it. */
