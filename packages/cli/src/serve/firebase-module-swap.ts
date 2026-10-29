@@ -93,6 +93,41 @@ export const REAL_SDK_ENTRIES: ReadonlyMap<ServedFirebaseSpecifier, string> = ne
 ]);
 
 /**
+ * The `@firebase/*` packages the real AI SDK and the passthrough's
+ * `firebase/app` and `firebase/app-check` import, which a server runner can
+ * reach by file URL (Vite's module runner does).
+ */
+const PRODUCTION_AI_SDK_PACKAGES: ReadonlySet<string> = new Set([
+  '@firebase/ai',
+  '@firebase/app',
+  '@firebase/app-check',
+  '@firebase/app-check-interop-types',
+  '@firebase/component',
+  '@firebase/logger',
+  '@firebase/util',
+]);
+
+/** The `firebase` package's own folders for the {@link REAL_SDK_ENTRIES}: `ai`, `app` and `app-check`. */
+const PRODUCTION_AI_FIREBASE_FOLDERS: ReadonlySet<string> = new Set(
+  [...REAL_SDK_ENTRIES.keys()].map((specifier) => specifier.slice('firebase/'.length)),
+);
+
+/**
+ * Whether production AI mode lets a file of the real Firebase SDK load, from
+ * any importer: a `firebase` file under `ai/`, `app/` or `app-check/` (the
+ * {@link REAL_SDK_ENTRIES}), or a file of the `@firebase/*` packages those
+ * import. Every other file of the client SDK is swapped or stopped, as in
+ * sandbox mode. `pathInPackage` is the file's path inside its package, read
+ * only for `firebase`.
+ */
+export function isProductionAiSdkFile(packageName: string, pathInPackage: () => string | null): boolean {
+  if (PRODUCTION_AI_SDK_PACKAGES.has(packageName)) return true;
+  if (packageName !== 'firebase') return false;
+  const folder = pathInPackage()?.split('/')[0];
+  return folder !== undefined && PRODUCTION_AI_FIREBASE_FOLDERS.has(folder);
+}
+
+/**
  * The import-map plane's specifier to entry key table: the swap, plus, in
  * production AI mode, the unswapped `firebase/ai` sent to the Firebase SDK
  * that `pyric sandbox` builds. A browser has no package resolution, so on
@@ -121,10 +156,20 @@ const PACKAGE_ROOTS: readonly string[] = (() => {
 /** The shadow-app wrappers, relative to the package root. */
 const SHADOW_MODULE = /^(?:dist|src)\/(?:register\/(?:client\/)?app-bridge[^/]*|serve\/entries\/app-ai-passthrough[^/]*)$/;
 
+/** The register's App Check verifier for production AI mode, relative to the package root. */
+const ADMIN_BRIDGE_MODULE = /^(?:dist|src)\/register\/app-bridge-admin-app-check\.(?:js|ts)$/;
+
 function importerFile(importer: string): string {
   const withoutQuery = importer.replace(/[?#].*$/, '');
   const path = withoutQuery.startsWith('file://') ? fileURLToPath(withoutQuery) : withoutQuery;
   return path.replaceAll('\\', '/');
+}
+
+/** Whether an importer is one of this package's own modules whose path, relative to the package root, matches `module`. */
+function isPackageModule(importer: string | undefined, module: RegExp): boolean {
+  if (importer === undefined) return false;
+  const file = importerFile(importer);
+  return PACKAGE_ROOTS.some((root) => file.startsWith(root) && module.test(file.slice(root.length)));
 }
 
 /**
@@ -134,26 +179,28 @@ function importerFile(importer: string): string {
  * happens to be named `app-bridge.js` is still swapped.
  */
 export function isShadowAppImporter(importer: string | undefined): boolean {
-  if (importer === undefined) return false;
-  const file = importerFile(importer);
-  return PACKAGE_ROOTS.some((root) => file.startsWith(root) && SHADOW_MODULE.test(file.slice(root.length)));
+  return isPackageModule(importer, SHADOW_MODULE);
 }
 
-/**
- * The SDK modules a shadow-app wrapper imports for itself. The firebase-admin
- * pair is the register's App Check verifier for production AI mode
- * (`register/app-bridge-admin-app-check.ts`); no browser plane serves them.
- */
-const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set([
-  'firebase/app',
-  'firebase/app-check',
-  'firebase-admin/app',
-  'firebase-admin/app-check',
-]);
+/** The client SDK modules every shadow-app wrapper imports for itself. */
+const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/app-check']);
 
-/** Whether this import is a shadow-app wrapper reaching the Firebase SDK it wraps. */
-export function isBypassedBridgeImport(specifier: string, importer: string | undefined): boolean {
-  return BRIDGED_SPECIFIERS.has(specifier) && isShadowAppImporter(importer);
+/**
+ * The firebase-admin pair that only the register's App Check verifier imports
+ * (`register/app-bridge-admin-app-check.ts`), and only in production AI mode,
+ * where the register loads it. No browser plane serves them.
+ */
+const ADMIN_BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase-admin/app', 'firebase-admin/app-check']);
+
+/**
+ * Whether this import is a shadow-app wrapper reaching the Firebase SDK it
+ * wraps. The firebase-admin pair counts only when `aiMode` is `production`,
+ * so a plane that passes no mode never bypasses it.
+ */
+export function isBypassedBridgeImport(specifier: string, importer: string | undefined, aiMode?: AiMode): boolean {
+  if (BRIDGED_SPECIFIERS.has(specifier)) return isShadowAppImporter(importer);
+  const isAdminBridgeImport = ADMIN_BRIDGED_SPECIFIERS.has(specifier) && aiMode === 'production';
+  return isAdminBridgeImport && isPackageModule(importer, ADMIN_BRIDGE_MODULE);
 }
 
 /**

@@ -68,18 +68,28 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase/app-check', join(cliRoot, 'dist/register/app-bridge-app-check.js'), { aiMode: 'production', sandbox: '' })).toBeNull();
   });
 
-  it('lets the App Check verifier bridge reach the real firebase-admin, and maps it for app files (#1552)', () => {
+  it('lets the App Check verifier bridge reach the real firebase-admin in production AI mode, and maps it for app files (#1552)', () => {
     const bridges = [join(cliRoot, 'dist/register/app-bridge-admin-app-check.js'), `file://${join(cliRoot, 'src/register/app-bridge-admin-app-check.ts')}`];
     for (const bridge of bridges) {
-      for (const aiMode of ['production', 'sandbox'] as const) {
-        expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode, sandbox: 'local' })).toBeNull();
-        expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode, sandbox: 'local' })).toBeNull();
-      }
+      expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode: 'production', sandbox: 'local' })).toBeNull();
+      expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode: 'production', sandbox: 'local' })).toBeNull();
       expect(mapFirebaseSpecifier('firebase-admin/firestore', bridge, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/firestore');
     }
     for (const appFile of ['/home/me/app/server.mjs', '/home/me/app/dist/register/app-bridge-admin-app-check.js']) {
       expect(mapFirebaseSpecifier('firebase-admin/app', appFile, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app');
       expect(mapFirebaseSpecifier('firebase-admin/app-check', appFile, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app-check');
+    }
+  });
+
+  it('swaps firebase-admin for the verifier bridge in sandbox AI mode, where it never loads', () => {
+    const bridge = join(cliRoot, 'dist/register/app-bridge-admin-app-check.js');
+    expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode: 'sandbox', sandbox: 'local' })).toBe('pyric-admin/app');
+    expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode: 'sandbox', sandbox: 'local' })).toBe('pyric-admin/app-check');
+  });
+
+  it('swaps firebase-admin for every other shadow module, including a forged createRequire importer', () => {
+    for (const shadow of ['dist/register/app-bridge.js', 'dist/register/app-bridge-anything.js', 'src/register/app-bridge-shadow.ts']) {
+      expect(mapFirebaseSpecifier('firebase-admin/app', join(cliRoot, shadow), { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app');
     }
   });
 

@@ -25,9 +25,10 @@
  * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
  * refuses egress from this process to live Google/Firebase endpoints, or only
  * reports it under `PYRIC_GUARD=warn`. See that module for the policy and the
- * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs. With the guard in place it
+ * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs. Whatever the guard mode, it
  * wraps `worker_threads.Worker` (`./worker-guard.js`) so every worker thread
- * loads this module as well, including those Node starts without preloads.
+ * loads this module as well, including those Node starts without preloads,
+ * and gets the swap and the stop.
  *
  * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
  * `POST /__pyric/beacon` when the activator carries a bridge URL, plus a
@@ -165,6 +166,7 @@ const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
  */
 function withSwapOrStop(resolve: SyncResolve): SyncResolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
+  const allowedUrls = new Set<string>();
   return (specifier, context, nextResolve) => {
     const result = resolve(specifier, context, nextResolve);
     const stop = stopFor({
@@ -172,7 +174,7 @@ function withSwapOrStop(resolve: SyncResolve): SyncResolve {
       canonical: canonicalFirebaseSpecifier(specifier),
       importer: context.parentURL,
       url: result.url,
-    });
+    }, allowedUrls);
     if (stop === null) return result;
     report(stop);
     throw stop;
@@ -200,9 +202,12 @@ function activate(): void {
   // Published so code that learns a destination later, such as the Vite
   // plugin's configured AI upstream, can permit it (`permitGuardHost`).
   if (guard !== null) (globalThis as unknown as Record<symbol, unknown>)[NET_GUARD_GLOBAL] = guard;
-  // Built-ins are per thread: every worker this process starts loads this
-  // module too, including the kinds Node starts without running preloads.
-  if (guard !== null) installWorkerGuard(import.meta.url);
+  // Built-ins and resolve hooks are per thread: every worker this process
+  // starts loads this module too, including the kinds Node starts without
+  // running preloads. Whatever PYRIC_GUARD says, since the worker's swap and
+  // stop come from this module; the worker installs its own network guard, or
+  // none under `off`, exactly as this thread does.
+  installWorkerGuard(import.meta.url);
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,

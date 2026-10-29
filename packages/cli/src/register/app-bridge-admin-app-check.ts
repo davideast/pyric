@@ -7,8 +7,9 @@
  * production AI mode only, and loads this module on the first token whose
  * `kid` is not the sandbox's, so a server that never sees one never loads
  * firebase-admin. `firebase-admin/app` and `firebase-admin/app-check` reach
- * the real package from here (`isBypassedBridgeImport`), and the tripwire lets
- * them through.
+ * the real package from this module only, and only in production AI mode
+ * (`isBypassedBridgeImport`); the stop in `swap-or-stop.ts` lets them and the
+ * firebase-admin files they import through.
  *
  * Each project gets one firebase-admin app whose credential refuses to mint an
  * access token, so the app cannot fall back to Application Default

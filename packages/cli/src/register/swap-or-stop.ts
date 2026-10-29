@@ -13,19 +13,23 @@
  * for everything else.
  *
  * The real SDK is allowed only where the swap table chooses it
- * (`choosesRealFirebase` in `mapping.ts`), or when one SDK file imports
- * another. `firebase-admin` is never chosen, with one exception: the App Check
- * verifier bridge that production AI mode loads on pyric's behalf (#1552),
- * whose firebase-admin app holds no credentials. An app's own import of the
- * real package still stops. `PYRIC_GUARD` does not change
- * any of this: the stop belongs to the swap, not to the network guard.
+ * (`choosesRealFirebase` in `mapping.ts`), or when an SDK file this hook
+ * already allowed imports its own SDK: a firebase-admin file reaches only
+ * firebase-admin, and a client SDK file only `@firebase/*`. The importer's
+ * URL alone is no proof, since `createRequire` can name any file, so each
+ * hook keeps the URLs it allowed. In sandbox AI mode that set stays empty.
+ * `firebase-admin` is never chosen, with one exception: the App Check verifier
+ * bridge that production AI mode loads on pyric's behalf (#1552), whose
+ * firebase-admin app holds no credentials. An app's own import of the real
+ * package still stops. `PYRIC_GUARD` does not change any of this: the stop
+ * belongs to the swap, not to the network guard.
  *
  * Loaded by both resolve hooks, including the loader-thread one, so it imports
  * node built-ins and side-effect-free modules only.
  */
-import { packageNameOf } from './package-identity.js';
+import { packageNameOf, pathInPackageOf } from './package-identity.js';
 import { choosesRealFirebase } from './mapping.js';
-import { isBypassedBridgeImport, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+import { SDK_MODULES, isBypassedBridgeImport, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
 
 /** The code on the error a stopped import throws. */
 export const REAL_SDK_STOPPED_CODE = 'PYRIC_REAL_SDK_STOPPED';
@@ -44,6 +48,8 @@ export interface ResolvedLoad {
   readonly aiMode?: AiMode;
   /** Defaults to the manifest lookup in `package-identity.ts`. */
   readonly nameOf?: (url: string) => string | null;
+  /** Defaults to `pathInPackageOf` in `package-identity.ts`. */
+  readonly pathInPackage?: (url: string, packageName: string) => string | null;
 }
 
 type SdkFamily = 'admin' | 'client';
@@ -59,27 +65,42 @@ function isInstalledFile(url: string): boolean {
   return url.startsWith('file:') && url.includes('/node_modules/');
 }
 
-/** The package an importer belongs to, or `null` for the entry point or a non-file importer. */
-function importerPackage(importer: string | undefined, nameOf: (url: string) => string | null): string | null {
-  const isFileImporter = importer !== undefined && importer.startsWith('file:');
-  return isFileImporter ? nameOf(importer) : null;
+/**
+ * Whether this load is an SDK file the hook already allowed, importing its
+ * own SDK: firebase-admin reaches only firebase-admin, and the client SDK only
+ * `@firebase/*`.
+ */
+function isFromAllowedSdkFile(load: ResolvedLoad, packageName: string, allowedUrls: ReadonlySet<string>): boolean {
+  const importer = load.importer;
+  const isAllowedImporter = importer !== undefined && allowedUrls.has(importer);
+  if (!isAllowedImporter) return false;
+  const importerFamily = sdkFamilyOf((load.nameOf ?? packageNameOf)(importer));
+  if (importerFamily === 'admin') return packageName === 'firebase-admin';
+  if (importerFamily === 'client') return packageName.startsWith('@firebase/');
+  return false;
 }
 
 /** Whether this load may reach the real SDK. */
-function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkFamily): boolean {
-  const nameOf = load.nameOf ?? packageNameOf;
-  const fromInsideSdk = sdkFamilyOf(importerPackage(load.importer, nameOf)) !== null;
-  if (fromInsideSdk) return true;
-  const fromPyricBridge = isBypassedBridgeImport(load.canonical ?? load.specifier, load.importer);
-  if (fromPyricBridge) return true;
-  if (family === 'admin') return false;
+function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkFamily, allowedUrls: ReadonlySet<string>): boolean {
+  if (isFromAllowedSdkFile(load, packageName, allowedUrls)) return true;
+  const specifier = load.canonical ?? load.specifier;
   const aiMode = load.aiMode ?? resolveAiMode(undefined, process.env);
+  if (family === 'admin') return isBypassedBridgeImport(specifier, load.importer, aiMode);
+  const pathOf = load.pathInPackage ?? pathInPackageOf;
   return choosesRealFirebase({
-    specifier: load.canonical ?? load.specifier,
+    specifier,
     importer: load.importer,
     packageName,
+    pathInPackage: () => pathOf(load.url, packageName),
     aiMode,
   });
+}
+
+/** The served `firebase/*` import that stands for a `@firebase/*` package, when pyric serves one. */
+function servedImportFor(packageName: string): string | null {
+  const candidate = `firebase/${packageName.slice('@firebase/'.length)}`;
+  const isServed = (SDK_MODULES as readonly string[]).includes(candidate);
+  return isServed ? candidate : null;
 }
 
 /** The import an app writes in place of the one that stopped. */
@@ -90,8 +111,11 @@ function fixFor(family: SdkFamily, packageName: string): string {
   if (packageName === 'firebase') {
     return "import firebase by its package name (for example 'firebase/firestore'), so the register routes it to the sandbox";
   }
-  const service = packageName.slice('@firebase/'.length);
-  return `import 'firebase/${service}' instead of '${packageName}', so the register routes it to the sandbox`;
+  const served = servedImportFor(packageName);
+  if (served === null) {
+    return `pyric serves no firebase/* import for '${packageName}', so import a served one (for example 'firebase/firestore'), or move this code out of the sandboxed process`;
+  }
+  return `import '${served}' instead of '${packageName}', so the register routes it to the sandbox`;
 }
 
 function stopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string): string {
@@ -112,14 +136,19 @@ function stopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string)
 
 /**
  * The error that stops this load, or `null` when the load may go ahead: it is
- * not the real SDK, or the swap table chose the real SDK here.
+ * not the real SDK, or the swap table chose the real SDK here. `allowedUrls`
+ * is the calling hook's record of the real SDK files it allowed; an allowed
+ * load joins it.
  */
-export function stopFor(load: ResolvedLoad): Error | null {
+export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | null {
   if (!isInstalledFile(load.url)) return null;
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
-  if (isAllowedRealLoad(load, packageName, family)) return null;
+  if (isAllowedRealLoad(load, packageName, family, allowedUrls)) {
+    allowedUrls.add(load.url);
+    return null;
+  }
   const error = new Error(stopMessage(load, family, packageName));
   return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
 }

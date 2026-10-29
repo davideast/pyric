@@ -45,6 +45,8 @@ async function resolveRenamed(
 }
 
 const reportStop = createStopReporter((line) => void process.stderr.write(line));
+/** The real SDK files this hook allowed (`stopFor`). */
+const allowedUrls = new Set<string>();
 
 /**
  * Swap or stop (ADR 0022). A throw here rejects the import on the main
@@ -62,7 +64,7 @@ export async function resolve(
     canonical: canonicalFirebaseSpecifier(specifier),
     importer: context.parentURL,
     url: result.url,
-  });
+  }, allowedUrls);
   if (stop === null) return result;
   reportStop(stop);
   throw stop;

@@ -131,12 +131,70 @@ outcome.escaped = globalThis[Symbol.for('stop.escaped')];
 console.log('OUTCOME ' + JSON.stringify(outcome));
 `;
 
+/** Records every module the process loads, so a probe can tell whether the real firebase-admin ran. */
+const LOAD_OBSERVER = `import Module from 'node:module';
+const loaded = [];
+Module.registerHooks({ load(url, context, nextLoad) { loaded.push(url); return nextLoad(url, context); } });
+const realAdminLoaded = () => loaded.some((url) => url.startsWith(process.env.REAL_ADMIN_DIR_URL + '/'));
+`;
+
+/** Each createRequire forge of the importer the review of #1522 found. */
+const PROBE_FORGE = `${LOAD_OBSERVER}
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+const forges = {
+  'admin-importer': () => createRequire(join(process.env.REAL_ADMIN_DIR, 'x.js'))('./lib/app/index.js'),
+  'client-importer': () => createRequire(join(process.env.REAL_FIREBASE_DIR, 'x.js'))(process.env.REAL_ADMIN_FILE),
+  'shadow-name': () => createRequire(join(process.env.CLI_ROOT, 'dist/register/app-bridge-anything.js'))('firebase-admin/app'),
+  'admin-bridge': () => import(process.env.ADMIN_BRIDGE_URL),
+};
+const outcome = {};
+try {
+  await forges[process.env.FORGE]();
+  outcome.load = 'loaded';
+} catch (error) {
+  outcome.load = error?.code ?? String(error);
+}
+outcome.realAdmin = realAdminLoaded();
+outcome.escaped = globalThis[Symbol.for('stop.escaped')];
+console.log('OUTCOME ' + JSON.stringify(outcome));
+`;
+
+/** A worker Node starts without the register's preload: an eval CommonJS worker, or one given its own execArgv. */
+const PROBE_WORKER = `import { Worker } from 'node:worker_threads';
+const target = process.env.REAL_ADMIN_FILE;
+const report = "require('node:worker_threads').parentPort.postMessage";
+const workers = {
+  'eval-cjs': () => new Worker(
+    'try { require(' + JSON.stringify(target) + '); ' + report + "('loaded'); } catch (error) { " + report + '(error && error.code || String(error)); }',
+    { eval: true },
+  ),
+  'exec-argv': () => new Worker(
+    new URL('data:text/javascript,' + encodeURIComponent(
+      "import { parentPort } from 'node:worker_threads';" +
+      'try { await import(' + JSON.stringify(process.env.REAL_ADMIN_URL) + "); parentPort.postMessage('loaded'); }" +
+      ' catch (error) { parentPort.postMessage(error?.code ?? String(error)); }',
+    )),
+    { execArgv: [] },
+  ),
+};
+const outcome = {};
+outcome.load = await new Promise((resolveLoad) => {
+  const worker = workers[process.env.WORKER_KIND]();
+  worker.once('message', resolveLoad);
+  worker.once('error', (error) => resolveLoad('worker error: ' + String(error)));
+});
+outcome.escaped = globalThis[Symbol.for('stop.escaped')];
+console.log('OUTCOME ' + JSON.stringify(outcome));
+`;
+
 let fixtureDir: string;
 let sink: Server;
 
 interface Outcome {
   bridge?: string;
   load: string;
+  realAdmin?: boolean;
   escaped: string[];
 }
 
@@ -146,8 +204,16 @@ interface Run {
   outcome: Outcome;
 }
 
-function runProbe(script: string, env: Record<string, string>, nodeFlags: readonly string[] = []): Promise<Run> {
-  const args = [...nodeFlags, '--require', join(fixtureDir, 'trap.cjs'), '--import', registerUrl, script];
+interface ProbeOptions {
+  /** Load the register through NODE_OPTIONS, as `pyric sandbox` does, instead of the command line. */
+  readonly registerInNodeOptions?: boolean;
+}
+
+function runProbe(script: string, env: Record<string, string>, nodeFlags: readonly string[] = [], options: ProbeOptions = {}): Promise<Run> {
+  const trap = ['--require', join(fixtureDir, 'trap.cjs')];
+  const register = ['--import', registerUrl];
+  const args = options.registerInNodeOptions ? [...nodeFlags, ...trap, script] : [...nodeFlags, ...trap, ...register, script];
+  const nodeOptions: Record<string, string> = options.registerInNodeOptions ? { NODE_OPTIONS: register.join(' ') } : {};
   const child = spawn('node', args, {
     cwd: fixtureDir,
     env: {
@@ -156,7 +222,14 @@ function runProbe(script: string, env: Record<string, string>, nodeFlags: readon
       CLOUDSDK_CONFIG: join(fixtureDir, 'empty-gcloud'),
       STOP_SINK_PORT: String((sink.address() as AddressInfo).port),
       ADMIN_BRIDGE_URL: adminBridgeUrl,
+      REAL_ADMIN_DIR: realAdminDir,
+      REAL_ADMIN_DIR_URL: pathToFileURL(realAdminDir).href,
+      REAL_ADMIN_FILE: realAdminFile,
+      REAL_ADMIN_URL: pathToFileURL(realAdminFile).href,
+      REAL_FIREBASE_DIR: realFirebaseDir,
+      CLI_ROOT: toolsRoot,
       PYRIC_SANDBOX: 'local',
+      ...nodeOptions,
       ...env,
     },
   });
@@ -189,6 +262,8 @@ beforeAll(async () => {
   symlinkSync(realAdminDir, join(nm, 'admin'));
   symlinkSync(realAdminDir, join(nm, 'linked-admin'));
   symlinkSync(realFirebaseDir, join(nm, 'firebase'));
+  // An npm alias of the client SDK ("fb": "npm:firebase@12").
+  symlinkSync(realFirebaseDir, join(nm, 'fb'));
   symlinkSync(firestoreDir, join(nm, '@firebase', 'firestore'));
   writeFileSync(join(fixtureDir, 'package.json'), JSON.stringify({ name: 'stop-fixture', type: 'module' }));
   writeFileSync(join(fixtureDir, 'trap.cjs'), TRAP);
@@ -196,6 +271,8 @@ beforeAll(async () => {
   writeFileSync(join(fixtureDir, 'probe.cjs'), PROBE_CJS);
   writeFileSync(join(fixtureDir, 'production-ai.mjs'), PROBE_PRODUCTION_AI);
   writeFileSync(join(fixtureDir, 'bridge-then-app.mjs'), PROBE_BRIDGE_THEN_APP);
+  writeFileSync(join(fixtureDir, 'forge.mjs'), PROBE_FORGE);
+  writeFileSync(join(fixtureDir, 'worker.mjs'), PROBE_WORKER);
   sink = createServer((socket) => socket.destroy());
   await new Promise<void>((resolveListen) => sink.listen(0, '127.0.0.1', resolveListen));
 });
@@ -236,6 +313,40 @@ describe('@pyric/cli/register stops the real firebase-admin (child process)', ()
     const res = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'admin/app', PYRIC_GUARD: 'off' });
     expect(res.outcome.load).toBe('PYRIC_REAL_SDK_STOPPED');
   }, 30_000);
+
+  it('stops it in an eval CommonJS worker under PYRIC_GUARD=off, with the register in NODE_OPTIONS', async () => {
+    const res = await runProbe('worker.mjs', { WORKER_KIND: 'eval-cjs', PYRIC_GUARD: 'off' }, [], { registerInNodeOptions: true });
+    expect(res.outcome.load, res.stderr).toBe('PYRIC_REAL_SDK_STOPPED');
+  }, 30_000);
+
+  it('stops it in a worker given its own execArgv under PYRIC_GUARD=off, with the register on the command line', async () => {
+    const res = await runProbe('worker.mjs', { WORKER_KIND: 'exec-argv', PYRIC_GUARD: 'off' });
+    expect(res.outcome.load, res.stderr).toBe('PYRIC_REAL_SDK_STOPPED');
+  }, 30_000);
+});
+
+describe('@pyric/cli/register keeps the real firebase-admin out of a createRequire forge of the importer (child process)', () => {
+  it('stops a forged firebase-admin importer', async () => {
+    const res = await runProbe('forge.mjs', { FORGE: 'admin-importer', PYRIC_GUARD: 'warn' });
+    expect(res.outcome, res.stderr).toEqual({ load: 'PYRIC_REAL_SDK_STOPPED', realAdmin: false, escaped: [] });
+  }, 30_000);
+
+  it('stops a forged firebase importer reaching firebase-admin', async () => {
+    const res = await runProbe('forge.mjs', { FORGE: 'client-importer', PYRIC_GUARD: 'warn' });
+    expect(res.outcome, res.stderr).toEqual({ load: 'PYRIC_REAL_SDK_STOPPED', realAdmin: false, escaped: [] });
+  }, 30_000);
+
+  it('swaps firebase-admin for a forged importer named like a shadow module, in either AI mode', async () => {
+    const sandbox = await runProbe('forge.mjs', { FORGE: 'shadow-name', PYRIC_GUARD: 'warn' });
+    const production = await runProbe('forge.mjs', { FORGE: 'shadow-name', PYRIC_GUARD: 'warn', PYRIC_AI_MODE: 'production' });
+    expect(sandbox.outcome, sandbox.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
+    expect(production.outcome, production.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
+  }, 30_000);
+
+  it('swaps firebase-admin for the App Check verifier bridge in sandbox AI mode', async () => {
+    const res = await runProbe('forge.mjs', { FORGE: 'admin-bridge', PYRIC_GUARD: 'warn' });
+    expect(res.outcome, res.stderr).toEqual({ load: 'loaded', realAdmin: false, escaped: [] });
+  }, 30_000);
 });
 
 describe("@pyric/cli/register lets production AI mode's App Check verifier bridge load firebase-admin (child process)", () => {
@@ -247,6 +358,8 @@ describe("@pyric/cli/register lets production AI mode's App Check verifier bridg
     });
     expect(res.outcome, res.stderr).toEqual({ bridge: 'loaded', load: 'PYRIC_REAL_SDK_STOPPED', escaped: [] });
     expect(stopLines(res.stderr), res.stderr).toHaveLength(1);
+    const from = res.stderr.split('\n').find((line) => line.startsWith('  from   '));
+    expect(from, res.stderr).toContain('bridge-then-app.mjs');
   }, 30_000);
 });
 
@@ -261,6 +374,16 @@ describe('@pyric/cli/register stops the real client SDK where the swap table did
     const res = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'firebase/firestore' });
     expect(res.outcome.load, res.stderr).toBe('loaded');
     expect(stopLines(res.stderr)).toEqual([]);
+  }, 30_000);
+
+  it('stops the rest of the firebase package in production AI mode: an aliased firebase/firestore and an absolute firebase/auth file', async () => {
+    const aliased = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'fb/firestore', PYRIC_AI_MODE: 'production' });
+    const absolute = await runProbe('probe.mjs', {
+      LOAD_SPECIFIER: pathToFileURL(join(realFirebaseDir, 'auth/dist/index.mjs')).href,
+      PYRIC_AI_MODE: 'production',
+    });
+    expect([aliased.outcome.load, absolute.outcome.load], `${aliased.stderr}\n${absolute.stderr}`)
+      .toEqual(['PYRIC_REAL_SDK_STOPPED', 'PYRIC_REAL_SDK_STOPPED']);
   }, 30_000);
 
   it('loads the real firebase/ai and its shadow app in production AI mode', async () => {
