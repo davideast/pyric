@@ -1,9 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc } from "firebase/firestore";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAI, getGenerativeModel, GoogleAIBackend } from "firebase/ai";
 
 const app = initializeApp({ apiKey: "demo", appId: "demo", projectId: "demo-app" });
-const firestore = getFirestore(app);
+// Firebase AI Logic refuses requests without an App Check token; the sandbox accepts the debug provider's.
+self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+initializeAppCheck(app, { provider: new ReCaptchaV3Provider("6Lc-site-key-from-the-console") });
+const firestore =getFirestore(app);
 const ai = getAI(app, { backend: new GoogleAIBackend() });
 
 window.readDenied = () =>
