@@ -364,9 +364,22 @@ interface JobJson {
   conclusion: string | null;
 }
 
+/** A job log holds colour codes. The gh on GitHub's runners refuses to print
+ *  them without --allow-escape-sequences, and an older gh rejects that flag. */
+function readJobLog(context: Context, jobId: number): string {
+  const path = `repos/${context.repo}/actions/jobs/${jobId}/logs`;
+  try {
+    return context.gh(['api', '--allow-escape-sequences', path]);
+  } catch (error) {
+    const flagUnknown = error instanceof Error && error.message.includes('unknown flag');
+    if (!flagUnknown) throw error;
+    return context.gh(['api', path]);
+  }
+}
+
 function jobFailures(context: Context, job: JobJson): Failure[] {
   try {
-    return parseFailures(job.name, context.gh(['api', `repos/${context.repo}/actions/jobs/${job.id}/logs`]));
+    return parseFailures(job.name, readJobLog(context, job.id));
   } catch (error) {
     console.warn(`Could not read the log of job ${job.id}: ${error instanceof Error ? error.message : String(error)}`);
     return [{ job: job.name }];
