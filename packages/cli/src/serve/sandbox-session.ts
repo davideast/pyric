@@ -45,6 +45,7 @@ import { parseStateFile } from './state-file.js';
 import { inlineStorage } from './state-objects.js';
 import type { AppPorts } from './app-ports.js';
 import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
+import type { GeminiProxyConfig } from './gemini-proxy.js';
 import {
   runProjectFixturesOnRulesReload,
   type RulesFixtureCheckSummary,
@@ -72,6 +73,8 @@ export interface SandboxSessionOptions {
   deployHostedRules?: (service: 'firestore' | 'database' | 'storage', source: string | null, instance?: DatabaseRulesDestination) => Promise<void>;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
+  /** The gemini engine the dev server's gemini proxy sends for a browser engine. */
+  aiGemini?: GeminiProxyConfig;
   /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
    *  whatever the caller — the Vite plugin or `pyric sandbox` — accepted).
    *  Absent behaves like `{ enabled: false }`: no avatar route is mounted. */
@@ -449,6 +452,7 @@ export async function createSandboxSession(
       workerVersion: options.sdk.workerVersion,
       avatars: avatarsResolver,
       aiProxyUpstream: options.aiProxyUpstream,
+      aiGemini: options.aiGemini,
       activity: options.activity,
       beacon: options.beacon,
       beaconToken: options.beaconToken,
