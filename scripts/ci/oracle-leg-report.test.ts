@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -14,6 +14,7 @@ import {
   issueTitle,
   legTable,
   readStatuses,
+  report,
   recordLeg,
   summarize,
   type LegState,
@@ -198,11 +199,24 @@ describe('reading the status files', () => {
     expect(statuses.find((entry) => entry.rig === 'rules-firestore')?.state).toBe('checked-clean');
   });
 
-  test('an attempt that uploaded no file falls back to the earlier one', () => {
+  test('an attempt that uploaded no file falls back to the earlier one, and the table says so', () => {
     const dir = scratchDir();
     writeStatus(dir, status('rules-storage', 'checked-drift'), 1);
     mkdirSync(join(dir, 'oracle-leg-rules-storage-2'));
-    expect(readStatuses(dir).find((entry) => entry.rig === 'rules-storage')?.state).toBe('checked-drift');
+    const statuses = readStatuses(dir);
+    const storage = statuses.find((entry) => entry.rig === 'rules-storage');
+    expect(storage?.state).toBe('checked-drift');
+    expect(storage?.fallbackAttempt).toBe(1);
+    expect(legTable(statuses)).toContain('| rules-storage | credentialed | checked, drift found (attempt 1) |');
+  });
+
+  test('a leg read from its latest attempt carries no attempt note', () => {
+    const dir = scratchDir();
+    writeStatus(dir, status('rules-storage', 'checked-clean'), 1);
+    writeStatus(dir, status('rules-storage', 'checked-drift'), 2);
+    const statuses = readStatuses(dir);
+    expect(statuses.find((entry) => entry.rig === 'rules-storage')?.fallbackAttempt).toBeUndefined();
+    expect(legTable(statuses)).not.toContain('(attempt');
   });
 
   test('one leg is not read as another', () => {
@@ -282,6 +296,39 @@ describe('the headline and the table', () => {
     const summary = summarize(nothingChecked());
     expect(headline(summary, true)).toContain('The leg status files could not be downloaded');
     expect(headline(summary)).not.toContain('could not be downloaded');
+  });
+});
+
+describe('the report command', () => {
+  function runReport(downloadOutcome: string): string {
+    const summaryFile = join(scratchDir(), 'summary.md');
+    writeFileSync(summaryFile, '');
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      report({
+        STATUS_DIR: scratchDir(),
+        FILE_ISSUE: 'false',
+        DOWNLOAD_OUTCOME: downloadOutcome,
+        GITHUB_STEP_SUMMARY: summaryFile,
+      });
+    } finally {
+      log.mockRestore();
+    }
+    return readFileSync(summaryFile, 'utf8');
+  }
+
+  test('a failed download is named in the run summary', () => {
+    expect(runReport('failure')).toContain('The leg status files could not be downloaded');
+  });
+
+  test('a download that succeeded is not named', () => {
+    expect(runReport('success')).not.toContain('could not be downloaded');
+  });
+
+  test('it writes the headline and the table to the run summary', () => {
+    const summary = runReport('success');
+    expect(summary).toContain('Production checked by 0 of 4 credentialed legs. Not run: 4.');
+    expect(summary).toContain('| rules-storage | credentialed |');
   });
 });
 
@@ -378,6 +425,7 @@ interface WorkflowStep {
   run?: string;
   env?: Record<string, string>;
   with?: Record<string, string>;
+  'continue-on-error'?: boolean | string;
 }
 
 interface WorkflowJob {
@@ -406,6 +454,8 @@ function uploadOfLegState(steps: WorkflowStep[]): WorkflowStep | undefined {
 }
 
 const LEG_JOBS = ['unattended', 'credentialed'] as const;
+/** A condition that names a status function runs a step after an earlier step failed. */
+const STATUS_FUNCTION = /\b(always|cancelled|failure|success)\s*\(/;
 const RECORD_COMMAND = 'oracle-leg-report.ts record';
 const REPORT_COMMAND = 'oracle-leg-report.ts report';
 
@@ -434,7 +484,7 @@ describe('the workflow', () => {
   });
 });
 
-describe.each(LEG_JOBS)('the %s job records its state', (jobName) => {
+describe.each([...LEG_JOBS])('the %s job records its state', (jobName) => {
   const steps = stepsOf(jobName);
   const record = stepRunning(steps, RECORD_COMMAND);
   const upload = uploadOfLegState(steps);
@@ -443,6 +493,16 @@ describe.each(LEG_JOBS)('the %s job records its state', (jobName) => {
   test('a step with id drift decides checked or not', () => {
     expect(drift?.run).toContain('oracle-drift-report.ts');
     expect(drift?.if).not.toBe('always()');
+  });
+
+  test('the drift step runs only after every step before it succeeded', () => {
+    const driftIndex = steps.findIndex((step) => step === drift);
+    expect(driftIndex).toBeGreaterThan(0);
+    const upToDrift = steps.slice(0, driftIndex + 1);
+    const withStatusFunction = upToDrift.filter((step) => STATUS_FUNCTION.test(step.if ?? ''));
+    expect(withStatusFunction.map((step) => step.name ?? step.uses)).toEqual([]);
+    const tolerated = upToDrift.filter((step) => step['continue-on-error'] !== undefined && step['continue-on-error'] !== false);
+    expect(tolerated.map((step) => step.name ?? step.uses)).toEqual([]);
   });
 
   test('the record step always runs and reads the drift step outcome and output', () => {

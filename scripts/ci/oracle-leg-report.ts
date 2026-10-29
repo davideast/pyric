@@ -8,15 +8,15 @@
 //
 // `record` writes one small JSON status file per leg, which the leg uploads as
 // the artifact `oracle-leg-<rig>-<attempt>`. `report` reads the latest attempt
-// of each and writes a
-// headline and a table of every leg to the run summary. A leg whose file never
-// arrived is reported as not run, so a leg that died early cannot look like a
-// leg that checked production. On a scheduled run, or a dispatch that asks for
-// it, `report` also opens or updates one `lane:reliability` issue, and closes
-// it once every leg has checked production with no drift.
+// of each and writes a headline and a table of every leg to the run summary.
+// A leg whose file never arrived is reported as not run, so a leg that died
+// early cannot look like a leg that checked production. On a scheduled run, or
+// a dispatch that asks for it, `report` also opens or updates one
+// `lane:reliability` issue, and closes it once every leg has checked
+// production with no drift.
 //
-// Both commands read their inputs from the environment (see `inputFromEnv`
-// and `reportOptionsFromEnv`).
+// Both commands read their inputs from the environment (see `inputFromEnv` for
+// `record` and `report` for the report).
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -52,6 +52,9 @@ export interface LegStatus {
   /** What the state names: the blocking issue of a disabled leg, the variable
    *  a leg lacks, or why a capture failed. Empty when there is nothing to name. */
   detail: string;
+  /** Set only when the latest attempt left no status file and an earlier
+   *  attempt's file was read instead: the attempt that file came from. */
+  fallbackAttempt?: number;
 }
 
 const ISSUE_LABEL = 'lane:reliability';
@@ -160,24 +163,40 @@ function attemptOf(folder: string, rig: string): number | undefined {
   return /^\d+$/.test(attempt) ? Number(attempt) : undefined;
 }
 
+interface StatusFile {
+  file: string;
+  attempt: number;
+  /** The highest attempt number that has an artifact folder for this leg. */
+  latestAttempt: number;
+}
+
 /** The status file of the latest attempt that uploaded one for `rig`. */
-function latestStatusFile(dir: string, rig: string): string | undefined {
+function latestStatusFile(dir: string, rig: string): StatusFile | undefined {
   if (!existsSync(dir)) return undefined;
   const attempts = readdirSync(dir)
     .map((folder) => ({ folder, attempt: attemptOf(folder, rig) }))
     .filter((entry): entry is { folder: string; attempt: number } => entry.attempt !== undefined)
     .sort((a, b) => b.attempt - a.attempt);
-  const files = attempts.map((entry) => join(dir, entry.folder, `${rig}.json`));
-  return files.find((file) => existsSync(file));
+  const latestAttempt = attempts[0]?.attempt ?? 0;
+  for (const entry of attempts) {
+    const file = join(dir, entry.folder, `${rig}.json`);
+    if (existsSync(file)) return { file, attempt: entry.attempt, latestAttempt };
+  }
+  return undefined;
 }
 
 /** One status per leg, from the latest attempt that recorded one. A leg with
- *  no file, or an unreadable one, is `no-record`. */
+ *  no file, or an unreadable one, is `no-record`. A leg read from an earlier
+ *  attempt carries that attempt's number. */
 export function readStatuses(dir: string): LegStatus[] {
   return LEGS.map((leg) => {
-    const file = latestStatusFile(dir, leg.rig);
-    if (file === undefined) return noRecord(leg.rig);
-    return parseStatus(leg.rig, readFileSync(file, 'utf8')) ?? noRecord(leg.rig);
+    const found = latestStatusFile(dir, leg.rig);
+    if (found === undefined) return noRecord(leg.rig);
+    const status = parseStatus(leg.rig, readFileSync(found.file, 'utf8'));
+    if (status === undefined) return noRecord(leg.rig);
+    const readEarlierAttempt = found.attempt < found.latestAttempt;
+    if (!readEarlierAttempt) return status;
+    return { ...status, fallbackAttempt: found.attempt };
   });
 }
 
@@ -267,7 +286,8 @@ export function issueTitle(summary: Summary): string {
 export function legTable(statuses: LegStatus[]): string {
   const rows = statuses.map((status) => {
     const tier = isCredentialed(status) ? 'credentialed' : 'unattended';
-    return `| ${status.rig} | ${tier} | ${describeState(status)} |`;
+    const attempt = status.fallbackAttempt === undefined ? '' : ` (attempt ${status.fallbackAttempt})`;
+    return `| ${status.rig} | ${tier} | ${describeState(status)}${attempt} |`;
   });
   return ['| Leg | Tier | Result |', '|---|---|---|', ...rows].join('\n');
 }
@@ -331,8 +351,8 @@ export function applyIssueAction(
 // ---------------------------------------------------------------------------
 // Entry points
 
-function appendToStepSummary(markdown: string): void {
-  const path = process.env.GITHUB_STEP_SUMMARY;
+function appendToStepSummary(env: NodeJS.ProcessEnv, markdown: string): void {
+  const path = env.GITHUB_STEP_SUMMARY;
   if (path) appendFileSync(path, `${markdown}\n`);
 }
 
@@ -352,10 +372,10 @@ function record(env: NodeJS.ProcessEnv): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${status.rig}.json`), `${JSON.stringify(status, null, 2)}\n`);
   console.log(summaryLine(status));
-  appendToStepSummary(summaryLine(status));
+  appendToStepSummary(env, summaryLine(status));
 }
 
-function report(env: NodeJS.ProcessEnv): void {
+export function report(env: NodeJS.ProcessEnv): void {
   const dir = statusDirFromEnv(env);
   const statuses = readStatuses(dir);
   const context: ReportContext = {
@@ -364,7 +384,7 @@ function report(env: NodeJS.ProcessEnv): void {
   };
   const markdown = reportMarkdown(statuses, context);
   console.log(markdown);
-  appendToStepSummary(markdown);
+  appendToStepSummary(env, markdown);
 
   const fileIssue = env.FILE_ISSUE === 'true';
   const outcome = applyIssueAction(spawnGh(process.cwd()), statuses, fileIssue, context, join(dir, 'issue-body.md'));
@@ -374,7 +394,7 @@ function report(env: NodeJS.ProcessEnv): void {
   }
   const line = `Issue: ${outcome.action} (${outcome.detail})`;
   console.log(line);
-  appendToStepSummary(line);
+  appendToStepSummary(env, line);
 }
 
 if (import.meta.main) {

@@ -29,10 +29,10 @@
 # artifact oracle-leg-<rig>-<attempt>. The report job reads the latest attempt
 # of each, writes a headline and a table of every leg to the run summary, and
 # counts a leg whose record never arrived as not run. A disabled leg leaves the
-# run green but is listed as not run. On a scheduled run, or a dispatch with file-issue set, the report
-# also opens or updates one lane:reliability issue and comments the table, and
-# closes it once every leg has checked production with no drift
-# (scripts/ci/oracle-leg-report.ts).
+# run green but is listed as not run. On a scheduled run, or a dispatch with
+# file-issue set, the report also opens or updates one lane:reliability issue
+# and comments the table, and closes it once every leg has checked production
+# with no drift (scripts/ci/oracle-leg-report.ts).
 #
 # Deliberately excluded:
 #   - rtdb-rules      — the one rig that MUTATES a live project (deploys a
