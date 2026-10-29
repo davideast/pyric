@@ -16,7 +16,7 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
-import { aiUpstreamGuardAllowance, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
+import { AI_PROXY_BODY_LIMIT_BYTES, aiUpstreamGuardAllowance, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
 import { NET_GUARD_GLOBAL } from '../../src/register/net-guard.js';
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
@@ -117,8 +117,8 @@ describe('/__pyric/ai-proxy', () => {
       headers: {
         'content-type': 'application/json',
         authorization: 'Bearer test-key',
-        origin: 'http://evil.example',
-        referer: 'http://evil.example/page',
+        origin: new URL(h.url).origin,
+        referer: `${h.url}/page`,
         cookie: 'session=secret',
       },
       body: JSON.stringify({ model: 'llama3', messages: [] }),
@@ -194,6 +194,69 @@ describe('/__pyric/ai-proxy', () => {
       received += decoder.decode(value, { stream: true });
     }
     expect(received).toBe('data: {"n":1}\n\ndata: {"n":2}\n\ndata: [DONE]\n\n');
+  });
+
+  it('refuses a cross-origin POST with 403 and never calls the upstream', async () => {
+    const seen: string[] = [];
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        seen.push(req.url);
+        return Response.json({ choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1?key=configured`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', origin: 'http://localhost:1' },
+      body: JSON.stringify({ model: 'm', messages: [] }),
+    });
+    expect(res.status).toBe(403);
+    expect(seen).toEqual([]);
+  });
+
+  it('answers 413 for a body over the limit and never calls the upstream', async () => {
+    const seen: string[] = [];
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        seen.push(req.url);
+        return Response.json({ choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES + 1),
+    });
+    expect(res.status).toBe(413);
+    expect(seen).toEqual([]);
+  });
+
+  it('forwards a body at the limit byte for byte', async () => {
+    let received = 0;
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        received = (await req.arrayBuffer()).byteLength;
+        return Response.json({ choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES),
+    });
+    expect(res.status).toBe(200);
+    expect(received).toBe(AI_PROXY_BODY_LIMIT_BYTES);
   });
 
   it('rejects non-POST with 405', async () => {
