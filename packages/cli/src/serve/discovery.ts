@@ -19,7 +19,7 @@
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { getJsonWithin } from '../bounded-request.js';
+import { boundedRequest, type BoundedResponse } from '../bounded-request.js';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -97,14 +97,53 @@ export function basesForPort(port: number): string[] {
  *  milliseconds; a port that has not answered in a second is not going to. */
 const HEALTH_PROBE_DEADLINE_MS = 1000;
 
+/**
+ * What `/__pyric/health` at one base answered. A sandbox host answers 200 with
+ * its health reply (`mode: 'sandbox'`), or 503 while its mount is closing
+ * (`bridge-mount.ts`). Any other answer comes from a server that is not a
+ * sandbox host: an in-page Vite server answers 404 to a JSON request.
+ */
+type HealthAnswer =
+  | { readonly kind: 'sandbox'; readonly health: HealthLite }
+  | { readonly kind: 'no-answer' }
+  | { readonly kind: 'other' };
+
+const NO_HEALTH_ANSWER: HealthAnswer = { kind: 'no-answer' };
+const OTHER_HEALTH_ANSWER: HealthAnswer = { kind: 'other' };
+
+/** The health reply in a response, or `null` when the response is not one. */
+function sandboxHealthOf(response: BoundedResponse): HealthLite | null {
+  const isOk = response.status === 200;
+  if (!isOk) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(response.body.toString('utf8'));
+  } catch {
+    return null;
+  }
+  const health = body as HealthLite | null;
+  const isSandbox = typeof health === 'object' && health !== null && health.mode === 'sandbox';
+  return isSandbox ? health : null;
+}
+
+/** Bounded by {@link HEALTH_PROBE_DEADLINE_MS} and leaves no socket behind (#1162). */
+async function healthAnswer(base: string): Promise<HealthAnswer> {
+  const response = await boundedRequest(`${base}/__pyric/health`, {
+    headers: { accept: 'application/json' },
+    deadlineMs: HEALTH_PROBE_DEADLINE_MS,
+  });
+  if (response === null) return NO_HEALTH_ANSWER;
+  const isClosingHost = response.status === 503;
+  if (isClosingHost) return NO_HEALTH_ANSWER;
+  const health = sandboxHealthOf(response);
+  return health === null ? OTHER_HEALTH_ANSWER : { kind: 'sandbox', health };
+}
+
 /** A sandbox bridge's health at `base`, or `null`. Bounded by
  *  {@link HEALTH_PROBE_DEADLINE_MS} and leaves no socket behind (#1162). */
 export async function probeHealth(base: string): Promise<HealthLite | null> {
-  const response = await getJsonWithin(`${base}/__pyric/health`, HEALTH_PROBE_DEADLINE_MS);
-  if (response === null) return null;
-  const body = response.body as HealthLite | null;
-  const isSandbox = typeof body === 'object' && body !== null && body.mode === 'sandbox';
-  return isSandbox ? body : null;
+  const answer = await healthAnswer(base);
+  return answer.kind === 'sandbox' ? answer.health : null;
 }
 
 /**
@@ -204,23 +243,56 @@ export interface AnsweringHost {
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
- * Health-probe an explicit host URL. A loopback URL is probed on both loopback
+ * What an explicit host URL's health probe found: a sandbox host; no answer,
+ * which is worth waiting for; or a server that answers but is not a sandbox
+ * host, which waiting will not change.
+ */
+export type HostUrlAnswer =
+  | { readonly kind: 'host'; readonly host: AnsweringHost }
+  | { readonly kind: 'no-answer' }
+  | { readonly kind: 'not-a-host'; readonly base: string };
+
+const NO_HOST_URL_ANSWER: HostUrlAnswer = { kind: 'no-answer' };
+
+/**
+ * The bases a host URL is probed on. A loopback URL is probed on both loopback
  * families by port, as discovery does, because `localhost` resolves to
  * different families under different runtimes. Any other URL is probed as given.
  */
-export async function probeHostUrl(url: string): Promise<AnsweringHost | null> {
+function basesForHostUrl(url: string): string[] {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    return null;
+    return [];
   }
   const isLoopback = LOOPBACK_HOSTNAMES.has(parsed.hostname);
-  if (isLoopback) return healthyBase(urlPort(parsed));
-  const base = `${parsed.protocol}//${parsed.host}`;
-  const health = await probeHealth(base);
-  if (health === null) return null;
-  return { base, instanceId: health.instanceId ?? null };
+  if (isLoopback) return basesForPort(urlPort(parsed));
+  return [`${parsed.protocol}//${parsed.host}`];
+}
+
+/** Health-probe an explicit host URL on each of its bases; a sandbox host on any base wins. */
+export async function probeHostUrlAnswer(url: string): Promise<HostUrlAnswer> {
+  let notHostBase: string | null = null;
+  for (const base of basesForHostUrl(url)) {
+    const answer = await healthAnswer(base);
+    if (answer.kind === 'sandbox') return { kind: 'host', host: { base, instanceId: answer.health.instanceId ?? null } };
+    const isOtherServer = answer.kind === 'other';
+    if (isOtherServer) notHostBase ??= base;
+  }
+  return notHostBase === null ? NO_HOST_URL_ANSWER : { kind: 'not-a-host', base: notHostBase };
+}
+
+/** Health-probe an explicit host URL: the sandbox host it reaches, or `null`. */
+export async function probeHostUrl(url: string): Promise<AnsweringHost | null> {
+  const answer = await probeHostUrlAnswer(url);
+  return answer.kind === 'host' ? answer.host : null;
+}
+
+/** Whether `base` serves Vite's client environment module, which every Vite dev server serves. */
+export async function servesViteClient(base: string): Promise<boolean> {
+  const response = await boundedRequest(`${base}/@vite/env`, { deadlineMs: HEALTH_PROBE_DEADLINE_MS });
+  return response !== null && response.status === 200;
 }
 
 /** The port a URL names, or its scheme's default when it names none. */
