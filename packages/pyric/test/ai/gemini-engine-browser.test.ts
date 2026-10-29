@@ -130,6 +130,25 @@ describe('GeminiUpstream on the server', () => {
     expect(sent.map((s) => s.url)).toEqual(['/gemini/v1beta/models/gemini-2.5-flash:countTokens?key=server-only-key']);
   });
 
+  it('reports the credentials each request carried: the static key, or every ADC token it sent', async () => {
+    process.env.GEMINI_API_KEY = 'server-only-key';
+    const keyed = await new GeminiUpstream({ fetch: recordingFetch([]) }).sendWithCredentials('models/m', 'countTokens', '{}');
+    expect(keyed.credentials).toEqual(['server-only-key']);
+
+    delete process.env.GEMINI_API_KEY;
+    const tokens = ['adc-1', 'adc-2'];
+    let calls = 0;
+    const adc = new GeminiUpstream({
+      printAdcToken: async () => tokens.shift() ?? '',
+      fetch: (async () => (++calls === 1 ? new Response('expired', { status: 401 }) : answer())) as unknown as typeof fetch,
+    });
+    expect((await adc.sendWithCredentials('models/m', 'countTokens', '{}')).credentials).toEqual(['adc-1', 'adc-2']);
+
+    const proxied = await new GeminiUpstream({ baseUrl: PROXY, serverAttachesAuth: true, fetch: recordingFetch([]) })
+      .sendWithCredentials('models/m', 'countTokens', '{}');
+    expect(proxied.credentials).toEqual([]);
+  });
+
   it('joins the key to the stream\'s query with &', async () => {
     process.env.GEMINI_API_KEY = 'server-only-key';
     const sent: Sent[] = [];

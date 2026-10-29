@@ -17,7 +17,8 @@
  * browser engine.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { GeminiUpstream, redactUrl, type GeminiUpstreamOptions } from 'pyric/ai/internal';
+import { GeminiUpstream, type GeminiUpstreamOptions } from 'pyric/ai/internal';
+import { redactUpstreamError } from './gemini-error-redaction.js';
 import type { ServeLogger } from './server.js';
 import { fetchAiUpstream, readAiProxyBody, relayAiUpstream, type AiDiagnosticThrottle } from './ai-proxy.js';
 import { GEMINI_PROXY_PATH } from './worker/ai-proxy-paths.js';
@@ -73,13 +74,12 @@ function sendEnvelope(res: ServerResponse, code: number, message: string, status
 }
 
 /**
- * Send a non-2xx upstream answer with every credential in it masked. An
- * upstream or a gateway can quote the request URL back, and with a static
- * key that URL carries `key=<key>`: the browser gets `key=***`, as the
- * engine's own error text always had it.
+ * Send a non-2xx upstream answer with the credentials the request carried
+ * removed, in whatever form the upstream quotes them, and a JSON envelope
+ * kept parseable (`gemini-error-redaction.ts`).
  */
-async function relayRedactedError(upstream: Response, res: ServerResponse): Promise<void> {
-  const text = redactUrl(await upstream.text().catch(() => ''));
+async function relayRedactedError(upstream: Response, credentials: readonly string[], res: ServerResponse): Promise<void> {
+  const text = redactUpstreamError(await upstream.text().catch(() => ''), credentials);
   const headers: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
   if (contentType) headers['content-type'] = contentType;
@@ -120,8 +120,9 @@ export function createGeminiProxy(
     const body = await readAiProxyBody(req, res);
     if (body === null) return;
     let response: Response;
+    let credentials: string[];
     try {
-      response = await upstream.send(call.resource, call.action, body);
+      ({ response, credentials } = await upstream.sendWithCredentials(call.resource, call.action, body));
     } catch (error) {
       // Missing credentials (401) and an unreachable upstream (502) come as
       // the engine's own envelopes, already redacted.
@@ -134,6 +135,6 @@ export function createGeminiProxy(
       await relayAiUpstream(response, res);
       return;
     }
-    await relayRedactedError(response, res);
+    await relayRedactedError(response, credentials, res);
   };
 }

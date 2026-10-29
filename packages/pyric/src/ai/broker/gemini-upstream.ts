@@ -131,6 +131,12 @@ interface UpstreamAuth {
   isAdc: boolean;
 }
 
+/** The secret a request carries, or none when the server attaches it. */
+function credentialsOf(auth: UpstreamAuth): string[] {
+  const hasToken = auth.token !== '';
+  return hasToken ? [auth.token] : [];
+}
+
 /** No credentials: the base URL is Pyric's server, which attaches them. */
 const SERVER_ATTACHES_AUTH: UpstreamAuth = { token: '', isBearer: false, isAdc: false };
 
@@ -172,17 +178,33 @@ export class GeminiUpstream {
    * throw an {@link AiBrokerError}.
    */
   async send(resource: string, action: string, body: string | Uint8Array<ArrayBuffer>): Promise<Response> {
+    return (await this.sendWithCredentials(resource, action, body)).response;
+  }
+
+  /**
+   * {@link send}, also returning the credentials the request carried: the
+   * static key or the ADC tokens, as sent. A caller that relays the
+   * upstream's answer removes them from any text it passes on, whatever
+   * form the upstream quotes them in.
+   */
+  async sendWithCredentials(
+    resource: string,
+    action: string,
+    body: string | Uint8Array<ArrayBuffer>,
+  ): Promise<{ response: Response; credentials: string[] }> {
     const auth = await this.resolveAuthToken();
+    const credentials = credentialsOf(auth);
     const first = this.formatUpstreamRequest(resource, action, auth);
     const response = await this.post(first.url, first.headers, body);
     if (response.status === 401 && auth.isAdc) {
       await response.body?.cancel().catch(() => {});
       this.adcToken = undefined;
       const retryAuth = await this.resolveAuthToken();
+      credentials.push(...credentialsOf(retryAuth));
       const retry = this.formatUpstreamRequest(resource, action, retryAuth);
-      return this.post(retry.url, retry.headers, body);
+      return { response: await this.post(retry.url, retry.headers, body), credentials };
     }
-    return response;
+    return { response, credentials };
   }
 
   /**

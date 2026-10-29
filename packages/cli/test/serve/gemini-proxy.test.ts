@@ -148,6 +148,41 @@ describe('/__pyric/ai-proxy/gemini', () => {
     expect(await response.text()).toBe(`gateway refused ${upstream.url}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=***`);
   });
 
+  it('keeps a stream error\'s JSON envelope and status when its message ends with the URL', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const upstream = standIn((url) => Response.json(
+      { error: { code: 400, message: `Bad request: ${url.href}`, status: 'FAILED_PRECONDITION' } },
+      { status: 400 },
+    ));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    const text = await response.text();
+    expect(text).not.toContain(KEY);
+    expect(JSON.parse(text)).toEqual({ error: {
+      code: 400,
+      message: `Bad request: ${upstream.url}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=***`,
+      status: 'FAILED_PRECONDITION',
+    } });
+  });
+
+  it('masks the key quoted in plain text and percent-encoded', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const upstream = standIn(() => new Response(`API key ${KEY} is invalid (${encodeURIComponent(`&key=${KEY}`)})`, { status: 403 }));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${CALL}`);
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe('API key *** is invalid (%26key%3D***)');
+  });
+
+  it('masks an ADC token echoed in an Authorization header', async () => {
+    const upstream = standIn((url) => new Response(`refused ${url.pathname}\nAuthorization: Bearer ya29.adc-token-1584`, { status: 403 }));
+    const url = await startHandler(upstream.url, async () => 'ya29.adc-token-1584');
+    const response = await post(`${url}${CALL}`);
+    const text = await response.text();
+    expect(upstream.seen[0]!.headers.authorization).toBe('Bearer ya29.adc-token-1584');
+    expect(text).toBe('refused /v1beta/models/gemini-2.5-flash:generateContent\nAuthorization: Bearer ***');
+  });
+
   it('answers 413 for a body over the limit and never calls the upstream', async () => {
     process.env.GEMINI_API_KEY = KEY;
     const upstream = standIn();
