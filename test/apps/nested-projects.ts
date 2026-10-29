@@ -13,7 +13,7 @@
 /** Where a nested project's package.json comes from. */
 export type NestedManifestSource =
   /** `create-pyric <path> --template <template>`, run in the app directory. */
-  | { template: 'chat' | 'node' }
+  | { template: 'chat' | 'node' | 'web' }
   /** A directory the app ships, relative to the app directory. */
   | { dir: string };
 
@@ -34,6 +34,7 @@ export const NESTED_PROJECTS: readonly NestedProject[] = [
   { app: 'create-pyric-node-template', path: 'my-node-app', manifest: { template: 'node' } },
   { app: 'run-from-sibling-install', path: 'tools', manifest: { dir: 'tools' } },
   { app: 'run-from-sibling-install', path: 'backend', manifest: { dir: 'backend' } },
+  { app: 'run-names-hosted-for-in-page-vite', path: 'my-web', manifest: { template: 'web' } },
 ];
 
 /** The declared nested project `path` of `app`, or undefined when the list does not name it. */
