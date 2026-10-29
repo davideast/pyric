@@ -390,9 +390,11 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
       { body, realFirebase, connections },
       { body: { load: 'PYRIC_REAL_SDK_STOPPED' }, realFirebase: [], connections: [] },
     );
+    // The stop reaches stderr through Next and the launcher, so it can land
+    // just after the response does.
+    await sandbox.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { timeoutMs: 10_000 });
     assert.match(sandbox.output, /stopped loading the real firebase-admin/);
     assert.match(sandbox.output, /found {2}file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
-    assert.match(sandbox.output, /code: PYRIC_REAL_SDK_STOPPED/);
     await page.close();
     await sandbox.stop();
   });
