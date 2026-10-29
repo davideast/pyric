@@ -5,11 +5,13 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 import { createServer as createTcpServer, type Server as TcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { pinPyricPackages, runCommand, runTimedCommand, type Tarballs, type TimedResult } from './install.ts';
 import {
   changedThirdPartyEntries,
   DependencyStore,
+  nestedProjectManifest,
   readPackedPackage,
   storeKey,
   type Lockfile,
@@ -17,6 +19,7 @@ import {
   type Platform,
   type RunNpm,
 } from './dependency-store.ts';
+import { NESTED_PROJECTS, type NestedProject } from './nested-projects.ts';
 import { SharedInstalls } from './shared-installs.ts';
 
 const dirs: string[] = [];
@@ -560,4 +563,83 @@ describe('a set materialized from the store, with real npm', () => {
     expect(changedThirdPartyEntries(lockOf(materialized), lockOf(fresh), pyricNames)).toEqual([]);
     expect(lockOf(materialized).packages?.['node_modules/pyric']).toEqual(lockOf(fresh).packages?.['node_modules/pyric']);
   }, 120_000);
+});
+
+const appsDir = fileURLToPath(new URL('.', import.meta.url));
+const repoRoot = join(appsDir, '..', '..');
+
+/** The paths a module passes to `installProject`: a string literal, or a const the module defines. */
+function installedPaths(file: string): string[] {
+  const text = readFileSync(file, 'utf8');
+  return [...text.matchAll(/installProject\(\s*([^)]*?)\s*\)/g)].map(([, arg = '']) => {
+    const literal = arg.match(/^(['"`])([^'"`]+)\1$/)?.[2];
+    const constant = text.match(new RegExp(`const ${arg}\\s*=\\s*['"]([^'"]+)['"]`))?.[1];
+    const path = literal ?? constant;
+    if (path === undefined) throw new Error(`${relative(repoRoot, file)} passes installProject a path this test cannot read: ${arg}`);
+    return path;
+  });
+}
+
+/** Each app's nested installs: its scenario's own calls, and those of the helper modules it imports, such as chat-template.ts. */
+function scenarioInstalls(): Array<{ app: string; path: string }> {
+  const apps = readdirSync(appsDir).filter((name) => existsSync(join(appsDir, name, 'scenario.ts')));
+  return apps.flatMap((app) => {
+    const scenario = join(appsDir, app, 'scenario.ts');
+    const helpers = [...readFileSync(scenario, 'utf8').matchAll(/from '\.\.\/([\w-]+\.ts)'/g)].map(([, name = '']) => name).filter((name) => name !== 'driver.ts');
+    const paths = [scenario, ...helpers.map((name) => join(appsDir, name))].flatMap(installedPaths);
+    return [...new Set(paths)].map((path) => ({ app, path }));
+  });
+}
+
+const byAppAndPath = (a: { app: string; path: string }, b: { app: string; path: string }) => `${a.app}/${a.path}`.localeCompare(`${b.app}/${b.path}`);
+
+/** The nested project that `template` scaffolds. */
+function templateProject(template: 'chat' | 'node'): NestedProject {
+  const project = NESTED_PROJECTS.find((entry) => 'template' in entry.manifest && entry.manifest.template === template);
+  if (project === undefined) throw new Error(`no nested project uses the ${template} template`);
+  return project;
+}
+
+describe('nested projects (#1514)', () => {
+  test('the list names every project a scenario installs, directly or through a helper, and nothing else', () => {
+    const installed = scenarioInstalls().sort(byAppAndPath);
+    const declared = NESTED_PROJECTS.map(({ app, path }) => ({ app, path })).sort(byAppAndPath);
+    expect(installed).toEqual(declared);
+    expect(installed.map(({ app }) => app)).toEqual(expect.arrayContaining(['create-pyric-chat-app-check', 'create-pyric-chat-node-host', 'create-pyric-node-template', 'run-from-sibling-install']));
+  });
+
+  test('a project copied from its app names a directory with a package.json', () => {
+    const copied = NESTED_PROJECTS.flatMap((project) => ('dir' in project.manifest ? [join(appsDir, project.app, project.manifest.dir, 'package.json')] : []));
+    expect(copied.length).toBeGreaterThan(0);
+    expect(copied.filter((file) => !existsSync(file))).toEqual([]);
+  });
+
+  const PUBLISHED = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui', 'create-pyric'];
+  /** The published tarballs under `dir`, as the runner maps them. */
+  const tarballsIn = (dir: string): Tarballs => new Map(PUBLISHED.map((name) => [name, join(dir, `${name.replace('@', '').replace('/', '-')}.tgz`)]));
+  const packedPackages = PUBLISHED.map((name) => packed(name, '0.1.0-alpha.1'));
+  /** create-pyric from source, so the test needs no build. */
+  const createPyric = [process.execPath, join(repoRoot, 'packages', 'create-pyric', 'src', 'bin.ts')];
+
+  async function templateKey(project: NestedProject, tarballs: Tarballs): Promise<string> {
+    const manifest = await nestedProjectManifest(project, { appsDir, createPyric, tarballs });
+    return storeKey({ ...manifest, packed: packedPackages, platform: PLATFORM });
+  }
+
+  test.each(['chat', 'node'] as const)('the %s template keeps its key across two scaffolds, with tarballs in different places', async (template) => {
+    const project = templateProject(template);
+    const first = await templateKey(project, tarballsIn('/run-one/dist/packages'));
+    const second = await templateKey(project, tarballsIn('/run-two/dist/packages'));
+    expect(second).toBe(first);
+    const scaffolded = await nestedProjectManifest(project, { appsDir, createPyric, tarballs: tarballsIn('/run-one/dist/packages') });
+    const manifest = JSON.parse(scaffolded.manifest) as { name?: string; overrides?: Record<string, string> };
+    expect(manifest.name).toBe(project.path);
+    expect(Object.keys(manifest.overrides ?? {}).sort()).toEqual([...PUBLISHED].sort());
+  }, 30_000);
+
+  test('the chat and node templates have different keys', async () => {
+    const tarballs = tarballsIn('/run-one/dist/packages');
+    const keys = await Promise.all((['chat', 'node'] as const).map((template) => templateKey(templateProject(template), tarballs)));
+    expect(new Set(keys).size).toBe(2);
+  }, 30_000);
 });
