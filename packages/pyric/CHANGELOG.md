@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.1.0-alpha.30.2
+
+Hotfix for App Check in sandbox AI mode. Sandbox AI mode now refuses AI Logic
+requests without an App Check token, as production does from November 2, 2026,
+and the gemini engine works on the Vite plugin's default SharedWorker plane.
+
+### Behavior changes
+
+- Sandbox AI mode now refuses requests without an App Check token, the way
+  production does. If an app never calls `initializeAppCheck`, or calls it
+  after `getAI`, then `generateContent`, `generateContentStream`,
+  `countTokens` and chat messages fail with production's 403 error ("Firebase
+  AI Logic has been deactivated in this project..."). An app that never called
+  `initializeAppCheck` now needs to call it before `getAI`. Pyric prints how
+  to fix it in the browser console and in the dev server terminal. This
+  applies on the SharedWorker plane, with `hosted: true`, in the in-page
+  sandbox, and in a server under `@pyric/cli/register`. Sandbox tokens from
+  `initializeAppCheck` are accepted, with or without the debug provider.
+  `getAI(sandbox)`, `createConfiguredSandboxAI` and production AI mode are
+  unchanged. There is no flag to turn the refusal off (#1535).
+- The dev server's AI proxy routes refuse requests from pages on other
+  origins and request bodies over their size limit, so another site can't
+  spend your AI key (#1431, #1592).
+
+### Known issue: proxied AI engines under `pyric sandbox -- next dev`
+
+- On this release a Next page that uses a proxied AI engine is refused with a
+  403. That covers the openai engine, and the gemini engine on the SharedWorker
+  or in-page plane. The Next dev server serves the page on its own port, which
+  this release's AI proxy guard does not accept. The fix comes in alpha.31.
+
+### Fixed: the gemini engine on the SharedWorker plane
+
+- With `ai: { engine: { kind: "gemini" } }` on the Vite plugin's default
+  SharedWorker plane, requests now go through the dev server, which adds the
+  Gemini key from its own environment. Apps get Gemini's answer instead of
+  `process is not defined`. The key never reaches the browser, and Gemini
+  errors relayed to the page have the key removed (#1592).
+
+### Fixed: dev server
+
+- A denial's suggested fix prints in full in the terminal instead of being
+  cut short (#1431).
+
+### Docs
+
+- The AI Logic guide, the tutorial and the `ai-chat` example call
+  `initializeAppCheck` before `getAI` (#1392).
+
 ## 0.1.0-alpha.30.1
 
 Hotfix for production AI mode. Production AI mode now verifies real App Check
