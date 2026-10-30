@@ -1,0 +1,36 @@
+{
+  "steps": [
+    { "n": 1, "did": "installed nothing new and started the Vite dev server", "result": "worked", "log": "logs/step-1.log" },
+    { "n": 2, "did": "overwrote another user's photo", "result": "broke", "log": "logs/step-2.log" }
+  ],
+  "worked": ["anonymous sign-in"],
+  "problems": [
+    {
+      "id": "p1",
+      "summary": "another user's write was allowed",
+      "step": 2,
+      "docsLedMeToExpect": { "page": "docs/site/secure/storage-rules.md", "quote": "pyric applies your storage.rules to every write" },
+      "whatHappened": "the upload succeeded",
+      "errorText": "",
+      "logs": ["logs/step-2.log"],
+      "reproHint": "upload to users/other/photo.png while signed in as a different user"
+    }
+  ],
+  "refusals": [
+    {
+      "action": "another user's write under the given rules",
+      "firebaseDoc": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "productionAnswer": "storage/unauthorized",
+      "pyricAnswer": "the upload succeeded",
+      "result": "allowed"
+    },
+    {
+      "action": "an upload larger than the rules' size limit",
+      "firebaseDoc": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "productionAnswer": "storage/unauthorized",
+      "pyricAnswer": "storage/unauthorized",
+      "result": "refused"
+    }
+  ],
+  "stuck": null
+}
