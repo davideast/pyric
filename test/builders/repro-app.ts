@@ -8,8 +8,12 @@
  * sandbox, so nothing is written through a link: only the archive's `app/`
  * is extracted, `app` must be a directory, and each file the harness
  * writes in it must be absent or a regular file.
+ *
+ * The app's own `.npmrc` is set aside as `.npmrc.from-builder` before the
+ * install, so only the harness's flags configure npm: a builder's
+ * `registry=` or a helper program it names never applies.
  */
-import { copyFileSync, lstatSync } from 'node:fs';
+import { copyFileSync, lstatSync, renameSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { pinPyricPackages, runCommand, type Tarballs } from '../apps/install.ts';
 import { demoProjectId, writeFakeFirebaseConfig, type RunDirs } from './scratch.ts';
@@ -19,6 +23,18 @@ export const reproScriptName = (script: string) => `pyric-repro${extname(script)
 
 /** The files of the app the harness writes, outside the sandbox. */
 const WRITTEN = ['package.json', 'firebase-config.js', '.firebaserc'];
+
+/** npm's project config, which the builder may have written. */
+export const APP_NPMRC = '.npmrc';
+export const SET_ASIDE_NPMRC = '.npmrc.from-builder';
+
+/** Renames the app's `.npmrc`, a link included, out of npm's reach. Resolves whether there was one. */
+export function setAsideNpmrc(app: string): boolean {
+  const npmrc = join(app, APP_NPMRC);
+  const exists = lstatSync(npmrc, { throwIfNoEntry: false }) !== undefined;
+  if (exists) renameSync(npmrc, join(app, SET_ASIDE_NPMRC));
+  return exists;
+}
 
 /** Why writing `path` could land somewhere else; undefined when it can't. */
 export function linkProblem(path: string, kind: 'file' | 'directory'): string | undefined {
@@ -47,7 +63,8 @@ export async function layOutReproApp(input: ReproAppInput): Promise<string> {
   const tar = await runCommand('tar', ['-xzf', input.appArchive, '--no-same-owner', '--no-same-permissions', '-C', dirs.root, 'app'], { cwd: dirs.root });
   if (tar.code !== 0) throw new Error(`extracting ${input.appArchive} failed (exit ${tar.code}):\n${tar.output}`);
   const scriptName = reproScriptName(input.script);
-  assertWritable(dirs.app, [...WRITTEN, scriptName]);
+  assertWritable(dirs.app, [...WRITTEN, scriptName, SET_ASIDE_NPMRC]);
+  setAsideNpmrc(dirs.app);
   pinPyricPackages(dirs.app, input.tarballs);
   writeFakeFirebaseConfig(dirs.app, demoProjectId(input.run));
   copyFileSync(input.script, join(dirs.app, scriptName));

@@ -75,7 +75,8 @@ export function reproPhase(scriptName: string, options: Pick<ReproduceOptions, '
 async function runInSandbox(namespace: EgressNamespace, context: ReproContext, dirs: BuilderRunDirs): Promise<void> {
   const { checked, options } = context;
   const scriptName = await layOutReproApp({ dirs, appArchive: checked.appArchive, tarballs: checked.tarballs, run: options.run, script: options.script });
-  await installApp(namespace, dirs, `${options.run} repro`, say);
+  // The app is the builder's: a cold cache ends the try, never an install on the host.
+  await installApp(namespace, dirs, `${options.run} repro`, say, 'forbidden');
   const phase = reproPhase(scriptName, options);
   writeFileSync(dirs.phase, `${JSON.stringify(phase, null, 2)}\n`);
   const { command, args } = namespace.enter(process.execPath, [RUN_PHASE, dirs.root], REPO_ROOT);
