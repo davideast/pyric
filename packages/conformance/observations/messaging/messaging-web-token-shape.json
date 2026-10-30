@@ -5,8 +5,8 @@
     "messaging#2"
   ],
   "description": "getToken(messaging, { vapidKey, serviceWorkerRegistration }) against production FCM: token format facts. Probe: real Chromium, localhost secure context, permission granted, real registration API. Cited by messaging#2 (surface climbing under CDD; cited, not yet replayed).",
-  "observedAt": "2026-07-09T05:16:38.754Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:58:31.736Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "genkit-idx",
   "behavior": {
     "minted": true,
