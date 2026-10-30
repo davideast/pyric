@@ -13,13 +13,19 @@ export const REDACTED = '[redacted: the harness token]';
 /** Directories a scan does not enter: installed packages, which the harness does not keep. */
 const SKIPPED = new Set(['node_modules']);
 
-/** The files under `path` (a file or a directory) that hold `secret`. Symbolic links are not followed. */
-export function filesContaining(path: string, secret: string): string[] {
+/** Paths a scan or a copy leaves alone, such as the planted ones (`planted-links.ts`). */
+export type Skipped = ReadonlySet<string>;
+
+const NONE: Skipped = new Set();
+
+/** The files under `path` (a file or a directory) that hold `secret`, but not `skip`. Symbolic links are not followed. */
+export function filesContaining(path: string, secret: string, skip: Skipped = NONE): string[] {
+  if (skip.has(path)) return [];
   const stat = lstatSync(path, { throwIfNoEntry: false });
   if (stat === undefined || stat.isSymbolicLink()) return [];
   if (stat.isFile()) return readFileSync(path).includes(secret) ? [path] : [];
   if (!stat.isDirectory()) return [];
-  return readdirSync(path).filter((name) => !SKIPPED.has(name)).flatMap((name) => filesContaining(join(path, name), secret));
+  return readdirSync(path).filter((name) => !SKIPPED.has(name)).flatMap((name) => filesContaining(join(path, name), secret, skip));
 }
 
 /** One secret, several (the harness can hold a token file's and the environment's), or none. */
@@ -39,13 +45,14 @@ export function redactedText(text: string, secret: Secrets): string {
   return secretList(secret).reduce((current, value) => current.split(value).join(REDACTED), text);
 }
 
-/** Copies `from` (a file or a directory) to `to`, with every occurrence of each secret replaced. */
-export function copyRedacted(from: string, to: string, secret: Secrets): void {
+/** Copies `from` (a file or a directory) to `to`, but not `skip`, with every occurrence of each secret replaced. */
+export function copyRedacted(from: string, to: string, secret: Secrets, skip: Skipped = NONE): void {
+  if (skip.has(from)) return;
   const stat = lstatSync(from, { throwIfNoEntry: false });
   if (stat === undefined || stat.isSymbolicLink()) return;
   if (stat.isDirectory()) {
     mkdirSync(to, { recursive: true });
-    for (const name of readdirSync(from)) copyRedacted(join(from, name), join(to, name), secret);
+    for (const name of readdirSync(from)) copyRedacted(join(from, name), join(to, name), secret, skip);
     return;
   }
   if (!stat.isFile()) return;

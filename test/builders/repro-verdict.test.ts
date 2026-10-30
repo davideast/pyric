@@ -74,7 +74,7 @@ describe('reproResult', () => {
   });
 
   test('a try that failed on a planted link is invalid, naming each link', () => {
-    const error = new PlantedLink('refusing to touch the run\'s files outside the sandbox:\n- /r/network.jsonl is a link\n- /r/logs is a link');
+    const error = new PlantedLink(['/r/network.jsonl is a link', '/r/logs is a link']);
     expect(failedTry(error)).toEqual({ outcome: 'invalid', reason: 'the try\'s sandbox planted a link: /r/network.jsonl is a link; /r/logs is a link' });
   });
 });

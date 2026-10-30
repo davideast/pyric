@@ -11,7 +11,11 @@ import { lstatSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 /** A path the harness was about to touch is, or runs through, a link or something other than a plain file. */
-export class PlantedLink extends Error {}
+export class PlantedLink extends Error {
+  constructor(readonly problems: readonly string[]) {
+    super(`refusing to touch the run's files outside the sandbox:\n- ${problems.join('\n- ')}`);
+  }
+}
 
 function componentProblem(path: string, isLast: boolean): string | undefined {
   const stat = lstatSync(path, { throwIfNoEntry: false });
@@ -49,5 +53,5 @@ export function plantedLinks(root: string, paths: readonly string[]): { path: st
 /** Throws `PlantedLink`, naming each problem, unless every path is safe to read or append to. */
 export function assertNoPlantedLinks(root: string, paths: readonly string[]): void {
   const problems = plantedLinks(root, paths).map((planted) => planted.problem);
-  if (problems.length > 0) throw new PlantedLink(`refusing to touch the run's files outside the sandbox:\n- ${problems.join('\n- ')}`);
+  if (problems.length > 0) throw new PlantedLink(problems);
 }

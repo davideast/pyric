@@ -115,15 +115,12 @@ export function tryEvidence(dirs: BuilderRunDirs, phaseOutput: string): TryEvide
 
 const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
 
-/** The problems a `PlantedLink` names, on one line. */
-const plantedPaths = (error: PlantedLink) => error.message.split('\n- ').slice(1).join('; ');
-
 /**
  * A try that failed before it could be judged: invalid when its sandbox
  * planted a link, otherwise inconclusive, with the reason, never unconfirmed.
  */
 export function failedTry(error: unknown): TryJudgment {
-  if (error instanceof PlantedLink) return { outcome: 'invalid', reason: `the try's sandbox planted a link: ${plantedPaths(error)}` };
+  if (error instanceof PlantedLink) return { outcome: 'invalid', reason: `the try's sandbox planted a link: ${error.problems.join('; ')}` };
   return { outcome: 'inconclusive', reason: `the try failed: ${firstLine(error)}` };
 }
 
