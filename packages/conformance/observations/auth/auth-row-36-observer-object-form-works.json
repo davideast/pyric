@@ -5,9 +5,9 @@
     "auth#36"
   ],
   "description": "Observer object form ({next, error, complete}) works alongside the function form. Register one observer as a NextFn and another as {next}; trigger a transition; verify both fire.",
-  "observedAt": "2026-05-18T00:12:32.455Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T12:08:33.115Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "initialFn": 1,
     "initialObs": 1,
@@ -27,12 +27,12 @@
         "ts": 0
       },
       {
-        "uid": "kTRTjAjcvkVRyXlYWKi7i4r8yfn1",
-        "ts": 629
+        "uid": "sX9R2cg8J0VvMksDTCd8JMNr8Kj2",
+        "ts": 733
       },
       {
         "uid": null,
-        "ts": 1032
+        "ts": 1142
       }
     ],
     "firesObs": [
@@ -41,12 +41,12 @@
         "ts": 0
       },
       {
-        "uid": "kTRTjAjcvkVRyXlYWKi7i4r8yfn1",
-        "ts": 629
+        "uid": "sX9R2cg8J0VvMksDTCd8JMNr8Kj2",
+        "ts": 733
       },
       {
         "uid": null,
-        "ts": 1032
+        "ts": 1142
       }
     ]
   }
