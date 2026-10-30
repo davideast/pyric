@@ -1,18 +1,23 @@
 /**
- * Masking an upstream Gemini error before the gemini proxy relays it to the
- * browser (#1584). An upstream or a gateway can quote the credential it was
- * sent in any form: in the URL (`?key=`, `&key=`, JSON-escaped or
- * percent-encoded), in plain text, or in an echoed header such as
- * `x-goog-api-key` or `Authorization: Bearer`. So the proxy removes the exact
- * credentials the request carried, raw and percent-encoded, then runs
- * `redactUrl` as a second pass for any other credential parameter.
+ * Masking an upstream Gemini error before it reaches a caller: the gemini
+ * proxy relaying it to the browser (#1584), and the gemini engine throwing it
+ * on the Node host for `hosted: true` (#1631). One definition serves both, so
+ * the same server key cannot reach the same page masked by one route and in
+ * plain text by the other. The dev server's terminal reads it too.
+ *
+ * An upstream or a gateway can quote the credential it was sent in any form:
+ * in the URL (`?key=`, `&key=`, JSON-escaped or percent-encoded), in plain
+ * text, or in an echoed header such as `x-goog-api-key` or
+ * `Authorization: Bearer`. So the exact credentials the request carried are
+ * removed, raw and percent-encoded, then `redactUrl` runs as a second pass
+ * for any other credential parameter.
  *
  * A JSON body is masked value by value and serialized again, so the
  * browser engine still reads Gemini's own status and message. Text
  * redaction over the raw JSON could eat a closing quote and leave the
  * envelope unparseable.
  */
-import { redactUrl } from 'pyric/ai/internal';
+import { redactUrl } from './synthesizer.js';
 
 const MASK = '***';
 
@@ -22,7 +27,12 @@ function quotedForms(credential: string): string[] {
   return [...forms].sort((a, b) => b.length - a.length);
 }
 
-function redactText(text: string, credentials: readonly string[]): string {
+/**
+ * `text` with every credential in `credentials` removed, and every
+ * credential URL parameter masked. For a string that is not a body, such as
+ * one message or one header value.
+ */
+export function redactUpstreamText(text: string, credentials: readonly string[]): string {
   let masked = text;
   for (const credential of credentials) {
     for (const form of quotedForms(credential)) masked = masked.split(form).join(MASK);
@@ -31,12 +41,12 @@ function redactText(text: string, credentials: readonly string[]): string {
 }
 
 function redactValue(value: unknown, credentials: readonly string[]): unknown {
-  if (typeof value === 'string') return redactText(value, credentials);
+  if (typeof value === 'string') return redactUpstreamText(value, credentials);
   if (Array.isArray(value)) return value.map((item) => redactValue(item, credentials));
   const isObject = value !== null && typeof value === 'object';
   if (!isObject) return value;
   const entries = Object.entries(value as Record<string, unknown>)
-    .map(([key, item]) => [redactText(key, credentials), redactValue(item, credentials)]);
+    .map(([key, item]) => [redactUpstreamText(key, credentials), redactValue(item, credentials)]);
   return Object.fromEntries(entries);
 }
 
@@ -55,6 +65,6 @@ function parseJson(text: string): { value: unknown } | undefined {
  */
 export function redactUpstreamError(text: string, credentials: readonly string[]): string {
   const json = parseJson(text);
-  if (json === undefined) return redactText(text, credentials);
+  if (json === undefined) return redactUpstreamText(text, credentials);
   return JSON.stringify(redactValue(json.value, credentials));
 }
