@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
 import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
-import { NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
+import { DROP_CAPABILITIES, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
 
 /** A DNS query for `name`, type A, recursion desired. */
 function query(name: string, id = 0x1234): Buffer {
@@ -118,9 +118,21 @@ describe('overlayScript', () => {
 });
 
 describe('ownDirs', () => {
-  test('is the run root, the sandbox /tmp, and TMPDIR when set', () => {
+  test('is the run root, the sandbox /tmp, and TMPDIR only inside that /tmp', () => {
     expect(ownDirs('/r', {})).toEqual(['/r', '/tmp']);
     expect(ownDirs('/r', { TMPDIR: '/tmp/x/' })).toEqual(['/r', '/tmp', '/tmp/x']);
+    expect(ownDirs('/r', { TMPDIR: '/var/tmp' })).toEqual(['/r', '/tmp']);
+    expect(ownDirs('/r', { TMPDIR: '/tmpfoo' })).toEqual(['/r', '/tmp']);
+  });
+});
+
+describe('enterArgs', () => {
+  test('drops every capability before the command, and sets the directory inside the sandbox', () => {
+    const { command, args } = enterArgs(42, 'npm', ['install'], '/run-dir');
+    expect(command).toBe('nsenter');
+    expect(args).toEqual(['-t', '42', '-U', '-m', '-n', '-p', '-i', '-u', '-C', '--preserve-credentials', '--root', ...DROP_CAPABILITIES, '/usr/bin/env', '-C', '/run-dir', 'npm', 'install']);
+    expect(DROP_CAPABILITIES).toEqual(['/usr/bin/setpriv', '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--securebits=+noroot,+noroot_locked', '--']);
+    expect(args.some((arg) => arg.startsWith('--wd'))).toBe(false);
   });
 });
 
@@ -156,6 +168,7 @@ describe('startEgressNamespace', () => {
       expect(links.stdout.trim().split('\n').map((line) => line.split(':')[1]?.trim())).toEqual(['lo']);
 
       expect(run('pwd', []).stdout.trim()).toBe(root);
+      expect(run('grep', ['-E', '^Cap(Eff|Bnd|Amb)', '/proc/self/status']).stdout.trim().split('\n').map((line) => line.split(/\s+/)[1])).toEqual(['0000000000000000', '0000000000000000', '0000000000000000']);
       expect(run('ls', ['-A', '/run']).stdout.trim()).toBe('');
 
       const inventory = run('node', [join(import.meta.dir, 'sandbox-inventory.ts'), ...ownDirs(root)]);

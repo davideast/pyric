@@ -108,7 +108,7 @@ async function plant(app: AppRun, recorded: Record<string, string>, browser: Bro
 export function assertInsideSandbox(root: string): void {
   const { problems, walked } = sandboxInventory(ownDirs(root));
   if (problems.length > 0) throw new Error(`refusing to plant: this process is not inside a run's sandbox:\n- ${problems.join('\n- ')}`);
-  step(`sandbox inventory: loopback only, resolv.conf names 127.0.0.1, no /mnt, /run/WSL or /run/user, no foreign socket in ${walked} directories`);
+  step(`sandbox inventory: loopback only, resolv.conf names 127.0.0.1, no capabilities, host binds read-only, no /mnt, /run/WSL or /run/user, no foreign socket in ${walked} directories`);
 }
 
 async function main(root: string): Promise<void> {

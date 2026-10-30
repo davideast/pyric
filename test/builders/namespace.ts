@@ -32,6 +32,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { accessSync, constants, existsSync, lstatSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { linkNames, loopbackOnlyProblem } from './sandbox-inventory.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const HOLDER = fileURLToPath(new URL('./recorder/holder.mjs', import.meta.url));
@@ -42,10 +43,15 @@ const READY_TIMEOUT_MS = 15_000;
 /** The top-level entries of a merged-/usr system, linked or bound into the sandbox as the host has them. */
 const USR_LINKS = ['bin', 'lib', 'lib64', 'sbin'];
 
-/** The /etc entries the sandbox gets read-only: the loader, certificates, fonts, users and name-service config. */
+/**
+ * The /etc entries the sandbox gets read-only: the loader, certificates,
+ * fonts, users and name-service config. Of /etc/ssl only the certificates and
+ * openssl.cnf: /etc/ssl/private is root-only, and the inventory fails on a
+ * directory it can't list.
+ */
 export const ETC_ENTRIES: readonly string[] = [
   'alternatives', 'ca-certificates', 'fonts', 'gai.conf', 'group', 'host.conf', 'ld.so.cache', 'ld.so.conf', 'ld.so.conf.d',
-  'localtime', 'mime.types', 'nsswitch.conf', 'os-release', 'passwd', 'protocols', 'services', 'ssl',
+  'localtime', 'mime.types', 'nsswitch.conf', 'os-release', 'passwd', 'protocols', 'services', 'ssl/certs', 'ssl/openssl.cnf',
 ];
 
 /** The holder's script: route every address to loopback, then start the loggers. */
@@ -159,13 +165,31 @@ export function sandboxArgs(layout: SandboxLayout): string[] {
 const ENTERED_NAMESPACES = ['-U', '-m', '-n', '-p', '-i', '-u', '-C'];
 
 /**
- * `nsenter` into the sandbox, then `env -C <cwd>` inside it. Not nsenter's
- * `--wd=<dir>`: it opens the directory on the host before entering, which
- * would leave the command's working directory on a host mount, outside the
- * sandbox's root.
+ * What every entered command runs under: no capabilities, now or after any
+ * exec. A command nsenter starts in the sandbox's user namespace has every
+ * capability there, enough to remount a read-only bind of a host directory
+ * read-write. `setpriv` empties the bounding, inheritable and ambient sets,
+ * and `noroot` (locked) keeps uid 0 from regaining them on exec.
  */
-function enterArgs(pid: number, command: string, args: readonly string[], cwd: string): { command: string; args: string[] } {
-  return { command: 'nsenter', args: ['-t', String(pid), ...ENTERED_NAMESPACES, '--preserve-credentials', '--root', '/usr/bin/env', '-C', cwd, command, ...args] };
+export const DROP_CAPABILITIES = ['/usr/bin/setpriv', '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--securebits=+noroot,+noroot_locked', '--'];
+
+function nsenterArgs(pid: number): string[] {
+  return ['-t', String(pid), ...ENTERED_NAMESPACES, '--preserve-credentials', '--root'];
+}
+
+/**
+ * `nsenter` into the sandbox, drop every capability, then `env -C <cwd>`
+ * inside it. Not nsenter's `--wd=<dir>`: it opens the directory on the host
+ * before entering, which would leave the command's working directory on a
+ * host mount, outside the sandbox's root.
+ */
+export function enterArgs(pid: number, command: string, args: readonly string[], cwd: string): { command: string; args: string[] } {
+  return { command: 'nsenter', args: [...nsenterArgs(pid), ...DROP_CAPABILITIES, '/usr/bin/env', '-C', cwd, command, ...args] };
+}
+
+/** A setup command that keeps its capabilities: only the overlay mount, before any run command enters. */
+function enterPrivileged(pid: number, script: string): { command: string; args: string[] } {
+  return { command: 'nsenter', args: [...nsenterArgs(pid), '/bin/sh', '-c', script] };
 }
 
 /** Reads bwrap's `--info-fd` JSON for the child pid. */
@@ -206,14 +230,13 @@ function waitForReady(child: ChildProcess): Promise<void> {
   });
 }
 
-/** Fails closed unless loopback is the only interface inside the sandbox. */
+/** Fails closed unless `ip -o link` inside the sandbox lists loopback alone. */
 function assertLoopbackOnly(pid: number): void {
   const { command, args } = enterArgs(pid, 'ip', ['-o', 'link', 'show'], '/');
   const result = spawnSync(command, args, { encoding: 'utf8' });
   if (result.status !== 0) throw new NamespaceUnavailable(`could not list the sandbox's interfaces:\n${result.stderr}`);
-  const interfaces = result.stdout.trim().split('\n').map((line) => line.split(':')[1]?.trim() ?? '');
-  const isLoopbackOnly = interfaces.length === 1 && interfaces[0] === 'lo';
-  if (!isLoopbackOnly) throw new NamespaceUnavailable(`the sandbox has interfaces besides loopback: ${interfaces.join(', ')}`);
+  const problem = loopbackOnlyProblem(linkNames(result.stdout));
+  if (problem !== undefined) throw new NamespaceUnavailable(`the sandbox ${problem}`);
 }
 
 /** The script that mounts an in-memory overlay on each of `dirs`, inside the sandbox. */
@@ -226,10 +249,10 @@ export function overlayScript(dirs: readonly string[]): string {
     .join(' && ');
 }
 
-/** Mounts the overlays from inside, where a command entered with nsenter is root of the sandbox's user namespace. */
+/** Mounts the overlays from inside, with the capabilities every later command is denied. */
 function mountOverlays(pid: number, dirs: readonly string[]): void {
   if (dirs.length === 0) return;
-  const { command, args } = enterArgs(pid, 'sh', ['-c', overlayScript(dirs)], '/');
+  const { command, args } = enterPrivileged(pid, overlayScript(dirs));
   const result = spawnSync(command, args, { encoding: 'utf8' });
   if (result.status !== 0) throw new NamespaceUnavailable(`could not mount the overlays on ${dirs.join(', ')}:\n${result.stderr}`);
 }
@@ -242,10 +265,17 @@ function assertInventory(pid: number, ownDirs: readonly string[]): void {
   throw new NamespaceUnavailable(`the sandbox inventory failed (exit ${result.status}):\n${result.stdout}${result.stderr}`);
 }
 
-/** The run's own directories, whose sockets are its own: the run root and its fresh /tmp, plus TMPDIR. */
+const isUnderTmp = (dir: string) => dir === '/tmp' || dir.startsWith('/tmp/');
+
+/**
+ * The run's own directories, whose sockets and writable mounts are its own:
+ * the run root and its fresh /tmp. TMPDIR counts only inside that /tmp; one
+ * elsewhere is walked like any other directory.
+ */
 export function ownDirs(runRoot: string, env: NodeJS.ProcessEnv = process.env): string[] {
-  const tmpdir = env.TMPDIR;
-  return [...new Set([runRoot, '/tmp', ...(tmpdir ? [tmpdir.replace(/\/+$/, '')] : [])])];
+  const tmpdir = env.TMPDIR?.replace(/\/+$/, '');
+  const freshTmpdir = tmpdir !== undefined && tmpdir !== '' && isUnderTmp(tmpdir) ? [tmpdir] : [];
+  return [...new Set([runRoot, '/tmp', ...freshTmpdir])];
 }
 
 /**
