@@ -29,6 +29,9 @@ import { usageFrom, type Usage } from './usage.ts';
 
 export const RUN_PHASE_LOG = '02-run-phase.log';
 
+/** Where a planted run's phase output is kept, relative to the run's data. */
+export const KEPT_PHASE_OUTPUT = `logs/${RUN_PHASE_LOG}`;
+
 /** How the phase said its command ended; null when it never wrote that, or wrote something else. */
 export function readPhaseResult(dirs: BuilderRunDirs): PhaseResult | null {
   if (!existsSync(dirs.phaseResult)) return null;
