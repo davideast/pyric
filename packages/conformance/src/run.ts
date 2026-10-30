@@ -8782,6 +8782,157 @@ const probes: Probe[] = [
       return out;
     },
   },
+  {
+    name: 'auth-signinprovider-per-flow',
+    matrixRow: 'auth #68',
+    rowIds: ['auth#68'],
+    description: 'IdTokenResult.signInProvider + the reserved firebase.sign_in_provider claim, per sign-in flow (anonymous, password).',
+    async observe() {
+      const read = async () => {
+        const result = await auth.currentUser!.getIdTokenResult();
+        const firebase = (result.claims as { firebase?: { sign_in_provider?: string } }).firebase;
+        return { signInProvider: result.signInProvider, firebaseClaim: firebase?.sign_in_provider ?? null };
+      };
+      await signInAnonymously(auth);
+      const anonymous = await read();
+      await dropCurrentUser();
+      const email = `oracle-provider-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      const createCode = await attemptCode(() => createUserWithEmailAndPassword(auth, email, 'oracle-pw-123'));
+      if (createCode !== null) return { anonymous, password: null, createCode };
+      const password = await read();
+      const cleanupLeaked = (await attemptCode(() => deleteUser(auth.currentUser!))) !== null;
+      return { anonymous, password, ...(cleanupLeaked ? { cleanupLeaked } : {}) };
+    },
+  },
+  {
+    name: 'auth-claims-forced-refresh-propagation',
+    matrixRow: 'auth #75',
+    rowIds: ['auth#75'],
+    description: 'Admin-set custom claims reach an active session on the next FORCED token refresh, not the unforced read.',
+    async observe() {
+      if (!serviceAccount) return { skipped: true, reason: 'no service account (manual config?)' };
+      const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
+      const adminApp = adminInitializeApp({ ...oracleAppOptions(serviceAccount) }, `oracle-claims-refresh-${RUN_ID}`);
+      const claim = async (forceRefresh?: boolean) =>
+        ((await auth.currentUser!.getIdTokenResult(forceRefresh)).claims as Record<string, unknown>).oracleRole ?? null;
+      try {
+        await signInAnonymously(auth);
+        const uid = auth.currentUser!.uid;
+        const claimBefore = await claim();
+        const updateOk = (await attemptCode(() => getAdminAuth(adminApp).setCustomUserClaims(uid, { oracleRole: 'admin' }))) === null;
+        const claimUnforcedAfterAdminWrite = await claim();
+        const claimForcedRefresh = await claim(true);
+        return { updateOk, claimBefore, claimUnforcedAfterAdminWrite, claimForcedRefresh };
+      } finally {
+        await dropCurrentUser();
+        await adminDeleteApp(adminApp);
+      }
+    },
+  },
+  {
+    name: 'firestore-updatedoc-dotpath-fieldpath',
+    matrixRow: 'firestore #33',
+    rowIds: ['firestore#33'],
+    description: 'updateDoc top-level dot-separated string keys parse as FieldPaths (nested write preserving siblings), not literal keys.',
+    async observe() {
+      await signInAnonymously(auth);
+      const ref = doc(db, RUN_DOC('updatedoc-dotpath'), 'a');
+      try {
+        await setDoc(ref, { a: { b: 1, c: 3 }, top: 1 });
+        await updateDoc(ref, { 'a.b': 2 });
+        const data = (await getDoc(ref)).data() as { a: { b: number; c: number }; top: number };
+        return {
+          data,
+          nestedUpdated: data.a.b,
+          siblingPreserved: data.a.c,
+          literalDotKeyPresent: 'a.b' in data,
+        };
+      } finally {
+        await purge('updatedoc-dotpath');
+        await dropCurrentUser();
+      }
+    },
+  },
+  {
+    name: 'firestore-limittolast-preconditions',
+    matrixRow: 'firestore #61',
+    rowIds: ['firestore#61'],
+    description: 'limitToLast without orderBy — error class/code prod throws; with orderBy returns the trailing window.',
+    async observe() {
+      await signInAnonymously(auth);
+      const c = collection(db, RUN_DOC('limittolast'));
+      try {
+        await setDoc(doc(c, 'a'), { pos: 1 });
+        await setDoc(doc(c, 'b'), { pos: 2 });
+        let noOrderByThrew = false;
+        let code: string | null = null;
+        let message: string | null = null;
+        try {
+          await getDocs(query(c, limitToLast(2)));
+        } catch (e) {
+          noOrderByThrew = true;
+          code = (e as { code?: string }).code ?? null;
+          message = e instanceof Error ? e.message : String(e);
+        }
+        const trailing = await getDocs(query(c, orderBy('pos'), limitToLast(1)));
+        return { noOrderByThrew, code, message, trailingIds: trailing.docs.map((d) => d.id) };
+      } finally {
+        await purge('limittolast');
+        await dropCurrentUser();
+      }
+    },
+  },
+  {
+    name: 'firestore-startat-snapshot-implicit-name',
+    matrixRow: 'firestore #71',
+    rowIds: ['firestore#71'],
+    description: 'startAt(snapshot) disambiguates equal-valued docs via the implicit __name__ tiebreak.',
+    async observe() {
+      await signInAnonymously(auth);
+      const c = collection(db, RUN_DOC('startat-snapshot'));
+      try {
+        for (const id of ['a', 'b', 'c']) await setDoc(doc(c, id), { pos: 1 });
+        const anchor = await getDoc(doc(c, 'b'));
+        const snap = await getDocs(query(c, orderBy('pos'), startAt(anchor)));
+        const idsFromB = snap.docs.map((d) => d.id);
+        return { idsFromB, excludedEqualValuedPredecessor: !idsFromB.includes('a') };
+      } finally {
+        await purge('startat-snapshot');
+        await dropCurrentUser();
+      }
+    },
+  },
+  {
+    name: 'storage-uploadstring-unknown-format',
+    matrixRow: 'storage #41',
+    rowIds: ['storage#41'],
+    description: 'uploadString with an unknown format string — error code prod throws; base64url is a valid upstream format that Pyric currently rejects.',
+    async observe() {
+      if (!storage) {
+        return { skipped: true, reason: 'Storage not enabled on this project (no storageBucket in Web SDK config).' };
+      }
+      await signInAnonymously(auth);
+      const unknownRef = storageRef(storage, RUN_STORAGE_PATH('uploadstring-format', 'unknown.bin'));
+      const base64urlRef = storageRef(storage, RUN_STORAGE_PATH('uploadstring-format', 'base64url.bin'));
+      let unknownCode: string | null = null;
+      let unknownMessage: string | null = null;
+      try {
+        await uploadString(unknownRef, 'hello', 'totally-bogus-format' as unknown as 'raw');
+      } catch (e) {
+        unknownCode = (e as { code?: string }).code ?? null;
+        unknownMessage = e instanceof Error ? e.message : String(e);
+      }
+      const base64urlCode = await attemptCode(() => uploadString(base64urlRef, 'aGVsbG8', 'base64url' as unknown as 'base64'));
+      try {
+        return { unknownCode, unknownMessage, base64urlOk: base64urlCode === null, base64urlCode };
+      } finally {
+        for (const r of [unknownRef, base64urlRef]) {
+          try { await deleteObject(r); } catch { /* absent when the upload failed */ }
+        }
+        await dropCurrentUser();
+      }
+    },
+  },
 ];
 
 // ─── Runner ───────────────────────────────────────────────────────────
