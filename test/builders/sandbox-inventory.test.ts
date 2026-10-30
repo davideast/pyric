@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { capabilityProblems, interfaceNames, inventory, IP_LINK_FAILED, linkNames, loopbackOnlyProblem, mountProblems, nameservers, parseMountinfo, socketFiles, UNLISTABLE, type InventoryInput } from './sandbox-inventory.ts';
 
+const IS_ROOT = process.getuid?.() === 0;
+
 const servers: Server[] = [];
 
 afterEach(() => {
@@ -80,14 +82,20 @@ describe('inventory', () => {
     expect(inventory(input(sandboxTree(), { mountinfo })).problems).toEqual(['/home/u/repo is mounted read-write (ext4)']);
   });
 
-  test('fails on a directory the walk could not list, unless it is allowed by name', () => {
+  // A mode-000 directory is unlistable only to a user without root: root
+  // lists it anyway, so under `unshare -r` or as uid 0 these two can't plant
+  // what they check, and skip.
+  const unlistableTest = IS_ROOT ? test.skip : test;
+  if (IS_ROOT) console.log('sandbox-inventory: skipping the two mode-000 directory tests: uid 0 can list a mode-000 directory, so they would plant nothing');
+
+  unlistableTest('fails on a directory the walk could not list, unless it is allowed by name', () => {
     const root = sandboxTree();
     mkdirSync(join(root, 'usr/locked'), { mode: 0o000 });
     expect(inventory(input(root)).problems).toEqual([`directories the walk could not list, so could not check: ${join(root, 'usr/locked')}`]);
     expect(inventory(input(root, { unlistable: [{ pattern: /^\/usr\/locked$/, reason: 'test' }] })).problems).toEqual([]);
   });
 
-  test('fails on a directory the walk could not list when a non-empty allowed list does not name it', () => {
+  unlistableTest('fails on a directory the walk could not list when a non-empty allowed list does not name it', () => {
     const root = sandboxTree();
     mkdirSync(join(root, 'usr/locked'), { mode: 0o000 });
     const unlistable = [{ pattern: /^\/usr\/other$/, reason: 'test' }, ...UNLISTABLE];
