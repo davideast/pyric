@@ -3,11 +3,12 @@
  */
 import type { NextConfigObject } from './types.js';
 import { getClientAliases, getNodeBuiltinFallbacks } from './client-aliases.js';
-import { BRIDGE_IMPORT_LOADER, bridgeImportRewrites } from './bridge-imports.js';
-import { resolveAiMode } from '../serve/firebase-module-swap.js';
+import { BRIDGE_IMPORT_LOADER, productionBridgeRewrites, type BridgeImportRewrites } from './bridge-imports.js';
 
 interface WebpackOptions {
   isServer: boolean;
+  /** Next's project directory. */
+  dir?: string;
   [key: string]: unknown;
 }
 
@@ -39,15 +40,24 @@ function assembleClientResolveSection(existingResolve: Record<string, any> | und
  * shadow-app wrappers, so their Firebase SDK imports escape the aliases that
  * name the wrappers themselves (see `bridge-imports.ts`).
  */
-function assembleClientModuleSection(existingModule: Record<string, any> | undefined): Record<string, any> | undefined {
-  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
-  const options = isProductionAiMode ? bridgeImportRewrites() : undefined;
+function assembleClientModuleSection(
+  existingModule: { rules?: unknown[]; [key: string]: unknown } | undefined,
+  projectDir: string,
+): { rules?: unknown[]; [key: string]: unknown } | undefined {
+  const options = productionBridgeRewrites(projectDir);
   if (options === undefined) return existingModule;
-  const moduleSection = existingModule !== undefined ? Object.assign({}, existingModule) : {};
+  const moduleSection = Object.assign({}, existingModule);
   const rules = Array.isArray(moduleSection.rules) ? [...moduleSection.rules] : [];
-  rules.push({ test: Object.keys(options.rewrites), use: [{ loader: BRIDGE_IMPORT_LOADER, options }] });
+  const rule: WebpackBridgeRule = { test: Object.keys(options.rewrites), use: [{ loader: BRIDGE_IMPORT_LOADER, options }] };
+  rules.push(rule);
   moduleSection.rules = rules;
   return moduleSection;
+}
+
+/** The webpack rule that runs the bridge import loader on the wrappers. */
+export interface WebpackBridgeRule {
+  test: string[];
+  use: Array<{ loader: string; options: BridgeImportRewrites }>;
 }
 
 /** The module that installs React's commit hook; it must evaluate before React. */
@@ -103,7 +113,7 @@ function assembleClientOutputSection(existingOutput: Record<string, any> | undef
  * Firebase module aliases and modern async runtime compatibility settings when
  * bundling for browser execution.
  */
-export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject {
+export function augmentWebpackConfig(config: NextConfigObject, projectDir: string = process.cwd()): NextConfigObject {
   const updatedConfig: NextConfigObject = Object.assign({}, config);
   const originalWebpack = updatedConfig.webpack;
 
@@ -116,7 +126,7 @@ export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject
       return resolvedConfig;
     }
     resolvedConfig.resolve = assembleClientResolveSection(resolvedConfig.resolve);
-    resolvedConfig.module = assembleClientModuleSection(resolvedConfig.module);
+    resolvedConfig.module = assembleClientModuleSection(resolvedConfig.module, webpackOptions.dir ?? projectDir);
     resolvedConfig.experiments = assembleClientExperimentsSection(resolvedConfig.experiments);
     resolvedConfig.output = assembleClientOutputSection(resolvedConfig.output);
     resolvedConfig.entry = assembleClientEntry(resolvedConfig.entry);

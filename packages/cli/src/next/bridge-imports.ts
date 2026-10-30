@@ -12,7 +12,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isBypassedBridgeImport } from '../serve/firebase-module-swap.js';
+import { isBypassedBridgeImport, resolveAiMode } from '../serve/firebase-module-swap.js';
 
 /** The shadow-app wrappers that import the Firebase SDK, by file name under `register/`, and the specifier each imports. */
 const BRIDGE_MODULES: ReadonlyArray<readonly [name: string, specifier: string]> = [
@@ -25,6 +25,11 @@ export interface BridgeImportRewrites {
   rewrites: Record<string, { specifier: string; target: string }>;
 }
 
+/** Thrown when the project's `firebase` has no browser entry for a module the wrappers import. */
+export class PyricNextBridgeError extends Error {
+  override readonly name = 'PyricNextBridgeError';
+}
+
 /** This package's built loader, next to this module. */
 export const BRIDGE_IMPORT_LOADER = fileURLToPath(new URL(`./bridge-import-loader${moduleExtension()}`, import.meta.url));
 
@@ -32,9 +37,9 @@ function moduleExtension(): string {
   return import.meta.url.endsWith('.ts') ? '.ts' : '.js';
 }
 
-/** The project's `firebase` package directory, found as Node finds a package from the project root. */
-function firebasePackageDir(projectRoot: string): string | undefined {
-  for (let dir = projectRoot; ; dir = dirname(dir)) {
+/** The project's `firebase` package directory, found as Node finds a package from the project directory. */
+function firebasePackageDir(projectDir: string): string | undefined {
+  for (let dir = projectDir; ; dir = dirname(dir)) {
     const candidate = join(dir, 'node_modules', 'firebase');
     if (existsSync(join(candidate, 'package.json'))) return realpathSync(candidate);
     if (dirname(dir) === dir) return undefined;
@@ -42,13 +47,18 @@ function firebasePackageDir(projectRoot: string): string | undefined {
 }
 
 /** The browser ESM file `firebase/<subpath>` resolves to under a bundler's browser conditions. */
-function browserFile(packageDir: string, specifier: string): string | undefined {
+function browserFile(packageDir: string, specifier: string): string {
   const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
     exports?: Record<string, { browser?: { import?: string }; default?: string }>;
   };
   const entry = manifest.exports?.[`./${specifier.slice('firebase/'.length)}`];
   const file = entry?.browser?.import ?? entry?.default;
-  return file === undefined ? undefined : join(packageDir, file);
+  if (file === undefined) {
+    throw new PyricNextBridgeError(
+      `pyric: production AI mode needs ${specifier} from the Firebase SDK, but ${join(packageDir, 'package.json')} exports no browser entry for it.`,
+    );
+  }
+  return join(packageDir, file);
 }
 
 function relativeSpecifier(fromFile: string, toFile: string): string {
@@ -57,24 +67,32 @@ function relativeSpecifier(fromFile: string, toFile: string): string {
 }
 
 /**
- * The rewrites for the wrappers of this install, or undefined when the
- * project has no `firebase` install to point them at. Only imports
- * {@link isBypassedBridgeImport} names are rewritten, so this plane bypasses
- * exactly what the others do.
+ * The rewrites for the wrappers of this install, pointed at the `firebase`
+ * that Next's project directory resolves, or undefined when it resolves
+ * none. Only imports {@link isBypassedBridgeImport} names are rewritten, so
+ * this plane bypasses exactly what the others do.
  */
-export function bridgeImportRewrites(projectRoot: string = process.cwd()): BridgeImportRewrites | undefined {
-  const packageDir = firebasePackageDir(projectRoot);
+export function bridgeImportRewrites(projectDir: string): BridgeImportRewrites | undefined {
+  const packageDir = firebasePackageDir(projectDir);
   if (packageDir === undefined) return undefined;
   const registerDir = fileURLToPath(new URL('../register/', import.meta.url));
   const rewrites: BridgeImportRewrites['rewrites'] = {};
   for (const [name, specifier] of BRIDGE_MODULES) {
     const wrapper = realpathSync(join(registerDir, `${name}${moduleExtension()}`));
-    const target = browserFile(packageDir, specifier);
-    const isBypassed = isBypassedBridgeImport(specifier, wrapper);
-    if (target === undefined || !isBypassed) continue;
-    rewrites[wrapper] = { specifier, target: relativeSpecifier(wrapper, target) };
+    if (!isBypassedBridgeImport(specifier, wrapper)) continue;
+    rewrites[wrapper] = { specifier, target: relativeSpecifier(wrapper, browserFile(packageDir, specifier)) };
   }
   return { rewrites };
+}
+
+/**
+ * The rewrites both bundler configs read: present only in production AI
+ * mode, as the environment names it, and only when the project resolves a
+ * `firebase` install.
+ */
+export function productionBridgeRewrites(projectDir: string): BridgeImportRewrites | undefined {
+  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
+  return isProductionAiMode ? bridgeImportRewrites(projectDir) : undefined;
 }
 
 /** The file names of the wrappers, for bundler rules keyed by name. */

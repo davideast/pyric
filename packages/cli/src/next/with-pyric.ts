@@ -9,6 +9,7 @@ import { augmentTurbopackConfig } from './turbopack-config.js';
 import { augmentDevRewrites } from './dev-rewrites.js';
 import { augmentRuntimeEnv } from './runtime-env.js';
 import { findEdgeRuntimeFiles, formatEdgeRuntimeWarning } from './edge-runtime.js';
+import { callingConfigDir } from './config-dir.js';
 import { NET_GUARD_GLOBAL, type NetGuard } from '../register/net-guard.js';
 
 const DEV_SERVER_PHASE = 'phase-development-server';
@@ -45,10 +46,10 @@ function blockByDefaultInDevServer(phase: string): void {
   guard?.escalate(DEV_GUARD_REASON);
 }
 
-function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOptions): NextConfigObject {
+function applyPyricEnhancements(config: NextConfigObject, projectDir: string, options?: PyricNextOptions): NextConfigObject {
   let enhancedConfig = augmentServerExternalPackages(config);
-  enhancedConfig = augmentWebpackConfig(enhancedConfig);
-  enhancedConfig = augmentTurbopackConfig(enhancedConfig);
+  enhancedConfig = augmentWebpackConfig(enhancedConfig, projectDir);
+  enhancedConfig = augmentTurbopackConfig(enhancedConfig, projectDir);
   enhancedConfig = augmentDevRewrites(enhancedConfig, options);
   enhancedConfig = augmentRuntimeEnv(enhancedConfig, options);
   return enhancedConfig;
@@ -76,6 +77,8 @@ function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOpt
  * the phase Next passes in rather than on NODE_ENV.
  */
 export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): NextConfigFunction {
+  // Read now: the config module that calls withPyric sits in Next's project directory.
+  const projectDir = callingConfigDir();
   return async (phase, defaults) => {
     if (isProductionPassthrough(phase)) {
       return isFunctionConfig(config) ? await config(phase, defaults) : config;
@@ -86,6 +89,6 @@ export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): 
     warnAboutEdgeRuntime();
 
     const resolvedConfig = isFunctionConfig(config) ? await config(phase, defaults) : config;
-    return applyPyricEnhancements(resolvedConfig, options);
+    return applyPyricEnhancements(resolvedConfig, projectDir, options);
   };
 }

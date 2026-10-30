@@ -136,8 +136,14 @@ async function runProductionAiCase(app: App, safety: Safety, name: string, nextF
   });
 }
 
-/** One production AI mode case per bundler: Turbopack, Next 16's default, and Webpack. */
-export const productionAiCases: readonly ExtraCase[] = [
-  (app, safety) => runProductionAiCase(app, safety, 'PYRIC_AI_MODE=production pyric sandbox -- next dev', []),
-  (app, safety) => runProductionAiCase(app, safety, 'PYRIC_AI_MODE=production pyric sandbox -- next dev --webpack', ['--webpack']),
-];
+/**
+ * One production AI mode case per set of `next dev` flags, one per bundler:
+ * `[[], ['--webpack']]` on Next 16, whose default is Turbopack, and
+ * `[[], ['--turbopack']]` on Next 15, whose default is webpack.
+ */
+export function productionAiCases(flagSets: ReadonlyArray<readonly string[]>): ExtraCase[] {
+  return flagSets.map((nextFlags) => {
+    const name = ['PYRIC_AI_MODE=production pyric sandbox -- next dev', ...nextFlags].join(' ');
+    return (app, safety) => runProductionAiCase(app, safety, name, nextFlags);
+  });
+}
