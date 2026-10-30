@@ -212,11 +212,23 @@ export function inventory(input: InventoryInput): Inventory {
   return { problems, walked };
 }
 
-/** Interface names from `ip -o link`, which also lists interfaces with no address, and from Node. */
+/** What stands in for `ip`'s list when `ip -o link` fails, so the interface check fails too. */
+export const IP_LINK_FAILED = '(ip -o link failed)';
+
+/**
+ * Interface names from `ip -o link`, which also lists interfaces with no
+ * address, and from Node, which leaves those out. A failed `ip` never falls
+ * back to Node's list alone.
+ */
+export function interfaceNames(ip: { status: number | null; stdout: string }, nodeNames: readonly string[]): string[] {
+  const ipSucceeded = ip.status === 0;
+  const listedByIp = ipSucceeded ? linkNames(ip.stdout) : [IP_LINK_FAILED];
+  return [...listedByIp, ...nodeNames];
+}
+
 function sandboxInterfaces(): string[] {
   const ip = spawnSync('ip', ['-o', 'link', 'show'], { encoding: 'utf8' });
-  const listedByIp = ip.status === 0 ? linkNames(ip.stdout) : ['(ip -o link failed)'];
-  return [...listedByIp, ...Object.keys(networkInterfaces())];
+  return interfaceNames(ip, Object.keys(networkInterfaces()));
 }
 
 /** The inventory of the sandbox this process runs in. */
