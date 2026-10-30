@@ -10,7 +10,7 @@
 // or pyric-ops.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { OAUTH_TOKEN_ENV } from './builder-command.ts';
@@ -24,8 +24,11 @@ const REPO_ROOT = resolve(import.meta.dir, '../..');
 const ROUND_TIMEOUT_MS = 900_000;
 const MODELS = ['fake-haiku', 'fake-sonnet'];
 const HARNESS_TOKEN = `made-up-harness-token-${process.pid}-${Date.now()}`;
+const ENV_TOKEN = `made-up-env-token-${process.pid}-${Date.now()}`;
 
 function runFakeRound(root: string) {
+  const tokenFile = join(root, 'oauth-token');
+  writeFileSync(tokenFile, `${HARNESS_TOKEN}\n`, { mode: 0o600 });
   const args = [
     'test/builders/harness.ts', 'round', 'fake',
     '--builder', 'test/builders/fixtures/fake-builder.mjs',
@@ -34,10 +37,12 @@ function runFakeRound(root: string) {
     '--max-budget-usd', '0.01',
     '--max-round-usd', '0.02',
     '--packages', resolve(PACKAGES ?? ''),
+    '--token-file', tokenFile,
   ];
-  // A made-up token in the harness's environment, in place of any real one,
-  // so the test can look for it in everything the round kept.
-  const env = { ...process.env, [OAUTH_TOKEN_ENV]: HARNESS_TOKEN, PYRIC_BUILDERS_DIR: join(root, 'scratch'), PYRIC_BUILDERS_DATA_DIR: join(root, 'data') };
+  // Made-up tokens, in place of any real one, in a token file and in the
+  // harness's environment, so the test can look for both in everything the
+  // round kept and printed. The file's wins.
+  const env = { ...process.env, [OAUTH_TOKEN_ENV]: ENV_TOKEN, PYRIC_BUILDERS_DIR: join(root, 'scratch'), PYRIC_BUILDERS_DATA_DIR: join(root, 'data') };
   return spawnSync(process.execPath, args, { cwd: REPO_ROOT, env, encoding: 'utf8', timeout: ROUND_TIMEOUT_MS });
 }
 
@@ -47,6 +52,8 @@ describe.skipIf(PACKAGES === undefined)('round with the fake builder', () => {
     const result = runFakeRound(root);
     console.log(result.stdout, result.stderr);
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`--token-file wins over ${OAUTH_TOKEN_ENV}, which is also set`);
+    expect(`${result.stdout}${result.stderr}`).not.toMatch(/made-up-(harness|env)-token/);
     expect(result.stdout).toContain('2 runs (1 briefs × 2 models), $0.01 cap per run, possible spend $0.02 under a round cap of $0.02');
 
     for (const model of MODELS) {
@@ -82,7 +89,9 @@ describe.skipIf(PACKAGES === undefined)('round with the fake builder', () => {
       expect(readFileSync(join(scratch, 'app', 'environ-dump.txt'), 'utf8')).toContain('ANTHROPIC_BASE_URL=http://127.0.0.1:');
       expect(record.harness.tokenFoundIn).toEqual([]);
       expect(filesContaining(scratch, HARNESS_TOKEN)).toEqual([]);
+      expect(filesContaining(scratch, ENV_TOKEN)).toEqual([]);
       expect(filesContaining(data, HARNESS_TOKEN)).toEqual([]);
+      expect(filesContaining(data, ENV_TOKEN)).toEqual([]);
 
       expect(readdirSync(join(scratch, 'docs', 'conformance')).length).toBeGreaterThan(0);
       expect(existsSync(join(scratch, 'docs', 'site', 'overview.md'))).toBe(true);

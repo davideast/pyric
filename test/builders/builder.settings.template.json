@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "TodoWrite"],
+    "deny": [
+      "WebFetch",
+      "WebSearch",
+      "Bash(gh:*)",
+      "Bash(firebase:*)",
+      "Bash(gcloud:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Read(/home/david/repos/**)",
+      "Grep(/home/david/repos/**)",
+      "Glob(/home/david/repos/**)"
+    ]
+  }
+}

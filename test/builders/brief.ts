@@ -7,7 +7,7 @@
  * The model and the dollar cap are not in the brief: each brief runs once per
  * model, at the cap `round` is given, so the comparison is per brief.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { parseJsonText, parseWith, type Parsed } from './parse.ts';
@@ -64,6 +64,15 @@ export function parseBrief(value: unknown): Parsed<Brief> {
 function readBriefFile(path: string): Parsed<Brief> {
   const json = parseJsonText(readFileSync(path, 'utf8'));
   return json.ok ? parseBrief(json.value) : json;
+}
+
+/** The command that makes a round's briefs directory under the data root. */
+export const briefsSetupCommand = (dir: string) => `mkdir -p ${dir}`;
+
+/** The briefs in `dir`, or, when there is no such directory, the command that makes it. */
+export function readBriefsDir(dir: string): { briefs: Brief[]; errors: string[] } {
+  if (existsSync(dir)) return readBriefs(dir);
+  return { briefs: [], errors: [`no briefs directory ${dir}: make it with \`${briefsSetupCommand(dir)}\` and write the round's briefs there`] };
 }
 
 /** Every `*.json` brief in `dir`, sorted by name, or each file's errors. */

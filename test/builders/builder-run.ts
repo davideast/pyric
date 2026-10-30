@@ -17,7 +17,7 @@ import { prepareApp, runCommand, runTimedCommand, type Tarballs } from '../apps/
 import { installApp, npmCacheDir } from './app-install.ts';
 import { renderBrief, type Brief } from './brief.ts';
 import { playwrightBrowsersPath } from './browser-server.ts';
-import { OAUTH_TOKEN_ENV, type Builder } from './builder-command.ts';
+import type { Builder } from './builder-command.ts';
 import { appendMeasurement } from './measurement.ts';
 import { readChannelRecord, type Listening, type ModelChannelEvent } from './model-channel.ts';
 import { startModelForwarder } from './model-forwarder.ts';
@@ -33,7 +33,7 @@ import { measurementLine, runRecord, type RunIdentity, type RunRecord } from './
 import { parseJsonText } from './parse.ts';
 import { assertNoPlantedLinks } from './planted-links.ts';
 import { createRunDirs, demoProjectId, writeFakeFirebaseConfig } from './scratch.ts';
-import { copyRedacted, filesContaining, redactedText } from './token-scan.ts';
+import { copyRedacted, filesContaining, redactedText, type Secrets } from './token-scan.ts';
 import { usageFrom } from './usage.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -55,6 +55,17 @@ export interface BuilderRunInput {
   provenance: Provenance;
   /** The run's share of the round's meter, which the forwarder checks before each request. */
   meter: RunMeter;
+  /**
+   * The harness's token (`harness-token.ts`), read outside the sandbox. Only
+   * the forwarder, for a builder that uses the model, and the token scan get
+   * it; no record, log or environment does.
+   */
+  token: string | undefined;
+  /**
+   * Every token value the harness holds, the token's and, when a token file
+   * won over it, the environment's: the token scan looks for and redacts each.
+   */
+  scanned: readonly string[];
   say: (line: string) => void;
 }
 
@@ -65,13 +76,6 @@ export interface BuilderRunInput {
  */
 export function runExists(round: string, run: string): boolean {
   return existsSync(builderRunDirsAt(builderRunRoot(round, run)).started) || existsSync(runDataDir(round, run));
-}
-
-/** The harness's token, from its own environment; undefined when it has none. */
-function harnessToken(): string | undefined {
-  const token = process.env[OAUTH_TOKEN_ENV];
-  const isSet = token !== undefined && token !== '';
-  return isSet ? token : undefined;
 }
 
 function layOut(input: BuilderRunInput, dirs: BuilderRunDirs): void {
@@ -136,10 +140,10 @@ const readIfExists = (path: string) => (existsSync(path) ? readFileSync(path, 'u
 /** What `keep` copies of the scratch directory. */
 const keptPaths = (dirs: BuilderRunDirs) => [dirs.report, dirs.briefJson, dirs.networkLog, dirs.logs, dirs.app];
 
-/** The kept files, relative to the run root, that hold `token`. Names files, never the value. */
-export function tokenFoundIn(dirs: BuilderRunDirs, token: string | undefined): string[] {
-  if (token === undefined) return [];
-  return keptPaths(dirs).flatMap((path) => filesContaining(path, token)).map((path) => relative(dirs.root, path)).sort();
+/** The kept files, relative to the run root, that hold any of `secrets`. Names files, never a value. */
+export function tokenFoundIn(dirs: BuilderRunDirs, secrets: readonly string[]): string[] {
+  const found = new Set(secrets.flatMap((secret) => keptPaths(dirs).flatMap((path) => filesContaining(path, secret))));
+  return [...found].map((path) => relative(dirs.root, path)).sort();
 }
 
 const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
@@ -149,7 +153,7 @@ const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
  * token's value replaced wherever it turns up. The app is packed without
  * node_modules, and withheld when any file of it held the token.
  */
-async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: string | undefined): Promise<void> {
+export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: Secrets): Promise<void> {
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(join(dataDir, 'report.json'), redactedText(`${JSON.stringify(record, null, 2)}\n`, token));
   copyRedacted(dirs.briefJson, join(dataDir, 'brief.json'), token);
@@ -185,7 +189,7 @@ async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, 
     writeFileSync(dirs.started, `${new Date().toISOString()}\n`);
     layOut(input, dirs);
     writeFileSync(channelRecord, '');
-    const credential = input.builder.usesModel ? harnessToken() : undefined;
+    const credential = input.builder.usesModel ? input.token : undefined;
     forwarder = await startModelForwarder({ socketPath: dirs.modelSocket, record: channelRecord, credential, meter: input.meter });
     await installApp(namespace, dirs, input.identity.run, input.say);
     await exportConformanceDocs(namespace, dirs);
@@ -220,7 +224,7 @@ export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
   const channel = readChannelRecord(channelRecord);
   mergeRecords(dirs, channel);
   writeFileSync(join(dirs.logs, RUN_PHASE_LOG), phaseOutput);
-  const token = harnessToken();
+  const token = input.scanned;
   const found = tokenFoundIn(dirs, token);
   if (found.length > 0) input.say(tokenNotice(identity.run, found));
   const record = runRecord({
