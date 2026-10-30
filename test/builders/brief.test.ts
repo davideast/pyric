@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseBrief, readBriefs, renderBrief } from './brief.ts';
+import { parseBrief, readBriefs, readBriefsDir, renderBrief } from './brief.ts';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'briefs', 'brief-1.json');
 const fixture = () => JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, unknown>;
@@ -74,6 +74,14 @@ describe('readBriefs', () => {
     writeFileSync(join(twice, 'a.json'), readFileSync(FIXTURE));
     writeFileSync(join(twice, 'b.json'), readFileSync(FIXTURE));
     expect(readBriefs(twice).errors).toEqual(['two briefs share an id: fake-1, fake-1']);
+  });
+});
+
+describe('readBriefsDir', () => {
+  test('gives the command that makes a missing briefs directory, and makes nothing', () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'builders-briefs-')), 'briefs', 'r1');
+    expect(readBriefsDir(dir)).toEqual({ briefs: [], errors: [`no briefs directory ${dir}: make it with \`mkdir -p ${dir}\` and write the round's briefs there`] });
+    expect(existsSync(dir)).toBe(false);
   });
 });
 

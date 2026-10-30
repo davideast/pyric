@@ -31,8 +31,8 @@
  *      file-writing path out of a browser. Every delivery carries a `tag`
  *      in message.data so the driver can wait on the RIGHT capture across
  *      many sends on one profile.
- *   4. The driver sends real messages via firebase-admin (the provisioned
- *      service account) and drives client SDK calls (getToken again,
+ *   4. The driver sends real messages via firebase-admin (the messaging
+ *      credential, src/messaging-credential.ts) and drives client SDK calls (getToken again,
  *      deleteToken) over page.evaluate against helpers the page exposes.
  *   5. Structural facts (payload keys, format classes, echo fidelity,
  *      visibility-at-delivery, error-envelope shape) are written as
@@ -60,9 +60,13 @@
  *
  * Requires in env:
  *   PYRIC_MESSAGING_FIREBASE_CONFIG  web app config JSON of the SAME
- *                                    project as the VAPID key and SA
+ *                                    project as the VAPID key and the
+ *                                    send credential
  *   PYRIC_MESSAGING_VAPID_KEY        Web Push certificate public key
- *   PYRIC_MESSAGING_SA_BASE64        send-capable service account
+ *   the send credential: PYRIC_MESSAGING_PROJECT_ID (or
+ *   PYRIC_ORACLE_PROJECT_ID) with Application Default Credentials, or
+ *   PYRIC_MESSAGING_SA_BASE64. project-checks.ts refuses a config or key
+ *   from another project before the browser opens.
  *
  * Run (headed browser will open; re-execs under caffeinate automatically):
  *   bun run packages/conformance/src/capture/messaging-web/harness.ts
@@ -71,9 +75,11 @@ import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { initializeApp, cert, deleteApp } from 'firebase-admin/app';
+import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
-import type { ServiceAccount } from 'firebase-admin/app';
+import { loadMessagingServiceAccount, messagingAccessToken, messagingSendEndpoint } from '../../messaging-credential.ts';
+import { oracleAppOptions } from '../../oracle-credential.ts';
+import { messagingWebProjectProblems } from './project-checks.ts';
 import { pathToFileURL } from 'node:url';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from '../../package-version.ts';
 
@@ -128,10 +134,14 @@ function need(name: string): string {
 }
 const webConfig = JSON.parse(need('PYRIC_MESSAGING_FIREBASE_CONFIG')) as Record<string, string>;
 const vapidKey = need('PYRIC_MESSAGING_VAPID_KEY');
-const sa = JSON.parse(Buffer.from(need('PYRIC_MESSAGING_SA_BASE64'), 'base64').toString('utf8')) as ServiceAccount & { project_id?: string };
-const projectId = (sa.projectId ?? sa.project_id)!;
-if (webConfig.projectId !== projectId) {
-  console.error(`✗ Config mismatch: web config is for ${webConfig.projectId}, service account for ${projectId}. Token registration requires the same project.`);
+const sa = await loadMessagingServiceAccount().catch((error: unknown) => {
+  console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+});
+const projectId = sa.project_id;
+const projectProblems = messagingWebProjectProblems(webConfig, vapidKey, projectId);
+if (projectProblems.length > 0) {
+  for (const problem of projectProblems) console.error(`✗ ${problem}`);
   process.exit(1);
 }
 const fbSdkVersion = resolvedFirebaseVersion();
@@ -169,7 +179,7 @@ interface Capture { kind: string; data: Record<string, unknown>; at: number }
 const captures: Capture[] = [];
 let mintedToken: string | null = null;
 
-const admin = initializeApp({ credential: cert(sa) }, 'messaging-web-harness');
+const admin = initializeApp(oracleAppOptions(sa), 'messaging-web-harness');
 function sendTo(token: string, tag: string) {
   return getMessaging(admin).send({
     token,
@@ -188,8 +198,8 @@ function sendDataOnly(token: string, tag: string) {
 // Raw v1 messages:send, to capture the underlying google.rpc error envelope
 // (firebase-admin re-wraps it as a FirebaseError; we want both shapes).
 async function rawSend(token: string, tag: string): Promise<{ status: number; body: Record<string, unknown> }> {
-  const { access_token } = await admin.options.credential!.getAccessToken();
-  const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+  const access_token = await messagingAccessToken(sa);
+  const res = await fetch(messagingSendEndpoint(sa), {
     method: 'POST',
     headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({

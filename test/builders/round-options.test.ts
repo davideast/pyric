@@ -26,6 +26,12 @@ describe('parseRoundOptions', () => {
     expect(() => parseRoundOptions(['r1', '--models', 'a,a', '--max-budget-usd', '2', '--max-round-usd', '5'])).toThrow(new UsageError('--models names a model twice: "a,a"'));
   });
 
+  test('takes the token file by path, and requires a path', () => {
+    expect(parseRoundOptions([...BASE, '--token-file', 'secrets/oauth-token']).tokenFile).toBe(resolve('secrets/oauth-token'));
+    expect(parseRoundOptions(BASE)).not.toHaveProperty('tokenFile');
+    expect(() => parseRoundOptions([...BASE, '--token-file'])).toThrow(new UsageError('--token-file takes a value'));
+  });
+
   test('takes a scripted builder by path, briefs and packages by path, and one at once', () => {
     const options = parseRoundOptions([...BASE, '--builder', 'fixtures/fake-builder.mjs', '--briefs', 'b', '--packages', 'p', '--concurrency', '1']);
     expect(options).toMatchObject({ builder: resolve('fixtures/fake-builder.mjs'), briefs: resolve('b'), packages: resolve('p'), concurrency: 1 });

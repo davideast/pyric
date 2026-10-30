@@ -12,6 +12,7 @@
  */
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { builderSettingsProblems } from './builder-settings.ts';
 
 export interface BuilderRun {
   /** The brief as text (`brief.md`) and as JSON (`brief.json`). */
@@ -75,8 +76,9 @@ export interface ClaudeBuilderOptions {
 }
 
 /**
- * The token from `claude setup-token`, in the harness's own environment. It
- * never enters the sandbox: the forwarder outside reads it from here.
+ * The token from `claude setup-token`, in the harness's own environment, when
+ * `round` is given no `--token-file`. It never enters the sandbox: only the
+ * forwarder outside holds it.
  */
 export const OAUTH_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
 
@@ -130,14 +132,15 @@ export function scriptBuilder(script: string): Builder {
   };
 }
 
-/** What stops a claude builder from starting, said before anything runs. It never says the token's value. */
-export function claudeBuilderProblems(options: Partial<ClaudeBuilderOptions>, env: NodeJS.ProcessEnv = process.env): string[] {
+/**
+ * What stops a claude builder from starting, said before anything runs:
+ * claude, the settings file and its shape, and the skill. The token is
+ * checked where it is read (`harness-token.ts`).
+ */
+export function claudeBuilderProblems(options: Partial<ClaudeBuilderOptions>): string[] {
   const problems: string[] = [];
   if (options.claude === undefined) problems.push('no claude on PATH');
-  const token = env[OAUTH_TOKEN_ENV] ?? '';
-  if (token === '') problems.push(`${OAUTH_TOKEN_ENV} is not set: run \`claude setup-token\` and export the token`);
-  for (const [what, path] of [['the builder settings', options.settings], ['the app-builder skill', options.systemPrompt]] as const) {
-    if (path === undefined || !existsSync(path)) problems.push(`${what} file ${path ?? '(none)'} does not exist`);
-  }
+  problems.push(...builderSettingsProblems(options.settings));
+  if (options.systemPrompt === undefined || !existsSync(options.systemPrompt)) problems.push(`the app-builder skill file ${options.systemPrompt ?? '(none)'} does not exist`);
   return problems;
 }

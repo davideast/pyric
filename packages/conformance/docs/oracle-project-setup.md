@@ -162,10 +162,6 @@ token request; run the login command again.
 These rigs authenticate with their own credential, not the oracle credential,
 and still need a key:
 
-- `messaging-send` and `messaging-web` (and
-  `src/check-messaging-provisioning.ts`) read a base64 key from
-  `PYRIC_MESSAGING_SA_BASE64` for the messaging project. #1387 tracks moving
-  them off a key.
 - `functions-rtdb` reads the deployer key from `PYRIC_FUNCTIONS_RTDB_SA_PATH`,
   passes it to `firebase deploy` as `GOOGLE_APPLICATION_CREDENTIALS`, and
   writes its `client_email` into the deployed function's runtime config.
@@ -176,6 +172,90 @@ through `signBlob` under ADC. The Rules Test API rigs (`rules-firestore`,
 probes) already work keyless through
 `packages/pyric/test/rules/parity/credential.ts`, which falls back to the same
 gcloud ADC file.
+
+### Messaging on the oracle project
+
+The messaging rigs (`messaging-send`, `messaging-web`, and
+`src/check-messaging-provisioning.ts`) send to FCM through
+`src/messaging-credential.ts`, which picks the credential by one condition:
+
+- `PYRIC_MESSAGING_SA_BASE64` is set: the rig decodes that service-account key
+  and sends with it, and the key names the project. A set
+  `PYRIC_MESSAGING_PROJECT_ID` must name the same project.
+- `PYRIC_MESSAGING_SA_BASE64` is unset: the rig uses the same Application
+  Default Credentials login as the oracle rigs, through
+  `src/oracle-credential.ts`. The project is `PYRIC_MESSAGING_PROJECT_ID`, or
+  `PYRIC_ORACLE_PROJECT_ID` when that is unset, so messaging runs on the oracle
+  project, `digame-mas`, with no extra variable. The account check is the
+  oracle one: the rig refuses an account that is not a service account of the
+  messaging project.
+
+Remove `PYRIC_MESSAGING_SA_BASE64` from `.env` and your shell to run keyless,
+because the key wins when it is set.
+
+An FCM HTTP v1 send needs an access token with the `firebase.messaging` or
+`cloud-platform` scope. Under ADC, firebase-admin asks for both, and gcloud's
+impersonated login passes them to the service account's token. A key mints a
+token for `firebase.messaging` alone.
+
+#### One-time setup on the messaging project
+
+A project owner does these once on `digame-mas`. They change the production
+project, so an agent never does them.
+
+1. **Enable the FCM API.** The send plane is the Firebase Cloud Messaging API
+   (`fcm.googleapis.com`):
+
+   ```sh
+   gcloud services enable fcm.googleapis.com --project=digame-mas
+   ```
+
+2. **Check the send permission.** The Admin SDK service account needs
+   `cloudmessaging.messages.create`. Its default role, Firebase Admin SDK
+   Administrator Service Agent, carries it. Check read-only:
+
+   ```sh
+   gcloud projects get-iam-policy digame-mas --flatten='bindings[].members' \
+     --filter='bindings.members:serviceAccount:firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com' \
+     --format='table(bindings.role)'
+   gcloud iam roles describe roles/firebase.sdkAdminServiceAgent | grep cloudmessaging.messages.create
+   ```
+
+   If no role it holds carries the permission, grant
+   `roles/firebasecloudmessaging.admin` to the service account.
+
+3. **Create the Web Push certificate.** For `messaging-web` only. In the
+   Firebase console, open Project settings, then Cloud Messaging, then Web
+   configuration. Under Web Push certificates, choose Generate key pair. The
+   value shown is the VAPID public key.
+
+4. **Pick the web app.** For `messaging-web` only. Use the web app of the
+   oracle project (Project settings, General, Your apps). The oracle web
+   config, `PYRIC_ORACLE_FIREBASE_CONFIG`, already works. If the app's browser
+   API key has API restrictions, they must allow the Firebase Installations API
+   and the FCM Registration API, which `getToken` calls.
+
+Then, in the root `.env`, with the oracle login from [Log in](#log-in):
+
+```sh
+PYRIC_ORACLE_PROJECT_ID=digame-mas
+# messaging-web only: the web app config as one line of JSON, and the key pair.
+PYRIC_MESSAGING_FIREBASE_CONFIG='{"apiKey":"…","authDomain":"digame-mas.firebaseapp.com","projectId":"digame-mas","storageBucket":"…","messagingSenderId":"<project number>","appId":"1:<project number>:web:…"}'
+PYRIC_MESSAGING_VAPID_KEY=<Web Push certificate key pair>
+```
+
+Before the browser opens, `messaging-web` refuses a web config whose
+`projectId` is not the credential's project, a `messagingSenderId` that is not
+the project number in the config's `appId`, and a VAPID key that is not a P-256
+public key. A VAPID public key names no project, so FCM checks that one when
+`getToken` registers the browser.
+
+Check the send plane before a capture. It makes three dry-run sends and
+delivers nothing:
+
+```sh
+bun --env-file=.env packages/conformance/src/check-messaging-provisioning.ts
+```
 
 ## Running the harness
 

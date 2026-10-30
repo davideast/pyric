@@ -23,17 +23,28 @@ export const rig: RigManifestRecord = {
       {
         name: 'PYRIC_MESSAGING_FIREBASE_CONFIG',
         description:
-          'Web app config JSON (apiKey/projectId/appId/messagingSenderId/…) for the same project as the VAPID key and service account. Bundled into the served app so the client SDK talks to the real project.',
+          'Web app config JSON (apiKey/projectId/appId/messagingSenderId/…) for the messaging project, the same project as the VAPID key and the send credential. The harness refuses a projectId other than the credential\'s, or an appId whose project number is not the messagingSenderId. Bundled into the served app so the client SDK talks to the real project.',
       },
       {
         name: 'PYRIC_MESSAGING_VAPID_KEY',
         description:
-          'Web Push certificate public key (VAPID) for the project. Passed to getToken so the browser can subscribe to push.',
+          'Web Push certificate public key (VAPID) for the messaging project, from Project settings, Cloud Messaging, Web configuration. The harness refuses a value that is not a P-256 public key; FCM checks its project when getToken registers. Passed to getToken so the browser can subscribe to push.',
+      },
+      {
+        name: 'PYRIC_MESSAGING_PROJECT_ID',
+        description:
+          'The messaging project id, read when PYRIC_MESSAGING_SA_BASE64 is unset. Optional: unset, the driver sends for PYRIC_ORACLE_PROJECT_ID, the oracle project (digame-mas). The driver then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<project service account>`, through src/messaging-credential.ts, and refuses an account that is not a service account of this project.',
+        permission: 'cloudmessaging.messages.create (FCM send)',
+      },
+      {
+        name: 'PYRIC_ORACLE_PROJECT_ID',
+        description:
+          'The oracle project id. The messaging project when PYRIC_MESSAGING_PROJECT_ID and PYRIC_MESSAGING_SA_BASE64 are both unset.',
       },
       {
         name: 'PYRIC_MESSAGING_SA_BASE64',
         description:
-          'Base64-encoded send-capable service-account JSON for the same project. The driver uses firebase-admin to push real messages to the minted token so the client and service worker can observe delivery.',
+          'Optional base64-encoded service-account key JSON. When set, the driver sends with the key instead of Application Default Credentials, and the key names the project. A set PYRIC_MESSAGING_PROJECT_ID must match it.',
         permission: 'cloudmessaging.messages.create (FCM send)',
       },
     ],
