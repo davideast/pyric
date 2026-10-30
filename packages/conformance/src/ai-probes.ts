@@ -34,7 +34,8 @@
  * `ai-error-function-role-refused` pins that refusal.
  *
  * Requires: PYRIC_AI_FIREBASE_CONFIG (single-line JSON web app config) and
- * PYRIC_ORACLE_SA_PATH (service account for the same project).
+ * an oracle credential for the same project: PYRIC_ORACLE_SA_PATH, or
+ * PYRIC_ORACLE_PROJECT_ID with Application Default Credentials.
  * Run: bun --env-file=<repo>/.env packages/conformance/src/ai-probes.ts [--only=<name>,<name>]
  * `--only` runs just the named probes, so a re-capture spends only the
  * requests it needs.
@@ -42,10 +43,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cert, initializeApp } from 'firebase-admin/app';
+import { initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
 import { resolvedFirebaseVersion } from './package-version.ts';
-import { resolveServiceAccount } from './storage-stdlib-real-api.ts';
+import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
 import { mintWithRetry } from './capture/app-check/mint.ts';
 import { citingRowIds } from './capture/app-check/observation-writer.ts';
 import { aiLogicHeaders, tokenNeedsRemint, type MintedToken } from './capture/ai/request-headers.ts';
@@ -55,21 +56,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'ai');
 
 const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG;
-const serviceAccountPath = process.env.PYRIC_ORACLE_SA_PATH;
-if (!rawConfig || !serviceAccountPath) {
-  console.error('✗ PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH are required; nothing was run.');
+if (!rawConfig || !oracleCredentialConfigured(process.env)) {
+  console.error('✗ PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID are required; nothing was run.');
   process.exit(1);
 }
 const config = JSON.parse(rawConfig) as { apiKey: string; appId: string; projectId: string };
 const { apiKey, appId, projectId } = config;
-const serviceAccount = resolveServiceAccount(serviceAccountPath);
+const serviceAccount = await loadOracleServiceAccount();
 if (serviceAccount.project_id !== projectId) {
-  console.error('✗ PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH name different projects; nothing was run.');
+  console.error('✗ PYRIC_AI_FIREBASE_CONFIG and the oracle credential name different projects; nothing was run.');
   process.exit(1);
 }
 
 const adminApp = initializeApp(
-  { credential: cert(serviceAccount as Parameters<typeof cert>[0]), projectId },
+  { credential: serviceAccount.credential, projectId },
   `ai-probes-${Date.now().toString(36)}`,
 );
 const appCheck = getAppCheck(adminApp);

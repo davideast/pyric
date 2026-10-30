@@ -30,7 +30,13 @@ export const rig: RigManifestRecord = {
       {
         name: 'PYRIC_ORACLE_SA_PATH',
         description:
-          'Service-account JSON path for the same project as PYRIC_AI_FIREBASE_CONFIG (the runner refuses a mismatch). Backs firebase-admin createToken, which mints the App Check token sent as the X-Firebase-AppCheck header on every request.',
+          'Service-account JSON path for the same project as PYRIC_AI_FIREBASE_CONFIG (the runner refuses a mismatch). Backs firebase-admin createToken, which mints the App Check token sent as the X-Firebase-AppCheck header on every request. Optional: unset, the rig uses Application Default Credentials and PYRIC_ORACLE_PROJECT_ID names the project.',
+        permission: 'firebaseappcheck.tokens.mint (createToken)',
+      },
+      {
+        name: 'PYRIC_ORACLE_PROJECT_ID',
+        description:
+          'The oracle project id, read when PYRIC_ORACLE_SA_PATH is unset. The rig then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<oracle service account>`, as packages/conformance/docs/oracle-project-setup.md describes.',
         permission: 'firebaseappcheck.tokens.mint (createToken)',
       },
     ],

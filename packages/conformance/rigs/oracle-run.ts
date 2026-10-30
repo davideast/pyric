@@ -25,7 +25,12 @@ export const rig: RigManifestRecord = {
       {
         name: 'PYRIC_ORACLE_SA_PATH',
         description:
-          'Path to a service-account JSON. The harness mints a short-lived OAuth token from it and calls the Firebase Management API to fetch the Web SDK config automatically. Optional: defaults to ignored/service-account.json when unset, and is not needed at all if PYRIC_ORACLE_FIREBASE_CONFIG is provided instead.',
+          'Path to a service-account JSON. The harness mints a short-lived OAuth token from it and calls the Firebase Management API to fetch the Web SDK config automatically. Optional: unset, the harness uses Application Default Credentials and PYRIC_ORACLE_PROJECT_ID names the project. Neither is needed if PYRIC_ORACLE_FIREBASE_CONFIG is provided instead.',
+      },
+      {
+        name: 'PYRIC_ORACLE_PROJECT_ID',
+        description:
+          'The oracle project id, read when PYRIC_ORACLE_SA_PATH is unset. The rig then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<oracle service account>`, as packages/conformance/docs/oracle-project-setup.md describes.',
       },
     ],
     projectFeatures: [

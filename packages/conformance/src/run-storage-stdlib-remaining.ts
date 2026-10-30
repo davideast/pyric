@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
+  loadOracleServiceAccount,
+  oracleCredentialConfigured,
+  SECONDARY_ORACLE_VARIABLES,
+} from './oracle-credential.ts';
+import {
   accessHeaders,
   firestoreDocumentName,
   jsonRequest,
-  resolveServiceAccount,
   storageConfig,
   type AccessHeaders,
   type ServiceAccount,
@@ -281,18 +285,19 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
 }
 
 export async function runStorageStdlibRemaining(mode: Mode): Promise<void> {
-  if (!process.env.PYRIC_ORACLE_SA_PATH || !process.env.PYRIC_AI_FIREBASE_CONFIG) {
-    throw new Error('remaining probes require PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG');
+  const webConfigJson = process.env.PYRIC_AI_FIREBASE_CONFIG;
+  if (!oracleCredentialConfigured(process.env) || !webConfigJson) {
+    throw new Error('remaining probes require PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
   }
-  const sa = resolveServiceAccount(process.env.PYRIC_ORACLE_SA_PATH);
-  const web = JSON.parse(process.env.PYRIC_AI_FIREBASE_CONFIG) as WebConfig;
+  const sa = await loadOracleServiceAccount();
+  const web = JSON.parse(webConfigJson) as WebConfig;
   if (mode === 'native-fields') {
     const { runStorageStdlibNativeFields } = await import('./run-storage-stdlib-native-fields.ts');
     return runStorageStdlibNativeFields(sa, web);
   }
-  if (!process.env.PYRIC_SECONDARY_ORACLE_SA_PATH) {
-    throw new Error('remaining cross-service probes require PYRIC_SECONDARY_ORACLE_SA_PATH');
+  if (!oracleCredentialConfigured(process.env, SECONDARY_ORACLE_VARIABLES)) {
+    throw new Error('remaining cross-service probes require PYRIC_SECONDARY_ORACLE_SA_PATH or PYRIC_SECONDARY_ORACLE_PROJECT_ID');
   }
-  const secondarySa = resolveServiceAccount(process.env.PYRIC_SECONDARY_ORACLE_SA_PATH);
+  const secondarySa = await loadOracleServiceAccount(process.env, SECONDARY_ORACLE_VARIABLES);
   return runRemainingCrossService(sa, web, secondarySa);
 }
