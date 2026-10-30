@@ -15,6 +15,8 @@
  *                     at most 6; one per thread on CI)
  *   --keep            keep each app's installed directory
  *   --skip-slow       leave out the apps whose scenario.ts exports `slow = true`
+ *   --quarantine      let a quarantined app's scenario failure alone pass
+ *                     (scripts/lib/quarantine); only CI passes it
  *   --only-slow       run only those apps
  *   --shard-plan <file> --shard <n>
  *                     run shard n of a plan from shard-plan.ts. The run
@@ -69,6 +71,8 @@ import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
 import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 import { checkPlanCoversSelection, readPlan, shardApps, takeShardOptions, writeShardReport, type ShardOption } from './shard-plan.ts';
+import { finishAppRun } from '../../scripts/lib/quarantine/apps.ts';
+import { takeQuarantineFlag } from '../../scripts/lib/quarantine/source.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
@@ -108,6 +112,9 @@ interface AppResult {
   /** The part of `seconds` spent on `npm install`, including waiting for a shared install. */
   installSeconds: number;
   step?: string;
+  /** Whether it failed while its scenario ran, not while it installed or
+   *  loaded. Only such a failure can be quarantined (scripts/lib/quarantine). */
+  inScenario: boolean;
   error?: string;
   /** What went wrong closing the app or removing its directory, after its verdict was known. */
   cleanupFailures: string[];
@@ -149,6 +156,7 @@ async function runApp(name: string, context: {
   const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, store: context.store });
   const logs: AppResult['logs'] = [];
   let failure: unknown;
+  let inScenario = false;
   let installSeconds = 0;
   try {
     run.currentStep = 'npm install';
@@ -163,7 +171,9 @@ async function runApp(name: string, context: {
     run.currentStep = 'load scenario';
     const module = await loadScenario(name);
     if (typeof module.default !== 'function') throw new StepFailure('load scenario', new Error('scenario.ts has no default export from scenario()'));
+    inScenario = true;
     await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
+    inScenario = false;
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
       throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
@@ -192,6 +202,7 @@ async function runApp(name: string, context: {
     seconds: (performance.now() - started) / 1000,
     installSeconds,
     step: ok ? undefined : failure instanceof StepFailure ? failure.step : run.currentStep,
+    inScenario: !ok && inScenario,
     error: ok ? undefined : describeError(failure),
     cleanupFailures,
     logs,
@@ -273,7 +284,8 @@ function planShard(shard: ShardOption, selected: readonly string[]): string[] {
 }
 
 async function main(): Promise<void> {
-  const { argv, shard } = takeShardOptions(process.argv.slice(2));
+  const { quarantine, rest: withoutQuarantine } = takeQuarantineFlag(process.argv.slice(2));
+  const { argv, shard } = takeShardOptions(withoutQuarantine);
   const options = parseArguments(argv, process.env);
   if (shard && options.names.length > 0) {
     console.error('--shard runs the apps its plan gives it, so it takes no app names');
@@ -357,7 +369,11 @@ async function main(): Promise<void> {
   const summary = summarize(results, total, skippedSlowClause(skippedSlow));
   for (const line of summary.lines) console.log(line);
   if (installsFailure !== undefined) console.log(`warning: cleanup failed for the shared installs: ${installsFailure}`);
-  process.exit(summary.exitCode);
+  // With --quarantine, which only CI passes, a failed app with an active
+  // quarantine entry is reported but does not fail the run when it is the
+  // only kind of failure (scripts/lib/quarantine).
+  const suite = shard ? `apps-${shard.index}` : 'apps';
+  process.exit(finishAppRun(suite, { apps: results, exitCode: summary.exitCode }, quarantine));
 }
 
 await main();
