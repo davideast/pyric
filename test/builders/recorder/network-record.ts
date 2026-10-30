@@ -7,7 +7,9 @@
  * stopped.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { z } from 'zod';
 import type { ModelChannelEvent } from '../model-channel.ts';
+import { parseJsonText } from '../parse.ts';
 import type { BrowserEvent } from './chromium-netlog.ts';
 
 /** What the Node layer did about an event. */
@@ -99,20 +101,53 @@ export function browserRecordIncomplete(events: readonly NetworkEvent[]): boolea
   return events.some((event) => event.kind === 'incomplete' && event.layer === 'browser');
 }
 
-/** Every whole line of a network record. A missing file is an empty record. */
-export function readNetworkRecord(path: string): NetworkEvent[] {
-  if (!existsSync(path)) return [];
-  const events: NetworkEvent[] = [];
+/**
+ * The fields a reader of the record relies on, with their types. A builder
+ * can write the record, so a line is checked before anything reads it;
+ * the fields a layer adds beyond these pass through.
+ */
+const networkLineSchema = z.object({
+  time: z.string(),
+  layer: z.string(),
+  kind: z.string(),
+  via: z.string(),
+  host: z.string().optional(),
+  google: z.boolean().optional(),
+  catalogGap: z.boolean().optional(),
+  metadata: z.boolean().optional(),
+  protocol: z.string().optional(),
+}).passthrough();
+
+/** Whether `value` has the fields a reader relies on, with their types. */
+const isNetworkEvent = (value: unknown): value is NetworkEvent => networkLineSchema.safeParse(value).success;
+
+/** A network record's events, and how many whole lines were JSON but no event. */
+export interface NetworkLines {
+  events: NetworkEvent[];
+  rejected: number;
+}
+
+/**
+ * Every whole line of a network record that has an event's shape. A line
+ * cut short by a process killed mid-write is no JSON and is passed over; a
+ * line of JSON without an event's shape is counted as rejected. A missing
+ * file is an empty record.
+ */
+export function readNetworkLines(path: string): NetworkLines {
+  if (!existsSync(path)) return { events: [], rejected: 0 };
+  const lines: NetworkLines = { events: [], rejected: 0 };
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     if (line.trim() === '') continue;
-    try {
-      events.push(JSON.parse(line) as NetworkEvent);
-    } catch {
-      // A line cut short by a process that was killed mid-write.
-    }
+    const json = parseJsonText(line);
+    if (!json.ok) continue;
+    if (isNetworkEvent(json.value)) lines.events.push(json.value);
+    else lines.rejected += 1;
   }
-  return events;
+  return lines;
 }
+
+/** Every event of a network record, without the count of rejected lines. */
+export const readNetworkRecord = (path: string): NetworkEvent[] => readNetworkLines(path).events;
 
 /** Appends the browser's events, stamped with when the harness read them. */
 export function appendBrowserEvents(path: string, events: readonly BrowserEvent[], time: Date = new Date()): void {

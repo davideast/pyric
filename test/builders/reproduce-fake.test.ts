@@ -47,7 +47,7 @@ function keptRepro(root: string, slug: string): { dir: string; repro: KeptRepro 
 }
 
 describe.skipIf(PACKAGES === undefined)('reproduce with the fake builder\'s run', () => {
-  test('lists the run\'s problems, reproduces the planted ones in a sandbox, and leaves one unconfirmed after two tries', () => {
+  test('lists the run\'s problems, reproduces the planted ones in a sandbox, and leaves one unconfirmed after two tries, and calls a planted link invalid', () => {
     const root = mkdtempSync(join(tmpdir(), 'builders-reproduce-'));
     const round = harness(root, ['round', 'fake', '--builder', 'test/builders/fixtures/fake-builder.mjs', '--briefs', 'test/builders/fixtures/briefs', '--models', 'fake-haiku', '--max-budget-usd', '0.01', '--max-round-usd', '0.01', ...packages()]);
     expect(round.status).toBe(0);
@@ -91,5 +91,12 @@ describe.skipIf(PACKAGES === undefined)('reproduce with the fake builder\'s run'
     expect(unconfirmed.repro.result).toBe('unconfirmed');
     expect(unconfirmed.repro.tries.map((entry) => `${entry.attempt} ${entry.outcome}`)).toEqual(['1 not-reproduced', '2 not-reproduced']);
     expect(new Set(unconfirmed.repro.tries.map((entry) => entry.scratch)).size).toBe(2);
+
+    const link = reproduce(root, 'google-host:oauth2.googleapis.com', 'plants-link.mjs');
+    expect(link.status).toBe(4);
+    const invalid = keptRepro(root, 'google-host-oauth2-googleapis-com');
+    expect(invalid.repro.result).toBe('invalid');
+    expect(invalid.repro.tries.map((entry) => `${entry.attempt} ${entry.outcome}`)).toEqual(['1 invalid']);
+    expect(invalid.repro.tries[0]?.reason).toContain('02-repro-phase.log is a link');
   }, TIMEOUT_MS);
 });

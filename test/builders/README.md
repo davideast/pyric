@@ -184,15 +184,43 @@ forwarder holds no token and refuses every request.
    HOME, for at most the brief's wall-clock minutes. The phase's
    environment is built from nothing (PATH, HOME, LANG, TMPDIR, where
    Playwright's browsers are), so nothing else of the harness's reaches it.
-5. Appends the forwarder's record to the run's `network.jsonl`, then looks
-   for the harness's token in every file it is about to keep (below).
-6. Reads the builder's `report.json`, its usage, and the network record, and
-   keeps the run in `<data root>/runs/<round>/<run>/`: `report.json` (the
-   builder's report and the harness's fields), `brief.json`,
+5. Appends the run's line to `<data root>/measurements.jsonl`, from the
+   harness's own state alone (below), before it reads anything in the run
+   root.
+6. Appends the forwarder's record to the run's `network.jsonl`.
+7. Reads the builder's `report.json`, its usage, and the network record,
+   looks for the harness's token in every file it is about to keep (below),
+   and keeps the run in `<data root>/runs/<round>/<run>/`: `report.json`
+   (the builder's report and the harness's fields), `brief.json`,
    `network.jsonl`, `logs/` and `app.tgz` (the app without `node_modules`).
-7. Appends the run's line to `<data root>/measurements.jsonl`.
 
-`round` exits 0 when every run ended with a valid report, 1 otherwise.
+The sandbox's uid 0 is the harness's own uid, so a builder can take the
+owner's permissions away inside the run root. Before step 6, the harness
+gives the owner back read and write on every file and search on every
+directory there, following no link (`owner-access.ts`). A read that still
+fails skips its file and names it in `harness.plantedLinks`. A line of
+`network.jsonl` that is JSON but not an event (`null`, a number, a host
+that isn't a string) is left out of the record, and
+`harness.plantedLinks` counts it (`network.jsonl: 1 line is not a network
+event; the harness left it out`). A record that can't be built is built
+again without the network record, and names `network.jsonl` with why.
+Either makes the run invalid. A failure after the record is built, such as
+a file the token scan can't read, stops the copies there: `report.json` is
+kept, but the copies after the unreadable file, `app.tgz` and
+`phase-output.log` are not.
+
+When the sandbox left a link on a file step 6 or 7 would read or append to
+(`planted-links.ts`), or the harness can't check it, merge into it or
+write it, the run still gets its record and its measurement line. The
+harness skips the merges for a link, and every such file in the reads,
+the token scan and the copies, and keeps the phase's output, redacted, as
+`phase-output.log` beside `report.json`, where no file of the run root is
+copied. `harness.plantedLinks` names each file, relative to the run root,
+with why (`network.jsonl: network.jsonl is a link`), and the verifier
+treats the run as invalid.
+
+`round` exits 0 when every run ended with a valid report and no planted
+link, 1 otherwise.
 
 **Where things go.** Scratch is under the builders root (`~/pyric-builders`,
 or `PYRIC_BUILDERS_DIR`). Run data is under the data root
@@ -251,11 +279,13 @@ the harness checks that each file it reads or appends to (`network.jsonl`,
 the NetLog, the phase's result and logs) is absent or a plain file reached
 through plain directories (`planted-links.ts`), since the sandbox could have
 left a link there to a file of the host's; a round's run checks its own the
-same way.
+same way. A try with such a link is invalid, not inconclusive: something in
+the builder's app or the script reached for the host's files. The tries stop
+there, and the reproduction is invalid whatever the other try found.
 
 The command exits 0 when a try reproduced, 1 when a try found pyric
-behaving as production does and none reproduced (unconfirmed), and 3 when no
-try could tell (inconclusive). It keeps `repro.json` (each try's outcome, reason, exit and
+behaving as production does and none reproduced (unconfirmed), 3 when no
+try could tell (inconclusive), and 4 when a try planted a link (invalid). It keeps `repro.json` (each try's outcome, reason, exit and
 Google hosts), the script, and each try's `network.jsonl` and `logs/` in
 `<data root>/runs/<round>/<run>/repros/<slug>/<stamp>/`, and never
 overwrites an earlier reproduction. The slug is the selector in lowercase
@@ -425,25 +455,27 @@ actions the report leaves out, and the problems the harness adds itself:
 ## Measurement
 
 `measurements.jsonl` is append-only (`measurement.ts`). `round` appends a
-`builder` line per run: model, brief, the run's cap, the cost claude gave
-(null when it printed none), the cost the forwarder metered, tokens, turns,
-wall time (null when the run phase never said how the builder ended), the
-report's state, problems reported (the builder's plus the harness's) and
-Google-host events. The verifier, in a later pull request, appends a
+`builder` line per run, from what the harness owns, never from the run
+root, which the builder can write: model, brief, the run's cap, the cost
+and tokens the forwarder metered, and how long the run phase took by the
+harness's clock. What claude printed (its cost and turns), the report's
+state, the problems reported and the Google-host events are in the run's
+`report.json` and the round's summary, not in the line. The verifier, in a later pull request, appends a
 `verification` line per judged run: its round and run, its cost and tokens,
 and its count per verdict (confirmed by class, duplicate, needs capture,
 unconfirmed, builder's own bug, invalid). A bad line is an error naming its
 line number, never skipped.
 
-A run's builder cost is claude's figure, or the metered one when claude gave
-none (it crashed, or was stopped at its wall-clock cap). No run counts as
+A run's builder cost is the metered one, which errs high. No run counts as
 free.
 
 `measure` joins them by round and run id (run ids repeat across rounds) and
 prints, per model: cost per builder run,
 cost per verifier report, confirmed new findings per app (confirmed, not
 duplicates, per judged run), the share of reported problems the verifier
-threw out (unconfirmed, builder's own bug, invalid run), cost per confirmed
+threw out (unconfirmed, builder's own bug, invalid run; the verifier gives
+each reported problem one verdict, so its verdicts are the problems
+reported), cost per confirmed
 new finding, and the 90th-percentile cost of a run plus its verification.
 The nightly model is the one with the lower cost per confirmed new finding;
 with `--runs-per-night <n>` it also prints the nightly cap, `n` times that

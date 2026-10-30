@@ -31,7 +31,7 @@ directory, as `test/builders/round-paths.ts` resolves it. A run holds:
   report (null when it wrote none that holds the shape). `harness` is what
   the builder couldn't edit: the brief, the commit and tarball hashes, how
   the run ended, `automaticProblems` (allowed refusals, Google hosts),
-  `missingRefusals`, `tokenFoundIn`, usage.
+  `missingRefusals`, `tokenFoundIn`, `plantedLinks`, usage.
 - `brief.json`, `network.jsonl`, `logs/`, and `app.tgz` (the app without
   `node_modules`).
 
@@ -47,12 +47,27 @@ builder rule (`.agents/skills/app-builder/SKILL.md`):
   `node_modules/pyric*` beyond their READMEs;
 - it used a credential other than the fake config, or
   `harness.tokenFoundIn` is not empty;
+- `harness.plantedLinks` is not empty (each entry is `<file>: <why>`):
+  something in the sandbox left a link where the harness reads or appends
+  once the sandbox stops, aimed at the host's files, or left a file there
+  the harness could not check, merge into, write or read; or wrote lines
+  in `network.jsonl` that are not network events, or a network record the
+  harness could not build its record from. The harness skipped those files
+  or lines, so the record may lack the builder's report, usage or network
+  lines;
 - it launched a browser of its own instead of the harness browser (below).
 
 **A browser of its own.** The harness browser records every request it
 makes, loopback ones included, as `"layer":"browser"` lines in
-`network.jsonl`; a browser the builder launched writes none there. Treat
-the run as having used its own browser when either holds:
+`network.jsonl`; a browser the builder launched writes none there.
+
+Check `harness.network.browserIncomplete` first. When it is true, the
+harness browser was killed before it finished its NetLog, so its
+`"layer":"browser"` lines may be missing: their absence is unknown, not
+evidence. Judge such a run by the app's code alone (the second signal
+below), and say in `verdict.json` that the network signal could not be read.
+
+Otherwise, treat the run as having used its own browser when either holds:
 
 - the report's steps drive pages (sign-in, clicks, uploads), but
   `network.jsonl` has no `"layer":"browser"` request to the app's local URL;
@@ -121,7 +136,15 @@ and exits with its result:
 | 0 | `reproduced` | a try reproduced it | go on to classify |
 | 1 | `unconfirmed` | a try found pyric behaving as production does, and none reproduced | `unconfirmed`, not staged |
 | 3 | `inconclusive` | no try could tell: each crashed, timed out, or could not install | fix the script and run it again; still inconclusive, it is `unconfirmed` and the verdict says why |
+| 4 | `invalid` | a try's sandbox planted a link where the harness reads or appends | the run is invalid (step 1), unless your script planted it (below) |
 | 2 | | refused before anything ran | fix what it names |
+
+A planted link is never an inconclusive try. Something in the builder's
+app, or in your script, reached for the host's files from inside the
+sandbox. When your script did not do it, the builder's app did: mark the
+run invalid, with the try's `reason` from `repro.json` as `invalidReason`,
+and count every problem of it as `invalid`. When your script did it, the
+script is wrong: fix it and run it again, and say so in the verdict.
 
 Read `repro.json` for each try's outcome and reason. A try whose app needs
 a package the shared npm cache lacks is inconclusive: `reproduce` never
