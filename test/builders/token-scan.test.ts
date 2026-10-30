@@ -44,5 +44,6 @@ describe('copyRedacted and redactedText', () => {
     expect(readFileSync(copy, 'utf8')).toContain(SECRET);
     expect(redactedText(`a ${SECRET}`, SECRET)).toBe(`a ${REDACTED}`);
     expect(redactedText('a', undefined)).toBe('a');
+    expect(redactedText(`${SECRET} b other-made-up`, [SECRET, 'other-made-up'])).toBe(`${REDACTED} b ${REDACTED}`);
   });
 });

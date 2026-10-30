@@ -16,6 +16,7 @@ Builder apps never enter CI.
 bun test/builders/harness.ts canary [--build] [--packages <dir>]
 bun test/builders/harness.ts round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
     [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]
+    [--token-file <path>]
 bun test/builders/harness.ts check-briefs <round> [--briefs <dir>]
 bun test/builders/harness.ts reproduce <round> <run> --list
 bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
@@ -49,17 +50,85 @@ Three agents work a round, each from a skill in `.agents/skills/`:
   issue drafts in `<data root>/runs/<round>/issue-drafts/` for David and
   files nothing. It writes `verdict.json` per run.
 
+## Setting up
+
+Rounds run from a checkout of main that contains `test/builders/`, with
+`bun install` run in it. Set these up once.
+
+**The token file.** The model forwarder needs a long-lived token. Generate
+one with `claude setup-token`, then write it to a file only you can read.
+`cat` reads the pasted token from the terminal, so it stays out of your
+shell history; end it with Enter, then Ctrl-D:
+
+```
+mkdir -p ~/.config/pyric-builders
+(umask 077 && cat > ~/.config/pyric-builders/oauth-token)
+```
+
+Pass the file to each round with
+`--token-file ~/.config/pyric-builders/oauth-token`. Only the harness
+process reads it, outside every sandbox, and hands it to the forwarder and
+the token scan. It never enters a log, a record, the builder's environment
+or the sandbox's, and no message prints it.
+
+`round` refuses the file, before it spends anything, unless it is a regular
+file (not a link), owned by the current user, with no group or other access
+(mode 0600 or stricter), holding exactly one non-empty line. The refusal
+names the file and the rule, never what the file holds.
+
+Without `--token-file`, the token comes from `CLAUDE_CODE_OAUTH_TOKEN` in
+the harness's environment. When both are set, the file wins, and `round`
+says so without printing either. An agent's shell does not inherit that
+variable, which is why the file exists. `round` is the only command that
+needs the token: `canary` and `reproduce` run with no model channel.
+
+**The settings file.** Every `claude -p` builder runs with
+`--settings <data root>/builder.settings.json`, a Claude Code permission
+file. Its template is `test/builders/builder.settings.template.json`: it
+allows Bash, Read, Write, Edit, Glob, Grep and TodoWrite, and denies web
+access, `gh`, `firebase`, `gcloud`, `git push` and `git commit`, and
+reading, searching or listing anything under `/home/david/repos`. Under
+`claude -p` nothing can answer a permission prompt, so a tool the file
+does not allow is denied. Copy the template into the data root:
+
+```
+mkdir -p ~/pyric-ops/assurance/builders
+cp test/builders/builder.settings.template.json ~/pyric-ops/assurance/builders/builder.settings.json
+```
+
+Before it spends anything, `round` checks that the file is JSON with a
+`permissions` object whose `allow` and `deny` are non-empty lists of
+rules, and stops with each problem otherwise. A missing file stops it with
+the `cp` command above.
+
+**The data root.** `round` and `check-briefs` read a round's briefs from
+`<data root>/briefs/<round>/` and create nothing there. When the directory
+is missing they stop and print the command that makes it, for example
+`mkdir -p ~/pyric-ops/assurance/builders/briefs/r1`. The brief writer
+writes the briefs into it. `round` makes `runs/` and `measurements.jsonl`
+itself.
+
+**Letting an agent start rounds.** So an agent session can start a round,
+add this rule to the allow list in your own `~/.claude/settings.json`,
+never in the repo:
+
+```
+Bash(bun test/builders/harness.ts round *)
+```
+
 ## A round
 
 ```
-bun test/builders/harness.ts round r1 --models claude-haiku-5-5,claude-sonnet-5-5 --max-budget-usd 2 --max-round-usd 12
+bun test/builders/harness.ts round r1 --models claude-haiku-5-5,claude-sonnet-5-5 --max-budget-usd 2 --max-round-usd 12 \
+  --token-file ~/.config/pyric-builders/oauth-token
 ```
 
 `--models`, `--max-budget-usd` and `--max-round-usd` are required and have
 no default: a round spends money only at caps someone typed, one per run
 and one for the round. Every run gets the same cap, so the comparison
 between models is findings per dollar. Before it packs or spends anything,
-`round` checks every brief, the builder, the checkout (as the canary does),
+`round` checks every brief, the builder and its settings file, the token,
+the checkout (as the canary does),
 that no run of the round has started yet (a round never redoes a run), and
 that the runs times the run cap fit under the round cap. Any problem exits 2
 with the whole list. The start line says what the round could spend: `6
@@ -84,8 +153,8 @@ claude -p <prompt> --model <id> --max-budget-usd <usd> --output-format json \
   --settings <data root>/builder.settings.json --append-system-prompt-file .agents/skills/app-builder/SKILL.md
 ```
 
-and needs `claude` on PATH, both files, and `CLAUDE_CODE_OAUTH_TOKEN` (from
-`claude setup-token`) in the harness's environment; the run's HOME holds no
+and needs `claude` on PATH, both files, and the token, from `--token-file`
+or `CLAUDE_CODE_OAUTH_TOKEN` (see Setting up); the run's HOME holds no
 login. **The token never enters the sandbox.** claude gets a placeholder in
 its place and `ANTHROPIC_BASE_URL` pointed at the model channel (below),
 whose forwarder, outside, holds the real token. `--builder <script>` starts
@@ -129,8 +198,9 @@ forwarder holds no token and refuses every request.
 or `PYRIC_BUILDERS_DIR`). Run data is under the data root
 (`~/pyric-ops/assurance/builders`, or `PYRIC_BUILDERS_DATA_DIR`): briefs in
 `briefs/<round>/` unless `--briefs` names a directory, the runs, the
-measurements, and `builder.settings.json`, the Claude Code permission file,
-which is tool-specific and so stays out of the repo.
+measurements, and `builder.settings.json`, the Claude Code permission file.
+The repo ships only its template; the copy a round uses lives in the data
+root.
 
 ## Reproducing a problem
 
