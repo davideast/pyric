@@ -199,13 +199,16 @@ function fakeEndpoint(opts: {
   failStatus?: number;
   failTimes?: number;
   timeoutTimes?: number;
-}): RulesDeployEndpoint & { sent: Record<string, unknown>[] } {
+}): RulesDeployEndpoint & { sent: Record<string, unknown>[]; timeouts: Array<number | undefined> } {
   let live: Record<string, unknown> = structuredClone(BEFORE_RULES);
   const sent: Record<string, unknown>[] = [];
+  const timeouts: Array<number | undefined> = [];
   return {
     sent,
-    async dryRun(rules) {
+    timeouts,
+    async dryRun(rules, options) {
       sent.push(rules);
+      timeouts.push(options?.timeoutMs);
       if (opts.timeoutTimes !== undefined && sent.length <= opts.timeoutTimes) {
         throw new DOMException('The operation timed out.', 'TimeoutError');
       }
@@ -276,6 +279,19 @@ describe('run-rules-rtdb deploy scenarios', () => {
       'valid ruleset': { verdict: 'ACCEPTED' },
     });
     expect(endpoint.sent).toHaveLength(3);
+  });
+
+  it('gives r61 dry runs a 120s request limit and other scenarios the default', async () => {
+    const large = fakeEndpoint({});
+    await captureDeployScenario(large, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: { ...deployScenario(), id: 'r61-deploy-regex-3000-groups' },
+    });
+    expect(large.timeouts).toEqual([120_000, 120_000]);
+    const ordinary = fakeEndpoint({});
+    await captureDeployScenario(ordinary, { beforeRules: BEFORE_RULES, mountKey: MOUNT_KEY, scenario: deployScenario() });
+    expect(ordinary.timeouts).toEqual([undefined, undefined]);
   });
 
   it('repeats a dry run whose request timed out', async () => {

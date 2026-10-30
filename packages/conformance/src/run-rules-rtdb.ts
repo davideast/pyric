@@ -93,7 +93,7 @@ import {
   type OracleServiceAccount,
 } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
-import { deployScenarioGapMs, fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
+import { deployScenarioGapMs, dryRunTimeoutMs, fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
@@ -377,8 +377,9 @@ export function queryConstraintsOf(query: RtdbCaseQuery): QueryConstraintSpec[] 
  * capture contract can be tested against a fake.
  */
 export interface RulesDeployEndpoint {
-  /** `PUT /.settings/rules.json?dryRun=true` with `{ rules }`. */
-  dryRun(rules: Record<string, unknown>): Promise<{ status: number; body: string }>;
+  /** `PUT /.settings/rules.json?dryRun=true` with `{ rules }`. A `timeoutMs`
+   *  limits the request; without one the runtime's default applies. */
+  dryRun(rules: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<{ status: number; body: string }>;
   /** The live ruleset's `rules` object. */
   readRules(): Promise<Record<string, unknown>>;
 }
@@ -422,9 +423,10 @@ function isFinalAnswer(res: DryRunResult | { timedOut: Error }): res is DryRunRe
 async function dryRunOnce(
   endpoint: RulesDeployEndpoint,
   rules: Record<string, unknown>,
+  timeoutMs: number | undefined,
 ): Promise<DryRunResult | { timedOut: Error }> {
   try {
-    return await endpoint.dryRun(rules);
+    return await endpoint.dryRun(rules, { timeoutMs });
   } catch (error) {
     if (isTimeout(error)) return { timedOut: error as Error };
     throw error;
@@ -437,11 +439,12 @@ async function dryRunOnce(
 async function dryRunWithServerErrorRetry(
   endpoint: RulesDeployEndpoint,
   rules: Record<string, unknown>,
+  timeoutMs: number | undefined,
 ): Promise<DryRunResult> {
-  let res = await dryRunOnce(endpoint, rules);
+  let res = await dryRunOnce(endpoint, rules, timeoutMs);
   for (let attempt = 1; attempt < DRY_RUN_ATTEMPTS; attempt += 1) {
     if (isFinalAnswer(res)) return res;
-    res = await dryRunOnce(endpoint, rules);
+    res = await dryRunOnce(endpoint, rules, timeoutMs);
   }
   if ('timedOut' in res) throw res.timedOut;
   return res;
@@ -465,7 +468,7 @@ export async function captureDeployScenario(
       ...beforeRules,
       [mountKey]: { [scenario.id]: JSON.parse(deployCase.rules) as unknown },
     };
-    const res = await dryRunWithServerErrorRetry(endpoint, rules);
+    const res = await dryRunWithServerErrorRetry(endpoint, rules, dryRunTimeoutMs(scenario.id));
     if (res.status === 200) {
       behavior[deployCase.description] = { verdict: 'ACCEPTED' };
     } else if (res.status === 400) {
@@ -548,13 +551,24 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     return capturableRules('the database', await res.text()).rules;
   }
   const endpoint: RulesDeployEndpoint = {
-    async dryRun(rules) {
-      const res = await fetchWithRateLimitRetry(`${rulesGetUrl}&dryRun=true`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules }),
-      }, 'dry run');
-      return { status: res.status, body: await res.text() };
+    async dryRun(rules, options = {}) {
+      const started = Date.now();
+      const limit = options.timeoutMs === undefined ? 'default limit' : `limit ${options.timeoutMs / 1_000}s`;
+      try {
+        const res = await fetchWithRateLimitRetry(`${rulesGetUrl}&dryRun=true`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rules }),
+        }, 'dry run', { timeoutMs: options.timeoutMs });
+        const body = await res.text();
+        if (options.timeoutMs !== undefined) {
+          console.log(`[oracle:rules-rtdb] dry run answered ${res.status} in ${Date.now() - started}ms (${limit}).`);
+        }
+        return { status: res.status, body };
+      } catch (error) {
+        console.log(`[oracle:rules-rtdb] dry run failed after ${Date.now() - started}ms (${limit}): ${error instanceof Error ? error.name : String(error)}`);
+        throw error;
+      }
     },
     readRules,
   };

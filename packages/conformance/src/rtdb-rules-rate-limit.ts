@@ -38,6 +38,14 @@ export function deployScenarioGapMs(scenarioId: string): number {
   return LARGE_RULESET_SCENARIO_IDS.has(scenarioId) ? LARGE_RULESET_GAP_MS : DEPLOY_SCENARIO_GAP_MS;
 }
 
+/** The request limit for one dry run of a large-ruleset scenario. */
+export const LARGE_RULESET_DRY_RUN_TIMEOUT_MS = 120_000;
+
+/** A dry run's explicit request limit, or undefined for the runtime's default. */
+export function dryRunTimeoutMs(scenarioId: string): number | undefined {
+  return LARGE_RULESET_SCENARIO_IDS.has(scenarioId) ? LARGE_RULESET_DRY_RUN_TIMEOUT_MS : undefined;
+}
+
 /**
  * The wait `Retry-After` asks for, in milliseconds: delta-seconds or an HTTP
  * date. Undefined when the header is absent or unreadable.
@@ -65,6 +73,18 @@ const defaultDeps: RateLimitDeps = {
   log: (message) => console.log(message),
 };
 
+export interface RateLimitOptions {
+  policy?: RateLimitPolicy;
+  deps?: RateLimitDeps;
+  /** Each request's own limit, as a fresh `AbortSignal.timeout`; a 429 wait is not counted against it. */
+  timeoutMs?: number;
+}
+
+function requestInit(init: RequestInit | undefined, timeoutMs: number | undefined): RequestInit | undefined {
+  if (timeoutMs === undefined) return init;
+  return { ...init, signal: AbortSignal.timeout(timeoutMs) };
+}
+
 /**
  * `fetch` that waits out a 429 and sends the request again. Any other status
  * returns at once. When the next wait would pass `maxTotalWaitMs`, the last
@@ -74,13 +94,14 @@ export async function fetchWithRateLimitRetry(
   url: string,
   init: RequestInit | undefined,
   label: string,
-  policy: RateLimitPolicy = RTDB_RULES_RATE_LIMIT,
-  deps: RateLimitDeps = defaultDeps,
+  options: RateLimitOptions = {},
 ): Promise<Response> {
+  const policy = options.policy ?? RTDB_RULES_RATE_LIMIT;
+  const deps = options.deps ?? defaultDeps;
   let waited = 0;
   let backoff = policy.initialDelayMs;
   for (;;) {
-    const res = await deps.fetch(url, init);
+    const res = await deps.fetch(url, requestInit(init, options.timeoutMs));
     const isThrottled = res.status === 429;
     if (!isThrottled) return res;
     const asked = retryAfterMs(res.headers.get('retry-after'), deps.now());

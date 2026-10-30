@@ -4,6 +4,8 @@ import {
   LARGE_RULESET_GAP_MS,
   LARGE_RULESET_SCENARIO_IDS,
   deployScenarioGapMs,
+  dryRunTimeoutMs,
+  LARGE_RULESET_DRY_RUN_TIMEOUT_MS,
   fetchWithRateLimitRetry,
   retryAfterMs,
   type RateLimitDeps,
@@ -40,14 +42,14 @@ function fakeDeps(statuses: Array<number | { status: number; retryAfter: string 
 describe('rtdb-rules rate-limit retry', () => {
   it('returns a non-429 answer without waiting', async () => {
     const deps = fakeDeps([400]);
-    const res = await fetchWithRateLimitRetry('u', undefined, 'dry run', POLICY, deps);
+    const res = await fetchWithRateLimitRetry('u', undefined, 'dry run', { policy: POLICY, deps });
     expect(res.status).toBe(400);
     expect(deps.waits).toEqual([]);
   });
 
   it('waits out 429s with doubling back-off and returns the answer after them', async () => {
     const deps = fakeDeps([429, 429, 429, 200]);
-    const res = await fetchWithRateLimitRetry('u', undefined, 'read rules', POLICY, deps);
+    const res = await fetchWithRateLimitRetry('u', undefined, 'read rules', { policy: POLICY, deps });
     expect(res.status).toBe(200);
     expect(deps.waits).toEqual([1_000, 2_000, 4_000]);
   });
@@ -58,19 +60,19 @@ describe('rtdb-rules rate-limit retry', () => {
       { status: 429, retryAfter: 'Fri, 30 Oct 2026 12:00:05 GMT' },
       200,
     ]);
-    await fetchWithRateLimitRetry('u', undefined, 'read rules', POLICY, deps);
+    await fetchWithRateLimitRetry('u', undefined, 'read rules', { policy: POLICY, deps });
     expect(deps.waits).toEqual([3_000, 5_000]);
   });
 
   it('caps a single wait at maxDelayMs, even when Retry-After asks for more', async () => {
     const deps = fakeDeps([{ status: 429, retryAfter: '600' }, 200]);
-    await fetchWithRateLimitRetry('u', undefined, 'read rules', POLICY, deps);
+    await fetchWithRateLimitRetry('u', undefined, 'read rules', { policy: POLICY, deps });
     expect(deps.waits).toEqual([8_000]);
   });
 
   it('returns the last 429 once the next wait would pass the total cap', async () => {
     const deps = fakeDeps([429]);
-    const res = await fetchWithRateLimitRetry('u', undefined, 'read rules', POLICY, deps);
+    const res = await fetchWithRateLimitRetry('u', undefined, 'read rules', { policy: POLICY, deps });
     expect(res.status).toBe(429);
     // 1s + 2s + 4s + 8s = 15s; another 8s would pass the 20s cap.
     expect(deps.waits).toEqual([1_000, 2_000, 4_000, 8_000]);
@@ -89,6 +91,27 @@ describe('deploy scenario spacing', () => {
   it('names only deploy scenarios the corpus has', () => {
     const ids = new Set(ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((scenario) => scenario.id));
     for (const id of LARGE_RULESET_SCENARIO_IDS) expect(ids.has(id)).toBe(true);
+  });
+
+  it('gives the large-ruleset dry runs an explicit 120s limit and leaves the rest at the default', () => {
+    expect(dryRunTimeoutMs('r51-deploy-anchor-index-and-length-probes')).toBe(LARGE_RULESET_DRY_RUN_TIMEOUT_MS);
+    expect(dryRunTimeoutMs('r61-deploy-regex-3000-groups')).toBe(120_000);
+    expect(dryRunTimeoutMs('r29-deploy-rejections')).toBeUndefined();
+  });
+
+  it('sends each request with its own timeout signal when one is set', async () => {
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const deps = fakeDeps([429, 200]);
+    const recording = { ...deps, fetch: async (url: string, init?: RequestInit) => {
+      signals.push(init?.signal);
+      return deps.fetch(url, init);
+    } };
+    await fetchWithRateLimitRetry('u', { method: 'PUT' }, 'dry run', { policy: POLICY, deps: recording, timeoutMs: 120_000 });
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).not.toBe(signals[0]);
+    await fetchWithRateLimitRetry('u', { method: 'PUT' }, 'dry run', { policy: POLICY, deps: recording });
+    expect(signals[2]).toBeUndefined();
   });
 
   it('pauses longer after the large-ruleset scenarios', () => {
