@@ -5,9 +5,9 @@
     "rtdb-rules#9"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r9-quota-arithmetic\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the arithmetic and comparison operators carry real quota rules (increment-only counters, range caps, parity and tier bounds), so the simulator must reproduce production's evaluation of each operator, including loose equality and the ternary.",
-  "observedAt": "2026-07-12T03:35:03.048Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.293Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "increment by one allowed": "ALLOW",
     "increment by three denied": "DENY",

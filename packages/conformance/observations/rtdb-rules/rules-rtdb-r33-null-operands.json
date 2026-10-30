@@ -5,9 +5,9 @@
     "rtdb-rules#22"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r33-null-operands\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). an operator with a null operand must fail the rule as production does, never compute null as 0, so a rule with `|| true` cannot grant through it.",
-  "observedAt": "2026-10-07T12:10:14.315Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.276Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "dividing nothing stored by 2, then or true": "DENY",
     "dividing a stored number by 2, then or true": "ALLOW",

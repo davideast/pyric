@@ -5,8 +5,8 @@
     "rtdb-rules#37"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r52-prototype-named-keys\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a key named __proto__ is dropped from the simulated post-write tree, so its .validate is skipped; production stores it as an ordinary key.",
-  "observedAt": "2026-10-26T22:08:54.841Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.289Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "CS-1: a string set at /__proto__ under a number-only $k": "DENY",

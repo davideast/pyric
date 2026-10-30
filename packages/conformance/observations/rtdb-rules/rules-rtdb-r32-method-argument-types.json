@@ -6,9 +6,9 @@
     "rtdb-rules#11"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r32-method-argument-types\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a method argument that is not a string must fail the rule as production does, never be converted to a string, so null from a missing value or an unauthenticated auth.uid cannot match the text \"null\".",
-  "observedAt": "2026-10-07T05:08:52.375Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.275Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "contains with a missing argument value": "DENY",
     "contains with a number argument": "DENY",

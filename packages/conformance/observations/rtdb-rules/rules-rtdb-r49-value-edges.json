@@ -6,8 +6,8 @@
     "rtdb-rules#41"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r49-value-edges\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). query in a write, auth members when signed out, and child() keys that are not valid paths are evaluated by pyric with values no production observation confirms.",
-  "observedAt": "2026-10-26T21:50:10.033Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.287Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "SP-4: !query.orderByKey in a .write": "ALLOW",
