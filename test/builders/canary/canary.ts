@@ -11,7 +11,7 @@
  *
  * Everything it makes stays under `<builders root>/canary/<stamp>/`.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,8 +126,48 @@ function printVerdict(verdict: CanaryVerdict, dirs: RunDirs): void {
   console.log(verdict.ok ? '✓ canary passed' : '✗ canary failed: a planted request was missed, succeeded, or was stopped by the wrong layer, or a local one was blocked');
 }
 
+/** The package directories `scripts/pack-packages.sh` packs, read from its `PACKAGES=(...)` list. */
+export function packedPackageDirs(repoRoot: string): string[] {
+  const script = readFileSync(join(repoRoot, 'scripts', 'pack-packages.sh'), 'utf8');
+  const list = /^PACKAGES=\(([^)]*)\)/m.exec(script)?.[1] ?? '';
+  return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? '').filter((dir) => dir !== '');
+}
+
+/** Why the canary can't start in this checkout, said before anything runs. */
+export class PreflightFailed extends Error {}
+
+const isInside = (path: string, dir: string) => path === dir || path.startsWith(`${dir.replace(/\/+$/, '')}/`);
+
+/**
+ * What this checkout lacks for a canary run. The sandbox binds only the repo,
+ * so its node_modules must be its own (a worktree that links another
+ * checkout's has none inside the sandbox). Without `--build` or
+ * `--packages`, every published package needs a current dist/ to pack.
+ */
+export function preflightProblems(repoRoot: string, options: CanaryOptions): string[] {
+  const problems: string[] = [];
+  const nodeModules = join(repoRoot, 'node_modules');
+  const playwright = join(nodeModules, '@playwright', 'test');
+  if (!existsSync(playwright)) {
+    problems.push(`${repoRoot} has no node_modules/@playwright/test of its own: run \`bun install\` there first`);
+  } else if (!isInside(realpathSync(nodeModules), realpathSync(repoRoot))) {
+    problems.push(`${nodeModules} links outside the repo (${realpathSync(nodeModules)}), which the sandbox does not bind: run \`bun install\` in this checkout`);
+  }
+  const packsCurrentBuild = !options.build && options.packages === undefined;
+  if (packsCurrentBuild) {
+    const packed = packedPackageDirs(repoRoot);
+    if (packed.length === 0) problems.push(`found no PACKAGES list in ${join(repoRoot, 'scripts', 'pack-packages.sh')}`);
+    const unbuilt = packed.filter((dir) => !existsSync(join(repoRoot, dir, 'dist')));
+    if (unbuilt.length > 0) problems.push(`no dist/ in ${unbuilt.join(', ')}: run with --build, or build first, or pass --packages <dir>`);
+  }
+  if (options.packages !== undefined && !existsSync(resolve(options.packages))) problems.push(`--packages ${options.packages} does not exist`);
+  return problems;
+}
+
 /** Runs the canary. Resolves true when every check passed. */
 export async function runCanary(options: CanaryOptions): Promise<boolean> {
+  const problems = preflightProblems(REPO_ROOT, options);
+  if (problems.length > 0) throw new PreflightFailed(`the canary can't run in this checkout:\n- ${problems.join('\n- ')}`);
   await runUnitTests();
   const slot = await takeHeavyRunSlot({ command: 'bun test/builders/harness.ts canary' });
   try {

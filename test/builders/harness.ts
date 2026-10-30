@@ -16,7 +16,7 @@
  * Every command refuses to run (exit 2) where the sandbox is
  * unavailable; there is no fallback without it.
  */
-import { runCanary } from './canary/canary.ts';
+import { PreflightFailed, runCanary } from './canary/canary.ts';
 import { NamespaceUnavailable } from './namespace.ts';
 
 interface Command {
@@ -68,6 +68,10 @@ async function main(argv: readonly string[]): Promise<number> {
   } catch (error) {
     if (error instanceof NamespaceUnavailable) {
       console.error(`refusing to run: ${error.message}`);
+      return 2;
+    }
+    if (error instanceof PreflightFailed) {
+      console.error(error.message);
       return 2;
     }
     if (!(error instanceof UsageError)) throw error;
