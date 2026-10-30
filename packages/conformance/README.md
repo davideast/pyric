@@ -162,5 +162,6 @@ This README is the MAP: what lives where, and how a claim links to its
 evidence. `docs/how-to-run-the-conformance-system.md` is the OPERATING MANUAL:
 every command, what its output means, and how to find out — by name, not by
 percentage — what is not yet covered. `docs/oracle-project-setup.md` is the
-capture-project contract (what to enable, the exact rules snippets). The CDD
+capture-project contract (what to enable, the exact rules snippets, and the
+keyless credential setup the capture rigs use). The CDD
 process for admitting a new surface is `../../docs/conformance/cdd.md`.

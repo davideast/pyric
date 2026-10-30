@@ -12,7 +12,8 @@
  * The previous Storage release pointer is restored in finally, then every
  * object under the run prefix is deleted and absence is verified.
  */
-import { accessHeaders, resolveServiceAccount, storageConfig } from './storage-stdlib-real-api.ts';
+import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
+import { accessHeaders, storageConfig } from './storage-stdlib-real-api.ts';
 import { RequestBudget, runCleanupSteps } from './storage-stdlib-real-budget.ts';
 import {
   deleteStorageObjects,
@@ -64,14 +65,13 @@ export interface ProbeAccess {
 }
 
 /**
- * Credentials for the capture: the oracle service account when
- * `PYRIC_ORACLE_SA_PATH` is set, otherwise the Rules parity scope
- * (packages/pyric/test/rules/parity/credential.ts).
+ * Credentials for the capture: the oracle credential when `PYRIC_ORACLE_SA_PATH`
+ * or `PYRIC_ORACLE_PROJECT_ID` is set (oracle-credential.ts), otherwise the
+ * Rules parity scope (packages/pyric/test/rules/parity/credential.ts).
  */
 export async function resolveProbeAccess(): Promise<ProbeAccess> {
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH;
-  if (saPath) {
-    const sa = resolveServiceAccount(saPath);
+  if (oracleCredentialConfigured(process.env)) {
+    const sa = await loadOracleServiceAccount();
     return { projectId: sa.project_id, resolveToken: async () => (await accessHeaders(sa)).auth.Authorization.slice('Bearer '.length) };
   }
   const { parityScope } = await import('../../../packages/pyric/test/rules/parity/harness.ts');
