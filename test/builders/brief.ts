@@ -66,7 +66,6 @@ function readBriefFile(path: string): Parsed<Brief> {
   return json.ok ? parseBrief(json.value) : json;
 }
 
-/** Every `*.json` brief in `dir`, sorted by name, or each file's errors. */
 /** The command that makes a round's briefs directory under the data root. */
 export const briefsSetupCommand = (dir: string) => `mkdir -p ${dir}`;
 
@@ -76,6 +75,7 @@ export function readBriefsDir(dir: string): { briefs: Brief[]; errors: string[] 
   return { briefs: [], errors: [`no briefs directory ${dir}: make it with \`${briefsSetupCommand(dir)}\` and write the round's briefs there`] };
 }
 
+/** Every `*.json` brief in `dir`, sorted by name, or each file's errors. */
 export function readBriefs(dir: string): { briefs: Brief[]; errors: string[] } {
   const files = readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
   const briefs: Brief[] = [];
