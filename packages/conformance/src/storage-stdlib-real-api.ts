@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import type { OracleServiceAccount } from './oracle-credential.ts';
 
 /** The oracle credential: a key file, or Application Default Credentials. See oracle-credential.ts. */
@@ -14,10 +13,6 @@ export interface WebConfig {
 export const RULES_API = 'https://firebaserules.googleapis.com/v1';
 export const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
 export type AccessHeaders = Awaited<ReturnType<typeof accessHeaders>>;
-
-export function resolveCredentialPath(path: string, cwd = process.cwd()): string {
-  return resolve(cwd, path);
-}
 
 export async function accessHeaders(sa: ServiceAccount): Promise<{
   auth: Record<string, string>;
