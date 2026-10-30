@@ -402,6 +402,25 @@ function deployErrorText(body: string): string {
   return body;
 }
 
+/** Attempts per dry run. Production answers a large ruleset with an
+ *  occasional 500 that a repeat of the same body does not. */
+export const DRY_RUN_ATTEMPTS = 3;
+
+/** Dry-runs `rules`, repeating only on a 5xx. A dry run never changes the
+ *  live rules, so a repeat sends the same body with no side effect. */
+async function dryRunWithServerErrorRetry(
+  endpoint: RulesDeployEndpoint,
+  rules: Record<string, unknown>,
+): Promise<Awaited<ReturnType<RulesDeployEndpoint['dryRun']>>> {
+  let res = await endpoint.dryRun(rules);
+  for (let attempt = 1; attempt < DRY_RUN_ATTEMPTS; attempt += 1) {
+    const isServerError = res.status >= 500;
+    if (!isServerError) return res;
+    res = await endpoint.dryRun(rules);
+  }
+  return res;
+}
+
 /**
  * Dry-run every case of a deploy scenario and record production's verdict.
  * Each dry run carries the pre-run rules with the case's subtree merged under
@@ -420,7 +439,7 @@ export async function captureDeployScenario(
       ...beforeRules,
       [mountKey]: { [scenario.id]: JSON.parse(deployCase.rules) as unknown },
     };
-    const res = await endpoint.dryRun(rules);
+    const res = await dryRunWithServerErrorRetry(endpoint, rules);
     if (res.status === 200) {
       behavior[deployCase.description] = { verdict: 'ACCEPTED' };
     } else if (res.status === 400) {

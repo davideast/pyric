@@ -22,6 +22,7 @@ import {
   assertMatchingOracleProjects,
   capturableRules,
   captureDeployScenario,
+  DRY_RUN_ATTEMPTS,
   createRunUser,
   instanceRulesForCapture,
   normalizeDeployError,
@@ -196,6 +197,7 @@ function fakeEndpoint(opts: {
   reject?: (rules: Record<string, unknown>) => string | undefined;
   dryRunDeploys?: boolean;
   failStatus?: number;
+  failTimes?: number;
 }): RulesDeployEndpoint & { sent: Record<string, unknown>[] } {
   let live: Record<string, unknown> = structuredClone(BEFORE_RULES);
   const sent: Record<string, unknown>[] = [];
@@ -203,7 +205,8 @@ function fakeEndpoint(opts: {
     sent,
     async dryRun(rules) {
       sent.push(rules);
-      if (opts.failStatus) return { status: opts.failStatus, body: 'internal' };
+      const failsThisCall = opts.failStatus && (opts.failTimes === undefined || sent.length <= opts.failTimes);
+      if (failsThisCall) return { status: opts.failStatus!, body: 'internal' };
       const error = opts.reject?.(rules);
       if (error) return { status: 400, body: JSON.stringify({ error }) };
       if (opts.dryRunDeploys) live = structuredClone(rules);
@@ -255,6 +258,30 @@ describe('run-rules-rtdb deploy scenarios', () => {
       mountKey: MOUNT_KEY,
       scenario: deployScenario(),
     })).rejects.toThrow(/dry run returned 500/);
+  });
+
+  it('repeats a dry run that returned a transient 500 and records the next answer', async () => {
+    const endpoint = fakeEndpoint({ failStatus: 500, failTimes: 1 });
+    const behavior = await captureDeployScenario(endpoint, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: deployScenario(),
+    });
+    expect(behavior).toEqual({
+      'unknown rule key': { verdict: 'ACCEPTED' },
+      'valid ruleset': { verdict: 'ACCEPTED' },
+    });
+    expect(endpoint.sent).toHaveLength(3);
+  });
+
+  it('gives up after DRY_RUN_ATTEMPTS server errors in a row', async () => {
+    const endpoint = fakeEndpoint({ failStatus: 500 });
+    await expect(captureDeployScenario(endpoint, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: deployScenario(),
+    })).rejects.toThrow(/dry run returned 500/);
+    expect(endpoint.sent).toHaveLength(DRY_RUN_ATTEMPTS);
   });
 
   it('replaces every occurrence of the mount key in an error text', () => {
