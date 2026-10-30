@@ -30,7 +30,7 @@ export interface FirebaseImportsCase {
   hosted: boolean;
 }
 
-const PROJECT_ID = 'demo-firebase-imports';
+export const PROJECT_ID = 'demo-firebase-imports';
 
 /**
  * Loaded with `--require`, which Node runs before the register's `--import`.
@@ -228,7 +228,7 @@ const APP_FILES: Record<string, string> = {
 };
 
 /** The preload and the empty gcloud folder sit outside the project, so Next never watches them. */
-interface Safety {
+export interface Safety {
   preload: string;
   sinkPort: number;
   emptyGcloud: string;
@@ -262,13 +262,13 @@ interface SafetyRecord {
 }
 
 /** The trapped connections a case may not have. */
-function escapedConnections(records: readonly SafetyRecord[]): string[] {
+export function escapedConnections(records: readonly SafetyRecord[]): string[] {
   return records
     .filter((record) => record.kind === 'connection' && record.detail !== NEXT_VERSION_CHECK)
     .map((record) => record.detail);
 }
 
-function readSafetyLog(path: string): SafetyRecord[] {
+export function readSafetyLog(path: string): SafetyRecord[] {
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line !== '');
   return lines.map((line) => JSON.parse(line) as SafetyRecord);
@@ -284,7 +284,7 @@ async function answers(url: string): Promise<boolean> {
   }
 }
 
-async function waitForNext(url: string, running: () => boolean): Promise<void> {
+export async function waitForNext(url: string, running: () => boolean): Promise<void> {
   const deadline = Date.now() + 180_000;
   for (;;) {
     assert.ok(running(), `pyric sandbox exited before Next served ${url}`);
@@ -407,8 +407,15 @@ async function listenSink(): Promise<Server> {
   return sink;
 }
 
+/** A case with its own steps, run after the Firestore cases on the same app and safety preload. */
+export type ExtraCase = (app: App, safety: Safety) => Promise<void>;
+
 /** Writes the app, then runs each case in turn. */
-export async function runFirebaseImports(app: App, cases: readonly FirebaseImportsCase[]): Promise<void> {
+export async function runFirebaseImports(
+  app: App,
+  cases: readonly FirebaseImportsCase[],
+  extraCases: readonly ExtraCase[] = [],
+): Promise<void> {
   // The rewrite keeps the Next origin, which the host's origin guard refuses (#1194).
   app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
   const files = await app.step('write the Next app and the safety preload', () => writeApp(app));
@@ -416,6 +423,7 @@ export async function runFirebaseImports(app: App, cases: readonly FirebaseImpor
   try {
     const safety = { ...files, sinkPort: (sink.address() as AddressInfo).port };
     for (const testCase of cases) await runCase(app, safety, testCase);
+    for (const extraCase of extraCases) await extraCase(app, safety);
   } finally {
     await new Promise<void>((resolve) => sink.close(() => resolve()));
   }
