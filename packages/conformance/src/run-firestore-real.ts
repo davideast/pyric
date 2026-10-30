@@ -44,6 +44,7 @@ import {
   restoreFirestoreRules,
   selectFirestoreRulesFile,
   snapshotFirestoreRules,
+  transactionCasePath,
 } from './firestore-real-rules.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +105,13 @@ async function discoverWebConfig(
   );
 }
 
+/**
+ * How long a probe waits for deployed rules to reach the data plane. Firebase
+ * documents up to a minute for new requests (longer for active listeners), and
+ * the fixed 10 s wait after deploy counts toward it, so 90 s leaves margin.
+ */
+const RULES_PROPAGATION_DEADLINE_MS = 90_000;
+
 async function waitForRulesPropagation(ms = 10_000): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -112,7 +120,7 @@ async function setWhenProbeRulesAreActive(
   ref: Parameters<typeof setDoc>[0],
   data: Record<string, unknown>,
 ): Promise<void> {
-  const deadline = Date.now() + 45_000;
+  const deadline = Date.now() + RULES_PROPAGATION_DEADLINE_MS;
   let lastError: unknown;
   let consecutiveSuccesses = 0;
   while (Date.now() < deadline) {
@@ -137,7 +145,7 @@ async function waitForTransactionRulesAreActive(
   db: ReturnType<typeof getFirestore>,
   ref: Parameters<typeof setDoc>[0],
 ): Promise<void> {
-  const deadline = Date.now() + 45_000;
+  const deadline = Date.now() + RULES_PROPAGATION_DEADLINE_MS;
   let consecutiveSuccesses = 0;
   let lastError: unknown;
   while (Date.now() < deadline) {
@@ -175,11 +183,10 @@ async function captureTransactionContention(
   const secondAuth = getAuth(secondApp);
   const firstDb = getFirestore(firstApp);
   const secondDb = getFirestore(secondApp);
-  const base = `__pyric_firestore_cdd/${runId}`;
-  const retryRefA = doc(firstDb, `${base}/cases/retry`);
-  const retryRefB = doc(secondDb, `${base}/cases/retry`);
-  const exhaustedRefA = doc(firstDb, `${base}/cases/exhausted`);
-  const exhaustedRefB = doc(secondDb, `${base}/cases/exhausted`);
+  const retryRefA = doc(firstDb, transactionCasePath(runId, 'retry'));
+  const retryRefB = doc(secondDb, transactionCasePath(runId, 'retry'));
+  const exhaustedRefA = doc(firstDb, transactionCasePath(runId, 'exhausted'));
+  const exhaustedRefB = doc(secondDb, transactionCasePath(runId, 'exhausted'));
 
   try {
     await Promise.all([
@@ -292,7 +299,7 @@ async function captureCollectionGroupListener(
   try {
     await signInWithCustomToken(getAuth(app), token);
     await setWhenProbeRulesAreActive(doc(db, paths.ready), { ready: true });
-    const deadline = Date.now() + 45_000;
+    const deadline = Date.now() + RULES_PROPAGATION_DEADLINE_MS;
     for (let ok = 0; ok < 3 && Date.now() < deadline;) {
       try {
         await getDocs(collectionGroup(db, group));

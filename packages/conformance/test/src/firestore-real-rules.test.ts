@@ -4,6 +4,8 @@ import {
   hostedTestApiDiagnostics,
   replaceSelectedRulesFile,
   selectFirestoreRulesFile,
+  TRANSACTION_CASE_IDS,
+  transactionCasePath,
 } from '../../src/firestore-real-rules.ts';
 
 describe('Firestore real-probe rules lifecycle', () => {
@@ -41,6 +43,42 @@ describe('Firestore real-probe rules lifecycle', () => {
 
     expect(next).toContain('match /{path=**}/cdd_items_run123/{id}');
     expect(next).toContain('match /__pyric_firestore_cdd/run123/users/{uid}/cdd_other_run123/{id}');
+  });
+
+  test('grants the transaction-contention documents the capture writes, and nothing beside them', async () => {
+    const { SimulateFirestoreRulesHandler } = await import('../../../pyric/src/rules/simulator/handler.ts');
+    const rules = injectFirestoreProbeRules(selectFirestoreRulesFile(ruleset).content, 'run123');
+    const signedIn = { uid: 'pyric-cdd-run123' };
+    const cases = [
+      ...TRANSACTION_CASE_IDS.flatMap((caseId) => (['create', 'update', 'get'] as const).map((method) => ({
+        description: `${method} ${caseId}`,
+        expectation: 'ALLOW' as const,
+        method,
+        path: transactionCasePath('run123', caseId),
+        auth: signedIn,
+        data: { count: 0 },
+        ...(method === 'create' ? {} : { resource: { count: 0 } }),
+      }))),
+      {
+        description: 'signed-out create retry',
+        expectation: 'DENY' as const,
+        method: 'create' as const,
+        path: transactionCasePath('run123', 'retry'),
+        data: { count: 0 },
+      },
+      {
+        description: 'create a case id the capture does not use',
+        expectation: 'DENY' as const,
+        method: 'create' as const,
+        path: '__pyric_firestore_cdd/run123/cases/other',
+        auth: signedIn,
+        data: { count: 0 },
+      },
+    ];
+    const result = new SimulateFirestoreRulesHandler().simulate(rules, cases);
+    if (!result.success) throw new Error(result.error.message);
+    expect(Object.fromEntries(result.data.results.map((r) => [r.description, r.decision])))
+      .toEqual(Object.fromEntries(cases.map((c) => [c.description, c.expectation])));
   });
 
   test('preserves every non-Firestore source file byte-for-byte', () => {

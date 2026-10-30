@@ -48,6 +48,17 @@ export function collectionGroupSiblingId(runId: string): string {
   return `cdd_other_${runId}`;
 }
 
+/** The transaction-contention documents, under `cases/` beside the run id. */
+export const TRANSACTION_CASE_IDS = ['retry', 'exhausted'] as const;
+
+/** The document path the transaction-contention capture writes for `caseId`. */
+export function transactionCasePath(
+  runId: string,
+  caseId: (typeof TRANSACTION_CASE_IDS)[number],
+): string {
+  return `__pyric_firestore_cdd/${runId}/cases/${caseId}`;
+}
+
 export function injectFirestoreProbeRules(source: string, runId: string): string {
   if (!/^[A-Za-z0-9_-]+$/.test(runId)) throw new Error('unsafe Firestore probe run id');
   const found = FIRESTORE_DOCUMENTS_MATCH.exec(source);
@@ -58,11 +69,9 @@ export function injectFirestoreProbeRules(source: string, runId: string): string
   }
   const insertAt = found.index + found[0].length;
   const block = `
-    match /__pyric_firestore_cdd/${runId}/retry {
-      allow read, write: if request.auth != null;
-    }
-    match /__pyric_firestore_cdd/${runId}/exhausted {
-      allow read, write: if request.auth != null;
+    match /__pyric_firestore_cdd/${runId}/cases/{caseId} {
+      allow read, write: if request.auth != null
+        && caseId in [${TRANSACTION_CASE_IDS.map((id) => `'${id}'`).join(', ')}];
     }
     match /__pyric_firestore_cdd/${runId}/browser/{document=**} {
       allow read, write: if request.auth != null;
