@@ -3,6 +3,6 @@
   "type": "module",
   "dependencies": {
     "@pyric/cli": "*",
-    "firebase": "12.13.0"
+    "firebase": "12.19.0"
   }
 }

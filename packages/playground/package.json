@@ -52,7 +52,7 @@
     "buffer": "^6.0.3",
     "codemirror": "^6.0.2",
     "esbuild-wasm": "^0.25.0",
-    "firebase": "^12.13.0",
+    "firebase": "^12.19.0",
     "isomorphic-git": "^1.38.1",
     "just-bash": "^3.0.1",
     "pyric": "workspace:*",

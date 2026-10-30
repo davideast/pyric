@@ -482,7 +482,7 @@ describe('runInit', () => {
     expect(written.scripts.bridge).toBe('pyric bridge');
     expect(written.scripts.dev).toBe('pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts');
     expect(Object.keys(written.scripts).some((name) => name.startsWith('deploy'))).toBe(false);
-    expect(written.dependencies.firebase).toBe('~12.13.0');
+    expect(written.dependencies.firebase).toBe('~12.19.0');
     expect(written.dependencies.pyric).toBeUndefined();
     expect(written.devDependencies['@pyric/cli']).toBe('*');
     expect(written.devDependencies.typescript).toBe('^5.7.0');
@@ -508,7 +508,7 @@ describe('runInit', () => {
           dev: 'pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
           bridge: 'pyric bridge',
         },
-        dependencies: { firebase: '~12.13.0' },
+        dependencies: { firebase: '~12.19.0' },
         devDependencies: { '@pyric/cli': '*', '@types/node': '^22.0.0', typescript: '^5.7.0' },
       },
       null,

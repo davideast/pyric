@@ -11,7 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "firebase": "^12.12.0"
+    "firebase": "^12.19.0"
   },
   "devDependencies": {
     "@pyric/cli": "workspace:*",
