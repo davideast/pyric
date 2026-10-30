@@ -176,8 +176,19 @@ const initRows: CompatibilityRow[] = [
     section: SEC_INIT,
     api: 'new ReCaptchaV3Provider(siteKey); new ReCaptchaEnterpriseProvider(siteKey)',
     featureKeys: ['ReCaptchaV3Provider', 'ReCaptchaEnterpriseProvider'],
-    behavior: 'Both reCAPTCHA providers construct from a site key and are accepted by `initializeAppCheck`.',
+    behavior: 'Both reCAPTCHA providers construct from a site key and are accepted by `initializeAppCheck` in a realm with a `document`, such as a page.',
     evidence: 'Upstream-documented only (firebase 12.13.0 typings and the App Check web guide). The oracle web app has no reCAPTCHA registration, so no capture exists; the sandbox never loads reCAPTCHA.',
+  }),
+  row({
+    plane: 'app-check',
+    rowRef: 'recaptcha-providers-without-document',
+    section: SEC_INIT,
+    api: 'initializeAppCheck(app, { provider: new ReCaptchaV3Provider(siteKey) }) with no `document`, and the same for ReCaptchaEnterpriseProvider',
+    featureKeys: ['initializeAppCheck', 'ReCaptchaV3Provider', 'ReCaptchaEnterpriseProvider'],
+    behavior: 'Where there is no `document`, such as a Node process or a server-rendered module, `initializeAppCheck` with either reCAPTCHA provider throws `ReferenceError: document is not defined` synchronously, with or without `FIREBASE_APPCHECK_DEBUG_TOKEN`. App Check is already set up for the app when it throws: a second call with the same options returns the handle, and one with other options throws `appCheck/already-initialized`.',
+    evidence: 'Upstream source, `@firebase/app-check` 0.11.3 `dist/esm/index.esm.js`: `initializeAppCheck` creates the instance (line 1511) before `_activate` marks the app activated and calls `provider.initialize` last (line 1559); `ReCaptchaV3Provider.initialize` (line 1270) and `ReCaptchaEnterpriseProvider.initialize` (line 1347) call `initializeV3` and `initializeEnterprise`, whose `makeDiv` reads `document` (line 1133). A real-SDK run in plain Node 24 (firebase 12.13.0, offline) saw each provider throw the ReferenceError, debug token or not, then return the instance for the same options and throw `appCheck/already-initialized` for another site key. The package has no Node build. No committed capture. Integration: `test/apps/sandbox-app-check` (a registered Node process and a Vite server-rendered module).',
+    errorText: true,
+    notes: 'After the throw, upstream `getToken` with no debug token never settles in Node, since it waits for a reCAPTCHA widget that never loads; the sandbox mints a token there, as it does for a page.',
   }),
 ];
 

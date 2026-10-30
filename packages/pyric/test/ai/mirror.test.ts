@@ -22,12 +22,18 @@ import {
   getGenerativeModel,
 } from '../../src/ai/index.js';
 import { encodeSse, script } from '../../src/ai/scripting.js';
-import { initializeAppCheck, ReCaptchaV3Provider } from '../../src/app-check/index.js';
+import { CustomProvider, initializeAppCheck } from '../../src/app-check/index.js';
 import type { FirebaseApp } from '../../src/app/types.js';
+import { mintAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
 
-/** AI Logic requires App Check before getAI(app), and so does the sandbox (app-check-gate.test.ts). */
+/**
+ * AI Logic requires App Check before getAI(app), and so does the sandbox
+ * (app-check-gate.test.ts). Bun has no `document` for reCAPTCHA, so the app
+ * attests with a CustomProvider whose tokens the sandbox signs.
+ */
 function withAppCheck(app: FirebaseApp): FirebaseApp {
-  initializeAppCheck(app, { provider: new ReCaptchaV3Provider('site-key') });
+  const { appId = '', projectId = '' } = app.options as { appId?: string; projectId?: string };
+  initializeAppCheck(app, { provider: new CustomProvider({ getToken: () => mintAppCheckToken({ appId, projectId }, 3600) }) });
   return app;
 }
 

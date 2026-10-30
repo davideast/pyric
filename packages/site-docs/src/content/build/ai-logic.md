@@ -43,16 +43,20 @@ With a `CustomProvider` and no debug token set, the sandbox calls your provider'
 
 ## Start with deterministic responses
 
-With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
+With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point. A test runner such as `bun test` has no `document`, so a reCAPTCHA provider throws there, as it does in production on a server. Use a `CustomProvider` with the debug token set, and the sandbox never calls it:
 
 ```ts
-import { initializeAppCheck, ReCaptchaV3Provider } from 'pyric/app-check';
+import { CustomProvider, initializeAppCheck } from 'pyric/app-check';
 import { getAI } from 'pyric/ai';
 import { script } from 'pyric/ai/scripting';
 
+Object.assign(globalThis, { FIREBASE_APPCHECK_DEBUG_TOKEN: true });
 initializeAppCheck(app, {
-  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
-  isTokenAutoRefreshEnabled: true,
+  provider: new CustomProvider({
+    getToken: async () => {
+      throw new Error('Not called while the debug token is set.');
+    },
+  }),
 });
 const ai = getAI(app);
 script(ai, [

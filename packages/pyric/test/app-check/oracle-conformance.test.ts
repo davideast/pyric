@@ -105,6 +105,18 @@ async function withoutDebugToken(operation: () => Promise<void>): Promise<void> 
   }
 }
 
+type DocumentGlobal = { document?: unknown };
+
+/** Runs `operation` in a realm with a `document`, as a page has; Bun has none. */
+async function withStandInDocument(operation: () => Promise<void>): Promise<void> {
+  (globalThis as DocumentGlobal).document = {};
+  try {
+    await operation();
+  } finally {
+    delete (globalThis as DocumentGlobal).document;
+  }
+}
+
 /** A CustomProvider that counts its calls and answers with `answer`. */
 function countingProvider(answer: () => Promise<{ token: string; expireTimeMillis: number }>) {
   const counter = { calls: 0 };
@@ -229,11 +241,33 @@ const assertions: Record<string, Assertion> = {
       expect(failing.calls).toBe(2);
     }),
 
-  'app-check#recaptcha-providers-construct': async () => {
-    for (const provider of [new appCheck.ReCaptchaV3Provider('demo-site-key'), new appCheck.ReCaptchaEnterpriseProvider('demo-site-key')]) {
-      const handle = appCheck.initializeAppCheck(freshApp('recaptcha'), { provider, isTokenAutoRefreshEnabled: false });
-      expect(Object.keys(await appCheck.getToken(handle))).toEqual(['token']);
-    }
+  'app-check#recaptcha-providers-construct': () =>
+    withStandInDocument(async () => {
+      for (const provider of [new appCheck.ReCaptchaV3Provider('demo-site-key'), new appCheck.ReCaptchaEnterpriseProvider('demo-site-key')]) {
+        const handle = appCheck.initializeAppCheck(freshApp('recaptcha'), { provider, isTokenAutoRefreshEnabled: false });
+        expect(Object.keys(await appCheck.getToken(handle))).toEqual(['token']);
+      }
+    }),
+
+  'app-check#recaptcha-providers-without-document': async () => {
+    expect(typeof (globalThis as { document?: unknown }).document).toBe('undefined');
+    const providers = [
+      (siteKey: string) => new appCheck.ReCaptchaV3Provider(siteKey),
+      (siteKey: string) => new appCheck.ReCaptchaEnterpriseProvider(siteKey),
+    ];
+    const attempt = (app: ReturnType<typeof freshApp>, provider: appCheck.ReCaptchaV3Provider | appCheck.ReCaptchaEnterpriseProvider) => () =>
+      appCheck.initializeAppCheck(app, { provider });
+    const check = async () => {
+      for (const make of providers) {
+        const app = freshApp('recaptcha-no-document');
+        expect(attempt(app, make('demo-site-key'))).toThrow(new ReferenceError('document is not defined'));
+        const handle = appCheck.initializeAppCheck(app, { provider: make('demo-site-key') });
+        expect(handle.app).toBe(app);
+        expect(await rejection(attempt(app, make('another-site-key')))).toMatchObject({ threw: true, code: 'appCheck/already-initialized' });
+      }
+    };
+    await check();
+    await withoutDebugToken(check);
   },
 
   'app-check#get-token-before-initialize': async () => {
