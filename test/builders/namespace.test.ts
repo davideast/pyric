@@ -124,6 +124,13 @@ describe('ownDirs', () => {
   });
 });
 
+/**
+ * The sandbox test starts a real sandbox, whose inventory walks every bound
+ * directory (about 45,000). With a cold file cache, as after a restart, that
+ * takes longer than bun's default 5 s.
+ */
+const SANDBOX_TEST_TIMEOUT_MS = 120_000;
+
 describe('startEgressNamespace', () => {
   test('refuses, rather than running without the block, when the tools are missing', async () => {
     const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
@@ -164,5 +171,5 @@ describe('startEgressNamespace', () => {
     const events = readFileSync(networkLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { kind: string; host: string; port?: number });
     expect(events.filter((event) => event.kind === 'dns').map((event) => event.host)).toContain('canary-probe.invalid');
     expect(events.filter((event) => event.kind === 'connect')).toEqual([expect.objectContaining({ via: 'catch-all', address: '192.0.2.1', port: 80 })]);
-  });
+  }, SANDBOX_TEST_TIMEOUT_MS);
 });
