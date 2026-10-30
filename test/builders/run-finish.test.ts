@@ -61,11 +61,11 @@ describe('finishRun on a planted link', () => {
   test('keeps the record naming the planted paths, and appends the measurement line', async () => {
     const { outside, end } = plantedRun();
     const record = await finishRun(input(), end);
-    expect(record.harness.plantedLinks).toEqual(['logs/02-run-phase.log', 'network.jsonl']);
+    expect(record.harness.plantedLinks).toEqual(['logs/02-run-phase.log: logs/02-run-phase.log is a link', 'network.jsonl: network.jsonl is a link']);
     expect(readFileSync(outside, 'utf8')).toBe(HOST_TEXT);
 
     const kept = JSON.parse(readFileSync(join(end.dataDir, 'report.json'), 'utf8')) as RunRecord;
-    expect(kept.harness.plantedLinks).toEqual(['logs/02-run-phase.log', 'network.jsonl']);
+    expect(kept.harness.plantedLinks).toEqual(record.harness.plantedLinks);
     expect(kept.harness.meteredCostUsd).toBe(0.25);
     expect(kept.harness.usage?.costUsd).toBe(0.3);
     expect(existsSync(join(end.dataDir, 'network.jsonl'))).toBe(false);
@@ -83,7 +83,7 @@ describe('finishRun on a planted link', () => {
     symlinkSync(join(outside, '..'), dirs.logs);
     symlinkSync(outside, dirs.report);
     const record = await finishRun(input(), end);
-    expect(record.harness.plantedLinks).toEqual(['logs/02-run-phase.log', 'logs/builder.log', 'network.jsonl', 'report.json']);
+    expect(record.harness.plantedLinks).toEqual(['logs/02-run-phase.log: logs is a link', 'logs/builder.log: logs is a link', 'network.jsonl: network.jsonl is a link', 'report.json: report.json is a link']);
     expect(record.harness.report).toEqual({ state: 'invalid', errors: ['report.json is a planted link; the harness did not read it'] });
     expect(record.harness.usage).toBeNull();
     expect(readFileSync(outside, 'utf8')).toBe(HOST_TEXT);
@@ -98,7 +98,7 @@ describe('finishRun on a planted link', () => {
     mkdirSync(phaseLog);
     symlinkSync(join(dirs.root, '..', 'host-file'), join(phaseLog, 'inside'));
     const record = await finishRun(input(), end);
-    expect(record.harness.plantedLinks).toEqual(['logs/02-run-phase.log', 'network.jsonl']);
+    expect(record.harness.plantedLinks).toEqual(['logs/02-run-phase.log: logs/02-run-phase.log is not a plain file', 'network.jsonl: network.jsonl is a link']);
     expect(readMeasurements(end.measurements).lines).toHaveLength(1);
     expect(readFileSync(join(end.dataDir, KEPT_PHASE_OUTPUT), 'utf8')).toBe('phase output\n');
     expect(existsSync(join(end.dataDir, 'logs', RUN_PHASE_LOG))).toBe(false);

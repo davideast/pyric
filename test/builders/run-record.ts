@@ -60,10 +60,12 @@ export interface HarnessFields extends RunIdentity {
   /** Files of the run that held the harness's token, which `round` redacted or withheld. Empty unless something leaked. */
   tokenFoundIn: string[];
   /**
-   * Files of the run root, relative to it, that the harness would read or
-   * append to but found to be a link, or reached through one, once the
-   * sandbox stopped (`planted-links.ts`). The harness skipped them and the
-   * merges. Empty unless the sandbox planted one, which makes the run invalid.
+   * Files of the run root the harness would read, append to or write once
+   * the sandbox stopped, but skipped, each as `<path>: <why>` relative to the
+   * run root: a link, or a path through one (`planted-links.ts`), or one it
+   * could not check, merge into or write even after giving the owner its
+   * permissions back (`owner-access.ts`). Empty unless the sandbox left
+   * one, which makes the run invalid.
    */
   plantedLinks: string[];
   automaticProblems: AutomaticProblem[];
