@@ -26,7 +26,8 @@
  *       Re-runs one problem of a kept run with the verifier's script, in a
  *       fresh copy of the builder's app on the same tarballs, in the same
  *       sandbox as a round's run and with no model channel: up to two
- *       tries. Exits 0 when it reproduced, 1 when unconfirmed. Files nothing.
+ *       tries. Exits 0 when it reproduced, 1 when unconfirmed, 3 when no try
+ *       could tell. Files nothing.
  *   measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
  *       Per model: cost per run and per verification, confirmed new findings
  *       per app, the share thrown out, cost per confirmed new finding, and
@@ -45,6 +46,7 @@ import { NamespaceUnavailable } from './namespace.ts';
 import { runRound } from './round.ts';
 import { parseRoundOptions } from './round-options.ts';
 import { briefsDir, measurementsFile } from './round-paths.ts';
+import { RESULT_EXIT } from './repro-verdict.ts';
 import { runReproduce } from './reproduce.ts';
 import { listLines } from './reproduce-check.ts';
 import { parseReproduceOptions, REPRODUCE_USAGE } from './reproduce-options.ts';
@@ -96,7 +98,7 @@ const COMMANDS: Record<string, Command> = {
     usage: REPRODUCE_USAGE,
     async run(args) {
       const command = parseReproduceOptions(args);
-      if (!command.list) return (await runReproduce(command)) ? 0 : 1;
+      if (!command.list) return RESULT_EXIT[await runReproduce(command)];
       for (const line of listLines(command.round, command.run)) console.log(line);
       return 0;
     },

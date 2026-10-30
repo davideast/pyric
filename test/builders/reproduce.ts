@@ -26,7 +26,7 @@ import { sha256File } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
 import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
 import { layOutReproApp } from './repro-app.ts';
-import { judgeTry, reproResult, type TryJudgment } from './repro-verdict.ts';
+import { judgeTry, reproResult, type ReproResult, type TryEvidence, type TryJudgment } from './repro-verdict.ts';
 import { checkReproduce, type CheckedRepro } from './reproduce-check.ts';
 import type { ReproduceOptions } from './reproduce-options.ts';
 import { builderRunDirsAt, reproDataDir, reproTryRoot, type BuilderRunDirs } from './round-paths.ts';
@@ -72,7 +72,8 @@ export function reproPhase(scriptName: string, options: Pick<ReproduceOptions, '
   };
 }
 
-async function runInSandbox(namespace: EgressNamespace, context: ReproContext, dirs: BuilderRunDirs): Promise<void> {
+/** Lays out, installs and runs the try in its sandbox; resolves the phase's output, written once the sandbox has stopped. */
+async function runInSandbox(namespace: EgressNamespace, context: ReproContext, dirs: BuilderRunDirs): Promise<string> {
   const { checked, options } = context;
   const scriptName = await layOutReproApp({ dirs, appArchive: checked.appArchive, tarballs: checked.tarballs, run: options.run, script: options.script });
   // The app is the builder's: a cold cache ends the try, never an install on the host.
@@ -81,17 +82,38 @@ async function runInSandbox(namespace: EgressNamespace, context: ReproContext, d
   writeFileSync(dirs.phase, `${JSON.stringify(phase, null, 2)}\n`);
   const { command, args } = namespace.enter(process.execPath, [RUN_PHASE, dirs.root], REPO_ROOT);
   const result = await runTimedCommand(command, args, { cwd: REPO_ROOT, env: phaseEnvironment(dirs.home), timeoutMs: phase.wallClockMs + PHASE_MARGIN_MS });
-  writeFileSync(join(dirs.logs, '02-repro-phase.log'), result.output);
   say(`repro phase exited ${result.code}${result.timedOut ? ' (stopped at its limit)' : ''}`);
+  return result.output;
 }
 
-/** Every Google host or metadata address in the try's network record. */
-function googleHostsOf(dirs: BuilderRunDirs): string[] {
+export const REPRO_PHASE_LOG = '02-repro-phase.log';
+
+/**
+ * What a try left, read once its sandbox has stopped: how the script ended,
+ * its output, and every Google host or metadata address in the network
+ * record, the browser's NetLog appended first.
+ */
+export function tryEvidence(dirs: BuilderRunDirs, phaseOutput: string): TryEvidence {
+  writeFileSync(join(dirs.logs, REPRO_PHASE_LOG), phaseOutput);
   if (existsSync(dirs.netLog)) appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
   const problems = googleHostProblems(googleEventsIn(readNetworkRecord(dirs.networkLog)));
-  return problems.flatMap((problem) => (problem.kind === 'google-host' ? [problem.host] : []));
+  const googleHosts = problems.flatMap((problem) => (problem.kind === 'google-host' ? [problem.host] : []));
+  const logFile = join(dirs.logs, REPRO_LOG);
+  const output = existsSync(logFile) ? readFileSync(logFile, 'utf8') : '';
+  return { exit: readPhaseResult(dirs), output, googleHosts };
 }
 
+const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
+
+/** A try that failed before it could be judged: inconclusive, with the reason, never unconfirmed. */
+export function failedTry(error: unknown): TryJudgment {
+  return { outcome: 'inconclusive', reason: `the try failed: ${firstLine(error)}` };
+}
+
+/**
+ * One try. Any failure but a sandbox that can't start becomes an
+ * inconclusive try, so its data is kept like any other's.
+ */
 async function runTry(context: ReproContext, attempt: number): Promise<TryRecord> {
   const { options, checked } = context;
   const dirs = builderRunDirsAt(reproTryRoot(options.round, options.run, checked.target.slug, context.stamp, attempt));
@@ -99,18 +121,22 @@ async function runTry(context: ReproContext, attempt: number): Promise<TryRecord
   say(`try ${attempt} of ${MAX_TRIES}: starting its sandbox in ${dirs.root}`);
   const readOnly = [playwrightBrowsersPath(), checked.packagesDir];
   const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
+  let judged: { evidence: TryEvidence; judgment: TryJudgment };
   try {
-    await runInSandbox(namespace, context, dirs);
-  } finally {
-    await namespace.stop();
+    let phaseOutput: string;
+    try {
+      phaseOutput = await runInSandbox(namespace, context, dirs);
+    } finally {
+      await namespace.stop();
+    }
+    const evidence = tryEvidence(dirs, phaseOutput);
+    judged = { evidence, judgment: judgeTry(checked.target, evidence, options.expect) };
+  } catch (error) {
+    judged = { evidence: { exit: null, output: '', googleHosts: [] }, judgment: failedTry(error) };
   }
-  const exit = readPhaseResult(dirs);
-  const logFile = join(dirs.logs, REPRO_LOG);
-  const output = existsSync(logFile) ? readFileSync(logFile, 'utf8') : '';
-  const googleHosts = googleHostsOf(dirs);
-  const judgment = judgeTry(checked.target, { exit, output, googleHosts }, options.expect);
+  const { evidence, judgment } = judged;
   say(`try ${attempt}: ${judgment.outcome}, ${judgment.reason}`);
-  return { attempt, scratch: dirs.root, exit, googleHosts, ...judgment };
+  return { attempt, scratch: dirs.root, exit: evidence.exit, googleHosts: [...evidence.googleHosts], ...judgment };
 }
 
 /** Copies the script and each try's record and logs into the run's data, and writes `repro.json`. */
@@ -148,25 +174,33 @@ function keep(context: ReproContext, tries: readonly TryRecord[], startedAt: Dat
   return dataDir;
 }
 
-/** Runs the reproduction. Resolves true when a try reproduced the problem. */
-export async function runReproduce(options: ReproduceOptions): Promise<boolean> {
+/**
+ * Runs the reproduction and keeps what it found, whatever happened. Resolves
+ * its result. Throws `NamespaceUnavailable`, after keeping the tries before
+ * it, when a try's sandbox can't start.
+ */
+export async function runReproduce(options: ReproduceOptions): Promise<ReproResult> {
   const checked = checkReproduce(options);
   const context: ReproContext = { options, checked, stamp: runStamp() };
   say(`reproducing ${checked.target.selector} of run ${options.run}, round ${options.round}: up to ${MAX_TRIES} tries, ${options.minutes} minutes each, no model channel`);
   const slot = await takeHeavyRunSlot({ command: `bun test/builders/harness.ts reproduce ${options.round} ${options.run} ${checked.target.selector}`, env: { ...process.env } });
   const startedAt = new Date();
   const tries: TryRecord[] = [];
+  let stopped: unknown;
   try {
     for (let attempt = 1; attempt <= MAX_TRIES; attempt += 1) {
       const entry = await runTry(context, attempt);
       tries.push(entry);
       if (entry.outcome === 'reproduced') break;
     }
+  } catch (error) {
+    stopped = error;
   } finally {
     slot.release();
   }
   const dataDir = keep(context, tries, startedAt);
+  if (stopped !== undefined) throw stopped;
   const result = reproResult(tries.map((entry) => entry.outcome));
   say(`${checked.target.selector}: ${result} after ${tries.length} ${tries.length === 1 ? 'try' : 'tries'}; kept in ${dataDir}`);
-  return result === 'reproduced';
+  return result;
 }

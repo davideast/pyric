@@ -30,6 +30,7 @@ import { readBuilderReport } from './report.ts';
 import { builderRunDirsAt, builderRunRoot, channelRecordFile, measurementsFile, runDataDir, type BuilderRunDirs } from './round-paths.ts';
 import { BUILDER_LOG, phaseResultSchema, type Phase, type PhaseResult } from './run-phase.ts';
 import { measurementLine, runRecord, type RunIdentity, type RunRecord } from './run-record.ts';
+import { parseJsonText } from './parse.ts';
 import { createRunDirs, demoProjectId, writeFakeFirebaseConfig } from './scratch.ts';
 import { copyRedacted, filesContaining, redactedText } from './token-scan.ts';
 import { usageFrom } from './usage.ts';
@@ -123,8 +124,9 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
 /** How the phase said its command ended; null when it never wrote that, or wrote something else. */
 export function readPhaseResult(dirs: BuilderRunDirs): PhaseResult | null {
   if (!existsSync(dirs.phaseResult)) return null;
-  const parsed = phaseResultSchema.safeParse(JSON.parse(readFileSync(dirs.phaseResult, 'utf8')));
-  return parsed.success ? parsed.data : null;
+  const json = parseJsonText(readFileSync(dirs.phaseResult, 'utf8'));
+  const parsed = json.ok ? phaseResultSchema.safeParse(json.value) : undefined;
+  return parsed?.success === true ? parsed.data : null;
 }
 
 const readIfExists = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');

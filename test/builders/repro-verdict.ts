@@ -58,7 +58,19 @@ export function judgeTry(target: ReproTarget, evidence: TryEvidence, expected?: 
   return target.kind === 'google-host' ? judgeHost(target.host, evidence) : judgeExit(evidence, expected);
 }
 
-/** A reproduction's result: reproduced when any try did, otherwise unconfirmed. */
-export function reproResult(outcomes: readonly TryOutcome[]): 'reproduced' | 'unconfirmed' {
-  return outcomes.includes('reproduced') ? 'reproduced' : 'unconfirmed';
+export type ReproResult = 'reproduced' | 'unconfirmed' | 'inconclusive';
+
+/**
+ * A reproduction's result: reproduced when any try did; unconfirmed when a
+ * try found pyric behaving as production does; inconclusive when no try could
+ * tell either way (each crashed, timed out, or failed to install), which says
+ * nothing about pyric.
+ */
+export function reproResult(outcomes: readonly TryOutcome[]): ReproResult {
+  if (outcomes.includes('reproduced')) return 'reproduced';
+  if (outcomes.includes('not-reproduced')) return 'unconfirmed';
+  return 'inconclusive';
 }
+
+/** The command's exit code for each result; 2 stays a refusal before anything ran. */
+export const RESULT_EXIT: Record<ReproResult, number> = { reproduced: 0, unconfirmed: 1, inconclusive: 3 };

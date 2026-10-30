@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ReproTarget } from './repro-target.ts';
 import { judgeTry, reproResult, type TryEvidence } from './repro-verdict.ts';
+import { failedTry } from './reproduce.ts';
 import type { PhaseResult } from './run-phase.ts';
 
 const PROBLEM: ReproTarget = {
@@ -52,9 +53,17 @@ describe('judgeTry for a Google host', () => {
 });
 
 describe('reproResult', () => {
-  test('one reproduced try is enough; otherwise unconfirmed', () => {
+  test('one reproduced try is enough; a try that found production\'s behavior makes it unconfirmed', () => {
     expect(reproResult(['not-reproduced', 'reproduced'])).toBe('reproduced');
     expect(reproResult(['inconclusive', 'not-reproduced'])).toBe('unconfirmed');
-    expect(reproResult([])).toBe('unconfirmed');
+  });
+
+  test('tries that could not tell are inconclusive, not unconfirmed', () => {
+    expect(reproResult(['inconclusive', 'inconclusive'])).toBe('inconclusive');
+    expect(reproResult([])).toBe('inconclusive');
+  });
+
+  test('a try that failed before it was judged is inconclusive, with its reason', () => {
+    expect(failedTry(new Error('the npm cache lacks a package\nmore'))).toEqual({ outcome: 'inconclusive', reason: 'the try failed: the npm cache lacks a package' });
   });
 });
