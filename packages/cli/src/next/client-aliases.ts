@@ -2,38 +2,25 @@
  * Client-side module aliasing definitions for Firebase Web SDKs.
  */
 
-/**
- * Each client `firebase/*` specifier and the `serve/entries` wrapper that
- * replaces it. Every wrapper is exported by `@pyric/cli` as
- * `@pyric/cli/next/internal/<entry>`.
- */
-const CLIENT_MODULES: Readonly<Record<string, string>> = {
-  'firebase/ai': 'ai',
-  'firebase/analytics': 'analytics',
-  'firebase/app': 'app',
-  'firebase/app-check': 'app-check',
-  'firebase/auth': 'auth',
-  'firebase/firestore': 'firestore',
-  'firebase/firestore/lite': 'firestore-lite',
-  'firebase/functions': 'functions',
-  'firebase/database': 'database',
-  'firebase/messaging': 'messaging',
-  'firebase/messaging/sw': 'messaging-sw',
-  'firebase/performance': 'performance',
-  'firebase/remote-config': 'remote-config',
-  'firebase/storage': 'storage',
-};
+import { resolveAiMode, swappedFirebaseEntries, type AiMode } from '../serve/firebase-module-swap.js';
 
 /**
  * Retrieve the explicit map of canonical Firebase import specifiers to their
- * Pyric browser wrapper entries. Each target is a package specifier rather
- * than a file path: Turbopack reads an absolute alias path as relative to the
- * project root, while a package specifier resolves from the application's own
- * dependencies in Webpack and Turbopack alike.
+ * Pyric browser wrapper entries, for one AI mode. The entries come from
+ * {@link swappedFirebaseEntries}, the table every plane that swaps reads, so
+ * production AI mode leaves `firebase/ai` to the Firebase SDK here as the
+ * import map and the Vite resolver do. The mode defaults to the one the
+ * environment names, resolved as every front door resolves it.
+ *
+ * Each target is a package specifier rather than a file path: Turbopack reads
+ * an absolute alias path as relative to the project root, while a package
+ * specifier resolves from the application's own dependencies in Webpack and
+ * Turbopack alike. Every wrapper is exported by `@pyric/cli` as
+ * `@pyric/cli/next/internal/<entry>`.
  */
-export function getClientAliases(): Record<string, string> {
+export function getClientAliases(mode: AiMode = resolveAiMode(undefined, process.env)): Record<string, string> {
   const aliases: Record<string, string> = {};
-  for (const [source, entry] of Object.entries(CLIENT_MODULES)) {
+  for (const [source, entry] of swappedFirebaseEntries(mode)) {
     aliases[source] = `@pyric/cli/next/internal/${entry}`;
   }
   return aliases;

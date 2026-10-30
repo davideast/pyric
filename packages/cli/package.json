@@ -187,6 +187,12 @@
     "./next/internal/app-check": {
       "import": "./dist/serve/entries/app-check.js"
     },
+    "./next/internal/app-ai-passthrough": {
+      "import": "./dist/serve/entries/app-ai-passthrough.js"
+    },
+    "./next/internal/app-ai-passthrough-app-check": {
+      "import": "./dist/serve/entries/app-ai-passthrough-app-check.js"
+    },
     "./next/internal/auth": {
       "import": "./dist/serve/entries/auth.js"
     },

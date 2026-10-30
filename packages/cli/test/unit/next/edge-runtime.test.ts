@@ -79,6 +79,7 @@ describe('withPyric Edge runtime warning', () => {
     // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
     if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
     else process.env.PYRIC_GUARD = savedGuard;
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
   });
 
   it('warns in the development server phase and names the Edge file', async () => {
