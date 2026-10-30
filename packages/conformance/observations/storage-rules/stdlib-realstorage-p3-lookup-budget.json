@@ -1,12 +1,14 @@
 {
   "name": "stdlib-realstorage-p3-lookup-budget",
   "matrixRow": "",
-  "rowIds": ["storage-rules#134"],
-  "description": "Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents. The rig restores the exact prior Storage release and verifies all run-scoped data is absent before writing this file.",
-  "observedAt": "2026-07-21T12:38:05.502Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
-  "bucket": "genkit-idx.firebasestorage.app",
+  "rowIds": [
+    "storage-rules#134"
+  ],
+  "description": "Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents.",
+  "observedAt": "2026-10-30T11:57:16.531Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "bucket": "digame-mas.appspot.com",
   "behavior": {
     "one": "DENY",
     "two": "DENY",
@@ -19,39 +21,76 @@
   },
   "diagnostics": {
     "one": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/one/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "two": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/two/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "three": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/three/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "repeat": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/repeat/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "get-exists": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/get-exists/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "short": {},
     "missing-exists": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/missing-exists/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "missing-get": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/missing-get/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     }
   },
   "cleanup": {
     "releaseRestored": true,
+    "firestoreReleaseRestored": true,
     "objectsRemoved": true,
-    "documentsRemoved": true
+    "documentsRemoved": true,
+    "iamRestored": true
   },
+  "iam": {
+    "temporaryIam": false,
+    "externallyEnabledIam": false,
+    "iamChanged": false
+  },
+  "requestBudget": {
+    "counts": {
+      "storage": 9,
+      "firestoreWrite": 3,
+      "rules": 5,
+      "iam": 0
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 25,
+      "rules": 20,
+      "iam": 12
+    }
+  },
+  "cleanupRequestBudget": {
+    "counts": {
+      "storage": 11,
+      "firestoreWrite": 6,
+      "rules": 2,
+      "iam": 0
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 24,
+      "rules": 8,
+      "iam": 6
+    }
+  },
+  "probeBlockSha256": "08abfad53b97b77b44562189354cc1ae7979066778916efb20b8a3764c49b671",
+  "deployedRulesFileSha256": "a68090940c50d2729ef13804eb44bc3c459062cf79f5c2b6c4a89f5672546d99",
   "probeRulesetCreated": true
 }
