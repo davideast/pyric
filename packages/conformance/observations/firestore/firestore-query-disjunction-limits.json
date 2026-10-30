@@ -5,8 +5,8 @@
     "firestore#query-disjunction-limits"
   ],
   "description": "getDocs at and past the server's query limits: in with 30 and 31 values, not-in with 10 and 11, array-contains-any with 31, or() with 31 branches, and and(in[6], or(6 branches)) for 36 terms after normalization.",
-  "observedAt": "2026-10-27T19:27:58.443Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:07:26.388Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "in30": {
