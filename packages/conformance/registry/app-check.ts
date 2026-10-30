@@ -163,7 +163,6 @@ const initRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'custom-provider-without-debug-token',
-    flipped: 'unit-backed',
     section: SEC_INIT,
     api: 'getToken(appCheck), getLimitedUseToken(appCheck) with a CustomProvider and no debug token',
     featureKeys: ['CustomProvider', 'getToken', 'getLimitedUseToken'],
