@@ -5,9 +5,9 @@
     "firestore#83"
   ],
   "description": "Unsubscribe returned by onSnapshot stops further fires. Probes: register listener, do a write (verify fire), call unsub(), do another write, verify no further fires arrive.",
-  "observedAt": "2026-05-18T00:11:56.016Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:28.469Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "afterInitialFires": 1,
     "afterFirstWriteFires": 2,

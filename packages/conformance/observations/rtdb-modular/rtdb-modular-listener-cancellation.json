@@ -5,8 +5,8 @@
     "rtdb-modular#M75a"
   ],
   "description": "Cancellation callback timing and Firebase error shape for initially denied and subsequently revoked value/child listeners, with successful read controls and exact rules restoration.",
-  "observedAt": "2026-07-22T08:41:30.266Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:43:49.384Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

@@ -5,13 +5,13 @@
     "firestore#34"
   ],
   "description": "updateDoc on a non-existent doc — locks the FirebaseError code/class prod returns when the precondition fails. Writes inside pyric_oracle/* so rules permit; only the missing-doc precondition should fire.",
-  "observedAt": "2026-05-17T23:37:09.078Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:10.412Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
     "code": "not-found",
-    "message": "5 NOT_FOUND: No document to update: projects/blockingfun/databases/(default)/documents/pyric_oracle/1779061004817-r98owu/updatedoc-missing/never-written",
+    "message": "5 NOT_FOUND: No document to update: projects/digame-mas/databases/(default)/documents/pyric_oracle/1793357010071-3gybcb/updatedoc-missing/never-written",
     "errorName": "FirebaseError",
     "constructorName": "FirebaseError",
     "isFirebaseError": true,

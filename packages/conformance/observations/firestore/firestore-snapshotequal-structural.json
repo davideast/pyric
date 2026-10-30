@@ -5,8 +5,8 @@
     "firestore#117"
   ],
   "description": "snapshotEqual semantics — does prod compare structurally or by identity across two fetches of the same query?",
-  "observedAt": "2026-07-22T03:35:12.121Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:45:50.391Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "identity": true,
@@ -423,7 +423,7 @@
         ],
         "changes": [],
         "metadata": {
-          "fromCache": false,
+          "fromCache": true,
           "hasPendingWrites": true
         }
       },

@@ -5,9 +5,9 @@
     "firestore#56"
   ],
   "description": "or(...) composite — at least one sub-filter matches. Seeds 3 docs (x=1/y=9, x=2/y=2, x=3/y=3) and queries with or(where(x,==,1), where(y,==,2)); observed match set should be the union of each sub-filter's matches.",
-  "observedAt": "2026-05-17T23:59:00.224Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:48.211Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "seeded": 4,
     "matched": 3,

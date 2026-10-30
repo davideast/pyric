@@ -5,9 +5,9 @@
     "firestore#82"
   ],
   "description": "Initial fire for a missing doc has exists() === false and data() === undefined. Probes onSnapshot on a doc that does not exist and inspects the first snapshot.",
-  "observedAt": "2026-05-17T23:58:11.985Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:13.711Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "fireCount": 1,
     "firstExists": false,

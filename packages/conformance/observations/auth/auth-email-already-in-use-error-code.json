@@ -5,16 +5,16 @@
     "auth#22"
   ],
   "description": "createUserWithEmailAndPassword called twice with the same email — locks the FirebaseError code prod emits for the duplicate-registration path.",
-  "observedAt": "2026-05-17T23:37:08.079Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:08.957Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
     "code": "auth/email-already-in-use",
     "messageContains": {
       "emailAlreadyInUse": true
     },
-    "attemptedEmail": "oracle-dup-1779061027053-y2qr3v@oracle.test",
+    "attemptedEmail": "oracle-dup-1793357167946-1a24xk@oracle.test",
     "cleanupLeaked": false
   }
 }
