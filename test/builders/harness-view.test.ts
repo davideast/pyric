@@ -11,7 +11,7 @@ const isUnder = (path: string, dir: string) => path === dir || path.startsWith(`
 describe('harnessView', () => {
   const view = harnessView(REPO_ROOT);
 
-  test('binds the harness’s own files, never the repo or a package’s source', () => {
+  test('binds the harness’s own files, never the repo or the repo’s packages’ source', () => {
     expect(view.readOnly).not.toContain(REPO_ROOT);
     expect(view.readOnly.filter((path) => isUnder(path, join(REPO_ROOT, 'packages')))).toEqual([
       join(REPO_ROOT, 'packages', 'cli', 'test', 'blackholed-port.ts'),
