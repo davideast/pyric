@@ -6,8 +6,8 @@
     "ai#helper-thoughtsummary"
   ],
   "description": "Whether thinkingConfig.includeThoughts surfaces parts flagged thought:true, and whether thoughtSignature rides on parts, on the probe model.",
-  "observedAt": "2026-10-28T02:04:06.103Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:52.605Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -29,7 +29,7 @@
             "parts": [
               {
                 "text": "There are **9** sheep left. \n\nThe phrase \"all but 9 run away\" means that 9 sheep did *not* run away.",
-                "thoughtSignature": "EmAKXgFpFH0TSkOGrea17IPn/AoSDsJm+doQxiSehSIvZjE2K19ee9B1ITfoUS/0IJ+kxorLyHZcvFHO9fl/cu+6wDWb1YYOdtm544FFfIrcBn+eiKPhz8UVN0ZmrTP1YUs="
+                "thoughtSignature": "EmAKXgFpFH0TQDp/kK8OCkLnjwSGwVT26KS26FAQ7WiKVvbIQiQea0gBpGafmjDZUtMdkONjN0Stp7yEOzNJnwG/hvmJiptJRmDfAtbmqJMZxbdJ7yidqlFf1ER+R/IlPmk="
               }
             ],
             "role": "model"
@@ -51,7 +51,7 @@
         "serviceTier": "standard"
       },
       "modelVersion": "gemini-3.5-flash-lite",
-      "responseId": "FVjhaoqYEt_3-8YPucyZmA8"
+      "responseId": "AobkavudM4bH-8YPkOXygAQ"
     }
   }
 }

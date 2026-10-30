@@ -6,8 +6,8 @@
     "ai#counttokens-envelope"
   ],
   "description": "countTokens raw envelope on the GoogleAI backend, called twice with an identical payload to record whether token counting is deterministic.",
-  "observedAt": "2026-10-28T02:04:02.505Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:46.267Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

@@ -5,8 +5,8 @@
     "ai#fncall-round-trip"
   ],
   "description": "A full function-calling round trip is accepted when the model functionCall turn is threaded back verbatim from a real response, preserving thoughtSignature (see ai-error-fncall-missing-thought-signature for the rejection without it). The model turn is the one in ai-function-call-shape, and the function response rides under role user (see ai-error-function-role-refused).",
-  "observedAt": "2026-10-28T11:41:00.327Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:50.577Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -23,7 +23,7 @@
             "parts": [
               {
                 "text": "The weather in Paris is currently clear with a temperature of 22°C.",
-                "thoughtSignature": "EmAKXgFpFH0TKfsyrUQz/DxHdVKyVT9LpDK4DL4xqptWM0Ifk5lrSCDcq84uYM3M/gc7JOa3GYW4JZrxaE/n62OZogfTCFhnsQd8oW+LHFuoYu02Gn1kpC78qOqYEkrRESk="
+                "thoughtSignature": "EmAKXgFpFH0TNCXYH6UrgEDBBIeHo5e2MhGm5cIoL47XKLw05Qp5Gqhlk+EVEhuyCw+ID2RFt1z9vZQPwErLhx8iOmo5WtjQ/kQoaKx+cRemcMYWU4EAmHmOkIrO2iHeZ68="
               }
             ],
             "role": "model"
@@ -45,7 +45,7 @@
         "serviceTier": "standard"
       },
       "modelVersion": "gemini-3.5-flash-lite",
-      "responseId": "S9_hatjGHqixsOIP26Sl8QQ"
+      "responseId": "AIbkavuOCcro-8YP5MSI2AM"
     }
   }
 }

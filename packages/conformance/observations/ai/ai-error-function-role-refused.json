@@ -5,8 +5,8 @@
     "ai#fncall-function-role-refused"
   ],
   "description": "The accepted round trip of ai-function-response-round, with the function response under role function instead of user, is refused 400 INVALID_ARGUMENT. @firebase/ai 2.12.0 ChatSession sends role function for function responses, so a real SDK chat with tools fails here. The message names the refused role and lists a longer role vocabulary than ai-error-bad-role.",
-  "observedAt": "2026-10-28T11:41:00.604Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:50.744Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

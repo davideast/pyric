@@ -11,8 +11,8 @@
     "ai#stream-usage-every-chunk"
   ],
   "description": "Raw SSE framing of streamGenerateContent?alt=sse. Every event is `data: <complete GenerateContentResponse JSON>`; separator and which chunks carry finishReason/usageMetadata are the framing contract a mirror must reproduce.",
-  "observedAt": "2026-10-28T02:04:02.197Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:45.934Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -32,6 +32,6 @@
       1,
       2
     ],
-    "rawFrames": "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"1 \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 2,\"totalTokenCount\": 17,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"EVjharreGPK839IPtLWYwQs\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2 3 4 5 6 7 8 9 10\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"EVjharreGPK839IPtLWYwQs\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EmAKXgFpFH0T5xksGIUhlQH8Avz9zHoPIXQH1PadVUDCAoviIgwAM77Mv49oiMDdBZB1HwQtNSyCr3XKAdLJcvBAsziUmPhSsTzCNtDhg4oafDFh/feGNE85KXKUWdwWSYo=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"EVjharreGPK839IPtLWYwQs\"}\r\n\r\n"
+    "rawFrames": "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"1 \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 2,\"totalTokenCount\": 17,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"_IXkat2IHNGsjrEPtsCTGA\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2 3 4 5 6 7 8 9 10\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"_IXkat2IHNGsjrEPtsCTGA\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EmAKXgFpFH0TpuS84mv1iJKJKvFcs16eGRn7Zy4rhPb0GQGXS5kZY7Q8YcnvWylJCobXbd4ngfHPRf/768QURre0zId95pRrIH7/tk+PAwdx636LBBSxM0HqtxXEF+WivmI=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"_IXkat2IHNGsjrEPtsCTGA\"}\r\n\r\n"
   }
 }
