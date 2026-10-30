@@ -9,6 +9,7 @@ export { AiBroker, loadObservationEnvelope, type AiBrokerOptions, type AiEngineS
 export { ScriptedEngine, lastUserText, promptTextOf } from './scripted-engine.js';
 export { GeminiEngine, GEMINI_DEFAULT_BASE_URL, hasGeminiStaticKey, type GeminiEngineOptions } from './gemini-engine.js';
 export { GeminiUpstream, type GeminiUpstreamOptions } from './gemini-upstream.js';
+export { redactUpstreamError, redactUpstreamText } from './upstream-error-redaction.js';
 export {
   OpenAiEngine,
   ToolCallBuffer,
