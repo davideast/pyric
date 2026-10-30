@@ -24,6 +24,7 @@ import type { FirebaseApp } from '../app/types.js';
 import { appCheckActivationOf, appCheckTokenFor } from '../sandbox/internal/app-check-activation.js';
 import { APP_CHECK_PLACEHOLDER_TOKEN, checkAppCheckToken } from '../sandbox/internal/app-check-token.js';
 import type { AppCheckClaim, WireErrorEnvelope } from './broker/types.js';
+import { RequestHeadersFailure } from './errors.js';
 
 /** Production's message for a refused request (capture `app-check-ai-gate-wire`), verbatim. */
 export const APP_CHECK_REQUIRED_MESSAGE =
@@ -86,6 +87,20 @@ function warnOnce(app: FirebaseApp): void {
 }
 
 /**
+ * The token a request carries. A limited-use token request can reject (the
+ * provider failed, with no placeholder to fall back on); upstream `getHeaders`
+ * lets that rejection reach `makeRequest`'s `catch`, which turns it into
+ * `AIError('error', 'Error fetching from <url>: <message>')`.
+ */
+async function tokenForRequest(app: FirebaseApp, limitedUse: boolean): Promise<string | null> {
+  try {
+    return await appCheckTokenFor(app, { limitedUse });
+  } catch (reason) {
+    throw new RequestHeadersFailure(reason);
+  }
+}
+
+/**
  * The attachment for a handle `getAI(app)` builds now. App Check is read once,
  * here: a handle built before `initializeAppCheck` never attaches a token.
  * With `useLimitedUseAppCheckTokens`, each request takes a fresh limited-use
@@ -94,7 +109,7 @@ function warnOnce(app: FirebaseApp): void {
 export function appCheckAttachmentFor(app: FirebaseApp, limitedUse: boolean): AppCheckAttachment {
   const activeAtCreation = appCheckActivationOf(app) !== undefined;
   return {
-    claim: async () => ({ token: activeAtCreation ? await appCheckTokenFor(app, { limitedUse }) : null }),
+    claim: async () => ({ token: activeAtCreation ? await tokenForRequest(app, limitedUse) : null }),
     warnRefused: () => warnOnce(app),
   };
 }

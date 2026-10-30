@@ -107,14 +107,19 @@ async function withoutDebugToken(operation: () => Promise<void>): Promise<void> 
 
 /** A CustomProvider that counts its calls and answers with `answer`. */
 function countingProvider(answer: () => Promise<{ token: string; expireTimeMillis: number }>) {
-  const provider = { calls: 0, instance: null as unknown as appCheck.CustomProvider };
-  provider.instance = new appCheck.CustomProvider({
+  const counter = { calls: 0 };
+  const instance = new appCheck.CustomProvider({
     getToken: async () => {
-      provider.calls += 1;
+      counter.calls += 1;
       return answer();
     },
   });
-  return provider;
+  return {
+    instance,
+    get calls(): number {
+      return counter.calls;
+    },
+  };
 }
 afterEach(async () => {
   await resetAppRegistryForTests();

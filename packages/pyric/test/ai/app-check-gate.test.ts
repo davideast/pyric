@@ -163,6 +163,42 @@ describe('app-check#custom-provider-without-debug-token: AI Logic judges the pro
     expect(counter.calls).toBe(2);
   });
 
+  // Upstream getLimitedUseToken has no placeholder: the rejection reaches
+  // makeRequest's catch, which wraps it as AIError('error', 'Error fetching
+  // from <url>: <message>') (@firebase/ai 2.12.0 getHeaders and makeRequest).
+  it('with limited-use tokens, a provider that rejects fails the request with the SDK fetch wrapper', async () => {
+    const attestation = new Error('attestation failed');
+    const { app, counter } = customApp(async () => {
+      throw attestation;
+    });
+    const model = getGenerativeModel(getAI(app, { useLimitedUseAppCheckTokens: true }), { model: MODEL });
+    const ops: Array<[string, Promise<unknown>]> = [
+      ['generateContent', model.generateContent('ping')],
+      ['streamGenerateContent', model.generateContentStream('ping')],
+      ['countTokens', model.countTokens('ping')],
+    ];
+    for (const [op, request] of ops) {
+      const error = await rejection(request);
+      const url = `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}`;
+      expect(error).toBeInstanceOf(AIError);
+      expect(error.code).toBe('error');
+      expect(error.message).toBe(`AI: Error fetching from ${url}: attestation failed (AI/error)`);
+      expect(error.customErrorData).toBeUndefined();
+      expect(error.stack).toBe(attestation.stack);
+    }
+    expect(counter.calls).toBe(3);
+  });
+
+  it('with limited-use tokens, a provider that rejects with an AbortError passes it through, as makeRequest does', async () => {
+    const abort = new DOMException('stopped', 'AbortError');
+    const { app } = customApp(async () => {
+      throw abort;
+    });
+    const model = getGenerativeModel(getAI(app, { useLimitedUseAppCheckTokens: true }), { model: MODEL });
+    const error: unknown = await rejection(model.generateContent('ping'));
+    expect(error).toBe(abort);
+  });
+
   it('a transport handle carries the provider token as given', async () => {
     // The worker bridge carries this claim to the worker's broker, which gates it.
     const claims: Array<string | null> = [];
