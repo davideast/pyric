@@ -4,7 +4,7 @@
  *
  * A sandbox engine an app selects with `engine: { kind: 'gemini' }`. It runs
  * on Pyric's backend server, authenticating via a local API key
- * (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` / `VITE_GEMINI_API_KEY`) or Google
+ * (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY`) or Google
  * Cloud Application Default Credentials (`gcloud auth application-default login`)
  * without exposing secrets to the browser. In a browser page or SharedWorker
  * its base URL is the dev server's `/__pyric/ai-proxy/gemini` route, and the

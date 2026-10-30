@@ -3,6 +3,7 @@ import type { ConfigEnv, UserConfig } from 'vite';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import {
   loadViteAiEnv,
+  refuseBrowserServedGeminiKey,
   resolveViteAiConfig,
   type PyricAiOptions,
   type ResolvedViteAiConfig,
@@ -72,6 +73,11 @@ export function createVitePageRuntime(input: {
     config(config, env) {
       sandboxBuild = env.command === 'build';
       const loadedEnv = loadViteAiEnv(env.mode, config.root, config.envDir);
+      // Only the dev server serves `import.meta.env` to pages. A build's
+      // output and `vite preview`, which serves it, never held the key. The
+      // same condition as `isDevServer` in `vite-plugin.ts`.
+      const isDevServer = env.command === 'serve' && env.isPreview !== true;
+      if (isDevServer) refuseBrowserServedGeminiKey(loadedEnv);
       resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
       // The Vite dev server is the process `pyric sandbox` guards, and it
       // dials these destinations itself, so its guard must permit them.

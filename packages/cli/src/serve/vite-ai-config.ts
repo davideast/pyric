@@ -50,13 +50,31 @@ export function loadViteAiEnv(
     const isAuthKey =
       key === 'GEMINI_API_KEY' ||
       key === 'GOOGLE_GENAI_API_KEY' ||
-      key === 'VITE_GEMINI_API_KEY' ||
       key === 'PYRIC_API_KEY';
     if (isAuthKey && process.env[key] === undefined) {
       process.env[key] = val;
     }
   }
   return loaded;
+}
+
+/** The Gemini key name Vite would serve to the browser. */
+const BROWSER_SERVED_GEMINI_KEY = 'VITE_GEMINI_API_KEY';
+
+/**
+ * Refuse a dev server whose environment or `.env` holds a Gemini key in
+ * `VITE_GEMINI_API_KEY`. Vite serves every `VITE_`-prefixed variable to the
+ * browser, so the key would reach every page the dev server serves (#1632).
+ * `env` is what `loadViteAiEnv` returned, which includes the shell's
+ * environment. A blank value holds no key and is left alone.
+ */
+export function refuseBrowserServedGeminiKey(env: Record<string, string | undefined>): void {
+  const value = env[BROWSER_SERVED_GEMINI_KEY];
+  const holdsKey = value !== undefined && value.trim() !== '';
+  if (!holdsKey) return;
+  throw new Error(
+    `@pyric/cli/vite: ${BROWSER_SERVED_GEMINI_KEY} is set. Vite serves every variable whose name starts with VITE_ to the browser, so this key would reach every page the dev server serves. Rename it to GEMINI_API_KEY in your environment or .env file. Pyric's dev server reads GEMINI_API_KEY and keeps it on the server.`,
+  );
 }
 
 /** Convert a public declarative engine into the JSON-safe worker wire shape. */
