@@ -6,10 +6,10 @@
     "app-check-admin#verify-token-firebase-token-consume"
   ],
   "description": "Replay protection through verifyToken(token, { consume: true }) on a fresh Admin-minted token: the first call, a second consume, and a plain verify after consumption.",
-  "observedAt": "2026-10-22T03:10:05.272Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:52:08.846Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "firstConsume": {
       "resultKeySet": [

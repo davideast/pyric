@@ -7,10 +7,10 @@
     "app-check-admin#verify-token-firebase-token-production-ai-mode"
   ],
   "description": "verifyToken without options, for an Admin-minted token and for a token from the debug-token exchange: result key set, decoded claim names, and app id agreement.",
-  "observedAt": "2026-10-22T03:09:04.633Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:51:08.026Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "adminMinted": {
       "resultKeySet": [

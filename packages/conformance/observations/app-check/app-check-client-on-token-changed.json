@@ -6,9 +6,9 @@
     "app-check#on-token-changed-refresh"
   ],
   "description": "Debug mode only (registered debug token): onTokenChanged with a listener function and with an observer object, registered before the first getToken. Counts are read 300 ms after each step: after the first get, after a second get, after a forced refresh, after two getLimitedUseToken calls, and after unsubscribing and forcing again; argument key sets; which token each call carried; and a listener registered after a token exists (synchronously and within 500 ms).",
-  "observedAt": "2026-10-22T03:10:11.719Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T11:52:21.642Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "unsubscribeType": "function",
     "listenerCallsAfterFirstGet": 0,

@@ -5,10 +5,10 @@
     "app-check-admin#create-token-shape"
   ],
   "description": "firebase-admin createToken(appId) with no options: the result key set, the default ttlMillis, and the App Check JWT shape (header fields, claim names, iss and aud with the project number redacted, sub against the app id, exp minus iat). Token values are never stored.",
-  "observedAt": "2026-10-22T03:09:03.900Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:51:06.988Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "resultKeySet": [
       "token",
@@ -39,7 +39,7 @@
       "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
       "audShape": [
         "projects/<projectNumber>",
-        "projects/genkit-idx"
+        "projects/digame-mas"
       ],
       "subEqualsAppId": true,
       "ttlSeconds": 3600,

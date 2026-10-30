@@ -5,10 +5,10 @@
     "app-check-admin#create-token-unknown-app"
   ],
   "description": "createToken for a syntactically valid web app id that the project does not own (the real app id with its hash replaced by zeros).",
-  "observedAt": "2026-10-22T03:09:04.340Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:51:07.624Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
     "code": "app-check/unknown-error",
