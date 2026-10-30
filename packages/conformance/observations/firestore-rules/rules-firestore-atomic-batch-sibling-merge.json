@@ -5,15 +5,15 @@
     "firestore-rules#190"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"atomic-batch-sibling-merge\" (Item 7 (Batch Sibling Merge)). Proves getAfter() evaluates against deep-merged sibling state during multi-document atomic updates.",
-  "observedAt": "2026-07-24T20:38:49.115Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "agentive-de",
+  "observedAt": "2026-10-30T09:17:38.504Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
     "value": "72821aa8ab3c0cb8bfedd3c46587cdb6f82f38682e17215e909bc46a7deb7fdc"
   },
   "behavior": {
-    "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": "ALLOW"
+    "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": "DENY"
   },
   "diagnostics": {
     "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": {
