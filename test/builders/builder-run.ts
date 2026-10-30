@@ -31,6 +31,7 @@ import { builderRunDirsAt, builderRunRoot, channelRecordFile, measurementsFile, 
 import { BUILDER_LOG, phaseResultSchema, type Phase, type PhaseResult } from './run-phase.ts';
 import { measurementLine, runRecord, type RunIdentity, type RunRecord } from './run-record.ts';
 import { parseJsonText } from './parse.ts';
+import { assertNoPlantedLinks } from './planted-links.ts';
 import { createRunDirs, demoProjectId, writeFakeFirebaseConfig } from './scratch.ts';
 import { copyRedacted, filesContaining, redactedText } from './token-scan.ts';
 import { usageFrom } from './usage.ts';
@@ -103,7 +104,8 @@ export function phaseEnvironment(home: string, env: NodeJS.ProcessEnv = process.
   return phase;
 }
 
-async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs): Promise<void> {
+/** Runs the phase; resolves its output, which the caller writes once the sandbox has stopped. */
+async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs): Promise<string> {
   const invocation = input.builder.invocation({
     briefText: dirs.briefText,
     briefJson: dirs.briefJson,
@@ -117,8 +119,8 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
   writeFileSync(dirs.phase, `${JSON.stringify(phase, null, 2)}\n`);
   const { command, args } = namespace.enter(process.execPath, [RUN_PHASE, dirs.root], REPO_ROOT);
   const result = await runTimedCommand(command, args, { cwd: REPO_ROOT, env: phaseEnvironment(dirs.home), timeoutMs: wallClockMs + PHASE_MARGIN_MS });
-  writeFileSync(join(dirs.logs, '02-run-phase.log'), result.output);
   input.say(`run phase exited ${result.code}${result.timedOut ? ' (stopped at its limit)' : ''}`);
+  return result.output;
 }
 
 /** How the phase said its command ended; null when it never wrote that, or wrote something else. */
@@ -158,13 +160,26 @@ async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, to
   if (tar.code !== 0) throw new Error(`packing the app failed (exit ${tar.code}):\n${tar.output}`);
 }
 
-/** Appends the forwarder's lines to the run's network record, once nothing in the sandbox can write it. */
-function mergeChannelRecord(networkLog: string, channel: readonly ModelChannelEvent[]): void {
-  if (channel.length > 0) appendFileSync(networkLog, channel.map((event) => `${JSON.stringify(event)}\n`).join(''));
+export const RUN_PHASE_LOG = '02-run-phase.log';
+
+/** Every file of the run root the harness reads or appends to once the sandbox has stopped. */
+export const harnessTouchedPaths = (dirs: BuilderRunDirs) => [
+  dirs.networkLog, dirs.netLog, dirs.report, dirs.phaseResult, join(dirs.logs, BUILDER_LOG), join(dirs.logs, RUN_PHASE_LOG),
+];
+
+/**
+ * Once nothing in the sandbox can write the run root: refuses a planted link
+ * on any file the harness touches, then appends the forwarder's lines and the
+ * browser's NetLog to the run's network record.
+ */
+export function mergeRecords(dirs: BuilderRunDirs, channel: readonly ModelChannelEvent[]): void {
+  assertNoPlantedLinks(dirs.root, harnessTouchedPaths(dirs));
+  if (channel.length > 0) appendFileSync(dirs.networkLog, channel.map((event) => `${JSON.stringify(event)}\n`).join(''));
+  if (existsSync(dirs.netLog)) appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
 }
 
 /** Runs the builder in a sandbox that has started, with the forwarder outside it; stops both. */
-async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<void> {
+async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<string> {
   let forwarder: Listening | undefined;
   try {
     writeFileSync(dirs.started, `${new Date().toISOString()}\n`);
@@ -174,7 +189,7 @@ async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, 
     forwarder = await startModelForwarder({ socketPath: dirs.modelSocket, record: channelRecord, credential, meter: input.meter });
     await installApp(namespace, dirs, input.identity.run, input.say);
     await exportConformanceDocs(namespace, dirs);
-    await runPhase(namespace, input, dirs);
+    return await runPhase(namespace, input, dirs);
   } finally {
     await forwarder?.close();
     await namespace.stop();
@@ -201,10 +216,10 @@ export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
   input.say(`${identity.run}: starting its sandbox in ${dirs.root}`);
   const readOnly = [playwrightBrowsersPath(), input.packagesDir, ...input.builder.readOnly];
   const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
-  await runInSandbox(namespace, input, dirs, channelRecord);
+  const phaseOutput = await runInSandbox(namespace, input, dirs, channelRecord);
   const channel = readChannelRecord(channelRecord);
-  mergeChannelRecord(dirs.networkLog, channel);
-  if (existsSync(dirs.netLog)) appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
+  mergeRecords(dirs, channel);
+  writeFileSync(join(dirs.logs, RUN_PHASE_LOG), phaseOutput);
   const token = harnessToken();
   const found = tokenFoundIn(dirs, token);
   if (found.length > 0) input.say(tokenNotice(identity.run, found));

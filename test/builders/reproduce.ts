@@ -30,6 +30,7 @@ import { judgeTry, reproResult, type ReproResult, type TryEvidence, type TryJudg
 import { checkReproduce, type CheckedRepro } from './reproduce-check.ts';
 import type { ReproduceOptions } from './reproduce-options.ts';
 import { builderRunDirsAt, reproDataDir, reproTryRoot, type BuilderRunDirs } from './round-paths.ts';
+import { assertNoPlantedLinks } from './planted-links.ts';
 import { googleEventsIn, googleHostProblems } from './run-record.ts';
 import type { Phase, PhaseResult } from './run-phase.ts';
 import { copyRedacted } from './token-scan.ts';
@@ -88,12 +89,19 @@ async function runInSandbox(namespace: EgressNamespace, context: ReproContext, d
 
 export const REPRO_PHASE_LOG = '02-repro-phase.log';
 
+/** Every file of a try's root the harness reads or appends to once its sandbox has stopped. */
+export const tryTouchedPaths = (dirs: BuilderRunDirs) => [
+  dirs.networkLog, dirs.netLog, dirs.phaseResult, join(dirs.logs, REPRO_LOG), join(dirs.logs, REPRO_PHASE_LOG),
+];
+
 /**
  * What a try left, read once its sandbox has stopped: how the script ended,
  * its output, and every Google host or metadata address in the network
- * record, the browser's NetLog appended first.
+ * record, the browser's NetLog appended first. Throws `PlantedLink` before it
+ * touches anything when a file it would touch is a link.
  */
 export function tryEvidence(dirs: BuilderRunDirs, phaseOutput: string): TryEvidence {
+  assertNoPlantedLinks(dirs.root, tryTouchedPaths(dirs));
   writeFileSync(join(dirs.logs, REPRO_PHASE_LOG), phaseOutput);
   if (existsSync(dirs.netLog)) appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
   const problems = googleHostProblems(googleEventsIn(readNetworkRecord(dirs.networkLog)));
