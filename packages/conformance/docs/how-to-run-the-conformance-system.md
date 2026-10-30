@@ -806,8 +806,8 @@ Rigs: 9
 Runnable now (2): admin-app, app-registry
 Blocked (7):
   - ai-logic: missing env: PYRIC_AI_FIREBASE_CONFIG
-  - messaging-send: missing env: PYRIC_MESSAGING_SA_BASE64
-  - messaging-web: missing env: PYRIC_MESSAGING_FIREBASE_CONFIG, PYRIC_MESSAGING_VAPID_KEY, PYRIC_MESSAGING_SA_BASE64
+  - messaging-send: missing env: PYRIC_MESSAGING_PROJECT_ID, PYRIC_ORACLE_PROJECT_ID, PYRIC_MESSAGING_SA_BASE64
+  - messaging-web: missing env: PYRIC_MESSAGING_FIREBASE_CONFIG, PYRIC_MESSAGING_VAPID_KEY, PYRIC_MESSAGING_PROJECT_ID, PYRIC_ORACLE_PROJECT_ID, PYRIC_MESSAGING_SA_BASE64
   - oracle-run: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH, PYRIC_ORACLE_PROJECT_ID
   - rtdb-rules: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH, PYRIC_ORACLE_PROJECT_ID
   - rules-firestore: missing env: GOOGLE_APPLICATION_CREDENTIALS
@@ -841,13 +841,13 @@ These two are pure in-process probes of installed library code. That is why
 | `rules-firestore` | 28 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | A Rules Test API credential: see [Rules Test API credentials](#rules-test-api-credentials). CI's identity holds ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
 | `rules-storage` | 8 `rules-storage-` observations, via the same `projects.test` endpoint | The same credential and minimal scope. |
 | `ai-logic` | 14 `ai-` observations: error, SSE-framing, envelope, function-call, and countTokens facts from the production Firebase AI Logic proxy | `PYRIC_AI_FIREBASE_CONFIG`. The project needs Firebase AI Logic enabled, with the Gemini Developer API backend reachable through the `firebasevertexai.googleapis.com` proxy. |
-| `messaging-send` | 10 `messaging-send-` observations: what the production FCM v1 `messages:send` endpoint accepts, and its exact error envelopes | `PYRIC_MESSAGING_SA_BASE64`. The project needs Cloud Messaging (FCM v1) enabled. |
+| `messaging-send` | 10 `messaging-send-` observations: what the production FCM v1 `messages:send` endpoint accepts, and its exact error envelopes | The messaging credential: `PYRIC_ORACLE_PROJECT_ID` (or `PYRIC_MESSAGING_PROJECT_ID`) with the oracle Application Default Credentials login, or `PYRIC_MESSAGING_SA_BASE64` (a base64 key). See [Messaging on the oracle project](oracle-project-setup.md#messaging-on-the-oracle-project). The project needs Cloud Messaging (FCM v1) enabled. |
 
 **Human-witnessed.** Cannot run on a CI worker, by nature.
 
 | Rig | Captures | Why a human is required |
 |---|---|---|
-| `messaging-web` | 7 `messaging-web-` observations: token minting, `onMessage`, `onBackgroundMessage`, visibility routing, and `deleteToken` against live push | `PYRIC_MESSAGING_FIREBASE_CONFIG` plus `PYRIC_MESSAGING_VAPID_KEY` plus `PYRIC_MESSAGING_SA_BASE64`, AND a HEADED Chromium with a persistent profile. Incognito disables web push, so a persistent profile is mandatory; the harness re-execs under `caffeinate` on macOS. It cannot run headless. |
+| `messaging-web` | 7 `messaging-web-` observations: token minting, `onMessage`, `onBackgroundMessage`, visibility routing, and `deleteToken` against live push | `PYRIC_MESSAGING_FIREBASE_CONFIG` plus `PYRIC_MESSAGING_VAPID_KEY` plus the messaging credential (as `messaging-send`), AND a HEADED Chromium with a persistent profile. Incognito disables web push, so a persistent profile is mandatory; the harness re-execs under `caffeinate` on macOS. It cannot run headless. |
 
 There is no emulator anywhere in this fleet, and there never will be. Every
 observation is captured against real production, because an emulator's behavior
