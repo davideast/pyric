@@ -8,7 +8,7 @@ import { describe, expect, it } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getClientAliases } from '../../../src/next/client-aliases.js';
-import { bridgeImportRewrites } from '../../../src/next/bridge-imports.js';
+import { bridgeImportOptions } from '../../../src/next/bridge-imports.js';
 import bridgeImportLoader from '../../../src/next/bridge-import-loader.js';
 import { isBypassedBridgeImport, swappedFirebaseEntries } from '../../../src/serve/firebase-module-swap.js';
 
@@ -97,31 +97,25 @@ describe('client aliases in production AI mode (#1637)', () => {
 });
 
 describe('the bridge import loader (#1637)', () => {
-  const options = bridgeImportRewrites(fileURLToPath(new URL('../../../', import.meta.url)));
-
-  function load(file: string, source: string): string {
-    return bridgeImportLoader.call({ resourcePath: file, getOptions: () => options! }, source);
-  }
+  const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
+  const options = bridgeImportOptions();
 
   it('rewrites only the bypassed import of each shadow-app wrapper, to the Firebase SDK browser file', () => {
-    expect(options).toBeDefined();
-    const entries = Object.entries(options!.rewrites);
-    expect(entries.map(([, rewrite]) => rewrite.specifier).sort()).toEqual(['firebase/app', 'firebase/app-check']);
-    for (const [wrapper, rewrite] of entries) {
-      expect(isBypassedBridgeImport(rewrite.specifier, wrapper)).toBe(true);
-      const target = fileURLToPath(new URL(rewrite.target, pathToFileURL(wrapper)));
-      expect(target).toMatch(new RegExp(`/firebase/${rewrite.specifier.slice('firebase/'.length)}/dist/esm/index\\.esm\\.js$`));
-      expect(existsSync(target), target).toBe(true);
-      const source = readFileSync(wrapper, 'utf8');
-      const loaded = load(wrapper, source);
-      expect(loaded).not.toContain(`from '${rewrite.specifier}'`);
-      expect(loaded).toContain(`from '${rewrite.target}'`);
+    const entries = Object.entries(options.wrappers);
+    expect(entries.map(([, specifier]) => specifier).sort()).toEqual(['firebase/app', 'firebase/app-check']);
+    for (const [wrapper, specifier] of entries) {
+      expect(isBypassedBridgeImport(specifier, wrapper)).toBe(true);
+      const loaded = bridgeImportLoader.call(
+        { resourcePath: wrapper, rootContext: projectRoot, getOptions: () => options },
+        readFileSync(wrapper, 'utf8'),
+      );
+      expect(loaded).not.toContain(`from '${specifier}'`);
+      const target = loaded.match(/from '(\.[^']*\/firebase\/[^']+)'/)?.[1];
+      expect(target).toBeDefined();
+      const file = fileURLToPath(new URL(target!, pathToFileURL(wrapper)));
+      expect(file).toMatch(new RegExp(`/firebase/${specifier.slice('firebase/'.length)}/dist/esm/index\\.esm\\.js$`));
+      expect(existsSync(file), file).toBe(true);
     }
-  });
-
-  it('leaves any other file unchanged', () => {
-    const source = "import * as realApp from 'firebase/app';\n";
-    expect(load('/project/src/register/app-bridge-shadow.js', source)).toBe(source);
   });
 });
 

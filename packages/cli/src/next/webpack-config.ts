@@ -3,12 +3,10 @@
  */
 import type { NextConfigObject } from './types.js';
 import { getClientAliases, getNodeBuiltinFallbacks } from './client-aliases.js';
-import { BRIDGE_IMPORT_LOADER, productionBridgeRewrites, type BridgeImportRewrites } from './bridge-imports.js';
+import { BRIDGE_IMPORT_LOADER, productionBridgeOptions, type BridgeImportOptions } from './bridge-imports.js';
 
 interface WebpackOptions {
   isServer: boolean;
-  /** Next's project directory. */
-  dir?: string;
   [key: string]: unknown;
 }
 
@@ -42,13 +40,12 @@ function assembleClientResolveSection(existingResolve: Record<string, any> | und
  */
 function assembleClientModuleSection(
   existingModule: { rules?: unknown[]; [key: string]: unknown } | undefined,
-  projectDir: string,
-): { rules?: unknown[]; [key: string]: unknown } | undefined {
-  const options = productionBridgeRewrites(projectDir);
+):{ rules?: unknown[]; [key: string]: unknown } | undefined {
+  const options = productionBridgeOptions();
   if (options === undefined) return existingModule;
   const moduleSection = Object.assign({}, existingModule);
   const rules = Array.isArray(moduleSection.rules) ? [...moduleSection.rules] : [];
-  const rule: WebpackBridgeRule = { test: Object.keys(options.rewrites), use: [{ loader: BRIDGE_IMPORT_LOADER, options }] };
+  const rule: WebpackBridgeRule = { test: Object.keys(options.wrappers), use: [{ loader: BRIDGE_IMPORT_LOADER, options }] };
   rules.push(rule);
   moduleSection.rules = rules;
   return moduleSection;
@@ -57,7 +54,7 @@ function assembleClientModuleSection(
 /** The webpack rule that runs the bridge import loader on the wrappers. */
 export interface WebpackBridgeRule {
   test: string[];
-  use: Array<{ loader: string; options: BridgeImportRewrites }>;
+  use: Array<{ loader: string; options: BridgeImportOptions }>;
 }
 
 /** The module that installs React's commit hook; it must evaluate before React. */
@@ -113,7 +110,7 @@ function assembleClientOutputSection(existingOutput: Record<string, any> | undef
  * Firebase module aliases and modern async runtime compatibility settings when
  * bundling for browser execution.
  */
-export function augmentWebpackConfig(config: NextConfigObject, projectDir: string = process.cwd()): NextConfigObject {
+export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject {
   const updatedConfig: NextConfigObject = Object.assign({}, config);
   const originalWebpack = updatedConfig.webpack;
 
@@ -126,7 +123,7 @@ export function augmentWebpackConfig(config: NextConfigObject, projectDir: strin
       return resolvedConfig;
     }
     resolvedConfig.resolve = assembleClientResolveSection(resolvedConfig.resolve);
-    resolvedConfig.module = assembleClientModuleSection(resolvedConfig.module, webpackOptions.dir ?? projectDir);
+    resolvedConfig.module = assembleClientModuleSection(resolvedConfig.module);
     resolvedConfig.experiments = assembleClientExperimentsSection(resolvedConfig.experiments);
     resolvedConfig.output = assembleClientOutputSection(resolvedConfig.output);
     resolvedConfig.entry = assembleClientEntry(resolvedConfig.entry);

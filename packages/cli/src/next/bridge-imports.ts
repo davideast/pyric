@@ -8,6 +8,11 @@
  * relative paths to the Firebase SDK's browser files in the project's own
  * `firebase` install. Nothing else of the SDK loads: the same three modules
  * Vite lets through.
+ *
+ * The bundler config names only the wrappers. The loader finds `firebase`
+ * when it runs, from the project root the bundler gives it, so a Next config
+ * that calls `withPyric` from a shared package still resolves the app's own
+ * install.
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -20,15 +25,17 @@ const BRIDGE_MODULES: ReadonlyArray<readonly [name: string, specifier: string]> 
   ['app-bridge-app-check', 'firebase/app-check'],
 ];
 
-/** The loader's options: each wrapper's absolute path to the import it rewrites and the relative specifier it writes. */
-export interface BridgeImportRewrites {
-  rewrites: Record<string, { specifier: string; target: string }>;
+/** The loader's options: each wrapper's absolute path to the specifier whose import it rewrites. */
+export interface BridgeImportOptions {
+  wrappers: Record<string, string>;
 }
 
-/** Thrown when the project's `firebase` has no browser entry for a module the wrappers import. */
+/** Thrown when production AI mode cannot point a wrapper's import at the project's Firebase SDK. */
 export class PyricNextBridgeError extends Error {
   override readonly name = 'PyricNextBridgeError';
 }
+
+const UNSUPPORTED_RESOLUTION = 'Pyric looks for node_modules/firebase from the project directory up; Yarn Plug\'n\'Play and NODE_PATH installs are not supported.';
 
 /** This package's built loader, next to this module. */
 export const BRIDGE_IMPORT_LOADER = fileURLToPath(new URL(`./bridge-import-loader${moduleExtension()}`, import.meta.url));
@@ -38,12 +45,15 @@ function moduleExtension(): string {
 }
 
 /** The project's `firebase` package directory, found as Node finds a package from the project directory. */
-function firebasePackageDir(projectDir: string): string | undefined {
+function firebasePackageDir(projectDir: string): string {
   for (let dir = projectDir; ; dir = dirname(dir)) {
     const candidate = join(dir, 'node_modules', 'firebase');
     if (existsSync(join(candidate, 'package.json'))) return realpathSync(candidate);
-    if (dirname(dir) === dir) return undefined;
+    if (dirname(dir) === dir) break;
   }
+  throw new PyricNextBridgeError(
+    `pyric: production AI mode needs the Firebase SDK, but no node_modules/firebase was found from ${projectDir} up. ${UNSUPPORTED_RESOLUTION}`,
+  );
 }
 
 /** The browser ESM file `firebase/<subpath>` resolves to under a bundler's browser conditions. */
@@ -61,38 +71,35 @@ function browserFile(packageDir: string, specifier: string): string {
   return join(packageDir, file);
 }
 
-function relativeSpecifier(fromFile: string, toFile: string): string {
-  const path = relative(dirname(fromFile), toFile).split(sep).join('/');
+/**
+ * The relative specifier a wrapper imports `specifier` by: the browser file
+ * of the `firebase` that `projectDir` resolves. Throws
+ * {@link PyricNextBridgeError} when there is none.
+ */
+export function bridgeImportTarget(wrapper: string, specifier: string, projectDir: string): string {
+  const target = browserFile(firebasePackageDir(projectDir), specifier);
+  const path = relative(dirname(wrapper), target).split(sep).join('/');
   return path.startsWith('.') ? path : `./${path}`;
 }
 
 /**
- * The rewrites for the wrappers of this install, pointed at the `firebase`
- * that Next's project directory resolves, or undefined when it resolves
- * none. Only imports {@link isBypassedBridgeImport} names are rewritten, so
- * this plane bypasses exactly what the others do.
+ * The wrappers of this install. Only imports {@link isBypassedBridgeImport}
+ * names are listed, so this plane bypasses exactly what the others do.
  */
-export function bridgeImportRewrites(projectDir: string): BridgeImportRewrites | undefined {
-  const packageDir = firebasePackageDir(projectDir);
-  if (packageDir === undefined) return undefined;
+export function bridgeImportOptions(): BridgeImportOptions {
   const registerDir = fileURLToPath(new URL('../register/', import.meta.url));
-  const rewrites: BridgeImportRewrites['rewrites'] = {};
+  const wrappers: Record<string, string> = {};
   for (const [name, specifier] of BRIDGE_MODULES) {
     const wrapper = realpathSync(join(registerDir, `${name}${moduleExtension()}`));
-    if (!isBypassedBridgeImport(specifier, wrapper)) continue;
-    rewrites[wrapper] = { specifier, target: relativeSpecifier(wrapper, browserFile(packageDir, specifier)) };
+    if (isBypassedBridgeImport(specifier, wrapper)) wrappers[wrapper] = specifier;
   }
-  return { rewrites };
+  return { wrappers };
 }
 
-/**
- * The rewrites both bundler configs read: present only in production AI
- * mode, as the environment names it, and only when the project resolves a
- * `firebase` install.
- */
-export function productionBridgeRewrites(projectDir: string): BridgeImportRewrites | undefined {
+/** The options both bundler configs read: present only in production AI mode, as the environment names it. */
+export function productionBridgeOptions(): BridgeImportOptions | undefined {
   const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
-  return isProductionAiMode ? bridgeImportRewrites(projectDir) : undefined;
+  return isProductionAiMode ? bridgeImportOptions() : undefined;
 }
 
 /** The file names of the wrappers, for bundler rules keyed by name. */
