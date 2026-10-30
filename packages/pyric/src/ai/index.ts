@@ -139,9 +139,6 @@ export type {
 } from './types.js';
 
 export {
-  ImagenAspectRatio,
-  ImagenPersonFilterLevel,
-  ImagenSafetyFilterLevel,
   InferenceMode,
   InferenceSource,
   LiveResponseType,

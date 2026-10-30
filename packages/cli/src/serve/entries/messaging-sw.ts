@@ -94,3 +94,5 @@ export function experimentalSetDeliveryMetricsExportedToBigQueryEnabled(
 }
 
 export const isSupported = inPage.isSupported;
+
+export { onRegistered, onUnregistered } from './unsupported/messaging.js';

@@ -32,6 +32,20 @@ on-device model support, and behavior fixes, but did not change the reviewed V1
 REST-plane boundary. In particular, `usageMetadata.serviceTier` remained absent
 from both versions' declarations despite appearing on the wire.
 
+## Changes in firebase 12.19.0
+
+`firebase@12.19.0` bundles `@firebase/ai@2.16.0`. Compared with the reviewed
+2.12.0, it removes the Imagen family (`getImagenModel`, `ImagenModel`,
+`ImagenImageFormat`, `getTemplateImagenModel`, `TemplateImagenModel` and the
+`Imagen*` types), so the two Imagen dispositions are gone from
+`surfaces/ai.json` and the Imagen names are gone from the type census. It adds
+`AgentPlatformBackend`, deferred in `surfaces/ai.json` (#1674), and the type-only
+names `BaseSpeechConfig`, `SingleSpeakerSpeechConfig`,
+`MultiSpeakerSpeechConfig`, `SpeakerVoiceConfig`, `MultiSpeakerVoiceConfig`
+(Live API speech configuration) and `LanguageModelDownloadMonitor` (on-device
+inference), which the type census holds with the Live API and hybrid-inference
+exclusions below (#1604).
+
 ## Boundary and type-only exclusions
 
 The admitted V1 plane was the REST-backed `getAI` / `getGenerativeModel` family:
