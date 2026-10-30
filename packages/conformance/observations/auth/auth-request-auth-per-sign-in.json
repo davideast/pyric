@@ -5,8 +5,8 @@
     "auth#68c"
   ],
   "description": "What production RTDB rules see as auth for each sign-in kind (signed out, anonymous, email and password unverified, verified with a profile and phone number, custom token for a new uid with developer claims of each JSON type, custom token for an existing email account, custom claims set after sign-in then a forced refresh, a forced refresh seconds after sign-in, reload after Admin changes, the token after updateProfile, custom-token claims over stored claims and a later password sign-in, reload and password reauthentication of a custom-token session, and email link), with the decoded claim shapes and IdTokenResult formats; plus the Admin SDK answers for user management, custom tokens, custom-claims limits and verifyIdToken. Each RTDB probe is an equality or absence check built from the session's own decoded token, deployed on a dedicated instance and read with the live token. Values that identify the test accounts are replaced by placeholders; numbers are recorded as <int> or <float>. Every account is removed through the Admin SDK at the end and the removal proven; the instance rules are restored and read back.",
-  "observedAt": "2026-10-28T02:02:41.919Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T14:42:05.662Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "signedOut": {
@@ -460,7 +460,7 @@
           "token"
         ],
         "expMinusIat": 3600,
-        "authTimeBeforeIat": false
+        "authTimeBeforeIat": true
       },
       "rtdb": {
         "auth is not null": "ALLOW",
