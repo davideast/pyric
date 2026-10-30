@@ -1,6 +1,7 @@
 import { repeatStable, scenarioPath, stable } from './probe-runtime.ts';
 import type { RtdbClimbContext, RtdbClimbProbe } from './probe-types.ts';
 import { RULES_DEPLOY_REFUSAL_CASES as CASES } from './rules-deploy-refusals.cases.ts';
+import { fetchWithRateLimitRetry } from '../../rtdb-rules-rate-limit.ts';
 
 /** Drop the `line:column:` prefix: the column counts from the start of the whole rules document. */
 function refusalMessage(body: string): string {
@@ -26,15 +27,15 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
       const run = path.split('/')[1]!;
       const rulesUrl = `${ctx.config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(ctx.rtdbAdminToken)}`;
       const readRules = async (): Promise<Record<string, unknown>> => {
-        const response = await fetch(rulesUrl);
+        const response = await fetchWithRateLimitRetry(rulesUrl, undefined, 'rules deploy refusal rules read');
         if (!response.ok) throw new Error(`rules deploy refusal read failed: ${response.status}`);
         return response.json() as Promise<Record<string, unknown>>;
       };
-      const putRules = (body: Record<string, unknown>) => fetch(`${rulesUrl}&print=silent`, {
+      const putRules = (body: Record<string, unknown>) => fetchWithRateLimitRetry(`${rulesUrl}&print=silent`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      });
+      }, 'rules deploy refusal rules write');
       const before = await readRules();
       const rootRules = before.rules && typeof before.rules === 'object'
         ? before.rules as Record<string, unknown>
