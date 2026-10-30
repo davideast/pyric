@@ -162,9 +162,13 @@ interface RunRootFindings {
 
 const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
 
-/** `read()`, or `fallback` when `path` is skipped or unreadable, or the read throws, which skips it. */
+/** `read()`, or `fallback` when `path` is skipped, or is unreadable or its read throws, either of which skips it. */
 function readOr<T>(skipped: SkippedFiles, path: string, fallback: T, read: () => T): T {
-  if (skipped.has(path) || !canRead(path)) return fallback;
+  if (skipped.has(path)) return fallback;
+  if (!canRead(path)) {
+    skipped.set(path, `${path} is unreadable`);
+    return fallback;
+  }
   try {
     return read();
   } catch (error) {
@@ -173,8 +177,8 @@ function readOr<T>(skipped: SkippedFiles, path: string, fallback: T, read: () =>
   }
 }
 
-function unreadReport(dirs: BuilderRunDirs, planted: Skipped, skipped: SkippedFiles): ReadReport {
-  const why = planted.has(dirs.report) ? 'is a planted link' : skipped.has(dirs.report) ? 'could not be read' : 'is unreadable';
+function unreadReport(dirs: BuilderRunDirs, planted: Skipped): ReadReport {
+  const why = planted.has(dirs.report) ? 'is a planted link' : 'could not be read';
   return { state: 'invalid', report: null, errors: [`${relative(dirs.root, dirs.report)} ${why}; the harness did not read it`] };
 }
 
@@ -188,7 +192,7 @@ function readRunFiles(dirs: BuilderRunDirs, planted: Skipped, findings: RunRootF
   const report = readOr<ReadReport | null>(skipped, dirs.report, null, () => readBuilderReport(dirs.report));
   return {
     exit: readOr(skipped, dirs.phaseResult, null, () => readPhaseResult(dirs)),
-    report: report ?? unreadReport(dirs, planted, skipped),
+    report: report ?? unreadReport(dirs, planted),
     record: network.events,
     usage: readOr(skipped, builderLog, null, () => usageFrom(readIfExists(builderLog))),
   };
