@@ -96,6 +96,14 @@ export function injectFirestoreProbeRules(source: string, runId: string): string
           == get(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_get_after/companion).data.count + 1;
       allow create, update: if request.auth != null && caseId == 'companion';
     }
+    match /__pyric_firestore_cdd/${runId}/rules_atomic_batch/{caseId} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null && caseId == 'config_state';
+      allow create: if request.auth != null
+        && caseId in ['audit_log', 'audit_log_solo']
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_atomic_batch/config_state).data.role == 'admin'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_atomic_batch/config_state).data.modified == true;
+    }
 `;
   return `${source.slice(0, insertAt)}${block}${source.slice(insertAt)}`;
 }

@@ -68,6 +68,13 @@ const RULES_GET_AFTER_OBSERVATION_PATH = join(
   'firestore-rules',
   'rules-firestore-get-after-and-exists-after.json',
 );
+const RULES_ATOMIC_BATCH_OBSERVATION_PATH = join(
+  HERE,
+  '..',
+  'observations',
+  'firestore-rules',
+  'rules-firestore-atomic-batch-sibling-merge.json',
+);
 const COLLECTION_GROUP_OBSERVATION_PATH = join(
   HERE,
   '..',
@@ -361,9 +368,12 @@ async function captureBrowserLifecycle(
   );
   const adminDb = getAdminFirestore(admin);
   const rulesBase = `__pyric_firestore_cdd/${runId}/rules_get_after`;
+  const atomicBase = `__pyric_firestore_cdd/${runId}/rules_atomic_batch`;
   await Promise.all([
     adminDb.doc(`${rulesBase}/exists_delete`).set({ x: 'seeded' }),
     adminDb.doc(`${rulesBase}/companion`).set({ count: 0 }),
+    // The pre-existing field the batch does not touch, which getAfter must still see.
+    adminDb.doc(`${atomicBase}/config_state`).set({ role: 'admin', modified: false }),
   ]);
   const token = await getAdminAuth(admin).createCustomToken(`pyric-browser-${runId}`);
 const browserSource = String.raw`
@@ -471,6 +481,17 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
     const soloPrimary = await verdict(() =>
       setDoc(doc(after.db, rulesAfterBase + '/primary'), { solo: true })
     );
+
+    console.log('[lifecycle] atomic batch sibling merge');
+    const atomicBase = '__pyric_firestore_cdd/' + runId + '/rules_atomic_batch';
+    // Control first: without the sibling update, getAfter sees modified false.
+    const atomicSoloCreate = await verdict(() =>
+      setDoc(doc(after.db, atomicBase + '/audit_log_solo'), { action: 'update_config' })
+    );
+    const atomicBatch = writeBatch(after.db);
+    atomicBatch.update(doc(after.db, atomicBase + '/config_state'), { modified: true });
+    atomicBatch.set(doc(after.db, atomicBase + '/audit_log'), { action: 'update_config' });
+    const atomicBatchCreate = await verdict(() => atomicBatch.commit());
 
     console.log('[lifecycle] persistence precondition');
     const precondition = await make('precondition');
@@ -611,6 +632,10 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
       },
       rulesGetAfterCrossDocumentBatch: crossDocumentBatch,
       rulesGetAfterSoloPrimary: soloPrimary,
+      rulesAtomicBatchBehavior: {
+        'getAfter reflects merged pre-existing fields alongside batch updates ALLOW': atomicBatchCreate,
+      },
+      rulesAtomicBatchSoloCreate: atomicSoloCreate,
       readAfterTerminateThrew: readAfterTerminate.threw,
       readAfterTerminateCode: readAfterTerminate.code,
       authAfterTerminateThrew: authAfterTerminate.threw,
@@ -691,6 +716,9 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
       'target_allow', 'exists_create', 'exists_delete', 'exists_unrelated',
       'wrong_exists_create', 'primary', 'companion',
     ].map((id) => adminDb.doc(`${rulesBase}/${id}`).delete()));
+    await Promise.allSettled([
+      'config_state', 'audit_log', 'audit_log_solo',
+    ].map((id) => adminDb.doc(`${atomicBase}/${id}`).delete()));
     await deleteAdminApp(admin);
   }
 }
@@ -848,6 +876,39 @@ async function run(): Promise<void> {
       `${JSON.stringify(rulesObservation, null, 2)}\n`,
     );
     console.log(`[firestore:real] captured ${RULES_GET_AFTER_OBSERVATION_PATH}`);
+    const previousAtomicObservation = JSON.parse(
+      readFileSync(RULES_ATOMIC_BATCH_OBSERVATION_PATH, 'utf8'),
+    ) as Record<string, unknown> & { diagnostics?: unknown };
+    const atomicObservation = {
+      ...previousAtomicObservation,
+      description: 'An authenticated Web SDK batch against temporarily deployed production rules updates one field of a document and creates a sibling whose create rule reads that document through getAfter(); the merged state must carry both the pre-existing field and the batch update. A create without the batch update is the control. The hosted Rules Test API limitation is retained separately in diagnostics.',
+      observedAt: new Date().toISOString(),
+      fbSdkVersion,
+      projectId: sa.project_id,
+      lifecycle: {
+        originalRulesetName: snapshot.release.rulesetName,
+        probeRulesetName,
+        restoredOriginalRelease: restoreVerified,
+      },
+      deployedRulesDigest: {
+        algorithm: 'sha256',
+        value: createHash('sha256').update(content).digest('hex'),
+      },
+      behavior: browserBehavior.rulesAtomicBatchBehavior,
+      diagnostics: {
+        productionDatabase: {
+          soloCreateWithoutBatchUpdate: browserBehavior.rulesAtomicBatchSoloCreate,
+        },
+        hostedTestApiLimitation: hostedTestApiDiagnostics(
+          previousAtomicObservation.diagnostics,
+        ),
+      },
+    };
+    writeFileSync(
+      RULES_ATOMIC_BATCH_OBSERVATION_PATH,
+      `${JSON.stringify(atomicObservation, null, 2)}\n`,
+    );
+    console.log(`[firestore:real] captured ${RULES_ATOMIC_BATCH_OBSERVATION_PATH}`);
   } finally {
     releaseLock();
   }

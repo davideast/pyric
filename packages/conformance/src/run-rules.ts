@@ -108,10 +108,20 @@ export function isRealDatabaseObservation(path: string): boolean {
   return REAL_DATABASE_DIAGNOSTICS.some((key) => key in diagnostics);
 }
 
+/** Scenarios `run-firestore-real.ts` captures although their committed
+ *  observation still holds a Test API capture: the Rules Test API reports
+ *  "Function not found: getAfter" for them, so only a real database can
+ *  answer, and this rig must not overwrite the file meanwhile. */
+export const REAL_DATABASE_SCENARIO_IDS: ReadonlySet<string> = new Set(['atomic-batch-sibling-merge']);
+
+export function isOwnedByRealDatabaseRig(scenario: Scenario): boolean {
+  return REAL_DATABASE_SCENARIO_IDS.has(scenario.id)
+    || isRealDatabaseObservation(observationPath(scenario));
+}
+
 export function partitionByOwner(
   scenarios: Scenario[],
-  ownedElsewhere: (scenario: Scenario) => boolean =
-    (scenario) => isRealDatabaseObservation(observationPath(scenario)),
+  ownedElsewhere: (scenario: Scenario) => boolean = isOwnedByRealDatabaseRig,
 ): { capture: Scenario[]; owned: Scenario[] } {
   const owned = scenarios.filter(ownedElsewhere);
   const capture = scenarios.filter((scenario) => !owned.includes(scenario));

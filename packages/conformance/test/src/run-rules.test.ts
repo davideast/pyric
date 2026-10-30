@@ -137,4 +137,14 @@ describe('run-rules leaves real-database observations to run-firestore-real.ts',
       'get-after-and-exists-after: owned by run-firestore-real.ts, not captured here',
     );
   });
+
+  it('skips the atomic batch scenario before its real-database capture lands', () => {
+    const { capture, owned } = partitionByOwner(
+      selectFirestoreScenarios(['--scenario', 'atomic-batch-sibling-merge']),
+    );
+    expect(capture).toEqual([]);
+    expect(owned.map(ownedSkipLine)).toEqual([
+      'atomic-batch-sibling-merge: owned by run-firestore-real.ts, not captured here',
+    ]);
+  });
 });

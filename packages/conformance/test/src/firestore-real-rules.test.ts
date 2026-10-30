@@ -28,6 +28,10 @@ describe('Firestore real-probe rules lifecycle', () => {
     expect(next).toContain('match /__pyric_firestore_cdd/run-123/rules_get_after/{caseId}');
     expect(next).toContain('getAfter(request.path).data.x == request.resource.data.x');
     expect(next).toContain('existsAfter(request.path)');
+    expect(next).toContain('match /__pyric_firestore_cdd/run-123/rules_atomic_batch/{caseId}');
+    expect(next).toContain(
+      "getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/run-123/rules_atomic_batch/config_state).data.modified == true",
+    );
     expect(next).toContain('allow read, write: if request.auth != null;');
     expect(next).toContain("rules_version = '2';");
   });

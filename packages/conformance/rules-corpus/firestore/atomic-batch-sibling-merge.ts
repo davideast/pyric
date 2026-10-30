@@ -1,3 +1,11 @@
+/**
+ * ─── atomic-batch-sibling-merge ──────────────────────────────────────────────
+ * Targets Item 7: getAfter() during a multi-document batch. The hosted Rules
+ * Test API cannot evaluate getAfter() (it reports "Function not found:
+ * getAfter"), so run-rules.ts leaves this scenario to run-firestore-real.ts,
+ * which captures the verdict through temporarily deployed rules and an
+ * authenticated Web SDK batch against the real database.
+ */
 import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
