@@ -29,7 +29,11 @@ requests.
 
 A scripted builder with no model. In order, it:
 
-1. Runs the unit tests (`bun test ./test/builders`).
+1. Checks the checkout: its own `node_modules` (the sandbox binds only the
+   repo, so a worktree linking another checkout's has none inside), and
+   without `--build` or `--packages`, a `dist/` in each package
+   `scripts/pack-packages.sh` packs. A missing one exits 2 with what to run.
+   Then runs the unit tests (`bun test ./test/builders`).
 2. Takes a heavy-run slot (`scripts/lib/heavy-run-slots.ts`), so it never
    runs beside a full app run or a full suite.
 3. Starts the run's sandbox (below) and checks it from inside. Where it
@@ -72,7 +76,9 @@ A scripted builder with no model. In order, it:
    share a host. It also checks that a local request from each side worked
    and is not flagged, that the Node layer allowed no Google host, that no
    browser TCP socket left loopback, and that the resolver and the catch-all
-   listener saw only the unhooked plants. It exits 1 if any check fails.
+   listener saw only the unhooked plants. Each side must report exactly the
+   plants `canary/plant-names.ts` names, so an empty or shortened report
+   can't pass. It exits 1 if any check fails.
 
 Before planting anything, each side checks its own refusal path. The Node
 plants stop unless the recorder loaded in their process. The browser plants
@@ -105,12 +111,13 @@ nsenter -t <child pid> -U -m -n -p -i -u -C --preserve-credentials --root env -C
 **The layout.** The sandbox sees only what the harness binds in:
 
 - read-only: `/usr` (with the `/bin`, `/lib`, `/lib64` and `/sbin` links), a
-  short list of `/etc` entries (the loader cache, certificates, fonts,
-  `passwd`, `group`, `nsswitch.conf` and similar: `ETC_ENTRIES`), the repo,
+  short list of `/etc` entries (the loader cache, `ssl/certs` and
+  `ssl/openssl.cnf` but not the root-only `ssl/private`, fonts, `passwd`,
+  `group`, `nsswitch.conf` and similar: `ETC_ENTRIES`), the repo,
   the `node` and `bun` installs, and Playwright's browsers;
 - read-write: the run directory only;
-- the npm cache read-only, with an overlay mounted on it from inside whose
-  upper layer is in the sandbox's `/tmp`. npm writes local tarballs into its
+- the npm cache read-only, with an overlay mounted on it from inside, before
+  any run command enters, whose upper layer is in the sandbox's `/tmp`. npm writes local tarballs into its
   cache even offline; the overlay keeps those writes in the sandbox, and the
   shared cache never changes;
 - fresh: `/dev`, `/proc` (its own pid namespace), `/tmp` and `/run`, both
@@ -130,15 +137,27 @@ each TCP connection with the address the client dialed and resets it before
 reading a byte. A connection by address needs no lookup, so the catch-all
 listener is what records it.
 
-**Privileges.** Processes run as root of the sandbox's own user namespace,
-as they did under `unshare -r`. bwrap maps that root to the harness's own
-uid, and it gives the holder only `CAP_NET_ADMIN` and
-`CAP_NET_BIND_SERVICE`. Containment comes from the file system layout and
-the network namespace, not from dropping privileges: nothing of the host
-outside the layout is mounted, and the only interface is loopback.
+**Privileges.** Processes run as uid 0 of the sandbox's own user namespace,
+which bwrap maps to the harness's own uid, but with no capabilities. Only the
+setup is privileged: the holder gets `CAP_NET_ADMIN` and
+`CAP_NET_BIND_SERVICE` to add the routes and bind ports 53, 80 and 443, and
+one entered command mounts the npm cache's overlay. Every other command
+enters through `setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all
+--securebits=+noroot,+noroot_locked`. Without that, a command nsenter starts
+in the sandbox's user namespace has every capability there, enough to
+remount a read-only bind of a host directory (the repo, the npm cache's
+lower layer, the node and bun installs, Playwright's browsers) read-write,
+and since those files belong to the harness's uid, which is uid 0 inside,
+writes would reach the host. With an empty bounding set and `noroot`
+locked, no command, and nothing it execs, can regain a capability, so it
+can't remount, mount or change the routes. What holds the containment: the
+file system layout (nothing of the host outside it is mounted, and every
+host bind but the run directory is read-only and stays so) and the network
+namespace (loopback only).
 
 **Entering.** A command enters through the child pid bwrap reports on
-`--info-fd`, with an explicit list of namespaces (user, mount, network, pid,
+`--info-fd`, drops its capabilities as above, with an explicit list of
+namespaces (user, mount, network, pid,
 IPC, UTS, cgroup). `nsenter -a` would also name the time namespace, which the
 sandbox shares with the host, and nsenter can't enter that. The command's
 directory is set inside the sandbox with `env -C <dir>`, not with nsenter's
@@ -147,15 +166,25 @@ leaves the command's working directory on a host mount outside the
 sandbox's root.
 
 **The check.** Before any other work the harness checks from inside that
-loopback is the only interface, then runs `sandbox-inventory.ts`, which
-confirms that:
+loopback is the only interface, then runs `sandbox-inventory.ts` as an
+entered command, which confirms that:
 
-- `os.networkInterfaces()` lists only `lo`;
+- `ip -o link` and `os.networkInterfaces()` list only `lo` (Node leaves out
+  an interface with no address; `ip` does not);
 - `/etc/resolv.conf` names only 127.0.0.1;
 - `/mnt`, `/run/WSL` and `/run/user` don't exist;
+- its own `CapEff` and `CapBnd` are 0;
+- every mount in `/proc/self/mountinfo` outside the run's own directories is
+  `ro`, unless it is a fresh in-memory file system (tmpfs, proc, devpts,
+  mqueue, or an overlay whose upper layer is in `/tmp`) or one of the device
+  nodes bwrap's `--dev` binds (`/dev/null` and the like);
 - no socket file exists anywhere under `/` outside the run's own
-  directories (the run directory, the sandbox's `/tmp` and `TMPDIR`). The
-  walk skips `/proc` and `/sys` and follows no symlinks.
+  directories (the run directory, the sandbox's `/tmp`, and `TMPDIR` only
+  when it is inside that `/tmp`). The walk skips `/proc` and `/sys` and
+  follows no symlinks. A directory it can't list is a problem, since it
+  could hold a socket the walk didn't see, unless it is on the short
+  `UNLISTABLE` list, each entry with its reason (today only the WSL
+  kernel-modules image's `lost+found`).
 
 The inventory only looks; it never tries to reach anything. The plant phase
 runs it again before planting. Without `bwrap`, `nsenter` or `ip`, or when
