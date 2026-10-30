@@ -198,6 +198,7 @@ function fakeEndpoint(opts: {
   dryRunDeploys?: boolean;
   failStatus?: number;
   failTimes?: number;
+  timeoutTimes?: number;
 }): RulesDeployEndpoint & { sent: Record<string, unknown>[] } {
   let live: Record<string, unknown> = structuredClone(BEFORE_RULES);
   const sent: Record<string, unknown>[] = [];
@@ -205,6 +206,9 @@ function fakeEndpoint(opts: {
     sent,
     async dryRun(rules) {
       sent.push(rules);
+      if (opts.timeoutTimes !== undefined && sent.length <= opts.timeoutTimes) {
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      }
       const failsThisCall = opts.failStatus && (opts.failTimes === undefined || sent.length <= opts.failTimes);
       if (failsThisCall) return { status: opts.failStatus!, body: 'internal' };
       const error = opts.reject?.(rules);
@@ -272,6 +276,27 @@ describe('run-rules-rtdb deploy scenarios', () => {
       'valid ruleset': { verdict: 'ACCEPTED' },
     });
     expect(endpoint.sent).toHaveLength(3);
+  });
+
+  it('repeats a dry run whose request timed out', async () => {
+    const endpoint = fakeEndpoint({ timeoutTimes: 1 });
+    const behavior = await captureDeployScenario(endpoint, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: deployScenario(),
+    });
+    expect(Object.keys(behavior)).toHaveLength(2);
+    expect(endpoint.sent).toHaveLength(3);
+  });
+
+  it('throws the timeout when every attempt timed out', async () => {
+    const endpoint = fakeEndpoint({ timeoutTimes: DRY_RUN_ATTEMPTS });
+    await expect(captureDeployScenario(endpoint, {
+      beforeRules: BEFORE_RULES,
+      mountKey: MOUNT_KEY,
+      scenario: deployScenario(),
+    })).rejects.toThrow(/timed out/);
+    expect(endpoint.sent).toHaveLength(DRY_RUN_ATTEMPTS);
   });
 
   it('gives up after DRY_RUN_ATTEMPTS server errors in a row', async () => {

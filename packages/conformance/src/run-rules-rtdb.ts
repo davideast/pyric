@@ -403,21 +403,42 @@ function deployErrorText(body: string): string {
 }
 
 /** Attempts per dry run. Production answers a large ruleset with an
- *  occasional 500 that a repeat of the same body does not. */
+ *  occasional 500 or a timeout that a repeat of the same body does not. */
 export const DRY_RUN_ATTEMPTS = 3;
 
-/** Dry-runs `rules`, repeating only on a 5xx. A dry run never changes the
- *  live rules, so a repeat sends the same body with no side effect. */
+type DryRunResult = Awaited<ReturnType<RulesDeployEndpoint['dryRun']>>;
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
+/** One dry run, with a request timeout reported as a status-less result. */
+async function dryRunOnce(
+  endpoint: RulesDeployEndpoint,
+  rules: Record<string, unknown>,
+): Promise<DryRunResult | { timedOut: Error }> {
+  try {
+    return await endpoint.dryRun(rules);
+  } catch (error) {
+    if (isTimeout(error)) return { timedOut: error as Error };
+    throw error;
+  }
+}
+
+/** Dry-runs `rules`, repeating only on a 5xx or a request timeout. A dry run
+ *  never changes the live rules, so a repeat sends the same body with no side
+ *  effect. The last timeout is thrown when every attempt timed out. */
 async function dryRunWithServerErrorRetry(
   endpoint: RulesDeployEndpoint,
   rules: Record<string, unknown>,
-): Promise<Awaited<ReturnType<RulesDeployEndpoint['dryRun']>>> {
-  let res = await endpoint.dryRun(rules);
+): Promise<DryRunResult> {
+  let res = await dryRunOnce(endpoint, rules);
   for (let attempt = 1; attempt < DRY_RUN_ATTEMPTS; attempt += 1) {
-    const isServerError = res.status >= 500;
-    if (!isServerError) return res;
-    res = await endpoint.dryRun(rules);
+    const isRetryable = 'timedOut' in res || res.status >= 500;
+    if (!isRetryable) return res;
+    res = await dryRunOnce(endpoint, rules);
   }
+  if ('timedOut' in res) throw res.timedOut;
   return res;
 }
 
