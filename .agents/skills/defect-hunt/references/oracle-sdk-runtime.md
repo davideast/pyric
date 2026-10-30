@@ -37,16 +37,16 @@ failure.
 
 ```sh
 # one probe (or every probe whose name contains the substring)
-PYRIC_ORACLE_SA_PATH=<service-account.json> \
+PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
   bun run packages/conformance/src/run.ts rtdb-modular-listener-cancellation
 ```
 
 - Always pass a probe name. Arguments are name substrings; with none, every
   probe runs and every observation file it owns is rewritten.
-- There is no inert preview. With neither credential set it falls back to
-  `ignored/service-account.json` in the checkout and throws if that is absent.
-  Keep the service account outside the checkout and pass its path by env.
-- Use `PYRIC_ORACLE_SA_PATH`, not `PYRIC_ORACLE_FIREBASE_CONFIG`, for RTDB
+- There is no inert preview. With neither credential set it uses Application
+  Default Credentials and throws without `PYRIC_ORACLE_PROJECT_ID`. A key file
+  (`PYRIC_ORACLE_SA_PATH`), when one is used, stays outside the checkout.
+- Use the oracle credential, not `PYRIC_ORACLE_FIREBASE_CONFIG`, for RTDB
   work, and leave the config unset. The climb and disconnect probes are only
   added to the list when a service account mints the database admin token.
   When the config is set, it wins even if the service account is set too
@@ -64,17 +64,17 @@ PYRIC_ORACLE_SA_PATH=<service-account.json> \
   `*.probe.ts` file in that directory is picked up by name, with no list to
   edit.
 - `bun run packages/conformance/src/capture/rtdb-disconnect/preflight.ts` (with
-  `PYRIC_ORACLE_SA_PATH`) checks access before an onDisconnect capture: rules
+  the oracle credential) checks access before an onDisconnect capture: rules
   backup, an anonymous write, read and remove, and a rules restore read back.
 
 ## `run-firestore-real.ts`: Firestore with probe rules deployed
 
 ```sh
-PYRIC_ORACLE_SA_PATH=<service-account.json> \
+PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
   bun run packages/conformance/src/run-firestore-real.ts --collection-group-listener
 ```
 
-- Inert without `PYRIC_ORACLE_SA_PATH`.
+- Inert without `PYRIC_ORACLE_SA_PATH` or `PYRIC_ORACLE_PROJECT_ID`.
 - It snapshots the Firestore release, deploys a probe ruleset, runs the
   probes, and restores the release in a `finally` path. With no flag it
   captures transaction contention and the Chromium lifecycle (which also
@@ -88,7 +88,7 @@ PYRIC_ORACLE_SA_PATH=<service-account.json> \
   wait: it fails fast with "another ... probe is already running (pid N)".
 
 `run-firestore-write-request-resource.ts` follows the same pattern: inert
-without `PYRIC_ORACLE_SA_PATH`, a temporary probe ruleset, the prior release
+without `PYRIC_ORACLE_SA_PATH` or `PYRIC_ORACLE_PROJECT_ID`, a temporary probe ruleset, the prior release
 restored in a `finally` path.
 
 ## After the capture
@@ -109,7 +109,7 @@ restored in a `finally` path.
 ## `run-sdk-scenarios.ts`: one scenario, two referees
 
 ```sh
-PYRIC_ORACLE_SA_PATH=<service-account.json> PYRIC_ORACLE_FIREBASE_CONFIG='<web config json>' \
+PYRIC_ORACLE_PROJECT_ID=<oracle project id> PYRIC_ORACLE_FIREBASE_CONFIG='<web config json>' \
 PYRIC_ORACLE_RTDB_URL=https://<dedicated-instance>.firebaseio.com \
   bun run packages/conformance/src/run-sdk-scenarios.ts <observation-name>
 ```
