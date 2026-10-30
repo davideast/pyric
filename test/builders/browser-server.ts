@@ -23,6 +23,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { appendBrowserIncomplete } from './recorder/network-record.ts';
 
 /** Every host maps to "not found" except loopback. */
 export const HOST_RESOLVER_RULES = 'MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1';
@@ -42,6 +43,8 @@ export function playwrightBrowsersPath(env: NodeJS.ProcessEnv = process.env): st
 
 export interface BrowserServerOptions {
   netLogPath: string;
+  /** The run's network record: a server killed at stop leaves an `incomplete` marker there. */
+  networkLog: string;
   /** The run's scratch HOME. Chromium gets it, and nothing else of the harness's environment besides PATH and the locale. */
   home: string;
   /** Where the server's own output goes. */
@@ -94,6 +97,35 @@ function exitOf(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => child.once('exit', () => resolve()));
 }
 
+export interface ChildStop {
+  /** The run's network record, where a kill leaves its `incomplete` marker. */
+  networkLog: string;
+  timeoutMs: number;
+  log: (line: string) => void;
+}
+
+/**
+ * Closes the server's stdin and waits for it to exit. One that outlasts
+ * `timeoutMs` is killed, and the network record gets an `incomplete` marker,
+ * since the NetLog may then end before the browser's last events. Resolves
+ * whether it had to kill.
+ */
+export async function stopBrowserChild(child: ChildProcess, stop: ChildStop): Promise<{ killed: boolean }> {
+  const exited = exitOf(child);
+  child.stdin?.end();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), stop.timeoutMs); });
+  const stopped = await Promise.race([exited.then(() => true), timedOut]);
+  clearTimeout(timer);
+  if (stopped) return { killed: false };
+  child.kill('SIGKILL');
+  await exited;
+  const reason = `the browser server did not stop within ${stop.timeoutMs / 1000}s and was killed; its NetLog may be cut short`;
+  appendBrowserIncomplete(stop.networkLog, reason);
+  stop.log(`[browser server] ${reason}`);
+  return { killed: true };
+}
+
 /** Starts the harness browser in a Node child and returns its endpoint. Runs under Bun or Node. */
 export async function startBrowserServer(options: BrowserServerOptions): Promise<BrowserServer> {
   const log = options.log ?? ((line: string) => console.log(line));
@@ -102,17 +134,10 @@ export async function startBrowserServer(options: BrowserServerOptions): Promise
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const wsEndpoint = await endpointFrom(child, log);
-  const exited = exitOf(child);
   return {
     wsEndpoint,
     async stop() {
-      child.stdin?.end();
-      const stopped = await Promise.race([exited.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), STOP_TIMEOUT_MS))]);
-      if (!stopped) {
-        child.kill('SIGKILL');
-        await exited;
-        log('[browser server] did not stop in time and was killed; its NetLog may be cut short');
-      }
+      await stopBrowserChild(child, { networkLog: options.networkLog, timeoutMs: STOP_TIMEOUT_MS, log });
     },
   };
 }

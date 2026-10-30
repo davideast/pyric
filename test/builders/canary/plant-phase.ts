@@ -119,7 +119,7 @@ async function main(root: string): Promise<void> {
   let browser: BrowserServer | undefined;
   try {
     step('starting the harness browser');
-    browser = await startBrowserServer({ netLogPath: dirs.netLog, home: dirs.home });
+    browser = await startBrowserServer({ netLogPath: dirs.netLog, networkLog: dirs.networkLog, home: dirs.home });
     const output = await plant(app, recorded, browser);
     writeFileSync(join(dirs.root, PLANTS_FILE), `${JSON.stringify(output, null, 2)}\n`);
   } finally {
