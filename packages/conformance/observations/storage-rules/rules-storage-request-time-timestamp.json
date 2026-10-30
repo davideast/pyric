@@ -4,8 +4,8 @@
   "rowIds": [
     "storage-rules#112"
   ],
-  "description": "Storage Rules Test API verdicts for corpus pack \"request-time-timestamp\" (STORAGE-TIME). request.time compared against timestamp.date(y,m,d) and timestamp.value(ms) — the time surface #96/#104 wrongly call unsupported.",
-  "observedAt": "2026-07-11T03:09:46.020Z",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"request-time-timestamp\" (STORAGE-TIME). request.time compared against timestamp.date(y,m,d) and timestamp.value(ms) — the time surface #96/#104 wrongly call unsupported.",
+  "observedAt": "2026-10-30T19:22:02.875Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -17,5 +17,67 @@
     "timestamp.date(): after deadline denied": "DENY",
     "timestamp.value(): after epoch bound allowed": "ALLOW",
     "timestamp.value(): before epoch bound denied": "DENY"
+  },
+  "diagnostics": {
+    "timestamp.date(): before deadline allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 126,
+              "endOffset": 132
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "timestamp.date(): after deadline denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 126,
+              "endOffset": 132
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "timestamp.value(): after epoch bound allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 226,
+              "endOffset": 232
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "timestamp.value(): before epoch bound denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 226,
+              "endOffset": 232
+            },
+            "value": false
+          }
+        ]
+      }
+    }
   }
 }
