@@ -7,16 +7,18 @@
  * same-jti tokens through verifyToken. It registers no debug token and makes
  * no AI Logic request. No token, key, or app id value is printed or written.
  *
- * Inert without PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG: it prints
- * what it would capture and exits 0 before any network call.
+ * Inert without PYRIC_AI_FIREBASE_CONFIG and an oracle credential
+ * (PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default
+ * Credentials): it prints what it would capture and exits 0 before any network
+ * call.
  *
- * Run: PYRIC_ORACLE_SA_PATH=<sa.json> PYRIC_AI_FIREBASE_CONFIG='<web config json>' \
+ * Run: PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_AI_FIREBASE_CONFIG='<web config json>' \
  *   bun run packages/conformance/src/app-check-admin-option-probes.ts
  */
 import { randomBytes } from 'node:crypto';
-import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
+import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
-import { resolveServiceAccount } from './storage-stdlib-real-api.ts';
+import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
 import { ADMIN_OPTION_PLAN, runAdminOptionProbes } from './capture/app-check/admin-option-probes.ts';
 import type { Secrets } from './capture/app-check/redact.ts';
 
@@ -26,18 +28,17 @@ interface WebConfig {
   projectId: string;
 }
 
-const saPath = process.env.PYRIC_ORACLE_SA_PATH;
 const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG;
-const credentialsMissing = !saPath || !rawConfig;
+const credentialsMissing = !oracleCredentialConfigured(process.env) || !rawConfig;
 
 if (credentialsMissing) {
-  console.log('PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG are not both set; no network call was made.');
+  console.log('PYRIC_AI_FIREBASE_CONFIG and an oracle credential (PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID) are not both set; no network call was made.');
   console.log('With both set, this runner captures:');
   for (const entry of ADMIN_OPTION_PLAN) console.log(`  ${entry.name}: ${entry.captures}`);
   process.exit(0);
 }
 
-const sa = resolveServiceAccount(saPath);
+const sa = loadOracleServiceAccount();
 const web = JSON.parse(rawConfig) as WebConfig;
 if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 
@@ -46,7 +47,7 @@ const runJti = `pyric-app-check-options-${runId}`;
 const projectNumber = web.appId.split(':')[1] ?? '';
 const secrets: Secrets = { appId: web.appId, apiKey: web.apiKey, projectNumber, values: [runJti] };
 const context = { projectId: web.projectId, secrets };
-const adminApp = initializeApp({ credential: cert(sa as Parameters<typeof cert>[0]), projectId: web.projectId }, `app-check-options-${runId}`);
+const adminApp = initializeApp({ credential: sa.credential, projectId: web.projectId }, `app-check-options-${runId}`);
 const failures: string[] = [];
 
 try {

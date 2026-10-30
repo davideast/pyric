@@ -16,9 +16,9 @@ const context = {
     databaseURL: 'https://test-project.invalid',
   },
   serviceAccount: {
-    client_email: 'test@example.invalid',
-    private_key: 'not-a-key',
+    kind: 'application-default',
     project_id: 'test-project',
+    credential: { getAccessToken: async () => ({ access_token: 'test-token', expires_in: 3600 }) },
   },
   rtdbAdminToken: 'test-token',
   runId: 'test-run',

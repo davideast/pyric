@@ -1,12 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { cert } from 'firebase-admin/app';
+import type { OracleServiceAccount } from './oracle-credential.ts';
 
-export interface ServiceAccount {
-  project_id: string;
-  client_email: string;
-  private_key: string;
-}
+/** The oracle credential: a key file, or Application Default Credentials. See oracle-credential.ts. */
+export type ServiceAccount = OracleServiceAccount;
 
 export interface WebConfig {
   apiKey: string;
@@ -23,16 +19,11 @@ export function resolveCredentialPath(path: string, cwd = process.cwd()): string
   return resolve(cwd, path);
 }
 
-export function resolveServiceAccount(path: string): ServiceAccount {
-  return JSON.parse(readFileSync(resolveCredentialPath(path), 'utf8')) as ServiceAccount;
-}
-
 export async function accessHeaders(sa: ServiceAccount): Promise<{
   auth: Record<string, string>;
   json: Record<string, string>;
 }> {
-  const credential = cert(sa as Parameters<typeof cert>[0]);
-  const access = await credential.getAccessToken();
+  const access = await sa.credential.getAccessToken();
   const auth = { Authorization: `Bearer ${access.access_token}` };
   return { auth, json: { ...auth, 'Content-Type': 'application/json' } };
 }

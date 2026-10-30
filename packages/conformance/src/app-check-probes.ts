@@ -15,7 +15,8 @@
  * registered per run and deleted in a finally block; tokens left by an
  * interrupted run are swept before registering.
  *
- * Requires PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG (same project).
+ * Requires PYRIC_AI_FIREBASE_CONFIG and an oracle credential (PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials),
+ * both for the same project.
  * Run: bun --env-file=<repo>/.env packages/conformance/src/app-check-probes.ts
  *
  * `--only=<name>,<name>` runs just those standalone browser probes
@@ -25,9 +26,10 @@
  * when it is on; a selection that names none sends no generateContent request.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
-import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
+import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
-import { accessHeaders, resolveServiceAccount } from './storage-stdlib-real-api.ts';
+import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
+import { accessHeaders } from './storage-stdlib-real-api.ts';
 import { registerDebugToken, deleteDebugToken, listRunTokens, sweepRunTokens } from './capture/app-check/debug-tokens.ts';
 import { runAdminProbes } from './capture/app-check/admin-probes.ts';
 import { runBrowserProbes, STANDALONE_BROWSER_PROBES } from './capture/app-check/browser-probes.ts';
@@ -57,12 +59,13 @@ function selectedProbes(): string[] | undefined {
 
 const only = selectedProbes();
 
-if (!process.env.PYRIC_ORACLE_SA_PATH || !process.env.PYRIC_AI_FIREBASE_CONFIG) {
-  console.error('PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG are required; nothing was run.');
+const webConfigJson = process.env.PYRIC_AI_FIREBASE_CONFIG;
+if (!oracleCredentialConfigured(process.env) || !webConfigJson) {
+  console.error('PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID are required; nothing was run.');
   process.exit(1);
 }
-const sa = resolveServiceAccount(process.env.PYRIC_ORACLE_SA_PATH);
-const web = JSON.parse(process.env.PYRIC_AI_FIREBASE_CONFIG) as WebConfig;
+const sa = loadOracleServiceAccount();
+const web = JSON.parse(webConfigJson) as WebConfig;
 if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 
 const projectNumber = web.appId.split(':')[1] ?? '';
@@ -85,7 +88,7 @@ const swept = await sweepRunTokens(headers, web.projectId, web.appId);
 if (swept > 0) console.log(`swept ${swept} debug token(s) left by an earlier run`);
 const debugToken = await registerDebugToken(headers, web.projectId, web.appId, runId);
 secrets.values.push(debugToken.value);
-const adminApp = initializeApp({ credential: cert(sa as Parameters<typeof cert>[0]), projectId: web.projectId }, `app-check-probe-${runId}`);
+const adminApp = initializeApp({ credential: sa.credential, projectId: web.projectId }, `app-check-probe-${runId}`);
 
 try {
   await runProbes({

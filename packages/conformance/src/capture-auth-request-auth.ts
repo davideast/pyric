@@ -25,20 +25,24 @@
  * written only when all three hold.
  *
  * Inert without PYRIC_ORACLE_FIREBASE_CONFIG (a Web SDK config with
- * `databaseURL`) and PYRIC_ORACLE_SA_PATH (a service account outside the
- * checkout):
+ * `databaseURL`) and an oracle credential: PYRIC_ORACLE_SA_PATH (a service
+ * account key outside the checkout), or PYRIC_ORACLE_PROJECT_ID with
+ * Application Default Credentials. Under ADC, `createCustomToken` signs
+ * through IAM Credentials `signBlob`:
  *
  *   PYRIC_ORACLE_FIREBASE_CONFIG="$(cat <web-config.json>)" \
- *     PYRIC_ORACLE_SA_PATH=<service-account.json> \
+ *     PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
  *     bun run packages/conformance/src/capture-auth-request-auth.ts
  *
  * PYRIC_AUTH_CAPTURE_UIDS names a file outside the checkout where each created
  * uid is appended as it is created, so a crashed run can still be cleaned up.
  */
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { createSign, randomBytes } from 'node:crypto';
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RTDB_RULES_SCOPE } from './oracle-access-token.ts';
+import { loadOracleServiceAccount, oracleAccessToken, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import { leaves, probesFor, redactor, type Claims, type Probe, type Verdict } from './auth-request-auth-probes.ts';
 
@@ -46,16 +50,15 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, '../observations/auth/auth-request-auth-per-sign-in.json');
 
 interface WebConfig { apiKey: string; authDomain?: string; projectId: string; databaseURL?: string }
-interface ServiceAccount { client_email: string; private_key: string; project_id: string; token_uri?: string }
 
-if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG || !process.env.PYRIC_ORACLE_SA_PATH) {
-  console.log('[oracle:auth-request-auth] inert: set PYRIC_ORACLE_FIREBASE_CONFIG (with databaseURL) and PYRIC_ORACLE_SA_PATH to capture.');
+if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG || !oracleCredentialConfigured(process.env)) {
+  console.log('[oracle:auth-request-auth] inert: set PYRIC_ORACLE_FIREBASE_CONFIG (with databaseURL) and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID to capture.');
   console.log(`[oracle:auth-request-auth] would write ${OUT}`);
   process.exit(0);
 }
 
 const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG) as WebConfig;
-const sa = JSON.parse(readFileSync(process.env.PYRIC_ORACLE_SA_PATH, 'utf8')) as ServiceAccount;
+const sa = loadOracleServiceAccount();
 if (!config.databaseURL) throw new Error('the web config has no databaseURL');
 if (config.projectId !== sa.project_id) throw new Error('the web config and the service account name different projects');
 const DB_URL = config.databaseURL.replace(/\/+$/, '');
@@ -69,29 +72,13 @@ const PHONE = `+1555${String(1_000_000 + Math.floor(Math.random() * 8_999_999)).
 const PHOTO = 'https://example.com/pyric-hunt-auth.png';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function mintAccessToken(scope: string): Promise<string> {
-  const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const unsigned = `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc({ iss: sa.client_email, scope, aud: tokenUri, iat: now, exp: now + 3600 })}`;
-  const signer = createSign('RSA-SHA256');
-  signer.update(unsigned);
-  const res = await fetch(tokenUri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${unsigned}.${signer.sign(sa.private_key).toString('base64url')}` }),
-  });
-  if (!res.ok) throw new Error(`token exchange failed: ${res.status}`);
-  return ((await res.json()) as { access_token: string }).access_token;
-}
-
 const { initializeApp, deleteApp } = await import('firebase/app');
 const fbAuth = await import('firebase/auth');
 const fbDb = await import('firebase/database');
 const adminAppMod = await import('firebase-admin/app');
 const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
 
-const adminApp = adminAppMod.initializeApp({ credential: adminAppMod.cert(sa as never), projectId: sa.project_id }, `hunt-auth-admin-${RUN}`);
+const adminApp = adminAppMod.initializeApp(oracleAppOptions(sa), `hunt-auth-admin-${RUN}`);
 const admin = getAdminAuth(adminApp);
 const created = new Set<string>();
 function record(uid: string) {
@@ -189,7 +176,7 @@ async function outcome(run: () => Promise<unknown> | unknown): Promise<Record<st
 let rulesRestored = false;
 let runKeyAbsent = false;
 let usersDeleted = false;
-const rtdbToken = await mintAccessToken('https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email');
+const rtdbToken = await oracleAccessToken(sa, RTDB_RULES_SCOPE);
 const rulesUrl = `${DB_URL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbToken)}`;
 const beforeRulesText = await (async () => {
   const res = await fetch(rulesUrl);

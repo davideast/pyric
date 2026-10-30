@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { cert, deleteApp, initializeApp, type ServiceAccount } from 'firebase-admin/app';
+import { deleteApp, initializeApp } from 'firebase-admin/app';
 import {
   FieldPath,
   getFirestore,
@@ -7,6 +6,7 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
 import type { Probe } from '../../rigs/types.ts';
+import { loadOracleServiceAccount, oracleAppOptions } from '../../src/oracle-credential.ts';
 
 type SnapshotWithGet = Pick<DocumentSnapshot, 'get'> | Pick<QueryDocumentSnapshot, 'get'>;
 
@@ -71,13 +71,8 @@ export const probe: Probe = {
   matrixRow: '',
   rowIds: [],
   async observe() {
-    const serviceAccountPath = process.env.PYRIC_ORACLE_SA_PATH;
-    if (!serviceAccountPath) {
-      throw new Error('PYRIC_ORACLE_SA_PATH is required for the admin Firestore oracle probe');
-    }
-    const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8')) as ServiceAccount;
     const app = initializeApp(
-      { credential: cert(serviceAccount) },
+      oracleAppOptions(loadOracleServiceAccount()),
       `admin-firestore-get-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     const db = getFirestore(app);

@@ -3,7 +3,7 @@
  * Captures SDK behavior scenarios (`src/capture/sdk-scenarios/`) against the
  * production oracle and writes each result as an observation.
  *
- *   PYRIC_ORACLE_SA_PATH=<sa.json> PYRIC_ORACLE_FIREBASE_CONFIG='<web config json>' \
+ *   PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_ORACLE_FIREBASE_CONFIG='<web config json>' \
  *   PYRIC_ORACLE_RTDB_URL=https://<dedicated-instance>.firebaseio.com \
  *     bun run packages/conformance/src/run-sdk-scenarios.ts <observation-name>...
  *
@@ -24,27 +24,36 @@ import { deleteApp, initializeApp, type FirebaseApp, type FirebaseOptions } from
 import { deleteUser, getAuth, signInAnonymously } from 'firebase/auth';
 import * as firestoreSdk from 'firebase/firestore';
 import * as databaseSdk from 'firebase/database';
-import { cert, deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
+import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { loadFirestoreScenarios, loadRtdbScenarios } from './capture/sdk-scenarios/load-scenarios.ts';
 import { productionTiming } from './capture/sdk-scenarios/scenario-timing.ts';
 import { SIGNED_IN_RULES, type FirestoreScenario, type RtdbScenario, type ScenarioObservation } from './capture/sdk-scenarios/scenario-types.ts';
+import {
+  loadOracleServiceAccount,
+  oracleAppOptions,
+  oracleCredentialConfigured,
+  type OracleServiceAccount,
+} from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 
 const OBSERVATIONS = join(import.meta.dir, '..', 'observations');
 const SCENARIO_MS = 120_000;
 
 interface Credentials {
-  serviceAccountPath: string;
+  serviceAccount: OracleServiceAccount;
   config: FirebaseOptions & { projectId: string };
   rtdbUrl: string | undefined;
 }
 
 function credentials(): Credentials | null {
-  const serviceAccountPath = process.env.PYRIC_ORACLE_SA_PATH;
   const rawConfig = process.env.PYRIC_ORACLE_FIREBASE_CONFIG;
-  if (!serviceAccountPath || !rawConfig) return null;
-  return { serviceAccountPath, config: JSON.parse(rawConfig), rtdbUrl: process.env.PYRIC_ORACLE_RTDB_URL };
+  if (!oracleCredentialConfigured(process.env) || !rawConfig) return null;
+  return {
+    serviceAccount: loadOracleServiceAccount(),
+    config: JSON.parse(rawConfig),
+    rtdbUrl: process.env.PYRIC_ORACLE_RTDB_URL,
+  };
 }
 
 function assertDedicatedInstance(url: string | undefined): string {
@@ -94,7 +103,7 @@ async function captureFirestore(scenario: FirestoreScenario, creds: Credentials)
   const id = runId();
   const base = `pyric_oracle/${id}`;
   const pool = clientPool(creds.config, id);
-  const admin = initializeAdminApp({ credential: cert(creds.serviceAccountPath) }, `sdk-scenarios-admin-${id}`);
+  const admin = initializeAdminApp(oracleAppOptions(creds.serviceAccount), `sdk-scenarios-admin-${id}`);
   const adminDb = getAdminFirestore(admin);
   try {
     const open = async (name: string) => ({ db: firestoreSdk.getFirestore(await pool.open(name)) });
@@ -111,9 +120,8 @@ async function captureFirestore(scenario: FirestoreScenario, creds: Credentials)
   }
 }
 
-async function rtdbAdminHeaders(serviceAccountPath: string): Promise<Record<string, string>> {
-  const credential = cert(serviceAccountPath);
-  const { access_token: token } = await credential.getAccessToken();
+async function rtdbAdminHeaders(serviceAccount: OracleServiceAccount): Promise<Record<string, string>> {
+  const { access_token: token } = await serviceAccount.credential.getAccessToken();
   return { Authorization: `Bearer ${token}` };
 }
 
@@ -121,7 +129,7 @@ const canonicalRules = (text: string) => JSON.stringify(JSON.parse(text.replace(
 
 async function captureRtdb(scenario: RtdbScenario, creds: Credentials): Promise<void> {
   const url = assertDedicatedInstance(creds.rtdbUrl);
-  const headers = await rtdbAdminHeaders(creds.serviceAccountPath);
+  const headers = await rtdbAdminHeaders(creds.serviceAccount);
   const rulesUrl = `${url}/.settings/rules.json`;
   const before = await (await fetch(rulesUrl, { headers })).text();
   const id = runId();

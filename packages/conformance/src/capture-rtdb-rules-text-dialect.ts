@@ -14,20 +14,18 @@
  *
  * Credentials: the same contract as `run-rules-rtdb.ts`.
  *   PYRIC_ORACLE_FIREBASE_CONFIG  Web SDK config JSON with databaseURL.
- *   PYRIC_ORACLE_SA_PATH          service-account JSON path for the rules token.
+ *   PYRIC_ORACLE_SA_PATH          service-account JSON path for the rules token; unset,
+ *                                 Application Default Credentials with
+ *   PYRIC_ORACLE_PROJECT_ID       naming the oracle project.
  *
  * Usage:
  *   bun --env-file=.env run packages/conformance/src/capture-rtdb-rules-text-dialect.ts
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  RTDB_RULES_SCOPE,
-  mintAccessToken,
-  rtdbRulesEndpoint,
-  type ServiceAccountKey,
-} from './oracle-access-token.ts';
+import { RTDB_RULES_SCOPE, rtdbRulesEndpoint } from './oracle-access-token.ts';
+import { loadOracleServiceAccount, oracleAccessToken } from './oracle-credential.ts';
 import { rejectionMessage } from './capture-rtdb-rules-type-check.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 
@@ -70,16 +68,12 @@ async function main(): Promise<void> {
   if (!rawConfig) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG is not set.');
   const config = JSON.parse(rawConfig) as FirebaseWebConfig;
   if (!config.databaseURL) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL.');
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH
-    ? resolve(process.env.PYRIC_ORACLE_SA_PATH)
-    : join(REPO_ROOT, 'ignored', 'service-account.json');
-  if (!existsSync(saPath)) throw new Error(`service account not found at ${saPath}. Set PYRIC_ORACLE_SA_PATH.`);
-  const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccountKey & { project_id: string };
+  const sa = loadOracleServiceAccount();
   if (sa.project_id !== config.projectId) {
-    throw new Error(`service account project ${sa.project_id} does not match config project ${config.projectId}.`);
+    throw new Error(`oracle credential project ${sa.project_id} does not match config project ${config.projectId}.`);
   }
 
-  const endpoint = rtdbRulesEndpoint(config.databaseURL, await mintAccessToken(sa, RTDB_RULES_SCOPE));
+  const endpoint = rtdbRulesEndpoint(config.databaseURL, await oracleAccessToken(sa, RTDB_RULES_SCOPE));
   const before = await endpoint.read();
   const probes: RtdbTextProbeRecord[] = [];
   for (const probe of TEXT_PROBES) {

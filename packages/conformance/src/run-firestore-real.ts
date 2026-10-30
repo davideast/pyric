@@ -19,17 +19,17 @@ import {
   updateDoc,
   type QuerySnapshot,
 } from 'firebase/firestore';
-import { cert, deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
+import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { chromium } from '@playwright/test';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
+import { loadOracleServiceAccount, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   FIREBASE_API,
   accessHeaders,
   jsonRequest,
-  resolveServiceAccount,
   type AccessHeaders,
   type ServiceAccount,
   type WebConfig,
@@ -158,7 +158,7 @@ async function captureTransactionContention(
   runId: string,
 ): Promise<Record<string, unknown>> {
   const admin = initializeAdminApp(
-    { credential: cert(sa as Parameters<typeof cert>[0]) },
+    oracleAppOptions(sa),
     `pyric-firestore-real-admin-${runId}`,
   );
   const token = await getAdminAuth(admin).createCustomToken(`pyric-cdd-${runId}`);
@@ -259,7 +259,7 @@ async function captureCollectionGroupListener(
   runId: string,
 ): Promise<Record<string, unknown>> {
   const admin = initializeAdminApp(
-    { credential: cert(sa as Parameters<typeof cert>[0]) },
+    oracleAppOptions(sa),
     `pyric-firestore-cg-admin-${runId}`,
   );
   const adminDb = getAdminFirestore(admin);
@@ -356,7 +356,7 @@ async function captureBrowserLifecycle(
   runId: string,
 ): Promise<Record<string, unknown>> {
   const admin = initializeAdminApp(
-    { credential: cert(sa as Parameters<typeof cert>[0]) },
+    oracleAppOptions(sa),
     `pyric-firestore-browser-admin-${runId}`,
   );
   const adminDb = getAdminFirestore(admin);
@@ -696,9 +696,8 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
 }
 
 async function run(): Promise<void> {
-  const credentialPath = process.env.PYRIC_ORACLE_SA_PATH;
-  if (!credentialPath) {
-    console.log('[firestore:real] inert — set PYRIC_ORACLE_SA_PATH to capture.');
+  if (!oracleCredentialConfigured(process.env)) {
+    console.log('[firestore:real] inert — set PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials, to capture.');
     return;
   }
   const releaseLock = acquireRunLock(LOCK_PATH);
@@ -707,7 +706,7 @@ async function run(): Promise<void> {
   const collectionGroupOnly = Bun.argv.includes('--collection-group-listener');
   let restoreVerified = false;
   try {
-    const sa = resolveServiceAccount(credentialPath);
+    const sa = loadOracleServiceAccount();
     const headers = await accessHeaders(sa);
     const web = await discoverWebConfig(sa, headers);
     if (web.projectId !== sa.project_id) throw new Error('Web config and service account target different projects');

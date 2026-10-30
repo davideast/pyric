@@ -22,22 +22,22 @@
  *
  * Credentials: `rules-api` uses the Rules Test API credential `run-rules.ts`
  * uses (packages/pyric/test/rules/parity/credential.ts; PARITY_PROJECT_ID names
- * the project). `absent-database` uses PYRIC_ORACLE_SA_PATH (a service account
- * for the oracle project) and PYRIC_AI_FIREBASE_CONFIG (the web app
+ * the project). `absent-database` uses the oracle credential (PYRIC_ORACLE_SA_PATH,
+ * or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials) and PYRIC_AI_FIREBASE_CONFIG (the web app
  * config JSON, or PYRIC_AI_FIREBASE_CONFIG_PATH naming a file that holds it).
  *
  * Usage:
  *   PARITY_PROJECT_ID=<project> bun run packages/conformance/src/capture-firestore-named-databases.ts rules-api
- *   PYRIC_ORACLE_SA_PATH=<sa.json> PYRIC_AI_FIREBASE_CONFIG="$(cat web.json)" \
+ *   PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_AI_FIREBASE_CONFIG="$(cat web.json)" \
  *     bun run packages/conformance/src/capture-firestore-named-databases.ts absent-database
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadOracleServiceAccount, oracleAppOptions } from './oracle-credential.ts';
 import {
   accessHeaders,
   RULES_API,
-  resolveServiceAccount,
   type ServiceAccount,
   type WebConfig,
 } from './storage-stdlib-real-api.ts';
@@ -269,7 +269,7 @@ async function restRead(sa: ServiceAccount, databaseId: string, path: string): P
 async function captureAbsentDatabase(sa: ServiceAccount, web: WebConfig): Promise<void> {
   const { initializeApp: initializeClient } = await import('firebase/app');
   const { getFirestore: clientFirestore, doc, getDoc, setDoc, onSnapshot, terminate } = await import('firebase/firestore');
-  const { initializeApp: initializeAdmin, cert } = await import('firebase-admin/app');
+  const { initializeApp: initializeAdmin } = await import('firebase-admin/app');
   const { getFirestore: adminFirestore } = await import('firebase-admin/firestore');
 
   const runId = Math.random().toString(36).slice(2, 10);
@@ -283,7 +283,7 @@ async function captureAbsentDatabase(sa: ServiceAccount, web: WebConfig): Promis
   };
 
   const client = initializeClient(web, `named-db-${runId}`);
-  const admin = initializeAdmin({ credential: cert(sa as Parameters<typeof cert>[0]), projectId: sa.project_id }, `named-db-admin-${runId}`);
+  const admin = initializeAdmin(oracleAppOptions(sa), `named-db-admin-${runId}`);
   const behavior: Record<string, string> = {};
   const diagnostics: Record<string, unknown> = {};
   for (const [label, databaseId] of Object.entries(databases)) {
@@ -348,9 +348,7 @@ async function main(): Promise<void> {
     const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
     return captureRulesApi(parityScope() as RulesScope);
   }
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH;
-  if (!saPath) throw new Error('PYRIC_ORACLE_SA_PATH is required');
-  const sa = resolveServiceAccount(saPath);
+  const sa = loadOracleServiceAccount();
   if (mode === 'absent-database') {
     const configPath = process.env.PYRIC_AI_FIREBASE_CONFIG_PATH;
     const config = configPath ? readFileSync(configPath, 'utf8') : process.env.PYRIC_AI_FIREBASE_CONFIG;

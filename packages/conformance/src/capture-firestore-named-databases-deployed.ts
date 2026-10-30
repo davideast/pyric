@@ -20,23 +20,24 @@
  * Output: packages/conformance/observations/firestore/firestore-named-database-cross-database.json
  *         packages/conformance/observations/firestore/firestore-named-database-admin-mixing.json
  *
- * Credentials: PYRIC_ORACLE_SA_PATH (Firestore data and Rules release
- * management on the oracle project) and PYRIC_AI_FIREBASE_CONFIG_PATH (the web
- * app config file).
+ * Credentials: the oracle credential, PYRIC_ORACLE_SA_PATH or
+ * PYRIC_ORACLE_PROJECT_ID with Application Default Credentials (Firestore data
+ * and Rules release management on the oracle project), and
+ * PYRIC_AI_FIREBASE_CONFIG_PATH (the web app config file).
  *
  * Usage:
- *   PYRIC_ORACLE_SA_PATH=<sa.json> PYRIC_AI_FIREBASE_CONFIG_PATH=<web.json> \
+ *   PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_AI_FIREBASE_CONFIG_PATH=<web.json> \
  *     bun run packages/conformance/src/capture-firestore-named-databases-deployed.ts cross-database | admin-mixing
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Firestore as AdminFirestore } from 'firebase-admin/firestore';
+import { loadOracleServiceAccount, oracleAppOptions } from './oracle-credential.ts';
 import {
   accessHeaders,
   jsonRequest,
   RULES_API,
-  resolveServiceAccount,
   type ServiceAccount,
   type WebConfig,
 } from './storage-stdlib-real-api.ts';
@@ -136,9 +137,9 @@ async function clientVerdict(read: () => Promise<unknown>): Promise<Verdict> {
 }
 
 async function adminApp(sa: ServiceAccount, run: string) {
-  const { initializeApp, cert } = await import('firebase-admin/app');
+  const { initializeApp } = await import('firebase-admin/app');
   const { getFirestore } = await import('firebase-admin/firestore');
-  const app = initializeApp({ credential: cert(sa as Parameters<typeof cert>[0]), projectId: sa.project_id }, `named-db-c2-${run}`);
+  const app = initializeApp(oracleAppOptions(sa), `named-db-c2-${run}`);
   return { defaultDb: getFirestore(app), namedDb: getFirestore(app, NAMED) };
 }
 
@@ -315,9 +316,7 @@ async function captureAdminMixing(sa: ServiceAccount): Promise<void> {
 
 async function main(): Promise<void> {
   const mode = process.argv[2];
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH;
-  if (!saPath) throw new Error('PYRIC_ORACLE_SA_PATH is required');
-  const sa = resolveServiceAccount(saPath);
+  const sa = loadOracleServiceAccount();
   if (mode === 'admin-mixing') return captureAdminMixing(sa);
   if (mode === 'cross-database') {
     const configPath = process.env.PYRIC_AI_FIREBASE_CONFIG_PATH;

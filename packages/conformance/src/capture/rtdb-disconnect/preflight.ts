@@ -1,16 +1,9 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getDatabase, ref, set, get, remove } from 'firebase/database';
-import { mintAccessToken } from '../../oracle-access-token.ts';
-
-interface ServiceAccount {
-  client_email: string;
-  private_key: string;
-  project_id: string;
-  token_uri?: string;
-}
+import { RTDB_RULES_SCOPE } from '../../oracle-access-token.ts';
+import { loadOracleServiceAccount, oracleAccessToken } from '../../oracle-credential.ts';
 
 interface FirebaseWebConfig {
   apiKey: string;
@@ -62,20 +55,15 @@ async function discoverConfig(token: string, projectId: string): Promise<Firebas
 }
 
 async function main(): Promise<void> {
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH;
-  if (!saPath || !existsSync(saPath)) throw new Error('PYRIC_ORACLE_SA_PATH does not name a readable file');
-  const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
-  const firebaseToken = await mintAccessToken(serviceAccount, 'https://www.googleapis.com/auth/firebase');
+  const serviceAccount = loadOracleServiceAccount();
+  const firebaseToken = await oracleAccessToken(serviceAccount, 'https://www.googleapis.com/auth/firebase');
   const config = await discoverConfig(firebaseToken, serviceAccount.project_id);
   if (config.projectId !== serviceAccount.project_id) throw new Error('discovered Web App belongs to a different project');
 
   console.log(`[oracle:rtdb-disconnect:preflight] project: ${config.projectId}`);
   console.log(`[oracle:rtdb-disconnect:preflight] database: ${config.databaseURL}`);
 
-  const databaseToken = await mintAccessToken(
-    serviceAccount,
-    'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-  );
+  const databaseToken = await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE);
   const rulesUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(databaseToken)}`;
   const readRules = async (): Promise<Record<string, unknown>> => {
     const response = await fetch(rulesUrl);

@@ -46,11 +46,12 @@
  *   PYRIC_ORACLE_FIREBASE_CONFIG — Web SDK config JSON (must carry databaseURL
  *     and apiKey). Provides the client used to run corpus ops and the RTDB
  *     instance URL. Its presence gates capture.
- *   PYRIC_ORACLE_SA_PATH — path to a service-account JSON (defaults to
- *     ignored/service-account.json). Required to mint the firebase.database-
- *     scoped OAuth token the /.settings/rules.json deploy endpoint demands and
- *     to seed data via the admin SDK. A web config alone cannot deploy RTDB
- *     rules.
+ *   PYRIC_ORACLE_SA_PATH — path to a service-account JSON. Unset, the runner
+ *     uses Application Default Credentials and PYRIC_ORACLE_PROJECT_ID names
+ *     the project (src/oracle-credential.ts). The credential mints the
+ *     firebase.database-scoped OAuth token the /.settings/rules.json deploy
+ *     endpoint demands, seeds data via the admin SDK, and signs custom tokens.
+ *     A web config alone cannot deploy RTDB rules.
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
  *   With PYRIC_ORACLE_FIREBASE_CONFIG absent, this runner makes NO network
@@ -63,13 +64,12 @@
  *   bun run packages/conformance/src/run-rules-rtdb.ts
  *   # real capture (credentialed):
  *   PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \
- *     PYRIC_ORACLE_SA_PATH=ignored/service-account.json \
+ *     PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
  *     bun run packages/conformance/src/run-rules-rtdb.ts \
  *     --scenario r15-validate-ancestor-scope
  */
-import { createSign } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ALL_RULES_RTDB_DEPLOY_SCENARIOS,
@@ -83,10 +83,19 @@ import {
   type RtdbScenario,
   type RtdbTestCase,
 } from '../rules-corpus/rtdb/index.ts';
+import { RTDB_RULES_SCOPE } from './oracle-access-token.ts';
+import {
+  describeOracleCredential,
+  loadOracleServiceAccount,
+  oracleAccessToken,
+  oracleAppOptions,
+  oracleServiceAccountEmail,
+  signOracleJwt,
+  type OracleServiceAccount,
+} from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, '..', '..', '..');
 // rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
 // (surfaces/rtdb-rules.json owns the prefix), NOT the SDK-plane 'rtdb' one.
 const OBS_DIR = join(HERE, '..', 'observations', 'rtdb-rules');
@@ -98,12 +107,8 @@ interface FirebaseWebConfig {
   databaseURL?: string;
 }
 
-interface ServiceAccount {
-  client_email: string;
-  private_key: string;
-  project_id: string;
-  token_uri?: string;
-}
+/** The oracle credential: a key file, or Application Default Credentials. */
+type ServiceAccount = OracleServiceAccount;
 
 interface Observation {
   name: string;
@@ -195,7 +200,8 @@ function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
   console.log('  Credential env vars expected:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG  (Web SDK config JSON with databaseURL + apiKey; gates capture)');
   console.log('    PYRIC_ORACLE_SA_PATH          (service-account JSON path for the rules-deploy admin token;');
-  console.log('                                   defaults to ignored/service-account.json)\n');
+  console.log('                                   unset, Application Default Credentials are used)');
+  console.log('    PYRIC_ORACLE_PROJECT_ID       (the oracle project id, read when PYRIC_ORACLE_SA_PATH is unset)\n');
   console.log(`  Observation output directory: ${OBS_DIR}`);
   console.log(`  Observation filename prefix:  ${RULES_RTDB_OBSERVATION_PREFIX}\n`);
   console.log('  Capture protocol: deploy → execute ops on live RTDB → restore rules + delete run data → read-back verify both.');
@@ -221,54 +227,29 @@ function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
   }
   console.log('\n  To capture for real:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \\');
-  console.log('      PYRIC_ORACLE_SA_PATH=ignored/service-account.json \\');
+  console.log('      PYRIC_ORACLE_PROJECT_ID=<oracle project id> \\');
   console.log('      bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>');
 }
 
 /**
- * A Firebase custom token for `uid` with developer `claims`, signed with the
- * service account key. The issue time is set two minutes back so a local
- * clock somewhat ahead of Google's does not make the token's `iat` lie in
- * the future, which Auth rejects as an invalid custom token.
+ * A Firebase custom token for `uid` with developer `claims`, signed as the
+ * oracle service account (a key file locally, IAM Credentials `signBlob` under
+ * Application Default Credentials). The issue time is set two minutes back so
+ * a local clock somewhat ahead of Google's does not make the token's `iat` lie
+ * in the future, which Auth rejects as an invalid custom token.
  */
-function mintCustomToken(sa: ServiceAccount, uid: string, claims: Record<string, unknown>): string {
+async function mintCustomToken(sa: ServiceAccount, uid: string, claims: Record<string, unknown>): Promise<string> {
   const iat = Math.floor(Date.now() / 1000) - 120;
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({
-    iss: sa.client_email,
-    sub: sa.client_email,
+  const email = await oracleServiceAccountEmail(sa);
+  return signOracleJwt(sa, {
+    iss: email,
+    sub: email,
     aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
     iat,
     exp: iat + 3600,
     uid,
     ...(Object.keys(claims).length > 0 ? { claims } : {}),
-  })).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  return `${header}.${payload}.${signer.sign(sa.private_key).toString('base64url')}`;
-}
-
-/** Mint a short-lived OAuth access token from a service account for `scope`. */
-async function mintToken(sa: ServiceAccount, scope: string): Promise<string> {
-  const tokenUri = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({ iss: sa.client_email, scope, aud: tokenUri, iat: now, exp: now + 3600 }),
-  ).toString('base64url');
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${payload}`);
-  const sig = signer.sign(sa.private_key).toString('base64url');
-  const res = await fetch(tokenUri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${header}.${payload}.${sig}`,
-    }),
   });
-  if (!res.ok) throw new Error(`token exchange failed: ${res.status} ${await res.text()}`);
-  return ((await res.json()) as { access_token: string }).access_token;
 }
 
 /** Stable JSON serialization (sorted keys) for the restore read-back compare —
@@ -495,7 +476,6 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
     limitToLast,
   } = await import('firebase/database');
   const {
-    cert: adminCert,
     initializeApp: adminInitializeApp,
     deleteApp: adminDeleteApp,
   } = await import('firebase-admin/app');
@@ -506,23 +486,16 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   if (!config.databaseURL) {
     throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL — an RTDB instance URL is required to deploy and run rules.');
   }
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH ?? join(REPO_ROOT, 'ignored', 'service-account.json');
-  if (!existsSync(saPath)) {
-    throw new Error(`service account not found at ${saPath}. RTDB rules deploy requires an SA to mint the firebase.database token. Set PYRIC_ORACLE_SA_PATH.`);
-  }
-  const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  const serviceAccount = loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
 
   console.log(`[oracle:rules-rtdb] project: ${config.projectId}`);
   console.log(`[oracle:rules-rtdb] database: ${config.databaseURL}`);
-  console.log(`[oracle:rules-rtdb] service account: ${serviceAccount.client_email}`);
+  console.log(`[oracle:rules-rtdb] credential: ${describeOracleCredential(serviceAccount)}`);
   console.log(`[oracle:rules-rtdb] firebase ${fbSdkVersion}\n`);
 
-  const rtdbAdminToken = await mintToken(
-    serviceAccount,
-    'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-  );
+  const rtdbAdminToken = await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE);
   const rulesGetUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}`;
   const rulesPutUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
 
@@ -583,11 +556,7 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   const rtdb = getDatabase(app);
   const adminApp = adminInitializeApp(
     {
-      credential: adminCert({
-        projectId: serviceAccount.project_id,
-        clientEmail: serviceAccount.client_email,
-        privateKey: serviceAccount.private_key,
-      }),
+      ...oracleAppOptions(serviceAccount),
       databaseURL: config.databaseURL,
     },
     `oracle-rules-rtdb-admin-${runId}`,
@@ -682,7 +651,7 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
               for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
                 if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
                 try {
-                  await signInWithCustomToken(auth, mintCustomToken(serviceAccount, uid, tc.identity.claims ?? {}));
+                  await signInWithCustomToken(auth, await mintCustomToken(serviceAccount, uid, tc.identity.claims ?? {}));
                 } catch (e) {
                   lastError = e;
                 }
@@ -934,7 +903,7 @@ async function captureMultiInstance(): Promise<void> {
   const { initializeApp, deleteApp } = await import('firebase/app');
   const { getAuth, signInWithCustomToken, signOut } = await import('firebase/auth');
   const { getDatabase, ref: rtdbRef, get: rtdbGet, set: rtdbSet, onValue } = await import('firebase/database');
-  const { cert: adminCert, initializeApp: adminInitializeApp, deleteApp: adminDeleteApp } = await import('firebase-admin/app');
+  const { initializeApp: adminInitializeApp, deleteApp: adminDeleteApp } = await import('firebase-admin/app');
   const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
 
   const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG!) as FirebaseWebConfig;
@@ -943,18 +912,14 @@ async function captureMultiInstance(): Promise<void> {
   if (!secondUrl) throw new Error('PYRIC_ORACLE_SECOND_DATABASE_URL names the second instance the capture runs against.');
   const defaultUrl = config.databaseURL.replace(/\/$/, '');
   const second = secondUrl.replace(/\/$/, '');
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH ?? join(REPO_ROOT, 'ignored', 'service-account.json');
-  const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  const serviceAccount = loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
   const instances = { default: defaultUrl, second } as const;
   console.log(`[oracle:rtdb-instances] project: ${config.projectId}`);
   console.log(`[oracle:rtdb-instances] instances: ${new URL(defaultUrl).host}, ${new URL(second).host}`);
 
-  const adminToken = encodeURIComponent(await mintToken(
-    serviceAccount,
-    'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email',
-  ));
+  const adminToken = encodeURIComponent(await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE));
   async function readRulesText(url: string): Promise<string> {
     const res = await fetch(`${url}/.settings/rules.json?access_token=${adminToken}`);
     if (!res.ok) throw new Error(`read rules failed on ${new URL(url).host}: ${res.status}`);
@@ -996,13 +961,7 @@ async function captureMultiInstance(): Promise<void> {
   const uid = `pyric-oracle-instances-${runId}`;
   const app = initializeApp(config, `oracle-rtdb-instances-${runId}`);
   const auth = getAuth(app);
-  const adminApp = adminInitializeApp({
-    credential: adminCert({
-      projectId: serviceAccount.project_id,
-      clientEmail: serviceAccount.client_email,
-      privateKey: serviceAccount.private_key,
-    }),
-  }, `oracle-rtdb-instances-admin-${runId}`);
+  const adminApp = adminInitializeApp(oracleAppOptions(serviceAccount), `oracle-rtdb-instances-admin-${runId}`);
   const adminAuth = getAdminAuth(adminApp);
   const runUids = new Set<string>([uid]);
   const userStore: RunUserStore = {
@@ -1048,7 +1007,7 @@ async function captureMultiInstance(): Promise<void> {
     for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
       try {
-        await signInWithCustomToken(auth, mintCustomToken(serviceAccount, uid, {}));
+        await signInWithCustomToken(auth, await mintCustomToken(serviceAccount, uid, {}));
       } catch (e) {
         lastError = e;
       }
@@ -1207,7 +1166,7 @@ if (import.meta.main && process.argv.includes('--multi-instance-sdk')) {
 
 if (import.meta.main && process.argv.includes('--multi-instance')) {
   if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) {
-    console.log('[oracle:rtdb-instances] PYRIC_ORACLE_FIREBASE_CONFIG not set; INERT. Set it, PYRIC_ORACLE_SA_PATH and PYRIC_ORACLE_SECOND_DATABASE_URL to capture.');
+    console.log('[oracle:rtdb-instances] PYRIC_ORACLE_FIREBASE_CONFIG not set; INERT. Set it, PYRIC_ORACLE_SECOND_DATABASE_URL, and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID to capture.');
     process.exit(0);
   }
   await captureMultiInstance();
