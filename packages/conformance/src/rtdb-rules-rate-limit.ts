@@ -1,10 +1,11 @@
 /**
- * Rate-limit handling for the rtdb-rules rig's REST calls to
- * `/.settings/rules.json` and the run-data store. Production answers a burst
- * of large dry runs with `429 Request rate limit exceeded`. A 429 is waited
- * out with exponential back-off, honouring `Retry-After`, under a cap on the
- * total wait, so a throttled restore read retries instead of reporting a
- * failed restore.
+ * Rate-limit handling for calls to the rules endpoints: RTDB's
+ * `/.settings/rules.json` and run-data store (the rtdb-rules rig and the
+ * rtdb-climb probes), and the Firestore and Storage Rules API (the oracle
+ * rules session). Production answers a burst of large dry runs with
+ * `429 Request rate limit exceeded`. A 429 is waited out with exponential
+ * back-off, honouring `Retry-After`, under a cap on the total wait, so a
+ * throttled restore read retries instead of reporting a failed restore.
  */
 
 export interface RateLimitPolicy {
@@ -16,7 +17,8 @@ export interface RateLimitPolicy {
   maxTotalWaitMs: number;
 }
 
-export const RTDB_RULES_RATE_LIMIT: RateLimitPolicy = {
+/** The back-off every rules endpoint call uses, RTDB or Rules API. */
+export const RULES_ENDPOINT_RATE_LIMIT: RateLimitPolicy = {
   initialDelayMs: 5_000,
   maxDelayMs: 120_000,
   maxTotalWaitMs: 15 * 60_000,
@@ -79,7 +81,7 @@ export async function fetchWithRateLimitRetry(
   label: string,
   options: RateLimitOptions = {},
 ): Promise<Response> {
-  const policy = options.policy ?? RTDB_RULES_RATE_LIMIT;
+  const policy = options.policy ?? RULES_ENDPOINT_RATE_LIMIT;
   const deps = options.deps ?? defaultDeps;
   const logPrefix = options.logPrefix ?? '[oracle:rules-rtdb]';
   let waited = 0;

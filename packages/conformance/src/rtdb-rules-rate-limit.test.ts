@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  RULES_ENDPOINT_RATE_LIMIT,
   fetchWithRateLimitRetry,
   retryAfterMs,
   type RateLimitDeps,
@@ -94,5 +95,14 @@ describe('rtdb-rules request limits', () => {
     expect(signals[1]).not.toBe(signals[0]);
     await fetchWithRateLimitRetry('u', { method: 'PUT' }, 'dry run', { policy: POLICY, deps: recording });
     expect(signals[2]).toBeUndefined();
+  });
+});
+
+describe('rules endpoint rate-limit policy', () => {
+  it('is one policy for every rules endpoint: RTDB rules, and the Firestore and Storage Rules API', async () => {
+    expect(RULES_ENDPOINT_RATE_LIMIT).toEqual({ initialDelayMs: 5_000, maxDelayMs: 120_000, maxTotalWaitMs: 15 * 60_000 });
+    const deps = fakeDeps([429, 200]);
+    await fetchWithRateLimitRetry('u', undefined, 'read', { deps });
+    expect(deps.waits).toEqual([RULES_ENDPOINT_RATE_LIMIT.initialDelayMs]);
   });
 });
