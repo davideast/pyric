@@ -1,5 +1,6 @@
 /** The switch that decides whether listener attribution runs at all. */
 import { afterEach, describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import {
   configureListenerAttribution,
   listenerAttributionEnabled,
@@ -22,6 +23,26 @@ function withNodeEnv(value: string | undefined, run: () => void): void {
       process.env.NODE_ENV = previous;
     }
   }
+}
+
+/** Run `body` the way a browser page or worker does: with no `process`. */
+function withoutProcess(body: () => void): void {
+  const g = globalThis as { process?: unknown };
+  const real = g.process;
+  delete g.process;
+  try {
+    expect('process' in globalThis).toBe(false);
+    body();
+  } finally {
+    g.process = real;
+  }
+}
+
+const SOURCE = new URL('../../../src/sandbox/attribution/attribution-mode.ts', import.meta.url);
+
+/** The module's code, with its comments removed. */
+function sourceCode(): string {
+  return readFileSync(SOURCE, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 }
 
 afterEach(() => {
@@ -68,5 +89,16 @@ describe('listener attribution mode', () => {
     withNodeEnv('production', () => {
       expect(listenerAttributionEnabled()).toBe(false);
     });
+  });
+
+  it('runs in a browser page or worker, where no process exists', () => {
+    withoutProcess(() => {
+      expect(listenerAttributionEnabled()).toBe(true);
+    });
+  });
+
+  it('never reads import.meta.env, which the Vite dev server fills with every VITE_ variable (#1632)', () => {
+    expect(sourceCode()).not.toContain('import.meta');
+    expect(sourceCode()).toContain('process.env.NODE_ENV');
   });
 });

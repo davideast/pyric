@@ -82,3 +82,37 @@ describe('Vite page runtime', () => {
     expect(page.ai()).toEqual({ mode: 'sandbox', engineWire: undefined, proxyUpstream: undefined });
   });
 });
+
+describe('Vite page runtime: a Gemini key in VITE_GEMINI_API_KEY (#1632)', () => {
+  /** Run `body` with the fake key in the shell environment. */
+  function withViteKey(body: () => void): void {
+    const before = process.env.VITE_GEMINI_API_KEY;
+    process.env.VITE_GEMINI_API_KEY = 'AIzaFAKE-1632-runtime';
+    try {
+      body();
+    } finally {
+      if (before === undefined) delete process.env.VITE_GEMINI_API_KEY;
+      else process.env.VITE_GEMINI_API_KEY = before;
+    }
+  }
+
+  it('refuses the dev server', () => {
+    withViteKey(() => {
+      expect(() => runtime().config({}, { command: 'serve', mode: 'development' } as never))
+        .toThrow(/Rename it to GEMINI_API_KEY/);
+    });
+  });
+
+  it('leaves vite preview alone, because it serves build output that never held the key', () => {
+    withViteKey(() => {
+      expect(() => runtime().config({}, { command: 'serve', mode: 'production', isPreview: true } as never))
+        .not.toThrow();
+    });
+  });
+
+  it('leaves a sandbox build alone', () => {
+    withViteKey(() => {
+      expect(() => runtime().config({}, { command: 'build', mode: 'development' } as never)).not.toThrow();
+    });
+  });
+});

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Behavior changes
+
+- The Vite dev server refuses to start when `VITE_GEMINI_API_KEY` is set, in
+  the shell or in `.env`, and says to rename it to `GEMINI_API_KEY`. Vite
+  serves every variable whose name starts with `VITE_` to the browser, so a
+  key there reached every page the dev server served. The gemini engine no
+  longer reads `VITE_GEMINI_API_KEY` as a credential, and its 401 names only
+  `GEMINI_API_KEY` and `GOOGLE_GENAI_API_KEY`. An app that set the key in
+  `VITE_GEMINI_API_KEY` renames it to `GEMINI_API_KEY` (#1632).
+- Pyric's browser modules no longer read `import.meta.env`, so the Vite dev
+  server no longer adds the app's `VITE_` variables to a Pyric module the page
+  loads. Listener attribution now reads `process.env.NODE_ENV`, which Vite,
+  webpack and Next.js replace at build time, to decide whether a build is
+  production (#1632).
+
 ### Breaking: `pyric/database` is the canonical sandbox-only mirror
 
 - `pyric/database` exports only the Firebase-shaped modular Database surface
