@@ -22,19 +22,25 @@ export function filesContaining(path: string, secret: string): string[] {
   return readdirSync(path).filter((name) => !SKIPPED.has(name)).flatMap((name) => filesContaining(join(path, name), secret));
 }
 
-function redacted(content: Buffer, secret: string): Buffer {
+/** One secret, several (the harness can hold a token file's and the environment's), or none. */
+export type Secrets = string | readonly string[] | undefined;
+
+const secretList = (secrets: Secrets): readonly string[] => (secrets === undefined ? [] : typeof secrets === 'string' ? [secrets] : secrets);
+
+function redactedOne(content: Buffer, secret: string): Buffer {
   if (!content.includes(secret)) return content;
   return Buffer.from(content.toString('latin1').split(Buffer.from(secret).toString('latin1')).join(REDACTED), 'latin1');
 }
 
-/** `text` with every occurrence of `secret` replaced; `text` itself when there is no secret. */
-export function redactedText(text: string, secret: string | undefined): string {
-  if (secret === undefined) return text;
-  return text.split(secret).join(REDACTED);
+const redacted = (content: Buffer, secrets: readonly string[]) => secrets.reduce(redactedOne, content);
+
+/** `text` with every occurrence of each secret replaced; `text` itself when there is none. */
+export function redactedText(text: string, secret: Secrets): string {
+  return secretList(secret).reduce((current, value) => current.split(value).join(REDACTED), text);
 }
 
-/** Copies `from` (a file or a directory) to `to`, with every occurrence of `secret` replaced. */
-export function copyRedacted(from: string, to: string, secret: string | undefined): void {
+/** Copies `from` (a file or a directory) to `to`, with every occurrence of each secret replaced. */
+export function copyRedacted(from: string, to: string, secret: Secrets): void {
   const stat = lstatSync(from, { throwIfNoEntry: false });
   if (stat === undefined || stat.isSymbolicLink()) return;
   if (stat.isDirectory()) {
@@ -43,6 +49,7 @@ export function copyRedacted(from: string, to: string, secret: string | undefine
     return;
   }
   if (!stat.isFile()) return;
-  if (secret === undefined) copyFileSync(from, to);
-  else writeFileSync(to, redacted(readFileSync(from), secret));
+  const secrets = secretList(secret);
+  if (secrets.length === 0) copyFileSync(from, to);
+  else writeFileSync(to, redacted(readFileSync(from), secrets));
 }

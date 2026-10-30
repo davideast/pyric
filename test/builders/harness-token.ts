@@ -18,6 +18,8 @@ export type TokenRead = { ok: true; token: string } | { ok: false; problem: stri
 export interface HarnessToken {
   /** The token, or undefined when neither source holds one. */
   token: string | undefined;
+  /** Every token value the harness holds: the token, and the environment's when the file won over it. The token scan redacts each. */
+  scanned: string[];
   /** What keeps the token from being read; each names a file or a variable, never a value. */
   problems: string[];
   /** What the harness tells its owner about the token's source; never a value. */
@@ -88,10 +90,13 @@ function envToken(env: NodeJS.ProcessEnv): string | undefined {
  */
 export function harnessToken(tokenFile: string | undefined, env: NodeJS.ProcessEnv = process.env): HarnessToken {
   const fromEnv = envToken(env);
-  if (tokenFile === undefined) return { token: fromEnv, problems: [], notices: [] };
+  const fromEnvList = fromEnv === undefined ? [] : [fromEnv];
+  if (tokenFile === undefined) return { token: fromEnv, scanned: fromEnvList, problems: [], notices: [] };
   const notices = fromEnv === undefined ? [] : [`--token-file wins over ${OAUTH_TOKEN_ENV}, which is also set; the harness uses the file's token`];
   const read = readTokenFile(tokenFile);
-  return read.ok ? { token: read.token, problems: [], notices } : { token: undefined, problems: [read.problem], notices };
+  if (!read.ok) return { token: undefined, scanned: fromEnvList, problems: [read.problem], notices };
+  const scanned = [...new Set([read.token, ...fromEnvList])];
+  return { token: read.token, scanned, problems: [], notices };
 }
 
 /** What a model builder needs when it has no token. */

@@ -21,7 +21,7 @@ import { packWorkspace, tarballsIn } from '../apps/install.ts';
 import { readBriefsDir, type Brief } from './brief.ts';
 import { claudeBuilder, claudeBuilderProblems, scriptBuilder, type Builder } from './builder-command.ts';
 import { runBuilder, runExists, type BuilderRunInput } from './builder-run.ts';
-import { harnessToken, NO_TOKEN_PROBLEM } from './harness-token.ts';
+import { harnessToken, NO_TOKEN_PROBLEM, type HarnessToken } from './harness-token.ts';
 import { PreflightFailed, preflightProblems } from './canary/canary.ts';
 import { roundMeter, type RoundMeter } from './model-meter.ts';
 import { NamespaceUnavailable } from './namespace.ts';
@@ -85,12 +85,14 @@ interface Checked {
   runs: PlannedRun[];
   /** The forwarder's token. Never printed, recorded or passed into a sandbox. */
   token: string | undefined;
+  /** Every token value the token scan looks for and redacts. */
+  scanned: string[];
   /** What to tell the owner about the token's source. */
   notices: string[];
 }
 
 /** The forwarder's token, and what keeps it from being read; a model builder needs one. */
-function checkToken(options: RoundOptions): { token: string | undefined; problems: string[]; notices: string[] } {
+function checkToken(options: RoundOptions): HarnessToken {
   const read = harnessToken(options.tokenFile);
   const usesModel = options.builder === 'claude';
   const isMissing = usesModel && read.token === undefined && read.problems.length === 0;
@@ -112,7 +114,7 @@ export function checkRound(options: RoundOptions): Checked {
   problems.push(...spendProblems(runs.length, options));
   problems.push(...runs.filter((planned) => runExists(options.round, planned.run)).map((planned) => `run ${planned.run} of round ${options.round} exists already; a round never overwrites a run`));
   if (problems.length > 0 || resolved.builder === undefined) throw new PreflightFailed(`round ${options.round} can't start:\n- ${problems.join('\n- ')}`);
-  return { briefs: read.briefs, builder: resolved.builder, runs, token: token.token, notices: token.notices };
+  return { briefs: read.briefs, builder: resolved.builder, runs, token: token.token, scanned: token.scanned, notices: token.notices };
 }
 
 /** Runs `work` over `items`, at most `limit` at once. */
@@ -195,7 +197,7 @@ export async function runRound(options: RoundOptions): Promise<boolean> {
     options,
     checked,
     meter: roundMeter(options.maxRoundUsd),
-    base: { builder: checked.builder, token: checked.token, tarballs, packagesDir, provenance: provenance(REPO_ROOT, tarballs), say },
+    base: { builder: checked.builder, token: checked.token, scanned: checked.scanned, tarballs, packagesDir, provenance: provenance(REPO_ROOT, tarballs), say },
   };
   let unavailable: NamespaceUnavailable | undefined;
   const results = await inPool(checked.runs, options.concurrency, async (planned): Promise<RunResult> => {

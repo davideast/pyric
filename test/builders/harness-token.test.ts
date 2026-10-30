@@ -93,13 +93,14 @@ describe('tokenFromText', () => {
 
 describe('harnessToken', () => {
   test('falls back to the environment when no file is named', () => {
-    expect(harnessToken(undefined, { [OAUTH_TOKEN_ENV]: ENV_TOKEN })).toEqual({ token: ENV_TOKEN, problems: [], notices: [] });
-    expect(harnessToken(undefined, { [OAUTH_TOKEN_ENV]: '' })).toEqual({ token: undefined, problems: [], notices: [] });
+    expect(harnessToken(undefined, { [OAUTH_TOKEN_ENV]: ENV_TOKEN })).toEqual({ token: ENV_TOKEN, scanned: [ENV_TOKEN], problems: [], notices: [] });
+    expect(harnessToken(undefined, { [OAUTH_TOKEN_ENV]: '' })).toEqual({ token: undefined, scanned: [], problems: [], notices: [] });
   });
 
   test('the file wins over the environment, and says so without either value', () => {
     const read = harnessToken(tokenFile(`${FAKE_TOKEN}\n`), { [OAUTH_TOKEN_ENV]: ENV_TOKEN });
     expect(read.token).toBe(FAKE_TOKEN);
+    expect(read.scanned).toEqual([FAKE_TOKEN, ENV_TOKEN]);
     expect(read.notices).toEqual([`--token-file wins over ${OAUTH_TOKEN_ENV}, which is also set; the harness uses the file's token`]);
     expect(JSON.stringify({ problems: read.problems, notices: read.notices })).not.toMatch(/made-up/);
   });
@@ -109,14 +110,14 @@ describe('harnessToken', () => {
     const read = harnessToken(path, { [OAUTH_TOKEN_ENV]: ENV_TOKEN });
     expect(read.token).toBeUndefined();
     expect(read.problems).toHaveLength(1);
-    expect(JSON.stringify(read)).not.toMatch(/made-up/);
+    expect(JSON.stringify({ problems: read.problems, notices: read.notices })).not.toMatch(/made-up/);
   });
 });
 
 describe('keep, with a token read from a file', () => {
-  test('no kept file holds the token, wherever the run wrote it', async () => {
-    const read = readTokenFile(tokenFile(`${FAKE_TOKEN}\n`));
-    if (!read.ok) throw new Error(read.problem);
+  test('no kept file holds the file’s token or the environment’s it won over, wherever the run wrote them', async () => {
+    const read = harnessToken(tokenFile(`${FAKE_TOKEN}\n`), { [OAUTH_TOKEN_ENV]: ENV_TOKEN });
+    if (read.token === undefined) throw new Error(read.problems.join('\n'));
     const root = scratch();
     const dirs = builderRunDirsAt(join(root, 'run'));
     createRunDirs(dirs.root);
@@ -126,9 +127,10 @@ describe('keep, with a token read from a file', () => {
     writeFileSync(dirs.briefJson, JSON.stringify(brief.value));
     writeFileSync(dirs.networkLog, `{"line":"${read.token}"}\n`);
     writeFileSync(join(dirs.logs, 'builder.log'), `said ${read.token}\n`);
+    writeFileSync(join(dirs.logs, 'env.log'), `env ${ENV_TOKEN}\n`);
     writeFileSync(join(dirs.app, 'leak.txt'), read.token);
-    const found = tokenFoundIn(dirs, read.token);
-    expect(found).toEqual(['app/leak.txt', 'brief.json', 'logs/builder.log', 'network.jsonl']);
+    const found = tokenFoundIn(dirs, read.scanned);
+    expect(found).toEqual(['app/leak.txt', 'brief.json', 'logs/builder.log', 'logs/env.log', 'network.jsonl']);
     const time = new Date('2026-10-30T00:00:00.000Z');
     const record = runRecord({
       identity: { run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', builder: 'script', maxBudgetUsd: 1, wallClockMinutes: 10 },
@@ -137,15 +139,17 @@ describe('keep, with a token read from a file', () => {
       startedAt: time,
       endedAt: time,
       exit: null,
-      report: { state: 'invalid', report: null, errors: [`the report quoted ${read.token}`] },
+      report: { state: 'invalid', report: null, errors: [`the report quoted ${read.token} and ${ENV_TOKEN}`] },
       record: [],
       channel: [],
       usage: null,
       tokenFoundIn: found,
     });
     const dataDir = join(root, 'data');
-    await keep(record, dirs, dataDir, read.token);
+    await keep(record, dirs, dataDir, read.scanned);
     expect(filesContaining(dataDir, FAKE_TOKEN)).toEqual([]);
+    expect(filesContaining(dataDir, ENV_TOKEN)).toEqual([]);
+    expect(readFileSync(join(dataDir, 'logs', 'env.log'), 'utf8')).toBe(`env ${REDACTED}\n`);
     expect(readFileSync(join(dataDir, 'report.json'), 'utf8')).toContain(REDACTED);
     expect(readFileSync(join(dataDir, 'logs', 'builder.log'), 'utf8')).toBe(`said ${REDACTED}\n`);
   });
