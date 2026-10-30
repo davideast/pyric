@@ -580,8 +580,12 @@ repo: its tests, its internals and its git history aren't there, and a
 `cat <repo>/packages/pyric/src/...` from the builder's shell finds no file.
 What a builder can read of pyric is what a real install of the published
 packages holds, and that includes their `src/` under
-`app/node_modules/pyric*` and `app/node_modules/@pyric/*`: the app-builder
-skill's rule, not the sandbox, keeps a builder out of it. The sandbox
+`app/node_modules/pyric*` and `app/node_modules/@pyric/*`. David decided it
+stays readable: the app-builder skill's rule, not the sandbox, keeps a
+builder out of it, and the verifier marks a run that reads it invalid, the
+same as one that planted a link. The harness keeps no record of a builder's
+tool calls, so the verifier looks for those reads in the report, `logs/`
+and the app (`.agents/skills/builder-verifier/SKILL.md`). The sandbox
 gets, at the paths the host has them, `test/builders` (the run
 phase, the recorder, the inventory, the docs export, the canary's plants),
 the few repo files that code imports (`test/apps`' process driver and its
