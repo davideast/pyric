@@ -7,6 +7,7 @@
  * stopped.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import type { ModelChannelEvent } from '../model-channel.ts';
 import type { BrowserEvent } from './chromium-netlog.ts';
 
 /** What the Node layer did about an event. */
@@ -67,7 +68,36 @@ export interface NamespaceConnectEvent {
   action: 'refused';
 }
 
-export type NetworkEvent = NodeNetworkEvent | NamespaceDnsEvent | NamespaceConnectEvent | (BrowserEvent & { time: string });
+/**
+ * The harness's note that a layer's record is cut short: the browser server
+ * was killed after its stop timed out, so its NetLog may end before the
+ * browser's last events. A reader takes that layer's missing events as
+ * unknown, not as absent.
+ */
+export interface IncompleteMarker {
+  time: string;
+  layer: 'browser';
+  kind: 'incomplete';
+  via: 'browser-server';
+  reason: string;
+  /** A marker is no Google-host or metadata event. */
+  google: false;
+  catalogGap: false;
+  metadata: false;
+}
+
+export type NetworkEvent = NodeNetworkEvent | NamespaceDnsEvent | NamespaceConnectEvent | ModelChannelEvent | IncompleteMarker | (BrowserEvent & { time: string });
+
+/** Appends a marker that the browser's part of the record may be cut short. */
+export function appendBrowserIncomplete(path: string, reason: string, time: Date = new Date()): void {
+  const marker: IncompleteMarker = { time: time.toISOString(), layer: 'browser', kind: 'incomplete', via: 'browser-server', reason, google: false, catalogGap: false, metadata: false };
+  appendFileSync(path, `${JSON.stringify(marker)}\n`);
+}
+
+/** Whether a record says the browser's events may be cut short. */
+export function browserRecordIncomplete(events: readonly NetworkEvent[]): boolean {
+  return events.some((event) => event.kind === 'incomplete' && event.layer === 'browser');
+}
 
 /** Every whole line of a network record. A missing file is an empty record. */
 export function readNetworkRecord(path: string): NetworkEvent[] {

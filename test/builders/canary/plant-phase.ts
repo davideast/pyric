@@ -15,8 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { Browser } from '@playwright/test';
 import { AppRun } from '../../apps/driver.ts';
 import { BROWSER_WS_ENV, startBrowserServer, type BrowserServer } from '../browser-server.ts';
-import { ownDirs } from '../namespace.ts';
-import { sandboxInventory } from '../sandbox-inventory.ts';
+import { assertInsideSandbox, inventoryLine } from '../sandbox-check.ts';
 import { recorderEnvironment, runDirsAt, type RunDirs } from '../scratch.ts';
 import type { CanaryObservations } from './verdict.ts';
 
@@ -104,22 +103,15 @@ async function plant(app: AppRun, recorded: Record<string, string>, browser: Bro
   return { node, browser: browserResult, unhooked: { plants: unhooked } };
 }
 
-/** Throws, before anything is planted, unless this process is inside a run's sandbox. */
-export function assertInsideSandbox(root: string): void {
-  const { problems, walked } = sandboxInventory(ownDirs(root));
-  if (problems.length > 0) throw new Error(`refusing to plant: this process is not inside a run's sandbox:\n- ${problems.join('\n- ')}`);
-  step(`sandbox inventory: loopback only, resolv.conf names 127.0.0.1, no capabilities, host binds read-only, no /mnt, /run/WSL or /run/user, no foreign socket in ${walked} directories`);
-}
-
 async function main(root: string): Promise<void> {
-  assertInsideSandbox(root);
+  step(inventoryLine(assertInsideSandbox(root, 'plant')));
   const dirs = runDirsAt(root);
   const recorded = recorderEnvironment(dirs.networkLog);
   const app = new AppRun('builders-canary', dirs.app, dirs.home, noDriverBrowser);
   let browser: BrowserServer | undefined;
   try {
     step('starting the harness browser');
-    browser = await startBrowserServer({ netLogPath: dirs.netLog, home: dirs.home });
+    browser = await startBrowserServer({ netLogPath: dirs.netLog, networkLog: dirs.networkLog, home: dirs.home });
     const output = await plant(app, recorded, browser);
     writeFileSync(join(dirs.root, PLANTS_FILE), `${JSON.stringify(output, null, 2)}\n`);
   } finally {
