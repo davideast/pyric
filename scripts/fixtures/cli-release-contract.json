@@ -169,6 +169,8 @@
     "./next/internal/analytics",
     "./next/internal/app",
     "./next/internal/app-check",
+    "./next/internal/app-ai-passthrough",
+    "./next/internal/app-ai-passthrough-app-check",
     "./next/internal/auth",
     "./next/internal/firestore",
     "./next/internal/firestore-lite",
