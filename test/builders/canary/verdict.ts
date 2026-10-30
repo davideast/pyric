@@ -15,6 +15,7 @@
 import { normalizeHostname } from '../../../packages/cli/src/google-endpoints.ts';
 import type { BrowserConnect, BrowserRequest } from '../recorder/chromium-netlog.ts';
 import { isGoogleOrMetadata, isLoopbackHost } from '../recorder/google-hosts.ts';
+import { EXPECTED_PLANTS, type ExpectedPlants } from './plant-names.ts';
 import { type NamespaceConnectEvent, type NamespaceDnsEvent, type NetworkEvent, type NodeNetworkEvent } from '../recorder/network-record.ts';
 
 export interface NodePlantResult {
@@ -225,7 +226,21 @@ function judgeCatchAllConnects(connects: readonly NamespaceConnectEvent[], unhoo
   return { name: 'sandbox: only the unhooked plants reached the catch-all listener', ok: unexpected.length === 0, detail };
 }
 
-export function judgeCanary(observations: CanaryObservations): CanaryVerdict {
+/** Fails a side whose report is missing an expected plant or names one not expected. */
+export function judgePlantSet(side: string, reported: readonly { name: string }[], expected: readonly string[]): CanaryCheck {
+  const names = reported.map((plant) => plant.name);
+  const missing = expected.filter((name) => !names.includes(name));
+  const unexpected = names.filter((name) => !expected.includes(name));
+  const ok = missing.length === 0 && unexpected.length === 0 && names.length === expected.length;
+  const parts = [
+    ...(missing.length > 0 ? [`missing: ${missing.join('; ')}`] : []),
+    ...(unexpected.length > 0 ? [`not expected: ${unexpected.join('; ')}`] : []),
+  ];
+  const detail = ok ? `${names.length} of ${expected.length}` : parts.join('; ') || `${names.length} reported, ${expected.length} expected`;
+  return { name: `${side}: every expected plant reported`, ok, detail };
+}
+
+export function judgeCanary(observations: CanaryObservations, expected: ExpectedPlants = EXPECTED_PLANTS): CanaryVerdict {
   const node = nodeEvents(observations.record);
   const segments = plantSegments(node);
   const ownEvents = (name: string) => segments.get(name) ?? [];
@@ -233,6 +248,9 @@ export function judgeCanary(observations: CanaryObservations): CanaryVerdict {
   const queries = namespaceQueries(observations.record);
   const connects = catchAllConnects(observations.record);
   const checks = [
+    judgePlantSet('node', observations.node.plants, expected.node),
+    judgePlantSet('browser', observations.browser.plants, expected.browser),
+    judgePlantSet('unhooked', observations.unhooked.plants, expected.unhooked),
     ...observations.node.plants.map((plant) => judgeNodePlant(plant, ownEvents(plant.name))),
     judgeNodeLocal(observations.node.local, ownEvents(observations.node.local.name)),
     judgeNoAllowedGoogle(node),

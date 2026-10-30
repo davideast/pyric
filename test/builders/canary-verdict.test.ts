@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { judgeBrowserPlant, judgeCanary, judgeNodeLocal, judgeNodePlant, plantSegments, type CanaryObservations } from './canary/verdict.ts';
+import { readFileSync } from 'node:fs';
+import { EXPECTED_PLANTS, type ExpectedPlants } from './canary/plant-names.ts';
+import { judgeBrowserPlant, judgeCanary as judgeAgainst, judgeNodeLocal, judgeNodePlant, judgePlantSet, plantSegments, type CanaryObservations } from './canary/verdict.ts';
 import type { NetworkEvent, NodeNetworkEvent } from './recorder/network-record.ts';
 
 const TIME = '2026-10-29T00:00:00.000Z';
@@ -78,6 +80,16 @@ function passing(): CanaryObservations {
     ],
   };
 }
+
+/** The plants `passing()` reports, as the expected set its verdicts are judged against. */
+function expectedOf(observations: CanaryObservations): ExpectedPlants {
+  const names = (plants: readonly { name: string }[]) => plants.map((plant) => plant.name);
+  return { node: names(observations.node.plants), browser: names(observations.browser.plants), unhooked: names(observations.unhooked.plants) };
+}
+
+const FIXTURE_PLANTS = expectedOf(passing());
+
+const judgeCanary = (observations: CanaryObservations) => judgeAgainst(observations, FIXTURE_PLANTS);
 
 function failedChecks(observations: CanaryObservations): string[] {
   return judgeCanary(observations).checks.filter((check) => !check.ok).map((check) => check.name);
@@ -201,6 +213,39 @@ describe('judgeCanary', () => {
     observations.record.push(tcp('142.250.0.1:443', '142.250.0.1'));
     expect(failedChecks(observations)).toEqual(['browser: no TCP socket left loopback']);
   });
+});
+
+describe('the expected plant set', () => {
+  test('fails a side that reported no plants, where every per-plant check would pass trivially', () => {
+    const observations = passing();
+    observations.node.plants = [];
+    observations.browser.plants = [];
+    observations.unhooked.plants = [];
+    const failed = failedChecks(observations);
+    for (const side of ['node', 'browser', 'unhooked']) expect(failed).toContain(`${side}: every expected plant reported`);
+  });
+
+  test('names a missing plant and one not expected', () => {
+    const check = judgePlantSet('node', [{ name: 'a' }, { name: 'c' }], ['a', 'b']);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe('missing: b; not expected: c');
+  });
+
+  test('fails a plant reported twice', () => {
+    expect(judgePlantSet('node', [{ name: 'a' }, { name: 'a' }], ['a']).ok).toBe(false);
+  });
+
+  const sources = [
+    ['node', './canary/app/node-plants.mjs', EXPECTED_PLANTS.node],
+    ['browser', './canary/browser-plants.ts', EXPECTED_PLANTS.browser],
+    ['unhooked', './canary/plant-phase.ts', EXPECTED_PLANTS.unhooked],
+  ] as const;
+  for (const [side, file, names] of sources) {
+    test(`every expected ${side} plant is planted by ${file}`, () => {
+      const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+      for (const name of names) expect(source).toContain(`'${name}'`);
+    });
+  }
 });
 
 describe('plantSegments', () => {
