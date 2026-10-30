@@ -4,8 +4,12 @@
  * network record, look for the token in everything it keeps, build the run's
  * record, keep the run's data and append its measurement line.
  *
+ * First it gives the owner back its permissions across the run root
+ * (`owner-access.ts`), since the sandbox's uid 0 is the harness's own uid.
  * The measurement line is appended as soon as the record is built, before
- * the token scan and the keep, so no later failure loses the run's spend.
+ * the token scan and the keep, so a later failure can't lose the run's
+ * spend. A merge or a write that still fails skips its file, like a
+ * planted one, and the record says why.
  *
  * When the sandbox left a link on a file the harness would touch
  * (`planted-links.ts`), the harness skips the merges and every such file in
@@ -20,6 +24,7 @@ import type { Brief } from './brief.ts';
 import { appendMeasurement } from './measurement.ts';
 import type { ModelChannelEvent } from './model-channel.ts';
 import { parseJsonText } from './parse.ts';
+import { restoreOwnerAccess } from './owner-access.ts';
 import { assertNoPlantedLinks, plantedLinks } from './planted-links.ts';
 import type { Provenance } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
@@ -151,28 +156,53 @@ function readRunFiles(dirs: BuilderRunDirs, planted: Skipped): RunFiles {
   };
 }
 
-const plantedNotice = (run: string, paths: readonly string[]) => `${run}: the sandbox left a link at ${paths.join(', ')}; the harness skipped the merges and those files, and the run is invalid`;
+const skippedNotice = (run: string, entries: readonly string[]) => `${run}: the harness skipped ${entries.join('; ')}, and the run is invalid`;
+
+/** Files the harness skips, by path, with why. */
+type SkippedFiles = Map<string, string>;
+
+/** Runs `step`; when it throws, skips `path` and records why. */
+function attempt(skipped: SkippedFiles, path: string, what: string, step: () => void): void {
+  try {
+    step();
+  } catch (error) {
+    const message = (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
+    skipped.set(path, `${what} failed: ${message}`);
+  }
+}
+
+/** The merges and the phase log's write, for a run root with no planted link. */
+function settleRunRoot(end: RunEnd, skipped: SkippedFiles): void {
+  const { dirs, channel } = end;
+  attempt(skipped, dirs.networkLog, 'the merge', () => mergeRecords(dirs, channel));
+  attempt(skipped, join(dirs.logs, RUN_PHASE_LOG), 'the write', () => writeFileSync(join(dirs.logs, RUN_PHASE_LOG), end.phaseOutput));
+}
+
+/** Each skipped file as `<path>: <why>`, relative to the run root. */
+function skippedEntries(root: string, skipped: SkippedFiles): string[] {
+  const inRoot = (text: string) => text.split(`${root}/`).join('');
+  return [...skipped].map(([path, why]) => `${relative(root, path)}: ${inRoot(why)}`).sort();
+}
 
 /** The kept files that hold the token: the run root's, and a planted run's phase output, which is kept apart. */
 function tokenFound(input: FinishInput, end: RunEnd, planted: Skipped): string[] {
   const found = tokenFoundIn(end.dirs, input.scanned, planted);
-  const isPlantedRun = planted.size > 0;
+  const isKeptApart = planted.size > 0;
   const outputHoldsToken = input.scanned.some((secret) => end.phaseOutput.includes(secret));
-  return isPlantedRun && outputHoldsToken ? [...found, KEPT_PHASE_OUTPUT].sort() : found;
+  return isKeptApart && outputHoldsToken ? [...found, KEPT_PHASE_OUTPUT].sort() : found;
 }
 
 /** Ends a run whose sandbox has stopped: merges, measures, scans and keeps it. Resolves its record. */
 export async function finishRun(input: FinishInput, end: RunEnd): Promise<RunRecord> {
   const { dirs, channel } = end;
-  const plantedPaths = plantedLinks(dirs.root, harnessTouchedPaths(dirs)).map((link) => link.path);
-  const planted: Skipped = new Set(plantedPaths);
-  const hasPlantedLinks = planted.size > 0;
-  const plantedNames = plantedPaths.map((path) => relative(dirs.root, path)).sort();
-  if (hasPlantedLinks) input.say(plantedNotice(input.identity.run, plantedNames));
-  else {
-    mergeRecords(dirs, channel);
-    writeFileSync(join(dirs.logs, RUN_PHASE_LOG), end.phaseOutput);
-  }
+  restoreOwnerAccess(dirs.root, new Set([join(dirs.app, 'node_modules')]));
+  const skipped: SkippedFiles = new Map(plantedLinks(dirs.root, harnessTouchedPaths(dirs)).map((link) => [link.path, link.problem]));
+  const hasPlantedLinks = skipped.size > 0;
+  if (!hasPlantedLinks) settleRunRoot(end, skipped);
+  const isPhaseOutputApart = hasPlantedLinks || skipped.has(join(dirs.logs, RUN_PHASE_LOG));
+  const entries = skippedEntries(dirs.root, skipped);
+  if (entries.length > 0) input.say(skippedNotice(input.identity.run, entries));
+  const planted: Skipped = new Set(skipped.keys());
   const measured = runRecord({
     identity: input.identity,
     brief: input.brief,
@@ -182,13 +212,13 @@ export async function finishRun(input: FinishInput, end: RunEnd): Promise<RunRec
     ...readRunFiles(dirs, planted),
     channel,
     tokenFoundIn: [],
-    plantedLinks: plantedNames,
+    plantedLinks: entries,
   });
   appendMeasurement(end.measurements, measurementLine(measured));
   const found = tokenFound(input, end, planted);
   if (found.length > 0) input.say(tokenNotice(input.identity.run, found));
   const record: RunRecord = { ...measured, harness: { ...measured.harness, tokenFoundIn: found } };
   await keep(record, dirs, end.dataDir, input.scanned, planted);
-  if (hasPlantedLinks) writeFileSync(join(end.dataDir, KEPT_PHASE_OUTPUT), redactedText(end.phaseOutput, input.scanned));
+  if (isPhaseOutputApart) writeFileSync(join(end.dataDir, KEPT_PHASE_OUTPUT), redactedText(end.phaseOutput, input.scanned));
   return record;
 }

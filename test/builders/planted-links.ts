@@ -7,7 +7,7 @@
  * checks that the file is absent or a plain file, and that every directory
  * from the run root down to it is a plain directory.
  */
-import { lstatSync } from 'node:fs';
+import { lstatSync, type Stats } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 /** A path the harness was about to touch is, or runs through, a link or something other than a plain file. */
@@ -17,8 +17,19 @@ export class PlantedLink extends Error {
   }
 }
 
+/** `path`'s stat, or why it can't be read: a builder can take the owner's search permission away. */
+function statOrProblem(path: string): { stat?: Stats; problem?: string } {
+  try {
+    return { stat: lstatSync(path, { throwIfNoEntry: false }) };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? String(error);
+    return { problem: `${path} could not be checked (${code})` };
+  }
+}
+
 function componentProblem(path: string, isLast: boolean): string | undefined {
-  const stat = lstatSync(path, { throwIfNoEntry: false });
+  const { stat, problem } = statOrProblem(path);
+  if (problem !== undefined) return problem;
   if (stat === undefined) return undefined;
   if (stat.isSymbolicLink()) return `${path} is a link`;
   const isExpected = isLast ? stat.isFile() : stat.isDirectory();

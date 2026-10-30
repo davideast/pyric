@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mergeRecords, readPhaseResult } from './run-finish.ts';
@@ -46,6 +46,19 @@ describe('plantedLinkProblem', () => {
     expect(plantedLinkProblem(root, join(root, 'report.json'))).toBe(`${join(root, 'report.json')} is a link`);
     expect(plantedLinkProblem(root, join(root, 'netlog-dir'))).toContain('is not a plain file');
     expect(() => assertNoPlantedLinks(root, [join(root, 'report.json')])).toThrow(PlantedLink);
+  });
+});
+
+describe.skipIf((process.getuid?.() ?? -1) === 0)('plantedLinkProblem on a directory it cannot search', () => {
+  test('names the path it could not check, instead of throwing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'planted-'));
+    mkdirSync(join(root, 'logs'));
+    chmodSync(join(root, 'logs'), 0o000);
+    try {
+      expect(plantedLinkProblem(root, join(root, 'logs', 'builder.log'))).toBe(`${join(root, 'logs', 'builder.log')} could not be checked (EACCES)`);
+    } finally {
+      chmodSync(join(root, 'logs'), 0o700);
+    }
   });
 });
 

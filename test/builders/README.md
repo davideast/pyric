@@ -192,17 +192,24 @@ forwarder holds no token and refuses every request.
    `network.jsonl`, `logs/` and `app.tgz` (the app without `node_modules`).
 7. Appends the run's line to `<data root>/measurements.jsonl`.
 
-The measurement line goes in as soon as the run's record is built, before
-the token scan and the copies, so a later failure (a file the harness
-can't read, say) can't lose the run's spend.
+The sandbox's uid 0 is the harness's own uid, so a builder can take the
+owner's permissions away inside the run root. Before step 5, the harness
+gives the owner back read and write on every file and search on every
+directory there, following no link (`owner-access.ts`). The measurement
+line goes in as soon as the run's record is built, before the token scan
+and the copies. A failure after that point, such as a file the harness
+still can't read, stops the copies there: `report.json` is kept, but the
+copies after the unreadable file, `app.tgz` and `phase-output.log` are not.
 
 When the sandbox left a link on a file step 5 or 6 would read or append to
-(`planted-links.ts`), the run still gets its record and its measurement
-line. The harness skips the merges and every such file in the reads, the
-token scan and the copies, and keeps the phase's output, redacted, as
+(`planted-links.ts`), or the harness can't check it, merge into it or
+write it, the run still gets its record and its measurement line. The
+harness skips the merges for a link, and every such file in the reads,
+the token scan and the copies, and keeps the phase's output, redacted, as
 `phase-output.log` beside `report.json`, where no file of the run root is
-copied. `harness.plantedLinks` names the files, relative to the run root,
-and the verifier treats the run as invalid.
+copied. `harness.plantedLinks` names each file, relative to the run root,
+with why (`network.jsonl: network.jsonl is a link`), and the verifier
+treats the run as invalid.
 
 `round` exits 0 when every run ended with a valid report and no planted
 link, 1 otherwise.
