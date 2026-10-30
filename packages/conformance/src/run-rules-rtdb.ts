@@ -412,6 +412,11 @@ function isTimeout(error: unknown): boolean {
   return error instanceof Error && error.name === 'TimeoutError';
 }
 
+/** A dry run answered with a status that a repeat would not change. */
+function isFinalAnswer(res: DryRunResult | { timedOut: Error }): res is DryRunResult {
+  return 'status' in res && res.status < 500;
+}
+
 /** One dry run, with a request timeout reported as a status-less result. */
 async function dryRunOnce(
   endpoint: RulesDeployEndpoint,
@@ -434,8 +439,7 @@ async function dryRunWithServerErrorRetry(
 ): Promise<DryRunResult> {
   let res = await dryRunOnce(endpoint, rules);
   for (let attempt = 1; attempt < DRY_RUN_ATTEMPTS; attempt += 1) {
-    const isRetryable = 'timedOut' in res || res.status >= 500;
-    if (!isRetryable) return res;
+    if (isFinalAnswer(res)) return res;
     res = await dryRunOnce(endpoint, rules);
   }
   if ('timedOut' in res) throw res.timedOut;
