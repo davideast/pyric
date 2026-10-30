@@ -5,7 +5,7 @@
     "firestore#MD1"
   ],
   "description": "Reading a document that does not exist from a database the project lacks (a valid id, an id outside the naming rules, and the keyword `default`) through the client SDK (unauthenticated), the Admin SDK and the REST API, with `(default)` and the existing named database `probes` as controls; then, against the missing databases only, a client setDoc, the first event of a client onSnapshot, and an Admin set(). No write targets a database that exists, so nothing is created.",
-  "observedAt": "2026-10-28T03:12:16.048Z",
+  "observedAt": "2026-10-30T16:32:07.995Z",
   "fbSdkVersion": "12.13.0",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
@@ -38,7 +38,7 @@
   },
   "diagnostics": {
     "absent-valid-id": {
-      "databaseId": "pyric-absent-7j7abqz7",
+      "databaseId": "pyric-absent-x3718pgo",
       "client": {
         "outcome": "error",
         "code": "unavailable",
@@ -47,17 +47,17 @@
       "admin": {
         "outcome": "error",
         "code": "5",
-        "message": "5 NOT_FOUND: The database pyric-absent-7j7abqz7 does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+        "message": "5 NOT_FOUND: The database pyric-absent-x3718pgo does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
       },
       "rest": {
         "outcome": "error",
         "status": 404,
         "code": "NOT_FOUND",
-        "message": "The database pyric-absent-7j7abqz7 does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+        "message": "The database pyric-absent-x3718pgo does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
       }
     },
     "absent-valid-id:writes": {
-      "databaseId": "pyric-absent-7j7abqz7",
+      "databaseId": "pyric-absent-x3718pgo",
       "clientSetDoc": {
         "outcome": "timeout"
       },
@@ -65,12 +65,12 @@
         "kind": "snapshot",
         "fromCache": true,
         "exists": false,
-        "afterMs": 188
+        "afterMs": 573
       },
       "adminSet": {
         "outcome": "error",
         "code": "5",
-        "message": "5 NOT_FOUND: The database pyric-absent-7j7abqz7 does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
+        "message": "5 NOT_FOUND: The database pyric-absent-x3718pgo does not exist for project digame-mas Please visit https://console.cloud.google.com/datastore/setup?project=digame-mas to add a Cloud Datastore or Cloud Firestore database. "
       }
     },
     "absent-invalid-id": {
@@ -101,7 +101,7 @@
         "kind": "snapshot",
         "fromCache": true,
         "exists": false,
-        "afterMs": 222
+        "afterMs": 411
       },
       "adminSet": {
         "outcome": "error",
@@ -137,7 +137,7 @@
         "kind": "snapshot",
         "fromCache": true,
         "exists": false,
-        "afterMs": 289
+        "afterMs": 433
       },
       "adminSet": {
         "outcome": "error",
@@ -159,7 +159,7 @@
         "outcome": "missing",
         "status": 404,
         "code": "NOT_FOUND",
-        "message": "Document \"projects/digame-mas/databases/(default)/documents/__pyric_named_db_probe/7j7abqz7\" not found."
+        "message": "Document \"projects/digame-mas/databases/(default)/documents/__pyric_named_db_probe/x3718pgo\" not found."
       }
     },
     "control-probes": {
@@ -176,7 +176,7 @@
         "outcome": "missing",
         "status": 404,
         "code": "NOT_FOUND",
-        "message": "Document \"projects/digame-mas/databases/probes/documents/__pyric_named_db_probe/7j7abqz7\" not found."
+        "message": "Document \"projects/digame-mas/databases/probes/documents/__pyric_named_db_probe/x3718pgo\" not found."
       }
     }
   }
