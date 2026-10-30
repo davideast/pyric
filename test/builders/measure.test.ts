@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatSummary, percentile, summarize } from './measure.ts';
+import { builderCost, formatSummary, percentile, summarize } from './measure.ts';
 import { appendMeasurement, readMeasurements, type BuilderMeasurement } from './measurement.ts';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'measure', 'measurements.jsonl');
@@ -41,8 +41,16 @@ describe('summarize', () => {
     expect(summarize(fixtureLines()).nightlyCapUsd).toBeNull();
   });
 
-  test('names a verification whose run has no builder line', () => {
-    expect(summarize(fixtureLines()).orphanVerifications).toEqual(['x-9']);
+  test('names a verification whose run has no builder line in its round, and never joins across rounds', () => {
+    expect(summarize(fixtureLines()).orphanVerifications).toEqual(['r1/x-9', 'r2/r1-1-sonnet']);
+  });
+
+  test('counts a run claude gave no cost for at what the forwarder metered, never as free', () => {
+    const [first] = fixtureLines().filter((line): line is BuilderMeasurement => line.kind === 'builder');
+    if (first === undefined) throw new Error('the fixture has no builder line');
+    const unpriced = { ...first, run: 'r1-8-haiku', costUsd: null, meteredCostUsd: 4 };
+    expect(builderCost(unpriced)).toBe(4);
+    expect(summarize([first, unpriced]).models[0]?.costPerBuilderRun).toBe(2.5);
   });
 
   test('chooses no nightly model before any confirmed finding, and leaves unjudged figures empty', () => {
@@ -70,7 +78,7 @@ describe('formatSummary', () => {
     expect(header).toStartWith('model ');
     expect(haiku).toMatch(/^haiku\s+3\s+2\s+\$1\.50\s+\$0\.50\s+1\.00\s+50%\s+\$2\.00\s+\$2\.50\s+4$/);
     expect(sonnet).toMatch(/^sonnet\s+1\s+1\s+\$3\.00\s+\$1\.00\s+3\.00\s+0%\s+\$1\.33\s+\$4\.00\s+0$/);
-    expect(text).toContain('\nnightly model: sonnet\nnightly cap: $24.00\nverifications with no builder run: x-9');
+    expect(text).toContain('\nnightly model: sonnet\nnightly cap: $24.00\nverifications with no builder run: r1/x-9, r2/r1-1-sonnet');
   });
 });
 

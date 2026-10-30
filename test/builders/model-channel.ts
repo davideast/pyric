@@ -1,155 +1,127 @@
 /**
  * The model channel: the one way out of a builder run's sandbox, to the
- * model API alone. A builder is `claude -p`, which runs inside the sandbox
- * with every tool it starts, and the sandbox has only loopback, so the model
- * API needs a path of its own. Two halves:
+ * model API alone, carrying no credential the sandbox could read. A builder
+ * is `claude -p`, which runs inside the sandbox with every tool it starts,
+ * and the sandbox has only loopback, so the model API needs a path of its
+ * own. Two halves:
  *
- * - the forwarder, in the harness, outside the sandbox: listens on a Unix
- *   socket in the run directory, reads one HTTP `CONNECT host:port` per
- *   connection, and tunnels it only when the target is the model API
- *   (`api.anthropic.com:443`). Anything else gets `403` and is never dialed.
- *   Each CONNECT, tunneled or refused, is a line of the run's network record.
  * - the bridge, inside the sandbox: listens on 127.0.0.1 and pipes each
- *   connection to that socket. The builder reaches it through `HTTPS_PROXY`.
+ *   connection to a Unix socket in the run directory. claude reaches it as
+ *   `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`, in plain HTTP, holding
+ *   only a placeholder token (`builder-command.ts`).
+ * - the forwarder, in the harness, outside the sandbox (`model-forwarder.ts`):
+ *   listens on that socket, refuses anything but the Messages API requests
+ *   claude needs, puts the real token on the ones it allows, and sends them
+ *   to `api.anthropic.com:443` over TLS.
  *
- * The decision is made outside the sandbox, where nothing a builder runs can
- * change it. TLS runs end to end between the client and the model API; the
- * forwarder sees only the CONNECT line.
+ * Each connection is one line of the run's channel record. Once the sandbox
+ * has stopped, `round` appends those lines to the run's `network.jsonl`.
  */
-import { appendFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import net from 'node:net';
+import type { RequestHead } from './http-head.ts';
+import type { RefusalReason } from './model-policy.ts';
+import { pathOf } from './model-policy.ts';
 import { classifyHost, type HostClass } from './recorder/google-hosts.ts';
+import type { MeteredUsage } from './usage-tap.ts';
+import type { Tokens } from './usage.ts';
 
-export interface ModelTarget {
-  host: string;
-  port: number;
-}
+/** How a forwarded request ended when it did not end with the model API's whole response. */
+export type ForwardNote = 'upstream-error' | 'client-closed';
 
-/** The only target the forwarder tunnels to. */
-export const MODEL_API: ModelTarget = { host: 'api.anthropic.com', port: 443 };
+export type ChannelOutcome =
+  | { action: 'forwarded'; reason: ForwardNote | null; status: number | null; usage: MeteredUsage | undefined; costUsd: number | null }
+  | { action: 'refused'; reason: RefusalReason; status: number | null; usage: undefined; costUsd: null };
 
-/** One CONNECT the forwarder read, as a line of `network.jsonl`. */
+/** One connection to the forwarder, as a line of `network.jsonl`. */
 export interface ModelChannelEvent extends HostClass {
   time: string;
   layer: 'model-channel';
-  kind: 'connect';
+  kind: 'request';
   via: 'forwarder';
-  port: number;
-  action: 'allowed' | 'refused';
+  /** The first line the client sent, shortened and escaped; empty when it sent nothing. */
+  requestLine: string;
+  method: string | null;
+  path: string | null;
+  action: ChannelOutcome['action'];
+  reason: RefusalReason | ForwardNote | null;
+  /** The status the builder got; null when the connection closed first. */
+  status: number | null;
+  /** The model the response named, and the usage and cost the forwarder metered from it. */
+  model: string | null;
+  tokens: Tokens | null;
+  costUsd: number | null;
 }
 
-/** The most a CONNECT head may hold before the forwarder gives up on it. */
-const MAX_HEAD_BYTES = 8192;
-const HEAD_END = '\r\n\r\n';
-
-/** The target of a `CONNECT host:port HTTP/1.x` head, or undefined for anything else. */
-export function connectTarget(head: string): ModelTarget | undefined {
-  const requestLine = head.split('\r\n')[0] ?? '';
-  const match = /^CONNECT ([A-Za-z0-9.-]+):(\d{1,5}) HTTP\/1\.[01]$/.exec(requestLine);
-  if (match === null) return undefined;
-  return { host: (match[1] ?? '').toLowerCase(), port: Number(match[2]) };
+export function channelEvent(host: string, requestLine: string, head: RequestHead | undefined, outcome: ChannelOutcome, time: Date = new Date()): ModelChannelEvent {
+  return {
+    time: time.toISOString(),
+    layer: 'model-channel',
+    kind: 'request',
+    via: 'forwarder',
+    ...classifyHost(host),
+    requestLine,
+    method: head?.method ?? null,
+    path: head === undefined ? null : pathOf(head.target),
+    action: outcome.action,
+    reason: outcome.reason,
+    status: outcome.status,
+    model: outcome.usage?.model ?? null,
+    tokens: outcome.usage?.tokens ?? null,
+    costUsd: outcome.costUsd,
+  };
 }
 
-export function isAllowedTarget(target: ModelTarget | undefined, allowed: ModelTarget): boolean {
-  return target !== undefined && target.host === allowed.host.toLowerCase() && target.port === allowed.port;
+/** The forwarder's record of a run, line by line. The forwarder alone writes it. */
+export function readChannelRecord(path: string): ModelChannelEvent[] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf8').split('\n').filter((line) => line.trim() !== '').map((line) => JSON.parse(line) as ModelChannelEvent);
 }
 
-export function channelEvent(target: ModelTarget, action: ModelChannelEvent['action'], time: Date = new Date()): ModelChannelEvent {
-  return { time: time.toISOString(), layer: 'model-channel', kind: 'connect', via: 'forwarder', ...classifyHost(target.host), port: target.port, action };
-}
-
-export interface ForwarderOptions {
-  socketPath: string;
-  networkLog: string;
-  /** What a CONNECT may name. */
-  allowed: ModelTarget;
-  /** Where an allowed CONNECT is dialed; the allowed target itself unless a test points it at a local server. */
-  upstream?: ModelTarget;
+/** The metered cost of a run: the sum of its forwarded requests' costs. */
+export function meteredCostUsd(events: readonly ModelChannelEvent[]): number {
+  return events.reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
 }
 
 export interface Listening {
   close(): Promise<void>;
 }
 
-/** Reads the CONNECT head, then hands the socket and any bytes after the head on. */
-function readHead(socket: net.Socket, onHead: (head: string, rest: Buffer) => void): void {
-  let buffered = Buffer.alloc(0);
-  const onData = (chunk: Buffer) => {
-    buffered = Buffer.concat([buffered, chunk]);
-    const end = buffered.indexOf(HEAD_END);
-    const headEnded = end !== -1;
-    const headTooLong = !headEnded && buffered.length > MAX_HEAD_BYTES;
-    if (headTooLong) {
-      socket.destroy();
-      return;
-    }
-    if (!headEnded) return;
-    socket.off('data', onData);
-    onHead(buffered.subarray(0, end).toString('latin1'), buffered.subarray(end + HEAD_END.length));
-  };
-  socket.on('data', onData);
-  socket.on('error', () => socket.destroy());
-}
-
-function tunnel(client: net.Socket, upstream: ModelTarget, rest: Buffer): void {
-  const remote = net.connect(upstream.port, upstream.host, () => {
-    client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-    if (rest.length > 0) remote.write(rest);
-    client.pipe(remote).pipe(client);
-  });
-  remote.on('error', () => {
-    client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-  });
-  client.on('close', () => remote.destroy());
-}
-
-/** Starts the forwarder on `socketPath`. */
-export function startModelForwarder(options: ForwarderOptions): Promise<Listening> {
-  const server = net.createServer((client) => {
-    readHead(client, (head, rest) => {
-      const target = connectTarget(head);
-      const allowed = isAllowedTarget(target, options.allowed);
-      if (target !== undefined) appendFileSync(options.networkLog, `${JSON.stringify(channelEvent(target, allowed ? 'allowed' : 'refused'))}\n`);
-      if (allowed) tunnel(client, options.upstream ?? options.allowed, rest);
-      else client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
-    });
-  });
-  return listen(server, (ready) => server.listen(options.socketPath, ready));
-}
-
-/** Starts the bridge on a free loopback port, piping each connection to `socketPath`. */
-export async function startBridge(socketPath: string): Promise<Listening & { port: number }> {
-  const server = net.createServer((client) => {
-    const forwarder = net.connect(socketPath);
-    forwarder.on('error', () => client.destroy());
-    client.on('error', () => forwarder.destroy());
-    client.pipe(forwarder).pipe(client);
-  });
-  const listening = await listen(server, (ready) => server.listen(0, '127.0.0.1', ready));
-  const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('the bridge has no port');
-  return { ...listening, port: address.port };
-}
-
-function listen(server: net.Server, start: (ready: () => void) => void): Promise<Listening> {
+/** Starts `server`, tracking its sockets so `close` ends every connection still open. */
+export function listen(start: (server: net.Server) => void, onConnection: (socket: net.Socket) => void): Promise<Listening & { server: net.Server }> {
   const sockets = new Set<net.Socket>();
-  server.on('connection', (socket) => {
+  const server = net.createServer((socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
+    onConnection(socket);
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    start(() => resolve({
+    server.once('listening', () => resolve({
+      server,
       close: () => new Promise<void>((done) => {
         for (const socket of sockets) socket.destroy();
         server.close(() => done());
       }),
     }));
+    start(server);
   });
 }
 
-/** What a builder's environment needs to reach the model API through the bridge. */
-export function proxyEnvironment(bridgePort: number): Record<string, string> {
-  const proxy = `http://127.0.0.1:${bridgePort}`;
-  return { HTTPS_PROXY: proxy, https_proxy: proxy, NO_PROXY: 'localhost,127.0.0.1,::1', no_proxy: 'localhost,127.0.0.1,::1' };
+/** Starts the bridge on a free loopback port, piping each connection to `socketPath`. */
+export async function startBridge(socketPath: string): Promise<Listening & { port: number }> {
+  const listening = await listen((server) => server.listen(0, '127.0.0.1'), (client) => {
+    const forwarder = net.connect(socketPath);
+    forwarder.on('error', () => client.destroy());
+    client.on('error', () => forwarder.destroy());
+    client.pipe(forwarder).pipe(client);
+  });
+  const address = listening.server.address();
+  if (address === null || typeof address === 'string') throw new Error('the bridge has no port');
+  return { close: listening.close, port: address.port };
+}
+
+/** Where a builder finds the model API: the bridge, in plain HTTP on the sandbox's loopback. */
+export function channelEnvironment(bridgePort: number): Record<string, string> {
+  return { ANTHROPIC_BASE_URL: `http://127.0.0.1:${bridgePort}` };
 }

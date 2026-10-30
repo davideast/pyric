@@ -6,7 +6,9 @@
  * `fixtures/fake-builder.mjs`).
  *
  * Either way the builder gets the same environment: where its brief, docs
- * and report are, the model and the cap it runs under.
+ * and report are, the model and the cap it runs under, and, from the run
+ * phase, `ANTHROPIC_BASE_URL`, the model channel's bridge. No builder gets
+ * the token.
  */
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -26,14 +28,18 @@ export interface BuilderRun {
 export interface BuilderInvocation {
   command: string;
   args: string[];
+  /** Everything the builder gets besides the recorder's and the channel's variables. Holds no secret. */
   env: Record<string, string>;
-  /** Variables the builder gets from the harness's own environment, never written to a file: a token. */
-  passEnv: string[];
 }
 
 export interface Builder {
   /** What the run reports as its builder. */
   label: string;
+  /**
+   * Whether the builder talks to the model. Only then does the forwarder
+   * hold the harness's token; for any other builder it refuses every request.
+   */
+  usesModel: boolean;
   /** Files and directories the sandbox must bind read-only for this builder. */
   readOnly: string[];
   invocation(run: BuilderRun): BuilderInvocation;
@@ -68,8 +74,22 @@ export interface ClaudeBuilderOptions {
   systemPrompt: string;
 }
 
-/** The token from `claude setup-token`; the run's HOME holds no login. */
+/**
+ * The token from `claude setup-token`, in the harness's own environment. It
+ * never enters the sandbox: the forwarder outside reads it from here.
+ */
 export const OAUTH_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
+
+/**
+ * What claude holds in the token's place. Set as `CLAUDE_CODE_OAUTH_TOKEN`,
+ * it makes claude authenticate as a subscription: it sends the placeholder
+ * as `Authorization: Bearer`, with the OAuth capability in `anthropic-beta`,
+ * to `ANTHROPIC_BASE_URL` (https://code.claude.com/docs/en/authentication,
+ * "Authentication precedence"; https://code.claude.com/docs/en/env-vars).
+ * The forwarder swaps it for the real token. `ANTHROPIC_AUTH_TOKEN` would
+ * send the same header without that capability, as a gateway's key.
+ */
+export const PLACEHOLDER_TOKEN = 'pyric-builder-placeholder-not-a-token';
 
 /** Turns off Claude Code's own traffic besides the model API, which the sandbox would refuse anyway. */
 const QUIET_CLAUDE: Record<string, string> = {
@@ -83,6 +103,7 @@ export function claudeBuilder(options: ClaudeBuilderOptions): Builder {
   const install = dirname(realpathSync(options.claude));
   return {
     label: 'claude',
+    usesModel: true,
     readOnly: [install, options.settings, options.systemPrompt],
     invocation: (run) => ({
       command: realpathSync(options.claude),
@@ -94,8 +115,7 @@ export function claudeBuilder(options: ClaudeBuilderOptions): Builder {
         '--settings', options.settings,
         '--append-system-prompt-file', options.systemPrompt,
       ],
-      env: { ...builderEnvironment(run), ...QUIET_CLAUDE },
-      passEnv: [OAUTH_TOKEN_ENV],
+      env: { ...builderEnvironment(run), ...QUIET_CLAUDE, [OAUTH_TOKEN_ENV]: PLACEHOLDER_TOKEN },
     }),
   };
 }
@@ -104,12 +124,13 @@ export function claudeBuilder(options: ClaudeBuilderOptions): Builder {
 export function scriptBuilder(script: string): Builder {
   return {
     label: `script ${script}`,
+    usesModel: false,
     readOnly: [],
-    invocation: (run) => ({ command: 'node', args: [script], env: builderEnvironment(run), passEnv: [] }),
+    invocation: (run) => ({ command: 'node', args: [script], env: builderEnvironment(run) }),
   };
 }
 
-/** What stops a claude builder from starting, said before anything runs. */
+/** What stops a claude builder from starting, said before anything runs. It never says the token's value. */
 export function claudeBuilderProblems(options: Partial<ClaudeBuilderOptions>, env: NodeJS.ProcessEnv = process.env): string[] {
   const problems: string[] = [];
   if (options.claude === undefined) problems.push('no claude on PATH');

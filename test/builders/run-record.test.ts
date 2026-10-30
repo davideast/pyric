@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseBrief, type Brief } from './brief.ts';
 import { builderMeasurementSchema } from './measurement.ts';
+import { channelEvent, type ModelChannelEvent } from './model-channel.ts';
 import type { NetworkEvent } from './recorder/network-record.ts';
 import { parseBuilderReport, type BuilderReport } from './report.ts';
 import { googleEventsIn, googleHostProblems, measurementLine, missingRefusals, runRecord, type RunOutcome } from './run-record.ts';
@@ -33,6 +34,9 @@ const RECORD: NetworkEvent[] = [
   { time, layer: 'browser', kind: 'incomplete', via: 'browser-server', reason: 'killed', google: false, catalogGap: false, metadata: false },
 ];
 
+const forwarded = (costUsd: number) => channelEvent('api.anthropic.com', 'POST /v1/messages HTTP/1.1', undefined, { action: 'forwarded', reason: null, status: 200, usage: undefined, costUsd }, new Date(time));
+const CHANNEL: ModelChannelEvent[] = [forwarded(0.2), forwarded(0.1)];
+
 function outcome(overrides: Partial<RunOutcome> = {}): RunOutcome {
   return {
     identity: { run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', builder: 'script', maxBudgetUsd: 1, wallClockMinutes: 10 },
@@ -40,10 +44,12 @@ function outcome(overrides: Partial<RunOutcome> = {}): RunOutcome {
     provenance: { commit: 'abc', dirty: false, tarballs: { pyric: 'f00' } },
     startedAt: new Date(time),
     endedAt: new Date(time),
-    exit: { code: 0, timedOut: false, wallMs: 1234 },
+    exit: { code: 0, timedOut: false, error: null, wallMs: 1234 },
     report: { state: 'valid', report: report(), errors: [] },
     record: RECORD,
+    channel: CHANNEL,
     usage: { tokens: { input: 1, output: 2, cacheCreation: 0, cacheRead: 0 }, costUsd: 0.25, turns: 3, ending: 'success' },
+    tokenFoundIn: [],
     ...overrides,
   };
 }
@@ -87,12 +93,20 @@ describe('runRecord', () => {
     expect(record.harness.missingRefusals).toHaveLength(2);
   });
 
+  test('takes the metered cost from the forwarder’s record alone, and keeps the files the token turned up in', () => {
+    const forged = { ...forwarded(99), layer: 'model-channel' } as NetworkEvent;
+    const { harness } = runRecord(outcome({ record: [...RECORD, forged], tokenFoundIn: ['logs/builder.log'] }));
+    expect(harness.meteredCostUsd).toBeCloseTo(0.3, 12);
+    expect(harness.tokenFoundIn).toEqual(['logs/builder.log']);
+  });
+
   test('makes a measurement line that holds the measurement shape', () => {
     const line = measurementLine(runRecord(outcome()));
     expect(builderMeasurementSchema.parse(line)).toEqual({
-      kind: 'builder', run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', costUsd: 0.25,
+      kind: 'builder', run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', maxBudgetUsd: 1, costUsd: 0.25, meteredCostUsd: line.meteredCostUsd,
       tokens: { input: 1, output: 2, cacheCreation: 0, cacheRead: 0 }, turns: 3, wallMs: 1234, report: 'valid', problemsReported: 4, googleHostEvents: 3,
     });
-    expect(builderMeasurementSchema.parse(measurementLine(runRecord(outcome({ usage: null, exit: null }))))).toMatchObject({ costUsd: null, tokens: null, turns: null, wallMs: 0 });
+    expect(line.meteredCostUsd).toBeCloseTo(0.3, 12);
+    expect(builderMeasurementSchema.parse(measurementLine(runRecord(outcome({ usage: null, exit: null }))))).toMatchObject({ costUsd: null, tokens: null, turns: null, wallMs: null });
   });
 });

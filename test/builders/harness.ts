@@ -12,10 +12,12 @@
  *       and from Bun and curl inside the run's sandbox, and exits
  *       non-zero if a recorder misses one or one succeeds. Run it before
  *       every round.
- *   round <round> --models <id,id> --max-budget-usd <usd> [--builder claude|<script>]
- *         [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]
+ *   round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
+ *         [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build]
+ *         [--concurrency 1|2]
  *       Runs every brief of the round once per model, each builder in its
- *       own sandbox, at the cap given. The cap has no default.
+ *       own sandbox, at the run cap given, under the round cap given.
+ *       Neither cap has a default.
  *   measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
  *       Per model: cost per run and per verification, confirmed new findings
  *       per app, the share thrown out, cost per confirmed new finding, and
@@ -57,7 +59,7 @@ const COMMANDS: Record<string, Command> = {
     },
   },
   round: {
-    usage: 'round <round> --models <id,id> --max-budget-usd <usd> [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]',
+    usage: 'round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd> [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]',
     async run(args) {
       const passed = await runRound(parseRoundOptions(args));
       return passed ? 0 : 1;

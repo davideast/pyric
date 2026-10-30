@@ -4,7 +4,11 @@
  * only once the verifier has judged it; until then it counts only toward the
  * builder's cost.
  *
- * - cost per builder run: the mean builder cost of runs that printed usage.
+ * A run's builder cost is what claude said it cost, or, when claude printed
+ * no usage (it crashed, or was stopped at its wall-clock cap), what the
+ * model forwarder metered, which errs high. No run counts as free.
+ *
+ * - cost per builder run: the mean builder cost of every run.
  * - cost per verifier report: the mean verification cost of judged runs.
  * - confirmed new findings per app: confirmed problems (pyric differs,
  *   misleading docs, unclear error; not duplicates) per judged run.
@@ -39,7 +43,7 @@ export interface MeasureSummary {
   models: ModelSummary[];
   nightlyModel: string | null;
   nightlyCapUsd: number | null;
-  /** Verification lines whose run has no builder line. */
+  /** Verification lines whose run has no builder line, as `<round>/<run>`. */
   orphanVerifications: string[];
 }
 
@@ -69,17 +73,21 @@ export function thrownOut(verdicts: VerdictCounts): number {
   return verdicts.unconfirmed + verdicts.builderBug + verdicts.invalid;
 }
 
-const knownCost = (run: BuilderMeasurement): run is BuilderMeasurement & { costUsd: number } => run.costUsd !== null;
+/** What a builder run cost: claude's figure, or the forwarder's when claude gave none. */
+export const builderCost = (run: BuilderMeasurement) => run.costUsd ?? run.meteredCostUsd;
+
+/** Run ids repeat across rounds, so a verification joins its builder line by both. */
+const runKey = (line: { round: string; run: string }) => `${line.round}/${line.run}`;
 
 function summarizeModel(model: string, runs: readonly BuilderMeasurement[], judged: readonly JudgedRun[]): ModelSummary {
   const confirmed = sum(judged.map((run) => confirmedNew(run.verification.verdicts)));
   const reported = sum(judged.map((run) => run.builder.problemsReported));
-  const runCosts = judged.map((run) => (run.builder.costUsd ?? 0) + run.verification.costUsd);
+  const runCosts = judged.map((run) => builderCost(run.builder) + run.verification.costUsd);
   return {
     model,
     runs: runs.length,
     judgedRuns: judged.length,
-    costPerBuilderRun: mean(runs.filter(knownCost).map((run) => run.costUsd)),
+    costPerBuilderRun: mean(runs.map(builderCost)),
     costPerVerifierReport: mean(judged.map((run) => run.verification.costUsd)),
     confirmedNewFindings: confirmed,
     confirmedNewFindingsPerApp: ratio(confirmed, judged.length),
@@ -105,12 +113,12 @@ function nightlyCap(model: ModelSummary | undefined, runsPerNight: number | unde
 
 export function summarize(lines: readonly Measurement[], options: { runsPerNight?: number } = {}): MeasureSummary {
   const builders = lines.filter((line): line is BuilderMeasurement => line.kind === 'builder');
-  const verifications = new Map(lines.filter((line): line is VerificationMeasurement => line.kind === 'verification').map((line) => [line.run, line]));
-  const runIds = new Set(builders.map((run) => run.run));
+  const verifications = new Map(lines.filter((line): line is VerificationMeasurement => line.kind === 'verification').map((line) => [runKey(line), line]));
+  const runKeys = new Set(builders.map(runKey));
   const models = [...new Set(builders.map((run) => run.model))].sort().map((model) => {
     const runs = builders.filter((run) => run.model === model);
     const judged = runs.flatMap((builder) => {
-      const verification = verifications.get(builder.run);
+      const verification = verifications.get(runKey(builder));
       return verification === undefined ? [] : [{ builder, verification }];
     });
     return summarizeModel(model, runs, judged);
@@ -120,7 +128,7 @@ export function summarize(lines: readonly Measurement[], options: { runsPerNight
     models,
     nightlyModel: nightly?.model ?? null,
     nightlyCapUsd: nightlyCap(nightly, options.runsPerNight),
-    orphanVerifications: [...verifications.keys()].filter((run) => !runIds.has(run)).sort(),
+    orphanVerifications: [...verifications.keys()].filter((key) => !runKeys.has(key)).sort(),
   };
 }
 

@@ -1,7 +1,7 @@
 /**
  * `measurements.jsonl`: one line per builder run, appended by `round` when
  * the run ends, and one line per verification, appended by the verifier
- * when it has judged that run. `measure` joins them by run id. The file is
+ * when it has judged that run. `measure` joins them by round and run id. The file is
  * append-only; nothing rewrites a line.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
@@ -19,11 +19,16 @@ export const builderMeasurementSchema = z.object({
   round: z.string().min(1),
   brief: z.string().min(1),
   model: z.string().min(1),
-  /** Null when the builder printed no usage: it crashed or was stopped at its wall-clock cap. */
+  /** The run's cap, `--max-budget-usd`. */
+  maxBudgetUsd: cost,
+  /** What claude said the run cost. Null when it printed no usage: it crashed or was stopped at its wall-clock cap. */
   costUsd: cost.nullable(),
+  /** What the model forwarder metered from the responses it passed back, an estimate that errs high. */
+  meteredCostUsd: cost,
   tokens: tokens.nullable(),
   turns: count.nullable(),
-  wallMs: count,
+  /** Null when the run phase never said how the builder ended. */
+  wallMs: count.nullable(),
   report: z.enum(['valid', 'missing', 'invalid']),
   /** The builder's own problems plus the ones the harness adds: an allowed must-be-refused action, a Google-host event. */
   problemsReported: count,
@@ -45,6 +50,8 @@ export const verdictCountsSchema = z.object({
 
 export const verificationMeasurementSchema = z.object({
   kind: z.literal('verification'),
+  /** The round and run it judged: run ids repeat across rounds. */
+  round: z.string().min(1),
   run: z.string().min(1),
   model: z.string().min(1),
   costUsd: cost,

@@ -13,13 +13,17 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { OAUTH_TOKEN_ENV } from './builder-command.ts';
 import { readMeasurements } from './measurement.ts';
+import { readChannelRecord } from './model-channel.ts';
+import { filesContaining } from './token-scan.ts';
 import type { RunRecord } from './run-record.ts';
 
 const PACKAGES = process.env.PYRIC_BUILDERS_PACKAGES;
 const REPO_ROOT = resolve(import.meta.dir, '../..');
 const ROUND_TIMEOUT_MS = 900_000;
 const MODELS = ['fake-haiku', 'fake-sonnet'];
+const HARNESS_TOKEN = `made-up-harness-token-${process.pid}-${Date.now()}`;
 
 function runFakeRound(root: string) {
   const args = [
@@ -28,9 +32,12 @@ function runFakeRound(root: string) {
     '--briefs', 'test/builders/fixtures/briefs',
     '--models', MODELS.join(','),
     '--max-budget-usd', '0.01',
+    '--max-round-usd', '0.02',
     '--packages', resolve(PACKAGES ?? ''),
   ];
-  const env = { ...process.env, PYRIC_BUILDERS_DIR: join(root, 'scratch'), PYRIC_BUILDERS_DATA_DIR: join(root, 'data') };
+  // A made-up token in the harness's environment, in place of any real one,
+  // so the test can look for it in everything the round kept.
+  const env = { ...process.env, [OAUTH_TOKEN_ENV]: HARNESS_TOKEN, PYRIC_BUILDERS_DIR: join(root, 'scratch'), PYRIC_BUILDERS_DATA_DIR: join(root, 'data') };
   return spawnSync(process.execPath, args, { cwd: REPO_ROOT, env, encoding: 'utf8', timeout: ROUND_TIMEOUT_MS });
 }
 
@@ -40,6 +47,7 @@ describe.skipIf(PACKAGES === undefined)('round with the fake builder', () => {
     const result = runFakeRound(root);
     console.log(result.stdout, result.stderr);
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain('2 runs (1 briefs × 2 models), $0.01 cap per run, possible spend $0.02 under a round cap of $0.02');
 
     for (const model of MODELS) {
       const run = `fake-1-${model}`;
@@ -59,9 +67,23 @@ describe.skipIf(PACKAGES === undefined)('round with the fake builder', () => {
       const plants = JSON.parse(log.split('\n').find((line) => line.startsWith('{"plants"')) ?? '{}') as { plants: Record<string, string> };
       expect(plants.plants.node).toStartWith('failed');
       expect(plants.plants.channel).toBe('HTTP/1.1 403 Forbidden');
+      expect(plants.plants.messages).toBe('HTTP/1.1 403 Forbidden');
       expect(plants.plants.browser).toStartWith('failed');
 
+      // The forwarder's record is outside the run root, and merged into the kept network record.
+      const channel = readChannelRecord(join(root, 'scratch', 'fake', `${run}.model-channel.jsonl`));
+      expect(channel.map((event) => `${event.action} ${event.reason} ${event.host}`)).toEqual(['refused connect oauth2.googleapis.com', 'refused no-credential 127.0.0.1']);
+      const kept = readFileSync(join(data, 'network.jsonl'), 'utf8');
+      expect(kept).toContain('"reason":"no-credential"');
+      expect(record.harness.meteredCostUsd).toBe(0);
+
+      // The token never entered the sandbox: no process there had it, and nothing kept holds it.
       const scratch = join(root, 'scratch', 'fake', run);
+      expect(readFileSync(join(scratch, 'app', 'environ-dump.txt'), 'utf8')).toContain('ANTHROPIC_BASE_URL=http://127.0.0.1:');
+      expect(record.harness.tokenFoundIn).toEqual([]);
+      expect(filesContaining(scratch, HARNESS_TOKEN)).toEqual([]);
+      expect(filesContaining(data, HARNESS_TOKEN)).toEqual([]);
+
       expect(readdirSync(join(scratch, 'docs', 'conformance')).length).toBeGreaterThan(0);
       expect(existsSync(join(scratch, 'docs', 'site', 'overview.md'))).toBe(true);
     }

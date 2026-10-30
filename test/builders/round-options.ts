@@ -1,9 +1,9 @@
 /**
- * The `round` command's options. `--max-budget-usd` and `--models` are
- * required and have no default: a round spends money only at a cap the
- * owner typed.
+ * The `round` command's options. `--models`, `--max-budget-usd` and
+ * `--max-round-usd` are required and have no default: a round spends money
+ * only at caps the owner typed, one per run and one for the whole round.
  *
- *   round <round> --models <id,id> --max-budget-usd <usd>
+ *   round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
  *         [--builder claude|<script>] [--briefs <dir>]
  *         [--packages <dir> | --build] [--concurrency 1|2]
  */
@@ -15,6 +15,8 @@ export interface RoundOptions {
   models: string[];
   /** Each builder run's cap, the same for every model. */
   maxBudgetUsd: number;
+  /** The whole round's cap. The round starts only when its runs times the run cap fit under it. */
+  maxRoundUsd: number;
   /** `claude`, or the path of a scripted builder run with node. */
   builder: string;
   /** Where the briefs are; the data root's `briefs/<round>/` when not given. */
@@ -29,7 +31,7 @@ const ROUND_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9.:@_-]*$/;
 export const MAX_CONCURRENCY = 2;
 
-export const ROUND_FLAGS = ['--models', '--max-budget-usd', '--builder', '--briefs', '--packages', '--build', '--concurrency'];
+export const ROUND_FLAGS = ['--models', '--max-budget-usd', '--max-round-usd', '--builder', '--briefs', '--packages', '--build', '--concurrency'];
 const VALUE_FLAGS = new Set(ROUND_FLAGS.filter((flag) => flag !== '--build'));
 
 function required(args: readonly string[], flag: string): string {
@@ -39,10 +41,10 @@ function required(args: readonly string[], flag: string): string {
 }
 
 /** A positive, finite number of dollars. */
-export function parseBudget(raw: string): number {
+export function parseBudget(raw: string, flag = '--max-budget-usd'): number {
   const usd = Number(raw);
   const isPositiveAmount = /^\d+(\.\d+)?$/.test(raw) && Number.isFinite(usd) && usd > 0;
-  if (!isPositiveAmount) throw new UsageError(`--max-budget-usd takes a positive number of dollars, received "${raw}"`);
+  if (!isPositiveAmount) throw new UsageError(`${flag} takes a positive number of dollars, received "${raw}"`);
   return usd;
 }
 
@@ -76,6 +78,7 @@ export function parseRoundOptions(args: readonly string[]): RoundOptions {
     round,
     models: parseModels(required(args, '--models')),
     maxBudgetUsd: parseBudget(required(args, '--max-budget-usd')),
+    maxRoundUsd: parseBudget(required(args, '--max-round-usd'), '--max-round-usd'),
     builder: builder === 'claude' ? builder : resolve(builder),
     ...(briefs === undefined ? {} : { briefs: resolve(briefs) }),
     ...(packages === undefined ? {} : { packages: resolve(packages) }),

@@ -2,31 +2,36 @@
  * One builder run, start to end. Outside the sandbox it lays out the run's
  * scratch directory (the starter app pinned to the round's tarballs, a fake
  * Firebase config, the brief, pyric's docs) and starts the model channel's
- * forwarder. Everything that runs code from the app or the builder runs
- * inside the run's own sandbox: the install, the export of the installed
- * package's conformance pages, and the run phase (`run-phase.ts`), which
- * starts the builder. Afterward it keeps the run's data and appends its
- * measurement line.
+ * forwarder, which alone holds the harness's token. Everything that runs
+ * code from the app or the builder runs inside the run's own sandbox: the
+ * install, the export of the installed package's conformance pages, and the
+ * run phase (`run-phase.ts`), which starts the builder. Afterward it merges
+ * the forwarder's record into the run's network record, looks for the token
+ * in everything it keeps, keeps the run's data and appends its measurement
+ * line.
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareApp, runCommand, runTimedCommand, type Tarballs } from '../apps/install.ts';
 import { installApp, npmCacheDir } from './app-install.ts';
 import { renderBrief, type Brief } from './brief.ts';
 import { playwrightBrowsersPath } from './browser-server.ts';
-import type { Builder } from './builder-command.ts';
+import { OAUTH_TOKEN_ENV, type Builder } from './builder-command.ts';
 import { appendMeasurement } from './measurement.ts';
-import { MODEL_API, startModelForwarder } from './model-channel.ts';
+import { readChannelRecord, type Listening, type ModelChannelEvent } from './model-channel.ts';
+import { startModelForwarder } from './model-forwarder.ts';
+import type { RunMeter } from './model-meter.ts';
 import { startEgressNamespace, type EgressNamespace } from './namespace.ts';
 import type { Provenance } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
 import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
 import { readBuilderReport } from './report.ts';
-import { builderRunDirsAt, builderRunRoot, measurementsFile, runDataDir, type BuilderRunDirs } from './round-paths.ts';
+import { builderRunDirsAt, builderRunRoot, channelRecordFile, measurementsFile, runDataDir, type BuilderRunDirs } from './round-paths.ts';
 import { BUILDER_LOG, phaseResultSchema, type Phase, type PhaseResult } from './run-phase.ts';
 import { measurementLine, runRecord, type RunIdentity, type RunRecord } from './run-record.ts';
 import { createRunDirs, demoProjectId, writeFakeFirebaseConfig } from './scratch.ts';
+import { copyRedacted, filesContaining, redactedText } from './token-scan.ts';
 import { usageFrom } from './usage.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -46,12 +51,25 @@ export interface BuilderRunInput {
   /** The tarballs' directory, bound read-only into the sandbox. */
   packagesDir: string;
   provenance: Provenance;
+  /** The run's share of the round's meter, which the forwarder checks before each request. */
+  meter: RunMeter;
   say: (line: string) => void;
 }
 
-/** Whether a run already has scratch or data on disk: a round never overwrites a run. */
+/**
+ * Whether a run has started before: its sandbox started, or its data is kept.
+ * A round never redoes a run. A run whose sandbox never started leaves only
+ * empty directories, which a later round reuses.
+ */
 export function runExists(round: string, run: string): boolean {
-  return existsSync(builderRunRoot(round, run)) || existsSync(runDataDir(round, run));
+  return existsSync(builderRunDirsAt(builderRunRoot(round, run)).started) || existsSync(runDataDir(round, run));
+}
+
+/** The harness's token, from its own environment; undefined when it has none. */
+function harnessToken(): string | undefined {
+  const token = process.env[OAUTH_TOKEN_ENV];
+  const isSet = token !== undefined && token !== '';
+  return isSet ? token : undefined;
 }
 
 function layOut(input: BuilderRunInput, dirs: BuilderRunDirs): void {
@@ -71,16 +89,17 @@ async function exportConformanceDocs(namespace: EgressNamespace, dirs: BuilderRu
 }
 
 /**
- * The run phase's environment: PATH, the run's HOME, where Playwright's
- * browsers are (read from the harness's own HOME, since the run's has none),
- * and only the variables the builder takes from the harness.
+ * The run phase's environment, built from nothing: PATH, the run's HOME,
+ * where Playwright's browsers are (read from the harness's own HOME, since
+ * the run's has none), LANG and TMPDIR. Nothing else of the harness's
+ * environment, and so not its token, enters the sandbox.
  */
-function phaseEnvironment(home: string, passEnv: readonly string[]): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: home, PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath() };
-  for (const name of [...passEnv, 'LANG', 'TMPDIR']) {
-    if (process.env[name] !== undefined) env[name] = process.env[name];
+export function phaseEnvironment(home: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const phase: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: home, PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath() };
+  for (const name of ['LANG', 'TMPDIR']) {
+    if (env[name] !== undefined) phase[name] = env[name];
   }
-  return env;
+  return phase;
 }
 
 async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs): Promise<void> {
@@ -96,7 +115,7 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
   const phase: Phase = { ...invocation, wallClockMs };
   writeFileSync(dirs.phase, `${JSON.stringify(phase, null, 2)}\n`);
   const { command, args } = namespace.enter(process.execPath, [RUN_PHASE, dirs.root], REPO_ROOT);
-  const result = await runTimedCommand(command, args, { cwd: REPO_ROOT, env: phaseEnvironment(dirs.home, invocation.passEnv), timeoutMs: wallClockMs + PHASE_MARGIN_MS });
+  const result = await runTimedCommand(command, args, { cwd: REPO_ROOT, env: phaseEnvironment(dirs.home), timeoutMs: wallClockMs + PHASE_MARGIN_MS });
   writeFileSync(join(dirs.logs, '02-run-phase.log'), result.output);
   input.say(`run phase exited ${result.code}${result.timedOut ? ' (stopped at its limit)' : ''}`);
 }
@@ -109,38 +128,83 @@ function readPhaseResult(dirs: BuilderRunDirs): PhaseResult | null {
 
 const readIfExists = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 
-/** Copies what the harness keeps of the run into the data root, with the app packed without node_modules. */
-async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string): Promise<void> {
+/** What `keep` copies of the scratch directory. */
+const keptPaths = (dirs: BuilderRunDirs) => [dirs.report, dirs.briefJson, dirs.networkLog, dirs.logs, dirs.app];
+
+/** The kept files, relative to the run root, that hold `token`. Names files, never the value. */
+export function tokenFoundIn(dirs: BuilderRunDirs, token: string | undefined): string[] {
+  if (token === undefined) return [];
+  return keptPaths(dirs).flatMap((path) => filesContaining(path, token)).map((path) => relative(dirs.root, path)).sort();
+}
+
+const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
+
+/**
+ * Copies what the harness keeps of the run into the data root, with the
+ * token's value replaced wherever it turns up. The app is packed without
+ * node_modules, and withheld when any file of it held the token.
+ */
+async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: string | undefined): Promise<void> {
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(dataDir, 'report.json'), `${JSON.stringify(record, null, 2)}\n`);
-  cpSync(dirs.briefJson, join(dataDir, 'brief.json'));
-  cpSync(dirs.networkLog, join(dataDir, 'network.jsonl'));
-  cpSync(dirs.logs, join(dataDir, 'logs'), { recursive: true });
+  writeFileSync(join(dataDir, 'report.json'), redactedText(`${JSON.stringify(record, null, 2)}\n`, token));
+  copyRedacted(dirs.briefJson, join(dataDir, 'brief.json'), token);
+  copyRedacted(dirs.networkLog, join(dataDir, 'network.jsonl'), token);
+  copyRedacted(dirs.logs, join(dataDir, 'logs'), token);
+  if (record.harness.tokenFoundIn.some(isInApp)) return;
   const tar = await runCommand('tar', ['-czf', join(dataDir, 'app.tgz'), '--exclude=node_modules', '-C', dirs.root, 'app'], { cwd: dirs.root });
   if (tar.code !== 0) throw new Error(`packing the app failed (exit ${tar.code}):\n${tar.output}`);
 }
 
-/** Runs one builder and keeps its data. Resolves the run's record. */
-export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
-  const { identity } = input;
-  const dirs = builderRunDirsAt(builderRunRoot(identity.round, identity.run));
-  createRunDirs(dirs.root);
-  mkdirSync(dirs.docs, { recursive: true });
-  const startedAt = new Date();
-  layOut(input, dirs);
-  input.say(`${identity.run}: starting its sandbox in ${dirs.root}`);
-  const readOnly = [playwrightBrowsersPath(), input.packagesDir, ...input.builder.readOnly];
-  const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
-  const forwarder = await startModelForwarder({ socketPath: dirs.modelSocket, networkLog: dirs.networkLog, allowed: MODEL_API });
+/** Appends the forwarder's lines to the run's network record, once nothing in the sandbox can write it. */
+function mergeChannelRecord(networkLog: string, channel: readonly ModelChannelEvent[]): void {
+  if (channel.length > 0) appendFileSync(networkLog, channel.map((event) => `${JSON.stringify(event)}\n`).join(''));
+}
+
+/** Runs the builder in a sandbox that has started, with the forwarder outside it; stops both. */
+async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<void> {
+  let forwarder: Listening | undefined;
   try {
-    await installApp(namespace, dirs, identity.run, input.say);
+    writeFileSync(dirs.started, `${new Date().toISOString()}\n`);
+    layOut(input, dirs);
+    writeFileSync(channelRecord, '');
+    const credential = input.builder.usesModel ? harnessToken() : undefined;
+    forwarder = await startModelForwarder({ socketPath: dirs.modelSocket, record: channelRecord, credential, meter: input.meter });
+    await installApp(namespace, dirs, input.identity.run, input.say);
     await exportConformanceDocs(namespace, dirs);
     await runPhase(namespace, input, dirs);
   } finally {
-    await forwarder.close();
+    await forwarder?.close();
     await namespace.stop();
   }
+}
+
+function tokenNotice(run: string, found: readonly string[]): string {
+  const withheld = found.some(isInApp) ? ' and the app is withheld' : '';
+  return `${run}: the harness's token turned up in ${found.join(', ')}; the kept copies are redacted${withheld}`;
+}
+
+/**
+ * Runs one builder and keeps its data. Resolves the run's record. Throws
+ * `NamespaceUnavailable`, before the run counts as started, when its sandbox
+ * can't start.
+ */
+export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
+  const { identity } = input;
+  const dirs = builderRunDirsAt(builderRunRoot(identity.round, identity.run));
+  const channelRecord = channelRecordFile(identity.round, identity.run);
+  createRunDirs(dirs.root);
+  mkdirSync(dirs.docs, { recursive: true });
+  const startedAt = new Date();
+  input.say(`${identity.run}: starting its sandbox in ${dirs.root}`);
+  const readOnly = [playwrightBrowsersPath(), input.packagesDir, ...input.builder.readOnly];
+  const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
+  await runInSandbox(namespace, input, dirs, channelRecord);
+  const channel = readChannelRecord(channelRecord);
+  mergeChannelRecord(dirs.networkLog, channel);
   if (existsSync(dirs.netLog)) appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
+  const token = harnessToken();
+  const found = tokenFoundIn(dirs, token);
+  if (found.length > 0) input.say(tokenNotice(identity.run, found));
   const record = runRecord({
     identity,
     brief: input.brief,
@@ -150,9 +214,11 @@ export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
     exit: readPhaseResult(dirs),
     report: readBuilderReport(dirs.report),
     record: readNetworkRecord(dirs.networkLog),
+    channel,
     usage: usageFrom(readIfExists(join(dirs.logs, BUILDER_LOG))),
+    tokenFoundIn: found,
   });
-  await keep(record, dirs, runDataDir(identity.round, identity.run));
+  await keep(record, dirs, runDataDir(identity.round, identity.run), token);
   appendMeasurement(measurementsFile(), measurementLine(record));
   return record;
 }

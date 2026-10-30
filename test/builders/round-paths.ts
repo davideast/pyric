@@ -3,8 +3,10 @@
  *
  * - scratch, under the builders root (`~/pyric-builders`, or
  *   PYRIC_BUILDERS_DIR): `<round>/<run>/` holds the app, the run's HOME, its
- *   docs and brief, and everything the run writes while it runs. Clearing
- *   that directory clears every run.
+ *   docs and brief, and everything the run writes while it runs, all of it
+ *   bound read-write into the run's sandbox. Beside it,
+ *   `<round>/<run>.model-channel.jsonl` is the model forwarder's record,
+ *   which the sandbox can't see. Clearing that directory clears every run.
  * - run data, under the data root (`~/pyric-ops/assurance/builders`, or
  *   PYRIC_BUILDERS_DATA_DIR): `briefs/<round>/` (the brief writer's),
  *   `runs/<round>/<run>/` (what the harness keeps of each run), the
@@ -33,6 +35,8 @@ export interface BuilderRunDirs extends RunDirs {
   report: string;
   /** The model channel's Unix socket (`model-channel.ts`). Kept short: a socket path has a length limit. */
   modelSocket: string;
+  /** Written once the run's sandbox has started: from then on the run exists, and a round never redoes it. */
+  started: string;
   /** What the run phase is told to start, and what it saw. */
   phase: string;
   phaseResult: string;
@@ -46,9 +50,13 @@ export function builderRunDirsAt(root: string): BuilderRunDirs {
     briefJson: join(root, 'brief.json'),
     report: join(root, 'report.json'),
     modelSocket: join(root, 'model.sock'),
+    started: join(root, 'sandbox-started'),
     phase: join(root, 'phase.json'),
     phaseResult: join(root, 'phase-result.json'),
   };
 }
 
 export const builderRunRoot = (round: string, run: string) => join(buildersRoot(), round, run);
+
+/** The forwarder's record of a run, outside the run root, so nothing in the sandbox can write it. */
+export const channelRecordFile = (round: string, run: string) => join(buildersRoot(), round, `${run}.model-channel.jsonl`);
