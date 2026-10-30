@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Server } from 'node:net';
 import { dirname, join } from 'node:path';
 import { sleep, type App } from './driver.ts';
+import { PROBE_ROUTE, runRefusals } from './nextjs-refuses-without-register.ts';
 
 export interface FirebaseImportsCase {
   name: string;
@@ -225,6 +226,7 @@ const APP_FILES: Record<string, string> = {
   'src/app/api/admin/route.js': ADMIN_ROUTE,
   'src/app/api/client/route.js': CLIENT_ROUTE,
   'src/app/api/real-admin/route.js': REAL_ADMIN_ROUTE,
+  'src/app/api/probe/route.js': PROBE_ROUTE,
 };
 
 /** The preload and the empty gcloud folder sit outside the project, so Next never watches them. */
@@ -307,6 +309,25 @@ function slug(name: string): string {
   return name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
 }
 
+/** The env each Next process runs with: the safety preload, the sink, and no credentials. */
+export function nextEnv(app: App, safety: Safety): Record<string, string> {
+  return {
+    PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}`,
+    NODE_OPTIONS: `--require ${safety.preload}`,
+    SCENARIO_SINK_PORT: String(safety.sinkPort),
+    CLOUDSDK_CONFIG: safety.emptyGcloud,
+    NEXT_TELEMETRY_DISABLED: '1',
+    SCENARIO_FIRESTORE_URL: `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/items/from-admin`,
+  };
+}
+
+/** What the safety log recorded that a case may not have. */
+function escapes(log: string): { realFirebase: string[]; connections: string[] } {
+  const records = readSafetyLog(log);
+  const realFirebase = records.filter((record) => record.kind === 'real-firebase').map((record) => record.detail);
+  return { realFirebase, connections: escapedConnections(records) };
+}
+
 async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase): Promise<void> {
   const sandboxPort = await app.freePort();
   const nextPort = await app.freePort();
@@ -315,15 +336,7 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
   const sandboxArgs = ['sandbox', '--no-open', '--port', String(sandboxPort)];
   if (testCase.hosted) sandboxArgs.push('--hosted');
   const nextArgs = ['next', 'dev', ...testCase.nextFlags, '--port', String(nextPort), '--hostname', '127.0.0.1'];
-  const env = {
-    PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}`,
-    NODE_OPTIONS: `--require ${safety.preload}`,
-    SCENARIO_SINK_PORT: String(safety.sinkPort),
-    SCENARIO_SAFETY_LOG: safetyLog,
-    CLOUDSDK_CONFIG: safety.emptyGcloud,
-    NEXT_TELEMETRY_DISABLED: '1',
-    SCENARIO_FIRESTORE_URL: `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/items/from-admin`,
-  };
+  const env = { ...nextEnv(app, safety), SCENARIO_SAFETY_LOG: safetyLog };
 
   const sandbox = await app.step(`${testCase.name}: Next serves the app`, async () => {
     const child = app.pyricProcess([...sandboxArgs, '--', ...nextArgs], { env });
@@ -410,11 +423,15 @@ async function listenSink(): Promise<Server> {
 /** A case with its own steps, run after the Firestore cases on the same app and safety preload. */
 export type ExtraCase = (app: App, safety: Safety) => Promise<void>;
 
-/** Writes the app, then runs each case in turn. */
+/**
+ * Writes the app, then runs each case in turn. With `refusals`, it then runs
+ * the cases where `withPyric` has to refuse to start (#1625), and then each
+ * of `extraCases`.
+ */
 export async function runFirebaseImports(
   app: App,
   cases: readonly FirebaseImportsCase[],
-  extraCases: readonly ExtraCase[] = [],
+  options: { refusals?: boolean; extraCases?: readonly ExtraCase[] } = {},
 ): Promise<void> {
   // The rewrite keeps the Next origin, which the host's origin guard refuses (#1194).
   app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
@@ -423,7 +440,8 @@ export async function runFirebaseImports(
   try {
     const safety = { ...files, sinkPort: (sink.address() as AddressInfo).port };
     for (const testCase of cases) await runCase(app, safety, testCase);
-    for (const extraCase of extraCases) await extraCase(app, safety);
+    if (options.refusals === true) await runRefusals(app, { env: nextEnv(app, safety), escapes });
+    for (const extraCase of options.extraCases ?? []) await extraCase(app, safety);
   } finally {
     await new Promise<void>((resolve) => sink.close(() => resolve()));
   }

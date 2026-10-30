@@ -14,4 +14,4 @@ import { productionAiCases } from '../nextjs-production-ai.ts';
 export default scenario((app) => runFirebaseImports(app, [
   { name: 'pyric sandbox -- next dev', nextFlags: [], hosted: false },
   { name: 'pyric sandbox -- next dev --turbopack', nextFlags: ['--turbopack'], hosted: false },
-], productionAiCases([[], ['--turbopack']])));
+], { extraCases: productionAiCases([[], ['--turbopack']]) }));

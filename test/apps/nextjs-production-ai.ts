@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Route } from '@playwright/test';
 import type { App } from './driver.ts';
-import { escapedConnections, PROJECT_ID, readSafetyLog, waitForNext, type ExtraCase, type Safety } from './nextjs-firebase-imports.ts';
+import { escapedConnections, nextEnv, PROJECT_ID, readSafetyLog, waitForNext, type ExtraCase, type Safety } from './nextjs-firebase-imports.ts';
 
 const APP_CHECK_TOKEN = 'scenario-custom-app-check-token';
 const MODEL = 'gemini-flash-lite-latest';
@@ -77,15 +77,7 @@ async function runProductionAiCase(app: App, safety: Safety, name: string, nextF
   const nextPort = await app.freePort();
   const nextUrl = `http://127.0.0.1:${nextPort}`;
   const safetyLog = join(dirname(app.dir), `safety-production-ai-${nextPort}.log`);
-  const env = {
-    PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}`,
-    NODE_OPTIONS: `--require ${safety.preload}`,
-    SCENARIO_SINK_PORT: String(safety.sinkPort),
-    SCENARIO_SAFETY_LOG: safetyLog,
-    CLOUDSDK_CONFIG: safety.emptyGcloud,
-    NEXT_TELEMETRY_DISABLED: '1',
-    PYRIC_AI_MODE: 'production',
-  };
+  const env = { ...nextEnv(app, safety), SCENARIO_SAFETY_LOG: safetyLog, PYRIC_AI_MODE: 'production' };
   const nextArgs = ['next', 'dev', ...nextFlags, '--port', String(nextPort), '--hostname', '127.0.0.1'];
 
   const sandbox = await app.step(`${name}: Next serves the app and the banner names production mode`, async () => {
