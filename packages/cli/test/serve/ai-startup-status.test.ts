@@ -104,16 +104,17 @@ describe('pyric dev AI startup status', () => {
   });
 
   describe('gemini key from the environment', () => {
-    const names = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY', 'VITE_GEMINI_API_KEY'] as const;
+    const names = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
+    const cleared = [...names, 'VITE_GEMINI_API_KEY'] as const;
     const saved = new Map<string, string | undefined>();
     beforeEach(() => {
-      for (const name of names) {
+      for (const name of cleared) {
         saved.set(name, process.env[name]);
         delete process.env[name];
       }
     });
     afterEach(() => {
-      for (const name of names) {
+      for (const name of cleared) {
         const value = saved.get(name);
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
@@ -138,6 +139,11 @@ describe('pyric dev AI startup status', () => {
 
     it('follows the engine: a blank earlier variable shadows a later real one', () => {
       process.env.GEMINI_API_KEY = '';
+      process.env.GOOGLE_GENAI_API_KEY = 'AIzaSyFromEnv';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('does not count VITE_GEMINI_API_KEY as a key, because Vite serves it to the browser (#1632)', () => {
       process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
       expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
     });

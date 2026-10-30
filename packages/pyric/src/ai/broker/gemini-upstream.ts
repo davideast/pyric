@@ -3,9 +3,11 @@
  * engine sends, and what Pyric's dev server sends on a browser engine's
  * behalf.
  *
- * Credentials come from the explicit key, else `GEMINI_API_KEY`,
- * `GOOGLE_GENAI_API_KEY`, `VITE_GEMINI_API_KEY`, else Google Cloud
- * Application Default Credentials. A browser engine is built with
+ * Credentials come from the explicit key, else `GEMINI_API_KEY` or
+ * `GOOGLE_GENAI_API_KEY`, else Google Cloud Application Default Credentials.
+ * `VITE_GEMINI_API_KEY` is not read: Vite serves every `VITE_`-prefixed
+ * variable to the browser, so the Vite plugin refuses to start with it set
+ * (#1632). A browser engine is built with
  * `serverAttachesAuth`: its base URL is the dev server's
  * `/__pyric/ai-proxy/gemini`, which attaches the credentials itself, so none
  * are sent and the browser never holds the key.
@@ -18,7 +20,7 @@ import { AiBrokerError, errorEnvelope, redactUrl } from './synthesizer.js';
  *  endpoint instead of keeping its own copy. */
 export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 
-const KEY_VARIABLES = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY', 'VITE_GEMINI_API_KEY'] as const;
+const KEY_VARIABLES = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
 
 /** A variable from the runtime's environment, or undefined where there is
  *  none: a browser page or SharedWorker has no `process`. */
@@ -39,8 +41,8 @@ function configuredKey(explicitKey: string | undefined): string | undefined {
 
 /**
  * Whether a static API key is configured: the explicit option, else the first
- * of `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`, `VITE_GEMINI_API_KEY` that is
- * defined, which must then be non-blank. This is the engine's own precedence
+ * of `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY` that is defined, which must
+ * then be non-blank. This is the engine's own precedence
  * (a blank earlier variable shadows a later real one), published through
  * `pyric/ai/internal` so the CLI's startup banner cannot disagree with it.
  * Application Default Credentials are not consulted: a status read must never
@@ -231,7 +233,7 @@ export class GeminiUpstream {
     throw new AiBrokerError(
       errorEnvelope(
         401,
-        'The Pyric gemini AI engine requires GEMINI_API_KEY, GOOGLE_GENAI_API_KEY, or VITE_GEMINI_API_KEY in your server environment (or Application Default Credentials via `gcloud auth application-default login`).',
+        'The Pyric gemini AI engine requires GEMINI_API_KEY or GOOGLE_GENAI_API_KEY in your server environment (or Application Default Credentials via `gcloud auth application-default login`).',
         'UNAUTHENTICATED',
       ),
     );
