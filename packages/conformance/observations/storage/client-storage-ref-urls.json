@@ -11,8 +11,8 @@
     "storage#116"
   ],
   "description": "firebase/storage ref(storage, url) parses a URL client-side, with no request: gs://<bucket>/<path>, the https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path> download URL, and the https://storage.googleapis.com/<bucket>/<path> URL give a reference on the URL's bucket, the download URL's path percent-decoded and the gs:// path not; a URL on any other host, or with no bucket or object, throws storage/invalid-url; a string without '://', such as a data: URI, is an object path; and ref(reference, url) throws storage/invalid-argument. The app is initialized with storageBucket 'b'.",
-  "observedAt": "2026-09-24T11:28:22.450Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:23.601Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "plainPath": {
       "input": "media/take.wav",
