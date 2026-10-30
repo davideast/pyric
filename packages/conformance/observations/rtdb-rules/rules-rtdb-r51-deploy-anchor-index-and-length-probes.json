@@ -7,8 +7,8 @@
     "rtdb-rules#39"
   ],
   "description": "RTDB rules deploy verdicts for corpus scenario \"r51-deploy-anchor-index-and-length-probes\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. mid-pattern $, dotted or empty .indexOn entries, and long || chains are accepted or refused by pyric without a production verdict to compare.",
-  "observedAt": "2026-10-26T22:07:47.436Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:00:56.059Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "SP-1: $ before an alternation (/a$|b/)": {
