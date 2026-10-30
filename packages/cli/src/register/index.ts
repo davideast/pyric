@@ -28,7 +28,9 @@
  * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs. Whatever the guard mode, it
  * wraps `worker_threads.Worker` (`./worker-guard.js`) so every worker thread
  * loads this module as well, including those Node starts without preloads,
- * and gets the swap and the stop.
+ * and gets the swap and the stop. It also wraps `child_process`
+ * (`./child-process-guard.js`), so every child process starts with this
+ * module in its `NODE_OPTIONS` and in this process's sandbox.
  *
  * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
  * `POST /__pyric/beacon` when the activator carries a bridge URL, plus a
@@ -42,11 +44,13 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
 import { resolvesIntoPackage } from './package-identity.js';
+import { markRegisterActive } from './activation.js';
 import { createStopReporter, stopFor } from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
+import { installChildProcessGuard } from './child-process-guard.js';
 import { remoteSandbox } from '../remote/index.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 
@@ -208,6 +212,10 @@ function activate(): void {
   // stop come from this module; the worker installs its own network guard, or
   // none under `off`, exactly as this thread does.
   installWorkerGuard(import.meta.url);
+  // Child processes too (#1618): every child starts with this module in its
+  // NODE_OPTIONS and with this process's PYRIC_* variables it lacks, so a
+  // child of a registered process is registered whatever env it is given.
+  installChildProcessGuard(import.meta.url);
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,
@@ -302,6 +310,7 @@ if (process.env.PYRIC_SANDBOX) {
   } else {
     activate();
     active = true;
+    markRegisterActive();
   }
 }
 // No PYRIC_SANDBOX → inert by design: importing this module rewrites nothing.

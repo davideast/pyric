@@ -18,7 +18,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GeminiUpstream, type GeminiUpstreamOptions } from 'pyric/ai/internal';
-import { redactUpstreamError } from './gemini-error-redaction.js';
+import { redactUpstreamError } from 'pyric/ai/internal';
 import type { ServeLogger } from './server.js';
 import { fetchAiUpstream, readAiProxyBody, relayAiUpstream, type AiDiagnosticThrottle } from './ai-proxy.js';
 import { GEMINI_PROXY_PATH } from './worker/ai-proxy-paths.js';
@@ -76,7 +76,7 @@ function sendEnvelope(res: ServerResponse, code: number, message: string, status
 /**
  * Send a non-2xx upstream answer with the credentials the request carried
  * removed, in whatever form the upstream quotes them, and a JSON envelope
- * kept parseable (`gemini-error-redaction.ts`).
+ * kept parseable (`redactUpstreamError`, shared with the gemini engine).
  */
 async function relayRedactedError(upstream: Response, credentials: readonly string[], res: ServerResponse): Promise<void> {
   const text = redactUpstreamError(await upstream.text().catch(() => ''), credentials);

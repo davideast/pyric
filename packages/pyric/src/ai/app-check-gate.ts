@@ -22,8 +22,9 @@
  */
 import type { FirebaseApp } from '../app/types.js';
 import { appCheckActivationOf, appCheckTokenFor } from '../sandbox/internal/app-check-activation.js';
-import { checkAppCheckToken } from '../sandbox/internal/app-check-token.js';
+import { APP_CHECK_PLACEHOLDER_TOKEN, checkAppCheckToken } from '../sandbox/internal/app-check-token.js';
 import type { AppCheckClaim, WireErrorEnvelope } from './broker/types.js';
+import { RequestHeadersFailure } from './errors.js';
 
 /** Production's message for a refused request (capture `app-check-ai-gate-wire`), verbatim. */
 export const APP_CHECK_REQUIRED_MESSAGE =
@@ -32,9 +33,6 @@ export const APP_CHECK_REQUIRED_MESSAGE =
 /** Pyric's guidance, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
   'Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check';
-
-/** The web SDK's stand-in when attestation fails: base64 of `{"error":"UNKNOWN_ERROR"}`. */
-const SDK_PLACEHOLDER_TOKEN = 'eyJlcnJvciI6IlVOS05PV05fRVJST1IifQ==';
 
 /** The captured refusal envelope (`app-check-ai-gate-wire`, `noHeader.raw`). */
 export function appCheckRequired(): WireErrorEnvelope {
@@ -54,7 +52,7 @@ function expiresAfter(claims: Readonly<Record<string, unknown>>, nowMillis: numb
 export async function admitsAppCheckToken(token: string | null, nowMillis: number = Date.now()): Promise<boolean> {
   const isMissing = token === null || token === '';
   if (isMissing) return false;
-  if (token === SDK_PLACEHOLDER_TOKEN) return false;
+  if (token === APP_CHECK_PLACEHOLDER_TOKEN) return false;
   const check = await checkAppCheckToken(token);
   if (!check.ok) return false;
   return expiresAfter(check.claims, nowMillis);
@@ -89,6 +87,20 @@ function warnOnce(app: FirebaseApp): void {
 }
 
 /**
+ * The token a request carries. A limited-use token request can reject (the
+ * provider failed, with no placeholder to fall back on); upstream `getHeaders`
+ * lets that rejection reach `makeRequest`'s `catch`, which turns it into
+ * `AIError('error', 'Error fetching from <url>: <message>')`.
+ */
+async function tokenForRequest(app: FirebaseApp, limitedUse: boolean): Promise<string | null> {
+  try {
+    return await appCheckTokenFor(app, { limitedUse });
+  } catch (reason) {
+    throw new RequestHeadersFailure(reason);
+  }
+}
+
+/**
  * The attachment for a handle `getAI(app)` builds now. App Check is read once,
  * here: a handle built before `initializeAppCheck` never attaches a token.
  * With `useLimitedUseAppCheckTokens`, each request takes a fresh limited-use
@@ -97,7 +109,7 @@ function warnOnce(app: FirebaseApp): void {
 export function appCheckAttachmentFor(app: FirebaseApp, limitedUse: boolean): AppCheckAttachment {
   const activeAtCreation = appCheckActivationOf(app) !== undefined;
   return {
-    claim: async () => ({ token: activeAtCreation ? await appCheckTokenFor(app, { limitedUse }) : null }),
+    claim: async () => ({ token: activeAtCreation ? await tokenForRequest(app, limitedUse) : null }),
     warnRefused: () => warnOnce(app),
   };
 }

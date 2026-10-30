@@ -13,7 +13,7 @@
  * run. The climb lane (`PYRIC_CLIMB=1`) runs every row and the prefix
  * completeness gate; the gate needs every row's loads, so it runs only there.
  */
-import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 
 /** Token length is not claimed (see the rows' notes): the shape comparison drops it explicitly. */
@@ -82,10 +82,57 @@ function withAppName(message: string, observedName: string, name: string): strin
 }
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// One Firebase configuration per runtime: start from an empty registry.
+type DebugGlobal = { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown };
+
+// One Firebase configuration per runtime: start from an empty registry. The
+// browser captures attest through a registered debug token, so the suite runs
+// with one set, as they did; a row about the provider path clears it.
 beforeAll(async () => {
   await resetAppRegistryForTests();
+  (globalThis as DebugGlobal).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 });
+afterAll(() => {
+  delete (globalThis as DebugGlobal).FIREBASE_APPCHECK_DEBUG_TOKEN;
+});
+
+/** Runs `operation` with no debug token set, then restores the suite's. */
+async function withoutDebugToken(operation: () => Promise<void>): Promise<void> {
+  delete (globalThis as DebugGlobal).FIREBASE_APPCHECK_DEBUG_TOKEN;
+  try {
+    await operation();
+  } finally {
+    (globalThis as DebugGlobal).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+}
+
+type DocumentGlobal = { document?: unknown };
+
+/** Runs `operation` in a realm with a `document`, as a page has; Bun has none. */
+async function withStandInDocument(operation: () => Promise<void>): Promise<void> {
+  (globalThis as DocumentGlobal).document = {};
+  try {
+    await operation();
+  } finally {
+    delete (globalThis as DocumentGlobal).document;
+  }
+}
+
+/** A CustomProvider that counts its calls and answers with `answer`. */
+function countingProvider(answer: () => Promise<{ token: string; expireTimeMillis: number }>) {
+  const counter = { calls: 0 };
+  const instance = new appCheck.CustomProvider({
+    getToken: async () => {
+      counter.calls += 1;
+      return answer();
+    },
+  });
+  return {
+    instance,
+    get calls(): number {
+      return counter.calls;
+    },
+  };
+}
 afterEach(async () => {
   await resetAppRegistryForTests();
 });
@@ -168,11 +215,59 @@ const assertions: Record<string, Assertion> = {
     expect(calls).toBe(o.customProviderCalls);
   },
 
-  'app-check#recaptcha-providers-construct': async () => {
-    for (const provider of [new appCheck.ReCaptchaV3Provider('demo-site-key'), new appCheck.ReCaptchaEnterpriseProvider('demo-site-key')]) {
-      const handle = appCheck.initializeAppCheck(freshApp('recaptcha'), { provider, isTokenAutoRefreshEnabled: false });
-      expect(Object.keys(await appCheck.getToken(handle))).toEqual(['token']);
-    }
+  'app-check#custom-provider-without-debug-token': () =>
+    withoutDebugToken(async () => {
+      const expireTimeMillis = Date.now() + 3_600_000;
+      const garbage = countingProvider(async () => ({ token: 'not-an-app-check-token', expireTimeMillis }));
+      const given = appCheck.initializeAppCheck(freshApp('custom-given'), { provider: garbage.instance, isTokenAutoRefreshEnabled: false });
+      expect(await appCheck.getToken(given)).toEqual({ token: 'not-an-app-check-token' });
+      expect(await appCheck.getToken(given)).toEqual({ token: 'not-an-app-check-token' });
+      expect(garbage.calls).toBe(1);
+      expect(await appCheck.getLimitedUseToken(given)).toEqual({ token: 'not-an-app-check-token' });
+      expect(garbage.calls).toBe(2);
+
+      const failure = new Error('attestation failed');
+      const failing = countingProvider(async () => {
+        throw failure;
+      });
+      const refused = appCheck.initializeAppCheck(freshApp('custom-rejects'), { provider: failing.instance, isTokenAutoRefreshEnabled: false });
+      const observed: unknown[] = [];
+      const unsubscribe = appCheck.onTokenChanged(refused, () => observed.push('next'), (error) => observed.push(error));
+      await expect(appCheck.getToken(refused)).rejects.toBe(failure);
+      await expect(appCheck.getLimitedUseToken(refused)).rejects.toBe(failure);
+      await sleep(10);
+      unsubscribe();
+      expect(observed).toEqual([failure]);
+      expect(failing.calls).toBe(2);
+    }),
+
+  'app-check#recaptcha-providers-construct': () =>
+    withStandInDocument(async () => {
+      for (const provider of [new appCheck.ReCaptchaV3Provider('demo-site-key'), new appCheck.ReCaptchaEnterpriseProvider('demo-site-key')]) {
+        const handle = appCheck.initializeAppCheck(freshApp('recaptcha'), { provider, isTokenAutoRefreshEnabled: false });
+        expect(Object.keys(await appCheck.getToken(handle))).toEqual(['token']);
+      }
+    }),
+
+  'app-check#recaptcha-providers-without-document': async () => {
+    expect(typeof (globalThis as { document?: unknown }).document).toBe('undefined');
+    const providers = [
+      (siteKey: string) => new appCheck.ReCaptchaV3Provider(siteKey),
+      (siteKey: string) => new appCheck.ReCaptchaEnterpriseProvider(siteKey),
+    ];
+    const attempt = (app: ReturnType<typeof freshApp>, provider: appCheck.ReCaptchaV3Provider | appCheck.ReCaptchaEnterpriseProvider) => () =>
+      appCheck.initializeAppCheck(app, { provider });
+    const check = async () => {
+      for (const make of providers) {
+        const app = freshApp('recaptcha-no-document');
+        expect(attempt(app, make('demo-site-key'))).toThrow(new ReferenceError('document is not defined'));
+        const handle = appCheck.initializeAppCheck(app, { provider: make('demo-site-key') });
+        expect(handle.app).toBe(app);
+        expect(await rejection(attempt(app, make('another-site-key')))).toMatchObject({ threw: true, code: 'appCheck/already-initialized' });
+      }
+    };
+    await check();
+    await withoutDebugToken(check);
   },
 
   'app-check#get-token-before-initialize': async () => {

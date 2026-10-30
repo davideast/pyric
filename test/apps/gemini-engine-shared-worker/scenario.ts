@@ -13,20 +13,37 @@
 // key included, as a gateway can. The browser must get `key=***` instead.
 // Playwright reports no SharedWorker fetches, so for that plane the scenario
 // reads the worker's route itself, with the worker's request.
+//
+// It refuses a second model with Gemini's invalid-key message, the key quoted
+// in plain text, as a gateway can (#1631). On `hosted: true` the Node host
+// runs the engine itself, so the page's AIError and the terminal's
+// rejection block must both read `API key ***`.
+//
+// Vite serves every `VITE_`-prefixed variable to any module that reads
+// `import.meta.env`. The page never reads it, so no module the dev server
+// serves may carry the dev server's `VITE_` value: Pyric's own modules must
+// not read `import.meta.env` (#1632). A key in `VITE_GEMINI_API_KEY`, in the
+// shell or in `.env`, stops the dev server with a message to rename it.
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { BrowserContext } from 'playwright';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
 declare function runGemini(tag: string, withAppCheck: boolean): Promise<Record<string, unknown>>;
-declare function runGeminiError(tag: string): Promise<{ ok: boolean; status?: number; message?: string }>;
+declare function runGeminiError(tag: string, model?: string): Promise<{ ok: boolean; status?: number; message?: string }>;
 
 /** A made-up key. The stand-in accepts only this one. */
 const SERVER_KEY = 'scenario-gemini-key-1584';
+/** A made-up value for a `VITE_` variable the page never reads. */
+const VITE_VALUE = 'scenario-vite-value-1632';
+/** What the dev server says when the key is in `VITE_GEMINI_API_KEY`. */
+const RENAME_MESSAGE = /VITE_GEMINI_API_KEY is set[\s\S]*Rename it to GEMINI_API_KEY/;
 const ANSWER = 'Hello from the Gemini stand-in.';
 const MODEL = 'gemini-2.5-flash';
 /** The model the stand-in refuses with an error that quotes the request URL. */
 const ECHO_MODEL = 'gemini-echo-url';
+/** The model the stand-in refuses with Gemini's invalid-key message, quoting the key in plain text. */
+const ECHO_KEY_MODEL = 'gemini-echo-key';
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
 function refusal(op: string) {
@@ -73,8 +90,14 @@ function answer(action: string, response: import('node:http').ServerResponse): v
   response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
 }
 
-function echoError(url: string, response: import('node:http').ServerResponse): string {
-  const body = JSON.stringify({ error: { code: 400, message: `Request to ${url} was refused by the gateway.`, status: 'INVALID_ARGUMENT' } });
+function echoMessage(url: string, key: string | null): string {
+  const quotesKey = url.includes(`/models/${ECHO_KEY_MODEL}:`);
+  if (quotesKey) return `API key ${key ?? ''} not valid. Please pass a valid API key.`;
+  return `Request to ${url} was refused by the gateway.`;
+}
+
+function echoError(url: string, key: string | null, response: import('node:http').ServerResponse): string {
+  const body = JSON.stringify({ error: { code: 400, message: echoMessage(url, key), status: 'INVALID_ARGUMENT' } });
   response.writeHead(400, { 'content-type': 'application/json' }).end(body);
   return body;
 }
@@ -85,7 +108,7 @@ function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[];
   const echoed: Echoed[] = [];
   const server = createServer((request, response) => {
     const path = request.url ?? '';
-    const isEcho = path.startsWith(`/v1beta/models/${ECHO_MODEL}:`);
+    const isEcho = [ECHO_MODEL, ECHO_KEY_MODEL].some((model) => path.startsWith(`/v1beta/models/${model}:`));
     const action = path.match(new RegExp(`^/v1beta/models/${MODEL}:(\\w+)`))?.[1] ?? `unexpected ${request.method} ${path}`;
     const key = path.match(/[?&]key=([^&]*)/)?.[1] ?? null;
     if (!isEcho) seen.push({ action, key: key === null ? null : decodeURIComponent(key) });
@@ -93,7 +116,7 @@ function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[];
     request.on('end', () => {
       if (isEcho) {
         const url = `http://${request.headers.host}${path}`;
-        echoed.push({ url, body: echoError(url, response) });
+        echoed.push({ url, body: echoError(url, key === null ? null : decodeURIComponent(key), response) });
         return;
       }
       if (key !== SERVER_KEY) {
@@ -149,6 +172,22 @@ async function openPage(app: App, host: DevServer) {
   return page;
 }
 
+/** Starts Vite the way `devServer` does, and returns how it exited. */
+function viteRun(app: App, port: number, env: Record<string, string>) {
+  const args = ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'];
+  return app.command('node', args, { env, timeoutMs: 30_000 });
+}
+
+/** The dev server refused to start, said to rename the key, and never printed it. */
+function assertRefusedViteKey(result: { code: number | null; output: string }): void {
+  assert.notEqual(result.code, 0, result.output);
+  assert.match(result.output, RENAME_MESSAGE);
+  assert.ok(!result.output.includes(SERVER_KEY), result.output);
+}
+
+/** What the dev server serves the page and the SharedWorker directly. */
+const SERVED_PATHS = ['/', '/main.js', '/__pyric/init.json', '/__pyric/sdk/worker.js'];
+
 async function servedText(host: DevServer, path: string): Promise<string> {
   const response = await fetch(new URL(path, host.url));
   assert.equal(response.status, 200, path);
@@ -163,7 +202,7 @@ const answeredAt = (count: number): Seen[] =>
 export default scenario(async (app) => {
   const standIn = await geminiStandIn();
   try {
-    const env = { GEMINI_API_KEY: SERVER_KEY, GEMINI_STAND_IN_URL: standIn.url };
+    const env = { GEMINI_API_KEY: SERVER_KEY, GEMINI_STAND_IN_URL: standIn.url, VITE_SCENARIO_VALUE: VITE_VALUE };
     const bodies = recordBodies(await app.browser());
     const host = await app.step('start the dev server on the default SharedWorker plane, with the key in its environment', () =>
       app.devServer({ env }));
@@ -203,6 +242,21 @@ export default scenario(async (app) => {
       assert.deepEqual(standIn.seen, answeredAt(2));
     });
 
+    await app.step('hosted: true: an upstream error that quotes the key in plain text reaches the page and the terminal masked', async () => {
+      const hostedPage = await openPage(app, hostedServer);
+      const since = hostedServer.process.mark();
+      const result = await hostedPage.evaluate((model) => runGeminiError('hosted-error-quotes-key', model), ECHO_KEY_MODEL);
+      const quoted = standIn.echoed.at(-1)!;
+      assert.ok(quoted.url.includes(`/models/${ECHO_KEY_MODEL}:`), quoted.url);
+      assert.ok(quoted.body.includes(`API key ${SERVER_KEY} not valid`), 'the stand-in quoted the key');
+      assert.equal(result.ok, false);
+      assert.equal(result.status, 400);
+      assert.ok(!(result.message ?? '').includes(SERVER_KEY), result.message);
+      assert.match(result.message ?? '', /API key \*\*\* not valid/);
+      await hostedServer.process.waitForLog(/ai request rejected: API key \*\*\* not valid/, { since });
+      assert.ok(!hostedServer.process.output.includes(SERVER_KEY), 'the hosted dev server printed the key');
+    });
+
     await app.step('in-page sandbox: the same refusal and the same answer', async () => {
       const context = await app.browser();
       await context.addInitScript(() => {
@@ -218,9 +272,25 @@ export default scenario(async (app) => {
     });
 
     await app.step('the key is in nothing the dev server serves to the browser', async () => {
-      const served = await Promise.all(['/', '/main.js', '/__pyric/init.json', '/__pyric/sdk/worker.js'].map((path) => servedText(host, path)));
+      const served = await Promise.all(SERVED_PATHS.map((path) => servedText(host, path)));
       for (const text of [...served, ...bodies]) assert.ok(!text.includes(SERVER_KEY), text.slice(0, 200));
       assert.ok(bodies.length > 0, 'the browser received responses');
+    });
+
+    await app.step('no module the dev server serves carries a VITE_ variable the page never reads', async () => {
+      const served = await Promise.all(SERVED_PATHS.map(async (path) => `${path}\n${await servedText(host, path)}`));
+      const carriers = [...served, ...bodies].filter((text) => text.includes(VITE_VALUE)).map((text) => text.split('\n', 1)[0]);
+      assert.deepEqual(carriers, []);
+    });
+
+    await app.step('with the key in VITE_GEMINI_API_KEY, the dev server refuses to start and says to rename it', async () => {
+      const viteEnv = { GEMINI_STAND_IN_URL: standIn.url, VITE_GEMINI_API_KEY: SERVER_KEY };
+      assertRefusedViteKey(await viteRun(app, await app.freePort(), viteEnv));
+    });
+
+    await app.step('with the key in .env as VITE_GEMINI_API_KEY, the dev server refuses the same way', async () => {
+      app.writeFile('.env', `VITE_GEMINI_API_KEY=${SERVER_KEY}\n`);
+      assertRefusedViteKey(await viteRun(app, await app.freePort(), { GEMINI_STAND_IN_URL: standIn.url }));
     });
   } finally {
     standIn.server.close();

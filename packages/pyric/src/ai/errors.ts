@@ -116,10 +116,46 @@ export function aiErrorFromEnvelope(
   );
 }
 
-/** Rethrow broker errors as SDK errors; pass anything else through. */
+/**
+ * A failure while building a request's headers, before anything is sent: the
+ * App Check provider rejected a limited-use token request. Upstream
+ * `getHeaders` runs inside `makeRequest`'s `try`, so its `catch` decorates
+ * the failure; this carries it there.
+ */
+export class RequestHeadersFailure extends Error {
+  constructor(readonly reason: unknown) {
+    super('request headers failed');
+    this.name = 'RequestHeadersFailure';
+  }
+}
+
+const ABORT_ERROR_NAME = 'AbortError';
+
+/** Upstream `makeRequest`'s `catch` wraps an `Error` unless it is an abort or already a fetch-level `AIError`. */
+function isWrappedByMakeRequest(reason: unknown): reason is Error {
+  if (!(reason instanceof Error)) return false;
+  const code = (reason as { code?: unknown }).code;
+  const isFetchLevel = code === AIErrorCode.FETCH_ERROR || code === AIErrorCode.API_NOT_ENABLED;
+  return !isFetchLevel && reason.name !== ABORT_ERROR_NAME;
+}
+
+/** `AIError('error', 'Error fetching from <url>: <message>')` with the original stack, as `makeRequest` throws it. */
+function aiErrorFromHeadersFailure(failure: RequestHeadersFailure, modelResource: string, op: string): unknown {
+  const reason = failure.reason;
+  if (!isWrappedByMakeRequest(reason)) return reason;
+  const url = sandboxRequestUrl(modelResource, op);
+  const error = new AIError(AIErrorCode.ERROR, `Error fetching from ${url}: ${reason.message}`);
+  error.stack = reason.stack;
+  return error;
+}
+
+/** Rethrow broker errors and header failures as SDK errors; pass anything else through. */
 export function toAIError(err: unknown, modelResource: string, op: string): unknown {
   if (err instanceof AiBrokerError) {
     return aiErrorFromEnvelope(err.envelope, modelResource, op);
+  }
+  if (err instanceof RequestHeadersFailure) {
+    return aiErrorFromHeadersFailure(err, modelResource, op);
   }
   return err;
 }

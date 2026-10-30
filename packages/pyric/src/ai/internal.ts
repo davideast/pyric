@@ -14,8 +14,19 @@ export type { AppCheckClaim } from './broker/types.js';
  *  the startup banner names when no `baseUrl` overrides it. Published here so
  *  `@pyric/cli` reads one definition instead of copying both. `GeminiUpstream`
  *  is the gemini engine's own request and credentials, which the dev server's
- *  `/__pyric/ai-proxy/gemini` route sends for a browser engine. */
-export { GEMINI_DEFAULT_BASE_URL, GeminiUpstream, hasGeminiStaticKey, redactUrl, type GeminiUpstreamOptions } from './broker/index.js';
+ *  `/__pyric/ai-proxy/gemini` route sends for a browser engine.
+ *  `redactUpstreamError` and `redactUpstreamText` remove the exact
+ *  credentials a request carried from what the upstream answered, the same
+ *  masking the gemini engine applies to its own errors. */
+export {
+  GEMINI_DEFAULT_BASE_URL,
+  GeminiUpstream,
+  hasGeminiStaticKey,
+  redactUpstreamError,
+  redactUpstreamText,
+  redactUrl,
+  type GeminiUpstreamOptions,
+} from './broker/index.js';
 
 const transportHandles = new WeakMap<FirebaseApp, Map<string, AI>>();
 

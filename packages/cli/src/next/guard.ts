@@ -2,6 +2,7 @@
  * Execution policies and safety interlocks for Next.js configuration loading.
  */
 import type { PyricNextOptions } from './types.js';
+import { isRegisterActive } from '../register/activation.js';
 
 const FORCED_SANDBOX_FLAG = '1';
 
@@ -45,22 +46,43 @@ function hasActiveSandboxEnvironment(): boolean {
   return sandboxValue.length > 0;
 }
 
+const OPT_OUT = 'To disable this guard, pass { guard: false } to withPyric(config, options).';
+
+const NO_SANDBOX_MESSAGE =
+  '[Pyric] Next.js development server started without active Pyric sandbox environment variables.\n' +
+  'To prevent accidental connections to production Firebase databases, launch this server using:\n' +
+  '  pyric sandbox -- next dev\n' +
+  'or start the host alone with `pyric sandbox --no-run` and paste the printed export lines into the terminal that runs next dev.\n' +
+  OPT_OUT;
+
 /**
- * Verify whether the Next.js development server is booting under a secure,
- * activated sandbox environment. Throws a protective terminal error if un-sandboxed.
+ * `PYRIC_SANDBOX` is set but the register didn't load, so route handlers
+ * would import the real `firebase-admin` (#1625). The message names the three
+ * ways that happens and how to start the server instead.
+ */
+const NO_REGISTER_MESSAGE =
+  '[Pyric] PYRIC_SANDBOX is set, but @pyric/cli/register is not active in this process, ' +
+  'so firebase-admin and firebase imports in route handlers would load the real SDKs.\n' +
+  'Start the development server with:\n' +
+  '  pyric sandbox -- next dev\n' +
+  'The register is missing when PYRIC_SANDBOX comes only from a .env file, when NODE_ENV=production makes the register refuse, ' +
+  'or when a package script sets its own NODE_OPTIONS. A script that needs its own options appends them: ' +
+  'NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" next dev\n' +
+  OPT_OUT;
+
+/**
+ * Verify that the Next.js development server is starting under an active
+ * sandbox: `PYRIC_SANDBOX` is set and `@pyric/cli/register` activated in this
+ * process. Throws a terminal error naming how to start it otherwise.
  */
 export function enforceSandboxGuard(options?: PyricNextOptions): void {
   if (isGuardExplicitlyDisabled(options)) {
     return;
   }
-  if (hasActiveSandboxEnvironment()) {
-    return;
+  if (!hasActiveSandboxEnvironment()) {
+    throw new Error(NO_SANDBOX_MESSAGE);
   }
-  const errorMessage =
-    '[Pyric] Next.js development server started without active Pyric sandbox environment variables.\n' +
-    'To prevent accidental connections to production Firebase databases, launch this server using:\n' +
-    '  pyric sandbox -- next dev\n' +
-    'or start the host alone with `pyric sandbox --no-run` and paste the printed export lines into the terminal that runs next dev.\n' +
-    'To disable this guard, pass { guard: false } to withPyric(config, options).';
-  throw new Error(errorMessage);
+  if (!isRegisterActive()) {
+    throw new Error(NO_REGISTER_MESSAGE);
+  }
 }

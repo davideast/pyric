@@ -16,7 +16,7 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
-import { AI_PROXY_BODY_LIMIT_BYTES, aiUpstreamGuardAllowance, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
+import { AI_PROXY_BODY_LIMIT_BYTES, aiUpstreamGuardAllowance, fetchAiUpstream, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
 import { NET_GUARD_GLOBAL } from '../../src/register/net-guard.js';
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
@@ -354,6 +354,26 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     expect(line).toMatch(/no automatic retry/i);
   });
 
+  it('masks the key and bearer a request sent when the upstream quotes them in Retry-After (#1631)', async () => {
+    const key = 'fake-header-key-1631';
+    const token = 'ya29.fake-bearer-1631';
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => new Response('slow down', { status: 429, headers: { 'retry-after': `30 ${key} ${token}` } }),
+    });
+    upstreams.push(upstream);
+    const { logger, notes } = recordingLogger();
+    const throttle = { shouldPrint: () => true };
+    const headers = { 'x-goog-api-key': key, authorization: `Bearer ${token}` };
+    const res = await fetchAiUpstream(`http://127.0.0.1:${upstream.port}/v1beta/m:generateContent`, { method: 'POST', headers }, throttle, logger);
+    await res.body?.cancel();
+    expect(notes.length).toBe(1);
+    expect(notes[0]).not.toContain(key);
+    expect(notes[0]).not.toContain(token);
+    expect(notes[0]).toContain('Retry-After: 30 *** ***');
+  });
+
   it('stays quiet on a 2xx upstream', async () => {
     const upstream = Bun.serve({
       port: 0,
@@ -538,6 +558,34 @@ describe('formatAiProxyWarning', () => {
     expect(block.split('\n').length).toBe(3);
     expect(block).not.toContain('\u001b');
     expect(block.length).toBeLessThan(320);
+  });
+
+  it('masks a credential the request carried when a Retry-After quotes it (#1631)', () => {
+    const key = 'fake-retry-key/1631';
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 429,
+      retryAfter: `30 ${key} ${encodeURIComponent(key)}`,
+      credentials: [key],
+    });
+    expect(block).not.toContain(key);
+    expect(block).not.toContain(encodeURIComponent(key));
+    expect(block).toContain('Retry-After: 30 *** ***');
+  });
+
+  it('masks a credential before the length cap, so no prefix of it survives', () => {
+    const key = `fake-key-${'k'.repeat(80)}`;
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 429,
+      retryAfter: `30 ${key}`,
+      credentials: [key],
+    });
+    expect(block).not.toContain('fake-key-');
   });
 
   it('renders the mid-stream abort block', () => {

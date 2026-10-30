@@ -1,10 +1,11 @@
 /**
- * The gemini proxy's error masking (#1584): the credential a request carried
+ * The upstream error masking the gemini proxy (#1584) and the gemini engine
+ * (#1631) share: the credential a request carried
  * is removed in every form an upstream can quote it, and a JSON envelope
  * stays JSON with Gemini's own status and message.
  */
 import { describe, expect, it } from 'bun:test';
-import { redactUpstreamError } from '../../src/serve/gemini-error-redaction.js';
+import { redactUpstreamError } from '../../src/ai/broker/upstream-error-redaction.js';
 
 const KEY = 'AIzaSy-test/key+1584';
 const TOKEN = 'ya29.a0AfB_test-adc-token';

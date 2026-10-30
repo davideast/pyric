@@ -32,11 +32,12 @@ window.runGemini = async (tag, withAppCheck) => {
   };
 };
 
-// A model the scenario's stand-in refuses with an error that quotes the request URL.
-window.runGeminiError = async (tag) => {
+// A model the scenario's stand-in refuses with an error that quotes the key:
+// in the request URL (`gemini-echo-url`) or in plain text (`gemini-echo-key`).
+window.runGeminiError = async (tag, modelName = "gemini-echo-url") => {
   const app = initializeApp(options, tag);
   self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider("site-key"), isTokenAutoRefreshEnabled: true });
-  const model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), { model: "gemini-echo-url" });
+  const model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), { model: modelName });
   return outcome(async () => (await model.generateContent("Say hi")).response.text());
 };

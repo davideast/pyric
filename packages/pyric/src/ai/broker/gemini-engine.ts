@@ -4,7 +4,7 @@
  *
  * A sandbox engine an app selects with `engine: { kind: 'gemini' }`. It runs
  * on Pyric's backend server, authenticating via a local API key
- * (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` / `VITE_GEMINI_API_KEY`) or Google
+ * (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY`) or Google
  * Cloud Application Default Credentials (`gcloud auth application-default login`)
  * without exposing secrets to the browser. In a browser page or SharedWorker
  * its base URL is the dev server's `/__pyric/ai-proxy/gemini` route, and the
@@ -15,8 +15,9 @@
  * reaches the caller with the upstream's own code, status and message.
  */
 
-import { AiBrokerError, errorEnvelope, redactUrl } from './synthesizer.js';
+import { AiBrokerError, errorEnvelope } from './synthesizer.js';
 import { GeminiUpstream, type GeminiUpstreamOptions } from './gemini-upstream.js';
+import { redactUpstreamText } from './upstream-error-redaction.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -64,8 +65,12 @@ export class GeminiEngine implements AnswerEngine {
 
   /** Sends one upstream request; a non-2xx answer throws the upstream's own error. */
   private async send(model: string, action: string, body: unknown): Promise<Response> {
-    const response = await this.upstream.send(this.normalizeModel(model), action, JSON.stringify(body));
-    return this.checkStatus(response);
+    const { response, credentials } = await this.upstream.sendWithCredentials(
+      this.normalizeModel(model),
+      action,
+      JSON.stringify(body),
+    );
+    return this.checkStatus(response, credentials);
   }
 
   /**
@@ -86,22 +91,23 @@ export class GeminiEngine implements AnswerEngine {
    * A non-2xx upstream answer becomes an {@link AiBrokerError} carrying the
    * upstream's own error envelope: its HTTP code, `status` and message. A
    * body that is not a Gemini error envelope keeps the HTTP code and reports
-   * the body text.
+   * the body text. Either way the credentials the request carried are masked
+   * in every form the upstream can quote them, as the gemini proxy masks
+   * them (`upstream-error-redaction.ts`).
    */
-  private async checkStatus(response: Response): Promise<Response> {
+  private async checkStatus(response: Response, credentials: readonly string[]): Promise<Response> {
     const isSuccess = response.ok;
     if (isSuccess) return response;
     const errorText = await response.text().catch(() => '');
     const upstream = parseUpstreamError(errorText);
     if (upstream !== null) {
-      throw new AiBrokerError(
-        errorEnvelope(response.status, redactUrl(upstream.message), upstream.status),
-      );
+      const message = redactUpstreamText(upstream.message, credentials);
+      throw new AiBrokerError(errorEnvelope(response.status, message, upstream.status));
     }
     throw new AiBrokerError(
       errorEnvelope(
         response.status,
-        `Gemini API returned status ${response.status}: ${redactUrl(errorText)}`,
+        `Gemini API returned status ${response.status}: ${redactUpstreamText(errorText, credentials)}`,
         'INTERNAL',
       ),
     );

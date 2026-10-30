@@ -1,9 +1,12 @@
 /**
  * `pyric/app-check`: the sandbox mirror of `firebase/app-check`.
  *
- * The sandbox has no attestation authority, so it behaves like production
- * under a registered debug token: providers are accepted and never called,
- * and every token request succeeds with a token of production's shape. The
+ * The sandbox has no attestation authority. Under a debug token it behaves
+ * like production with a registered one: providers are never called, and
+ * every token request succeeds with a token of production's shape. With no
+ * debug token set, a `CustomProvider` is called as production calls it, and
+ * the token it returns is what AI Logic's gate judges; the reCAPTCHA
+ * providers still get a sandbox-minted token. The
  * conformance rows are in packages/conformance/registry/app-check.ts and the
  * suite in packages/pyric/test/app-check/oracle-conformance.test.ts.
  *
@@ -67,6 +70,9 @@ export function initializeAppCheck(app: FirebaseApp | undefined, options: AppChe
   activate(target, options.provider, options.isTokenAutoRefreshEnabled);
   const handle = new AppCheckHandle(target);
   handles.set(target, handle);
+  // Last, as upstream: a provider that throws here leaves the app initialized,
+  // so the same options then return this handle (see providers.ts).
+  options.provider.initialize();
   return handle;
 }
 
@@ -82,8 +88,7 @@ export async function getToken(appCheck: AppCheck, forceRefresh = false): Promis
 }
 
 export async function getLimitedUseToken(appCheck: AppCheck): Promise<AppCheckTokenResult> {
-  activeState(appCheck);
-  return mintLimitedUse(appCheck.app);
+  return mintLimitedUse(appCheck.app, activeState(appCheck));
 }
 
 export function setTokenAutoRefreshEnabled(appCheck: AppCheck, isTokenAutoRefreshEnabled: boolean): void {

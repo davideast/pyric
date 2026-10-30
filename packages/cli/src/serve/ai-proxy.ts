@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
-import { redactUrl } from 'pyric/ai/internal';
+import { redactUpstreamText, redactUrl } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import type { AiEngineConfigWire } from './worker/protocol.js';
 import { permitGuardHost } from '../register/net-guard.js';
@@ -70,6 +70,8 @@ type AiProxyFailure =
       status: number;
       /** The upstream's raw `Retry-After` header, when it sent one. */
       retryAfter?: string;
+      /** The credentials the request carried, masked from `retryAfter`. */
+      credentials?: readonly string[];
     }
   | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string };
 
@@ -82,13 +84,17 @@ const AI_PROXY_RETRY_AFTER_MAX = 64;
  * nothing worth printing.
  *
  * The header is remote-authored, so it is sanitized and length-capped like
- * every other upstream string that reaches the terminal. Delta-seconds (the
+ * every other upstream string that reaches the terminal. It is masked of the
+ * request's credentials first, with the masking the gemini engine and proxy
+ * use (`redactUpstreamText`), so the cap cannot leave a prefix of a key
+ * behind. Delta-seconds (the
  * common form) get an `s` suffix so the wait reads as a duration; the
  * HTTP-date form is echoed verbatim, since `Wed, 21 Oct 2026 07:28:00 GMTs`
  * would be nonsense.
  */
-function formatRetryAfter(raw: string): string | null {
-  const clean = sanitizeForTerminal(raw).slice(0, AI_PROXY_RETRY_AFTER_MAX).trim();
+function formatRetryAfter(raw: string, credentials: readonly string[]): string | null {
+  const masked = redactUpstreamText(raw, credentials);
+  const clean = sanitizeForTerminal(masked).slice(0, AI_PROXY_RETRY_AFTER_MAX).trim();
   if (clean === '') return null;
   if (/^\d+$/.test(clean)) return `${clean}s`;
   return clean;
@@ -161,7 +167,7 @@ export function formatAiProxyWarning(failure: AiProxyFailure, source = 'ai-proxy
     );
   }
   if (failure.kind === 'status' && failure.retryAfter !== undefined) {
-    const wait = formatRetryAfter(failure.retryAfter);
+    const wait = formatRetryAfter(failure.retryAfter, failure.credentials ?? []);
     if (wait !== null) {
       lines.push(`      Retry-After: ${wait}, no automatic retry; the status went to the caller`);
     }
@@ -229,6 +235,28 @@ export function permitAiUpstreams(ai: {
   for (const destination of destinations) permitGuardHost(destination);
 }
 
+/** The `key` parameter of `target`, or null when it has none or is not a URL. */
+function urlKeyParam(target: string): string | null {
+  try {
+    return new URL(target).searchParams.get('key');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The credentials an upstream request carries: the `key` URL parameter, the
+ * `x-goog-api-key` header, and the `Authorization` value without its scheme.
+ */
+function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestInit | undefined): string[] {
+  const isRequest = input instanceof Request;
+  const headers = new Headers(isRequest ? input.headers : init?.headers);
+  const urlKey = urlKeyParam(isRequest ? input.url : String(input));
+  const authorization = headers.get('authorization')?.replace(/^\S+\s+/, '') ?? null;
+  const found = [urlKey, headers.get('x-goog-api-key'), authorization];
+  return found.filter((value): value is string => value !== null && value !== '');
+}
+
 /** Shared upstream I/O for the browser proxy and the direct Node engine.
  * Responses remain incremental; cancellation stops reading without a warning.
  */
@@ -255,7 +283,7 @@ export async function fetchAiUpstream(
   if (failed) {
     const retryAfter = upstream.headers.get('retry-after');
     note({ kind: 'status', target, latencyMs: Date.now() - startedAt, status: upstream.status,
-      ...(retryAfter !== null ? { retryAfter } : {}) });
+      ...(retryAfter !== null ? { retryAfter, credentials: requestCredentials(input, init) } : {}) });
   }
   const body = upstream.body;
   const hasNoBody = body === null;

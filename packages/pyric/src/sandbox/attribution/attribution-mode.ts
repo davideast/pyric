@@ -7,19 +7,24 @@
  * neither result has a consumer there, so attribution is off whenever the
  * environment says production.
  *
- * Two production signals are read, in this order, because the mirror runs in
- * two runtimes:
+ * The production signal is `process.env.NODE_ENV === 'production'`, written
+ * as that literal expression so it works in both runtimes the mirror runs in:
  *
- * 1. `import.meta.env.PROD`, which a browser bundler substitutes at build
- *    time. This is the signal that survives into a shipped bundle, where no
- *    `process` exists.
- * 2. `process.env.NODE_ENV === 'production'`, the marker the rest of this
- *    repository already treats as "this is production" (the CLI's Next.js
- *    passthrough guard and the `@pyric/cli/register` refusal both read it).
+ * - A browser bundler substitutes the expression at build time (Vite, webpack
+ *   and Next.js all replace `process.env.NODE_ENV`), so a shipped bundle
+ *   reads `'production'` even though no `process` exists there.
+ * - In Node, it is the marker the rest of this repository already treats as
+ *   "this is production" (the CLI's Next.js passthrough guard and the
+ *   `@pyric/cli/register` refusal both read it).
  *
- * A caller that wants attribution regardless of either signal turns it on
+ * This module never reads `import.meta.env`. The Vite dev server prepends the
+ * whole `import.meta.env` object, every `VITE_`-prefixed variable included, to
+ * any module that reads any property of it, so a read here would serve those
+ * values to every page whether or not the app reads them (#1632).
+ *
+ * A caller that wants attribution regardless of the signal turns it on
  * explicitly through {@link configureListenerAttribution}, which overrides
- * both. That is the "explicit option" path: a production-mode test harness, or
+ * it. That is the "explicit option" path: a production-mode test harness, or
  * a host that wants attribution in a build the bundler marked production.
  */
 
@@ -44,31 +49,22 @@ export function listenerAttributionMode(): ListenerAttributionMode {
 }
 
 /**
- * `true` when the bundler stamped this build as production. Read through a
- * cast and a try/catch because `import.meta.env` exists only under a bundler,
- * and a plain Node ESM runtime leaves it undefined.
+ * `true` when the bundler stamped this build as production, or the host
+ * process declares itself production. Read inside a try/catch because an
+ * unbundled browser page or worker has no `process`, and the bare reference
+ * throws there.
  */
-function isBundledProduction(): boolean {
+function isProduction(): boolean {
   try {
-    const env = (import.meta as { env?: { PROD?: boolean } }).env;
-    return env?.PROD === true;
+    return process.env.NODE_ENV === PRODUCTION_ENVIRONMENT;
   } catch {
     return false;
   }
-}
-
-/** `true` when the host process declares itself production. */
-function isProcessProduction(): boolean {
-  const runtime = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
-  if (runtime === undefined) return false;
-  return runtime.env?.NODE_ENV === PRODUCTION_ENVIRONMENT;
 }
 
 /** Whether listener attribution should run right now. */
 export function listenerAttributionEnabled(): boolean {
   if (mode === 'on') return true;
   if (mode === 'off') return false;
-  if (isBundledProduction()) return false;
-  if (isProcessProduction()) return false;
-  return true;
+  return !isProduction();
 }

@@ -39,18 +39,24 @@ Setting `FIREBASE_APPCHECK_DEBUG_TOKEN` in development switches App Check to its
 
 The sandbox refuses these requests too. If an app never calls `initializeAppCheck`, or calls it after `getAI`, `generateContent`, `generateContentStream`, `countTokens` and chat messages fail with the same 403 error production returns. Pyric prints how to fix it in the browser console and in the dev server terminal. Sandbox tokens from `initializeAppCheck` are accepted, with or without the debug provider.
 
+With a `CustomProvider` and no debug token set, the sandbox calls your provider's `getToken` and sends the token it returns, as production does. AI Logic requests then answer only when that token is one the sandbox signed, such as a token your server mints with `firebase-admin` `createToken` under Pyric. A provider that rejects, or returns anything else, gets the same 403 as a request with no token. The sandbox cannot check a token Google signed, so a provider that returns a real App Check token is refused too. Set the debug token in development to skip the provider, as production does.
+
 ## Start with deterministic responses
 
-With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
+With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point. A test runner such as `bun test` has no `document`, so a reCAPTCHA provider throws there, as it does in production on a server. Use a `CustomProvider` with the debug token set, and the sandbox never calls it:
 
 ```ts
-import { initializeAppCheck, ReCaptchaV3Provider } from 'pyric/app-check';
+import { CustomProvider, initializeAppCheck } from 'pyric/app-check';
 import { getAI } from 'pyric/ai';
 import { script } from 'pyric/ai/scripting';
 
+Object.assign(globalThis, { FIREBASE_APPCHECK_DEBUG_TOKEN: true });
 initializeAppCheck(app, {
-  provider: new ReCaptchaV3Provider('your-recaptcha-v3-site-key'),
-  isTokenAutoRefreshEnabled: true,
+  provider: new CustomProvider({
+    getToken: async () => {
+      throw new Error('Not called while the debug token is set.');
+    },
+  }),
 });
 const ai = getAI(app);
 script(ai, [

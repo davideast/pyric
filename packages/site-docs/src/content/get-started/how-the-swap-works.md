@@ -37,7 +37,7 @@ Under `vite dev`, modules Vite loads for server rendering get the swap too: `ser
 |---|---|---|
 | `firebase/app`, `auth`, `database`, `firestore`, `storage` | reach the dev server's sandbox, signed in as the server's own user, under your rules | each call fails with `failed-precondition`, naming `hosted: true` |
 | `firebase/ai`, `firebase/messaging` | each call fails with `failed-precondition` | the same |
-| `firebase/app-check` | `initializeAppCheck` and token calls work in the server's process; tokens are minted locally with production's shape | the same |
+| `firebase/app-check` | `initializeAppCheck` with a `CustomProvider`, and token calls, work in the server's process; tokens are minted locally with production's shape, except that the `CustomProvider` is called when no debug token is set. A reCAPTCHA provider throws `ReferenceError: document is not defined`, as the Firebase SDK does on a server | the same |
 | `firebase/analytics`, `firestore/lite`, `functions`, `performance`, `remote-config` | imports resolve; each call fails with `PyricDeferredApiError` naming the subpath | the same |
 | `firebase-admin/*` | reaches the dev server's sandbox as admin, past your rules | each call fails with `failed-precondition`, naming `hosted: true` |
 
