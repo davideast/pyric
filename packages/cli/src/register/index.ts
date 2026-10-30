@@ -42,6 +42,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
 import { resolvesIntoPackage } from './package-identity.js';
+import { markRegisterActive } from './activation.js';
 import { createStopReporter, stopFor } from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
@@ -302,6 +303,7 @@ if (process.env.PYRIC_SANDBOX) {
   } else {
     activate();
     active = true;
+    markRegisterActive();
   }
 }
 // No PYRIC_SANDBOX → inert by design: importing this module rewrites nothing.

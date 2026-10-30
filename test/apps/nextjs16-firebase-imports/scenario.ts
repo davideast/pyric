@@ -5,7 +5,8 @@
 // `firebase-admin` and the client `firebase` SDK, with Turbopack, with
 // `--hosted`, and with `--webpack` as the control. See
 // `../nextjs-firebase-imports.ts` for the app and the safety preload that keeps
-// every case on this machine.
+// every case on this machine. It then checks that `withPyric` refuses to start
+// Next when `PYRIC_SANDBOX` is set but the register isn't active (#1625).
 import { scenario } from '../driver.ts';
 import { runFirebaseImports } from '../nextjs-firebase-imports.ts';
 
@@ -13,4 +14,4 @@ export default scenario((app) => runFirebaseImports(app, [
   { name: 'pyric sandbox -- next dev', nextFlags: [], hosted: false },
   { name: 'pyric sandbox --hosted -- next dev', nextFlags: [], hosted: true },
   { name: 'pyric sandbox -- next dev --webpack', nextFlags: ['--webpack'], hosted: false },
-]));
+], { refusals: true }));
