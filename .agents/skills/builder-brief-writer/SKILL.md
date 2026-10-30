@@ -11,15 +11,24 @@ does, and names what production refuses so the builder has to try it.
 
 ## Inputs
 
-Read all three before writing anything:
+Two directories, each a setting:
+
+- the **ops directory**, `PYRIC_OPS_DIR` when it is set, otherwise
+  `pyric-ops` in the home directory. It holds the evidence map and the ideas.
+- the **data root**, `PYRIC_BUILDERS_DATA_DIR` when it is set, otherwise
+  `pyric-ops/assurance/builders` in the home directory, as
+  `test/builders/round-paths.ts` resolves it. The harness reads briefs from
+  it and keeps runs in it.
+
+Read all three inputs before writing anything:
 
 1. **Weak areas.** The evidence map,
-   `/home/david/pyric-ops/assurance/change-map-alpha30.md`, and the registry
+   `<ops directory>/assurance/change-map-alpha30.md`, and the registry
    rows still `automation: "unverified"` in
    `packages/conformance/registry/*.ts`. An area is weak when it changed a
    lot since alpha.30 and no app scenario under `test/apps/` drives it, or
    when its rows are unverified.
-2. **Ideas.** `/home/david/pyric-ops/builder-ideas.md`: app ideas and the
+2. **Ideas.** `<ops directory>/builder-ideas.md`: app ideas and the
    five stress dimensions (scale, lifecycle, integration, combination,
    concurrency). Use an idea when one fits the area.
 3. **Production's behavior.** Firebase's own documentation on
@@ -44,10 +53,8 @@ Read all three before writing anything:
 
 ## The file
 
-One file per brief, `<data root>/briefs/<round>/<round>-<n>.json`, where the
-data root is `/home/david/pyric-ops/assurance/builders` (or
-`PYRIC_BUILDERS_DATA_DIR`). `test/builders/brief.ts` holds the shape; a field
-it doesn't name fails.
+One file per brief, `<data root>/briefs/<round>/<round>-<n>.json`.
+`test/builders/brief.ts` holds the shape; a field it doesn't name fails.
 
 ```json
 {

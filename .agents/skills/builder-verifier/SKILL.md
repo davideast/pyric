@@ -23,8 +23,9 @@ bug, or a duplicate; that is the expected result, not a failure.
 
 ## Where a run is
 
-`<data root>/runs/<round>/<run>/`, where the data root is
-`/home/david/pyric-ops/assurance/builders` (or `PYRIC_BUILDERS_DATA_DIR`):
+`<data root>/runs/<round>/<run>/`. The data root is `PYRIC_BUILDERS_DATA_DIR`
+when it is set, otherwise `pyric-ops/assurance/builders` in the home
+directory, as `test/builders/round-paths.ts` resolves it. A run holds:
 
 - `report.json`: `{ builder, harness }`. `builder` is the builder's own
   report (null when it wrote none that holds the shape). `harness` is what
@@ -46,7 +47,22 @@ builder rule (`.agents/skills/app-builder/SKILL.md`):
   `node_modules/pyric*` beyond their READMEs;
 - it used a credential other than the fake config, or
   `harness.tokenFoundIn` is not empty;
-- it launched a browser of its own instead of the harness browser.
+- it launched a browser of its own instead of the harness browser (below).
+
+**A browser of its own.** The harness browser records every request it
+makes, loopback ones included, as `"layer":"browser"` lines in
+`network.jsonl`; a browser the builder launched writes none there. Treat
+the run as having used its own browser when either holds:
+
+- the report's steps drive pages (sign-in, clicks, uploads), but
+  `network.jsonl` has no `"layer":"browser"` request to the app's local URL;
+- the app's code, from `app.tgz`, calls Playwright's `launch`,
+  `launchPersistentContext` or `launchServer`, names an `executablePath`, or
+  runs a Chrome or `headless_shell` binary, rather than
+  `chromium.connect(process.env.PYRIC_BUILDER_BROWSER_WS)`.
+
+A script the builder ran from outside its app leaves only the first signal,
+so check it on every run whose report says it used a page.
 
 An invalid run still gets a `verdict.json`; every problem of it counts as
 `invalid`.
@@ -96,12 +112,21 @@ A `google-host:` problem is judged by the network record alone: it
 reproduces when the try reaches for that host again, whatever the script
 exits with. Write the script to repeat the step the run's logs show.
 
-The command exits 0 when it reproduced, 1 when unconfirmed, and keeps
-`repro.json`, the script and each try's network record and logs in
-`runs/<round>/<run>/repros/<slug>/<stamp>/`. Read `repro.json` for each
-try's outcome and reason. Unconfirmed after both tries: the problem is
-`unconfirmed` and is not staged. You may revise a script and run it again
-when the script was wrong; say so in the verdict.
+The command keeps `repro.json`, the script and each try's network record
+and logs in `runs/<round>/<run>/repros/<slug>/<stamp>/`, whatever happened,
+and exits with its result:
+
+| Exit | `result` | Means | The problem's verdict |
+|---|---|---|---|
+| 0 | `reproduced` | a try reproduced it | go on to classify |
+| 1 | `unconfirmed` | a try found pyric behaving as production does, and none reproduced | `unconfirmed`, not staged |
+| 3 | `inconclusive` | no try could tell: each crashed, timed out, or could not install | fix the script and run it again; still inconclusive, it is `unconfirmed` and the verdict says why |
+| 2 | | refused before anything ran | fix what it names |
+
+Read `repro.json` for each try's outcome and reason. A try whose app needs
+a package the shared npm cache lacks is inconclusive: `reproduce` never
+installs the builder's app outside the sandbox. You may revise a script and
+run it again when the script was wrong; say so in the verdict.
 
 ### 3. Classify what reproduced
 
@@ -150,7 +175,7 @@ Labels: <the lane label of the PRIORITIES.md section it serves>, source:app-buil
 ## Production's behavior
 <the classification and its evidence: the doc, the observation, or the SDK source>
 
-Found by: <model> builder, run <run>. Verified by: Opus 5.5.
+Found by: <builder model> builder, run <run>. Verified by: <your model>.
 ```
 
 The lane labels are `lane:app-check`, `lane:velocity`, `lane:rules`,
