@@ -5,8 +5,8 @@
     "firestore-rules#200"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"rules-version-1-recursive-glob\" (Coverage: rules_version 1 recursive wildcard). Without rules_version = '2' a recursive wildcard does not match an empty path: /cities/{city}/{document=**} does not match cities/SF.",
-  "observedAt": "2026-10-27T02:31:54.738Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:42.412Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

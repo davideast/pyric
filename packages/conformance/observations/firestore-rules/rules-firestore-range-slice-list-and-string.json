@@ -5,8 +5,8 @@
     "firestore-rules#173"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"range-slice-list-and-string\" (Item 4). Sim must parse and evaluate range slice [i:j] for List and String; pre-fix grammar rejected the syntax outright.",
-  "observedAt": "2026-09-27T23:24:15.566Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:41.603Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

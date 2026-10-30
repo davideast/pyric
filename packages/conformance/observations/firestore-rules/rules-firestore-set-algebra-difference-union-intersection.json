@@ -5,8 +5,8 @@
     "firestore-rules#174"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Production distinguishes Map.keys() List receivers (no set algebra) from explicit List.toSet() Set receivers (difference/union/intersection supported); paired cases lock the boundary.",
-  "observedAt": "2026-09-30T03:43:25.405Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:42.783Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

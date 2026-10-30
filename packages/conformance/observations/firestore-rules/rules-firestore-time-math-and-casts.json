@@ -5,8 +5,8 @@
     "firestore-rules#180"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"time-math-and-casts\" (Coverage: Timestamp methods + math builtins + casts). Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators; int() parses a whole int64 decimal string and truncates or saturates a float, float() parses Java double syntax, string() prints a float as Java Double.toString does, math.ceil/floor/sqrt/pow return a float, math.round returns an int, and every conversion or math failure is an error value that || true absorbs.",
-  "observedAt": "2026-09-28T03:39:08.373Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:43.589Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -5,8 +5,8 @@
     "firestore-rules#161"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"bytes-toutf8-and-hashing\" (Item 5.3). Sim must implement Bytes + String.toUtf8() + hashing.{md5,sha256,crc32,crc32c}. Pre-fix: every reference hashing rule denied silently and toUtf8 threw UnsupportedError.",
-  "observedAt": "2026-09-27T17:04:23.369Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:38.947Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

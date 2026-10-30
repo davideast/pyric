@@ -5,8 +5,8 @@
     "firestore-rules#202"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"split-and-trim-edges\" (Coverage: split and trim edges). split() drops trailing empty pieces, and trim() strips only characters at or below U+0020, keeping NBSP, U+3000 and BOM.",
-  "observedAt": "2026-10-28T03:35:13.327Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:43.116Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

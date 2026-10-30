@@ -5,8 +5,8 @@
     "firestore-rules#184"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"resource-missing-document\" (RULES-B13). A missing request target makes resource a null error value. The simulator constructed a non-null empty resource for get/update/delete, so `resource != null` ALLOWed where production DENIES.",
-  "observedAt": "2026-07-21T23:43:06.995Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:42.266Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
