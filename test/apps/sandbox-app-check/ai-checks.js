@@ -2,7 +2,7 @@
 // by the page (main.js) and the registered Node process (ai-server.mjs).
 // From November 2, 2026 AI Logic refuses requests without an App Check token.
 import { initializeApp } from "firebase/app";
-import { ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
+import { CustomProvider, ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
 import { getAI, getGenerativeModel } from "firebase/ai";
 
 const options = {
@@ -39,7 +39,42 @@ function targetKind(ai) {
   return null;
 }
 
-export async function runAiChecks(tag) {
+/**
+ * With no debug token set, the SDK calls a CustomProvider and sends the token
+ * it returns; AI Logic refuses a token that is not a valid App Check token,
+ * and the placeholder the SDK sends when the provider rejects (#1642). With
+ * limited-use tokens there is no placeholder: the request is never sent, and
+ * the SDK wraps the provider's error as `AIError` code `error`.
+ */
+async function customProviderOutcome(tag, name, getToken, aiOptions) {
+  let calls = 0;
+  const provider = new CustomProvider({
+    getToken: async () => {
+      calls += 1;
+      return getToken();
+    },
+  });
+  const app = initializeApp(options, `${tag}-custom-${name}`);
+  initializeAppCheck(app, { provider, isTokenAutoRefreshEnabled: false });
+  const result = await outcome(() => modelFor(getAI(app, aiOptions)).generateContent("ping"));
+  return { providerCalled: calls > 0, result };
+}
+
+async function runCustomProviderChecks(tag, tokenUrl) {
+  const hour = () => Date.now() + 3_600_000;
+  return {
+    valid: await customProviderOutcome(tag, "valid", async () => (await fetch(tokenUrl)).json()),
+    invalidToken: await customProviderOutcome(tag, "invalid", async () => ({ token: "not-an-app-check-token", expireTimeMillis: hour() })),
+    rejects: await customProviderOutcome(tag, "rejects", async () => {
+      throw new Error("attestation failed");
+    }),
+    limitedUseRejects: await customProviderOutcome(tag, "limited-rejects", async () => {
+      throw new Error("attestation failed");
+    }, { useLimitedUseAppCheckTokens: true }),
+  };
+}
+
+export async function runAiChecks(tag, tokenUrl) {
   const bare = getAI(initializeApp(options, `${tag}-no-app-check`));
   const noAppCheck = {
     generateContent: await outcome(() => modelFor(bare).generateContent("ping")),
@@ -67,5 +102,7 @@ export async function runAiChecks(tag) {
   const limited = getAI(withAppCheck(initializeApp(options, `${tag}-limited-use`)), { useLimitedUseAppCheckTokens: true });
   const limitedUse = await outcome(() => modelFor(limited).generateContent("ping"));
 
-  return { targetKind: targetKind(first), noAppCheck, appCheckFirst, getAiFirst, debugProvider, limitedUse };
+  const customProvider = await runCustomProviderChecks(tag, tokenUrl);
+
+  return { targetKind: targetKind(first), noAppCheck, appCheckFirst, getAiFirst, debugProvider, limitedUse, customProvider };
 }

@@ -12,15 +12,26 @@
 // production's 403; one that initialized it first answers, with or without
 // the debug provider, and with limited-use tokens. Pyric's guidance prints in
 // the dev server terminal and the browser console beside the error.
+//
+// With no debug token set, production calls an app's CustomProvider and sends
+// the token it returns, and so does the sandbox (#1642): a provider backed by
+// a server that mints with firebase-admin's createToken answers, and one that
+// returns a token that is not an App Check token, or rejects, gets the 403.
+// With limited-use tokens a rejecting provider sends no request: the call
+// fails with the SDK's `Error fetching from <url>: <message>` wrapper.
 import assert from 'node:assert/strict';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
 declare function runAppCheck(): Promise<Record<string, unknown>>;
-declare function runAiChecks(tag: string): Promise<Record<string, unknown>>;
+declare function runAiChecks(tag: string, tokenUrl: string): Promise<Record<string, unknown>>;
 
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
-/** Apps `runAiChecks` leaves refused: one with no App Check, one that called getAI before initializeAppCheck. */
-const REFUSED_APPS_PER_RUN = 2;
+/**
+ * Apps `runAiChecks` leaves refused: one with no App Check, one that called
+ * getAI before initializeAppCheck, and the two whose CustomProvider returns an
+ * invalid token or rejects.
+ */
+const REFUSED_APPS_PER_RUN = 4;
 
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
 
@@ -44,6 +55,19 @@ function expected(targetKind: string) {
     getAiFirst: refusal('generateContent'),
     debugProvider: 'answered',
     limitedUse: 'answered',
+    customProvider: {
+      valid: { providerCalled: true, result: 'answered' },
+      invalidToken: { providerCalled: true, result: refusal('generateContent') },
+      rejects: { providerCalled: true, result: refusal('generateContent') },
+      limitedUseRejects: {
+        providerCalled: true,
+        result: {
+          code: 'error',
+          status: null,
+          message: 'AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/gemini-flash-lite-latest:generateContent: attestation failed (AI/error)',
+        },
+      },
+    },
   };
 }
 
@@ -71,6 +95,13 @@ export default scenario(async (app) => {
     }
   });
 
+  const tokenUrl = await app.step('start the server a CustomProvider gets its token from', async () => {
+    const port = await app.freePort();
+    const server = app.serverProcess('token-server.mjs', [], { env: { PYRIC_SANDBOX: `remote:${host.url}`, TOKEN_PORT: String(port) } });
+    await server.waitForLog(/token-server listening/);
+    return `http://127.0.0.1:${port}/app-check-token`;
+  });
+
   const page = await app.step('open the page', async () => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'runAppCheck' in window);
@@ -94,19 +125,19 @@ export default scenario(async (app) => {
 
   await app.step('Node host: AI Logic without App Check gets production\'s 403, with App Check it answers', async () => {
     const since = host.process.mark();
-    const result = await page.evaluate(() => runAiChecks('node-host'));
+    const result = await page.evaluate((url) => runAiChecks('node-host', url), tokenUrl);
     assert.deepEqual(result, expected('transport'));
     await host.process.waitForLog(HINT, { since });
   });
 
   await app.step('the page console carries pyric\'s guidance once per refused app', () => {
-    // runAiChecks refuses two apps: the one with no App Check and the one that called getAI first.
+    // runAiChecks refuses four apps (see REFUSED_APPS_PER_RUN).
     assert.equal(consoleHints(app), REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
   });
 
   await app.step('a registered Node process gets the same refusal and the same answers', async () => {
     // PYRIC_SANDBOX=local: the process runs its own sandbox, in process.
-    const { output } = await app.serverScript('ai-server.mjs', [], { env: { PYRIC_SANDBOX: 'local' }, timeoutMs: 60_000 });
+    const { output } = await app.serverScript('ai-server.mjs', [tokenUrl], { env: { PYRIC_SANDBOX: 'local' }, timeoutMs: 60_000 });
     const line = output.match(/^ai-checks (.*)$/m);
     assert.ok(line, output);
     assert.deepEqual(JSON.parse(line[1]!), expected('sandbox'));
@@ -119,7 +150,7 @@ export default scenario(async (app) => {
   await app.step('SharedWorker: the same refusal and the same answers', async () => {
     const workerPage = await openPage(app, workerHost);
     const since = workerHost.process.mark();
-    const result = await workerPage.evaluate(() => runAiChecks('shared-worker'));
+    const result = await workerPage.evaluate((url) => runAiChecks('shared-worker', url), tokenUrl);
     assert.deepEqual(result, expected('transport'));
     await workerHost.process.waitForLog(HINT, { since });
   });
@@ -131,7 +162,7 @@ export default scenario(async (app) => {
     });
     const inPage = await openPage(app, workerHost);
     const hintsBefore = consoleHints(app);
-    const result = await inPage.evaluate(() => runAiChecks('in-page'));
+    const result = await inPage.evaluate((url) => runAiChecks('in-page', url), tokenUrl);
     assert.deepEqual(result, expected('sandbox'));
     // The terminal already printed this refusal for the SharedWorker page, and
     // the dev server throttles a repeat, so the page console is the evidence here.

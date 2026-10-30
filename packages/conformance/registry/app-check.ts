@@ -162,6 +162,16 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     plane: 'app-check',
+    rowRef: 'custom-provider-without-debug-token',
+    section: SEC_INIT,
+    api: 'getToken(appCheck), getLimitedUseToken(appCheck) with a CustomProvider and no debug token',
+    featureKeys: ['CustomProvider', 'getToken', 'getLimitedUseToken'],
+    behavior: 'With `FIREBASE_APPCHECK_DEBUG_TOKEN` neither `true` nor a string, the SDK calls the `CustomProvider` and returns its token as given, caching it until its `expireTimeMillis`. When the provider rejects, `getToken` and `getLimitedUseToken` reject with its error, an `onTokenChanged` error handler receives it. AI Logic then depends on the handle: by default it gets the placeholder token and refuses the request with a 403, and with `useLimitedUseAppCheckTokens: true` no request is sent and the call rejects with `AIError` code `error`, message `Error fetching from <url>: <provider message>`.',
+    evidence: 'Upstream source only, `@firebase/app-check` 0.11.3 `dist/esm/index.esm.js`: `initializeDebugMode` (lines 638 to 657), `getToken$2` (the provider path from line 783, `makeDummyTokenResult` on error), `getLimitedUseToken$1` (lines 847 to 861, no placeholder), `CustomProvider.getToken` (lines 1374 to 1388), and the public `getToken` rethrowing `result.error`; `@firebase/ai` 2.12.0 `dist/esm/index.esm.js` `getHeaders` (line 1619) awaited inside `makeRequest`\'s `try`, whose `catch` wraps the rejection (line 1717). A real-SDK Node run in the ai-app-check hunt (GATE-1) saw the provider called and its token, or the placeholder, sent to AI Logic. No committed capture.',
+    notes: 'The sandbox cannot verify a token Google signed, so AI Logic\'s gate in the sandbox admits only a sandbox-signed token (one `pyric-admin` `createToken` or the sandbox mints). Upstream reads the debug global at the first `initializeAppCheck` in the page; the sandbox reads it at each one. The sandbox has no token refresher: with `isTokenAutoRefreshEnabled: true`, upstream `initializeAppCheck` adds an internal token listener that calls the provider at once, refreshes at the token\'s issue time plus half its TTL plus 5 minutes (no later than 5 minutes before expiry), and retries a failure with backoff from 30 seconds to 16 minutes (lines 909 to 975 and 1516 to 1520). The sandbox calls the provider only when a token is requested.',
+  }),
+  row({
+    plane: 'app-check',
     rowRef: 'recaptcha-providers-construct',
     section: SEC_INIT,
     api: 'new ReCaptchaV3Provider(siteKey); new ReCaptchaEnterpriseProvider(siteKey)',
