@@ -1,8 +1,8 @@
 /**
  * The `round` command: every brief of a round, once per model, at one cap.
  * It checks everything it can before it spends anything (the briefs, the
- * builder, the checkout, that no run of the round exists yet, that the runs
- * at their cap fit under the round's), packs the workspace once, then runs
+ * builder and its settings, the token, the checkout, that no run of the round
+ * exists yet, that the runs at their cap fit under the round's), packs the workspace once, then runs
  * at most two builders at once, each holding a heavy-run slot, each in a
  * sandbox of its own (`builder-run.ts`). One meter covers the round: the
  * model forwarder refuses a run's requests once it has spent its cap, and
@@ -18,9 +18,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { takeHeavyRunSlot } from '../../scripts/lib/heavy-run-slots.ts';
 import { packWorkspace, tarballsIn } from '../apps/install.ts';
-import { readBriefs, type Brief } from './brief.ts';
+import { readBriefsDir, type Brief } from './brief.ts';
 import { claudeBuilder, claudeBuilderProblems, scriptBuilder, type Builder } from './builder-command.ts';
 import { runBuilder, runExists, type BuilderRunInput } from './builder-run.ts';
+import { harnessToken, NO_TOKEN_PROBLEM } from './harness-token.ts';
 import { PreflightFailed, preflightProblems } from './canary/canary.ts';
 import { roundMeter, type RoundMeter } from './model-meter.ts';
 import { NamespaceUnavailable } from './namespace.ts';
@@ -82,22 +83,36 @@ interface Checked {
   briefs: Brief[];
   builder: Builder;
   runs: PlannedRun[];
+  /** The forwarder's token. Never printed, recorded or passed into a sandbox. */
+  token: string | undefined;
+  /** What to tell the owner about the token's source. */
+  notices: string[];
+}
+
+/** The forwarder's token, and what keeps it from being read; a model builder needs one. */
+function checkToken(options: RoundOptions): { token: string | undefined; problems: string[]; notices: string[] } {
+  const read = harnessToken(options.tokenFile);
+  const usesModel = options.builder === 'claude';
+  const isMissing = usesModel && read.token === undefined && read.problems.length === 0;
+  return isMissing ? { ...read, problems: [NO_TOKEN_PROBLEM] } : read;
 }
 
 /** Everything `round` checks before it packs or spends anything. Throws `PreflightFailed` with every problem. */
 export function checkRound(options: RoundOptions): Checked {
   const dir = options.briefs ?? briefsDir(options.round);
   const problems: string[] = [];
-  const read = existsSync(dir) ? readBriefs(dir) : { briefs: [], errors: [`no briefs directory ${dir}`] };
+  const read = readBriefsDir(dir);
   problems.push(...read.errors);
   const resolved = resolveBuilder(options.builder);
   problems.push(...resolved.problems);
+  const token = checkToken(options);
+  problems.push(...token.problems);
   problems.push(...preflightProblems(REPO_ROOT, { build: options.build, ...(options.packages === undefined ? {} : { packages: options.packages }) }));
   const runs = planRuns(read.briefs, options.models);
   problems.push(...spendProblems(runs.length, options));
   problems.push(...runs.filter((planned) => runExists(options.round, planned.run)).map((planned) => `run ${planned.run} of round ${options.round} exists already; a round never overwrites a run`));
   if (problems.length > 0 || resolved.builder === undefined) throw new PreflightFailed(`round ${options.round} can't start:\n- ${problems.join('\n- ')}`);
-  return { briefs: read.briefs, builder: resolved.builder, runs };
+  return { briefs: read.briefs, builder: resolved.builder, runs, token: token.token, notices: token.notices };
 }
 
 /** Runs `work` over `items`, at most `limit` at once. */
@@ -172,6 +187,7 @@ async function runOne(context: RoundContext, planned: PlannedRun): Promise<RunRe
  */
 export async function runRound(options: RoundOptions): Promise<boolean> {
   const checked = checkRound(options);
+  for (const notice of checked.notices) say(notice);
   say(startLine(options, checked));
   const tarballs = options.packages === undefined ? await packWorkspace(REPO_ROOT, options.build) : tarballsIn(REPO_ROOT, options.packages);
   const packagesDir = dirname([...tarballs.values()][0] ?? join(REPO_ROOT, 'dist', 'packages'));
@@ -179,7 +195,7 @@ export async function runRound(options: RoundOptions): Promise<boolean> {
     options,
     checked,
     meter: roundMeter(options.maxRoundUsd),
-    base: { builder: checked.builder, tarballs, packagesDir, provenance: provenance(REPO_ROOT, tarballs), say },
+    base: { builder: checked.builder, token: checked.token, tarballs, packagesDir, provenance: provenance(REPO_ROOT, tarballs), say },
   };
   let unavailable: NamespaceUnavailable | undefined;
   const results = await inPool(checked.runs, options.concurrency, async (planned): Promise<RunResult> => {

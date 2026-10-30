@@ -5,7 +5,11 @@
  *
  *   round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
  *         [--builder claude|<script>] [--briefs <dir>]
- *         [--packages <dir> | --build] [--concurrency 1|2]
+ *         [--packages <dir> | --build] [--concurrency 1|2] [--token-file <path>]
+ *
+ * `--token-file` names the file holding the forwarder's token
+ * (`harness-token.ts`); without it the token comes from
+ * `CLAUDE_CODE_OAUTH_TOKEN`.
  */
 import { resolve } from 'node:path';
 import { flagValue, positionals, rejectUnknownFlags, UsageError } from './cli-args.ts';
@@ -25,13 +29,15 @@ export interface RoundOptions {
   build: boolean;
   /** Builders at once, each holding a heavy-run slot. At most two. */
   concurrency: number;
+  /** The file holding the forwarder's token; the environment's token when not given. */
+  tokenFile?: string;
 }
 
 const ROUND_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9.:@_-]*$/;
 export const MAX_CONCURRENCY = 2;
 
-export const ROUND_FLAGS = ['--models', '--max-budget-usd', '--max-round-usd', '--builder', '--briefs', '--packages', '--build', '--concurrency'];
+export const ROUND_FLAGS = ['--models', '--max-budget-usd', '--max-round-usd', '--builder', '--briefs', '--packages', '--build', '--concurrency', '--token-file'];
 const VALUE_FLAGS = new Set(ROUND_FLAGS.filter((flag) => flag !== '--build'));
 
 function required(args: readonly string[], flag: string): string {
@@ -74,6 +80,7 @@ export function parseRoundOptions(args: readonly string[]): RoundOptions {
   if (build && packages !== undefined) throw new UsageError('--build and --packages are exclusive');
   const builder = flagValue(args, '--builder') ?? 'claude';
   const briefs = flagValue(args, '--briefs');
+  const tokenFile = flagValue(args, '--token-file');
   return {
     round,
     models: parseModels(required(args, '--models')),
@@ -84,6 +91,7 @@ export function parseRoundOptions(args: readonly string[]): RoundOptions {
     ...(packages === undefined ? {} : { packages: resolve(packages) }),
     build,
     concurrency: parseConcurrency(flagValue(args, '--concurrency')),
+    ...(tokenFile === undefined ? {} : { tokenFile: resolve(tokenFile) }),
   };
 }
 

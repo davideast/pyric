@@ -17,7 +17,7 @@ import { prepareApp, runCommand, runTimedCommand, type Tarballs } from '../apps/
 import { installApp, npmCacheDir } from './app-install.ts';
 import { renderBrief, type Brief } from './brief.ts';
 import { playwrightBrowsersPath } from './browser-server.ts';
-import { OAUTH_TOKEN_ENV, type Builder } from './builder-command.ts';
+import type { Builder } from './builder-command.ts';
 import { appendMeasurement } from './measurement.ts';
 import { readChannelRecord, type Listening, type ModelChannelEvent } from './model-channel.ts';
 import { startModelForwarder } from './model-forwarder.ts';
@@ -55,6 +55,12 @@ export interface BuilderRunInput {
   provenance: Provenance;
   /** The run's share of the round's meter, which the forwarder checks before each request. */
   meter: RunMeter;
+  /**
+   * The harness's token (`harness-token.ts`), read outside the sandbox. Only
+   * the forwarder, for a builder that uses the model, and the token scan get
+   * it; no record, log or environment does.
+   */
+  token: string | undefined;
   say: (line: string) => void;
 }
 
@@ -65,13 +71,6 @@ export interface BuilderRunInput {
  */
 export function runExists(round: string, run: string): boolean {
   return existsSync(builderRunDirsAt(builderRunRoot(round, run)).started) || existsSync(runDataDir(round, run));
-}
-
-/** The harness's token, from its own environment; undefined when it has none. */
-function harnessToken(): string | undefined {
-  const token = process.env[OAUTH_TOKEN_ENV];
-  const isSet = token !== undefined && token !== '';
-  return isSet ? token : undefined;
 }
 
 function layOut(input: BuilderRunInput, dirs: BuilderRunDirs): void {
@@ -149,7 +148,7 @@ const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
  * token's value replaced wherever it turns up. The app is packed without
  * node_modules, and withheld when any file of it held the token.
  */
-async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: string | undefined): Promise<void> {
+export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: string | undefined): Promise<void> {
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(join(dataDir, 'report.json'), redactedText(`${JSON.stringify(record, null, 2)}\n`, token));
   copyRedacted(dirs.briefJson, join(dataDir, 'brief.json'), token);
@@ -185,7 +184,7 @@ async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, 
     writeFileSync(dirs.started, `${new Date().toISOString()}\n`);
     layOut(input, dirs);
     writeFileSync(channelRecord, '');
-    const credential = input.builder.usesModel ? harnessToken() : undefined;
+    const credential = input.builder.usesModel ? input.token : undefined;
     forwarder = await startModelForwarder({ socketPath: dirs.modelSocket, record: channelRecord, credential, meter: input.meter });
     await installApp(namespace, dirs, input.identity.run, input.say);
     await exportConformanceDocs(namespace, dirs);
@@ -220,7 +219,7 @@ export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
   const channel = readChannelRecord(channelRecord);
   mergeRecords(dirs, channel);
   writeFileSync(join(dirs.logs, RUN_PHASE_LOG), phaseOutput);
-  const token = harnessToken();
+  const { token } = input;
   const found = tokenFoundIn(dirs, token);
   if (found.length > 0) input.say(tokenNotice(identity.run, found));
   const record = runRecord({

@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { phaseEnvironment } from './builder-run.ts';
+import { SETTINGS_TEMPLATE } from './builder-settings.ts';
 import { claudeBuilder, claudeBuilderProblems, OAUTH_TOKEN_ENV, PLACEHOLDER_TOKEN, scriptBuilder, type BuilderRun } from './builder-command.ts';
 import { isStoppedAtLimit, phaseSchema } from './run-phase.ts';
 
@@ -11,7 +12,8 @@ const RUN: BuilderRun = { briefText: '/r/brief.md', briefJson: '/r/brief.json', 
 function files() {
   const dir = mkdtempSync(join(tmpdir(), 'builders-command-'));
   const claude = join(dir, 'claude');
-  for (const file of [claude, join(dir, 'settings.json'), join(dir, 'SKILL.md')]) writeFileSync(file, '');
+  for (const file of [claude, join(dir, 'SKILL.md')]) writeFileSync(file, '');
+  copyFileSync(SETTINGS_TEMPLATE, join(dir, 'settings.json'));
   return { claude, settings: join(dir, 'settings.json'), systemPrompt: join(dir, 'SKILL.md'), dir };
 }
 
@@ -46,14 +48,13 @@ describe('claudeBuilder', () => {
 });
 
 describe('claudeBuilderProblems', () => {
-  test('requires claude, the token, the settings file and the skill', () => {
+  test('requires claude, the settings file and the skill', () => {
     const options = files();
-    expect(claudeBuilderProblems(options, { [OAUTH_TOKEN_ENV]: 'token' })).toEqual([]);
-    expect(claudeBuilderProblems({ ...options, settings: '/nowhere/settings.json' }, {})).toEqual([
-      `${OAUTH_TOKEN_ENV} is not set: run \`claude setup-token\` and export the token`,
-      'the builder settings file /nowhere/settings.json does not exist',
+    expect(claudeBuilderProblems(options)).toEqual([]);
+    expect(claudeBuilderProblems({ ...options, settings: '/nowhere/settings.json' })).toEqual([
+      `the builder settings file /nowhere/settings.json does not exist: start from the template with \`cp ${SETTINGS_TEMPLATE} /nowhere/settings.json\``,
     ]);
-    expect(claudeBuilderProblems({}, { [OAUTH_TOKEN_ENV]: 'token' })).toEqual([
+    expect(claudeBuilderProblems({})).toEqual([
       'no claude on PATH',
       'the builder settings file (none) does not exist',
       'the app-builder skill file (none) does not exist',

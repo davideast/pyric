@@ -14,10 +14,11 @@
  *       every round.
  *   round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
  *         [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build]
- *         [--concurrency 1|2]
+ *         [--concurrency 1|2] [--token-file <path>]
  *       Runs every brief of the round once per model, each builder in its
  *       own sandbox, at the run cap given, under the round cap given.
- *       Neither cap has a default.
+ *       Neither cap has a default. The model forwarder's token comes from
+ *       --token-file, or from CLAUDE_CODE_OAUTH_TOKEN without it.
  *   check-briefs <round> [--briefs <dir>]
  *       Validates a round's briefs as `round` would, and starts nothing.
  *   reproduce <round> <run> --list
@@ -36,8 +37,7 @@
  * Every command that runs a builder refuses to run (exit 2) where the
  * sandbox is unavailable; there is no fallback without it.
  */
-import { existsSync } from 'node:fs';
-import { readBriefs } from './brief.ts';
+import { readBriefsDir } from './brief.ts';
 import { PreflightFailed, runCanary } from './canary/canary.ts';
 import { flagValue, positionals, rejectUnknownFlags, UsageError } from './cli-args.ts';
 import { formatSummary, summarize } from './measure.ts';
@@ -75,7 +75,7 @@ const COMMANDS: Record<string, Command> = {
     },
   },
   round: {
-    usage: 'round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd> [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]',
+    usage: 'round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd> [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2] [--token-file <path>]',
     async run(args) {
       const passed = await runRound(parseRoundOptions(args));
       return passed ? 0 : 1;
@@ -88,7 +88,7 @@ const COMMANDS: Record<string, Command> = {
       const [round, ...extra] = positionals(args, new Set(['--briefs']));
       if (round === undefined || extra.length > 0) throw new UsageError('check-briefs takes one round name');
       const dir = flagValue(args, '--briefs') ?? briefsDir(round);
-      const { briefs, errors } = existsSync(dir) ? readBriefs(dir) : { briefs: [], errors: [`no briefs directory ${dir}`] };
+      const { briefs, errors } = readBriefsDir(dir);
       for (const error of errors) console.error(`✗ ${error}`);
       if (errors.length === 0) console.log(`✓ ${briefs.length} briefs in ${dir}: ${briefs.map((brief) => brief.id).join(', ')}`);
       return errors.length === 0 ? 0 : 1;
