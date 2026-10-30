@@ -4,7 +4,7 @@
 
 ## 0.1.0-alpha.31
 
-pyric 0.1.0-alpha.31 is on the `exp` dist-tag. `latest` stays at alpha.26.
+pyric 0.1.0-alpha.31 is on the `exp` dist-tag. `latest` stays at alpha.30.2.
 
 ```bash
 npm create pyric@exp my-app
@@ -30,7 +30,7 @@ From November 2, 2026, production AI Logic answers a request without a valid App
 
 #### Already shipped in alpha.30.1 and alpha.30.2
 
-If you are coming from `latest` (alpha.26) or alpha.30, these App Check fixes also reach you in this release:
+If you are coming from alpha.30 or earlier, these App Check fixes from alpha.30.1 and alpha.30.2 also reach you in this release:
 
 - Sandbox AI mode refuses requests without an App Check token on every plane. Call `initializeAppCheck` before `getAI` (#1535).
 - Production AI mode verifies the page's real App Check token with firebase-admin's own `verifyToken` (#1558).
