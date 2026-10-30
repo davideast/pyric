@@ -1,7 +1,8 @@
 // What the release check posts on quarantine tracking issues after a main
 // run: a quarantined test failed in it; a quarantined test passed in each of
 // the last RELEASE_STREAK main runs, so its entry can go; an entry expired, so
-// its test blocks again. Each comment carries a marker, and a comment whose
+// its test blocks again. A test's result is its final attempt's, so a pass on
+// retry is a pass. Each comment carries a marker, and a comment whose
 // marker is already on the issue is not posted again. A pure function of the
 // entries, the runs' reports, and the markers already posted.
 
@@ -10,6 +11,10 @@ import type { QuarantineReport } from './report.ts';
 
 /** Consecutive passing main runs after which release is proposed. */
 export const RELEASE_STREAK = 20;
+/** The newest main runs whose quarantined failures are commented. The job
+ *  runs in one concurrency group, where a pending run can be replaced by a
+ *  newer one, so each run also looks back at the runs before it. */
+export const FAILURE_LOOKBACK = 5;
 
 export interface RunReports {
   runId: number;
@@ -75,7 +80,7 @@ function quarantineStart(entry: LoadedEntry): string {
 function failedComment(entry: LoadedEntry, run: RunReports): IssueComment {
   const mark = marker('failed', entry.file, run.runId);
   const suites = failedSuites(run, entry.file).join(', ');
-  const body = `${mark}\n\`${entry.test}\` failed on main while quarantined (until ${entry.expires}), in ${suites}: ${run.url}\nIt did not block the run.\n`;
+  const body = `${mark}\n\`${entry.test}\` failed on main while quarantined (expires ${entry.expires}), in ${suites}: ${run.url}\nIts final attempt failed; it did not block the run.\n`;
   return { issue: entry.issue, marker: mark, body };
 }
 
@@ -103,9 +108,28 @@ function expiredComment(entry: LoadedEntry): IssueComment {
   return { issue: entry.issue, marker: mark, body };
 }
 
+function recentRuns(history: ReleaseInput['history']): RunReports[] {
+  const runs: RunReports[] = [];
+  for (let index = 0; index < FAILURE_LOOKBACK; index += 1) {
+    const run = history(index);
+    if (run === undefined) break;
+    runs.push(run);
+  }
+  return runs;
+}
+
+function failureComments(entry: LoadedEntry, input: ReleaseInput): IssueComment[] {
+  return recentRuns(input.history)
+    .filter((run) => runOutcome(run, entry.file) === 'failed')
+    .map((run) => failedComment(entry, run))
+    .filter((comment) => !input.posted.has(comment.marker));
+}
+
 function entryComments(entry: LoadedEntry, input: ReleaseInput, current: RunReports): IssueComment[] {
   if (!isActive(entry, input.today)) return [expiredComment(entry)];
-  if (runOutcome(current, entry.file) === 'failed') return [failedComment(entry, current)];
+  const failures = failureComments(entry, input);
+  if (failures.length > 0) return failures;
+  if (runOutcome(current, entry.file) === 'failed') return [];
   const proposal = releaseComment(entry, current);
   // Reading older runs costs a download each, so a posted proposal stops here.
   if (input.posted.has(proposal.marker)) return [];

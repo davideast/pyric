@@ -39,10 +39,19 @@ interface OpenCase {
   file: string;
   names: string[];
   outcome: TestResult['outcome'];
+  line?: number;
 }
 
 function caseResult(open: OpenCase): TestResult {
-  return { id: [open.file, ...open.names].join(SEPARATOR), file: open.file, outcome: open.outcome };
+  const result: TestResult = { id: [open.file, ...open.names].join(SEPARATOR), file: open.file, outcome: open.outcome };
+  if (open.line !== undefined) result.line = open.line;
+  return result;
+}
+
+function lineOf(attrs: Record<string, string>): number | undefined {
+  const line = Number(attrs.line);
+  if (Number.isInteger(line) && line > 0) return line;
+  return undefined;
 }
 
 /** The test results in a JUnit file, named as the console names them: the
@@ -74,7 +83,7 @@ export function parseJunit(xml: string, cwd: string): TestResult[] {
       if (open) results.push(caseResult(open));
       open = undefined;
     } else if (tag === 'testcase') {
-      const started: OpenCase = { file, names: [...describes, attrs.name ?? ''], outcome: 'passed' };
+      const started: OpenCase = { file, names: [...describes, attrs.name ?? ''], outcome: 'passed', line: lineOf(attrs) };
       if (selfClosing === '/') results.push(caseResult(started));
       else open = started;
     } else if (open && (tag === 'failure' || tag === 'error')) {

@@ -8,7 +8,8 @@
 //
 //   RUN_ID=<run id> GITHUB_REPOSITORY=<owner/repo> [DRY_RUN=true] bun scripts/ci/quarantine-release.ts
 //
-// DRY_RUN=true prints the comments and posts nothing.
+// DRY_RUN=true prints the comments and posts nothing. Either way it refuses a
+// run that is not a push run of Build & Test on main.
 
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,6 +28,18 @@ interface RunJson {
   conclusion: string | null;
   created_at: string;
   html_url: string;
+  event?: string;
+  head_branch?: string;
+  path?: string;
+}
+
+/** Refuses anything but a push run of Build & Test on main, as the classify
+ *  job does, so a dispatch cannot comment from a pull request's run. */
+export function assertMainPushRun(run: RunJson): void {
+  const isMainPush = run.event === 'push' && run.head_branch === 'main' && run.path === '.github/workflows/build.yml';
+  if (!isMainPush) {
+    throw new Error(`Run ${run.id} is a ${run.event} run of ${run.path} on ${run.head_branch}; only push runs of .github/workflows/build.yml on main are handled`);
+  }
 }
 
 export interface ReleaseContext {
@@ -42,6 +55,7 @@ function api<T>(context: ReleaseContext, path: string): T {
 /** The completed push runs on main that count, newest first, starting at `runId`. */
 export function mainRuns(context: ReleaseContext, runId: number): RunJson[] {
   const current = api<RunJson>(context, `actions/runs/${runId}`);
+  assertMainPushRun(current);
   const page = api<{ workflow_runs: RunJson[] }>(context, `actions/workflows/build.yml/runs?branch=main&event=push&status=completed&per_page=${RELEASE_STREAK + 20}`);
   const older = page.workflow_runs
     .filter((run) => run.id !== runId && run.created_at <= current.created_at && COUNTED.has(run.conclusion ?? ''))

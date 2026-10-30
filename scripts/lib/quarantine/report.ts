@@ -2,10 +2,41 @@
 // annotation per quarantined failure (shown on the checks page), a table in
 // the job summary, and a JSON report that CI uploads for the release check.
 
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { REPO_ROOT } from './entries.ts';
+import { REPO_ROOT, isFileLevelUnnamed, isUnnamedEntry, unnamedScope, type Entry } from './entries.ts';
 import type { Verdict } from './verdict.ts';
+
+/** `test(`, `it(` and their modifiers (`test.each(...)(`, `it.skip(`). */
+const TEST_CALL = /\b(?:test|it)(?:\s*\.\s*\w+(?:\s*\([^()]*\))?)*\s*\(/g;
+
+/** How many test calls the file's source holds, or undefined when it cannot
+ *  be read. bun does not report the tests a broken hook kept from running. */
+export function testCallsIn(repoPath: string, root: string = REPO_ROOT): number | undefined {
+  const path = join(root, repoPath);
+  if (!existsSync(path)) return undefined;
+  return readFileSync(path, 'utf8').match(TEST_CALL)?.length ?? 0;
+}
+
+function countText(file: string): string {
+  const count = testCallsIn(file);
+  if (count === undefined) return 'bun does not say how many';
+  return `${count} test call(s) in its source`;
+}
+
+/** What a quarantined hook failure kept from running, or '' for a test. */
+export function notRunNote(entry: Pick<Entry, 'test'>): string {
+  if (!isUnnamedEntry(entry)) return '';
+  const scope = unnamedScope(entry).slice(0, -' > '.length);
+  if (isFileLevelUnnamed(entry)) return `every test in ${scope} did not run (${countText(scope)})`;
+  return `the tests in \`${scope}\` did not run`;
+}
+
+function withNote(text: string, entry: Pick<Entry, 'test'>): string {
+  const note = notRunNote(entry);
+  if (note === '') return text;
+  return `${text}; ${note}`;
+}
 
 export const REPORTS_DIR = join(REPO_ROOT, 'test-results/quarantine');
 
@@ -14,7 +45,7 @@ export interface QuarantineReport {
   suite: string;
   forgiven: boolean;
   reason: string;
-  entries: Array<{ file: string; test: string; issue: number; expires: string; outcome: string }>;
+  entries: Array<{ file: string; test: string; issue: number; expires: string; outcome: string; note?: string }>;
   expired: Array<{ file: string; test: string; issue: number; expires: string }>;
 }
 
@@ -23,7 +54,12 @@ export function toReport(suite: string, verdict: Verdict): QuarantineReport {
     suite,
     forgiven: verdict.forgiven,
     reason: verdict.reason,
-    entries: verdict.outcomes.map(({ entry, outcome }) => ({ file: entry.file, test: entry.test, issue: entry.issue, expires: entry.expires, outcome })),
+    entries: verdict.outcomes.map(({ entry, outcome }) => {
+      const row = { file: entry.file, test: entry.test, issue: entry.issue, expires: entry.expires, outcome };
+      const note = outcome === 'failed' ? notRunNote(entry) : '';
+      if (note === '') return row;
+      return { ...row, note };
+    }),
     expired: verdict.expired.map(({ entry }) => ({ file: entry.file, test: entry.test, issue: entry.issue, expires: entry.expires })),
   };
 }
@@ -32,7 +68,8 @@ export function toReport(suite: string, verdict: Verdict): QuarantineReport {
  *  no entry is active and nothing matched one. */
 export function consoleLines(verdict: Verdict): string[] {
   const lines = [
-    ...verdict.quarantined.map(({ result, entry }) => `quarantine: ${result.id} failed; quarantined until ${entry.expires} (#${entry.issue})`),
+    ...verdict.quarantined.map(({ result, entry }) => withNote(`quarantine: ${result.id} failed; quarantined (#${entry.issue}, expires ${entry.expires})`, entry)),
+    ...verdict.ambiguous.map(({ result, entry }) => `quarantine: ${result.id} failed; its entry (#${entry.issue}) names more than one testcase in this run, so it blocks`),
     ...verdict.expired.map(({ result, entry }) => `quarantine: ${result.id} failed; its quarantine expired ${entry.expires} (#${entry.issue}), so it blocks`),
   ];
   const nothingToSay = lines.length === 0 && verdict.outcomes.length === 0;
@@ -46,16 +83,21 @@ function escapeAnnotation(text: string): string {
 
 export function annotations(verdict: Verdict): string[] {
   return verdict.quarantined.map(({ result, entry }) =>
-    `::warning title=Quarantined test failed::${escapeAnnotation(`${result.id} (#${entry.issue}, quarantined until ${entry.expires})`)}`);
+    `::warning title=Quarantined test failed::${escapeAnnotation(withNote(`${result.id} (#${entry.issue}, quarantine expires ${entry.expires})`, entry))}`);
 }
 
 function cell(text: string): string {
   return text.replace(/\|/g, '\\|');
 }
 
+function resultText(entry: QuarantineReport['entries'][number]): string {
+  if (entry.note === undefined) return entry.outcome;
+  return `${entry.outcome}: ${entry.note}`;
+}
+
 export function summaryMarkdown(report: QuarantineReport): string {
   const rows = [
-    ...report.entries.map((entry) => `| \`${cell(entry.test)}\` | #${entry.issue} | ${entry.expires} | ${entry.outcome} |`),
+    ...report.entries.map((entry) => `| \`${cell(entry.test)}\` | #${entry.issue} | ${entry.expires} | ${cell(resultText(entry))} |`),
     ...report.expired.map((entry) => `| \`${cell(entry.test)}\` | #${entry.issue} | ${entry.expires} | failed, expired, blocks |`),
   ];
   if (rows.length === 0) return '';

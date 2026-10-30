@@ -109,6 +109,9 @@ interface AppResult {
   /** The part of `seconds` spent on `npm install`, including waiting for a shared install. */
   installSeconds: number;
   step?: string;
+  /** Whether it failed while its scenario ran, not while it installed or
+   *  loaded. Only such a failure can be quarantined (scripts/lib/quarantine). */
+  inScenario: boolean;
   error?: string;
   /** What went wrong closing the app or removing its directory, after its verdict was known. */
   cleanupFailures: string[];
@@ -150,6 +153,7 @@ async function runApp(name: string, context: {
   const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, store: context.store });
   const logs: AppResult['logs'] = [];
   let failure: unknown;
+  let inScenario = false;
   let installSeconds = 0;
   try {
     run.currentStep = 'npm install';
@@ -164,7 +168,9 @@ async function runApp(name: string, context: {
     run.currentStep = 'load scenario';
     const module = await loadScenario(name);
     if (typeof module.default !== 'function') throw new StepFailure('load scenario', new Error('scenario.ts has no default export from scenario()'));
+    inScenario = true;
     await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
+    inScenario = false;
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
       throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
@@ -193,6 +199,7 @@ async function runApp(name: string, context: {
     seconds: (performance.now() - started) / 1000,
     installSeconds,
     step: ok ? undefined : failure instanceof StepFailure ? failure.step : run.currentStep,
+    inScenario: !ok && inScenario,
     error: ok ? undefined : describeError(failure),
     cleanupFailures,
     logs,

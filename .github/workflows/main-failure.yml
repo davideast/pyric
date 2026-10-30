@@ -93,6 +93,13 @@ jobs:
 
   quarantine:
     name: Report quarantined tests
+    # One group for every run, so two main runs never read the same issue's
+    # comments at once and post the same comment twice. A pending run that a
+    # newer one replaces loses nothing: each run looks back at the five
+    # before it for failures not yet commented.
+    concurrency:
+      group: main-failure-quarantine
+      cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'push' &&

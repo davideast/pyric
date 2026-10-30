@@ -23,8 +23,8 @@ export interface Renewal {
 }
 
 export interface Entry {
-  /** `<repo path> > <describe> > <test>`, a bare test file path for its
-   *  unnamed failures, or `test/apps/<app>` for an app scenario. */
+  /** `<repo path> > <describe> > <test>`; `<repo path> > [<describe> >]
+   *  (unnamed)` for a failure outside any test; or `test/apps/<app>`. */
   test: string;
   issue: number;
   owner: string;
@@ -46,6 +46,9 @@ export interface TestResult {
   /** The repository path of the test file, or of the app directory. */
   file: string;
   outcome: 'passed' | 'failed' | 'skipped';
+  /** The test's line in its file, when JUnit gives one. bun lists each retry
+   *  attempt as its own testcase on the same line. */
+  line?: number;
 }
 
 function slugText(test: string): string {
@@ -67,29 +70,39 @@ export function readEntries(dir: string = QUARANTINE_DIR): LoadedEntry[] {
     .map((file) => ({ ...(JSON.parse(readFileSync(join(dir, file), 'utf8')) as Entry), file }));
 }
 
-/** An entry is active through the day it expires. Dates are UTC `YYYY-MM-DD`. */
-export function isActive(entry: Entry, today: string): boolean {
-  return today <= entry.expires;
+/** An entry is active from the day it was added up to, not including, the
+ *  day it expires: QUARANTINE_DAYS days. Dates are UTC `YYYY-MM-DD`. */
+export function isActive(entry: Pick<Entry, 'expires'>, today: string): boolean {
+  return today < entry.expires;
 }
 
-export function isFileEntry(entry: Entry): boolean {
-  return !entry.test.includes(SEPARATOR) && !entry.test.startsWith('test/apps/');
+/** Whether the entry is for a failure outside any test: a hook that broke or
+ *  timed out, named `<file> > (unnamed)` or `<file> > <describe> > (unnamed)`. */
+export function isUnnamedEntry(entry: Pick<Entry, 'test'>): boolean {
+  return entry.test.endsWith(`${SEPARATOR}${UNNAMED}`);
 }
 
-function lastName(id: string): string {
-  return id.split(SEPARATOR).at(-1) ?? id;
+/** The id prefix of the tests an unnamed entry's hook guards: the whole file,
+ *  or one describe. Those tests do not run when the hook breaks. */
+export function unnamedScope(entry: Pick<Entry, 'test'>): string {
+  return entry.test.slice(0, -UNNAMED.length);
 }
 
-/** Whether the entry covers this result. A file entry covers only the file's
- *  unnamed failures, so it cannot hide a named test in the same file. */
-export function matches(entry: Entry, result: TestResult): boolean {
-  if (!isFileEntry(entry)) return entry.test === result.id;
-  return result.file === entry.test && lastName(result.id) === UNNAMED;
+/** Whether the entry is for a hook that runs before every test in its file. */
+export function isFileLevelUnnamed(entry: Pick<Entry, 'test'>): boolean {
+  return isUnnamedEntry(entry) && unnamedScope(entry).split(SEPARATOR).length === 2;
 }
 
-/** Whether the run included a test the entry is about. */
-export function ran(entry: Entry, result: TestResult): boolean {
-  if (isFileEntry(entry)) return result.file === entry.test;
+/** Whether the entry names this result. Matching is exact, unnamed entries
+ *  included, so an entry for one describe's hook never covers another's. */
+export function matches(entry: Pick<Entry, 'test'>, result: TestResult): boolean {
+  return entry.test === result.id;
+}
+
+/** Whether the result is one the entry is about: its own test, or for an
+ *  unnamed entry, any test its hook guards. */
+export function ran(entry: Pick<Entry, 'test'>, result: TestResult): boolean {
+  if (isUnnamedEntry(entry)) return result.id.startsWith(unnamedScope(entry));
   return entry.test === result.id;
 }
 

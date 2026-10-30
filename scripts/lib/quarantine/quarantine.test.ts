@@ -1,15 +1,22 @@
 import { describe, expect, test } from 'bun:test';
-import { appVerdict } from './apps.ts';
-import { addDays, entryFileName, isActive, matches, type LoadedEntry, type TestResult } from './entries.ts';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { appVerdict, finishAppRun } from './apps.ts';
+import { addDays, entryFileName, isActive, matches, todayUtc, type LoadedEntry, type TestResult } from './entries.ts';
 import { consoleTotals, parseJunit } from './junit.ts';
-import { RELEASE_STREAK, decideComments, streak, type RunReports } from './release.ts';
-import { annotations, consoleLines, toReport, type QuarantineReport } from './report.ts';
-import { validateEntry } from './validate.ts';
-import { decide, type RunEvidence } from './verdict.ts';
+import { FAILURE_LOOKBACK, RELEASE_STREAK, decideComments, streak, type RunReports } from './release.ts';
+import { annotations, consoleLines, notRunNote, testCallsIn, toReport, type QuarantineReport } from './report.ts';
+import { parseBaseEntries, runEntries } from './source.ts';
+import { honouredEntries, validateEntry } from './validate.ts';
+import { decide, finalResults, type RunEvidence } from './verdict.ts';
+import { newEntry, renewed } from '../../ci/quarantine.ts';
+import { assertMainPushRun, latestReports } from '../../ci/quarantine-release.ts';
 
 const TODAY = '2026-10-29';
 const FILE = 'packages/cli/test/serve/hosted-sqlite.test.ts';
 const NAMED = `${FILE} > peer liveness > closes a silent socket`;
+const exists = () => true;
 
 function entry(test: string, overrides: Partial<LoadedEntry> = {}): LoadedEntry {
   return {
@@ -18,17 +25,19 @@ function entry(test: string, overrides: Partial<LoadedEntry> = {}): LoadedEntry 
   };
 }
 
-function result(id: string, outcome: TestResult['outcome'] = 'failed'): TestResult {
-  return { id, file: id.split(' > ')[0] ?? id, outcome };
+function result(id: string, outcome: TestResult['outcome'] = 'failed', line?: number): TestResult {
+  const made: TestResult = { id, file: id.split(' > ')[0] ?? id, outcome };
+  if (line !== undefined) made.line = line;
+  return made;
 }
 
 function evidence(results: TestResult[] | undefined, overrides: Partial<RunEvidence> = {}): RunEvidence {
-  const fail = (results ?? []).filter((item) => item.outcome === 'failed').length;
+  const fail = finalResults(results ?? []).filter((item) => item.outcome === 'failed').length;
   return { exitCode: 1, results, totals: { fail, errors: 0 }, ...overrides };
 }
 
-// From bun 1.3.11: `bun test --reporter=junit` on a nested describe, a hook
-// timeout, a broken beforeAll and a skip.
+// From bun 1.3.11: `bun test --reporter=junit` on a nested describe, a broken
+// beforeAll and a skip.
 const JUNIT = `<?xml version="1.0" encoding="UTF-8"?>
 <testsuites name="bun test" tests="5" assertions="1" failures="3" skipped="1" time="0.04">
   <testsuite name="test/a.test.ts" file="test/a.test.ts" tests="4" failures="2" skipped="1">
@@ -38,7 +47,7 @@ const JUNIT = `<?xml version="1.0" encoding="UTF-8"?>
           <failure type="AssertionError" />
         </testcase>
       </testsuite>
-      <testcase name="passes" classname="outer" file="test/a.test.ts" line="2" />
+      <testcase name="passes" classname="outer" file="test/a.test.ts" line="3" />
     </testsuite>
     <testcase name="skipped" classname="" file="test/a.test.ts" line="4">
       <skipped />
@@ -56,9 +65,9 @@ const JUNIT = `<?xml version="1.0" encoding="UTF-8"?>
 describe('reading bun JUnit and console totals', () => {
   test('names each test as the console does, from the nested suites, under the repo path', () => {
     expect(parseJunit(JUNIT, 'packages/cli')).toEqual([
-      { id: 'packages/cli/test/a.test.ts > outer > inner & more > fails', file: 'packages/cli/test/a.test.ts', outcome: 'failed' },
-      { id: 'packages/cli/test/a.test.ts > outer > passes', file: 'packages/cli/test/a.test.ts', outcome: 'passed' },
-      { id: 'packages/cli/test/a.test.ts > skipped', file: 'packages/cli/test/a.test.ts', outcome: 'skipped' },
+      { id: 'packages/cli/test/a.test.ts > outer > inner & more > fails', file: 'packages/cli/test/a.test.ts', outcome: 'failed', line: 2 },
+      { id: 'packages/cli/test/a.test.ts > outer > passes', file: 'packages/cli/test/a.test.ts', outcome: 'passed', line: 3 },
+      { id: 'packages/cli/test/a.test.ts > skipped', file: 'packages/cli/test/a.test.ts', outcome: 'skipped', line: 4 },
       { id: 'packages/cli/test/d.test.ts > broken all > (unnamed)', file: 'packages/cli/test/d.test.ts', outcome: 'failed' },
     ]);
   });
@@ -72,6 +81,13 @@ describe('reading bun JUnit and console totals', () => {
     expect(consoleTotals(' 3 pass\n 0 fail\n')).toEqual({ fail: 0, errors: 0 });
     expect(consoleTotals('no totals')).toEqual({ errors: 0 });
   });
+
+  test('a retried test is one test with its last attempt\'s outcome; a same-named test on another line is another', () => {
+    const raw = [result(NAMED, 'failed', 3), result(NAMED, 'passed', 3), result(`${FILE} > d > works`, 'failed', 7), result(`${FILE} > d > works`, 'failed', 8)];
+    expect(finalResults(raw).map((item) => [item.id, item.outcome, item.line])).toEqual([
+      [NAMED, 'passed', 3], [`${FILE} > d > works`, 'failed', 7], [`${FILE} > d > works`, 'failed', 8],
+    ]);
+  });
 });
 
 describe('matching an entry', () => {
@@ -80,17 +96,24 @@ describe('matching an entry', () => {
     expect(matches(entry(NAMED), result(`${FILE} > peer liveness > another`))).toBe(false);
   });
 
-  test('a file entry matches only the file\'s unnamed failures, never a named test in it', () => {
-    const fileEntry = entry(FILE);
-    expect(matches(fileEntry, result(`${FILE} > (unnamed)`))).toBe(true);
-    expect(matches(fileEntry, result(`${FILE} > hooks > (unnamed)`))).toBe(true);
-    expect(matches(fileEntry, result(NAMED))).toBe(false);
-    expect(matches(fileEntry, result('packages/cli/test/other.test.ts > (unnamed)'))).toBe(false);
+  test('an unnamed entry matches only the hook failure at its own describe path', () => {
+    const scoped = entry(`${FILE} > flaky setup > (unnamed)`);
+    expect(matches(scoped, result(`${FILE} > flaky setup > (unnamed)`))).toBe(true);
+    expect(matches(scoped, result(`${FILE} > real regression > (unnamed)`))).toBe(false);
+    expect(matches(scoped, result(`${FILE} > (unnamed)`))).toBe(false);
+    expect(matches(entry(`${FILE} > (unnamed)`), result(`${FILE} > flaky setup > (unnamed)`))).toBe(false);
   });
 
-  test('an entry is active through the day it expires', () => {
-    expect(isActive(entry(NAMED), addDays(TODAY, 14))).toBe(true);
-    expect(isActive(entry(NAMED), addDays(TODAY, 15))).toBe(false);
+  test('an entry is active for exactly 14 days: from added up to, not including, expires', () => {
+    expect(isActive(entry(NAMED), TODAY)).toBe(true);
+    expect(isActive(entry(NAMED), addDays(TODAY, 13))).toBe(true);
+    expect(isActive(entry(NAMED), addDays(TODAY, 14))).toBe(false);
+  });
+
+  test('expiry is a UTC day, whatever the runner\'s zone', () => {
+    expect(todayUtc(new Date('2026-11-12T23:30:00-08:00'))).toBe('2026-11-13');
+    expect(isActive({ expires: '2026-11-12' }, todayUtc(new Date('2026-11-11T23:59:59Z')))).toBe(true);
+    expect(isActive({ expires: '2026-11-12' }, todayUtc(new Date('2026-11-12T00:00:00Z')))).toBe(false);
   });
 });
 
@@ -106,8 +129,11 @@ describe('the verdict', () => {
 
   // Each condition that keeps the run's own exit code.
   test('an exit code other than 1 stands', () => {
-    expect(decide(evidence([result(NAMED)], { exitCode: 2 }), quarantined, TODAY)).toMatchObject({ exitCode: 2, forgiven: false });
-    expect(decide(evidence([result(NAMED)], { exitCode: null }), quarantined, TODAY)).toMatchObject({ exitCode: 1, forgiven: false });
+    for (const exit of [null, 2, 134, 139]) {
+      const verdict = decide(evidence([result(NAMED)], { exitCode: exit }), quarantined, TODAY);
+      expect(verdict.forgiven).toBe(false);
+      expect(verdict.exitCode).not.toBe(0);
+    }
   });
 
   test('a missing or unreadable JUnit file keeps exit code 1', () => {
@@ -121,7 +147,6 @@ describe('the verdict', () => {
   });
 
   test('a console fail total that differs from the JUnit count keeps exit code 1', () => {
-    // A file that fails to load counts in the console total but not in JUnit.
     expect(decide(evidence([result(NAMED)], { totals: { fail: 2, errors: 0 } }), quarantined, TODAY))
       .toMatchObject({ exitCode: 1, forgiven: false });
     expect(decide(evidence([result(NAMED)], { totals: { errors: 0 } }), quarantined, TODAY))
@@ -139,6 +164,19 @@ describe('the verdict', () => {
     expect(verdict.quarantined).toHaveLength(1);
   });
 
+  test('an entry whose id names two testcases in the run forgives neither', () => {
+    // Two tests with one name, a test.each case, or a `>` in a describe name.
+    const verdict = decide(evidence([result(NAMED, 'failed', 7), result(NAMED, 'failed', 8)]), quarantined, TODAY);
+    expect(verdict).toMatchObject({ exitCode: 1, forgiven: false });
+    expect(verdict.ambiguous).toHaveLength(2);
+    expect(verdict.reason).toContain('name more than one testcase');
+  });
+
+  test('a quarantined test that passes on retry counts as passed', () => {
+    const verdict = decide(evidence([result(NAMED, 'failed', 3), result(NAMED, 'passed', 3)], { exitCode: 0 }), quarantined, TODAY);
+    expect(verdict.outcomes.map((outcome) => outcome.outcome)).toEqual(['passed']);
+  });
+
   test('an expired entry forgives nothing and is reported as blocking', () => {
     const expired = [entry(NAMED, { added: '2026-10-01', expires: '2026-10-15' })];
     const verdict = decide(evidence([result(NAMED)]), expired, TODAY);
@@ -148,7 +186,8 @@ describe('the verdict', () => {
   });
 
   test('a passing run reports each entry\'s result and keeps exit code 0', () => {
-    const verdict = decide(evidence([result(NAMED, 'passed')], { exitCode: 0 }), [...quarantined, entry(FILE)], TODAY);
+    const hook = entry(`${FILE} > peer liveness > (unnamed)`);
+    const verdict = decide(evidence([result(NAMED, 'passed')], { exitCode: 0 }), [...quarantined, hook], TODAY);
     expect(verdict).toMatchObject({ exitCode: 0, forgiven: false });
     expect(verdict.outcomes.map((outcome) => outcome.outcome)).toEqual(['passed', 'passed']);
   });
@@ -160,71 +199,144 @@ describe('the verdict', () => {
 
   test('a quarantined failure is announced as a warning annotation', () => {
     const verdict = decide(evidence([result(NAMED)]), quarantined, TODAY);
-    expect(annotations(verdict)).toEqual([`::warning title=Quarantined test failed::${NAMED} (#1477, quarantined until 2026-11-12)`]);
+    expect(annotations(verdict)).toEqual([`::warning title=Quarantined test failed::${NAMED} (#1477, quarantine expires 2026-11-12)`]);
+  });
+
+  test('a quarantined hook failure says which tests did not run, and for a whole file how many', () => {
+    const root = mkdtempSync(join(tmpdir(), 'quarantine-count-'));
+    writeFileSync(join(root, 'x.test.ts'), 'test(\'a\', () => {});\nit.skip(\'b\', () => {});\ntest.each([1])(\'c %d\', () => {});\n');
+    expect(testCallsIn('x.test.ts', root)).toBe(3);
+    expect(testCallsIn('missing.test.ts', root)).toBeUndefined();
+    expect(notRunNote(entry(`${FILE} > peer liveness > (unnamed)`))).toBe(`the tests in \`${FILE} > peer liveness\` did not run`);
+    const fileLevel = notRunNote(entry(`${FILE} > (unnamed)`));
+    expect(fileLevel).toStartWith(`every test in ${FILE} did not run (`);
+    expect(notRunNote(entry(NAMED))).toBe('');
+    const verdict = decide(evidence([result(`${FILE} > (unnamed)`)]), [entry(`${FILE} > (unnamed)`)], TODAY);
+    expect(annotations(verdict)[0]).toContain(`every test in ${FILE} did not run`);
+    expect(toReport('cli-1', verdict).entries[0]?.note).toContain('did not run');
   });
 });
 
 describe('app scenarios', () => {
   const app = entry('test/apps/ai-sandbox-contents-roles', { issue: 1616 });
 
-  test('a run whose only failed app is quarantined ends with exit code 0', () => {
-    const apps = [{ name: 'ai-sandbox-contents-roles', ok: false }, { name: 'node-client', ok: true }];
+  test('a run whose only failed app failed in its scenario, and is quarantined, ends with exit code 0', () => {
+    const apps = [{ name: 'ai-sandbox-contents-roles', ok: false, inScenario: true, step: 'the page answers' }, { name: 'node-client', ok: true }];
     expect(appVerdict({ apps, exitCode: 1 }, [app], TODAY)).toMatchObject({ exitCode: 0, forgiven: true });
   });
 
+  test('a quarantined app that fails while it installs or loads keeps exit code 1', () => {
+    for (const step of ['npm install', 'load scenario']) {
+      const apps = [{ name: 'ai-sandbox-contents-roles', ok: false, inScenario: false, step }];
+      expect(appVerdict({ apps, exitCode: 1 }, [app], TODAY)).toMatchObject({ exitCode: 1, forgiven: false });
+    }
+  });
+
   test('another failed app keeps exit code 1', () => {
-    const apps = [{ name: 'ai-sandbox-contents-roles', ok: false }, { name: 'node-client', ok: false }];
+    const apps = [{ name: 'ai-sandbox-contents-roles', ok: false, inScenario: true }, { name: 'node-client', ok: false, inScenario: true }];
     expect(appVerdict({ apps, exitCode: 1 }, [app], TODAY)).toMatchObject({ exitCode: 1, forgiven: false });
   });
 });
 
+describe('quarantine is off unless a CI test step enables it', () => {
+  const tree = () => [entry(NAMED)];
+
+  test('without PYRIC_QUARANTINE=1 no entry is honoured, on main or anywhere', () => {
+    expect(runEntries({}, tree)).toEqual([]);
+    expect(runEntries({ GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_ACTIONS: 'true' }, tree)).toEqual([]);
+  });
+
+  test('a push to main honours main\'s tree', () => {
+    expect(runEntries({ PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' }, tree)).toHaveLength(1);
+  });
+
+  test('a pull request honours only its base branch\'s entries, never its own tree', () => {
+    const base = JSON.stringify([entry('packages/cli/test/other.test.ts > t')]);
+    const pr = { PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: 'pull_request', PYRIC_QUARANTINE_BASE_ENTRIES: base };
+    expect(runEntries(pr, tree).map((item) => item.test)).toEqual(['packages/cli/test/other.test.ts > t']);
+    expect(runEntries({ ...pr, PYRIC_QUARANTINE_BASE_ENTRIES: '' }, tree)).toEqual([]);
+    expect(runEntries({ ...pr, PYRIC_QUARANTINE_BASE_ENTRIES: 'not json' }, tree)).toEqual([]);
+    expect(parseBaseEntries('{"file":"x"}')).toEqual([]);
+  });
+
+  test('a schedule, a dispatch, a merge group or a push to another branch honours none', () => {
+    for (const event of ['schedule', 'workflow_dispatch', 'merge_group']) {
+      expect(runEntries({ PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: event, GITHUB_REF: 'refs/heads/main' }, tree)).toEqual([]);
+    }
+    expect(runEntries({ PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/feature' }, tree)).toEqual([]);
+  });
+
+  test('the publish gate\'s app run never forgives a quarantined app', () => {
+    const publishScript = readFileSync(resolve(import.meta.dir, '../../publish-alpha.sh'), 'utf8');
+    expect(publishScript).toContain('bun test/apps/run.ts --packages dist/packages');
+    expect(publishScript).not.toContain('PYRIC_QUARANTINE');
+    const apps = [{ name: 'ai-sandbox-contents-roles', ok: false, inScenario: true }];
+    // The environment a publish runs in: no PYRIC_QUARANTINE.
+    expect(finishAppRun('apps', { apps, exitCode: 1 }, { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' })).toBe(1);
+  });
+});
+
 describe('checking an entry', () => {
-  const exists = () => true;
+  function problems(test: string, overrides: Partial<LoadedEntry> = {}, has: () => boolean = exists): string {
+    return validateEntry(entry(test, overrides), entryFileName(test), has, TODAY).join('; ');
+  }
 
   test('a named test in a covered suite passes', () => {
-    expect(validateEntry(entry(NAMED), entryFileName(NAMED), exists)).toEqual([]);
+    expect(problems(NAMED)).toBe('');
   });
 
   test('a test outside the covered suites is refused, since no runner would honour it', () => {
-    const outside = 'packages/pyric-admin/test/a.test.ts > b';
-    expect(validateEntry(entry(outside), entryFileName(outside), exists).join()).toContain('not in a suite the quarantine covers');
+    expect(problems('packages/pyric-admin/test/a.test.ts > b')).toContain('not in a suite the quarantine covers');
+    expect(problems('packages/cli/test/e2e/a.pw.ts > b')).toContain('is not a *.test.ts or *.spec.ts file');
+    expect(problems('packages/cli/test/a.test.tsx > b')).toContain('is not a *.test.ts or *.spec.ts file');
   });
 
-  test('an unnamed failure is quarantined by its file alone, not by a `(unnamed)` name', () => {
-    const unnamed = `${FILE} > (unnamed)`;
-    expect(validateEntry(entry(unnamed), entryFileName(unnamed), exists).join()).toContain(`name the file alone (${FILE})`);
-    expect(validateEntry(entry(FILE), entryFileName(FILE), exists)).toEqual([]);
+  test('a bare file is refused; a hook failure is named by its describe path and (unnamed)', () => {
+    expect(problems(FILE)).toContain('name one test');
+    expect(problems(`${FILE} > (unnamed)`)).toBe('');
+    expect(problems(`${FILE} > peer liveness > (unnamed)`)).toBe('');
   });
 
   test('a file that does not exist, a non-test file, and a wrong file name are refused', () => {
-    expect(validateEntry(entry(NAMED), entryFileName(NAMED), () => false).join()).toContain('does not exist');
-    expect(validateEntry(entry('packages/cli/src/a.ts'), entryFileName('packages/cli/src/a.ts'), exists).join()).toContain('is not a test file');
-    expect(validateEntry(entry(NAMED), 'other.json', exists).join()).toContain(`must be named ${entryFileName(NAMED)}`);
+    expect(problems(NAMED, {}, () => false)).toContain('does not exist');
+    expect(problems('packages/cli/src/a.ts > b')).toContain('is not a *.test.ts or *.spec.ts file');
+    expect(validateEntry(entry(NAMED), 'other.json', exists, TODAY).join()).toContain(`must be named ${entryFileName(NAMED)}`);
   });
 
   test('an app entry needs the app\'s scenario.ts', () => {
-    const app = 'test/apps/node-client';
-    expect(validateEntry(entry(app), entryFileName(app), exists)).toEqual([]);
-    expect(validateEntry(entry(app), entryFileName(app), () => false).join()).toContain('scenario.ts does not exist');
+    expect(problems('test/apps/node-client')).toBe('');
+    expect(problems('test/apps/node-client', {}, () => false)).toContain('scenario.ts does not exist');
   });
 
   test('a quarantine longer than 14 days is refused, added or renewed', () => {
-    expect(validateEntry(entry(NAMED, { expires: addDays(TODAY, 15) }), entryFileName(NAMED), exists).join()).toContain('more than 14 days');
-    const renewal = { date: '2026-11-12', expires: '2026-11-27', reason: 'fix in review' };
-    const renewed = entry(NAMED, { renewals: [renewal], expires: renewal.expires });
-    expect(validateEntry(renewed, entryFileName(NAMED), exists).join()).toContain('lasts more than 14 days');
+    expect(problems(NAMED, { expires: addDays(TODAY, 15) })).toContain('more than 14 days');
+    const renewal = { date: TODAY, expires: addDays(TODAY, 15), reason: 'fix in review' };
+    expect(problems(NAMED, { added: '2026-10-20', renewals: [renewal], expires: renewal.expires })).toContain('lasts more than 14 days');
+  });
+
+  test('an entry or a renewal dated after today is refused, by the check and by the runners', () => {
+    expect(problems(NAMED, { added: '2027-03-01', expires: '2027-03-15' })).toContain('added is 2027-03-01, after today');
+    const renewal = { date: '2027-06-01', expires: '2027-06-15', reason: 'later' };
+    expect(problems(NAMED, { renewals: [renewal], expires: renewal.expires })).toContain('renewals[0] is dated 2027-06-01, after today');
+    expect(honouredEntries([entry(NAMED, { added: '2027-03-01', expires: '2027-03-15' })], exists, TODAY)).toEqual([]);
   });
 
   test('a renewal needs a reason and moves expires', () => {
-    const renewal = { date: '2026-11-12', expires: '2026-11-26', reason: ' ' };
-    expect(validateEntry(entry(NAMED, { renewals: [renewal], expires: renewal.expires }), entryFileName(NAMED), exists).join()).toContain('needs a reason');
+    const renewal = { date: TODAY, expires: addDays(TODAY, 14), reason: ' ' };
+    expect(problems(NAMED, { added: '2026-10-20', renewals: [renewal], expires: renewal.expires })).toContain('needs a reason');
     const kept = { ...renewal, reason: 'fix in review' };
-    expect(validateEntry(entry(NAMED, { renewals: [kept] }), entryFileName(NAMED), exists).join()).toContain('must equal the last renewal');
-    expect(validateEntry(entry(NAMED, { renewals: [kept], expires: kept.expires }), entryFileName(NAMED), exists)).toEqual([]);
+    expect(problems(NAMED, { added: '2026-10-20', renewals: [kept], expires: '2026-11-03' })).toContain('must equal the last renewal');
+    expect(problems(NAMED, { added: '2026-10-20', renewals: [kept], expires: kept.expires })).toBe('');
   });
 
   test('a missing field is refused', () => {
-    expect(validateEntry({ test: NAMED }, entryFileName(NAMED), exists)).toContain('issue must be a positive integer');
+    expect(validateEntry({ test: NAMED }, entryFileName(NAMED), exists, TODAY)).toContain('issue must be a positive integer');
+  });
+
+  test('the runners ignore an entry whose file name does not match its test, or whose test file is gone', () => {
+    const wrong = { ...entry(NAMED), file: entryFileName(`${FILE} > other`) };
+    expect(honouredEntries([wrong], exists, TODAY)).toEqual([]);
+    expect(honouredEntries([entry(NAMED)], () => false, TODAY)).toEqual([]);
   });
 });
 
@@ -251,6 +363,12 @@ describe('release check comments', () => {
     expect(decideComments({ ...input, posted: new Set([comment?.marker ?? '']) })).toEqual([]);
   });
 
+  test(`a failure in a run whose own job was replaced is still commented, within the last ${FAILURE_LOOKBACK} runs`, () => {
+    const runs = [run(10, 'passed'), run(9, 'failed'), run(8, 'passed')];
+    const comments = decideComments({ entries: [quarantinedEntry], today: TODAY, history: history(runs), posted: new Set() });
+    expect(comments.map((comment) => comment.marker)).toEqual([`<!-- quarantine:failed:${quarantinedEntry.file}:9 -->`]);
+  });
+
   test(`release is proposed after ${RELEASE_STREAK} passing main runs in a row, not before`, () => {
     const passing = Array.from({ length: RELEASE_STREAK }, (_, index) => run(100 - index, 'passed'));
     const proposal = decideComments({ entries: [quarantinedEntry], today: TODAY, history: history(passing), posted: new Set() });
@@ -275,30 +393,16 @@ describe('release check comments', () => {
     const verdict = decide(evidence([result(NAMED)]), [quarantinedEntry], TODAY);
     expect(toReport('cli-1', verdict).entries).toEqual([{ file: quarantinedEntry.file, test: NAMED, issue: 1477, expires: '2026-11-12', outcome: 'failed' }]);
   });
-});
 
-describe('adding and renewing from the command line', () => {
-  test('add starts a 14-day quarantine that passes the check', async () => {
-    const { newEntry } = await import('../../ci/quarantine.ts');
-    const added = newEntry(['--test', NAMED, '--issue', '1477', '--owner', 'agent', '--reason', 'flaky'], TODAY);
-    expect(added).toMatchObject({ added: TODAY, expires: '2026-11-12', renewals: [] });
-    expect(validateEntry(added, entryFileName(NAMED), () => true)).toEqual([]);
+  test('a manual dispatch refuses any run but a push run of Build & Test on main', () => {
+    const base = { id: 1, conclusion: 'success', created_at: '', html_url: '' };
+    expect(() => assertMainPushRun({ ...base, event: 'pull_request', head_branch: 'main', path: '.github/workflows/build.yml' })).toThrow('only push runs');
+    expect(() => assertMainPushRun({ ...base, event: 'push', head_branch: 'feature', path: '.github/workflows/build.yml' })).toThrow('only push runs');
+    expect(() => assertMainPushRun({ ...base, event: 'push', head_branch: 'main', path: '.github/workflows/other.yml' })).toThrow('only push runs');
+    expect(() => assertMainPushRun({ ...base, event: 'push', head_branch: 'main', path: '.github/workflows/build.yml' })).not.toThrow();
   });
 
-  test('renew appends a renewal with its reason and moves expires 14 days from today', async () => {
-    const { renewed } = await import('../../ci/quarantine.ts');
-    const next = renewed(entry(NAMED), 'fix in review', '2026-11-10');
-    expect(next.renewals).toEqual([{ date: '2026-11-10', expires: '2026-11-24', reason: 'fix in review' }]);
-    expect(validateEntry(next, entryFileName(NAMED), () => true)).toEqual([]);
-  });
-});
-
-describe('reading a run\'s quarantine artifacts', () => {
-  test('keeps each suite\'s report from its latest attempt', async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
-    const { latestReports } = await import('../../ci/quarantine-release.ts');
+  test('keeps each suite\'s report from its latest attempt', () => {
     const dir = mkdtempSync(join(tmpdir(), 'quarantine-artifacts-'));
     const write = (artifact: string, reason: string) => {
       mkdirSync(join(dir, artifact));
@@ -308,5 +412,19 @@ describe('reading a run\'s quarantine artifacts', () => {
     write('quarantine-report-cli-1-a2', 'attempt 2');
     expect(latestReports(dir).map((report) => report.reason)).toEqual(['attempt 2']);
     expect(latestReports(join(dir, 'missing'))).toEqual([]);
+  });
+});
+
+describe('adding and renewing from the command line', () => {
+  test('add starts a 14-day quarantine that passes the check', () => {
+    const added = newEntry(['--test', NAMED, '--issue', '1477', '--owner', 'agent', '--reason', 'flaky'], TODAY);
+    expect(added).toMatchObject({ added: TODAY, expires: '2026-11-12', renewals: [] });
+    expect(validateEntry(added, entryFileName(NAMED), exists, TODAY)).toEqual([]);
+  });
+
+  test('renew appends a renewal with its reason and moves expires 14 days from today', () => {
+    const next = renewed(entry(NAMED), 'fix in review', '2026-11-10');
+    expect(next.renewals).toEqual([{ date: '2026-11-10', expires: '2026-11-24', reason: 'fix in review' }]);
+    expect(validateEntry(next, entryFileName(NAMED), exists, '2026-11-10')).toEqual([]);
   });
 });

@@ -1,21 +1,36 @@
 // The quarantine verdict for a run of the app scenarios (test/apps/run.ts).
-// Each app is one result, named by its directory, `test/apps/<app>`. The run's
-// own summary is the count, so the same conditions as a bun suite apply.
+// Each app is one result, named by its directory, `test/apps/<app>`. Only a
+// failure inside the app's scenario carries that name: a failure while it
+// installs or loads is named `test/apps/<app> > <step>`, which no entry names,
+// so it always blocks. The run's own summary is the count, so the same
+// conditions as a bun suite apply. Quarantine is off unless enabled
+// (source.ts), so a publish's app run keeps its exit code.
 
-import { readEntries, todayUtc, type LoadedEntry, type TestResult } from './entries.ts';
+import { todayUtc, type LoadedEntry, type TestResult } from './entries.ts';
 import { publish } from './report.ts';
+import { quarantineEnabled, runEntries } from './source.ts';
 import { honouredEntries } from './validate.ts';
 import { decide, type Verdict } from './verdict.ts';
 
+export interface AppOutcome {
+  name: string;
+  ok: boolean;
+  /** True when the failure happened while the scenario itself ran. */
+  inScenario?: boolean;
+  step?: string;
+}
+
 export interface AppVerdictInput {
-  apps: ReadonlyArray<{ name: string; ok: boolean }>;
+  apps: readonly AppOutcome[];
   exitCode: number;
 }
 
-function appResult(app: { name: string; ok: boolean }): TestResult {
+function appResult(app: AppOutcome): TestResult {
   const id = `test/apps/${app.name}`;
-  const outcome = app.ok ? 'passed' : 'failed';
-  return { id, file: id, outcome };
+  if (app.ok) return { id, file: id, outcome: 'passed' };
+  const failedInScenario = app.inScenario === true;
+  if (failedInScenario) return { id, file: id, outcome: 'failed' };
+  return { id: `${id} > ${app.step ?? 'before its scenario'}`, file: id, outcome: 'failed' };
 }
 
 export function appVerdict(input: AppVerdictInput, entries: LoadedEntry[], today: string): Verdict {
@@ -25,8 +40,9 @@ export function appVerdict(input: AppVerdictInput, entries: LoadedEntry[], today
 }
 
 /** Decides, reports, and returns the exit code the app run ends with. */
-export function finishAppRun(suite: string, input: AppVerdictInput): number {
-  const verdict = appVerdict(input, honouredEntries(readEntries()), todayUtc());
-  publish(suite, verdict);
+export function finishAppRun(suite: string, input: AppVerdictInput, env: NodeJS.ProcessEnv = process.env): number {
+  if (!quarantineEnabled(env)) return input.exitCode;
+  const verdict = appVerdict(input, honouredEntries(runEntries(env)), todayUtc());
+  publish(suite, verdict, env);
   return verdict.exitCode;
 }

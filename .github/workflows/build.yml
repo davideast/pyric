@@ -62,6 +62,7 @@ jobs:
       app-plan: ${{ steps.app-plan.outputs.app-plan }}
       app-shards: ${{ steps.app-plan.outputs.app-shards }}
       app-plan-id: ${{ steps.app-plan.outputs.app-plan-id }}
+      quarantine-base: ${{ steps.quarantine-base.outputs.entries }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch PR endpoints and resolve merge base
@@ -94,6 +95,16 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - name: Read the quarantine list on the base branch
+        # A pull request's test steps honour only the quarantine entries
+        # already on its base branch, so a PR cannot quarantine the test it
+        # breaks (scripts/lib/quarantine/source.ts). The step above fetched
+        # the base commit.
+        id: quarantine-base
+        if: github.event_name == 'pull_request'
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bun scripts/ci/quarantine-base.ts "$CI_BASE_SHA"
       - name: Test fail-closed selection policy
         run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
       - name: Select proof
@@ -408,6 +419,11 @@ jobs:
         # sharing a 2-core VM).
         # Sharding gives each half of the suite its own dedicated 2-core VM
         # without CPU starvation, cutting job wall-clock time in half (~48s).
+        env:
+          # Quarantine applies only in these CI test steps; every other caller
+          # of the runners, publish included, keeps its exit code.
+          PYRIC_QUARANTINE: '1'
+          PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
         run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/2
 
       - name: Upload the quarantine report
@@ -469,6 +485,11 @@ jobs:
         # the release gates; scripts/ci/library-split.test.ts pins
         # core = libraries minus conformance and rest = core minus
         # packages/pyric, so the split cannot drift.
+        env:
+          # Quarantine applies only in these CI test steps; every other caller
+          # of the runners, publish included, keeps its exit code.
+          PYRIC_QUARANTINE: '1'
+          PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
         run: |
           bun scripts/ci/test-shard.ts --package=pyric --shard=${{ matrix.shard }}/2
           if [ "${{ matrix.shard }}" = "2" ]; then bun run test:ci:libraries:rest; fi
@@ -605,6 +626,11 @@ jobs:
         # runner fails before installing anything unless the plan's apps are
         # exactly the apps an unsharded run would select, then runs this
         # shard's apps, longest first.
+        env:
+          # Quarantine applies only in these CI test steps; every other caller
+          # of the runners, publish included, keeps its exit code.
+          PYRIC_QUARANTINE: '1'
+          PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
         run: bun test/apps/run.ts --packages dist/packages --skip-slow --shard-plan test-results/app-plan.json --shard ${{ matrix.shard.index }}
       - name: Upload the quarantine report
         # Each quarantined test's result in this run, which the release check
@@ -668,6 +694,11 @@ jobs:
         # Split out of library-tests so both halves run on their own machine;
         # deriving the conformance model is CPU-heavy and its tests carry 60s
         # beforeAll budgets that CPU contention can starve.
+        env:
+          # Quarantine applies only in these CI test steps; every other caller
+          # of the runners, publish included, keeps its exit code.
+          PYRIC_QUARANTINE: '1'
+          PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
         run: bun scripts/ci/quarantine-test.ts --cwd packages/conformance --suite conformance
       - name: Upload the quarantine report
         # Each quarantined test's result in this run, which the release check

@@ -7,10 +7,12 @@
 //   bun scripts/ci/quarantine.ts renew --test '<id>' --reason '<why>'
 //
 // <id> is the test as the "Flaky on main" issue names it:
-// `<repo path> > <describe> > <test>`. Name the file alone only for a failure
-// bun reports as `(unnamed)` (a hook or a file that broke); it then covers
-// only that file's unnamed failures. An app scenario is `test/apps/<app>`.
-// A quarantine lasts 14 days; renewing it needs a reason.
+// `<repo path> > <describe> > <test>`. A hook that broke or timed out is
+// `<repo path> > [<describe> >] (unnamed)`, which covers only that hook, and
+// the tests it kept from running are reported as not run. An app scenario is
+// `test/apps/<app>`, which covers only a failure inside its scenario.
+// A quarantine lasts 14 days; renewing it needs a reason. The entry takes
+// effect once it is on main: pull requests honour only their base branch's.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
