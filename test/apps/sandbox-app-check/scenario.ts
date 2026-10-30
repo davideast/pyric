@@ -97,6 +97,16 @@ function expected(targetKind: string) {
   };
 }
 
+/** GET /ssr/app-check: the module importing the shared firebase.ts, and the one with a CustomProvider. */
+async function assertSsrAppCheck(server: DevServer, tokenUrl: string): Promise<void> {
+  const response = await fetch(`${server.url}/ssr/app-check?token=${encodeURIComponent(tokenUrl)}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    sharedFirebase: { ok: false, ...NO_DOCUMENT },
+    customProvider: { ok: true, value: { providerCalls: 1, sameToken: true } },
+  });
+}
+
 async function openPage(app: App, host: DevServer) {
   const page = await app.page(host.url);
   await page.waitForFunction(() => 'runAiChecks' in window);
@@ -180,17 +190,14 @@ export default scenario(async (app) => {
     assert.match(node, HINT);
   });
 
-  await app.step('a server-rendered module: the shared firebase.ts throws document is not defined, a CustomProvider works', async () => {
-    const response = await fetch(`${host.url}/ssr/app-check?token=${encodeURIComponent(tokenUrl)}`);
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), {
-      sharedFirebase: { ok: false, ...NO_DOCUMENT },
-      customProvider: { ok: true, value: { providerCalls: 1, sameToken: true } },
-    });
-  });
+  await app.step('a server-rendered module: the shared firebase.ts throws document is not defined, a CustomProvider works', () =>
+    assertSsrAppCheck(host, tokenUrl));
 
   const workerHost = await app.step('start a SharedWorker dev server', () =>
     app.devServer({ name: 'shared-worker-dev-server', env: { SANDBOX_APP_CHECK_PLANE: 'shared-worker' } }));
+
+  await app.step('SharedWorker dev server, server-rendered module: the same throw, and a CustomProvider works', () =>
+    assertSsrAppCheck(workerHost, tokenUrl));
 
   await app.step('SharedWorker: the same refusal and the same answers', async () => {
     const workerPage = await openPage(app, workerHost);
