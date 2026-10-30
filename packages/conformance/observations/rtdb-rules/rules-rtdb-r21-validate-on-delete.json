@@ -5,9 +5,9 @@
     "rtdb-rules#21"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r21-validate-on-delete\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a delete that production allows must not be denied by a `.validate` rule the simulator runs on a null value, and a partial delete production denies must stay denied.",
-  "observedAt": "2026-09-25T08:25:46.596Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.264Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "writing an empty object deletes the node": "ALLOW",
     "writing null deletes the node": "ALLOW",

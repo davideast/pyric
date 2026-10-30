@@ -5,9 +5,9 @@
     "rtdb-rules#2"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r2-own-uid\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). $uid path variable bound against auth.uid — production allows the owner path and denies foreign/anonymous access; the simulator binds the same variable and must agree.",
-  "observedAt": "2026-07-12T03:35:03.042Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.263Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "matching uid read allowed": "ALLOW",
     "matching uid write allowed": "ALLOW",

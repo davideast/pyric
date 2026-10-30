@@ -6,9 +6,9 @@
     "rtdb-modular#M46"
   ],
   "description": "onChildMoved fires when a child's ordering value changes — only emits under an ordered query. Seed 3 children with priorities, subscribe via query(ref, orderByChild(\"priority\")), update one's priority so its sort position changes, observe the fire (or its absence).",
-  "observedAt": "2026-05-18T04:26:36.618Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:22.756Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

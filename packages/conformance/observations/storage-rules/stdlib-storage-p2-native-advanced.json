@@ -3,8 +3,8 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Storage Rules Test API discovery for metadata MapDiff boundaries, resource.updated timestamp access, Unicode metadata, and hash-shaped fields explicitly supplied by synthetic fixtures. Hash results prove rule-addressability only, not real-upload population.",
-  "observedAt": "2026-07-21T12:32:35.240Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:19:46.661Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "diff affected: label-only change": "ALLOW",

@@ -5,8 +5,8 @@
     "storage-rules#210"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-auth-token-default\" (STORAGE-H1-AUTH-TOKEN). An authenticated request always carries a token map on the wire; the Storage evaluator drops it when the case omits it.",
-  "observedAt": "2026-10-27T02:46:23.675Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:53.877Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -5,8 +5,8 @@
     "app#25"
   ],
   "description": "Service factories called with a deleted FirebaseApp either reject with app/app-deleted or preserve the observed Firebase AI behavior.",
-  "observedAt": "2026-07-14T04:17:18.590Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.846Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "auth": {
       "threw": true,

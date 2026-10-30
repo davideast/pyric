@@ -5,9 +5,9 @@
     "auth#33"
   ],
   "description": "Multiple subscribers all fire on each state change. Register two onAuthStateChanged subscribers, do a signIn transition, verify both fire.",
-  "observedAt": "2026-05-18T00:12:30.915Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T12:08:31.374Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "initialA": 1,
     "initialB": 1,
@@ -27,12 +27,12 @@
         "ts": 0
       },
       {
-        "uid": "XaEgIiNB8pVEwXz3Fw3yFR6toJC2",
-        "ts": 607
+        "uid": "PnU2ChRKatSX6lfMkUuUq3qTvTw1",
+        "ts": 708
       },
       {
         "uid": null,
-        "ts": 1010
+        "ts": 1118
       }
     ],
     "firesB": [
@@ -41,12 +41,12 @@
         "ts": 0
       },
       {
-        "uid": "XaEgIiNB8pVEwXz3Fw3yFR6toJC2",
-        "ts": 607
+        "uid": "PnU2ChRKatSX6lfMkUuUq3qTvTw1",
+        "ts": 708
       },
       {
         "uid": null,
-        "ts": 1010
+        "ts": 1118
       }
     ]
   }

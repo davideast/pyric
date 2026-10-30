@@ -5,10 +5,10 @@
     "app-check-admin#verify-token-rejections"
   ],
   "description": "verifyToken rejections: a minted token with one signature character changed, the string not-a-jwt, and the empty string.",
-  "observedAt": "2026-10-22T03:09:04.634Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:51:08.032Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "tamperedSignature": {
       "threw": true,

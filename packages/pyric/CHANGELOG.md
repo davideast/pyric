@@ -4,6 +4,27 @@
 
 ### Behavior changes
 
+- Pyric now requires `firebase@^12.19.0`, raised from `^12.12.0`, and is
+  conformance-tested against 12.19.0. Scaffolded apps install `~12.19.0`.
+  Firebase 12.19.0 removed the Imagen API from `firebase/ai`, so `pyric/ai` no
+  longer exports the `ImagenAspectRatio`, `ImagenPersonFilterLevel` and
+  `ImagenSafetyFilterLevel` constants, and the served `firebase/ai` module no
+  longer exports them or `getImagenModel`, `ImagenModel`, `ImagenImageFormat`,
+  `getTemplateImagenModel` and `TemplateImagenModel`. The
+  new `AgentPlatformBackend`, Firestore's `maximum` and `minimum`, and
+  messaging's `register`, `unregister`, `onRegistered` and `onUnregistered`
+  can be imported in served mode but throw `unsupported-in-served-mode` until
+  pyric implements them (#1604).
+- `SDK_VERSION` from `pyric/app` is now `12.19.0`. A second `initializeApp`
+  under an existing name with different options or settings throws
+  `app/duplicate-app` with the 12.19.0 message, which names the mismatched
+  parameter and includes the existing and new values as JSON, for example
+  `Firebase App named '[DEFAULT]' already exists with different options.
+  Existing: '{...}'. New: '{...}'.` (#1604).
+- A second `initializeAppCheck` on the same app treats an omitted
+  `isTokenAutoRefreshEnabled` as `false`, as firebase 12.19.0 does. Calls
+  that differ only in omitting it versus passing `false` now return the same
+  instance instead of throwing `appCheck/already-initialized` (#1604).
 - The Vite dev server refuses to start when `VITE_GEMINI_API_KEY` is set, in
   the shell or in `.env`, and says to rename it to `GEMINI_API_KEY`. Vite
   serves every variable whose name starts with `VITE_` to the browser, so a

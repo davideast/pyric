@@ -5,9 +5,9 @@
     "firestore#30"
   ],
   "description": "Sentinels (serverTimestamp, increment, arrayUnion, arrayRemove, deleteField) resolve in the same setDoc call. Probes setDoc({createdAt: serverTimestamp(), count: 5, tags: [\"a\"]}) then getDoc and checks the resolved shape — createdAt is a Timestamp instance, count === 5, tags === [\"a\"].",
-  "observedAt": "2026-05-17T23:58:13.279Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:33.922Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "exists": true,
     "keys": [

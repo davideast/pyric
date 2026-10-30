@@ -5,9 +5,9 @@
     "rtdb#89"
   ],
   "description": "Deploys one rule expression at a time through the rules REST endpoint and records whether production accepts the ruleset or refuses it, with the refusal text: method argument count and types, regular expression literals and flags, `$wildcard` variables, and snapshot operands of comparison and arithmetic operators. The prior rules are restored and read back after every attempt.",
-  "observedAt": "2026-10-07T05:10:17.137Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T10:44:38.175Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,
     "outcomes": {

@@ -8,8 +8,8 @@
     "rtdb-rules#12"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r27-stdlib-core-patterns\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the standard library builders must compile to rules production deploys and decides the way the builders document, for sets, updates and deletes of the patterns realtime games use.",
-  "observedAt": "2026-10-15T19:33:57.202Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.269Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "the host creates a waiting match": "ALLOW",

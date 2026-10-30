@@ -5,9 +5,9 @@
     "firestore#100"
   ],
   "description": "increment(n) atomically bumps a numeric field. Matrix claim: null/missing field starts from 0. Probe: setDoc with no `count` field, then updateDoc with {count: increment(5)} → expect 5. Then increment(3) → expect 8. Then increment(-2) → expect 6.",
-  "observedAt": "2026-05-18T00:20:10.572Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:42.068Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "initialKeys": [
       "other"

@@ -21,9 +21,12 @@
  * `PYRIC_ORACLE_PROJECT_ID` names. The harness gets a short-lived OAuth
  * token, calls the Firebase Management API to fetch the project's
  * Web SDK config (apiKey, authDomain, …), then initializes the
- * Web SDK normally. Manual config via
- * `PYRIC_ORACLE_FIREBASE_CONFIG` is honored if you'd rather not
- * use the SA path.
+ * Web SDK normally. `PYRIC_ORACLE_FIREBASE_CONFIG`, when set, supplies
+ * the web config in place of the Management API fetch; the credential and
+ * the rules session still come from the oracle credential. A client-only
+ * run with no credential needs the explicit `--manual-config` flag: it
+ * deploys no rules, and a probe that needs the credential skips. A skip is
+ * never written as an observation; the run reports it and exits non-zero.
  *
  * Cleanup: each probe writes under a unique sub-collection
  * (`oracle-<ts>-<rand>-<probe>`) and deletes its docs on the way
@@ -160,6 +163,13 @@ import {
   type Database,
 } from 'firebase/database';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import {
+  assertWebConfigProject,
+  manualWebConfig,
+  oracleRunMode,
+  skipReason,
+  webConfigFromEnv,
+} from './oracle-run-setup.ts';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -336,14 +346,9 @@ let rtdbAdminToken: string | null = null;
 let oracleRulesSession: OracleRulesSession | null = null;
 
 async function loadConfig(): Promise<FirebaseWebConfig> {
-  // Manual override path (no SA needed) — paste the Web config JSON.
-  const manual = process.env.PYRIC_ORACLE_FIREBASE_CONFIG;
-  if (manual) {
-    try {
-      return JSON.parse(manual) as FirebaseWebConfig;
-    } catch (e) {
-      throw new Error(`PYRIC_ORACLE_FIREBASE_CONFIG is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
-    }
+  if (oracleRunMode(process.argv) === 'manual') {
+    console.log('[oracle] --manual-config: no oracle credential; no rules are deployed, and probes that need the credential are reported as skipped.');
+    return manualWebConfig(process.env);
   }
 
   // The oracle credential: the key file PYRIC_ORACLE_SA_PATH names, or
@@ -353,7 +358,9 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   serviceAccount = sa;
   console.log(`[oracle] project: ${sa.project_id}`);
   const token = await oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
-  const cfg = await fetchWebConfig(token, sa.project_id);
+  const envConfig = webConfigFromEnv(process.env);
+  if (envConfig) assertWebConfigProject(envConfig, sa.project_id);
+  const cfg = envConfig ?? await fetchWebConfig(token, sa.project_id);
   // The Firestore, Storage, and RTDB oracle rules are deployed by `main` inside
   // `runWithOracleRulesRestored`, so the project's rules are put back when the
   // run ends. The session mints a fresh token for each phase because a run can
@@ -4083,7 +4090,7 @@ const probes: Probe[] = [
   {
     name: 'storage-upload-then-getmetadata',
     matrixRow: 'storage #89',
-    rowIds: ['storage#89', 'storage#37', 'storage#91'],
+    rowIds: ['storage#89', 'storage#37', 'storage#91', 'storage#118'],
     description:
       'uploadBytes with contentType: application/octet-stream, then getMetadata — verify contentType and size round-trip exactly.',
     async observe() {
@@ -7895,7 +7902,7 @@ const probes: Probe[] = [
   {
     name: 'auth-action-code-invalid',
     matrixRow: 'auth #152',
-    rowIds: ['auth#152'],
+    rowIds: ['auth#152', 'auth#159'],
     description: 'The four out-of-band code CONSUMERS against a code production never issued. This is the reject shape an email round trip is not needed to observe: applyActionCode / checkActionCode / verifyPasswordResetCode / confirmPasswordReset each hit the real Identity Platform endpoint with a bogus oobCode. Locks auth/invalid-action-code across all four.',
     async observe() {
       const bogus = 'pyric-oracle-not-a-real-oob-code';
@@ -7921,7 +7928,7 @@ const probes: Probe[] = [
   {
     name: 'auth-sendsigninlinktoemail-settings-validation',
     matrixRow: 'auth #153',
-    rowIds: ['auth#153'],
+    rowIds: ['auth#153', 'auth#163'],
     description: 'sendSignInLinkToEmail ActionCodeSettings validation — the accept/reject shape for the continue-URL contract, capturable WITHOUT any mailbox. Locks auth/missing-continue-uri (no url), auth/invalid-continue-uri (malformed url), auth/argument-error (handleCodeInApp false), and auth/unauthorized-continue-uri (a continue domain not on the project allowlist).',
     async observe() {
       const email = `oracle-link-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
@@ -8775,6 +8782,157 @@ const probes: Probe[] = [
       return out;
     },
   },
+  {
+    name: 'auth-signinprovider-per-flow',
+    matrixRow: 'auth #68',
+    rowIds: ['auth#68'],
+    description: 'IdTokenResult.signInProvider + the reserved firebase.sign_in_provider claim, per sign-in flow (anonymous, password).',
+    async observe() {
+      const read = async () => {
+        const result = await auth.currentUser!.getIdTokenResult();
+        const firebase = (result.claims as { firebase?: { sign_in_provider?: string } }).firebase;
+        return { signInProvider: result.signInProvider, firebaseClaim: firebase?.sign_in_provider ?? null };
+      };
+      await signInAnonymously(auth);
+      const anonymous = await read();
+      await dropCurrentUser();
+      const email = `oracle-provider-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      const createCode = await attemptCode(() => createUserWithEmailAndPassword(auth, email, 'oracle-pw-123'));
+      if (createCode !== null) return { anonymous, password: null, createCode };
+      const password = await read();
+      const cleanupLeaked = (await attemptCode(() => deleteUser(auth.currentUser!))) !== null;
+      return { anonymous, password, ...(cleanupLeaked ? { cleanupLeaked } : {}) };
+    },
+  },
+  {
+    name: 'auth-claims-forced-refresh-propagation',
+    matrixRow: 'auth #75',
+    rowIds: ['auth#75'],
+    description: 'Admin-set custom claims reach an active session on the next FORCED token refresh, not the unforced read.',
+    async observe() {
+      if (!serviceAccount) return { skipped: true, reason: 'no service account (manual config?)' };
+      const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
+      const adminApp = adminInitializeApp({ ...oracleAppOptions(serviceAccount) }, `oracle-claims-refresh-${RUN_ID}`);
+      const claim = async (forceRefresh?: boolean) =>
+        ((await auth.currentUser!.getIdTokenResult(forceRefresh)).claims as Record<string, unknown>).oracleRole ?? null;
+      try {
+        await signInAnonymously(auth);
+        const uid = auth.currentUser!.uid;
+        const claimBefore = await claim();
+        const updateOk = (await attemptCode(() => getAdminAuth(adminApp).setCustomUserClaims(uid, { oracleRole: 'admin' }))) === null;
+        const claimUnforcedAfterAdminWrite = await claim();
+        const claimForcedRefresh = await claim(true);
+        return { updateOk, claimBefore, claimUnforcedAfterAdminWrite, claimForcedRefresh };
+      } finally {
+        await dropCurrentUser();
+        await adminDeleteApp(adminApp);
+      }
+    },
+  },
+  {
+    name: 'firestore-updatedoc-dotpath-fieldpath',
+    matrixRow: 'firestore #33',
+    rowIds: ['firestore#33'],
+    description: 'updateDoc top-level dot-separated string keys parse as FieldPaths (nested write preserving siblings), not literal keys.',
+    async observe() {
+      await signInAnonymously(auth);
+      const ref = doc(db, RUN_DOC('updatedoc-dotpath'), 'a');
+      try {
+        await setDoc(ref, { a: { b: 1, c: 3 }, top: 1 });
+        await updateDoc(ref, { 'a.b': 2 });
+        const data = (await getDoc(ref)).data() as { a: { b: number; c: number }; top: number };
+        return {
+          data,
+          nestedUpdated: data.a.b,
+          siblingPreserved: data.a.c,
+          literalDotKeyPresent: 'a.b' in data,
+        };
+      } finally {
+        await purge('updatedoc-dotpath');
+        await dropCurrentUser();
+      }
+    },
+  },
+  {
+    name: 'firestore-limittolast-preconditions',
+    matrixRow: 'firestore #61',
+    rowIds: ['firestore#61'],
+    description: 'limitToLast without orderBy — error class/code prod throws; with orderBy returns the trailing window.',
+    async observe() {
+      await signInAnonymously(auth);
+      const c = collection(db, RUN_DOC('limittolast'));
+      try {
+        await setDoc(doc(c, 'a'), { pos: 1 });
+        await setDoc(doc(c, 'b'), { pos: 2 });
+        let noOrderByThrew = false;
+        let code: string | null = null;
+        let message: string | null = null;
+        try {
+          await getDocs(query(c, limitToLast(2)));
+        } catch (e) {
+          noOrderByThrew = true;
+          code = (e as { code?: string }).code ?? null;
+          message = e instanceof Error ? e.message : String(e);
+        }
+        const trailing = await getDocs(query(c, orderBy('pos'), limitToLast(1)));
+        return { noOrderByThrew, code, message, trailingIds: trailing.docs.map((d) => d.id) };
+      } finally {
+        await purge('limittolast');
+        await dropCurrentUser();
+      }
+    },
+  },
+  {
+    name: 'firestore-startat-snapshot-implicit-name',
+    matrixRow: 'firestore #71',
+    rowIds: ['firestore#71'],
+    description: 'startAt(snapshot) disambiguates equal-valued docs via the implicit __name__ tiebreak.',
+    async observe() {
+      await signInAnonymously(auth);
+      const c = collection(db, RUN_DOC('startat-snapshot'));
+      try {
+        for (const id of ['a', 'b', 'c']) await setDoc(doc(c, id), { pos: 1 });
+        const anchor = await getDoc(doc(c, 'b'));
+        const snap = await getDocs(query(c, orderBy('pos'), startAt(anchor)));
+        const idsFromB = snap.docs.map((d) => d.id);
+        return { idsFromB, excludedEqualValuedPredecessor: !idsFromB.includes('a') };
+      } finally {
+        await purge('startat-snapshot');
+        await dropCurrentUser();
+      }
+    },
+  },
+  {
+    name: 'storage-uploadstring-unknown-format',
+    matrixRow: 'storage #41',
+    rowIds: ['storage#41'],
+    description: 'uploadString with an unknown format string — error code prod throws; base64url is a valid upstream format that Pyric currently rejects.',
+    async observe() {
+      if (!storage) {
+        return { skipped: true, reason: 'Storage not enabled on this project (no storageBucket in Web SDK config).' };
+      }
+      await signInAnonymously(auth);
+      const unknownRef = storageRef(storage, RUN_STORAGE_PATH('uploadstring-format', 'unknown.bin'));
+      const base64urlRef = storageRef(storage, RUN_STORAGE_PATH('uploadstring-format', 'base64url.bin'));
+      let unknownCode: string | null = null;
+      let unknownMessage: string | null = null;
+      try {
+        await uploadString(unknownRef, 'hello', 'totally-bogus-format' as unknown as 'raw');
+      } catch (e) {
+        unknownCode = (e as { code?: string }).code ?? null;
+        unknownMessage = e instanceof Error ? e.message : String(e);
+      }
+      const base64urlCode = await attemptCode(() => uploadString(base64urlRef, 'aGVsbG8', 'base64url' as unknown as 'base64'));
+      try {
+        return { unknownCode, unknownMessage, base64urlOk: base64urlCode === null, base64urlCode };
+      } finally {
+        for (const r of [unknownRef, base64urlRef]) {
+          try { await deleteObject(r); } catch { /* absent when the upload failed */ }
+        }
+        await dropCurrentUser();
+      }
+    },
+  },
 ];
 
 // ─── Runner ───────────────────────────────────────────────────────────
@@ -8799,12 +8957,19 @@ async function main(): Promise<void> {
     console.log(`[oracle] running ${probes.length} probes against real cloud services`);
   }
 
+  const skippedProbes: string[] = [];
   const runProbes = async (): Promise<void> => {
     for (const probe of selected) {
       process.stdout.write(`[oracle] ${probe.name} (${probe.matrixRow}) ... `);
       const t0 = Date.now();
       try {
         const behavior = await probe.observe();
+        const skip = skipReason(behavior);
+        if (skip !== null) {
+          skippedProbes.push(`${probe.name}: ${skip}`);
+          console.log(`SKIPPED, observation not written: ${skip}`);
+          continue;
+        }
         const obs: Observation = {
           name: probe.name,
           matrixRow: probe.matrixRow,
@@ -8858,6 +9023,11 @@ async function main(): Promise<void> {
     }
   }
   console.log('[oracle] observations written to observations/<surface>/');
+  if (skippedProbes.length > 0) {
+    console.error(`[oracle] ${skippedProbes.length} probe(s) skipped; their observations were not written:`);
+    for (const line of skippedProbes) console.error(`  - ${line}`);
+    process.exitCode = 1;
+  }
 }
 
 /**

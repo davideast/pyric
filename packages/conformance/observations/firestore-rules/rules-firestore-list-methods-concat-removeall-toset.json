@@ -5,8 +5,8 @@
     "firestore-rules#168"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"list-methods-concat-removeall-toset\" (Item 5.2). Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.",
-  "observedAt": "2026-09-30T03:43:23.189Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:40.893Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

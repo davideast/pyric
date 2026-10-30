@@ -10,7 +10,7 @@ import {
 
 describe('app diagnostics mirror', () => {
   it('reports the Firebase SDK version captured by the current oracle', () => {
-    expect(SDK_VERSION).toBe('12.13.0');
+    expect(SDK_VERSION).toBe('12.19.0');
   });
 
   it('delivers malformed registerVersion warnings through the configured logger', () => {

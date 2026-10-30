@@ -5,9 +5,9 @@
     "firestore#39"
   ],
   "description": "deleteDoc against a non-existent doc — locks whether prod throws or no-ops.",
-  "observedAt": "2026-05-17T23:36:46.028Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:45:40.103Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "error": null,

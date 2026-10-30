@@ -4,9 +4,9 @@
   "rowIds": [
     "rtdb-rules#26"
   ],
-  "description": "RTDB rules production verdicts for corpus scenario \"r45-not-operator-runtime\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). Decide MET-1: whether `!` on a runtime non-boolean errors or yields a value in production.",
-  "observedAt": "2026-10-15T19:54:41.980Z",
-  "fbSdkVersion": "12.13.0",
+  "description": "RTDB rules production verdicts for corpus scenario \"r45-not-operator-runtime\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). Decide MET-1: production populates query.orderByKey as false on a plain read, so !query.orderByKey grants and !!query.orderByKey denies.",
+  "observedAt": "2026-10-30T18:17:18.284Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "MET-1: !query.orderByKey on a plain read": "ALLOW",

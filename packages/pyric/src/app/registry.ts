@@ -49,8 +49,21 @@ function noAppError(name: string): FirebaseError {
   return appError('no-app', `No Firebase App '${name}' has been created - call initializeApp() first`);
 }
 
-function duplicateAppError(name: string): FirebaseError {
-  return appError('duplicate-app', `Firebase App named '${name}' already exists with different options or config`);
+/**
+ * firebase/app 12.19.0 names the mismatched parameter and embeds both values,
+ * each serialized with JSON.stringify, in the duplicate-app message.
+ */
+function duplicateAppError(
+  name: string,
+  mismatchedParam: 'options' | 'config',
+  oldValue: unknown,
+  newValue: unknown,
+): FirebaseError {
+  const values = `Existing: '${JSON.stringify(oldValue)}'. New: '${JSON.stringify(newValue)}'.`;
+  return appError(
+    'duplicate-app',
+    `Firebase App named '${name}' already exists with different ${mismatchedParam}. ${values}`,
+  );
 }
 
 function appDeletedError(name: string): FirebaseError {
@@ -140,13 +153,13 @@ export function initializeApp(
   const optionsSnapshot = cloneValue(options);
   const existing = appRegistry.get(settings.name);
   if (existing) {
-    if (
-      firebaseOptionsEqual(existing.options, optionsSnapshot)
-      && firebaseOptionsEqual(existing.settings, settings)
-    ) {
-      return existing.app;
+    if (!firebaseOptionsEqual(existing.options, optionsSnapshot)) {
+      throw duplicateAppError(settings.name, 'options', existing.options, optionsSnapshot);
     }
-    throw duplicateAppError(settings.name);
+    if (!firebaseOptionsEqual(existing.settings, settings)) {
+      throw duplicateAppError(settings.name, 'config', existing.settings, settings);
+    }
+    return existing.app;
   }
 
   const refusal = backendRefusal;

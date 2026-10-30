@@ -5,9 +5,9 @@
     "rtdb-rules#18"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r18-child-dot-segments\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the simulator must resolve child() paths as production does, so a rule that navigates with dot segments evaluates the same locally and in production.",
-  "observedAt": "2026-09-25T07:33:23.846Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.262Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "plain child path finds x": "ALLOW",
     "a leading dot segment": "DENY",

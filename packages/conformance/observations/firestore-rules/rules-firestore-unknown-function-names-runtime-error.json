@@ -5,8 +5,8 @@
     "firestore-rules#203"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"unknown-function-names-runtime-error\" (Coverage: unknown function names). An unknown function or method name compiles and fails at evaluation; the error denies alone and is absorbed by || true and by && false.",
-  "observedAt": "2026-10-27T02:08:03.848Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:44.036Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

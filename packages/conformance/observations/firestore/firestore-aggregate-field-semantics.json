@@ -8,8 +8,8 @@
     "firestore#composite-index-required"
   ],
   "description": "getAggregateFromServer over four small collections: several aggregations on different fields, count alone, count with sum(y) where one doc lacks y, a null field, a NaN value and an Infinity value. Records each result or error code.",
-  "observedAt": "2026-10-27T19:27:38.630Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T14:40:46.945Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "multi": {

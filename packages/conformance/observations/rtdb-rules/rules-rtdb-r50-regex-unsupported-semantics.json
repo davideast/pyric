@@ -5,8 +5,8 @@
     "rtdb-rules#34"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r50-regex-unsupported-semantics\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). production never grants on lookahead, backreference or \\b; whether matches() is false, errors, or reads the escapes literally decides whether !matches() over them is a hole pyric hides.",
-  "observedAt": "2026-10-26T21:51:34.931Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.288Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "SP-2b: !matches(negative lookahead) on guest": "ALLOW",

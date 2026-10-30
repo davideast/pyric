@@ -5,8 +5,8 @@
     "app#24"
   ],
   "description": "After firebase/app deleteApp(app) resolves, reading name, options, or automaticDataCollectionEnabled from the deleted app throws FirebaseError code app/app-deleted.",
-  "observedAt": "2026-07-14T01:58:27.177Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.840Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "name": {
       "threw": true,

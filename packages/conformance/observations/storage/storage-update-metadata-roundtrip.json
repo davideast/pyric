@@ -5,16 +5,16 @@
     "storage#90"
   ],
   "description": "uploadBytes, then updateMetadata({customMetadata: {k: \"v\"}}), then getMetadata — verify the customMetadata survived and metageneration bumped.",
-  "observedAt": "2026-05-18T01:30:10.531Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T13:36:22.729Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "uploadOk": true,
     "updateOk": true,
     "beforeCustom": null,
     "afterCustom": {
       "conformance": "storage-row-90",
-      "run": "1779067802523-1wnssz"
+      "run": "1793367358513-tulcp8"
     },
     "customSurvived": true,
     "metagenerationBefore": "1",

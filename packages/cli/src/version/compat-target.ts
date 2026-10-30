@@ -14,4 +14,4 @@
  * the source of truth for this value and this constant should read
  * from it instead of being hand-set.
  */
-export const FIREBASE_TESTED_AGAINST = '12.13.0';
+export const FIREBASE_TESTED_AGAINST = '12.19.0';

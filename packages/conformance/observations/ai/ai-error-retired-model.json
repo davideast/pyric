@@ -5,8 +5,8 @@
     "ai#error-retired-model"
   ],
   "description": "Error envelope for a retired model family (Gemini 1.5, retired 2025-09-24 per the message text). Distinct from unknown-model: production distinguishes never-existed from retired.",
-  "observedAt": "2026-10-28T02:04:02.762Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:46.518Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

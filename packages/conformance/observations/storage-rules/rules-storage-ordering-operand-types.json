@@ -5,8 +5,8 @@
     "storage-rules#123"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"ordering-operand-types\" (Coverage: ordering operand types). Int and float order by value and strings order lexicographically; an ordering comparison of any other operand pair is either an ordering or an error value, and equality across types is either false or an error value. Negation, || true, and && false tell the outcomes apart.",
-  "observedAt": "2026-09-27T18:47:59.989Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:56.261Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

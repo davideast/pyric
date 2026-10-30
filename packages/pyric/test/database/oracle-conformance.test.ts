@@ -330,25 +330,21 @@ describe('oracle conformance (rtdb)', () => {
 
   it('rtdb-simulator-vs-prod-agreement (CONFORMS: `.validate` now enforced)', async () => {
     // Prod capture: an allow/deny audit of the pyric rule simulator vs
-    // live RTDB across 29 ops found 28 agreements and exactly 1
-    // disagreement — `r4-validate-structure`'s "missing body denied": prod
-    // DENIES the write (its `.validate` fails) while the simulator at
-    // capture time ALLOWED it (it evaluated only `.write`). The sandbox
-    // now runs the `.validate` walk on writes, closing the divergence; the
-    // frozen audit facts below document the historical disagreement.
+    // live RTDB across 29 ops. An earlier capture found one disagreement,
+    // `r4-validate-structure`'s "missing body denied": prod DENIES the write
+    // (its `.validate` fails) while the simulator then ALLOWED it (it
+    // evaluated only `.write`). The sandbox now runs the `.validate` walk on
+    // writes, and the #1676 re-capture records all 29 ops agreeing.
     const obs = load('rtdb-simulator-vs-prod-agreement.json');
-    // Environment-independent audit facts recorded against the sandbox's
-    // own simulator.
     expect(obs.totalOps).toBe(29);
-    expect(obs.agreements).toBe(28);
-    expect(obs.disagreements).toBe(1);
-    const divs = obs.divergences as Array<Record<string, unknown>>;
-    expect(divs.length).toBe(1);
-    expect(divs[0]!.ruleId).toBe('r4-validate-structure');
-    expect(divs[0]!.operation).toBe('write');
-    expect(divs[0]!.prodAllowed).toBe(false); // prod: validate denies
-    expect(divs[0]!.simAllowed).toBe(true); // sandbox sim: allows
-    expect(divs[0]!.agree).toBe(false);
+    expect(obs.agreements).toBe(29);
+    expect(obs.disagreements).toBe(0);
+    expect(obs.divergences as unknown[]).toEqual([]);
+    const results = obs.allResults as Array<Record<string, unknown>>;
+    const missingBody = results.find((r) => r.ruleId === 'r4-validate-structure' && r.prodAllowed === false && r.operation === 'write');
+    expect(missingBody).toBeDefined();
+    expect(missingBody!.simAllowed).toBe(false); // sandbox sim: validate denies, as prod does
+    expect(missingBody!.agree).toBe(true);
 
     // Replay the once-divergent case live through the sandbox write path
     // (same rule engine the audit exercised): a `.validate`-requiring rule

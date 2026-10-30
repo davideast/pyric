@@ -5,33 +5,17 @@
     "app-check#initialize-twice-unset-auto-refresh"
   ],
   "description": "initializeAppCheck called a second time on the same app with the same provider instance, where one of the two calls omits isTokenAutoRefreshEnabled: omitted then false, false then omitted, and omitted both times.",
-  "observedAt": "2026-10-28T11:27:52.623Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:52:13.271Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "unsetThenFalse": {
-      "threw": true,
-      "name": "FirebaseError",
-      "code": "appCheck/already-initialized",
-      "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp twice-unset-false with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
-      "customDataKeys": [
-        "appName"
-      ],
-      "customData": {
-        "appName": "twice-unset-false"
-      }
+      "threw": false,
+      "returnsSameInstance": true
     },
     "falseThenUnset": {
-      "threw": true,
-      "name": "FirebaseError",
-      "code": "appCheck/already-initialized",
-      "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp twice-false-unset with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
-      "customDataKeys": [
-        "appName"
-      ],
-      "customData": {
-        "appName": "twice-false-unset"
-      }
+      "threw": false,
+      "returnsSameInstance": true
     },
     "unsetThenUnset": {
       "threw": false,

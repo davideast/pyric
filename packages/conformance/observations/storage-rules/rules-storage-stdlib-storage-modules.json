@@ -5,8 +5,8 @@
     "storage-rules#132"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-storage-modules\" (STORAGE-NATIVE-STDLIB). Exact four-module Storage stdlib bodies: upload bounds, MIME policy, custom metadata, operation identity, and strict object timestamp windows.",
-  "observedAt": "2026-07-21T17:12:03.292Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:56.992Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

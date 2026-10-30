@@ -6,9 +6,9 @@
     "rtdb-modular#156"
   ],
   "description": "increment(n) against a missing field starts at 0; subsequent increments accumulate (positive then negative deltas).",
-  "observedAt": "2026-05-18T03:36:52.398Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:42.705Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

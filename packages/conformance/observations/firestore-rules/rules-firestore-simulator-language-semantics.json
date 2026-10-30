@@ -5,8 +5,8 @@
     "firestore-rules#196"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"simulator-language-semantics\" (FS-SIM-SEMANTICS). Proves production Firestore Rules enforces numeric operands on arithmetic, user function shadowing and arity, Java Matcher replace escapes, builtin/method arity and argument types, absence of request.resource on get/delete, calendar bounds on timestamp.date, string keys in map literals, and document-path arguments to exists/get.",
-  "observedAt": "2026-10-17T19:43:49.709Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:43.001Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

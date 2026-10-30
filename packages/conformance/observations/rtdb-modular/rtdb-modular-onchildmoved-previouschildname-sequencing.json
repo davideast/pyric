@@ -6,8 +6,8 @@
     "rtdb-modular#M75c"
   ],
   "description": "onChildMoved previousChildName (2nd callback arg) sequencing under query(ref, orderByChild(\"priority\")). Seeds k1/k2/k3 (priority 1/2/3, sorted k1,k2,k3), then reorders k1 to the END, then the MIDDLE, then the FRONT — capturing previousChildName for each move (end → follows k3; middle → follows k2; front → null).",
-  "observedAt": "2026-07-22T11:07:26.041Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T16:55:26.079Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

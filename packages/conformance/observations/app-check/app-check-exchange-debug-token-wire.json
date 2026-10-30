@@ -5,10 +5,10 @@
     "app-check#exchange-debug-token-wire"
   ],
   "description": "Raw REST envelope of projects.apps.exchangeDebugToken (the call the web SDK makes in debug mode, API key in the key query parameter): the success key set, ttl, and token shape for a registered debug token, and the error envelope for an unregistered one.",
-  "observedAt": "2026-10-22T03:09:04.590Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:51:07.988Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "registered": {
       "httpStatus": 200,
@@ -41,7 +41,7 @@
         "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
         "audShape": [
           "projects/<projectNumber>",
-          "projects/genkit-idx"
+          "projects/digame-mas"
         ],
         "subEqualsAppId": true,
         "ttlSeconds": 3600,

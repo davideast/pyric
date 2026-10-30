@@ -5,8 +5,8 @@
     "firestore#MD4"
   ],
   "description": "Rules Test API (projects.test) evaluating Firestore rulesets against request paths in the named database `probes` and in `(default)`: what `database` and `request.path` bind to, whether a literal database segment matches, and whether a mocked get() of either database evaluates. The Test API deploys nothing.",
-  "observedAt": "2026-10-28T03:11:02.933Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T16:45:36.882Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "method": "One projects.test call per probe in RULES_PROBES, packages/conformance/src/capture-firestore-named-databases.ts; each runs a get of p/d1 as uid a under /databases/probes/documents and /databases/(default)/documents, expecting ALLOW (SUCCESS means granted).",
   "behavior": {

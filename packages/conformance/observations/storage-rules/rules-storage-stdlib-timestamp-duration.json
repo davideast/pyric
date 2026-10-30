@@ -5,8 +5,8 @@
     "storage-rules#storage.stdlib.timestamp-duration"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-timestamp-duration\" (STORAGE-STDLIB-TIME). Timestamp and Duration are typed values in production Storage rules: accessors, date()/time(), pre-epoch seconds and nanos, arithmetic, constructors, and type tests, with int receivers and int comparisons as negative controls.",
-  "observedAt": "2026-09-24T11:51:28.252Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:57.351Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

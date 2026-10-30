@@ -5,8 +5,8 @@
     "storage-rules#212"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-lookup-interpolated-slash\" (STORAGE-H1-LOOKUP-SLASH). An interpolated value containing a slash may select a different document than the rule author wrote.",
-  "observedAt": "2026-10-27T02:46:25.688Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:54.548Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

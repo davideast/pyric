@@ -6,9 +6,9 @@
     "rtdb-modular#144"
   ],
   "description": "Index enforcement for orderByChild, orderByValue and orderByKey queries, limited and unlimited, each with and without a matching `.indexOn`, through get(), onValue() and the REST API, recording rejections and client log warnings.",
-  "observedAt": "2026-10-07T03:31:58.115Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T10:44:25.705Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,
     "results": {

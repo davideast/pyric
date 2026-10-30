@@ -5,9 +5,9 @@
     "rtdb-rules#11"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r11-string-validation\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). string validation rules gate handles, slugs and filenames in real rulesets, and `replace` is replace-ALL in production but first-only under a naive JavaScript implementation — the simulator must match production on every method, and on that substitution in particular.",
-  "observedAt": "2026-07-12T03:35:03.039Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.259Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "handle with required prefix allowed": "ALLOW",
     "handle without required prefix denied": "DENY",

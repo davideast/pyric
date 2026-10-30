@@ -6,8 +6,8 @@
     "ai#error-bad-api-key"
   ],
   "description": "Error envelope for an invalid API key. detailTypes is recorded as a set: the messaging effort found details ordering is not stable across cases.",
-  "observedAt": "2026-10-28T02:04:02.837Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:46.592Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

@@ -5,8 +5,8 @@
     "firestore-rules#198"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"int64-and-duration-range\" (Coverage: int64 and duration range). Integers are 64-bit: values above 2^53 keep every bit, overflow is an evaluation error except MIN / -1, unary minus applies to durations, and timestamp or duration results out of range are errors.",
-  "observedAt": "2026-10-27T02:31:53.148Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:40.563Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

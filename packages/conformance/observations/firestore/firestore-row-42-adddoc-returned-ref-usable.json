@@ -5,12 +5,12 @@
     "firestore#42"
   ],
   "description": "addDoc returns a DocumentReference that is immediately usable in subsequent ops — getDoc round-trips the data, setDoc overwrites it, and onSnapshot registers on it and fires. Probes addDoc({v:1}), getDoc(ref) → {v:1}, setDoc(ref, {v:2}), onSnapshot(ref, cb) with first fire having v:2.",
-  "observedAt": "2026-05-18T00:11:45.012Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:16.664Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
-    "addedId": "LSkTeNggKv14fzABIPJx",
-    "addedPath": "pyric_oracle/1779063102199-4zusuh/row-42-adddoc-returned-ref-usable/LSkTeNggKv14fzABIPJx",
+    "addedId": "m5HG8Vqoihzf3d0Cqk19",
+    "addedPath": "pyric_oracle/1793357010071-3gybcb/row-42-adddoc-returned-ref-usable/m5HG8Vqoihzf3d0Cqk19",
     "getDocExists": true,
     "getDocV": 1,
     "setDocThrew": false,

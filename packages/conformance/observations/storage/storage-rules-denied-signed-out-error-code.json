@@ -5,8 +5,8 @@
     "storage#105"
   ],
   "description": "Upload with no signed-in user (not even anonymous), to the oracle namespace (pyric_oracle/*, whose oracle rule is `allow read, write: if request.auth != null` when deployed) and to a path outside it. Capture the error code, HTTP status and class for each, and whether the namespace rule is deployed at the time (an anonymous upload to the namespace succeeds only when it is).",
-  "observedAt": "2026-10-28T02:57:43.036Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T13:36:24.817Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "signedOutCurrentUser": null,
@@ -14,7 +14,7 @@
       "threw": true,
       "code": "storage/unauthorized",
       "status": 403,
-      "message": "Firebase Storage: User does not have permission to access 'pyric_oracle/1793156260204-2p9vpd/signed-out/forbidden.bin'. (storage/unauthorized)",
+      "message": "Firebase Storage: User does not have permission to access 'pyric_oracle/1793367358513-tulcp8/signed-out/forbidden.bin'. (storage/unauthorized)",
       "errorName": "FirebaseError",
       "isFirebaseError": true
     },
@@ -22,7 +22,7 @@
       "threw": true,
       "code": "storage/unauthorized",
       "status": 403,
-      "message": "Firebase Storage: User does not have permission to access 'pyric_oracle_denied_storage/1793156260204-2p9vpd/signed-out.bin'. (storage/unauthorized)",
+      "message": "Firebase Storage: User does not have permission to access 'pyric_oracle_denied_storage/1793367358513-tulcp8/signed-out.bin'. (storage/unauthorized)",
       "errorName": "FirebaseError",
       "isFirebaseError": true
     },

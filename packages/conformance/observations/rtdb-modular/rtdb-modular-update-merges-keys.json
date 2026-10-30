@@ -5,9 +5,9 @@
     "rtdb-modular#116"
   ],
   "description": "update(ref, {a:10}) — verify partial merge: existing key `b` is preserved alongside the updated `a`.",
-  "observedAt": "2026-05-18T03:36:37.223Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:03.619Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

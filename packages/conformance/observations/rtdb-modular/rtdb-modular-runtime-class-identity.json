@@ -8,8 +8,8 @@
     "rtdb-modular#M88"
   ],
   "description": "Runtime constructor exports, actual-instance prototype identity, direct construction, and TransactionResult.toJSON behavior.",
-  "observedAt": "2026-07-22T09:22:40.835Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:44:40.238Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

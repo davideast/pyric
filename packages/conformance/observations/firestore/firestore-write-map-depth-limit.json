@@ -5,8 +5,8 @@
     "firestore#write-server-limits"
   ],
   "description": "setDoc of a value nested in 26, 41, 101 and 102 maps, one client per write and a 15 s bound each. The 101 and 102 writes did not settle within the bound.",
-  "observedAt": "2026-10-27T19:41:24.292Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:08:57.525Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "maps 26": {

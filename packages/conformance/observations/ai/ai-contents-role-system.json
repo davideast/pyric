@@ -5,8 +5,8 @@
     "ai#contents-role-system"
   ],
   "description": "A generateContent whose contents opens with a turn under role system, followed by a user turn. No tools. Records whether production accepts role system inside contents (the top-level systemInstruction is a separate field, see ai-system-instruction-accepted).",
-  "observedAt": "2026-10-28T16:23:32.342Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:47.103Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

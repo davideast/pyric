@@ -5,8 +5,8 @@
     "storage-rules#124"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"conversion-functions\" (Coverage: int(), string(), float() conversions). int() parses a whole int64 decimal string and truncates or saturates a float, float() parses a string with Java double syntax, string() formats int, float, null, bool, string, and path, and every conversion failure, undefined function, and wrong argument count is an error value that || true absorbs; a ruleset function named int shadows the global one.",
-  "observedAt": "2026-09-27T20:55:12.355Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:52.760Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

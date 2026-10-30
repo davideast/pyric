@@ -5,9 +5,9 @@
     "rtdb-rules#17"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r26-rule-runtime-error\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a .read, .write, or .validate rule that errors at evaluation fails as that rule, so the simulator must deny where production denies and keep evaluating the other rules on the path, never report the request as beyond the simulator.",
-  "observedAt": "2026-09-27T16:54:09.610Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.269Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "read rule calling a string method on a number": "DENY",
     "read rule calling a string method on a string": "ALLOW",

@@ -5,9 +5,9 @@
     "rtdb-modular#112"
   ],
   "description": "set(ref, null) — confirm the end state is identical to remove(ref): subsequent get() returns null. Companion to rtdb-remove-vs-set-null but scoped to the modular SDK set-null behavior alone.",
-  "observedAt": "2026-05-18T03:36:35.097Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:01.655Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

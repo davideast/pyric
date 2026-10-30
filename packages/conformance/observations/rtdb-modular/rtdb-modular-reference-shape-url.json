@@ -12,8 +12,8 @@
     "rtdb-modular#M93"
   ],
   "description": "Reference navigation/string shape, ref/child/refFromURL validation, forged-reference failure timing, and a successful normal read control.",
-  "observedAt": "2026-07-22T10:51:38.184Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:44:28.552Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

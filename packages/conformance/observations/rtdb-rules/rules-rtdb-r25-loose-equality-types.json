@@ -5,9 +5,9 @@
     "rtdb-rules#9"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r25-loose-equality-types\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). `==` and `!=` must compare a number with a string, a number with a boolean, and a string with a boolean without converting either operand, so a rule that expects one type rejects a value of another type as production does.",
-  "observedAt": "2026-09-27T16:26:41.855Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.267Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "number 5 does not equal string 5 under ==": "DENY",
     "string 5 equals string 5 under ==": "ALLOW",

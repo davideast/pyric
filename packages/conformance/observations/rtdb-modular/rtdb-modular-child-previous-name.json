@@ -6,8 +6,8 @@
     "rtdb-modular#M75c"
   ],
   "description": "previousChildName values for initial replay, add/change/remove, and ordered movement, with terminal state independently confirmed.",
-  "observedAt": "2026-07-22T08:19:30.498Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:43:36.569Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

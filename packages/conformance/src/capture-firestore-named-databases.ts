@@ -35,6 +35,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadOracleServiceAccount, oracleAppOptions } from './oracle-credential.ts';
+import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
 import {
   accessHeaders,
   RULES_API,
@@ -43,8 +44,8 @@ import {
 } from './storage-stdlib-real-api.ts';
 
 const OBSERVATIONS = join(dirname(fileURLToPath(import.meta.url)), '..', 'observations');
-const FB_SDK_VERSION = '12.13.0';
-const ADMIN_SDK_VERSION = '13.10.0';
+const FB_SDK_VERSION = resolvedFirebaseVersion();
+const ADMIN_SDK_VERSION = resolvedAdminVersion();
 const NAMED = 'probes';
 
 /** A Firestore ruleset whose document match is `block`. */

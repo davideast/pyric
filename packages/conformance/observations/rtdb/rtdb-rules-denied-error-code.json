@@ -11,9 +11,9 @@
     "rtdb-modular#115"
   ],
   "description": "Attempt a write to a path that RTDB rules deny (outside /pyric_oracle/*). Locks the FirebaseError code + message text the upstream firebase/database SDK emits for permission denial.",
-  "observedAt": "2026-05-18T03:36:32.301Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:54:58.921Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
     "code": "PERMISSION_DENIED",

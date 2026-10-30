@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-10-28T20:10:47.494Z",
+  "generatedAt": "2026-10-30T07:57:23.197Z",
   "services": {
     "ai": {
       "publicSurface": {
         "runtime": {
-          "mapped": 44,
-          "denominator": 55,
-          "pct": 80
+          "mapped": 41,
+          "denominator": 48,
+          "pct": 85.4
         },
         "types": {
-          "mapped": 115,
-          "denominator": 164,
-          "pct": 70.1
+          "mapped": 112,
+          "denominator": 159,
+          "pct": 70.4
         }
       }
     },
@@ -56,8 +56,8 @@
       "publicSurface": {
         "runtime": {
           "mapped": 104,
-          "denominator": 104,
-          "pct": 100
+          "denominator": 106,
+          "pct": 98.1
         },
         "types": {
           "mapped": 78,
@@ -85,13 +85,13 @@
       "publicSurface": {
         "runtime": {
           "mapped": 5,
-          "denominator": 5,
-          "pct": 100
+          "denominator": 9,
+          "pct": 55.6
         },
         "types": {
           "mapped": 8,
-          "denominator": 8,
-          "pct": 100
+          "denominator": 9,
+          "pct": 88.9
         }
       }
     },
@@ -145,13 +145,13 @@
   "overall": {
     "publicSurface": {
       "runtime": {
-        "mapped": 293,
-        "denominator": 321,
-        "pct": 91.3
+        "mapped": 290,
+        "denominator": 320,
+        "pct": 90.6
       },
       "types": {
-        "mapped": 258,
-        "denominator": 352,
+        "mapped": 255,
+        "denominator": 348,
         "pct": 73.3
       }
     }
@@ -1041,7 +1041,9 @@
     "app-check#initialize-twice-different-options": "conforms",
     "app-check#initialize-twice-unset-auto-refresh": "conforms",
     "app-check#providers-construct": "conforms",
+    "app-check#custom-provider-without-debug-token": "unverified",
     "app-check#recaptcha-providers-construct": "unverified",
+    "app-check#recaptcha-providers-without-document": "unverified",
     "app-check#get-token-before-initialize": "conforms",
     "app-check#get-token-shape": "conforms",
     "app-check#get-token-caching": "conforms",

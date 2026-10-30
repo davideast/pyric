@@ -7,8 +7,8 @@
     "storage-rules#128"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"upload-primitives-boundaries\" (STORAGE-P2-PRIMITIVES). Boundary-first evidence for Storage size, MIME, metadata, path, identity, and time helpers, including production-pinned metadata collection methods.",
-  "observedAt": "2026-09-30T03:43:31.594Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:58.442Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -5,8 +5,8 @@
     "storage-rules#124"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"math-namespace\" (STORAGE-MATH-NAMESPACE). Storage rules define the math namespace as Firestore does: abs keeps its type, ceil and floor return a float, round rounds half up to an int, sqrt and pow return a float, and a wrong argument type, a wrong argument count, or math.isInfinite() is an error value that || true absorbs.",
-  "observedAt": "2026-09-28T03:39:09.818Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:55.875Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

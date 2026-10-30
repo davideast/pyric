@@ -5,9 +5,9 @@
     "firestore#102"
   ],
   "description": "arrayRemove(...values) strips matching members. Probe: setDoc({tags:['a','b','c']}), then updateDoc({tags: arrayRemove('b','d')}) where 'd' isn't in the array — verify tags === ['a','c'] ('b' removed, 'd' silent no-op).",
-  "observedAt": "2026-05-18T00:20:11.757Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:43.253Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "after": [
       "a",

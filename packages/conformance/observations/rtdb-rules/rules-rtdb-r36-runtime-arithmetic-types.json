@@ -5,8 +5,8 @@
     "rtdb-rules#28"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r36-runtime-arithmetic-types\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). arithmetic operators (-, *, /, %, unary -) given a boolean, string, or object at evaluation time must match production rather than silently coercing through JavaScript arithmetic or rescuing NaN via || true.",
-  "observedAt": "2026-10-15T17:58:30.437Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.279Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "FUZ-3: boolean minus number (true - 1 == 0)": "DENY",

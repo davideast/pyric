@@ -5,8 +5,8 @@
     "storage-rules#126"
   ],
   "description": "Real-resource Storage Rules probe of the fields production populates on request.resource for a client create, a client metadata update, and a client upload over an existing object, and their values relative to the upload, the stored resource, and request.time.",
-  "observedAt": "2026-09-27T16:19:58.707Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:57:09.247Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "bucket": "digame-mas.appspot.com",
   "behavior": {

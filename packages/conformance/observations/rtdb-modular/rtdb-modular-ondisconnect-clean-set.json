@@ -1,10 +1,12 @@
 {
   "name": "rtdb-modular-ondisconnect-clean-set",
   "matrixRow": "rtdb-modular#M79",
-  "rowIds": ["rtdb-modular#M79"],
+  "rowIds": [
+    "rtdb-modular#M79"
+  ],
   "description": "Normal write, queued set, clean goOffline delivery, observer ordering, and one-shot behavior after goOnline.",
-  "observedAt": "2026-07-21T21:37:22.728Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:44:49.797Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

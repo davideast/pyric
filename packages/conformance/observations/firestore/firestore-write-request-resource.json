@@ -5,13 +5,13 @@
     "firestore#137a"
   ],
   "description": "Authenticated Web SDK single-document writes against temporarily deployed production rules. Each predicate over request.resource.data, resource.data, and request.resource.data.diff(resource.data) is a separate guarded rule, so the allow or deny verdict of the write reads out what the rules engine built for it. Covers a dotted updateDoc key, FieldPath updates with literal dots, a dotted deleteField, setDoc merge and mergeFields, a nested map replace, and a non-merge setDoc.",
-  "observedAt": "2026-10-07T04:19:16.347Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
-  "inputDigest": "a0bfe911775dafb99fdd641382c63c359b9dbfe66933f5642b6076ed1176b6b0",
+  "observedAt": "2026-10-30T16:43:07.767Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": "3c35f6ece05b4352779bdf679aede65845ce982e6f1b188ec34e0538f4386d76",
   "lifecycle": {
-    "originalRulesetName": "projects/genkit-idx/rulesets/eaf1ab95-2495-4647-99e5-8ec12cbce618",
-    "probeRulesetName": "projects/genkit-idx/rulesets/07acba69-e91c-41d5-b0fc-1860a55f2dbc",
+    "originalRulesetName": "projects/digame-mas/rulesets/e6d4348c-24df-4dbd-9bb0-9b5a78a712cc",
+    "probeRulesetName": "projects/digame-mas/rulesets/7fe0cfab-8490-4eff-9c10-a4d7de8f340b",
     "restoredOriginalRelease": true
   },
   "behavior": {

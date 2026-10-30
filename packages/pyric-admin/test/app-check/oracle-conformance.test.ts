@@ -28,7 +28,8 @@ const HUNT_REPLAY = join(import.meta.dir, 'hunt-captures.test.ts');
 const gate = createObservationGate({ dir: OBS_DIR, match: (file) => file.startsWith('app-check-admin-'), siblingSources: [HUNT_REPLAY] });
 const obs = gate.load;
 
-const PROJECT_ID = 'genkit-idx';
+/** The oracle project every app-check-admin capture ran against. */
+const PROJECT_ID = 'digame-mas';
 const PROJECT_NUMBER = '123456789012';
 const APP_ID = `1:${PROJECT_NUMBER}:web:0a1b2c3d4e5f60718293a4`;
 const SECRETS: Secrets = { appId: APP_ID, apiKey: '', projectNumber: PROJECT_NUMBER, values: [] };

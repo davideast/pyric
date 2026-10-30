@@ -7,8 +7,8 @@
     "ai#scripted-shorthand-functioncall"
   ],
   "description": "A function-calling round trip whose model functionCall turn lacks thoughtSignature is REJECTED 400 INVALID_ARGUMENT. The function response rides under role user, because production refuses role function (ai-error-function-role-refused) before it checks the signature. No SDK typing or reference doc states this; the error message cites ai.google.dev/gemini-api/docs/thought-signatures and names the call as `default_api:get_weather`. A mirror and any translation engine must mint and thread thought signatures through tool round trips.",
-  "observedAt": "2026-10-28T11:40:59.679Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:48.826Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

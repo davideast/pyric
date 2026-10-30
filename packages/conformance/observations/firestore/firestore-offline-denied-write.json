@@ -5,8 +5,8 @@
     "firestore#offline-denied-write"
   ],
   "description": "A setDoc the rules deny, made after disableNetwork, then enableNetwork. Records the promise state while offline, the listener snapshots, and the final outcome.",
-  "observedAt": "2026-10-27T19:42:06.212Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:07:15.304Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "whileOffline": {

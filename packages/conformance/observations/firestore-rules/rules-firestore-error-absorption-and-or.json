@@ -5,8 +5,8 @@
     "firestore-rules#163"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"error-absorption-and-or\" (RULES-B3). CEL tri-state: `error || true` → ALLOW, `error && false` → DENY-as-false; errors absorb commutatively, not JS left-to-right.",
-  "observedAt": "2026-09-28T03:39:07.804Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:39.660Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

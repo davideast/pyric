@@ -5,8 +5,8 @@
     "storage-rules#211"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-unknown-method-absorption\" (STORAGE-H1-UNKNOWN-METHOD). An undefined method name should be an absorbable function-not-found error, as an undefined function is.",
-  "observedAt": "2026-10-27T02:46:24.371Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:55.072Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

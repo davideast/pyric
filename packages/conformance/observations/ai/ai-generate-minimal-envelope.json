@@ -15,8 +15,8 @@
     "ai#scripted-zero-config"
   ],
   "description": "Raw wire envelope of a minimal generateContent on the GoogleAI backend. Facts are the key sets and enum values; generated text in raw is a nondeterministic sample. Note: candidate `index` and `inferenceSource` are ABSENT on the wire (the SDK adds them client-side), and usageMetadata carries `serviceTier`, which the SDK typings do not declare.",
-  "observedAt": "2026-10-28T02:04:01.548Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:44.796Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -57,7 +57,7 @@
             "parts": [
               {
                 "text": "pyric",
-                "thoughtSignature": "EmAKXgFpFH0T9LwvWnKR9gy0pcpg8vLrdgGwpkP/A+HHTbxfkA0Is+WLj3fR3ghijsUuX1Cxlf9BuIEPT24ctVpnqX9Yh5EGy4JVpU2RdZ5/w9dxr9V8HEN6ruiYZxhekYo="
+                "thoughtSignature": "EmAKXgFpFH0TKiJ753yL25qRPIoSyY5l3EGQ+ZzYbcJp1o1+OS9s8gcF02ycb3Q9tNsUknKjxUa1FD+WURjWH2Bu1bVgriq8yjqjnfIicLKi66Xk+at77szn3YJNC7Uxab8="
               }
             ],
             "role": "model"
@@ -79,7 +79,7 @@
         "serviceTier": "standard"
       },
       "modelVersion": "gemini-3.5-flash-lite",
-      "responseId": "EFjhaqbpNp7b-8YPr8Oz-AI"
+      "responseId": "-4Xkar3AM_S6jrEPh-_duQ8"
     }
   }
 }

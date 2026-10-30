@@ -5,8 +5,8 @@
     "app#1"
   ],
   "description": "firebase/app initializeApp(options) with no name registers the default app: app.name is '[DEFAULT]', getApps() has length 1, and getApp() (no arg) resolves the same instance. Also pins that options are preserved and automaticDataCollectionEnabled defaults to true.",
-  "observedAt": "2026-07-12T01:20:59.103Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.847Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "threw": false,
     "name": "[DEFAULT]",

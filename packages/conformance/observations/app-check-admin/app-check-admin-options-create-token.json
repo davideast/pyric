@@ -11,8 +11,8 @@
     "app-check-admin#create-token-ttl-type-message"
   ],
   "description": "firebase-admin createToken options. validation: for each malformed input, whether createToken throws synchronously or returns a rejected promise, with the error code and message. limitedUse: the ttl a limitedUse token gets with no jti and with a chosen jti, and whether the chosen jti is the token jti claim. fractionalTtl: the ttlMillis returned and exp minus iat for fractional ttlMillis values. Token values are never stored.",
-  "observedAt": "2026-10-28T02:26:25.518Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:19:04.963Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

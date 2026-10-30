@@ -5,8 +5,8 @@
     "rtdb-rules#45"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r56-regex-classes-runtime\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). pyric reads \\s as JavaScript whitespace, folds case with toLowerCase and toUpperCase, keeps \\w and \\d ASCII, and reads & ~ # @ > as plain characters; no capture has observed how production reads any of them.",
-  "observedAt": "2026-10-27T01:57:29.877Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.290Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "\\s on a space": "ALLOW",

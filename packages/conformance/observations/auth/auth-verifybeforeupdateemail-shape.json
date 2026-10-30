@@ -5,17 +5,17 @@
     "auth#157"
   ],
   "description": "verifyBeforeUpdateEmail — the client-observable contract: does the call change the email immediately, or only after the mailed link is clicked? The un-clicked half is the whole point of the API and is exactly what a sandbox must model deliberately. Records `projectBlocksOutboundEmail` when this project's configuration answers before the API contract does.",
-  "observedAt": "2026-07-12T03:53:11.890Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T16:10:15.105Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
-    "createUserCode": "auth/operation-not-allowed",
-    "code": "null is not an object (evaluating 'user.getIdToken')",
-    "resolved": false,
+    "createUserCode": null,
+    "code": null,
+    "resolved": true,
     "projectBlocksOutboundEmail": false,
-    "emailAfterCall": null,
-    "emailUnchangedUntilLinkClicked": false,
-    "malformedTargetCode": "null is not an object (evaluating 'user.getIdToken')",
-    "cleanupLeaked": true
+    "emailAfterCall": "oracle-vbue-1793376613534-idtbig@oracle.test",
+    "emailUnchangedUntilLinkClicked": true,
+    "malformedTargetCode": "auth/invalid-new-email",
+    "cleanupLeaked": false
   }
 }

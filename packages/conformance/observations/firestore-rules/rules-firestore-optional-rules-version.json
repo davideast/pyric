@@ -5,8 +5,8 @@
     "firestore-rules#185"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"optional-rules-version\" (Coverage: rules_version omitted (production defaults to v1)). A ruleset without rules_version must be accepted and evaluate (production defaults it to v1); the old grammar rejected the file at parse.",
-  "observedAt": "2026-07-21T23:43:06.246Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:41.191Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

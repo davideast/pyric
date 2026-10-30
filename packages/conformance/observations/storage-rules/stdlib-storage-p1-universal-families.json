@@ -3,8 +3,8 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Identical pure Rules function bodies under Firestore and Storage for string, list, Map/MapDiff/Set, math, hashing, duration/timestamp, and LatLng candidates; includes the invalid math.isInfinite control.",
-  "observedAt": "2026-07-21T12:32:35.105Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:19:46.554Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "firestore: string": "ALLOW",

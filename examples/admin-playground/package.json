@@ -15,7 +15,7 @@
     "@astrojs/tailwind": "^6.0.0",
     "@pyric/ui": "workspace:*",
     "astro": "^5.0.0",
-    "firebase": "^12.13.0",
+    "firebase": "^12.19.0",
     "pyric": "workspace:*",
     "pyric-admin": "workspace:*",
     "react": "^19.0.0",
