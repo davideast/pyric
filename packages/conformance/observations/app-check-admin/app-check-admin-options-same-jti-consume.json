@@ -6,8 +6,8 @@
     "app-check-admin#verify-token-consume-key-order"
   ],
   "description": "Two firebase-admin createToken calls with limitedUse true and the same chosen jti: whether they return the identical token, then verifyToken with consume true on the first token, the second token, and the first token again, recording alreadyConsumed and the result key order. Token values are never stored.",
-  "observedAt": "2026-10-28T02:26:25.787Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:19:05.278Z",
+  "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {
