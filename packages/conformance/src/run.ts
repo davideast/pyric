@@ -7902,7 +7902,7 @@ const probes: Probe[] = [
   {
     name: 'auth-action-code-invalid',
     matrixRow: 'auth #152',
-    rowIds: ['auth#152'],
+    rowIds: ['auth#152', 'auth#159'],
     description: 'The four out-of-band code CONSUMERS against a code production never issued. This is the reject shape an email round trip is not needed to observe: applyActionCode / checkActionCode / verifyPasswordResetCode / confirmPasswordReset each hit the real Identity Platform endpoint with a bogus oobCode. Locks auth/invalid-action-code across all four.',
     async observe() {
       const bogus = 'pyric-oracle-not-a-real-oob-code';
@@ -7928,7 +7928,7 @@ const probes: Probe[] = [
   {
     name: 'auth-sendsigninlinktoemail-settings-validation',
     matrixRow: 'auth #153',
-    rowIds: ['auth#153'],
+    rowIds: ['auth#153', 'auth#163'],
     description: 'sendSignInLinkToEmail ActionCodeSettings validation — the accept/reject shape for the continue-URL contract, capturable WITHOUT any mailbox. Locks auth/missing-continue-uri (no url), auth/invalid-continue-uri (malformed url), auth/argument-error (handleCodeInApp false), and auth/unauthorized-continue-uri (a continue domain not on the project allowlist).',
     async observe() {
       const email = `oracle-link-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;

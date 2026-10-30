@@ -5,11 +5,11 @@
     "auth#154"
   ],
   "description": "signInWithEmailLink against a link the project never issued. The completion half of the email-link flow CANNOT be probed end to end (it needs a code from a real inbox), but its reject shape can: locks the code prod emits for a syntactically valid link carrying an unknown oobCode, and for a link with no oobCode at all.",
-  "observedAt": "2026-07-12T03:50:12.161Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T16:10:13.417Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
-    "unknownCode": "auth/operation-not-allowed",
+    "unknownCode": "auth/invalid-action-code",
     "noOobCode": "auth/argument-error"
   }
 }

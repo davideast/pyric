@@ -5,15 +5,15 @@
     "auth#161"
   ],
   "description": "The two linking CONFLICT codes, both probeable without external infra: linking a provider the user already has (auth/provider-already-linked), and linking a credential another account already owns (locks whether prod says credential-already-in-use or email-already-in-use for an email credential).",
-  "observedAt": "2026-07-12T03:53:15.515Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T16:10:20.188Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
-    "setupACode": "auth/operation-not-allowed",
-    "setupBCode": "auth/operation-not-allowed",
-    "providerAlreadyLinkedCode": "auth/operation-not-allowed",
-    "credentialAlreadyInUseCode": "auth/operation-not-allowed",
-    "ownerUidDiffersFromB": false,
-    "cleanupLeaked": true
+    "setupACode": null,
+    "setupBCode": null,
+    "providerAlreadyLinkedCode": "auth/provider-already-linked",
+    "credentialAlreadyInUseCode": "auth/email-already-in-use",
+    "ownerUidDiffersFromB": true,
+    "cleanupLeaked": false
   }
 }

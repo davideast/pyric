@@ -2,17 +2,18 @@
   "name": "auth-action-code-invalid",
   "matrixRow": "auth #152",
   "rowIds": [
-    "auth#152"
+    "auth#152",
+    "auth#159"
   ],
   "description": "The four out-of-band code CONSUMERS against a code production never issued. This is the reject shape an email round trip is not needed to observe: applyActionCode / checkActionCode / verifyPasswordResetCode / confirmPasswordReset each hit the real Identity Platform endpoint with a bogus oobCode. Locks auth/invalid-action-code across all four.",
-  "observedAt": "2026-07-12T03:50:11.765Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T16:17:25.762Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "applyActionCode": "auth/invalid-action-code",
-    "checkActionCode": "auth/operation-not-allowed",
-    "verifyPasswordResetCode": "auth/operation-not-allowed",
-    "confirmPasswordReset": "auth/operation-not-allowed",
+    "checkActionCode": "auth/invalid-action-code",
+    "verifyPasswordResetCode": "auth/invalid-action-code",
+    "confirmPasswordReset": "auth/invalid-action-code",
     "applyActionCodeEmpty": "auth/invalid-action-code"
   }
 }

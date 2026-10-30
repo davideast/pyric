@@ -25,6 +25,8 @@ import {
   ActionCodeOperation,
   applyActionCode,
   AuthErrorCodes,
+  checkActionCode,
+  confirmPasswordReset,
   deleteUser,
   EmailAuthProvider,
   getAdditionalUserInfo,
@@ -34,6 +36,7 @@ import {
   updatePassword,
   updateProfile,
   verifyBeforeUpdateEmail,
+  verifyPasswordResetCode,
   isSignInWithEmailLink,
   onAuthStateChanged,
   onIdTokenChanged,
@@ -62,40 +65,24 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'confo
 /**
  * Observations that cannot be replayed against the sandbox, with the reason.
  *
- * ─── The honest ones, and why they are here ─────────────────────────────
- * Several probes from the auth resolver climb ran against the real project and
- * came back `auth/operation-not-allowed` on every arm. That is not the API
- * contract — it is the ORACLE PROJECT'S CONFIGURATION answering first: the
- * project currently has the Email/Password sign-in provider DISABLED, so a
- * probe that needs to mint an email credential cannot even reach the behavior
- * it was written to observe. (Anonymous sign-in still works, which is why the
- * anonymous arms of those same probes DID capture.)
- *
- * These observations are committed exactly as captured rather than deleted,
- * and they are listed here rather than asserted against the sandbox, because
- * asserting `auth/operation-not-allowed` as if it were the linking or reauth
- * contract would be manufacturing evidence. The corresponding registry rows
- * are born `unit-backed`, not `oracle-backed`, and say so.
- *
- * To PROMOTE these rows to oracle-backed: enable Email/Password sign-in on the
- * oracle project (Authentication -> Sign-in method) and re-run
- *   bun --env-file=.env run packages/conformance/src/run.ts link- reauth- fsime
- * The probes are already written and committed; only the project toggle is
- * missing.
+ * ─── The project-configuration history ─────────────────────────────────
+ * The auth resolver climb was first captured on a project with the
+ * Email/Password provider disabled, so many arms came back
+ * `auth/operation-not-allowed`. That was the project's configuration
+ * answering first, not the API contract, so those captures were never
+ * asserted here. The oracle project now has Email/Password on (and Email
+ * Enumeration Protection on), and the linking, verifyBeforeUpdateEmail and
+ * action-code probes were re-captured and are replayed below. The one entry
+ * still listed for this family is fetchSignInMethodsForEmail, which the
+ * sandbox does not implement.
  */
 const NOT_APPLICABLE: Record<string, string> = {
   'auth-bare-getauth-no-default-app.json':
     'exercises the prod fallthrough (fb.getAuth with no default app) — covered by the prod path, not sandbox behavior',
-  'auth-link-email-credential-to-anonymous.json':
-    'BLOCKED, not skipped: every arm returned auth/operation-not-allowed because the oracle project has the Email/Password provider disabled, so no email credential could be minted. The linking rows are unit-backed and say so. Re-run after enabling the provider to promote them.',
-  'auth-link-conflicts.json':
-    'BLOCKED: same disabled Email/Password provider — provider-already-linked / credential-already-in-use could not be reached. Linking rows are unit-backed.',
   'auth-reauthenticate-with-credential.json':
-    'BLOCKED: same disabled Email/Password provider — the probe could not create the two accounts it needs. Reauth rows are unit-backed.',
+    'BLOCKED: the committed capture is from a project with the Email/Password provider disabled, so the probe could not create the two accounts it needs. The re-capture waits on the enumeration-protection decision in #1689. Reauth rows are unit-backed.',
   'auth-fetchsigninmethodsforemail-deprecated.json':
-    'BLOCKED: same disabled Email/Password provider. The out-of-scope disposition for this symbol rests on the shipped @firebase/auth type declaration (a primary source: "returns an empty list when Email Enumeration Protection is enabled" + "migrating off of this method is recommended as a security best-practice"), NOT on this capture. See packages/conformance/surfaces/auth.json.',
-  'auth-verifybeforeupdateemail-shape.json':
-    'BLOCKED: same disabled Email/Password provider — the probe could not create the user whose email it would change.',
+    'fetchSignInMethodsForEmail is not implemented (disposition auth.email-enumeration), so there is nothing in the sandbox to replay. The capture backs the disposition: with Email Enumeration Protection on, production returned an empty list for both an account that has a password method and an unknown address. See packages/conformance/surfaces/auth.json.',
 };
 
 // Instrumented completeness gate: `load(name)` records which behavior fields are
@@ -569,11 +556,9 @@ describe('oracle conformance (auth)', () => {
 
   // ── the auth resolver climb: email-link / action-code, linking, reauth ──
   //
-  // Read the honesty note in NOT_APPLICABLE before adding to this block.
-  // The observations that could NOT be captured (because the oracle project
-  // has the Email/Password provider disabled) are listed there with the
-  // captured error code, NOT quietly asserted against the sandbox as if they
-  // had been. What follows is only what production actually told us.
+  // Read the note above NOT_APPLICABLE before adding to this block. Assert
+  // only what production actually told us; an arm the project's
+  // configuration answered first is not API evidence.
 
   it('auth-actioncodeurl-parse', () => {
     const obs = load('auth-actioncodeurl-parse.json') as {
@@ -624,16 +609,16 @@ describe('oracle conformance (auth)', () => {
   it('auth-action-code-invalid', async () => {
     const obs = load('auth-action-code-invalid.json') as Record<string, string>;
     const auth = freshAuth();
-    // applyActionCode is the ONE redeem path the oracle reached (it is not
-    // gated on the password provider), and it said `auth/invalid-action-code`
-    // for both a bogus code and the empty string. Assert against the capture.
-    await expectCode(applyActionCode(auth, 'pyric-oracle-not-a-real-oob-code'), obs.applyActionCode!);
+    // Every redeem and inspect path answers a code the project never issued
+    // with `auth/invalid-action-code`, and so does applyActionCode for the
+    // empty string. Assert each arm against the capture.
+    const bogus = 'pyric-oracle-not-a-real-oob-code';
+    await expectCode(applyActionCode(auth, bogus), obs.applyActionCode!);
     await expectCode(applyActionCode(auth, ''), obs.applyActionCodeEmpty!);
-    // The other three came back `auth/operation-not-allowed` — the oracle
-    // project's disabled password provider answering before the invalid-code
-    // contract could. We do NOT assert the sandbox against that: it is a fact
-    // about the project's configuration, not about the API. See NOT_APPLICABLE.
-    expect(obs.checkActionCode).toBe('auth/operation-not-allowed');
+    await expectCode(checkActionCode(auth, bogus), obs.checkActionCode!);
+    await expectCode(verifyPasswordResetCode(auth, bogus), obs.verifyPasswordResetCode!);
+    await expectCode(confirmPasswordReset(auth, bogus, 'oracle-pw-123'), obs.confirmPasswordReset!);
+    expect(obs.checkActionCode).toBe('auth/invalid-action-code');
   });
 
   it('auth-sendsigninlinktoemail-settings-validation', async () => {
@@ -666,6 +651,12 @@ describe('oracle conformance (auth)', () => {
       obs.noOobCode!,
     );
     expect(obs.noOobCode).toBe('auth/argument-error');
+    // A well-formed link whose code the project never issued reaches the
+    // server, which answers `auth/invalid-action-code`.
+    await expectCode(
+      signInWithEmailLink(auth, 'ada@example.com', 'https://example.com/x?mode=signIn&oobCode=pyric-oracle-unknown&apiKey=K'),
+      obs.unknownCode!,
+    );
   });
 
   it('auth-sendpasswordresetemail-unknown-user', async () => {
@@ -707,9 +698,12 @@ describe('oracle conformance (auth)', () => {
     expect(obs.noSuchProviderCode).toBe('auth/no-such-provider');
   });
 
-  it('auth-additional-user-info-shape', async () => {
+  it('auth-additional-user-info-shape (KNOWN DIVERGENCE, #1699)', async () => {
+    type Info = { isNewUser: boolean; providerId: string | null; profile: unknown };
     const obs = load('auth-additional-user-info-shape.json') as {
-      anonymous: { isNewUser: boolean; providerId: string | null; profile: unknown };
+      anonymous: Info;
+      createUser: Info;
+      signInExisting: Info;
     };
     const auth = freshAuth();
     const cred = await signInAnonymously(auth);
@@ -721,6 +715,100 @@ describe('oracle conformance (auth)', () => {
     expect(info!.isNewUser).toBe(obs.anonymous.isNewUser);
     expect(info!.providerId).toBe(obs.anonymous.providerId);
     expect(info!.profile).toEqual(obs.anonymous.profile as Record<string, unknown>);
+    await signOut(auth);
+
+    // Email create and returning sign-in: production's getAdditionalUserInfo
+    // reports providerId 'password' (from the token's sign-in provider), while
+    // UserCredential.providerId stays null (AUTH-B2). The sandbox reports null
+    // here (#1699). Both sides are pinned so neither drifts unnoticed; when
+    // #1699 lands, assert the sandbox against obs.*.providerId instead.
+    expect(obs.createUser.providerId).toBe('password');
+    expect(obs.signInExisting.providerId).toBe('password');
+    const email = 'additional-info@example.com';
+    const created = getAdditionalUserInfo(await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123'));
+    expect(created!.isNewUser).toBe(obs.createUser.isNewUser);
+    expect(created!.providerId).toBeNull();
+    expect(created!.profile).toEqual(obs.createUser.profile as Record<string, unknown>);
+    await signOut(auth);
+    const returning = getAdditionalUserInfo(await signInWithEmailAndPassword(auth, email, 'oracle-pw-123'));
+    expect(returning!.isNewUser).toBe(obs.signInExisting.isNewUser);
+    expect(returning!.providerId).toBeNull();
+    expect(returning!.profile).toEqual(obs.signInExisting.profile as Record<string, unknown>);
+  });
+
+  it('auth-verifybeforeupdateemail-shape (KNOWN DIVERGENCE, #1693)', async () => {
+    const obs = load('auth-verifybeforeupdateemail-shape.json') as {
+      resolved: boolean;
+      emailUnchangedUntilLinkClicked: boolean;
+      malformedTargetCode: string;
+    };
+    const auth = freshAuth();
+    const email = 'vbue@example.com';
+    await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123');
+    await expect(verifyBeforeUpdateEmail(auth.currentUser!, 'vbue-next@example.com')).resolves.toBeUndefined();
+    expect(obs.resolved).toBe(true);
+    expect(auth.currentUser!.email === email).toBe(obs.emailUnchangedUntilLinkClicked);
+    // A malformed new address: production answers auth/invalid-new-email, the
+    // sandbox answers auth/invalid-email (#1693). Both sides are pinned; when
+    // #1693 lands, assert the sandbox against obs.malformedTargetCode.
+    expect(obs.malformedTargetCode).toBe('auth/invalid-new-email');
+    await expectCode(verifyBeforeUpdateEmail(auth.currentUser!, 'not-an-email'), 'auth/invalid-email');
+  });
+
+  it('auth-link-email-credential-to-anonymous (KNOWN DIVERGENCE, #1698)', async () => {
+    const obs = load('auth-link-email-credential-to-anonymous.json') as {
+      operationType: string;
+      credentialProviderId: string | null;
+      uidPreserved: boolean;
+      isAnonymousAfterLink: boolean;
+      providerIds: string[];
+      isCurrentUser: boolean;
+      additionalUserInfoIsNewUser: boolean;
+      additionalUserInfoProviderId: string | null;
+    };
+    const auth = freshAuth();
+    const anon = await signInAnonymously(auth);
+    const linked = await linkWithCredential(anon.user, EmailAuthProvider.credential('link-anon@example.com', 'oracle-pw-123'));
+    expect(linked.operationType).toBe(obs.operationType);
+    expect(linked.providerId).toBe(obs.credentialProviderId);
+    expect(linked.user.uid === anon.user.uid).toBe(obs.uidPreserved);
+    expect(linked.user.isAnonymous).toBe(obs.isAnonymousAfterLink);
+    expect(linked.user.providerData.map((p) => p.providerId)).toEqual(obs.providerIds);
+    expect(auth.currentUser === linked.user).toBe(obs.isCurrentUser);
+    // Production reports the upgraded account as a new user with providerId
+    // 'password'; the sandbox reports isNewUser false and providerId null
+    // (#1698). Both sides are pinned; when #1698 lands, assert the sandbox
+    // against obs.additionalUserInfo*.
+    expect(obs.additionalUserInfoIsNewUser).toBe(true);
+    expect(obs.additionalUserInfoProviderId).toBe('password');
+    const info = getAdditionalUserInfo(linked);
+    expect(info!.isNewUser).toBe(false);
+    expect(info!.providerId).toBeNull();
+  });
+
+  it('auth-link-conflicts', async () => {
+    const obs = load('auth-link-conflicts.json') as {
+      providerAlreadyLinkedCode: string;
+      credentialAlreadyInUseCode: string;
+      ownerUidDiffersFromB: boolean;
+    };
+    const auth = freshAuth();
+    const password = 'oracle-pw-123';
+    const owner = await createUserWithEmailAndPassword(auth, 'owner@example.com', password);
+    await signOut(auth);
+    const b = await signInAnonymously(auth);
+    await linkWithCredential(b.user, EmailAuthProvider.credential('b@example.com', password));
+    expect(owner.user.uid !== b.user.uid).toBe(obs.ownerUidDiffersFromB);
+    await expectCode(
+      linkWithCredential(auth.currentUser!, EmailAuthProvider.credential('b2@example.com', password)),
+      obs.providerAlreadyLinkedCode,
+    );
+    await signOut(auth);
+    const c = await signInAnonymously(auth);
+    await expectCode(
+      linkWithCredential(c.user, EmailAuthProvider.credential('owner@example.com', password)),
+      obs.credentialAlreadyInUseCode,
+    );
   });
 
   it('auth-mechanical-surface-constants', () => {
