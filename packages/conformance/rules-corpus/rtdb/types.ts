@@ -168,6 +168,28 @@ export interface RtdbDeployScenario {
   rationale: string;
   provenance: string;
   deployCases: RtdbDeployCase[];
+  /** Present when production is slow to validate this scenario's rulesets. */
+  largeRuleset?: RtdbLargeRulesetPolicy;
+}
+
+/**
+ * How the capture rig sends a scenario whose rulesets production is slow to
+ * validate. Such a scenario runs after every other scenario, with a longer
+ * pause after it, because an unanswered dry run leaves the rules endpoint
+ * answering 429 for minutes.
+ */
+export interface RtdbLargeRulesetPolicy {
+  /** Each dry run's request limit. */
+  timeoutMs: number;
+  /** Tries per dry run, repeating a 5xx or a timeout. Defaults to the rig's own count. */
+  attempts?: number;
+  /**
+   * Present: a dry run production does not answer within `timeoutMs` leaves
+   * the scenario without an observation, the run still writes every other
+   * scenario's file and exits non-zero, and the rig waits `cooldownMs` before
+   * its next rules call. Absent: no answer fails the run.
+   */
+  noAnswer?: { cooldownMs: number };
 }
 
 export type RtdbDeployScenarioRecord = Omit<RtdbDeployScenario, 'id'>;

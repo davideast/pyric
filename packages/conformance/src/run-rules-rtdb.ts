@@ -35,6 +35,12 @@
  * pre-run ruleset with the case's subtree merged under the run-scoped mount, so
  * an endpoint that ignored the flag would still keep every existing rule. After
  * every case the runner reads the live rules back and requires them unchanged.
+ * A deploy scenario with a `largeRuleset` policy (r51, r61) runs after the
+ * operation scenarios and their rules restore, so the throttling an unanswered
+ * dry run sets off cannot reach a rules write. When production does not answer
+ * a scenario whose policy allows it (r61), that scenario gets no observation:
+ * every other observation is still written, and the run exits 1
+ * (src/rtdb-rules-deploy-run.ts).
  *
  * CUSTOM CLAIMS: a case with `claims` signs in with a custom token minted by the
  * service account for one run-scoped uid. Custom-token sign-in needs no sign-in
@@ -67,6 +73,8 @@
  *     PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
  *     bun run packages/conformance/src/run-rules-rtdb.ts \
  *     --scenario r15-validate-ancestor-scope
+ *   # several scenarios in one run (comma-separated, or the flag repeated):
+ *   ... run-rules-rtdb.ts --scenario r15-validate-ancestor-scope,r29-deploy-rejections
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -78,7 +86,6 @@ import {
   rtdbObservationName,
   type RtdbCaseQuery,
   type RtdbDeployScenario,
-  type RtdbDeployVerdict,
   type RtdbCaseIdentity,
   type RtdbScenario,
   type RtdbTestCase,
@@ -93,7 +100,14 @@ import {
   type OracleServiceAccount,
 } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
-import { deployScenarioGapMs, dryRunTimeoutMs, fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
+import { canonicalize, type RulesDeployEndpoint } from './rtdb-rules-deploy.ts';
+import {
+  orderDeployScenarios,
+  runDeployScenarios,
+  writeCaptureResults,
+  type UnansweredScenario,
+} from './rtdb-rules-deploy-run.ts';
+import { fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
@@ -141,36 +155,51 @@ export interface RtdbSelection {
   deployScenarios: RtdbDeployScenario[];
 }
 
-export function selectRtdbScenarios(args: readonly string[]): RtdbSelection {
-  let selectedId: string | undefined;
+/** The ids one `--scenario` value names, comma-separated. */
+function scenarioIdsOf(value: string | undefined): string[] {
+  const isMissing = !value || value.startsWith('--');
+  if (isMissing) throw new Error('--scenario requires an id');
+  const ids = value.split(',').map((id) => id.trim());
+  if (ids.some((id) => id === '')) throw new Error('--scenario requires an id between each comma');
+  return ids;
+}
+
+/** Every id the `--scenario` flags name, in either form and repeated or not. */
+function selectedScenarioIds(args: readonly string[]): Set<string> {
+  const ids = new Set<string>();
   for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
+    const arg = args[index]!;
     if (arg === '--scenario') {
-      const value = args[index + 1];
-      if (!value || value.startsWith('--')) throw new Error('--scenario requires an id');
-      if (selectedId) throw new Error('--scenario may be supplied only once');
-      selectedId = value;
+      for (const id of scenarioIdsOf(args[index + 1])) ids.add(id);
       index++;
       continue;
     }
     if (arg.startsWith('--scenario=')) {
-      const value = arg.slice('--scenario='.length);
-      if (!value) throw new Error('--scenario requires an id');
-      if (selectedId) throw new Error('--scenario may be supplied only once');
-      selectedId = value;
+      for (const id of scenarioIdsOf(arg.slice('--scenario='.length))) ids.add(id);
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
   }
+  return ids;
+}
 
-  if (!selectedId) {
+/**
+ * The scenarios `--scenario` names, in corpus order, or the whole corpus when
+ * it is absent. `--scenario` takes a comma-separated list and may be repeated,
+ * so one run (one rules snapshot and restore) can re-capture a chosen set.
+ */
+export function selectRtdbScenarios(args: readonly string[]): RtdbSelection {
+  const ids = selectedScenarioIds(args);
+  if (ids.size === 0) {
     return { scenarios: ALL_RULES_RTDB_SCENARIOS, deployScenarios: ALL_RULES_RTDB_DEPLOY_SCENARIOS };
   }
-  const scenario = ALL_RULES_RTDB_SCENARIOS.find((candidate) => candidate.id === selectedId);
-  if (scenario) return { scenarios: [scenario], deployScenarios: [] };
-  const deployScenario = ALL_RULES_RTDB_DEPLOY_SCENARIOS.find((candidate) => candidate.id === selectedId);
-  if (deployScenario) return { scenarios: [], deployScenarios: [deployScenario] };
-  throw new Error(`unknown RTDB scenario: ${selectedId}`);
+  const known = new Set([...ALL_RULES_RTDB_SCENARIOS, ...ALL_RULES_RTDB_DEPLOY_SCENARIOS].map((scenario) => scenario.id));
+  const unknown = [...ids].filter((id) => !known.has(id));
+  if (unknown.length > 0) throw new Error(`unknown RTDB scenario: ${unknown.join(', ')}`);
+  return {
+    scenarios: ALL_RULES_RTDB_SCENARIOS.filter((scenario) => ids.has(scenario.id)),
+    deployScenarios: ALL_RULES_RTDB_DEPLOY_SCENARIOS.filter((scenario) => ids.has(scenario.id)),
+  };
 }
 
 export function observationLinkageOf(value: unknown): ObservationLinkage {
@@ -191,6 +220,16 @@ export function assertMatchingOracleProjects(
   if (config.projectId !== serviceAccount.project_id) {
     throw new Error(
       `oracle project mismatch: Web config is ${config.projectId}, service account is ${serviceAccount.project_id}`,
+    );
+  }
+}
+
+function printDeployScenarios(deployScenarios: readonly RtdbDeployScenario[]): void {
+  for (const scenario of deployScenarios) {
+    const limit = scenario.largeRuleset ? `, ${scenario.largeRuleset.timeoutMs / 1_000}s limit` : '';
+    console.log(
+      `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(8)}] ` +
+        `${String(scenario.deployCases.length).padStart(2)} rulesets${limit}, expects deploy verdict → ${rtdbObservationName(scenario)}.json`,
     );
   }
 }
@@ -218,17 +257,17 @@ function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
     );
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases(scenarios)} cases.`);
+  const order = orderDeployScenarios(deployScenarios);
   console.log(`\n  Would dry-run ${deployScenarios.length} deploy scenario(s) (PUT /.settings/rules.json?dryRun=true, nothing deployed):`);
-  for (const scenario of deployScenarios) {
-    console.log(
-      `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(8)}] ` +
-        `${String(scenario.deployCases.length).padStart(2)} rulesets, expects deploy verdict → ${rtdbObservationName(scenario)}.json`,
-    );
+  printDeployScenarios(order.beforeOperations);
+  if (order.afterOperations.length > 0) {
+    console.log('\n  Then, after the operation scenarios, the large-ruleset deploy scenarios:');
+    printDeployScenarios(order.afterOperations);
   }
   console.log('\n  To capture for real:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \\');
   console.log('      PYRIC_ORACLE_PROJECT_ID=<oracle project id> \\');
-  console.log('      bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>');
+  console.log('      bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>[,<scenario-id>...]');
 }
 
 /**
@@ -250,24 +289,6 @@ async function mintCustomToken(sa: ServiceAccount, uid: string, claims: Record<s
     uid,
     ...(Object.keys(claims).length > 0 ? { claims } : {}),
   });
-}
-
-/** Stable JSON serialization (sorted keys) for the restore read-back compare —
- *  a structural byte-compare resilient to key ordering / whitespace RTDB may
- *  reformat. */
-function canonicalize(value: unknown): string {
-  const sortKeys = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(sortKeys);
-    if (v && typeof v === 'object') {
-      const out: Record<string, unknown> = {};
-      for (const k of Object.keys(v as Record<string, unknown>).sort()) {
-        out[k] = sortKeys((v as Record<string, unknown>)[k]);
-      }
-      return out;
-    }
-    return v;
-  };
-  return JSON.stringify(sortKeys(value));
 }
 
 /**
@@ -372,121 +393,6 @@ export function queryConstraintsOf(query: RtdbCaseQuery): QueryConstraintSpec[] 
   return out;
 }
 
-/**
- * The two rules-endpoint calls a deploy scenario makes, narrowed so the
- * capture contract can be tested against a fake.
- */
-export interface RulesDeployEndpoint {
-  /** `PUT /.settings/rules.json?dryRun=true` with `{ rules }`. A `timeoutMs`
-   *  limits the request; without one the runtime's default applies. */
-  dryRun(rules: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<{ status: number; body: string }>;
-  /** The live ruleset's `rules` object. */
-  readRules(): Promise<Record<string, unknown>>;
-}
-
-/**
- * The comparable part of a deploy error. The endpoint prefixes its message
- * with `line:column` into the submitted body, which here is the pre-run rules
- * plus the merged subtree, so the position moves with the live rules and is
- * dropped. The run-scoped mount key is replaced, and trailing whitespace trimmed.
- */
-export function normalizeDeployError(text: string, mountKey: string): string {
-  return text.replaceAll(mountKey, '<mount>').replace(/^\d+:\d+: /, '').trimEnd();
-}
-
-function deployErrorText(body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { error?: unknown };
-    if (typeof parsed.error === 'string') return parsed.error;
-  } catch {
-    // Not JSON; record the body as sent.
-  }
-  return body;
-}
-
-/** Attempts per dry run. Production answers a large ruleset with an
- *  occasional 500 or a timeout that a repeat of the same body does not. */
-export const DRY_RUN_ATTEMPTS = 3;
-
-type DryRunResult = Awaited<ReturnType<RulesDeployEndpoint['dryRun']>>;
-
-function isTimeout(error: unknown): boolean {
-  return error instanceof Error && error.name === 'TimeoutError';
-}
-
-/** A dry run answered with a status that a repeat would not change. */
-function isFinalAnswer(res: DryRunResult | { timedOut: Error }): res is DryRunResult {
-  return 'status' in res && res.status < 500;
-}
-
-/** One dry run, with a request timeout reported as a status-less result. */
-async function dryRunOnce(
-  endpoint: RulesDeployEndpoint,
-  rules: Record<string, unknown>,
-  timeoutMs: number | undefined,
-): Promise<DryRunResult | { timedOut: Error }> {
-  try {
-    return await endpoint.dryRun(rules, { timeoutMs });
-  } catch (error) {
-    if (isTimeout(error)) return { timedOut: error as Error };
-    throw error;
-  }
-}
-
-/** Dry-runs `rules`, repeating only on a 5xx or a request timeout. A dry run
- *  never changes the live rules, so a repeat sends the same body with no side
- *  effect. The last timeout is thrown when every attempt timed out. */
-async function dryRunWithServerErrorRetry(
-  endpoint: RulesDeployEndpoint,
-  rules: Record<string, unknown>,
-  timeoutMs: number | undefined,
-): Promise<DryRunResult> {
-  let res = await dryRunOnce(endpoint, rules, timeoutMs);
-  for (let attempt = 1; attempt < DRY_RUN_ATTEMPTS; attempt += 1) {
-    if (isFinalAnswer(res)) return res;
-    res = await dryRunOnce(endpoint, rules, timeoutMs);
-  }
-  if ('timedOut' in res) throw res.timedOut;
-  return res;
-}
-
-/**
- * Dry-run every case of a deploy scenario and record production's verdict.
- * Each dry run carries the pre-run rules with the case's subtree merged under
- * `/<mountKey>/<scenario.id>`. After each case the live rules are read back
- * and must equal `beforeRules`; any other outcome throws.
- */
-export async function captureDeployScenario(
-  endpoint: RulesDeployEndpoint,
-  input: { beforeRules: Record<string, unknown>; mountKey: string; scenario: RtdbDeployScenario },
-): Promise<Record<string, RtdbDeployVerdict>> {
-  const { beforeRules, mountKey, scenario } = input;
-  const beforeCanonical = canonicalize(beforeRules);
-  const behavior: Record<string, RtdbDeployVerdict> = {};
-  for (const deployCase of scenario.deployCases) {
-    const rules = {
-      ...beforeRules,
-      [mountKey]: { [scenario.id]: JSON.parse(deployCase.rules) as unknown },
-    };
-    const res = await dryRunWithServerErrorRetry(endpoint, rules, dryRunTimeoutMs(scenario.id));
-    if (res.status === 200) {
-      behavior[deployCase.description] = { verdict: 'ACCEPTED' };
-    } else if (res.status === 400) {
-      behavior[deployCase.description] = {
-        verdict: 'REJECTED',
-        error: normalizeDeployError(deployErrorText(res.body), mountKey),
-      };
-    } else {
-      throw new Error(`${scenario.id} :: ${deployCase.description}: dry run returned ${res.status}: ${res.body}`);
-    }
-    const after = await endpoint.readRules();
-    if (canonicalize(after) !== beforeCanonical) {
-      throw new Error(`${scenario.id} :: ${deployCase.description}: live rules changed after the dry run`);
-    }
-  }
-  return behavior;
-}
-
 /** Recursively substitute the `<UID>` token, mirroring the agreement probe. */
 function substituteUid<T>(v: T, uid: string): T {
   if (typeof v === 'string') return v.replaceAll('<UID>', uid) as unknown as T;
@@ -500,7 +406,8 @@ function substituteUid<T>(v: T, uid: string): T {
   return v;
 }
 
-async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<void> {
+/** Captures the selection and returns the exit code: non-zero when a scenario produced no observation. */
+async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<number> {
   // Heavy SDK imports are deferred to the credentialed path so the inert
   // preview stays dependency-light and always runnable.
   const { initializeApp, deleteApp } = await import('firebase/app');
@@ -662,6 +569,9 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   };
 
   const observations: { scenario: { id: string; fm: string; rationale: string }; behavior: Record<string, unknown> }[] = [];
+  const unanswered: UnansweredScenario[] = [];
+  const deployOrder = orderDeployScenarios(deployScenarios);
+  const deployInput = { beforeRules, mountKey: auditKey };
   let restoreVerified = false;
   let dataCleanupVerified = false;
   let userCleanupVerified = false;
@@ -669,14 +579,10 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   let deployed = false;
 
   try {
-    // Deploy scenarios first: dry runs against the untouched pre-run rules.
-    for (const scenario of deployScenarios) {
-      const behavior = await captureDeployScenario(endpoint, { beforeRules, mountKey: auditKey, scenario });
-      observations.push({ scenario, behavior });
-      const rejected = Object.values(behavior).filter((v) => v.verdict === 'REJECTED').length;
-      console.log(`  ✓ ${scenario.id.padEnd(28)} accepted=${scenario.deployCases.length - rejected} rejected=${rejected} (dry run; live rules read back unchanged)`);
-      await new Promise((r) => setTimeout(r, deployScenarioGapMs(scenario.id)));
-    }
+    // Ordinary deploy scenarios first: dry runs against the untouched pre-run rules.
+    const early = await runDeployScenarios(endpoint, deployOrder.beforeOperations, deployInput);
+    observations.push(...early.observations);
+    unanswered.push(...early.unanswered);
 
     if (scenarios.length > 0) {
       // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
@@ -787,7 +693,19 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
       if (auth.currentUser) {
         try { await signOut(auth); } catch { /* ignored */ }
       }
+      // Restore before the large-ruleset dry runs: their read-back compares
+      // the live rules with the snapshot, and an unanswered one can leave the
+      // rules endpoint answering 429 for minutes, so no rules write follows it.
+      await writeRules(beforeRules);
+      deployed = false;
     }
+
+    // Large-ruleset deploy scenarios last (#1692). One that production does
+    // not answer, under a no-answer policy, is waited out and left without an
+    // observation instead of failing the run.
+    const late = await runDeployScenarios(endpoint, deployOrder.afterOperations, deployInput);
+    observations.push(...late.observations);
+    unanswered.push(...late.unanswered);
   } finally {
     // Restore + read-back verify ALWAYS runs, success or failure. A run that
     // only dry-ran deploys never wrote rules, so it only reads back.
@@ -848,30 +766,37 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   }
 
   mkdirSync(OBS_DIR, { recursive: true });
-  for (const { scenario, behavior } of observations) {
-    const path = observationPath(scenario);
-    const linkage = existsSync(path)
-      ? observationLinkageOf(JSON.parse(readFileSync(path, 'utf8')))
-      : observationLinkageOf(undefined);
-    const obs: Observation = {
-      name: rtdbObservationName(scenario),
-      matrixRow: linkage.matrixRow,
-      rowIds: linkage.rowIds,
-      description: 'deployCases' in scenario
-        ? `RTDB rules deploy verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by dry-run deploys to the rules endpoint, which validate without deploying. ${scenario.rationale}`
-        : `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
-      observedAt: new Date().toISOString(),
-      fbSdkVersion,
-      projectId: config.projectId,
-      behavior,
-    };
-    writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
-    console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
-  }
+  const exitCode = writeCaptureResults({
+    observations,
+    unanswered,
+    write: ({ scenario, behavior }) => {
+      const path = observationPath(scenario);
+      const linkage = existsSync(path)
+        ? observationLinkageOf(JSON.parse(readFileSync(path, 'utf8')))
+        : observationLinkageOf(undefined);
+      const obs: Observation = {
+        name: rtdbObservationName(scenario),
+        matrixRow: linkage.matrixRow,
+        rowIds: linkage.rowIds,
+        description: 'deployCases' in scenario
+          ? `RTDB rules deploy verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by dry-run deploys to the rules endpoint, which validate without deploying. ${scenario.rationale}`
+          : `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
+        observedAt: new Date().toISOString(),
+        fbSdkVersion,
+        projectId: config.projectId,
+        behavior,
+      };
+      writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
+      console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
+    },
+    log: (line) => console.error(line),
+  });
 
-  console.log('\n[oracle:rules-rtdb] capture complete: rules restored, run data and run users removed, all read-back verified.');
+  const outcome = exitCode === 0 ? 'capture complete' : `capture incomplete: ${unanswered.length} scenario(s) produced no observation`;
+  console.log(`\n[oracle:rules-rtdb] ${outcome}: rules restored, run data and run users removed, all read-back verified.`);
   console.log('[oracle:rules-rtdb] Existing observation matrixRow/rowIds linkage was preserved.');
   console.log('[oracle:rules-rtdb] NEXT: review the observation diff, then run `bun run compat:validate`.');
+  return exitCode;
 }
 
 // ─── Multiple database instances ────────────────────────────────────────────
@@ -1237,5 +1162,5 @@ if (import.meta.main) {
     printInertPlan(selection);
     process.exit(0);
   }
-  await capture(selection);
+  process.exitCode = await capture(selection);
 }

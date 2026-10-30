@@ -23,6 +23,7 @@ export type {
   RtdbDeployScenario,
   RtdbDeployScenarioRecord,
   RtdbDeployVerdict,
+  RtdbLargeRulesetPolicy,
   RtdbScenario,
   RtdbScenarioRecord,
   RtdbTestCase,
