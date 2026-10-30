@@ -101,13 +101,14 @@ describe('runRecord', () => {
     expect(harness.tokenFoundIn).toEqual(['logs/builder.log']);
   });
 
-  test('makes a measurement line that holds the measurement shape', () => {
-    const line = measurementLine(runRecord(outcome()));
+  test('makes a measurement line from the harness’s own state: the run’s identity, the forwarder’s record and the phase’s timing', () => {
+    const metered = (input: number, output: number): ModelChannelEvent => ({ ...forwarded(0.2), tokens: { input, output, cacheCreation: 1, cacheRead: 2 } });
+    const line = measurementLine(outcome().identity, [metered(10, 1), forwarded(0.1), metered(5, 2)], 1234);
     expect(builderMeasurementSchema.parse(line)).toEqual({
-      kind: 'builder', run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', maxBudgetUsd: 1, costUsd: 0.25, meteredCostUsd: line.meteredCostUsd,
-      tokens: { input: 1, output: 2, cacheCreation: 0, cacheRead: 0 }, turns: 3, wallMs: 1234, report: 'valid', problemsReported: 4, googleHostEvents: 3,
+      kind: 'builder', run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', maxBudgetUsd: 1, meteredCostUsd: line.meteredCostUsd,
+      tokens: { input: 15, output: 3, cacheCreation: 2, cacheRead: 4 }, wallMs: 1234,
     });
-    expect(line.meteredCostUsd).toBeCloseTo(0.3, 12);
-    expect(builderMeasurementSchema.parse(measurementLine(runRecord(outcome({ usage: null, exit: null }))))).toMatchObject({ costUsd: null, tokens: null, turns: null, wallMs: null });
+    expect(line.meteredCostUsd).toBeCloseTo(0.5, 12);
+    expect(builderMeasurementSchema.parse(measurementLine(outcome().identity, [], 0))).toMatchObject({ meteredCostUsd: 0, tokens: null, wallMs: 0 });
   });
 });
