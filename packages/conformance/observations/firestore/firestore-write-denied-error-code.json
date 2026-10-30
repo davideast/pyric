@@ -5,7 +5,7 @@
     "firestore#32"
   ],
   "description": "Rules-denied write — pins the error class/code/message setDoc returns when the target is outside pyric_oracle/*. Companion to firestore-rules-denied-error but namespaced to #32 (setDoc).",
-  "observedAt": "2026-10-30T10:45:56.702Z",
+  "observedAt": "2026-10-30T13:36:05.520Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {

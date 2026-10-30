@@ -5,7 +5,7 @@
     "firestore#21"
   ],
   "description": "Rules-denied write — observes the error class, code, and message prod returns. Writes deliberately outside pyric_oracle/* so the rules deny it.",
-  "observedAt": "2026-10-30T10:45:54.593Z",
+  "observedAt": "2026-10-30T13:36:05.393Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
