@@ -182,7 +182,6 @@ const initRows: CompatibilityRow[] = [
   row({
     plane: 'app-check',
     rowRef: 'recaptcha-providers-without-document',
-    flipped: 'unit-backed',
     section: SEC_INIT,
     api: 'initializeAppCheck(app, { provider: new ReCaptchaV3Provider(siteKey) }) with no `document`, and the same for ReCaptchaEnterpriseProvider',
     featureKeys: ['initializeAppCheck', 'ReCaptchaV3Provider', 'ReCaptchaEnterpriseProvider'],
