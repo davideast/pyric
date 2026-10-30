@@ -3,6 +3,7 @@
  */
 import type { NextConfigObject } from './types.js';
 import { getClientAliases, getNodeBuiltinFallbacks } from './client-aliases.js';
+import { BRIDGE_IMPORT_LOADER, productionBridgeOptions, type BridgeImportOptions } from './bridge-imports.js';
 
 interface WebpackOptions {
   isServer: boolean;
@@ -30,6 +31,30 @@ function assembleClientResolveSection(existingResolve: Record<string, any> | und
   resolveSection.fallback = Object.assign(currentFallbacks, newFallbacks);
 
   return resolveSection;
+}
+
+/**
+ * In production AI mode, a rule that runs the bridge import loader on the
+ * shadow-app wrappers, so their Firebase SDK imports escape the aliases that
+ * name the wrappers themselves (see `bridge-imports.ts`).
+ */
+function assembleClientModuleSection(
+  existingModule: { rules?: unknown[]; [key: string]: unknown } | undefined,
+):{ rules?: unknown[]; [key: string]: unknown } | undefined {
+  const options = productionBridgeOptions();
+  if (options === undefined) return existingModule;
+  const moduleSection = Object.assign({}, existingModule);
+  const rules = Array.isArray(moduleSection.rules) ? [...moduleSection.rules] : [];
+  const rule: WebpackBridgeRule = { test: Object.keys(options.wrappers), use: [{ loader: BRIDGE_IMPORT_LOADER, options }] };
+  rules.push(rule);
+  moduleSection.rules = rules;
+  return moduleSection;
+}
+
+/** The webpack rule that runs the bridge import loader on the wrappers. */
+export interface WebpackBridgeRule {
+  test: string[];
+  use: Array<{ loader: string; options: BridgeImportOptions }>;
 }
 
 /** The module that installs React's commit hook; it must evaluate before React. */
@@ -98,6 +123,7 @@ export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject
       return resolvedConfig;
     }
     resolvedConfig.resolve = assembleClientResolveSection(resolvedConfig.resolve);
+    resolvedConfig.module = assembleClientModuleSection(resolvedConfig.module);
     resolvedConfig.experiments = assembleClientExperimentsSection(resolvedConfig.experiments);
     resolvedConfig.output = assembleClientOutputSection(resolvedConfig.output);
     resolvedConfig.entry = assembleClientEntry(resolvedConfig.entry);
