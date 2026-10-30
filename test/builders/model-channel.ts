@@ -27,11 +27,11 @@ import type { MeteredUsage } from './usage-tap.ts';
 import type { Tokens } from './usage.ts';
 
 /** How a forwarded request ended when it did not end with the model API's whole response. */
-export type ForwardNote = 'upstream-error' | 'client-closed';
+export type ForwardNote = 'upstream-error' | 'upstream-timeout' | 'client-closed';
 
 export type ChannelOutcome =
   | { action: 'forwarded'; reason: ForwardNote | null; status: number | null; usage: MeteredUsage | undefined; costUsd: number | null; reservedUsd: number; chargedUsd: number }
-  | { action: 'refused'; reason: RefusalReason; status: number | null; usage: undefined; costUsd: null; toolTypes?: string[] };
+  | { action: 'refused'; reason: RefusalReason; status: number | null; usage: undefined; costUsd: null; refusedNames?: string[] };
 
 /** One connection to the forwarder, as a line of `network.jsonl`. */
 export interface ModelChannelEvent extends HostClass {
@@ -54,8 +54,8 @@ export interface ModelChannelEvent extends HostClass {
   /** A forwarded request's worst case, reserved before it went, and what the meter charged once it ended. */
   reservedUsd: number | null;
   chargedUsd: number | null;
-  /** The server tools a refused request named. */
-  toolTypes: string[];
+  /** What a refused body named that the forwarder refuses: fields, block types and sources by path, server tool types. */
+  refusedNames: string[];
   /** The names of the builder's headers the forwarder did not send on. */
   droppedHeaders: string[];
 }
@@ -78,7 +78,7 @@ export function channelEvent(host: string, requestLine: string, head: RequestHea
     costUsd: outcome.costUsd,
     reservedUsd: outcome.action === 'forwarded' ? outcome.reservedUsd : null,
     chargedUsd: outcome.action === 'forwarded' ? outcome.chargedUsd : null,
-    toolTypes: outcome.action === 'refused' ? outcome.toolTypes ?? [] : [],
+    refusedNames: outcome.action === 'refused' ? outcome.refusedNames ?? [] : [],
     droppedHeaders: head === undefined ? [] : droppedHeaderNames(head),
   };
 }

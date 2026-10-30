@@ -22,8 +22,8 @@ describe('channelEvent', () => {
   test('sums what the meter charged a run’s forwarded requests, a cut-off one at its reservation', () => {
     const tokens = { input: 1, output: 1, cacheCreation: 0, cacheRead: 0 };
     const forwarded = (costUsd: number, chargedUsd: number) => channelEvent('api.anthropic.com', 'POST /v1/messages HTTP/1.1', undefined, { action: 'forwarded', reason: null, status: 200, usage: { model: 'm', tokens, speed: undefined }, costUsd, reservedUsd: 1, chargedUsd }, time);
-    const refused = channelEvent('api.anthropic.com', '', undefined, { action: 'refused', reason: 'server-tool', status: 400, usage: undefined, costUsd: null, toolTypes: ['web_search_20260209'] }, time);
-    expect(refused).toMatchObject({ toolTypes: ['web_search_20260209'], reservedUsd: null, chargedUsd: null });
+    const refused = channelEvent('api.anthropic.com', '', undefined, { action: 'refused', reason: 'server-tool', status: 400, usage: undefined, costUsd: null, refusedNames: ['web_search_20260209'] }, time);
+    expect(refused).toMatchObject({ refusedNames: ['web_search_20260209'], reservedUsd: null, chargedUsd: null });
     expect(meteredCostUsd([forwarded(0.25, 0.25), refused, forwarded(0.1, 1)])).toBe(1.25);
   });
 

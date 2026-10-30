@@ -136,13 +136,32 @@ carries no credential the sandbox could read (`model-channel.ts`):
   `HEAD /api/hello` warm-up and `GET /v1/models` lookup among them) gets
   `403`; a head it can't read gets `400`, one over 16 KiB `431`, one that
   doesn't end within 10 seconds `408`.
-- the forwarder also reads the **body** (`message-body.ts`). A builder gets
-  client tools only: a body that names `mcp_servers` gets `403`, and one
-  with a `tools` entry that has a `type` (a server tool such as
-  `web_search_*`, `web_fetch_*`, `code_execution_*` or `advisor_*`) gets
-  `400` naming the type after `Input tag`, the wording claude retries on
-  without its advisor tool. A body that isn't JSON, or a Messages request
-  without a positive integer `max_tokens`, gets `400`.
+- the forwarder also reads the **body** (`message-body.ts`) against an
+  allowlist taken from the
+  [Messages API reference](https://platform.claude.com/docs/en/api/messages/create),
+  and fails closed:
+  - the body must be a JSON object that repeats no key at any depth
+    (`strict-json.ts`), so it can't be checked as one request and run as
+    another;
+  - top-level fields must be on the list, case included. `mcp_servers`,
+    `container`, `context_management`, `fallbacks`, `diagnostics` and any
+    other field get `400` with the API's own wording, `<field>: Extra
+    inputs are not permitted`, which claude matches to retry without
+    `context_management`. `service_tier` may only be `standard_only`;
+  - content blocks in `messages` and `tool_result` content must be
+    client-side types (text, image, document, search result, thinking,
+    tool use and result, tool reference), and the system prompt text only.
+    An image's source must be `base64`, a document's `base64` or `text`: a
+    `url` source has Anthropic fetch it, and a `file` isn't bounded by the
+    body's size;
+  - tools must be client tools. An entry with a `type` (a server tool such
+    as `web_search_*`, `web_fetch_*`, `code_execution_*` or `advisor_*`) gets
+    `400` naming the type after `Input tag`, the wording claude retries on
+    without its advisor tool;
+  - a Messages request needs a positive integer `max_tokens`.
+- a forwarded request that hasn't ended after 10 minutes, claude's own
+  default request timeout, is aborted (`504` when nothing came back yet),
+  which frees its slot and keeps its whole reservation.
 
 Why a placeholder `CLAUDE_CODE_OAUTH_TOKEN` and not `ANTHROPIC_AUTH_TOKEN`:
 with the OAuth variable set, claude authenticates as a subscription and
@@ -547,8 +566,9 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   allowance per block (10K tokens for an image, 200K for a document) could
   in principle be passed by a large PDF. A response that costs more than its
   reservation is charged in full when it settles, so the next request is
-  refused, but that one response can carry a run past its cap. Server-side
-  charges beyond tokens can't arise, since server tools are refused.
+  refused, but that one response can carry a run past its cap. Charges
+  beyond the body's tokens can't arise: server tools, URL and file sources,
+  fallbacks, server-side compaction and priority tiers are all refused.
 - **The price table is dated** (2026-10-29). A price rise would make the
   meter err low until the table is updated.
 - **The header allowlist can drop a new capability.** The gateway page asks
@@ -556,6 +576,11 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   adds capabilities as new headers. The forwarder drops any header not on
   its list, so such a capability fails or turns off. Each request's line
   names the headers dropped, so a run shows it.
+- **The body allowlist may refuse a field claude sends.** It fails closed:
+  a field, block or source not on its list is refused, not guessed at. If
+  the first real run shows Claude Code sending one, the run fails loudly
+  (the field's name is in the record), and the field is added on purpose
+  once it can be priced.
 - **The in-flight cap slows claude.** claude runs subagents and side
   requests at once. Past two in flight it gets `429` and retries after two
   seconds, which shows up as wall-clock time, not as a failure.

@@ -219,8 +219,10 @@ describe('the model forwarder', () => {
     ['a head over the limit', `GET /${'a'.repeat(20_000)} HTTP/1.1\r\n\r\n`, 431, { reason: 'head-too-long' }],
     ['a body that is not JSON', messagesRequest('not json'), 400, { reason: 'body-not-json' }],
     ['a request with no max_tokens', messagesRequest('{"model":"claude-haiku-5-5","messages":[]}'), 400, { reason: 'max-tokens' }],
-    ['a request naming MCP servers', messagesRequest('{"max_tokens":1,"mcp_servers":[{"type":"url","url":"https://example.com","name":"x"}]}'), 403, { reason: 'mcp-servers' }],
-    ['a request with a server tool', messagesRequest('{"max_tokens":1,"tools":[{"type":"web_fetch_20260209","name":"web_fetch"}]}'), 400, { reason: 'server-tool', toolTypes: ['web_fetch_20260209'] }],
+    ['a request naming MCP servers', messagesRequest('{"max_tokens":1,"mcp_servers":[{"type":"url","url":"https://example.com","name":"x"}]}'), 400, { reason: 'field', refusedNames: ['mcp_servers'] }],
+    ['a request with a repeated key', messagesRequest('{"max_tokens":1,"max_tokens":64000}'), 400, { reason: 'duplicate-key', refusedNames: ['max_tokens'] }],
+    ['an image from a URL', messagesRequest('{"max_tokens":1,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://firebasestorage.googleapis.com/x.png"}}]}]}'), 403, { reason: 'source', refusedNames: ['messages[0].content[0].source.type=url'] }],
+    ['a request with a server tool', messagesRequest('{"max_tokens":1,"tools":[{"type":"web_fetch_20260209","name":"web_fetch"}]}'), 400, { reason: 'server-tool', refusedNames: ['web_fetch_20260209'] }],
   ];
 
   for (const [what, bytes, status, fields] of refusals) {
@@ -359,6 +361,58 @@ describe('settling a request', () => {
     const [event] = await recordLines(setup.record, 1);
     expect(event).toMatchObject({ action: 'forwarded', reason: 'upstream-error', reservedUsd: reservationOf(body), chargedUsd: reservationOf(body) });
     expect(setup.meter.spentUsd()).toBeCloseTo(reservationOf(body), 12);
+  });
+
+  test('aborts a request the model API never answers, frees its slot and keeps its reservation', async () => {
+    const silent: Answer = () => undefined;
+    const setup = await forwarder({ upstreamTimeoutMs: 300 }, silent);
+    const body = haikuBody();
+    const answer = await exchange(viaSocket(setup.socketPath), messagesRequest(body));
+    expect(answer).toStartWith('HTTP/1.1 504 ');
+    const [event] = await recordLines(setup.record, 1);
+    expect(event).toMatchObject({ action: 'forwarded', reason: 'upstream-timeout', status: 504, chargedUsd: reservationOf(body) });
+    expect(setup.meter.inFlight()).toBe(0);
+    expect(setup.meter.spentUsd()).toBeCloseTo(reservationOf(body), 12);
+  });
+
+  test('aborts a stream that outlasts the limit after it began, keeping its reservation', async () => {
+    const stalled: Answer = (_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.write(STREAM_START);
+    };
+    const setup = await forwarder({ upstreamTimeoutMs: 300 }, stalled);
+    const body = haikuBody();
+    expect(await exchange(viaSocket(setup.socketPath), messagesRequest(body))).toStartWith('HTTP/1.1 200 ');
+    const [event] = await recordLines(setup.record, 1);
+    expect(event).toMatchObject({ reason: 'upstream-timeout', status: 200, chargedUsd: reservationOf(body) });
+    expect(setup.meter.inFlight()).toBe(0);
+  });
+
+  test('frees the slot of a client that hangs up mid-stream, keeping its reservation', async () => {
+    const api = heldApi();
+    const setup = await forwarder({}, api.answer);
+    const body = haikuBody();
+    const socket = net.connect(setup.socketPath);
+    socket.on('error', () => undefined);
+    socket.write(messagesRequest(body));
+    while (api.held.length < 1) await Bun.sleep(10);
+    expect(setup.meter.inFlight()).toBe(1);
+    socket.destroy();
+    const [event] = await recordLines(setup.record, 1);
+    expect(event).toMatchObject({ reason: 'client-closed', chargedUsd: reservationOf(body) });
+    expect(setup.meter.inFlight()).toBe(0);
+  });
+
+  test('frees every slot after error answers, so later requests still go', async () => {
+    const failing: Answer = (_request, response) => {
+      response.writeHead(500, { 'content-type': 'application/json' });
+      response.end('{"type":"error","error":{"type":"api_error","message":"x"}}');
+    };
+    const setup = await forwarder({}, failing);
+    for (let sent = 0; sent < 4; sent += 1) expect(await exchange(viaSocket(setup.socketPath), messagesRequest(haikuBody()))).toStartWith('HTTP/1.1 500 ');
+    expect(setup.received).toHaveLength(4);
+    expect(setup.meter.inFlight()).toBe(0);
+    expect(setup.meter.spentUsd()).toBe(0);
   });
 
   const noUsage: Array<[string, number, string, (body: string) => number]> = [

@@ -44,6 +44,13 @@ export const MODEL_API_UPSTREAM: Upstream = { host: MODEL_API_HOST, port: 443, t
 export const MAX_HEAD_BYTES = 16 * 1024;
 export const HEAD_TIMEOUT_MS = 10_000;
 export const BODY_TIMEOUT_MS = 60_000;
+/**
+ * How long a forwarded request may take, from sending to the response's
+ * end: claude's own default request timeout (`API_TIMEOUT_MS`, 10 minutes,
+ * https://code.claude.com/docs/en/env-vars). Past it the forwarder aborts the
+ * request and frees its slot, and the request keeps its whole reservation.
+ */
+export const UPSTREAM_TIMEOUT_MS = 600_000;
 const HEAD_END = Buffer.from('\r\n\r\n');
 
 export interface ForwarderOptions {
@@ -61,6 +68,7 @@ export interface ForwarderOptions {
    */
   upstream?: Upstream;
   headTimeoutMs?: number;
+  upstreamTimeoutMs?: number;
 }
 
 type HeadRead =
@@ -164,7 +172,7 @@ function attemptRecord(record: string) {
   };
 }
 
-const STATUS_TEXT: Record<number, string> = { 400: 'Bad Request', 403: 'Forbidden', 408: 'Request Timeout', 429: 'Too Many Requests', 431: 'Request Header Fields Too Large', 502: 'Bad Gateway' };
+const STATUS_TEXT: Record<number, string> = { 400: 'Bad Request', 403: 'Forbidden', 408: 'Request Timeout', 429: 'Too Many Requests', 431: 'Request Header Fields Too Large', 502: 'Bad Gateway', 504: 'Gateway Timeout' };
 const ERROR_TYPE: Record<number, string> = { 403: 'permission_error', 429: 'rate_limit_error' };
 
 /** Seconds a builder told to wait for a request in flight waits before it retries. */
@@ -213,6 +221,7 @@ function chargeAtEnd(allowed: Allowed, note: ForwardNote | null, status: number 
 function forward(client: net.Socket, head: RequestHead, body: Buffer, credential: string, options: ForwarderOptions, attempt: ReturnType<typeof attemptRecord>, allowed: Allowed): void {
   const upstream = options.upstream ?? MODEL_API_UPSTREAM;
   const { reservation, check } = allowed;
+  const upstreamTimeoutMs = options.upstreamTimeoutMs ?? UPSTREAM_TIMEOUT_MS;
   let reading: UsageTap | undefined;
   let status: number | null = null;
   const metered = () => {
@@ -220,11 +229,25 @@ function forward(client: net.Socket, head: RequestHead, body: Buffer, credential
     const costUsd = usage === undefined ? null : costOf(usage.tokens, usage.model, { speed: usage.speed ?? check.modifiers.speed, usOnly: check.modifiers.usOnly });
     return { usage, costUsd };
   };
-  const finish = (note: ForwardNote | null) => {
+  let finished = false;
+  /** Settles and records the request the first time it ends; says whether this was that time. */
+  const finish = (note: ForwardNote | null): boolean => {
+    if (finished) return false;
+    finished = true;
+    clearTimeout(deadline);
     const { usage, costUsd } = metered();
     reservation.settle(chargeAtEnd(allowed, note, status, costUsd));
     attempt.finish({ action: 'forwarded', reason: note, status, usage, costUsd, reservedUsd: reservation.reservedUsd, chargedUsd: reservation.chargedUsd() });
+    return true;
   };
+  const deadline = setTimeout(() => {
+    const answered = status !== null;
+    status ??= 504;
+    finish('upstream-timeout');
+    request.destroy();
+    if (answered) client.destroy();
+    else respondWithError(client, 504, `the model API did not finish within ${upstreamTimeoutMs / 1000}s`);
+  }, upstreamTimeoutMs);
 
   const transport = upstream.tls ? https : http;
   const request = transport.request({
@@ -259,7 +282,7 @@ function forward(client: net.Socket, head: RequestHead, body: Buffer, credential
   request.on('error', () => {
     const answered = status !== null;
     status ??= 502;
-    finish('upstream-error');
+    if (!finish('upstream-error')) return;
     if (answered) client.destroy();
     else respondWithError(client, 502, 'the model API could not be reached');
   });
@@ -271,7 +294,7 @@ function forward(client: net.Socket, head: RequestHead, body: Buffer, credential
 }
 
 /** Checks a whole request's body and reserves its worst case: an `Allowed`, or why it is refused. */
-function admit(head: RequestHead, body: Buffer, meter: RunMeter): Allowed | { status: number; reason: RefusalReason; message: string; toolTypes: string[] } {
+function admit(head: RequestHead, body: Buffer, meter: RunMeter): Allowed | { status: number; reason: RefusalReason; message: string; names: string[] } {
   const path = pathOf(head.target);
   const check = checkMessageBody(path, body);
   if (check.kind === 'refused') return check;
@@ -279,13 +302,13 @@ function admit(head: RequestHead, body: Buffer, meter: RunMeter): Allowed | { st
   if (typeof reservation !== 'string') return { path, check, reservation };
   const status = reservation === 'in-flight' ? 429 : 403;
   const message = `${reservation}: this request may cost up to $${check.reservedUsd.toFixed(4)}`;
-  return { status, reason: reservation, message, toolTypes: [] };
+  return { status, reason: reservation, message, names: [] };
 }
 
 function handle(client: net.Socket, options: ForwarderOptions): void {
   const attempt = attemptRecord(options.record);
-  const refuse = (status: number, reason: RefusalReason, message: string = reason, toolTypes: string[] = []) => {
-    attempt.finish({ action: 'refused', reason, status, usage: undefined, costUsd: null, toolTypes });
+  const refuse = (status: number, reason: RefusalReason, message: string = reason, refusedNames: string[] = []) => {
+    attempt.finish({ action: 'refused', reason, status, usage: undefined, costUsd: null, refusedNames });
     respondWithError(client, status, message);
   };
   client.on('error', () => client.destroy());
@@ -308,7 +331,7 @@ function handle(client: net.Socket, options: ForwarderOptions): void {
       if (body.kind === 'timeout') return refuse(408, 'body-timeout');
       if (body.kind === 'closed') return attempt.finish({ action: 'refused', reason: 'closed-before-body', status: null, usage: undefined, costUsd: null });
       const admitted = admit(head, body.body, options.meter);
-      if ('reason' in admitted) return refuse(admitted.status, admitted.reason, admitted.message, admitted.toolTypes);
+      if ('reason' in admitted) return refuse(admitted.status, admitted.reason, admitted.message, admitted.names);
       forward(client, head, body.body, credential, options, attempt, admitted);
     });
   });
