@@ -7,8 +7,9 @@
  * is there to reach.
  *
  * The sandbox sees only what `sandboxArgs` binds: /usr and a few /etc files
- * read-only, the harness's own repo, toolchain and caches read-only, the run
- * directory read-write, a fresh /dev, /proc, /tmp and /run, and its own
+ * read-only, the harness's view of its repo (`harness-view.ts`: its own
+ * code and packages, never pyric's source), toolchain and caches read-only,
+ * the run directory read-write, a fresh /dev, /proc, /tmp and /run, and its own
  * resolv.conf and hosts. There is no /mnt, no /run/WSL and no /run/user. A
  * cache the run must write to (npm's) gets an overlay whose writes stay in
  * the sandbox's /tmp, so the host's copy never changes.
@@ -32,9 +33,9 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { accessSync, constants, existsSync, lstatSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { harnessView, type View } from './harness-view.ts';
 import { linkNames, loopbackOnlyProblem } from './sandbox-inventory.ts';
 
-const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const HOLDER = fileURLToPath(new URL('./recorder/holder.mjs', import.meta.url));
 const INVENTORY = fileURLToPath(new URL('./sandbox-inventory.ts', import.meta.url));
 const REQUIRED_TOOLS = ['bwrap', 'nsenter', 'ip'];
@@ -76,7 +77,7 @@ export interface SandboxOptions {
   networkLog: string;
   /** The run directory: bound read-write, and where the sandbox's resolv.conf and hosts are written. */
   runRoot: string;
-  /** Directories the run reads but never writes: a tarball directory, Playwright's browsers. The repo and toolchain are added. */
+  /** Directories the run reads but never writes: a tarball directory, Playwright's browsers. The harness's view of its repo and the toolchain are added. */
   readOnly?: readonly string[];
   /**
    * Directories the run reads and writes, whose writes stay in the sandbox:
@@ -123,6 +124,8 @@ function usrEntryArgs(entry: string): string[] {
 export interface SandboxLayout {
   runRoot: string;
   readOnly: readonly string[];
+  /** Host paths bound read-only elsewhere in the sandbox: the harness's packages. */
+  views?: readonly View[];
   /** The sandbox's own /etc/resolv.conf and /etc/hosts, on the host. */
   resolvConf: string;
   hosts: string;
@@ -134,7 +137,8 @@ export interface SandboxLayout {
 
 /** bwrap's arguments for a run, before the command. Parents bind before children. */
 export function sandboxArgs(layout: SandboxLayout): string[] {
-  const readOnly = [...new Set(layout.readOnly)].sort((a, b) => a.length - b.length);
+  const inPlace = [...new Set(layout.readOnly)].map((dir): View => ({ source: dir, dest: dir }));
+  const readOnly = [...inPlace, ...(layout.views ?? [])].sort((a, b) => a.dest.length - b.dest.length);
   return [
     '--unshare-all',
     '--uid', '0', '--gid', '0',
@@ -151,7 +155,7 @@ export function sandboxArgs(layout: SandboxLayout): string[] {
     '--tmpfs', '/tmp',
     '--tmpfs', '/run',
     ...(layout.dirs ?? []).flatMap((dir) => ['--dir', dir]),
-    ...readOnly.flatMap((dir) => ['--ro-bind', dir, dir]),
+    ...readOnly.flatMap(({ source, dest }) => ['--ro-bind', source, dest]),
     '--bind', layout.runRoot, layout.runRoot,
   ];
 }
@@ -291,9 +295,11 @@ export async function startEgressNamespace(options: SandboxOptions): Promise<Egr
   writeFileSync(resolvConf, SANDBOX_RESOLV_CONF);
   writeFileSync(hosts, SANDBOX_HOSTS);
   const tmpdir = process.env.TMPDIR;
+  const harness = harnessView();
   const layout: SandboxLayout = {
     runRoot: options.runRoot,
-    readOnly: [REPO_ROOT.replace(/\/+$/, ''), ...toolchainDirs(), ...(options.readOnly ?? []), ...(options.overlaid ?? [])],
+    readOnly: [...harness.readOnly, ...toolchainDirs(), ...(options.readOnly ?? []), ...(options.overlaid ?? [])],
+    views: harness.views,
     resolvConf,
     hosts,
     etc: ETC_ENTRIES.filter((entry) => existsSync(`/etc/${entry}`)),
