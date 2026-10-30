@@ -40,14 +40,38 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
-import { runInit, runVendor } from './init.js';
-import { runSnapshot } from './snapshot.js';
-import { runVerify } from './verify.js';
-import { runMcpProxy } from './mcp-proxy.js';
 import { pyricVersion } from '../serve/standalone-assets.js';
 import { cliVersion } from '../pkg-version.js';
 import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
-import { dispatchServiceCommand } from './service-commands.js';
+
+// Each command's module is imported when that command runs, never at startup.
+// The service commands alone load about 500 modules, the TypeScript compiler
+// among them, which made every `pyric run` spend about 0.5 s at idle (over 3 s
+// on a loaded CI runner) before its first request (#1671).
+
+/**
+ * The commands this dispatcher runs itself that no service command starts
+ * with, so they skip loading the service command registry. `sandbox` is not
+ * here: `pyric sandbox inspect` is a service command.
+ */
+export const COMMANDS_BEFORE_SERVICES: ReadonlySet<string> = new Set([
+  'bridge',
+  'run',
+  'snapshot',
+  'verify',
+  'can-i-use',
+  'mcp',
+  'init',
+  'vendor',
+]);
+
+async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number | null> {
+  const subcommand = parsed.subcommand;
+  const skipsServices = subcommand == null || COMMANDS_BEFORE_SERVICES.has(subcommand);
+  if (skipsServices) return null;
+  const services = await import('./service-commands.js');
+  return services.dispatchServiceCommand(parsed);
+}
 
 // The standalone binary bakes the real `pyric` version onto the embedded-assets
 // global; the npm bin has no such global and falls back to '0.0.0'.
@@ -421,17 +445,22 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       const { runRun } = await import('./run.js');
       return runRun(parsed);
     case 'snapshot':
+      const { runSnapshot } = await import('./snapshot.js');
       return await runSnapshot(parsed);
     case 'verify':
+      const { runVerify } = await import('./verify.js');
       return await runVerify(parsed);
     case 'can-i-use':
       const { runCanIUse } = await import('./can-i-use.js');
       return runCanIUse(parsed);
     case 'mcp':
+      const { runMcpProxy } = await import('./mcp-proxy.js');
       return await runMcpProxy(parsed);
     case 'init':
+      const { runInit } = await import('./init.js');
       return await runInit(parsed);
     case 'vendor':
+      const { runVendor } = await import('./init.js');
       return await runVendor(parsed);
     default:
       process.stderr.write(

@@ -5,7 +5,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { capabilityProblems, inventory, linkNames, loopbackOnlyProblem, mountProblems, nameservers, parseMountinfo, socketFiles, UNLISTABLE, type InventoryInput } from './sandbox-inventory.ts';
+import { capabilityProblems, interfaceNames, inventory, IP_LINK_FAILED, linkNames, loopbackOnlyProblem, mountProblems, nameservers, parseMountinfo, socketFiles, UNLISTABLE, type InventoryInput } from './sandbox-inventory.ts';
+
+const IS_ROOT = process.getuid?.() === 0;
 
 const servers: Server[] = [];
 
@@ -80,11 +82,30 @@ describe('inventory', () => {
     expect(inventory(input(sandboxTree(), { mountinfo })).problems).toEqual(['/home/u/repo is mounted read-write (ext4)']);
   });
 
-  test('fails on a directory the walk could not list, unless it is allowed by name', () => {
+  // A mode-000 directory is unlistable only to a user without root: root
+  // lists it anyway, so under `unshare -r` or as uid 0 these two can't plant
+  // what they check, and skip.
+  const unlistableTest = IS_ROOT ? test.skip : test;
+  if (IS_ROOT) console.log('sandbox-inventory: skipping the two mode-000 directory tests: uid 0 can list a mode-000 directory, so they would plant nothing');
+
+  unlistableTest('fails on a directory the walk could not list, unless it is allowed by name', () => {
     const root = sandboxTree();
     mkdirSync(join(root, 'usr/locked'), { mode: 0o000 });
     expect(inventory(input(root)).problems).toEqual([`directories the walk could not list, so could not check: ${join(root, 'usr/locked')}`]);
     expect(inventory(input(root, { unlistable: [{ pattern: /^\/usr\/locked$/, reason: 'test' }] })).problems).toEqual([]);
+  });
+
+  unlistableTest('fails on a directory the walk could not list when a non-empty allowed list does not name it', () => {
+    const root = sandboxTree();
+    mkdirSync(join(root, 'usr/locked'), { mode: 0o000 });
+    const unlistable = [{ pattern: /^\/usr\/other$/, reason: 'test' }, ...UNLISTABLE];
+    expect(inventory(input(root, { unlistable })).problems).toEqual([`directories the walk could not list, so could not check: ${join(root, 'usr/locked')}`]);
+  });
+
+  test('fails when ip -o link fails, even though Node lists loopback alone', () => {
+    const interfaces = interfaceNames({ status: 1, stdout: '' }, ['lo']);
+    expect(interfaces).toEqual([IP_LINK_FAILED, 'lo']);
+    expect(inventory(input(sandboxTree(), { interfaces })).problems).toEqual([`has interfaces besides loopback: ${IP_LINK_FAILED}, lo`]);
   });
 
   test('fails when /mnt, /run/WSL or /run/user exists', () => {
@@ -144,6 +165,10 @@ describe('mountProblems', () => {
     const line = '262 1 0:86 / /home/u/.cache/npm rw - overlay overlay rw,lowerdir=/a,upperdir=/home/u/upper,workdir=/home/u/work';
     expect(mountProblems(parseMountinfo(line), [])).toEqual(['/home/u/.cache/npm is mounted read-write (overlay)']);
   });
+
+  test('does not take a mount at /r2 as inside the own directory /r', () => {
+    const lines = ['1 1 8:48 /h/r /r rw - ext4 /dev/sdd rw', '2 1 8:48 /h/r2 /r2 rw - ext4 /dev/sdd rw', '3 1 8:48 /h/r/x /r/x rw - ext4 /dev/sdd rw'].join('\n');
+    expect(mountProblems(parseMountinfo(lines), ['/r'])).toEqual(['/r2 is mounted read-write (ext4)']);  });
 
   test('decodes escaped mount points', () => {
     expect(parseMountinfo('1 1 8:48 /a /home/u/my\\040dir ro - ext4 /dev/sdd rw')[0]?.mountPoint).toBe('/home/u/my dir');

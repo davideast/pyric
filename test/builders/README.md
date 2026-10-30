@@ -14,6 +14,9 @@ Builder apps never enter CI.
 
 ```
 bun test/builders/harness.ts canary [--build] [--packages <dir>]
+bun test/builders/harness.ts round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
+    [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]
+bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
 ```
 
 `canary` is the harness's integration test. Run it before every round.
@@ -22,8 +25,275 @@ bun test/builders/harness.ts canary [--build] [--packages <dir>]
   build is packed, as `bun test/apps/run.ts` does.
 - `--packages <dir>` installs tarballs already in `<dir>`.
 
-The `round`, `run`, `reproduce` and `measure` commands come in later pull
-requests.
+`round` runs every brief of a round once per model (below). `measure`
+summarizes `measurements.jsonl`. The `run` and `reproduce` commands come in
+a later pull request.
+
+## A round
+
+```
+bun test/builders/harness.ts round r1 --models claude-haiku-5-5,claude-sonnet-5-5 --max-budget-usd 2 --max-round-usd 12
+```
+
+`--models`, `--max-budget-usd` and `--max-round-usd` are required and have
+no default: a round spends money only at caps someone typed, one per run
+and one for the round. Every run gets the same cap, so the comparison
+between models is findings per dollar. Before it packs or spends anything,
+`round` checks every brief, the builder, the checkout (as the canary does),
+that no run of the round has started yet (a round never redoes a run), and
+that the runs times the run cap fit under the round cap. Any problem exits 2
+with the whole list. The start line says what the round could spend: `6
+runs (3 briefs × 2 models), $2.00 cap per run, possible spend $12.00 under a
+round cap of $12.00`.
+
+A run has started once its sandbox has (`<run>/sandbox-started`). When a
+run's sandbox can't start, `round` starts no more runs, lets any under way
+finish, and exits 2. That run left only empty directories, so the same
+round can run again once the sandbox works.
+
+It then packs the workspace once and runs each brief once per model, brief
+by brief, at most two at once (`--concurrency 1` for one). Each run holds a
+heavy-run slot (`scripts/lib/heavy-run-slots.ts`) for its whole length, so
+builders never pile onto a full app run. A run is `<brief id>-<model>`, for
+example `r1-1-haiku-5-5`.
+
+**The builder is injectable.** `--builder claude` (the default) starts
+
+```
+claude -p <prompt> --model <id> --max-budget-usd <usd> --output-format json \
+  --settings <data root>/builder.settings.json --append-system-prompt-file .agents/skills/app-builder/SKILL.md
+```
+
+and needs `claude` on PATH, both files, and `CLAUDE_CODE_OAUTH_TOKEN` (from
+`claude setup-token`) in the harness's environment; the run's HOME holds no
+login. **The token never enters the sandbox.** claude gets a placeholder in
+its place and `ANTHROPIC_BASE_URL` pointed at the model channel (below),
+whose forwarder, outside, holds the real token. `--builder <script>` starts
+`node <script>` in the same place with the same environment, less the
+placeholder: `fixtures/fake-builder.mjs` is a scripted builder with no
+model, which is how `round` is tested end to end. A scripted builder's
+forwarder holds no token and refuses every request.
+
+**Each run, in order** (`builder-run.ts`):
+
+1. Lays out `<builders root>/<round>/<run>/`: the starter app for the
+   brief's framework (`starters/<framework>/package.json`) with its Pyric
+   dependencies pinned to the tarballs (`prepareApp`, which calls
+   `pinPyricPackages`), a fake Firebase config (a `demo-<run>` project and a
+   fake API key), `brief.md` and `brief.json`, and `docs/site/`, the site's
+   Markdown from `packages/site-docs/src/content/` at the same commit.
+2. Starts the run's own sandbox, as the canary does, and installs the app
+   inside it (`app-install.ts`, the canary's install).
+3. Writes `docs/conformance/`: the conformance pages the installed
+   `@pyric/cli/conformance/docs` ships, exported inside the sandbox
+   (`docs-export.mjs`). So a builder reads the docs of the tarballs it builds
+   with.
+4. Enters the run phase (`run-phase.ts`) into the sandbox, with the model
+   channel's forwarder (below) listening outside it. The phase checks it is
+   inside the sandbox, starts the channel's bridge and the harness browser,
+   and runs the builder in `app/` under the recorder with the run's scratch
+   HOME, for at most the brief's wall-clock minutes. The phase's
+   environment is built from nothing (PATH, HOME, LANG, TMPDIR, where
+   Playwright's browsers are), so nothing else of the harness's reaches it.
+5. Appends the forwarder's record to the run's `network.jsonl`, then looks
+   for the harness's token in every file it is about to keep (below).
+6. Reads the builder's `report.json`, its usage, and the network record, and
+   keeps the run in `<data root>/runs/<round>/<run>/`: `report.json` (the
+   builder's report and the harness's fields), `brief.json`,
+   `network.jsonl`, `logs/` and `app.tgz` (the app without `node_modules`).
+7. Appends the run's line to `<data root>/measurements.jsonl`.
+
+`round` exits 0 when every run ended with a valid report, 1 otherwise.
+
+**Where things go.** Scratch is under the builders root (`~/pyric-builders`,
+or `PYRIC_BUILDERS_DIR`). Run data is under the data root
+(`~/pyric-ops/assurance/builders`, or `PYRIC_BUILDERS_DATA_DIR`): briefs in
+`briefs/<round>/` unless `--briefs` names a directory, the runs, the
+measurements, and `builder.settings.json`, the Claude Code permission file,
+which is tool-specific and so stays out of the repo.
+
+## The model channel
+
+A builder is `claude -p`, and it runs inside the sandbox with every tool it
+starts, so the model API needs a way out that nothing else has, and that
+carries no credential the sandbox could read (`model-channel.ts`):
+
+- the **bridge**, inside the sandbox, listens on 127.0.0.1 and pipes each
+  connection to `<run>/model.sock`. claude reaches it as
+  `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`, in plain HTTP, holding
+  `CLAUDE_CODE_OAUTH_TOKEN=pyric-builder-placeholder-not-a-token`.
+- the **forwarder** (`model-forwarder.ts`), in the harness, outside the
+  sandbox, listens on that socket and reads one request per connection. It
+  passes on only `POST /v1/messages` and `POST /v1/messages/count_tokens`,
+  each with or without `?beta=true` (`model-policy.ts`). It sends on only
+  an allowlist of the request's headers: `anthropic-version` and
+  `anthropic-beta` as sent, `content-type`, `accept`, `user-agent`,
+  `x-stainless-*`, and the `x-claude-code-*` headers the gateway page names.
+  It sets `Authorization: Bearer <token>` from the harness's own
+  environment and sends the request to `api.anthropic.com:443` over TLS.
+  The response streams back unbuffered. Everything else is refused: a
+  CONNECT, an absolute URI, any other method, path or query (claude's
+  `HEAD /api/hello` warm-up and `GET /v1/models` lookup among them) gets
+  `403`; a head it can't read gets `400`, one over 16 KiB `431`, one that
+  doesn't end within 10 seconds `408`.
+- the forwarder also reads the **body** (`message-body.ts`) against an
+  allowlist taken from the
+  [Messages API reference](https://platform.claude.com/docs/en/api/messages/create),
+  and fails closed:
+  - the body must be a JSON object nested no deeper than 64 levels, which
+    a loop measures before any walk of the body, and must repeat no key at
+    any depth (`strict-json.ts`), so it can't be checked as one request and
+    run as another. If checking a body throws anyway, the builder gets
+    `400` and the connection is recorded;
+  - top-level fields must be on the list, case included. `mcp_servers`,
+    `container`, `context_management`, `fallbacks`, `diagnostics` and any
+    other field get `400` with the API's own wording, `<field>: Extra
+    inputs are not permitted`, which claude matches to retry without
+    `context_management`. `service_tier` may only be `standard_only`;
+  - content blocks in `messages` and `tool_result` content must be
+    client-side types (text, image, document, search result, thinking,
+    tool use and result, tool reference). The system prompt and a search
+    result's content take text only.
+    An image's source must be `base64`, a document's `base64` or `text`: a
+    `url` source has Anthropic fetch it, and a `file` isn't bounded by the
+    body's size;
+  - tools must be client tools. An entry with a `type` (a server tool such
+    as `web_search_*`, `web_fetch_*`, `code_execution_*` or `advisor_*`) gets
+    `400` naming the type after `Input tag`, the wording claude retries on
+    without its advisor tool;
+  - a Messages request needs a positive integer `max_tokens`.
+- a forwarded request that hasn't ended after 10 minutes, claude's own
+  default request timeout, is aborted (`504` when nothing came back yet),
+  which frees its slot and keeps its whole reservation.
+
+Why a placeholder `CLAUDE_CODE_OAUTH_TOKEN` and not `ANTHROPIC_AUTH_TOKEN`:
+with the OAuth variable set, claude authenticates as a subscription and
+sends the token as `Authorization: Bearer` with the OAuth capability in
+`anthropic-beta`, which the API needs to accept a `claude setup-token`
+token; `ANTHROPIC_AUTH_TOKEN` is a gateway's key and sends no such beta.
+Sources: [env vars](https://code.claude.com/docs/en/env-vars),
+[authentication precedence](https://code.claude.com/docs/en/authentication),
+[gateway protocol](https://code.claude.com/docs/en/llm-gateway-protocol)
+(paths, headers to forward, streaming).
+
+**Every connection is recorded**, forwarded or refused, malformed, cut off,
+or timed out: one `model-channel` line with the request line (shortened,
+unprintable bytes escaped), the host it named, the reason, the status, and
+for a forwarded request the model, tokens, metered cost, the worst case it
+reserved and what the meter charged. It also names the headers it dropped
+and the server tools it refused, never a header's value. The forwarder
+writes `<builders root>/<round>/<run>.model-channel.jsonl`, beside the run
+directory, which the sandbox can't see; `round` appends those lines to the
+run's `network.jsonl` once the sandbox has stopped.
+
+**The forwarder meters the round** (`model-meter.ts`). Before it sends a
+request on, it reserves the request's worst case: a token per byte of the
+body, plus an allowance per image or document and a fixed overhead, all
+priced as cache writes, plus `max_tokens` of output. The request gets `403`
+when that doesn't fit what is left of the run's `--max-budget-usd` or the
+round's `--max-round-usd`, with every open reservation counted in full, so
+requests sent at once can't pass a cap between them. A run has at most two
+requests in flight; a third gets `429` with `retry-after: 2`. When the
+response ends, the reservation settles to the cost of its usage
+(`message_start` and `message_delta` in a stream, `usage` in JSON). A
+response cut off keeps its whole reservation, and a `200` with no usage
+costs its reservation, except a token count, which costs nothing.
+
+The prices (`model-prices.ts`) are the first-party rates read from the
+[pricing page](https://platform.claude.com/docs/en/about-claude/pricing) on
+2026-10-29, by exact model id. They err high: any id the table doesn't name
+exactly is charged its highest rate (Claude Opus 4 and 4.1's $15 and $75),
+cache writes the one-hour rate, cache reads a tenth of input, Claude Haiku
+5.5 its long-prompt rate, fast mode twice and US-only inference 1.1 times.
+claude still gets `--max-budget-usd` too.
+
+**The token scan.** Before `round` keeps anything, it looks for the token's
+value in the report, the brief, `network.jsonl`, `logs/` and the app
+(`token-scan.ts`). Kept copies have it replaced with `[redacted: the
+harness token]`; when any file of the app held it, `app.tgz` is withheld.
+The run record lists the files (`harness.tokenFoundIn`), never the value.
+Since the token never enters the sandbox, any entry there is a defect.
+
+Claude Code's other traffic is turned off with
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` and the telemetry switches.
+
+## The brief
+
+One JSON file per brief, validated by `brief.ts` before a round starts. The
+builder gets it as `brief.md`, in the plan's layout, and as `brief.json`.
+
+| Field | Holds |
+|---|---|
+| `id` | `<round>-<n>` |
+| `targetArea` | `{ area, whyWeak }`: one area from the evidence map, and why it is weak |
+| `stressDimensions` | one or two of `scale`, `lifecycle`, `integration`, `combination`, `concurrency` |
+| `appIdea` | one paragraph |
+| `framework` | `next-16`, `vite` or `node-server` |
+| `features` | the pyric surfaces, named as the docs name them |
+| `userJourney` | what a person does, step by step |
+| `mustBeRefused` | two to five `{ action, firebaseDoc, productionAnswer }`; `firebaseDoc` must be an `https://firebase.google.com/` page |
+| `limits` | `{ wallClockMinutes }` |
+
+The model and the dollar cap are the round's, not the brief's, since each
+brief runs once per model at one cap. A brief with a field the shape does
+not name fails.
+
+## The report
+
+The builder writes `report.json` in its run directory; `report.ts`
+validates it:
+
+```
+steps:     [{ n, did, result: worked | broke | stuck, log }]
+worked:    [short lines]
+problems:  [{ id, summary, step, docsLedMeToExpect: { page, quote } | null,
+              whatHappened, errorText, logs: [paths], reproHint }]
+refusals:  [{ action, firebaseDoc, productionAnswer, pyricAnswer,
+              result: refused | allowed | not-attempted }]
+stuck:     { where, lastError, whatIWouldTryNext } | null
+```
+
+A report with any other field fails, so a builder can't write the fields
+only the harness writes. The kept `report.json` is
+`{ builder, harness }` (`run-record.ts`): `builder` is the report, or null
+when it is missing or invalid, and `harness` holds the run's identity and
+cap, the commit and each tarball's sha256, how the builder ended, the
+report's state and errors, every Google-host and metadata event in the
+network record, whether the browser's record is cut short, the usage from
+claude's result line (null when it printed none), the must-be-refused
+actions the report leaves out, and the problems the harness adds itself:
+
+- each must-be-refused action the builder reports pyric `allowed`;
+- each Google host or metadata address the run reached for, one per host,
+  with every layer that saw it. Chromium's UDP connect to a Google DNS
+  address, its IPv6 check, sends no packet and is not counted.
+
+## Measurement
+
+`measurements.jsonl` is append-only (`measurement.ts`). `round` appends a
+`builder` line per run: model, brief, the run's cap, the cost claude gave
+(null when it printed none), the cost the forwarder metered, tokens, turns,
+wall time (null when the run phase never said how the builder ended), the
+report's state, problems reported (the builder's plus the harness's) and
+Google-host events. The verifier, in a later pull request, appends a
+`verification` line per judged run: its round and run, its cost and tokens,
+and its count per verdict (confirmed by class, duplicate, needs capture,
+unconfirmed, builder's own bug, invalid). A bad line is an error naming its
+line number, never skipped.
+
+A run's builder cost is claude's figure, or the metered one when claude gave
+none (it crashed, or was stopped at its wall-clock cap). No run counts as
+free.
+
+`measure` joins them by round and run id (run ids repeat across rounds) and
+prints, per model: cost per builder run,
+cost per verifier report, confirmed new findings per app (confirmed, not
+duplicates, per judged run), the share of reported problems the verifier
+threw out (unconfirmed, builder's own bug, invalid run), cost per confirmed
+new finding, and the 90th-percentile cost of a run plus its verification.
+The nightly model is the one with the lower cost per confirmed new finding;
+with `--runs-per-night <n>` it also prints the nightly cap, `n` times that
+model's 90th-percentile cost.
 
 ## The canary
 
@@ -274,8 +544,58 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   as a `udp` connect and is not treated as a request.
 - **The NetLog is written when the browser closes.** A browser killed before
   it closes leaves a NetLog the reader still parses, up to its last whole
-  line. That is acceptable for the canary, since a missing browser event
-  fails it. For PR 2: when `browser-server.ts` kills the browser after its
-  stop times out, it must write an `incomplete` marker into `network.jsonl`,
-  so a builder run's missing browser events read as unknown, not as absent.
-  Today it only prints a console line.
+  line. When `browser-server.ts` kills the browser after its stop times
+  out, it appends an `incomplete` marker (`layer: browser`, `kind:
+  incomplete`) to `network.jsonl`, and a run's record says
+  `browserIncomplete`, so missing browser events read as unknown, not as
+  absent.
+- **A builder can't install new packages.** The sandbox has no registry. A
+  builder works with the starter's dependencies; one that needs more says so
+  in its report. A local mirror inside the sandbox would lift this.
+- **Anything in the run can spend the token, though nothing there can read
+  it.** The channel takes Messages requests from any process in the
+  sandbox, and the forwarder puts the token on each. So a process there can
+  run model requests on the subscription, up to the run and round caps, but
+  can't call another API with it, take it away, or reach another host.
+- **The placeholder path is untested against a real claude.** No test runs
+  claude or reaches the model API; the forwarder's tests use a local server
+  and a made-up credential. The docs say claude sends a
+  `CLAUDE_CODE_OAUTH_TOKEN` as `Authorization: Bearer` with the OAuth beta
+  to `ANTHROPIC_BASE_URL`, but not whether it checks the token's form first.
+  If it does, or sends something else, the first round fails at the first
+  request (401 or 403 in the run's record), and spends nothing.
+- **The reservation is an estimate of the worst case.** A token per byte
+  bounds text. An image or a PDF is priced by its pixels or pages, and the
+  allowance per block (10K tokens for an image, 200K for a document) could
+  in principle be passed by a large PDF. A response that costs more than its
+  reservation is charged in full when it settles, so the next request is
+  refused, but that one response can carry a run past its cap. Charges
+  beyond the body's tokens can't arise: server tools, URL and file sources,
+  fallbacks, server-side compaction and priority tiers are all refused.
+- **The price table is dated** (2026-10-29). A price rise would make the
+  meter err low until the table is updated.
+- **The header allowlist can drop a new capability.** The gateway page asks
+  gateways to pass every `anthropic-*` header through, since Claude Code
+  adds capabilities as new headers. The forwarder drops any header not on
+  its list, so such a capability fails or turns off. Each request's line
+  names the headers dropped, so a run shows it.
+- **The body allowlist may refuse a field claude sends.** It fails closed:
+  a field, block or source not on its list is refused, not guessed at. If
+  the first real run shows Claude Code sending one, the run fails loudly
+  (the field's name is in the record), and the field is added on purpose
+  once it can be priced.
+- **The in-flight cap slows claude.** claude runs subagents and side
+  requests at once. Past two in flight it gets `429` and retries after two
+  seconds, which shows up as wall-clock time, not as a failure.
+- **The token scan finds the value as written.** It does not decode
+  anything, so the token base64-encoded or split across lines would pass.
+  It covers what is kept, not the rest of the scratch directory (the run's
+  HOME, for one), which is never copied out.
+- **Claude Code's direct calls fail.** Fast mode and the WebFetch domain
+  check call `api.anthropic.com` directly, not through
+  `ANTHROPIC_BASE_URL`; inside the sandbox they fail like any other host.
+- **The in-sandbox layers of the network record are the builder's to
+  edit.** The Node, namespace and browser layers write into the run
+  directory, which the sandbox binds read-write. The model channel's lines
+  come from the forwarder's own record, outside, and the metered cost is
+  read from that record alone.

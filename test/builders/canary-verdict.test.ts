@@ -115,7 +115,7 @@ describe('judgeCanary', () => {
 
   test('fails a Node plant missing from the record', () => {
     const observations = passing();
-    observations.record = observations.record.filter((event) => event.host !== 'firestore.googleapis.com');
+    observations.record = observations.record.filter((event) => !('host' in event && event.host === 'firestore.googleapis.com'));
     expect(failedChecks(observations)).toEqual(['node: fetch to Cloud Firestore']);
   });
 

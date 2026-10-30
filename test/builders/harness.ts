@@ -12,41 +12,70 @@
  *       and from Bun and curl inside the run's sandbox, and exits
  *       non-zero if a recorder misses one or one succeeds. Run it before
  *       every round.
+ *   round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
+ *         [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build]
+ *         [--concurrency 1|2]
+ *       Runs every brief of the round once per model, each builder in its
+ *       own sandbox, at the run cap given, under the round cap given.
+ *       Neither cap has a default.
+ *   measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
+ *       Per model: cost per run and per verification, confirmed new findings
+ *       per app, the share thrown out, cost per confirmed new finding, and
+ *       the nightly model and cap.
  *
- * Every command refuses to run (exit 2) where the sandbox is
- * unavailable; there is no fallback without it.
+ * Every command that runs a builder refuses to run (exit 2) where the
+ * sandbox is unavailable; there is no fallback without it.
  */
 import { PreflightFailed, runCanary } from './canary/canary.ts';
+import { flagValue, rejectUnknownFlags, UsageError } from './cli-args.ts';
+import { formatSummary, summarize } from './measure.ts';
+import { readMeasurements } from './measurement.ts';
 import { NamespaceUnavailable } from './namespace.ts';
+import { runRound } from './round.ts';
+import { parseRoundOptions } from './round-options.ts';
+import { measurementsFile } from './round-paths.ts';
 
 interface Command {
   usage: string;
   run(args: readonly string[]): Promise<number>;
 }
 
-class UsageError extends Error {}
-
-function flagValue(args: readonly string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  if (index === -1) return undefined;
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith('--')) throw new UsageError(`${flag} takes a value`);
+function positiveInteger(flag: string, raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) throw new UsageError(`${flag} takes a whole number of at least 1, received "${raw}"`);
   return value;
 }
 
-function rejectUnknownFlags(args: readonly string[], known: readonly string[]): void {
-  const unknown = args.filter((arg) => arg.startsWith('--') && !known.includes(arg));
-  if (unknown.length > 0) throw new UsageError(`unknown option: ${unknown.join(', ')}`);
-}
-
-/** Each command, by name. The round, run, reproduce and measure commands join this table. */
+/** Each command, by name. The run and reproduce commands join this table. */
 const COMMANDS: Record<string, Command> = {
   canary: {
     usage: 'canary [--build] [--packages <dir>]',
     async run(args) {
       rejectUnknownFlags(args, ['--build', '--packages']);
-      const passed = await runCanary({ build: args.includes('--build'), packages: flagValue(args, '--packages') });
+      const packages = flagValue(args, '--packages');
+      const passed = await runCanary({ build: args.includes('--build'), ...(packages === undefined ? {} : { packages }) });
       return passed ? 0 : 1;
+    },
+  },
+  round: {
+    usage: 'round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd> [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]',
+    async run(args) {
+      const passed = await runRound(parseRoundOptions(args));
+      return passed ? 0 : 1;
+    },
+  },
+  measure: {
+    usage: 'measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]',
+    async run(args) {
+      rejectUnknownFlags(args, ['--file', '--runs-per-night', '--json']);
+      const file = flagValue(args, '--file') ?? measurementsFile();
+      const runsPerNight = positiveInteger('--runs-per-night', flagValue(args, '--runs-per-night'));
+      const { lines, errors } = readMeasurements(file);
+      for (const error of errors) console.error(`${file}: ${error}`);
+      const summary = summarize(lines, runsPerNight === undefined ? {} : { runsPerNight });
+      console.log(args.includes('--json') ? JSON.stringify(summary, null, 2) : formatSummary(summary));
+      return errors.length === 0 ? 0 : 1;
     },
   },
 };

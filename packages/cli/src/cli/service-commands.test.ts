@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
+import { COMMANDS_BEFORE_SERVICES } from './index.js';
 import { parseArgs } from './parse-args.js';
+import { SERVICE_COMMANDS } from './service-commands.generated.js';
 import {
   createServiceCommandRegistry,
   dispatchServiceCommand,
@@ -23,6 +25,11 @@ describe('service command dispatcher', () => {
 
   it('leaves a service word that is also a command of its own alone', async () => {
     expect(await dispatchServiceCommand(parseArgs(['sandbox', 'npm', 'run', 'dev']))).toBeNull();
+  });
+
+  it('starts no route with a command the top-level dispatcher runs before loading the routes', () => {
+    const shadowed = SERVICE_COMMANDS.filter(({ path }) => COMMANDS_BEFORE_SERVICES.has(path[0]));
+    expect(shadowed.map(({ path }) => path.join(' '))).toEqual([]);
   });
 
   it('rejects duplicate route paths when constructing a registry', () => {

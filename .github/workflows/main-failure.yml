@@ -25,6 +25,12 @@
 # prints what it would rerun and file for every attempt, and changes nothing.
 # Without dry_run it refuses any run but a push run of Build & Test on main.
 #
+# The quarantine job comments on each quarantined test's tracking issue
+# (scripts/ci/quarantine-release.ts): the test failed in this run without
+# blocking it, it passed the last 20 main runs so its entry can go, or its
+# quarantine expired and it blocks again. A dispatch with dry_run prints the
+# comments instead.
+#
 # It never runs on pull requests and never gates one.
 
 name: Main failure
@@ -84,3 +90,38 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: bun scripts/ci/main-failure.ts
+
+  quarantine:
+    name: Report quarantined tests
+    # One group for every run, so two main runs never read the same issue's
+    # comments at once and post the same comment twice. A pending run that a
+    # newer one replaces loses nothing: each run looks back at the five
+    # before it for failures not yet commented.
+    concurrency:
+      group: main-failure-quarantine
+      cancel-in-progress: false
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.run_attempt == 1 ||
+      github.event.workflow_run.triggering_actor.login != 'github-actions[bot]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Comment on quarantine issues
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bun scripts/ci/quarantine-release.ts
