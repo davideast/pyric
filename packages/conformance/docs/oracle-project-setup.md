@@ -179,18 +179,26 @@ gcloud ADC file.
 
 ## Running the harness
 
-```sh
-export PYRIC_ORACLE_FIREBASE_CONFIG='{"apiKey":"…","authDomain":"…","projectId":"…","storageBucket":"…","appId":"…"}'
-bun run packages/conformance/src/run.ts
-```
-
-Without `PYRIC_ORACLE_FIREBASE_CONFIG`, the harness reads the Web SDK config
-through the Firebase Management API with the oracle credential described
-above, and also deploys and restores the oracle rules:
+The harness always loads the oracle credential described above, and deploys
+and restores the oracle rules:
 
 ```sh
 PYRIC_ORACLE_PROJECT_ID=digame-mas bun run packages/conformance/src/run.ts
 ```
+
+It reads the Web SDK config through the Firebase Management API, or from
+`PYRIC_ORACLE_FIREBASE_CONFIG` when that is set. That config must be for the
+same project as the credential:
+
+```sh
+export PYRIC_ORACLE_FIREBASE_CONFIG='{"apiKey":"…","authDomain":"…","projectId":"…","storageBucket":"…","appId":"…"}'
+PYRIC_ORACLE_PROJECT_ID=digame-mas bun run packages/conformance/src/run.ts
+```
+
+To run the client probes with no credential, pass `--manual-config` with
+`PYRIC_ORACLE_FIREBASE_CONFIG` set. That run deploys no rules, and every probe
+that needs the credential is reported as skipped. A skipped probe never
+overwrites its observation, and the run exits non-zero listing the skips.
 
 Each probe writes its observation to
 `observations/&lt;surface&gt;/&lt;name&gt;.json`. Commit those JSON files

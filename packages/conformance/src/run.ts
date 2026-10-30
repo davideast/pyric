@@ -21,9 +21,12 @@
  * `PYRIC_ORACLE_PROJECT_ID` names. The harness gets a short-lived OAuth
  * token, calls the Firebase Management API to fetch the project's
  * Web SDK config (apiKey, authDomain, …), then initializes the
- * Web SDK normally. Manual config via
- * `PYRIC_ORACLE_FIREBASE_CONFIG` is honored if you'd rather not
- * use the SA path.
+ * Web SDK normally. `PYRIC_ORACLE_FIREBASE_CONFIG`, when set, supplies
+ * the web config in place of the Management API fetch; the credential and
+ * the rules session still come from the oracle credential. A client-only
+ * run with no credential needs the explicit `--manual-config` flag: it
+ * deploys no rules, and a probe that needs the credential skips. A skip is
+ * never written as an observation; the run reports it and exits non-zero.
  *
  * Cleanup: each probe writes under a unique sub-collection
  * (`oracle-<ts>-<rand>-<probe>`) and deletes its docs on the way
@@ -160,6 +163,13 @@ import {
   type Database,
 } from 'firebase/database';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import {
+  assertWebConfigProject,
+  manualWebConfig,
+  oracleRunMode,
+  skipReason,
+  webConfigFromEnv,
+} from './oracle-run-setup.ts';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -336,14 +346,9 @@ let rtdbAdminToken: string | null = null;
 let oracleRulesSession: OracleRulesSession | null = null;
 
 async function loadConfig(): Promise<FirebaseWebConfig> {
-  // Manual override path (no SA needed) — paste the Web config JSON.
-  const manual = process.env.PYRIC_ORACLE_FIREBASE_CONFIG;
-  if (manual) {
-    try {
-      return JSON.parse(manual) as FirebaseWebConfig;
-    } catch (e) {
-      throw new Error(`PYRIC_ORACLE_FIREBASE_CONFIG is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
-    }
+  if (oracleRunMode(process.argv) === 'manual') {
+    console.log('[oracle] --manual-config: no oracle credential; no rules are deployed, and probes that need the credential are reported as skipped.');
+    return manualWebConfig(process.env);
   }
 
   // The oracle credential: the key file PYRIC_ORACLE_SA_PATH names, or
@@ -353,7 +358,9 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   serviceAccount = sa;
   console.log(`[oracle] project: ${sa.project_id}`);
   const token = await oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
-  const cfg = await fetchWebConfig(token, sa.project_id);
+  const envConfig = webConfigFromEnv(process.env);
+  if (envConfig) assertWebConfigProject(envConfig, sa.project_id);
+  const cfg = envConfig ?? await fetchWebConfig(token, sa.project_id);
   // The Firestore, Storage, and RTDB oracle rules are deployed by `main` inside
   // `runWithOracleRulesRestored`, so the project's rules are put back when the
   // run ends. The session mints a fresh token for each phase because a run can
@@ -8799,12 +8806,19 @@ async function main(): Promise<void> {
     console.log(`[oracle] running ${probes.length} probes against real cloud services`);
   }
 
+  const skippedProbes: string[] = [];
   const runProbes = async (): Promise<void> => {
     for (const probe of selected) {
       process.stdout.write(`[oracle] ${probe.name} (${probe.matrixRow}) ... `);
       const t0 = Date.now();
       try {
         const behavior = await probe.observe();
+        const skip = skipReason(behavior);
+        if (skip !== null) {
+          skippedProbes.push(`${probe.name}: ${skip}`);
+          console.log(`SKIPPED, observation not written: ${skip}`);
+          continue;
+        }
         const obs: Observation = {
           name: probe.name,
           matrixRow: probe.matrixRow,
@@ -8858,6 +8872,11 @@ async function main(): Promise<void> {
     }
   }
   console.log('[oracle] observations written to observations/<surface>/');
+  if (skippedProbes.length > 0) {
+    console.error(`[oracle] ${skippedProbes.length} probe(s) skipped; their observations were not written:`);
+    for (const line of skippedProbes) console.error(`  - ${line}`);
+    process.exitCode = 1;
+  }
 }
 
 /**
