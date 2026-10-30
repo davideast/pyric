@@ -12,15 +12,21 @@ final class FakeReconnectSocket: WebSocketTransport, @unchecked Sendable {
     private var closeCode: Int?
     private let onFrame: @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
     private let beforeSend: @Sendable ([String: AnySendable]) async -> Void
-    /// Whether the host behind this socket answers `ping` with `pong`.
-    let answersPings: Bool
+    private var _answersPings: Bool
+
+    /// Whether the host behind this socket answers `ping` with `pong`. A test
+    /// turns it off to make an open socket go silent from that moment.
+    var answersPings: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _answersPings }
+        set { lock.lock(); _answersPings = newValue; lock.unlock() }
+    }
 
     init(
         answersPings: Bool = false,
         beforeSend: @escaping @Sendable ([String: AnySendable]) async -> Void = { _ in },
         onFrame: @escaping @Sendable ([String: AnySendable], FakeReconnectSocket) -> Void
     ) {
-        self.answersPings = answersPings
+        self._answersPings = answersPings
         self.beforeSend = beforeSend
         self.onFrame = onFrame
     }
@@ -939,16 +945,21 @@ struct BridgeReconnectTests {
     @Test("A silent host is a drop: the in-flight operation fails once, the old socket closes, and the client reconnects")
     func silentHostIsADrop() async throws {
         let bridge = FakeReconnectBridge()
-        let client = await makeHeartbeatClient(bridge, interval: 0.05, timeout: 0.25)
+        let client = await makeHeartbeatClient(bridge, interval: 0.05, timeout: 1.0)
         let states = Collected<BridgeConnectionState>()
         let watcher = Task { for await state in client.connectionStates { states.append(state) } }
+        // The first socket answers pings until the operation is on it, then goes
+        // silent. A drop declared before the frame was written would hold the
+        // operation and send it on the new socket, where it waits out the 35 s
+        // op timeout instead of failing as lost (#1473).
+        bridge.answersPings = true
         try await client.connect()
         let silent = bridge.current
 
-        // The first socket stays silent; the socket the client reconnects on answers.
-        bridge.answersPings = true
         let inFlight = Task { try await client.op(method: "setDoc", params: ["path": .string("rooms/a")]) }
         try await until { bridge.ops(named: "setDoc").count == 1 }
+        #expect(bridge.socketCount == 1)
+        silent.answersPings = false
         do {
             _ = try await inFlight.value
             Issue.record("expected the in-flight operation to fail")
