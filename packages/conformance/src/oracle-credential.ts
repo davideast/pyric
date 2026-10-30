@@ -57,17 +57,25 @@ export type OracleServiceAccount =
 export interface OracleCredentialVariables {
   keyPath: string;
   project: string;
+  /**
+   * Under ADC, whether the account must be a service account of `project`. The
+   * oracle project's own account must be; the secondary project is reached by
+   * the oracle account across projects, so its account lives elsewhere.
+   */
+  accountInProject: boolean;
 }
 
 export const ORACLE_VARIABLES: OracleCredentialVariables = {
   keyPath: ORACLE_KEY_PATH_VARIABLE,
   project: ORACLE_PROJECT_VARIABLE,
+  accountInProject: true,
 };
 
 /** The secondary Firestore project the Storage cross-service probes isolate against. */
 export const SECONDARY_ORACLE_VARIABLES: OracleCredentialVariables = {
   keyPath: 'PYRIC_SECONDARY_ORACLE_SA_PATH',
   project: 'PYRIC_SECONDARY_ORACLE_PROJECT_ID',
+  accountInProject: false,
 };
 
 /** The seams a test replaces: the key file, the firebase-admin credentials, and the capture log. */
@@ -155,7 +163,7 @@ async function applicationDefaultAccount(
   warnWhenAdcReadsAnExplicitFile(env, variables, deps);
   const credential = deps.applicationDefault();
   const email = await applicationDefaultEmail(credential);
-  assertAccountInProject(email, projectId, variables);
+  if (variables.accountInProject) assertAccountInProject(email, projectId, variables);
   return { kind: 'application-default', project_id: projectId, credential, client_email: email };
 }
 
@@ -189,11 +197,22 @@ function namesItsAccount(credential: Credential): credential is Credential & Acc
 const IMPERSONATED_LOGIN_HINT =
   'Log in with `gcloud auth application-default login --impersonate-service-account=<oracle service account>`.';
 
+/** The account email, or the reason Application Default Credentials could not name one. */
+async function lookUpAccountEmail(credential: Credential): Promise<{ email: string; failure?: string }> {
+  if (!namesItsAccount(credential)) return { email: '' };
+  try {
+    return { email: await credential.getServiceAccountEmail() };
+  } catch (error) {
+    return { email: '', failure: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 async function applicationDefaultEmail(credential: Credential): Promise<string> {
-  const email = namesItsAccount(credential) ? await credential.getServiceAccountEmail().catch(() => '') : '';
+  const { email, failure } = await lookUpAccountEmail(credential);
   if (email) return email;
+  const cause = failure ? ` The lookup failed: ${failure}` : '';
   throw new Error(
-    `Application Default Credentials name no service account; a plain user login cannot run the oracle captures. ${IMPERSONATED_LOGIN_HINT}`,
+    `Application Default Credentials name no service account; a plain user login cannot run the oracle captures.${cause} ${IMPERSONATED_LOGIN_HINT}`,
   );
 }
 

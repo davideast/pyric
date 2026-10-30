@@ -43,7 +43,7 @@ function fakeCredential(token: string, email?: string): Credential {
 function credentialThatCannotNameItsAccount(): Credential {
   return {
     getAccessToken: async () => ({ access_token: 'adc-token', expires_in: 3600 }),
-    getServiceAccountEmail: async () => { throw new Error('no client_email'); },
+    getServiceAccountEmail: async () => { throw new Error('Could not load the default credentials'); },
   } as Credential;
 }
 
@@ -234,13 +234,28 @@ describe('loadOracleServiceAccount', () => {
     expect(recorded.adcCalls).toBe(0);
   });
 
-  it('loads the secondary project from its own variables and checks the account against it', async () => {
+  it('names the lookup failure when ADC cannot name its account', async () => {
+    const { deps } = fakeDeps({}, credentialThatCannotNameItsAccount());
+    await expect(loadOracleServiceAccount(ADC_ENV, ORACLE_VARIABLES, deps))
+      .rejects.toThrow(/The lookup failed: Could not load the default credentials/);
+  });
+
+  it('reaches the secondary project with the oracle account, which lives in the oracle project', async () => {
     const env = { PYRIC_ORACLE_PROJECT_ID: 'oracle-project', PYRIC_SECONDARY_ORACLE_PROJECT_ID: 'secondary-project' };
-    const secondary = fakeDeps({}, fakeCredential('adc-token', 'sa@secondary-project.iam.gserviceaccount.com'));
-    expect((await loadOracleServiceAccount(env, SECONDARY_ORACLE_VARIABLES, secondary.deps)).project_id).toBe('secondary-project');
-    const mismatched = fakeDeps();
-    await expect(loadOracleServiceAccount(env, SECONDARY_ORACLE_VARIABLES, mismatched.deps))
-      .rejects.toThrow(/PYRIC_SECONDARY_ORACLE_PROJECT_ID is secondary-project/);
+    const { deps, recorded } = fakeDeps();
+    const sa = await loadOracleServiceAccount(env, SECONDARY_ORACLE_VARIABLES, deps);
+    expect(sa.project_id).toBe('secondary-project');
+    expect(oracleServiceAccountEmail(sa)).toBe(IMPERSONATED_EMAIL);
+    expect(recorded.logs).toEqual([
+      `[oracle] credential: Application Default Credentials for ${IMPERSONATED_EMAIL}, project secondary-project`,
+    ]);
+  });
+
+  it('still refuses a secondary credential that names no service account', async () => {
+    const env = { PYRIC_SECONDARY_ORACLE_PROJECT_ID: 'secondary-project' };
+    const { deps, recorded } = fakeDeps({}, fakeCredential('adc-token'));
+    await expect(loadOracleServiceAccount(env, SECONDARY_ORACLE_VARIABLES, deps)).rejects.toThrow(/name no service account/);
+    expect(recorded.logs).toEqual([]);
   });
 });
 

@@ -133,7 +133,15 @@ logs it, for example
 It refuses to start when ADC names no service account (a plain
 `gcloud auth application-default login` without impersonation), or when the
 account's `@<project>.iam.gserviceaccount.com` project is not
-`PYRIC_ORACLE_PROJECT_ID`. Rigs that use a second
+`PYRIC_ORACLE_PROJECT_ID`. The secondary project is the exception to the
+project match: the same oracle account reaches it across projects, so it only
+has to be a service account.
+
+A CI Workload Identity Federation file in `GOOGLE_APPLICATION_CREDENTIALS`
+works only when it impersonates a service account (its
+`service_account_impersonation_url` names one in the oracle project). A
+federated identity without impersonation names no service account and is
+refused. Rigs that use a second
 project read `PYRIC_SECONDARY_ORACLE_SA_PATH`, or
 `PYRIC_SECONDARY_ORACLE_PROJECT_ID` with the same ADC login, in the same way.
 
