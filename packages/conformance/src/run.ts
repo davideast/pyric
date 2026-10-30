@@ -4090,7 +4090,7 @@ const probes: Probe[] = [
   {
     name: 'storage-upload-then-getmetadata',
     matrixRow: 'storage #89',
-    rowIds: ['storage#89', 'storage#37', 'storage#91'],
+    rowIds: ['storage#89', 'storage#37', 'storage#91', 'storage#118'],
     description:
       'uploadBytes with contentType: application/octet-stream, then getMetadata — verify contentType and size round-trip exactly.',
     async observe() {
