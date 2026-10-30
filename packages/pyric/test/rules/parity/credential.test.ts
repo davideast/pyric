@@ -6,6 +6,8 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -96,6 +98,43 @@ describe('a configured credential that cannot mint a token fails the run', () =>
     else process.env.GOOGLE_APPLICATION_CREDENTIALS = saved;
     if (dir) rmSync(dir, { recursive: true, force: true });
     dir = undefined;
+  });
+
+  // In CI a live parity test mints a token from the real Workload Identity
+  // Federation file before the cases below run, in the same process. This
+  // stands in for it: an external-account file whose token exchange goes to a
+  // loopback STS, so a credential mints a token without leaving the machine.
+  // The cases after it must still read the file their own environment names.
+  test('a credential that minted a token earlier in the process does not answer for a later scope', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'parity-credential-'));
+    const sts = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        access_token: 'loopback-token',
+        issued_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+        token_type: 'Bearer',
+        expires_in: 3600,
+      }));
+    });
+    await new Promise<void>((resolve) => sts.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = sts.address() as AddressInfo;
+      const subjectToken = join(dir, 'subject-token');
+      writeFileSync(subjectToken, 'subject');
+      const file = join(dir, 'external-account.json');
+      writeFileSync(file, JSON.stringify({
+        type: 'external_account',
+        audience: '//iam.googleapis.com/projects/0/locations/global/workloadIdentityPools/p/providers/p',
+        subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+        token_url: `http://127.0.0.1:${port}/v1/token`,
+        credential_source: { file: subjectToken },
+      }));
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = file;
+      const scope = parityScope({ source: 'adc', projectId: 'p', origin: 'GOOGLE_APPLICATION_CREDENTIALS' });
+      expect(await scope.resolveToken()).toBe('loopback-token');
+    } finally {
+      await new Promise<void>((resolve) => sts.close(() => resolve()));
+    }
   });
 
   test('an ADC file that does not exist rejects from resolveToken', async () => {
