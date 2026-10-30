@@ -1,6 +1,7 @@
 import { repeatStable, scenarioPath, stable } from './probe-runtime.ts';
 import type { RtdbClimbContext, RtdbClimbProbe } from './probe-types.ts';
 import { RULES_DEPLOY_REFUSAL_CASES as CASES } from './rules-deploy-refusals.cases.ts';
+import { climbRulesEndpoint } from './rules-endpoint.ts';
 
 /** Drop the `line:column:` prefix: the column counts from the start of the whole rules document. */
 function refusalMessage(body: string): string {
@@ -24,17 +25,9 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
     observe: () => repeatStable(2, async (attempt) => {
       const path = scenarioPath(ctx, 'rules-deploy-refusals', attempt);
       const run = path.split('/')[1]!;
-      const rulesUrl = `${ctx.config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(ctx.rtdbAdminToken)}`;
-      const readRules = async (): Promise<Record<string, unknown>> => {
-        const response = await fetch(rulesUrl);
-        if (!response.ok) throw new Error(`rules deploy refusal read failed: ${response.status}`);
-        return response.json() as Promise<Record<string, unknown>>;
-      };
-      const putRules = (body: Record<string, unknown>) => fetch(`${rulesUrl}&print=silent`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const rules = climbRulesEndpoint(ctx, 'rules deploy refusal');
+      const readRules = rules.read;
+      const putRules = rules.put;
       const before = await readRules();
       const rootRules = before.rules && typeof before.rules === 'object'
         ? before.rules as Record<string, unknown>
@@ -54,6 +47,12 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
       try {
         for (const [label, subtree] of Object.entries(CASES)) {
           const response = await putRules(withCase(subtree));
+          // Only a 400 is production refusing the ruleset. Any other status,
+          // a 429 past the back-off cap included, is not a verdict.
+          const isRefusal = response.status === 400;
+          if (!response.ok && !isRefusal) {
+            throw new Error(`rules deploy refusal case "${label}" returned ${response.status}: ${await response.text()}`);
+          }
           outcomes[label] = response.ok
             ? { accepted: true, status: response.status, message: null }
             : { accepted: false, status: response.status, message: refusalMessage(await response.text()) };

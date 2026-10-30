@@ -16,7 +16,12 @@
  * RTDB rules live on the database itself, not in a Rules API release.
  * `deployRtdb` records the database's rules source verbatim before it writes,
  * and `restoreAll` writes that source back and reads it back to confirm it.
+ *
+ * Every rules call waits out a 429 with back-off (`fetchWithRateLimitRetry`),
+ * because the rules endpoints throttle a project for minutes after a burst,
+ * and a restore that threw on a 429 would leave the oracle block in place.
  */
+import { fetchWithRateLimitRetry, rateLimitDeps, type RateLimitDeps } from './rtdb-rules-rate-limit.ts';
 import { RequestBudget } from './storage-stdlib-real-budget.ts';
 import { restoreRulesRelease } from './storage-stdlib-real-rules.ts';
 
@@ -164,6 +169,8 @@ export interface OracleRulesSessionOptions {
   accessToken: () => Promise<string>;
   /** The HTTP client; tests supply an in-memory Rules API. */
   fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  /** Waits out a 429's back-off; tests supply one that returns at once. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 interface ReleaseBaseline {
@@ -189,14 +196,22 @@ const RESTORE_ATTEMPTS = 3;
 export class OracleRulesSession {
   private readonly projectId: string;
   private readonly accessToken: () => Promise<string>;
-  private readonly send: (url: string, init?: RequestInit) => Promise<Response>;
+  private readonly rateLimit: RateLimitDeps;
   private headers: { auth: Record<string, string>; json: Record<string, string> } = { auth: {}, json: {} };
   private baselines: Baseline[] = [];
 
   constructor(options: OracleRulesSessionOptions) {
     this.projectId = options.projectId;
     this.accessToken = options.accessToken;
-    this.send = options.fetch ?? ((url, init) => fetch(url, init));
+    this.rateLimit = rateLimitDeps({
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+      ...(options.sleep ? { sleep: options.sleep } : {}),
+    });
+  }
+
+  /** One rules call, sent again after each 429 until the back-off cap. */
+  private send(url: string, init: RequestInit | undefined, label: string): Promise<Response> {
+    return fetchWithRateLimitRetry(url, init, label, { deps: this.rateLimit, logPrefix: '[oracle:rules]' });
   }
 
   private async refreshHeaders(): Promise<void> {
@@ -205,7 +220,7 @@ export class OracleRulesSession {
   }
 
   private async request<T>(url: string, init: RequestInit, label: string): Promise<T> {
-    const response = await this.send(url, init);
+    const response = await this.send(url, init, label);
     const text = await response.text();
     if (!response.ok) throw new Error(`${label} failed: ${response.status} ${text}`);
     return JSON.parse(text) as T;
@@ -223,7 +238,7 @@ export class OracleRulesSession {
     const service = target.service;
 
     await this.refreshHeaders();
-    const releaseResponse = await this.send(releaseUrl, { headers: this.headers.auth });
+    const releaseResponse = await this.send(releaseUrl, { headers: this.headers.auth }, `read ${service} release`);
     let current: string | null = null;
     let rulesetName: string | null = null;
     if (releaseResponse.status !== 404) {
@@ -274,7 +289,7 @@ export class OracleRulesSession {
       method: 'PATCH',
       headers: this.headers.json,
       body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }),
-    });
+    }, `activate ${service} oracle ruleset`);
     if (patch.ok) return outcome;
     const patchText = await patch.text();
     if (patch.status !== 404) {
@@ -309,7 +324,7 @@ export class OracleRulesSession {
   }
 
   private async readRtdbRules(databaseUrl: string, token: string): Promise<string> {
-    const response = await this.send(rtdbRulesUrl(databaseUrl, token));
+    const response = await this.send(rtdbRulesUrl(databaseUrl, token), undefined, 'read RTDB rules');
     const text = await response.text();
     if (!response.ok) throw new Error(`read RTDB rules failed: ${response.status} ${text}`);
     return text;
@@ -321,7 +336,7 @@ export class OracleRulesSession {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: source,
-    });
+    }, label);
     if (!response.ok) throw new Error(`${label} failed: ${response.status} ${await response.text()}`);
   }
 
@@ -387,7 +402,7 @@ export class OracleRulesSession {
   private async restore(baseline: ReleaseBaseline): Promise<void> {
     if (baseline.rulesetName === null) {
       await this.request(baseline.releaseUrl, { method: 'DELETE', headers: this.headers.auth }, 'delete oracle release');
-      const after = await this.send(baseline.releaseUrl, { headers: this.headers.auth });
+      const after = await this.send(baseline.releaseUrl, { headers: this.headers.auth }, 'read deleted oracle release');
       if (after.status !== 404) {
         throw new Error(`the release created for the run still exists (status ${after.status})`);
       }

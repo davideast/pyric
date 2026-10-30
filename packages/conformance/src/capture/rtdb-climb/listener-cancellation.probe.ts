@@ -21,6 +21,7 @@ import {
   waitFor,
 } from './probe-runtime.ts';
 import type { RtdbClimbContext, RtdbClimbProbe } from './probe-types.ts';
+import { climbRulesEndpoint } from './rules-endpoint.ts';
 
 export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
   return {
@@ -32,20 +33,9 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
       observe: () => repeatStable(2, async (attempt) => {
         const path = scenarioPath(ctx, 'listener-cancellation', attempt);
         const run = path.split('/')[1]!;
-        const rulesUrl = `${ctx.config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(ctx.rtdbAdminToken)}`;
-        const readRules = async (): Promise<Record<string, unknown>> => {
-          const response = await fetch(rulesUrl);
-          if (!response.ok) throw new Error(`listener cancellation rules read failed: ${response.status}`);
-          return response.json() as Promise<Record<string, unknown>>;
-        };
-        const writeRules = async (body: Record<string, unknown>): Promise<void> => {
-          const response = await fetch(`${rulesUrl}&print=silent`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          if (!response.ok) throw new Error(`listener cancellation rules write failed: ${response.status}`);
-        };
+        const rules = climbRulesEndpoint(ctx, 'listener cancellation');
+        const readRules = rules.read;
+        const writeRules = rules.write;
         const before = await readRules();
         const rootRules = before.rules && typeof before.rules === 'object'
           ? before.rules as Record<string, unknown>

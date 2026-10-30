@@ -1,17 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  DEPLOY_SCENARIO_GAP_MS,
-  LARGE_RULESET_GAP_MS,
-  LARGE_RULESET_SCENARIO_IDS,
-  deployScenarioGapMs,
-  dryRunTimeoutMs,
-  LARGE_RULESET_DRY_RUN_TIMEOUT_MS,
+  RULES_ENDPOINT_RATE_LIMIT,
   fetchWithRateLimitRetry,
   retryAfterMs,
   type RateLimitDeps,
   type RateLimitPolicy,
 } from './rtdb-rules-rate-limit.ts';
-import { ALL_RULES_RTDB_DEPLOY_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 
 const POLICY: RateLimitPolicy = { initialDelayMs: 1_000, maxDelayMs: 8_000, maxTotalWaitMs: 20_000 };
 
@@ -87,18 +81,7 @@ describe('rtdb-rules rate-limit retry', () => {
   });
 });
 
-describe('deploy scenario spacing', () => {
-  it('names only deploy scenarios the corpus has', () => {
-    const ids = new Set(ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((scenario) => scenario.id));
-    for (const id of LARGE_RULESET_SCENARIO_IDS) expect(ids.has(id)).toBe(true);
-  });
-
-  it('gives the large-ruleset dry runs an explicit 120s limit and leaves the rest at the default', () => {
-    expect(dryRunTimeoutMs('r51-deploy-anchor-index-and-length-probes')).toBe(LARGE_RULESET_DRY_RUN_TIMEOUT_MS);
-    expect(dryRunTimeoutMs('r61-deploy-regex-3000-groups')).toBe(120_000);
-    expect(dryRunTimeoutMs('r29-deploy-rejections')).toBeUndefined();
-  });
-
+describe('rtdb-rules request limits', () => {
   it('sends each request with its own timeout signal when one is set', async () => {
     const signals: Array<AbortSignal | null | undefined> = [];
     const deps = fakeDeps([429, 200]);
@@ -113,10 +96,13 @@ describe('deploy scenario spacing', () => {
     await fetchWithRateLimitRetry('u', { method: 'PUT' }, 'dry run', { policy: POLICY, deps: recording });
     expect(signals[2]).toBeUndefined();
   });
+});
 
-  it('pauses longer after the large-ruleset scenarios', () => {
-    expect(deployScenarioGapMs('r51-deploy-anchor-index-and-length-probes')).toBe(LARGE_RULESET_GAP_MS);
-    expect(deployScenarioGapMs('r61-deploy-regex-3000-groups')).toBe(LARGE_RULESET_GAP_MS);
-    expect(deployScenarioGapMs('r29-deploy-rejections')).toBe(DEPLOY_SCENARIO_GAP_MS);
+describe('rules endpoint rate-limit policy', () => {
+  it('is one policy for every rules endpoint: RTDB rules, and the Firestore and Storage Rules API', async () => {
+    expect(RULES_ENDPOINT_RATE_LIMIT).toEqual({ initialDelayMs: 5_000, maxDelayMs: 120_000, maxTotalWaitMs: 15 * 60_000 });
+    const deps = fakeDeps([429, 200]);
+    await fetchWithRateLimitRetry('u', undefined, 'read', { deps });
+    expect(deps.waits).toEqual([RULES_ENDPOINT_RATE_LIMIT.initialDelayMs]);
   });
 });

@@ -1,10 +1,11 @@
 /**
- * Rate-limit handling for the rtdb-rules rig's REST calls to
- * `/.settings/rules.json` and the run-data store. Production answers a burst
- * of large dry runs with `429 Request rate limit exceeded`. A 429 is waited
- * out with exponential back-off, honouring `Retry-After`, under a cap on the
- * total wait, so a throttled restore read retries instead of reporting a
- * failed restore.
+ * Rate-limit handling for calls to the rules endpoints: RTDB's
+ * `/.settings/rules.json` and run-data store (the rtdb-rules rig and the
+ * rtdb-climb probes), and the Firestore and Storage Rules API (the oracle
+ * rules session). Production answers a burst of large dry runs with
+ * `429 Request rate limit exceeded`. A 429 is waited out with exponential
+ * back-off, honouring `Retry-After`, under a cap on the total wait, so a
+ * throttled restore read retries instead of reporting a failed restore.
  */
 
 export interface RateLimitPolicy {
@@ -16,35 +17,12 @@ export interface RateLimitPolicy {
   maxTotalWaitMs: number;
 }
 
-export const RTDB_RULES_RATE_LIMIT: RateLimitPolicy = {
+/** The back-off every rules endpoint call uses, RTDB or Rules API. */
+export const RULES_ENDPOINT_RATE_LIMIT: RateLimitPolicy = {
   initialDelayMs: 5_000,
   maxDelayMs: 120_000,
   maxTotalWaitMs: 15 * 60_000,
 };
-
-/** The pause after each deploy scenario's dry runs, before the next scenario. */
-export const DEPLOY_SCENARIO_GAP_MS = 5_000;
-
-/** The pause after a scenario whose dry runs carry very large rulesets. */
-export const LARGE_RULESET_GAP_MS = 60_000;
-
-/** Deploy scenarios whose rulesets production is slow to validate. */
-export const LARGE_RULESET_SCENARIO_IDS: ReadonlySet<string> = new Set([
-  'r51-deploy-anchor-index-and-length-probes',
-  'r61-deploy-regex-3000-groups',
-]);
-
-export function deployScenarioGapMs(scenarioId: string): number {
-  return LARGE_RULESET_SCENARIO_IDS.has(scenarioId) ? LARGE_RULESET_GAP_MS : DEPLOY_SCENARIO_GAP_MS;
-}
-
-/** The request limit for one dry run of a large-ruleset scenario. */
-export const LARGE_RULESET_DRY_RUN_TIMEOUT_MS = 120_000;
-
-/** A dry run's explicit request limit, or undefined for the runtime's default. */
-export function dryRunTimeoutMs(scenarioId: string): number | undefined {
-  return LARGE_RULESET_SCENARIO_IDS.has(scenarioId) ? LARGE_RULESET_DRY_RUN_TIMEOUT_MS : undefined;
-}
 
 /**
  * The wait `Retry-After` asks for, in milliseconds: delta-seconds or an HTTP
@@ -73,11 +51,18 @@ const defaultDeps: RateLimitDeps = {
   log: (message) => console.log(message),
 };
 
+/** The default dependencies with some replaced, such as a fake `fetch` or `sleep`. */
+export function rateLimitDeps(overrides: Partial<RateLimitDeps>): RateLimitDeps {
+  return { ...defaultDeps, ...overrides };
+}
+
 export interface RateLimitOptions {
   policy?: RateLimitPolicy;
   deps?: RateLimitDeps;
   /** Each request's own limit, as a fresh `AbortSignal.timeout`; a 429 wait is not counted against it. */
   timeoutMs?: number;
+  /** Starts each back-off log line. */
+  logPrefix?: string;
 }
 
 function requestInit(init: RequestInit | undefined, timeoutMs: number | undefined): RequestInit | undefined {
@@ -96,8 +81,9 @@ export async function fetchWithRateLimitRetry(
   label: string,
   options: RateLimitOptions = {},
 ): Promise<Response> {
-  const policy = options.policy ?? RTDB_RULES_RATE_LIMIT;
+  const policy = options.policy ?? RULES_ENDPOINT_RATE_LIMIT;
   const deps = options.deps ?? defaultDeps;
+  const logPrefix = options.logPrefix ?? '[oracle:rules-rtdb]';
   let waited = 0;
   let backoff = policy.initialDelayMs;
   for (;;) {
@@ -109,7 +95,7 @@ export async function fetchWithRateLimitRetry(
     const wouldPassCap = waited + delay > policy.maxTotalWaitMs;
     if (wouldPassCap) return res;
     await res.body?.cancel();
-    deps.log(`[oracle:rules-rtdb] ${label} answered 429; waiting ${Math.round(delay / 1_000)}s before a retry.`);
+    deps.log(`${logPrefix} ${label} answered 429; waiting ${Math.round(delay / 1_000)}s before a retry.`);
     await deps.sleep(delay);
     waited += delay;
     backoff = Math.min(backoff * 2, policy.maxDelayMs);
