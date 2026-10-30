@@ -568,16 +568,23 @@ There is no `/mnt`, no `/run/WSL`, no `/run/user` and no home directory
 beyond the bound paths. The network namespace has only `lo`.
 
 **The harness's view of its repo** (`harness-view.ts`). A builder works from
-the public docs and the packed packages alone, so the sandbox never gets the
-whole repo: a `cat packages/pyric/src/...` from the builder's shell finds no
-file. It gets, at the paths the host has them, `test/builders` (the run
+the public docs and the packed packages, so the sandbox never gets the
+repo: its tests, its internals and its git history aren't there, and a
+`cat <repo>/packages/pyric/src/...` from the builder's shell finds no file.
+What a builder can read of pyric is what a real install of the published
+packages holds, and that includes their `src/` under
+`app/node_modules/pyric*` and `app/node_modules/@pyric/*`: the app-builder
+skill's rule, not the sandbox, keeps a builder out of it. The sandbox
+gets, at the paths the host has them, `test/builders` (the run
 phase, the recorder, the inventory, the docs export, the canary's plants),
 the few repo files that code imports (`test/apps`' process driver and its
 helpers, and `packages/cli/src/google-endpoints.ts`, the Google endpoint
 catalog the recorder classifies hosts with), and zod and Playwright's
 client, with their dependencies, at `node_modules/<name>`. Nothing else of
 `packages/`, no other test, and no `.git`. A file the harness's code starts
-importing inside the sandbox goes on that list, or the canary fails.
+importing inside the sandbox goes on that list: `harness-view.test.ts`
+walks the imports of every entry point that runs inside and fails offline on
+one that isn't bound.
 
 **The holder.** bwrap's command adds two routes that send every IPv4 and IPv6
 address to loopback, then runs `recorder/holder.mjs`, which holds the sandbox

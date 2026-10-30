@@ -8,7 +8,8 @@
  *
  * The sandbox sees only what `sandboxArgs` binds: /usr and a few /etc files
  * read-only, the harness's view of its repo (`harness-view.ts`: its own
- * code and packages, never pyric's source), toolchain and caches read-only,
+ * code and packages, not the repo's sources, tests or git history),
+ * toolchain and caches read-only,
  * the run directory read-write, a fresh /dev, /proc, /tmp and /run, and its own
  * resolv.conf and hosts. There is no /mnt, no /run/WSL and no /run/user. A
  * cache the run must write to (npm's) gets an overlay whose writes stay in
@@ -282,6 +283,15 @@ export function ownDirs(runRoot: string, env: NodeJS.ProcessEnv = process.env): 
   return [...new Set([runRoot, '/tmp', ...freshTmpdir])];
 }
 
+/** The harness's view of its repo; `NamespaceUnavailable` when a package it needs can't be bound. */
+function harnessViewOrRefuse(): ReturnType<typeof harnessView> {
+  try {
+    return harnessView();
+  } catch (error) {
+    throw new NamespaceUnavailable(`the harness's view of its repo is incomplete: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /**
  * Starts a run's sandbox, checks it, and returns how to enter it. Throws
  * `NamespaceUnavailable`, having started nothing that stays running, when the
@@ -295,7 +305,7 @@ export async function startEgressNamespace(options: SandboxOptions): Promise<Egr
   writeFileSync(resolvConf, SANDBOX_RESOLV_CONF);
   writeFileSync(hosts, SANDBOX_HOSTS);
   const tmpdir = process.env.TMPDIR;
-  const harness = harnessView();
+  const harness = harnessViewOrRefuse();
   const layout: SandboxLayout = {
     runRoot: options.runRoot,
     readOnly: [...harness.readOnly, ...toolchainDirs(), ...(options.readOnly ?? []), ...(options.overlaid ?? [])],

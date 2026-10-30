@@ -1,8 +1,11 @@
 /**
- * What of the harness's repo a run's sandbox sees. A builder must work from
- * pyric's public docs and packed packages alone, so the sandbox never gets
- * the whole repo: no `packages/*\/src`, no tests of pyric's, no `.git`. It
- * gets, read-only and at the paths the host has them:
+ * What of the harness's repo a run's sandbox sees. A builder works from
+ * pyric's public docs and packed packages, so the sandbox never gets the
+ * repo: not its packages' sources, its tests, its internals or its git
+ * history. What a builder can read of pyric is what a real install of the
+ * published packages holds, which includes their `src/` under
+ * `node_modules/pyric*`. It gets, read-only and at the paths the host has
+ * them:
  *
  * - `test/builders`, the harness's own code, which runs inside: the run
  *   phase, the recorder, the sandbox inventory, the docs export and the
@@ -16,7 +19,8 @@
  * Everything else a run needs is bound by its caller: the packed packages,
  * Playwright's browsers, the toolchain, and the run root, which holds the
  * brief and the public docs. A file the harness's code starts importing
- * inside the sandbox must be added here, or the canary fails.
+ * inside the sandbox must be added here: `harness-view.test.ts` walks the
+ * imports of every entry point that runs inside, and fails on one that isn't.
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -64,14 +68,21 @@ function dependencyNames(packageDir: string): string[] {
   return Object.keys(manifest.dependencies ?? {});
 }
 
-/** Each package `names` needs, itself or as a dependency, by name, at its real directory on the host. */
+/**
+ * Each package `names` needs, itself or as a dependency, by name, at its
+ * real directory on the host. Throws when one is missing, or when two need
+ * different copies of a package, since the view binds one per name.
+ */
 export function packageClosure(fromDir: string, names: readonly string[]): Map<string, string> {
   const found = new Map<string, string>();
   const visit = (dir: string, name: string) => {
-    if (found.has(name)) return;
     const at = findPackage(dir, name);
     if (at === undefined) throw new Error(`the harness needs ${name} inside the sandbox, and no node_modules above ${dir} has it`);
     const real = realpathSync(at);
+    const earlier = found.get(name);
+    if (earlier === real) return;
+    const isSecondCopy = earlier !== undefined;
+    if (isSecondCopy) throw new Error(`the harness needs two copies of ${name} inside the sandbox (${earlier} and ${real}), and binds one per name`);
     found.set(name, real);
     for (const dependency of dependencyNames(real)) visit(real, dependency);
   };

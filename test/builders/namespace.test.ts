@@ -186,7 +186,7 @@ describe('startEgressNamespace', () => {
     expect(events.filter((event) => event.kind === 'connect')).toEqual([expect.objectContaining({ via: 'catch-all', address: '192.0.2.1', port: 80 })]);
   }, SANDBOX_TEST_TIMEOUT_MS);
 
-  test('shows a run the harness’s own files and packages, and none of pyric’s source, even to cat through a shell', async () => {
+  test('shows a run the harness’s own files and packages and none of the repo’s, even to cat through a shell', async () => {
     const repo = resolve(import.meta.dir, '../..');
     const source = join(repo, 'packages', 'pyric', 'src');
     const sourceFile = join(source, readdirSync(source).find((name) => name.endsWith('.ts')) ?? 'index.ts');
@@ -201,7 +201,7 @@ describe('startEgressNamespace', () => {
     try {
       const cat = run('sh', ['-c', `cat ${sourceFile}`]);
       expect(cat.status).not.toBe(0);
-      expect(cat.stderr).toContain('No such file or directory');
+      expect(cat.stderr.trim()).toBe(`cat: ${sourceFile}: No such file or directory`);
       expect(listing(repo).sort()).toEqual(['node_modules', 'packages', 'test']);
       expect(listing(join(repo, 'packages'))).toEqual(['cli']);
       expect(listing(join(repo, 'packages', 'cli', 'src'))).toEqual(['google-endpoints.ts']);
