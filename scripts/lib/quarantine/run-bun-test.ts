@@ -1,4 +1,4 @@
-// Runs `bun test`. With quarantine enabled (source.ts), it adds a JUnit report
+// Runs `bun test`. With quarantine on (`--quarantine`, source.ts), it adds a JUnit report
 // beside the usual console output and lets the quarantine verdict decide the
 // exit code; otherwise it is plain `bun test`. The console output passes
 // through unchanged, so the main failure lane reads the same log.
@@ -10,7 +10,7 @@ import { join, relative } from 'node:path';
 import { REPO_ROOT, todayUtc, type LoadedEntry } from './entries.ts';
 import { consoleTotals, parseJunit } from './junit.ts';
 import { publish } from './report.ts';
-import { quarantineEnabled, runEntries } from './source.ts';
+import { runEntries } from './source.ts';
 import { honouredEntries } from './validate.ts';
 import { decide, type RunEvidence, type Verdict } from './verdict.ts';
 
@@ -30,8 +30,9 @@ export interface BunTestRun {
   today?: string;
   /** Where bun's stderr goes; process.stderr by default. */
   forward?: (chunk: string) => void;
-  /** The environment that enables quarantine and that `publish` reads;
-   *  process.env by default. */
+  /** Whether quarantine is on: the runner was given `--quarantine`. */
+  quarantine: boolean;
+  /** The environment entries and `publish` read; process.env by default. */
   env?: NodeJS.ProcessEnv;
 }
 
@@ -83,11 +84,10 @@ function runPlain(run: BunTestRun): Promise<number> {
   });
 }
 
-/** Runs the suite and returns the exit code it should end with. Unless the
- *  environment enables quarantine (source.ts), it is plain `bun test`. */
+/** Runs the suite and returns the exit code it should end with. Unless
+ *  quarantine is on (`--quarantine`, source.ts), it is plain `bun test`. */
 export async function runBunTest(run: BunTestRun): Promise<number> {
-  const enabled = quarantineEnabled(run.env ?? process.env);
-  if (!enabled) return runPlain(run);
+  if (!run.quarantine) return runPlain(run);
   return (await runBunTestVerdict(run)).exitCode;
 }
 

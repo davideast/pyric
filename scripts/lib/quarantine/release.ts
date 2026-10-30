@@ -69,8 +69,18 @@ function marker(kind: string, file: string, key: string | number): string {
   return `<!-- quarantine:${kind}:${file}:${key} -->`;
 }
 
-function failedSuites(run: RunReports, file: string): string[] {
-  return run.reports.filter((report) => report.entries.some((entry) => entry.file === file && entry.outcome === 'failed')).map((report) => report.suite);
+function failedReports(run: RunReports, file: string): QuarantineReport[] {
+  return run.reports.filter((report) => report.entries.some((entry) => entry.file === file && entry.outcome === 'failed'));
+}
+
+/** Whether the quarantine kept each suite where the test failed green. */
+function blockingText(reports: QuarantineReport[]): string {
+  const forgiven = reports.filter((report) => report.forgiven).map((report) => report.suite);
+  const blocked = reports.filter((report) => !report.forgiven).map((report) => report.suite);
+  const lines: string[] = [];
+  if (forgiven.length > 0) lines.push(`It did not fail ${forgiven.join(', ')}: every failure there was quarantined.`);
+  if (blocked.length > 0) lines.push(`${blocked.join(', ')} failed anyway, for another reason or a failure no entry covers.`);
+  return lines.join('\n');
 }
 
 function quarantineStart(entry: LoadedEntry): string {
@@ -79,8 +89,9 @@ function quarantineStart(entry: LoadedEntry): string {
 
 function failedComment(entry: LoadedEntry, run: RunReports): IssueComment {
   const mark = marker('failed', entry.file, run.runId);
-  const suites = failedSuites(run, entry.file).join(', ');
-  const body = `${mark}\n\`${entry.test}\` failed on main while quarantined (expires ${entry.expires}), in ${suites}: ${run.url}\nIts final attempt failed; it did not block the run.\n`;
+  const reports = failedReports(run, entry.file);
+  const suites = reports.map((report) => report.suite).join(', ');
+  const body = `${mark}\n\`${entry.test}\` failed on main while quarantined (expires ${entry.expires}), in ${suites}: ${run.url}\nIts final attempt failed. ${blockingText(reports)}\n`;
   return { issue: entry.issue, marker: mark, body };
 }
 

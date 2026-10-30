@@ -2,34 +2,19 @@
 // annotation per quarantined failure (shown on the checks page), a table in
 // the job summary, and a JSON report that CI uploads for the release check.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT, isFileLevelUnnamed, isUnnamedEntry, unnamedScope, type Entry } from './entries.ts';
 import type { Verdict } from './verdict.ts';
 
-/** `test(`, `it(` and their modifiers (`test.each(...)(`, `it.skip(`). */
-const TEST_CALL = /\b(?:test|it)(?:\s*\.\s*\w+(?:\s*\([^()]*\))?)*\s*\(/g;
-
-/** How many test calls the file's source holds, or undefined when it cannot
- *  be read. bun does not report the tests a broken hook kept from running. */
-export function testCallsIn(repoPath: string, root: string = REPO_ROOT): number | undefined {
-  const path = join(root, repoPath);
-  if (!existsSync(path)) return undefined;
-  return readFileSync(path, 'utf8').match(TEST_CALL)?.length ?? 0;
-}
-
-function countText(file: string): string {
-  const count = testCallsIn(file);
-  if (count === undefined) return 'bun does not say how many';
-  return `${count} test call(s) in its source`;
-}
-
-/** What a quarantined hook failure kept from running, or '' for a test. */
+/** What a quarantined hook failure may have kept from running, or '' for a
+ *  test. bun names a broken beforeAll and a broken afterAll alike, and does
+ *  not list the tests a broken hook kept from running, so this says may. */
 export function notRunNote(entry: Pick<Entry, 'test'>): string {
   if (!isUnnamedEntry(entry)) return '';
   const scope = unnamedScope(entry).slice(0, -' > '.length);
-  if (isFileLevelUnnamed(entry)) return `every test in ${scope} did not run (${countText(scope)})`;
-  return `the tests in \`${scope}\` did not run`;
+  if (isFileLevelUnnamed(entry)) return `a file-level hook failed; some or all tests in ${scope} may not have run`;
+  return `a hook in \`${scope}\` failed; some or all of its tests may not have run`;
 }
 
 function withNote(text: string, entry: Pick<Entry, 'test'>): string {

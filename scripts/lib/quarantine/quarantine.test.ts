@@ -6,8 +6,8 @@ import { appVerdict, finishAppRun } from './apps.ts';
 import { addDays, entryFileName, isActive, matches, todayUtc, type LoadedEntry, type TestResult } from './entries.ts';
 import { consoleTotals, parseJunit } from './junit.ts';
 import { FAILURE_LOOKBACK, RELEASE_STREAK, decideComments, streak, type RunReports } from './release.ts';
-import { annotations, consoleLines, notRunNote, testCallsIn, toReport, type QuarantineReport } from './report.ts';
-import { parseBaseEntries, runEntries } from './source.ts';
+import { annotations, consoleLines, notRunNote, toReport, type QuarantineReport } from './report.ts';
+import { parseBaseEntries, runEntries, takeQuarantineFlag } from './source.ts';
 import { honouredEntries, validateEntry } from './validate.ts';
 import { decide, finalResults, type RunEvidence } from './verdict.ts';
 import { newEntry, renewed } from '../../ci/quarantine.ts';
@@ -202,18 +202,13 @@ describe('the verdict', () => {
     expect(annotations(verdict)).toEqual([`::warning title=Quarantined test failed::${NAMED} (#1477, quarantine expires 2026-11-12)`]);
   });
 
-  test('a quarantined hook failure says which tests did not run, and for a whole file how many', () => {
-    const root = mkdtempSync(join(tmpdir(), 'quarantine-count-'));
-    writeFileSync(join(root, 'x.test.ts'), 'test(\'a\', () => {});\nit.skip(\'b\', () => {});\ntest.each([1])(\'c %d\', () => {});\n');
-    expect(testCallsIn('x.test.ts', root)).toBe(3);
-    expect(testCallsIn('missing.test.ts', root)).toBeUndefined();
-    expect(notRunNote(entry(`${FILE} > peer liveness > (unnamed)`))).toBe(`the tests in \`${FILE} > peer liveness\` did not run`);
-    const fileLevel = notRunNote(entry(`${FILE} > (unnamed)`));
-    expect(fileLevel).toStartWith(`every test in ${FILE} did not run (`);
+  test('a quarantined hook failure says some or all of the tests it guards may not have run', () => {
+    expect(notRunNote(entry(`${FILE} > peer liveness > (unnamed)`))).toBe(`a hook in \`${FILE} > peer liveness\` failed; some or all of its tests may not have run`);
+    expect(notRunNote(entry(`${FILE} > (unnamed)`))).toBe(`a file-level hook failed; some or all tests in ${FILE} may not have run`);
     expect(notRunNote(entry(NAMED))).toBe('');
     const verdict = decide(evidence([result(`${FILE} > (unnamed)`)]), [entry(`${FILE} > (unnamed)`)], TODAY);
-    expect(annotations(verdict)[0]).toContain(`every test in ${FILE} did not run`);
-    expect(toReport('cli-1', verdict).entries[0]?.note).toContain('did not run');
+    expect(annotations(verdict)[0]).toContain(`a file-level hook failed; some or all tests in ${FILE} may not have run`);
+    expect(toReport('cli-1', verdict).entries[0]?.note).toContain('may not have run');
   });
 });
 
@@ -238,21 +233,21 @@ describe('app scenarios', () => {
   });
 });
 
-describe('quarantine is off unless a CI test step enables it', () => {
+describe('quarantine is off unless the runner is given --quarantine', () => {
   const tree = () => [entry(NAMED)];
 
-  test('without PYRIC_QUARANTINE=1 no entry is honoured, on main or anywhere', () => {
-    expect(runEntries({}, tree)).toEqual([]);
-    expect(runEntries({ GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_ACTIONS: 'true' }, tree)).toEqual([]);
+  test('the flag is the runner\'s own argument, removed before the rest are read', () => {
+    expect(takeQuarantineFlag(['--shard=1/2', '--quarantine'])).toEqual({ quarantine: true, rest: ['--shard=1/2'] });
+    expect(takeQuarantineFlag(['--shard=1/2'])).toEqual({ quarantine: false, rest: ['--shard=1/2'] });
   });
 
   test('a push to main honours main\'s tree', () => {
-    expect(runEntries({ PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' }, tree)).toHaveLength(1);
+    expect(runEntries({ GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' }, tree)).toHaveLength(1);
   });
 
   test('a pull request honours only its base branch\'s entries, never its own tree', () => {
     const base = JSON.stringify([entry('packages/cli/test/other.test.ts > t')]);
-    const pr = { PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: 'pull_request', PYRIC_QUARANTINE_BASE_ENTRIES: base };
+    const pr = { GITHUB_EVENT_NAME: 'pull_request', PYRIC_QUARANTINE_BASE_ENTRIES: base };
     expect(runEntries(pr, tree).map((item) => item.test)).toEqual(['packages/cli/test/other.test.ts > t']);
     expect(runEntries({ ...pr, PYRIC_QUARANTINE_BASE_ENTRIES: '' }, tree)).toEqual([]);
     expect(runEntries({ ...pr, PYRIC_QUARANTINE_BASE_ENTRIES: 'not json' }, tree)).toEqual([]);
@@ -261,18 +256,30 @@ describe('quarantine is off unless a CI test step enables it', () => {
 
   test('a schedule, a dispatch, a merge group or a push to another branch honours none', () => {
     for (const event of ['schedule', 'workflow_dispatch', 'merge_group']) {
-      expect(runEntries({ PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: event, GITHUB_REF: 'refs/heads/main' }, tree)).toEqual([]);
+      expect(runEntries({ GITHUB_EVENT_NAME: event, GITHUB_REF: 'refs/heads/main' }, tree)).toEqual([]);
     }
-    expect(runEntries({ PYRIC_QUARANTINE: '1', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/feature' }, tree)).toEqual([]);
+    expect(runEntries({ GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/feature' }, tree)).toEqual([]);
   });
 
   test('the publish gate\'s app run never forgives a quarantined app', () => {
     const publishScript = readFileSync(resolve(import.meta.dir, '../../publish-alpha.sh'), 'utf8');
     expect(publishScript).toContain('bun test/apps/run.ts --packages dist/packages');
-    expect(publishScript).not.toContain('PYRIC_QUARANTINE');
+    expect(publishScript).not.toContain('--quarantine');
     const apps = [{ name: 'ai-sandbox-contents-roles', ok: false, inScenario: true }];
-    // The environment a publish runs in: no PYRIC_QUARANTINE.
-    expect(finishAppRun('apps', { apps, exitCode: 1 }, { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' })).toBe(1);
+    // Every variable the earlier environment switch read, as a .env could set them.
+    const env = { PYRIC_QUARANTINE: '1', GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' };
+    expect(finishAppRun('apps', { apps, exitCode: 1 }, false, env)).toBe(1);
+  });
+
+  test('only the four CI test steps pass --quarantine', () => {
+    const build = readFileSync(resolve(import.meta.dir, '../../../.github/workflows/build.yml'), 'utf8');
+    const commands = build.split('\n').map((line) => line.trim()).filter((line) => line.includes('bun ') && line.includes('--quarantine'));
+    expect(commands).toEqual([
+      'run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/2 --quarantine',
+      'bun scripts/ci/test-shard.ts --package=pyric --shard=${{ matrix.shard }}/2 --quarantine',
+      'run: bun test/apps/run.ts --packages dist/packages --skip-slow --shard-plan test-results/app-plan.json --shard ${{ matrix.shard.index }} --quarantine',
+      'run: bun scripts/ci/quarantine-test.ts --cwd packages/conformance --suite conformance --quarantine',
+    ]);
   });
 });
 
@@ -354,6 +361,15 @@ describe('release check comments', () => {
   function history(runs: RunReports[]): (index: number) => RunReports | undefined {
     return (index) => runs[index];
   }
+
+  test('a failure comment says whether the quarantine kept the suite green', () => {
+    const forgiven = run(9, 'failed');
+    const [kept] = decideComments({ entries: [quarantinedEntry], today: TODAY, history: history([{ ...forgiven, reports: forgiven.reports.map((report) => ({ ...report, forgiven: true })) }]), posted: new Set() });
+    expect(kept?.body).toContain('It did not fail cli-1: every failure there was quarantined.');
+    const [blocked] = decideComments({ entries: [quarantinedEntry], today: TODAY, history: history([run(9, 'failed')]), posted: new Set() });
+    expect(blocked?.body).toContain('cli-1 failed anyway');
+    expect(blocked?.body).not.toContain('did not fail');
+  });
 
   test('a failure in the run just completed is commented on the tracking issue once', () => {
     const input = { entries: [quarantinedEntry], today: TODAY, history: history([run(9, 'failed')]), posted: new Set<string>() };

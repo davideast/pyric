@@ -65,7 +65,7 @@ test('other', () => { throw new Error('quarantined elsewhere'); });
 `;
 
 async function exitCode(cwd: string, entries: LoadedEntry[]): Promise<number> {
-  const verdict = await runBunTestVerdict({ cwd, args: ['./'], suite: 'test', entries, today: TODAY, forward: () => {}, env: {} });
+  const verdict = await runBunTestVerdict({ cwd, args: ['./'], suite: 'test', entries, today: TODAY, forward: () => {}, env: {}, quarantine: true });
   return verdict.exitCode;
 }
 
@@ -129,7 +129,7 @@ describe('the quarantine runner on real bun test runs', () => {
   test('a quarantined test that passes on retry reports passed; a load error beside it still blocks', async () => {
     const run = suite({ 'retry.test.ts': RETRIED_FLAKE });
     const entries = [entry(run.id('retry.test.ts', 'flaky with retry')), entry(run.id('retry.test.ts', 'other'))];
-    const verdict = await runBunTestVerdict({ cwd: run.cwd, args: ['./'], suite: 'test', entries, today: TODAY, forward: () => {}, env: {} });
+    const verdict = await runBunTestVerdict({ cwd: run.cwd, args: ['./'], suite: 'test', entries, today: TODAY, forward: () => {}, env: {}, quarantine: true });
     expect(verdict.exitCode).toBe(0);
     expect(verdict.outcomes.map((outcome) => outcome.outcome)).toEqual(['passed', 'failed']);
     const broken = suite({ 'retry.test.ts': RETRIED_FLAKE, 'broken.test.ts': LOAD_ERROR });
@@ -137,10 +137,34 @@ describe('the quarantine runner on real bun test runs', () => {
     expect(await exitCode(broken.cwd, brokenEntries)).toBe(1);
   });
 
-  test('without PYRIC_QUARANTINE=1 the runner is plain bun test and forgives nothing', async () => {
+  test('without --quarantine the runner is plain bun test and forgives nothing', async () => {
     const run = suite({ 'flaky.test.ts': FLAKY });
     const entries = [entry(run.id('flaky.test.ts', 'flaky > fails'))];
-    expect(await runBunTest({ cwd: run.cwd, args: ['./'], suite: 'test', entries, today: TODAY, forward: () => {}, env: {} })).toBe(1);
+    expect(await runBunTest({ cwd: run.cwd, args: ['./'], suite: 'test', entries, today: TODAY, forward: () => {}, env: {}, quarantine: false })).toBe(1);
+  });
+
+  test('no .env file can turn quarantine on: a bun child that loads every old switch variable still fails', () => {
+    // bun loads these files from its working directory into process.env.
+    const switches = [
+      'PYRIC_QUARANTINE=1', 'GITHUB_EVENT_NAME=push', 'GITHUB_REF=refs/heads/main',
+      'PYRIC_QUARANTINE_BASE_ENTRIES=[]', '',
+    ].join('\n');
+    const run = suite({ 'flaky.test.ts': FLAKY, '.env': switches, '.env.local': switches, '.env.development': switches, 'drive.ts': '' });
+    const entries = [entry(run.id('flaky.test.ts', 'flaky > fails'))];
+    const drive = [
+      `const { main } = await import(${JSON.stringify(join(REPO_ROOT, 'scripts/ci/quarantine-test.ts'))});`,
+      `console.log('switch', process.env.PYRIC_QUARANTINE, process.env.GITHUB_REF);`,
+      `process.exit(await main([...process.argv.slice(2), '--cwd', ${JSON.stringify(run.cwd)}, '--suite', 'env'], ${JSON.stringify(entries)}));`,
+      '',
+    ].join('\n');
+    writeFileSync(join(run.cwd, 'drive.ts'), drive);
+    const env = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' };
+    const plain = Bun.spawnSync(['bun', 'drive.ts'], { cwd: run.cwd, env, stdout: 'pipe', stderr: 'pipe' });
+    expect(plain.stdout.toString()).toContain('switch 1 refs/heads/main');
+    expect(plain.exitCode).toBe(1);
+    // The control: the same child with the flag forgives the quarantined failure.
+    const flagged = Bun.spawnSync(['bun', 'drive.ts', '--quarantine'], { cwd: run.cwd, env, stdout: 'pipe', stderr: 'pipe' });
+    expect(flagged.exitCode).toBe(0);
   });
 
   test('a passing run exits 0', async () => {

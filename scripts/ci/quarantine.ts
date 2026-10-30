@@ -8,8 +8,11 @@
 //
 // <id> is the test as the "Flaky on main" issue names it:
 // `<repo path> > <describe> > <test>`. A hook that broke or timed out is
-// `<repo path> > [<describe> >] (unnamed)`, which covers only that hook, and
-// the tests it kept from running are reported as not run. An app scenario is
+// `<repo path> > [<describe> >] (unnamed)`, which covers only that hook; bun
+// names a broken beforeAll and afterAll alike, and the report says some or all
+// of the tests it guards may not have run. A test with `retry` that fails
+// every attempt is never forgiven: bun lists each attempt as its own
+// testcase, so the entry names more than one. An app scenario is
 // `test/apps/<app>`, which covers only a failure inside its scenario.
 // A quarantine lasts 14 days; renewing it needs a reason. The entry takes
 // effect once it is on main: pull requests honour only their base branch's.

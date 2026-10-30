@@ -4,13 +4,15 @@
 // files under the package (the set `bun test` discovers there) is split by index
 // modulo the shard count, and each shard passes its own files to `bun test`
 // explicitly. The package is packages/cli unless `--package` names another.
-// The run goes through the quarantine runner, which reports quarantined tests.
+// With --quarantine, which only CI passes, a failure of quarantined tests
+// alone is reported and does not fail the shard (scripts/lib/quarantine).
 //
-//   bun scripts/ci/test-shard.ts [--package=pyric] --shard=1/2 [--list] [-- <extra bun test args>]
+//   bun scripts/ci/test-shard.ts [--package=pyric] --shard=1/2 [--list] [--quarantine] [-- <extra bun test args>]
 
 import { Glob } from 'bun';
 import { resolve } from 'node:path';
 import { runBunTest } from '../lib/quarantine/run-bun-test.ts';
+import { takeQuarantineFlag } from '../lib/quarantine/source.ts';
 
 /** The packages whose suites are sharded, by `--package` name. */
 export const shardedPackages = {
@@ -47,7 +49,7 @@ export function parseShard(spec: string): { index: number; total: number } {
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const separator = args.indexOf('--');
-  const own = separator === -1 ? args : args.slice(0, separator);
+  const { quarantine, rest: own } = takeQuarantineFlag(separator === -1 ? args : args.slice(0, separator));
   const passthrough = separator === -1 ? [] : args.slice(separator + 1);
   const spec = own.find((arg) => arg.startsWith('--shard='))?.slice('--shard='.length) ?? '';
   const { index, total } = parseShard(spec);
@@ -60,8 +62,6 @@ if (import.meta.main) {
     console.log(shard.join('\n'));
   } else {
     console.log(`${name} test shard ${index}/${total}: ${shard.length} files`);
-    // Through the quarantine runner: a failure of a quarantined test alone is
-    // reported and does not fail the shard (scripts/lib/quarantine).
-    process.exit(await runBunTest({ cwd: root, args: [...passthrough, ...shard], suite: `${name}-${index}` }));
+    process.exit(await runBunTest({ cwd: root, args: [...passthrough, ...shard], suite: `${name}-${index}`, quarantine }));
   }
 }

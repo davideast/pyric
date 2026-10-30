@@ -3,12 +3,12 @@
 // failure inside the app's scenario carries that name: a failure while it
 // installs or loads is named `test/apps/<app> > <step>`, which no entry names,
 // so it always blocks. The run's own summary is the count, so the same
-// conditions as a bun suite apply. Quarantine is off unless enabled
-// (source.ts), so a publish's app run keeps its exit code.
+// conditions as a bun suite apply. Quarantine is off unless the runner was
+// given `--quarantine` (source.ts), so a publish's app run keeps its exit code.
 
 import { todayUtc, type LoadedEntry, type TestResult } from './entries.ts';
 import { publish } from './report.ts';
-import { quarantineEnabled, runEntries } from './source.ts';
+import { runEntries } from './source.ts';
 import { honouredEntries } from './validate.ts';
 import { decide, type Verdict } from './verdict.ts';
 
@@ -40,8 +40,8 @@ export function appVerdict(input: AppVerdictInput, entries: LoadedEntry[], today
 }
 
 /** Decides, reports, and returns the exit code the app run ends with. */
-export function finishAppRun(suite: string, input: AppVerdictInput, env: NodeJS.ProcessEnv = process.env): number {
-  if (!quarantineEnabled(env)) return input.exitCode;
+export function finishAppRun(suite: string, input: AppVerdictInput, quarantine: boolean, env: NodeJS.ProcessEnv = process.env): number {
+  if (!quarantine) return input.exitCode;
   const verdict = appVerdict(input, honouredEntries(runEntries(env)), todayUtc());
   publish(suite, verdict, env);
   return verdict.exitCode;

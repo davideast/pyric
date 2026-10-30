@@ -1,18 +1,24 @@
 // Which quarantine entries a run may honour. Quarantine is off unless the
-// step sets PYRIC_QUARANTINE=1, which only the PR and main CI test steps in
-// build.yml do, so a publish, a local run and every other caller of the
-// runners keep their old exit codes. A pull request honours only the entries
+// runner is given the `--quarantine` flag, which only the four CI test steps
+// in build.yml pass (QUARANTINE_FLAG). No environment variable can turn it on:
+// bun loads `.env` files from its working directory into process.env, so a
+// switch there could be set by a file in the checkout. A publish, a local run
+// and every other caller of the runners keep their old exit codes. Once on,
+// a pull request honours only the entries
 // on its base branch, which the plan job reads (scripts/ci/quarantine-base.ts),
 // so it cannot quarantine the test it breaks. A push to main honours main's
 // tree. Any other run honours none.
 
 import { readEntries, type LoadedEntry } from './entries.ts';
 
-export const ENABLE_VAR = 'PYRIC_QUARANTINE';
+/** The runner flag that turns quarantine on. */
+export const QUARANTINE_FLAG = '--quarantine';
 export const BASE_ENTRIES_VAR = 'PYRIC_QUARANTINE_BASE_ENTRIES';
 
-export function quarantineEnabled(env: NodeJS.ProcessEnv): boolean {
-  return env[ENABLE_VAR] === '1';
+/** Whether the flag is among the runner's own arguments, and those
+ *  arguments without it. */
+export function takeQuarantineFlag(args: readonly string[]): { quarantine: boolean; rest: string[] } {
+  return { quarantine: args.includes(QUARANTINE_FLAG), rest: args.filter((arg) => arg !== QUARANTINE_FLAG) };
 }
 
 /** The base branch's entries as the plan job printed them. Anything but a
@@ -28,8 +34,8 @@ export function parseBaseEntries(text: string): LoadedEntry[] {
   }
 }
 
+/** The entries a run with quarantine on honours. */
 export function runEntries(env: NodeJS.ProcessEnv, readTree: () => LoadedEntry[] = readEntries): LoadedEntry[] {
-  if (!quarantineEnabled(env)) return [];
   const isMainPush = env.GITHUB_EVENT_NAME === 'push' && env.GITHUB_REF === 'refs/heads/main';
   if (isMainPush) return readTree();
   const isPullRequest = env.GITHUB_EVENT_NAME === 'pull_request';

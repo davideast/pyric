@@ -15,6 +15,8 @@
  *                     at most 6; one per thread on CI)
  *   --keep            keep each app's installed directory
  *   --skip-slow       leave out the apps whose scenario.ts exports `slow = true`
+ *   --quarantine      let a quarantined app's scenario failure alone pass
+ *                     (scripts/lib/quarantine); only CI passes it
  *   --only-slow       run only those apps
  *   --shard-plan <file> --shard <n>
  *                     run shard n of a plan from shard-plan.ts. The run
@@ -70,6 +72,7 @@ import { defaultJobs, longestFirst, readDurations, recordDurations } from './sch
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 import { checkPlanCoversSelection, readPlan, shardApps, takeShardOptions, writeShardReport, type ShardOption } from './shard-plan.ts';
 import { finishAppRun } from '../../scripts/lib/quarantine/apps.ts';
+import { takeQuarantineFlag } from '../../scripts/lib/quarantine/source.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
@@ -281,7 +284,8 @@ function planShard(shard: ShardOption, selected: readonly string[]): string[] {
 }
 
 async function main(): Promise<void> {
-  const { argv, shard } = takeShardOptions(process.argv.slice(2));
+  const { quarantine, rest: withoutQuarantine } = takeQuarantineFlag(process.argv.slice(2));
+  const { argv, shard } = takeShardOptions(withoutQuarantine);
   const options = parseArguments(argv, process.env);
   if (shard && options.names.length > 0) {
     console.error('--shard runs the apps its plan gives it, so it takes no app names');
@@ -365,10 +369,11 @@ async function main(): Promise<void> {
   const summary = summarize(results, total, skippedSlowClause(skippedSlow));
   for (const line of summary.lines) console.log(line);
   if (installsFailure !== undefined) console.log(`warning: cleanup failed for the shared installs: ${installsFailure}`);
-  // A failed app with an active quarantine entry is reported but does not
-  // fail the run when it is the only kind of failure (scripts/lib/quarantine).
+  // With --quarantine, which only CI passes, a failed app with an active
+  // quarantine entry is reported but does not fail the run when it is the
+  // only kind of failure (scripts/lib/quarantine).
   const suite = shard ? `apps-${shard.index}` : 'apps';
-  process.exit(finishAppRun(suite, { apps: results, exitCode: summary.exitCode }));
+  process.exit(finishAppRun(suite, { apps: results, exitCode: summary.exitCode }, quarantine));
 }
 
 await main();
