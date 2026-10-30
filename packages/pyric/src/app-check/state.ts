@@ -14,6 +14,7 @@ import {
   type MintedAppCheckToken as MintedToken,
 } from '../sandbox/internal/app-check-token.js';
 import { appCheckActivationOf, recordAppCheckActivation } from '../sandbox/internal/app-check-activation.js';
+import { warnIfProductionNeverSettles } from './never-settles-warning.js';
 import { CustomProvider, type AppCheckProvider } from './providers.js';
 
 /** Web App Check tokens live one hour (capture `app-check-client-debug-get-token`). */
@@ -40,6 +41,8 @@ export interface AppCheckState {
   observers: Set<TokenObserver>;
   /** The `CustomProvider` this app's tokens come from, or `null` when the sandbox mints them. */
   readonly attestedBy: CustomProvider | null;
+  /** Whether the debug token was set when this app's App Check was initialized. */
+  readonly debugMode: boolean;
 }
 
 /** The activation lookup is shared with `pyric/ai`, which reads it when `getAI(app)` builds a handle. */
@@ -77,12 +80,13 @@ function isDebugTokenSet(): boolean {
   return value === true || typeof value === 'string';
 }
 
-function attestationProvider(provider: AppCheckProvider): CustomProvider | null {
-  const callsProvider = provider instanceof CustomProvider && !isDebugTokenSet();
+function attestationProvider(provider: AppCheckProvider, debugMode: boolean): CustomProvider | null {
+  const callsProvider = provider instanceof CustomProvider && !debugMode;
   return callsProvider ? provider : null;
 }
 
 export function activate(app: FirebaseApp, provider: AppCheckProvider, isTokenAutoRefreshEnabled: boolean | undefined): AppCheckState {
+  const debugMode = isDebugTokenSet();
   const state: AppCheckState = {
     provider,
     initialAutoRefresh: isTokenAutoRefreshEnabled,
@@ -90,7 +94,8 @@ export function activate(app: FirebaseApp, provider: AppCheckProvider, isTokenAu
     cached: null,
     inFlight: null,
     observers: new Set(),
-    attestedBy: attestationProvider(provider),
+    attestedBy: attestationProvider(provider, debugMode),
+    debugMode,
   };
   record(app, state);
   return state;
@@ -117,8 +122,9 @@ function notifyError(observers: Iterable<TokenObserver>, error: unknown): void {
 
 /** The app's provider token, or a sandbox-minted one when it has no provider to call. */
 function freshToken(app: FirebaseApp, state: AppCheckState, now: number): Promise<MintedToken> {
-  if (state.attestedBy === null) return mintAppCheckToken(identityOf(app), TTL_SECONDS, now);
-  return state.attestedBy.getToken();
+  if (state.attestedBy !== null) return state.attestedBy.getToken();
+  warnIfProductionNeverSettles(state.provider, state.debugMode);
+  return mintAppCheckToken(identityOf(app), TTL_SECONDS, now);
 }
 
 function isValid(token: MintedToken | null, nowMillis: number): token is MintedToken {

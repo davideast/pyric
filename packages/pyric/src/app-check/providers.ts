@@ -35,8 +35,11 @@ interface ComparableProvider {
  * read whose value is unused.
  */
 function requireDocument(): void {
-  const hasDocument = typeof (globalThis as { document?: unknown }).document !== 'undefined';
-  if (!hasDocument) throw new ReferenceError('document is not defined');
+  if (!hasDocument()) throw new ReferenceError('document is not defined');
+}
+
+export function hasDocument(): boolean {
+  return typeof (globalThis as { document?: unknown }).document !== 'undefined';
 }
 
 export class ReCaptchaV3Provider implements ComparableProvider {
