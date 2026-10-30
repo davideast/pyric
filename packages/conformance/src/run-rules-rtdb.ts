@@ -93,6 +93,7 @@ import {
   type OracleServiceAccount,
 } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { deployScenarioGapMs, fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
@@ -542,27 +543,27 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   const rulesPutUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
 
   async function readRules(): Promise<Record<string, unknown>> {
-    const res = await fetch(rulesGetUrl);
+    const res = await fetchWithRateLimitRetry(rulesGetUrl, undefined, 'read rules');
     if (!res.ok) throw new Error(`read rules failed: ${res.status} ${await res.text()}`);
     return capturableRules('the database', await res.text()).rules;
   }
   const endpoint: RulesDeployEndpoint = {
     async dryRun(rules) {
-      const res = await fetch(`${rulesGetUrl}&dryRun=true`, {
+      const res = await fetchWithRateLimitRetry(`${rulesGetUrl}&dryRun=true`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rules }),
-      });
+      }, 'dry run');
       return { status: res.status, body: await res.text() };
     },
     readRules,
   };
   async function writeRules(rules: Record<string, unknown>): Promise<void> {
-    const res = await fetch(rulesPutUrl, {
+    const res = await fetchWithRateLimitRetry(rulesPutUrl, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rules }),
-    });
+    }, 'write rules');
     if (!res.ok) throw new Error(`write rules failed: ${res.status} ${await res.text()}`);
   }
 
@@ -572,13 +573,13 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   const auth_ = encodeURIComponent(rtdbAdminToken);
   const store: RunDataStore = {
     async deleteNamespace(auditKey: string): Promise<void> {
-      const res = await fetch(`${config.databaseURL}/${auditKey}.json?access_token=${auth_}&print=silent`, {
+      const res = await fetchWithRateLimitRetry(`${config.databaseURL}/${auditKey}.json?access_token=${auth_}&print=silent`, {
         method: 'DELETE',
-      });
+      }, 'delete run data');
       if (!res.ok) throw new Error(`delete run data failed: ${res.status} ${await res.text()}`);
     },
     async shallowRootKeys(): Promise<string[]> {
-      const res = await fetch(`${config.databaseURL}/.json?shallow=true&access_token=${auth_}`);
+      const res = await fetchWithRateLimitRetry(`${config.databaseURL}/.json?shallow=true&access_token=${auth_}`, undefined, 'shallow root read');
       if (!res.ok) throw new Error(`shallow root read failed: ${res.status} ${await res.text()}`);
       const body = (await res.json()) as Record<string, unknown> | null;
       return body ? Object.keys(body) : [];
@@ -660,6 +661,7 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
       observations.push({ scenario, behavior });
       const rejected = Object.values(behavior).filter((v) => v.verdict === 'REJECTED').length;
       console.log(`  ✓ ${scenario.id.padEnd(28)} accepted=${scenario.deployCases.length - rejected} rejected=${rejected} (dry run; live rules read back unchanged)`);
+      await new Promise((r) => setTimeout(r, deployScenarioGapMs(scenario.id)));
     }
 
     if (scenarios.length > 0) {
