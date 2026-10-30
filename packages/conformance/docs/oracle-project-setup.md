@@ -51,11 +51,145 @@ test users and test docs.
    harness can't accidentally touch anything else if you ever reuse
    the project.
 
+## Credentials without a key file
+
+The capture rigs authenticate through one module,
+`packages/conformance/src/oracle-credential.ts`, which picks the credential
+by one condition:
+
+- `PYRIC_ORACLE_SA_PATH` is set: the rig reads that service-account key file
+  and signs with its private key, as before.
+- `PYRIC_ORACLE_SA_PATH` is unset: the rig uses Application Default
+  Credentials (ADC) and reads the project from `PYRIC_ORACLE_PROJECT_ID`.
+  ADC carries no project of its own, so the rig refuses to start without it.
+
+The keyless setup impersonates the oracle project's Admin SDK service account,
+`firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com`. No key file is
+created or stored anywhere.
+
+### One-time IAM grant
+
+A project owner runs these once. They change production IAM, so an agent
+never runs them.
+
+```sh
+PROJECT_ID=digame-mas
+ORACLE_SA=firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com
+
+# The API impersonation and signBlob go through.
+gcloud services enable iamcredentials.googleapis.com --project="$PROJECT_ID"
+
+# Let your Google account act as the oracle service account.
+gcloud iam service-accounts add-iam-policy-binding "$ORACLE_SA" --project="$PROJECT_ID" \
+  --member="user:<your Google account>" --role="roles/iam.serviceAccountTokenCreator"
+```
+
+Rigs that sign tokens also need the service account to sign as itself. An
+impersonated credential has no private key, so firebase-admin
+`createCustomToken`, App Check `createToken`, and the custom tokens
+`run-rules-rtdb.ts` mints all sign through the IAM Credentials `signBlob`
+endpoint, called with the service account's own token. That needs
+`iam.serviceAccounts.signBlob` on the service account itself. Check first,
+read-only:
+
+```sh
+gcloud projects get-iam-policy "$PROJECT_ID" --flatten='bindings[].members' \
+  --filter="bindings.members:serviceAccount:$ORACLE_SA" --format='table(bindings.role)'
+gcloud iam service-accounts get-iam-policy "$ORACLE_SA" --project="$PROJECT_ID"
+```
+
+If neither lists `roles/iam.serviceAccountTokenCreator` for the service
+account, grant it on itself:
+
+```sh
+gcloud iam service-accounts add-iam-policy-binding "$ORACLE_SA" --project="$PROJECT_ID" \
+  --member="serviceAccount:$ORACLE_SA" --role="roles/iam.serviceAccountTokenCreator"
+```
+
+IAM bindings can take a few minutes to take effect.
+
+### Log in
+
+```sh
+gcloud auth application-default login \
+  --impersonate-service-account=firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com
+```
+
+This writes an `impersonated_service_account` file to
+`~/.config/gcloud/application_default_credentials.json`. Then, in the root
+`.env`:
+
+```sh
+PYRIC_ORACLE_PROJECT_ID=digame-mas
+```
+
+Remove `PYRIC_ORACLE_SA_PATH` from `.env` and your shell: when it is set, the
+key file wins. Leave `GOOGLE_APPLICATION_CREDENTIALS` unset too, because ADC
+reads the file it names before the gcloud file; a rig warns when it is set.
+
+Before its first request, a rig resolves the service account ADC acts as and
+logs it, for example
+`[oracle] credential: Application Default Credentials for firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com, project digame-mas`.
+It refuses to start when ADC names no service account (a plain
+`gcloud auth application-default login` without impersonation), or when the
+account's `@<project>.iam.gserviceaccount.com` project is not
+`PYRIC_ORACLE_PROJECT_ID`. The secondary project is the exception to the
+project match: the same oracle account reaches it across projects, so it only
+has to be a service account.
+
+A CI Workload Identity Federation file in `GOOGLE_APPLICATION_CREDENTIALS`
+works only when it impersonates a service account (its
+`service_account_impersonation_url` names one in the oracle project). A
+federated identity without impersonation names no service account and is
+refused. Rigs that use a second
+project read `PYRIC_SECONDARY_ORACLE_SA_PATH`, or
+`PYRIC_SECONDARY_ORACLE_PROJECT_ID` with the same ADC login, in the same way.
+
+### How long it lasts
+
+The ADC file holds your user refresh token, not a service-account token. Each
+access token the rigs get from it is a one-hour token for the service account,
+minted on demand, so a run never needs a fresh login partway through.
+
+The login itself lasts until the refresh token stops working: you revoke it
+(`gcloud auth application-default revoke`), the token goes unused for six
+months, your organization's Google Cloud session length policy ends it, or
+the Token Creator grant is removed. When that happens a rig fails at its first
+token request; run the login command again.
+
+### Rigs this does not cover
+
+These rigs authenticate with their own credential, not the oracle credential,
+and still need a key:
+
+- `messaging-send` and `messaging-web` (and
+  `src/check-messaging-provisioning.ts`) read a base64 key from
+  `PYRIC_MESSAGING_SA_BASE64` for the messaging project. #1387 tracks moving
+  them off a key.
+- `functions-rtdb` reads the deployer key from `PYRIC_FUNCTIONS_RTDB_SA_PATH`,
+  passes it to `firebase deploy` as `GOOGLE_APPLICATION_CREDENTIALS`, and
+  writes its `client_email` into the deployed function's runtime config.
+
+No oracle rig needs a private key: every signature the oracle rigs make goes
+through `signBlob` under ADC. The Rules Test API rigs (`rules-firestore`,
+`rules-storage`, `storage-stdlib-discovery`, and the stdlib and acceptance
+probes) already work keyless through
+`packages/pyric/test/rules/parity/credential.ts`, which falls back to the same
+gcloud ADC file.
+
 ## Running the harness
 
 ```sh
 export PYRIC_ORACLE_FIREBASE_CONFIG='{"apiKey":"…","authDomain":"…","projectId":"…","storageBucket":"…","appId":"…"}'
 bun run packages/conformance/src/run.ts
+```
+
+Without `PYRIC_ORACLE_FIREBASE_CONFIG`, the harness reads the Web SDK config
+through the Firebase Management API with the oracle credential described
+above, and also deploys and restores the oracle rules:
+
+```sh
+PYRIC_ORACLE_PROJECT_ID=digame-mas bun run packages/conformance/src/run.ts
 ```
 
 Each probe writes its observation to

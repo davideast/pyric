@@ -18,7 +18,13 @@ export const rig: RigManifestRecord = {
     env: [
       {
         name: 'PYRIC_ORACLE_SA_PATH',
-        description: 'Path to the oracle project service-account JSON; the Admin SDK authenticates with it.',
+        description: 'Path to the oracle project service-account JSON; the Admin SDK authenticates with it. Optional: unset, the rig uses Application Default Credentials and PYRIC_ORACLE_PROJECT_ID names the project.',
+        permission: 'storage.objects.create, storage.objects.get, storage.objects.update, storage.objects.delete on the bucket',
+      },
+      {
+        name: 'PYRIC_ORACLE_PROJECT_ID',
+        description:
+          'The oracle project id, read when PYRIC_ORACLE_SA_PATH is unset. The rig then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<oracle service account>`, as packages/conformance/docs/oracle-project-setup.md describes.',
         permission: 'storage.objects.create, storage.objects.get, storage.objects.update, storage.objects.delete on the bucket',
       },
       {

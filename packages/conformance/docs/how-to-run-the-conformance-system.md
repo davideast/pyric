@@ -808,8 +808,8 @@ Blocked (7):
   - ai-logic: missing env: PYRIC_AI_FIREBASE_CONFIG
   - messaging-send: missing env: PYRIC_MESSAGING_SA_BASE64
   - messaging-web: missing env: PYRIC_MESSAGING_FIREBASE_CONFIG, PYRIC_MESSAGING_VAPID_KEY, PYRIC_MESSAGING_SA_BASE64
-  - oracle-run: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH
-  - rtdb-rules: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH
+  - oracle-run: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH, PYRIC_ORACLE_PROJECT_ID
+  - rtdb-rules: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH, PYRIC_ORACLE_PROJECT_ID
   - rules-firestore: missing env: GOOGLE_APPLICATION_CREDENTIALS
   - rules-storage: missing env: GOOGLE_APPLICATION_CREDENTIALS
 ```
@@ -836,7 +836,7 @@ These two are pure in-process probes of installed library code. That is why
 
 | Rig | Captures | Credential contract |
 |---|---|---|
-| `oracle-run` | 130 observations across five surfaces: `auth-` (28), `firestore-` (40), `rtdb-` (14), `rtdb-modular-` (39), `storage-` (9) | `PYRIC_ORACLE_FIREBASE_CONFIG` (web config JSON) plus `PYRIC_ORACLE_SA_PATH` (service-account file). The project needs Anonymous sign-in enabled and Firestore rules scoped to the `pyric_oracle` namespace. An RTDB instance and a Storage bucket are optional: those probes self-skip when absent. |
+| `oracle-run` | 130 observations across five surfaces: `auth-` (28), `firestore-` (40), `rtdb-` (14), `rtdb-modular-` (39), `storage-` (9) | `PYRIC_ORACLE_FIREBASE_CONFIG` (web config JSON) plus the oracle credential: `PYRIC_ORACLE_PROJECT_ID` with Application Default Credentials, or `PYRIC_ORACLE_SA_PATH` (service-account file). See [Oracle credentials](#oracle-credentials). The project needs Anonymous sign-in enabled and Firestore rules scoped to the `pyric_oracle` namespace. An RTDB instance and a Storage bucket are optional: those probes self-skip when absent. |
 | `rtdb-rules` | 8 `rules-rtdb-` observations: per-case ALLOW/DENY verdicts for the RTDB rules corpus | The same two vars as `oracle-run`. The service account must additionally hold a role granting the `firebase.database` scope, so `/.settings/rules.json` PUT and GET both succeed. |
 | `rules-firestore` | 28 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | A Rules Test API credential: see [Rules Test API credentials](#rules-test-api-credentials). CI's identity holds ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
 | `rules-storage` | 8 `rules-storage-` observations, via the same `projects.test` endpoint | The same credential and minimal scope. |
@@ -852,6 +852,27 @@ These two are pure in-process probes of installed library code. That is why
 There is no emulator anywhere in this fleet, and there never will be. Every
 observation is captured against real production, because an emulator's behavior
 is only ever a claim about an emulator.
+
+### Oracle credentials
+
+Every rig that reads `PYRIC_ORACLE_SA_PATH` gets its credential from
+`src/oracle-credential.ts`. With `PYRIC_ORACLE_SA_PATH` set, it uses that
+service-account key file. With it unset, it uses Application Default
+Credentials, and `PYRIC_ORACLE_PROJECT_ID` names the project. That is the
+keyless setup:
+
+```sh
+gcloud auth application-default login \
+  --impersonate-service-account=firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com
+echo 'PYRIC_ORACLE_PROJECT_ID=digame-mas' >> .env
+```
+
+Under ADC, every signature (custom tokens, App Check tokens) goes through the
+IAM Credentials `signBlob` endpoint. Rigs that check the web config and the
+credential name the same project keep that check, reading the credential's
+project from `PYRIC_ORACLE_PROJECT_ID`. The one-time IAM grant, how long the
+login lasts, and the rigs that still need their own key are in
+[`oracle-project-setup.md`](oracle-project-setup.md#credentials-without-a-key-file).
 
 ### Rules Test API credentials
 

@@ -15,9 +15,10 @@
  * For an oracle that needs to be true, only the real service
  * counts.
  *
- * Auth path: a service-account JSON file (default
- * `ignored/service-account.json`, override with
- * `PYRIC_ORACLE_SA_PATH`). The harness mints a short-lived OAuth
+ * Auth path: the oracle credential (src/oracle-credential.ts), the
+ * service-account key file `PYRIC_ORACLE_SA_PATH` names or, with it
+ * unset, Application Default Credentials for the project
+ * `PYRIC_ORACLE_PROJECT_ID` names. The harness gets a short-lived OAuth
  * token, calls the Firebase Management API to fetch the project's
  * Web SDK config (apiKey, authDomain, …), then initializes the
  * Web SDK normally. Manual config via
@@ -158,10 +159,15 @@ import {
   serverTimestamp as rtdbServerTimestamp,
   type Database,
 } from 'firebase/database';
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mintAccessToken } from './oracle-access-token.ts';
+import {
+  loadOracleServiceAccount,
+  oracleAccessToken,
+  oracleAppOptions,
+  type OracleServiceAccount,
+} from './oracle-credential.ts';
 import {
   OracleRulesSession,
   firestoreOracleTarget,
@@ -172,7 +178,6 @@ import {
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
-  cert as adminCert,
   initializeApp as adminInitializeApp,
   deleteApp as adminDeleteApp,
   type App as AdminApp,
@@ -191,7 +196,6 @@ import { resolvedFirebaseVersion } from './package-version.ts';
 // ─── Setup ────────────────────────────────────────────────────────────
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, '..', '..', '..');
 const OBS_DIR = join(HERE, '..', 'observations');
 
 interface FirebaseWebConfig {
@@ -208,12 +212,8 @@ interface FirebaseWebConfig {
   databaseURL?: string;
 }
 
-interface ServiceAccount {
-  client_email: string;
-  private_key: string;
-  project_id: string;
-  token_uri?: string;
-}
+/** The oracle credential: a key file, or Application Default Credentials. */
+type ServiceAccount = OracleServiceAccount;
 
 const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
 const RTDB_API = 'https://firebasedatabase.googleapis.com/v1beta';
@@ -346,18 +346,13 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
     }
   }
 
-  // Service-account path — default to the repo's local SA file.
-  const saPath = process.env.PYRIC_ORACLE_SA_PATH
-    ?? join(REPO_ROOT, 'ignored', 'service-account.json');
-  if (!existsSync(saPath)) {
-    throw new Error(
-      `service account not found at ${saPath}. Set PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_FIREBASE_CONFIG. See packages/conformance/docs/oracle-project-setup.md.`,
-    );
-  }
-  const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  // The oracle credential: the key file PYRIC_ORACLE_SA_PATH names, or
+  // Application Default Credentials for PYRIC_ORACLE_PROJECT_ID. See
+  // packages/conformance/docs/oracle-project-setup.md.
+  const sa = await loadOracleServiceAccount();
   serviceAccount = sa;
   console.log(`[oracle] project: ${sa.project_id}`);
-  const token = await mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
+  const token = await oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase');
   const cfg = await fetchWebConfig(token, sa.project_id);
   // The Firestore, Storage, and RTDB oracle rules are deployed by `main` inside
   // `runWithOracleRulesRestored`, so the project's rules are put back when the
@@ -365,7 +360,7 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   // outlast one token.
   oracleRulesSession = new OracleRulesSession({
     projectId: sa.project_id,
-    accessToken: () => mintAccessToken(sa, 'https://www.googleapis.com/auth/firebase'),
+    accessToken: () => oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase'),
   });
   // Pick up the RTDB instance URL if the Web App config didn't carry
   // one. The Web App config only embeds `databaseURL` when an RTDB
@@ -386,7 +381,7 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   // rewrite the RTDB rules use this token. `deployOracleRules` mints its own.
   if (cfg.databaseURL) {
     try {
-      rtdbAdminToken = await mintAccessToken(sa, RTDB_RULES_SCOPE);
+      rtdbAdminToken = await oracleAccessToken(sa, RTDB_RULES_SCOPE);
     } catch (e) {
       console.log(`[oracle] rtdb token: error: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -7165,11 +7160,7 @@ const probes: Probe[] = [
       try {
         adminApp = adminInitializeApp(
           {
-            credential: adminCert({
-              projectId: serviceAccount.project_id,
-              clientEmail: serviceAccount.client_email,
-              privateKey: serviceAccount.private_key,
-            }),
+            ...oracleAppOptions(serviceAccount),
             databaseURL: config.databaseURL,
           },
           adminAppName,
@@ -7713,11 +7704,7 @@ const probes: Probe[] = [
                 try {
                   const seedApp = adminInitializeApp(
                     {
-                      credential: adminCert({
-                        projectId: serviceAccount!.project_id,
-                        clientEmail: serviceAccount!.client_email,
-                        privateKey: serviceAccount!.private_key,
-                      }),
+                      ...oracleAppOptions(serviceAccount!),
                       databaseURL: config.databaseURL,
                     },
                     `oracle-sim-seed-${RUN_ID}-${r.id}-${op.label.replace(/\s+/g, '_')}`,
@@ -8586,11 +8573,7 @@ const probes: Probe[] = [
       // Remove every account this probe created, whatever each arm did.
       let cleanupLeaked = false;
       const adminApp = adminInitializeApp({
-        credential: adminCert({
-          projectId: serviceAccount.project_id,
-          clientEmail: serviceAccount.client_email,
-          privateKey: serviceAccount.private_key,
-        }),
+        ...oracleAppOptions(serviceAccount),
       }, `oracle-rrl-${RUN_ID}`);
       try {
         const res = await getAdminAuth(adminApp).deleteUsers(uids);
@@ -8639,11 +8622,7 @@ const probes: Probe[] = [
         return initializeAuth(a, { persistence: inMemoryPersistence });
       };
       const adminApp = adminInitializeApp({
-        credential: adminCert({
-          projectId: serviceAccount.project_id,
-          clientEmail: serviceAccount.client_email,
-          privateKey: serviceAccount.private_key,
-        }),
+        ...oracleAppOptions(serviceAccount),
       }, `oracle-claims-${RUN_ID}`);
       const adminAuth = getAdminAuth(adminApp);
       // Values that identify this run's accounts become placeholders, and time
@@ -8912,7 +8891,7 @@ async function deployOracleRules(session: OracleRulesSession): Promise<void> {
     const sa = serviceAccount;
     try {
       rtdbOutcome = await session.deployRtdb(
-        rtdbOracleTarget(config.databaseURL, () => mintAccessToken(sa, RTDB_RULES_SCOPE)),
+        rtdbOracleTarget(config.databaseURL, () => oracleAccessToken(sa, RTDB_RULES_SCOPE)),
       );
     } catch (e) {
       rtdbOutcome = `error: ${e instanceof Error ? e.message : String(e)}`;
