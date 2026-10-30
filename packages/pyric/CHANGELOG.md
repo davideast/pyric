@@ -42,7 +42,7 @@ If you are coming from `latest` (alpha.26) or alpha.30, these App Check fixes al
 #### Known gaps
 
 - The sandbox AI gate doesn't check that a token's project or app id matches the app (#1554).
-- The sandbox has no App Check token refresher. It calls a provider only when a token is requested (#1648).
+- The sandbox has no App Check token refresher. It calls a provider only when a token is requested (#1656).
 - `consume` replay state is kept per process, not per project (#1297).
 - The chat template pins firebase 12.13, but limited-use App Check tokens need 12.14 (#1397).
 - After November 2, pyric re-captures production's App Check gate for AI Logic to confirm the sandbox still matches (#1300).
@@ -51,13 +51,13 @@ If you are coming from `latest` (alpha.26) or alpha.30, these App Check fixes al
 
 Each change moves pyric toward what production does. Code that relied on the old behavior will now see different results. Each entry names the old behavior, the new behavior and the PR.
 
-The register and network guard changes can stop code that ran before: see Security.
+The register, network guard and Storage lint changes can stop code that ran before: see Breaking changes.
 
 #### App Check and AI Logic
 
 - `CustomProvider` with no debug token: before, never called, and the request answered. Now, called, and a token the sandbox didn't sign gets the 403 (#1648).
 - reCAPTCHA provider without a `document`: before, returned a handle. Now, throws `ReferenceError: document is not defined` (#1664).
-- Second `initializeAppCheck` with a different raw `isTokenAutoRefreshEnabled`: before, returned the existing handle. Now, throws `appCheck/already-initialized`. Concurrent `getToken`: before, two tokens and two listener calls. Now, one token and one listener call (#1388).
+- Second `initializeAppCheck` that omits `isTokenAutoRefreshEnabled` where the first passed `false`, or the reverse: before, returned the existing handle. Now, throws `appCheck/already-initialized`. Concurrent `getToken`: before, two tokens and two listener calls. Now, one token and one listener call (#1388).
 - Role `function` in AI Logic `contents`: before, accepted. Now, refused with production's 400. The bad-role error text now lists `MODEL, USER`, as production's does (#1412).
 - Role `assistant` in AI Logic `contents`: before, refused. Now, accepted (#1542).
 - `PYRIC_AI_MODE=production` in Next.js: before, ignored on the page. Now, the page uses the real `firebase/ai` and `firebase/app-check` (#1650).
@@ -115,6 +115,10 @@ Each of these refuses something that used to work. Check them before you upgrade
 - **`VITE_GEMINI_API_KEY` is refused.** Before, the gemini engine read it as the Gemini key. Now, the Vite dev server refuses to start while it is set, in the shell or in `.env`, and says to rename it to `GEMINI_API_KEY`. The gemini engine's 401 names only `GEMINI_API_KEY` and `GOOGLE_GENAI_API_KEY`. This moves pyric closer to production, where an AI key never reaches the browser. See Security (#1647).
 - **`simulate()` and the MCP `firestore_simulate_rules` tool refuse malformed cases.** `method` must be `get`, `list`, `create`, `update` or `delete` (`read` used to allow). `path` is required. Unknown fields are refused by name. `requestTime` must be ISO-8601 with an offset. A `create` with `resource` is refused. A refused case reports `UNSUPPORTED` with a reason instead of answering. `{__type: ...}` maps are read as maps, and value helpers such as `timestamp('nope')` or `latlng(91, 0)` throw a `TypeError`. Rule fixture files with a refused case are now reported on reload instead of skipped silently. This moves pyric closer to production, because each case now means the same request in the simulator and on the Rules Test API (#1453).
 - **`pyric rules simulate --service storage` builds `request.resource` per verb.** Before, `request.resource` was filled from the stored object. Now, it is built as the live upload, update, read or delete would send it. A `get` with `--data` is refused, and an unknown field in `--data` is named and refused. This moves pyric closer to production, where a re-upload carries only the metadata it sends (#1496).
+- **Storage `rules.lint` fails on error-severity findings.** It now runs the shared security lint, as Firestore lint does. Public rules fail, and Firebase's documented per-user rules (`match /{allPaths=**}` with an auth check, or a write that doesn't check `request.resource`) get error-severity SEC-5 and SEC-6 findings. A lint step that passed before can fail (#1496).
+- **The register stops the real Firebase SDKs.** Under `@pyric/cli/register`, an import that resolves into the real `firebase-admin`, or into the real `firebase` or `@firebase/*` where pyric didn't choose them, fails before the file loads with `PYRIC_REAL_SDK_STOPPED`. Before, it loaded. Run code that loads the real SDK on purpose without the register. See Security (#1522).
+- **`pyric sandbox -- next dev` refuses live Google and Firebase egress by default.** `withPyric` makes `PYRIC_GUARD=block` the default for the Next server. A route handler that calls a Google endpoint pyric doesn't mirror needs `PYRIC_GUARD_ALLOW=<host>` or `PYRIC_GUARD=warn`. See Security (#1474).
+- **`withPyric` refuses to start `next dev` when `PYRIC_SANDBOX` is set but the register isn't active.** Before, it started. Pass `{ guard: false }` to turn the check off (#1651).
 
 ### Security
 
@@ -133,7 +137,7 @@ Each of these refuses something that used to work. Check them before you upgrade
 #### Stop the real Firebase SDKs and credentials under the register
 
 - Under `@pyric/cli/register`, an import that resolves into the real `firebase-admin`, or into the real `firebase` or `@firebase/*` where pyric didn't choose them, now fails before the file loads with `PYRIC_REAL_SDK_STOPPED`. Code that loads the real SDK on purpose must run without the register (#1522).
-- Under `pyric sandbox -- next dev`, `withPyric` makes `PYRIC_GUARD=block` the default, so the Next server refuses live Google and Firebase egress. Set `PYRIC_GUARD_ALLOW=<host>` or `PYRIC_GUARD=warn` for a Google endpoint pyric doesn't mirror (#1474).
+- Under `pyric sandbox -- next dev`, `withPyric` makes `PYRIC_GUARD=block` the default, so the Next server refuses live Google and Firebase egress. Set `PYRIC_GUARD_ALLOW=<host>` or `PYRIC_GUARD=warn` for a Google endpoint pyric doesn't mirror. Once the real `firebase-admin` loads, the guard switches to `block` for the rest of the process, even under `PYRIC_GUARD=warn` (#1474).
 - `withPyric` refuses to start `next dev` when `PYRIC_SANDBOX` is set but the register isn't active, for example when `PYRIC_SANDBOX` comes only from `.env`. Pass `{ guard: false }` to turn the check off (#1651).
 - Turbopack's renamed `firebase-admin-<hash>` and `firebase-<hash>` imports on Next 16 map to the sandbox. Before, a route handler ran the real `firebase-admin` (#1471).
 - Every Node child process of a registered process loads the register, whatever `env`, `NODE_OPTIONS` or `execArgv` it is started with (#1649).
@@ -170,7 +174,7 @@ Each of these refuses something that used to work. Check them before you upgrade
 - The CLI's local probes no longer keep the process alive about 10 seconds after a hung connect (#1213).
 - `pyric firestore indexes generate` no longer writes an index for a dynamic collection id `{*}`, and the game-rules generator emits only rules production compiles (#1416).
 - `firestore_discover_paths` keeps fields named `constructor`, `toString`, `hasOwnProperty` and `valueOf` instead of failing the crawl (#1439).
-- Storage `rules.lint` runs the shared security lint (#1496).
+- Storage `rules.lint` runs the shared security lint, and fails on its error-severity findings. See Breaking changes (#1496).
 
 #### Update create-pyric
 
