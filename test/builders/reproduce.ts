@@ -2,7 +2,8 @@
  * The `reproduce` command: re-runs one problem of a kept builder run, with a
  * script the verifier wrote, in a fresh copy of the builder's app on the
  * same tarballs. At most two tries, each in a new scratch directory; it stops
- * at the first that reproduces.
+ * at the first that reproduces, or at the first that plants a link, which
+ * makes the run invalid.
  *
  * Each try runs under the same rules as a round's run: its own sandbox,
  * whose phase checks the sandbox inventory before anything starts, the
@@ -27,11 +28,11 @@ import { sha256File } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
 import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
 import { layOutReproApp } from './repro-app.ts';
-import { judgeTry, reproResult, type ReproResult, type TryEvidence, type TryJudgment } from './repro-verdict.ts';
+import { judgeTry, reproResult, type ReproResult, type TryEvidence, type TryJudgment, type TryOutcome } from './repro-verdict.ts';
 import { checkReproduce, type CheckedRepro } from './reproduce-check.ts';
 import type { ReproduceOptions } from './reproduce-options.ts';
 import { builderRunDirsAt, reproDataDir, reproTryRoot, type BuilderRunDirs } from './round-paths.ts';
-import { assertNoPlantedLinks } from './planted-links.ts';
+import { assertNoPlantedLinks, PlantedLink } from './planted-links.ts';
 import { googleEventsIn, googleHostProblems } from './run-record.ts';
 import type { Phase, PhaseResult } from './run-phase.ts';
 import { copyRedacted } from './token-scan.ts';
@@ -114,14 +115,25 @@ export function tryEvidence(dirs: BuilderRunDirs, phaseOutput: string): TryEvide
 
 const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
 
-/** A try that failed before it could be judged: inconclusive, with the reason, never unconfirmed. */
+/** The problems a `PlantedLink` names, on one line. */
+const plantedPaths = (error: PlantedLink) => error.message.split('\n- ').slice(1).join('; ');
+
+/**
+ * A try that failed before it could be judged: invalid when its sandbox
+ * planted a link, otherwise inconclusive, with the reason, never unconfirmed.
+ */
 export function failedTry(error: unknown): TryJudgment {
+  if (error instanceof PlantedLink) return { outcome: 'invalid', reason: `the try's sandbox planted a link: ${plantedPaths(error)}` };
   return { outcome: 'inconclusive', reason: `the try failed: ${firstLine(error)}` };
 }
 
+/** Whether the tries stop after this one: it reproduced, or it made the run invalid. */
+const endsTries = (outcome: TryOutcome) => outcome === 'reproduced' || outcome === 'invalid';
+
 /**
  * One try. Any failure but a sandbox that can't start becomes an
- * inconclusive try, so its data is kept like any other's.
+ * inconclusive try, or an invalid one for a planted link, so its data is
+ * kept like any other's.
  */
 async function runTry(context: ReproContext, attempt: number): Promise<TryRecord> {
   const { options, checked } = context;
@@ -200,7 +212,7 @@ export async function runReproduce(options: ReproduceOptions): Promise<ReproResu
     for (let attempt = 1; attempt <= MAX_TRIES; attempt += 1) {
       const entry = await runTry(context, attempt);
       tries.push(entry);
-      if (entry.outcome === 'reproduced') break;
+      if (endsTries(entry.outcome)) break;
     }
   } catch (error) {
     stopped = error;

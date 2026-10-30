@@ -192,7 +192,15 @@ forwarder holds no token and refuses every request.
    `network.jsonl`, `logs/` and `app.tgz` (the app without `node_modules`).
 7. Appends the run's line to `<data root>/measurements.jsonl`.
 
-`round` exits 0 when every run ended with a valid report, 1 otherwise.
+When the sandbox left a link on a file step 5 or 6 would read or append to
+(`planted-links.ts`), the run still gets its record and its measurement
+line, so its spend is counted. The harness skips the merges and every such
+file, and writes the phase's output straight into the kept `logs/`.
+`harness.plantedLinks` names the files, relative to the run root, and the
+verifier treats the run as invalid.
+
+`round` exits 0 when every run ended with a valid report and no planted
+link, 1 otherwise.
 
 **Where things go.** Scratch is under the builders root (`~/pyric-builders`,
 or `PYRIC_BUILDERS_DIR`). Run data is under the data root
@@ -251,11 +259,13 @@ the harness checks that each file it reads or appends to (`network.jsonl`,
 the NetLog, the phase's result and logs) is absent or a plain file reached
 through plain directories (`planted-links.ts`), since the sandbox could have
 left a link there to a file of the host's; a round's run checks its own the
-same way.
+same way. A try with such a link is invalid, not inconclusive: something in
+the builder's app or the script reached for the host's files. The tries stop
+there, and the reproduction is invalid whatever the other try found.
 
 The command exits 0 when a try reproduced, 1 when a try found pyric
-behaving as production does and none reproduced (unconfirmed), and 3 when no
-try could tell (inconclusive). It keeps `repro.json` (each try's outcome, reason, exit and
+behaving as production does and none reproduced (unconfirmed), 3 when no
+try could tell (inconclusive), and 4 when a try planted a link (invalid). It keeps `repro.json` (each try's outcome, reason, exit and
 Google hosts), the script, and each try's `network.jsonl` and `logs/` in
 `<data root>/runs/<round>/<run>/repros/<slug>/<stamp>/`, and never
 overwrites an earlier reproduction. The slug is the selector in lowercase

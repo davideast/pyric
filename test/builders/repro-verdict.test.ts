@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ReproTarget } from './repro-target.ts';
 import { judgeTry, reproResult, type TryEvidence } from './repro-verdict.ts';
+import { PlantedLink } from './planted-links.ts';
 import { failedTry } from './reproduce.ts';
 import type { PhaseResult } from './run-phase.ts';
 
@@ -63,7 +64,17 @@ describe('reproResult', () => {
     expect(reproResult([])).toBe('inconclusive');
   });
 
+  test('a try that planted a link makes the reproduction invalid, whatever the others found', () => {
+    expect(reproResult(['reproduced', 'invalid'])).toBe('invalid');
+    expect(reproResult(['invalid'])).toBe('invalid');
+  });
+
   test('a try that failed before it was judged is inconclusive, with its reason', () => {
     expect(failedTry(new Error('the npm cache lacks a package\nmore'))).toEqual({ outcome: 'inconclusive', reason: 'the try failed: the npm cache lacks a package' });
+  });
+
+  test('a try that failed on a planted link is invalid, naming each link', () => {
+    const error = new PlantedLink('refusing to touch the run\'s files outside the sandbox:\n- /r/network.jsonl is a link\n- /r/logs is a link');
+    expect(failedTry(error)).toEqual({ outcome: 'invalid', reason: 'the try\'s sandbox planted a link: /r/network.jsonl is a link; /r/logs is a link' });
   });
 });

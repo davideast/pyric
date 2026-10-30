@@ -28,7 +28,8 @@
  *       fresh copy of the builder's app on the same tarballs, in the same
  *       sandbox as a round's run and with no model channel: up to two
  *       tries. Exits 0 when it reproduced, 1 when unconfirmed, 3 when no try
- *       could tell. Files nothing.
+ *       could tell, 4 when a try planted a link (the run is invalid). Files
+ *       nothing.
  *   measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
  *       Per model: cost per run and per verification, confirmed new findings
  *       per app, the share thrown out, cost per confirmed new finding, and
