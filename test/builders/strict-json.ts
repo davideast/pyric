@@ -4,10 +4,18 @@
  * the last of a repeated key and another parser may keep the first, so a
  * body that repeats `max_tokens`, `tools` or `model` could be checked as one
  * request and run as another. Keys are compared decoded, so `"max"`
- * repeats `"max"`.
+ * repeats `"max"`. Before any of that, a body nested deeper than
+ * `MAX_DEPTH` is refused, measured by a loop over the text.
  */
 
-export type StrictJson = { kind: 'value'; value: unknown } | { kind: 'malformed' } | { kind: 'duplicate-key'; key: string };
+export type StrictJson = { kind: 'value'; value: unknown } | { kind: 'malformed' } | { kind: 'too-deep' } | { kind: 'duplicate-key'; key: string };
+
+/**
+ * The deepest nesting of objects and arrays a body may have. Claude Code's
+ * requests nest a handful of levels. The limit keeps every walk of the body,
+ * recursive ones included, far from the stack's depth.
+ */
+export const MAX_DEPTH = 64;
 
 interface Frame {
   keys: Set<string> | undefined;
@@ -53,7 +61,29 @@ export function repeatedKey(text: string): string | undefined {
   return undefined;
 }
 
+/** Whether `text` nests objects and arrays deeper than `limit`, outside strings. A loop, not a recursion, so any depth is safe to measure. */
+export function nestsDeeperThan(text: string, limit: number): boolean {
+  let depth = 0;
+  let at = 0;
+  while (at < text.length) {
+    const char = text[at];
+    if (char === '"') {
+      const end = stringEnd(text, at);
+      if (end === -1) return false;
+      at = end;
+      continue;
+    }
+    if (char === '{' || char === '[') depth += 1;
+    else if (char === '}' || char === ']') depth -= 1;
+    if (depth > limit) return true;
+    at += 1;
+  }
+  return false;
+}
+
+/** The body as a value, once it is shallow enough to walk, valid JSON, and free of repeated keys. */
 export function parseStrictJson(text: string): StrictJson {
+  if (nestsDeeperThan(text, MAX_DEPTH)) return { kind: 'too-deep' };
   let value: unknown;
   try {
     value = JSON.parse(text);

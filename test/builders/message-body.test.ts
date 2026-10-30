@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { checkMessageBody, COUNT_TOKENS_PATH, MEDIA_ALLOWANCE_TOKENS } from './message-body.ts';
 import { worstCaseUsd } from './model-prices.ts';
-import { parseStrictJson } from './strict-json.ts';
+import { MAX_DEPTH, nestsDeeperThan, parseStrictJson } from './strict-json.ts';
 
 const MESSAGES = '/v1/messages';
 const body = (value: unknown) => Buffer.from(JSON.stringify(value));
@@ -16,6 +16,14 @@ describe('parseStrictJson', () => {
     expect(parseStrictJson('{"max":1,"m\\u0061x":2}')).toEqual({ kind: 'duplicate-key', key: 'max' });
     expect(parseStrictJson('{"a":{"k":1},"b":{"k":1},"s":"a\\"a:","t":["a","a"]}')).toMatchObject({ kind: 'value' });
     expect(parseStrictJson('{"a":')).toEqual({ kind: 'malformed' });
+  });
+
+  test('refuses nesting past 64 levels before parsing, and doesn’t count brackets inside strings', () => {
+    const nested = (depth: number) => `${'['.repeat(depth)}${']'.repeat(depth)}`;
+    expect(parseStrictJson(nested(MAX_DEPTH))).toMatchObject({ kind: 'value' });
+    expect(parseStrictJson(nested(MAX_DEPTH + 1))).toEqual({ kind: 'too-deep' });
+    expect(parseStrictJson(nested(100_000))).toEqual({ kind: 'too-deep' });
+    expect(nestsDeeperThan(`["${'['.repeat(100)}\\"${'{'.repeat(100)}"]`, 2)).toBe(false);
   });
 });
 
@@ -79,6 +87,9 @@ describe('checkMessageBody refuses', () => {
     ['a document with nested content', body(request({ messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'content', content: [] } }] }] })), 'source', 403, ['messages[0].content[0].source.type=content']],
     ['an image from a file inside a tool result', body(request({ messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'image', source: { type: 'file', file_id: 'f' } }] }] }] })), 'source', 403, ['messages[0].content[0].content[0].source.type=file']],
     ['an image with no source', body(request({ messages: [{ role: 'user', content: [{ type: 'image' }] }] })), 'source', 403, ['messages[0].content[0].source.type=undefined']],
+    ['a body nested 100,000 deep', Buffer.from(`{"max_tokens":1,"messages":${'['.repeat(100_000)}${']'.repeat(100_000)}}`), 'too-deep', 400, []],
+    ['an image inside a search result', body(request({ messages: [{ role: 'user', content: [{ type: 'search_result', source: 's', title: 't', content: [{ type: 'text', text: 'a' }, { type: 'image', source: { type: 'url', url: 'https://x' } }] }] }] })), 'block', 403, ['messages[0].content[0].content[1].type=image']],
+    ['a search result inside a tool result with a non-text block', body(request({ messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'search_result', source: 's', title: 't', content: [{ type: 'document', source: { type: 'base64' } }] }] }] }] })), 'block', 403, ['messages[0].content[0].content[0].content[0].type=document']],
     ['a container upload', body(request({ messages: [{ role: 'user', content: [{ type: 'container_upload', file_id: 'f' }] }] })), 'block', 403, ['messages[0].content[0].type=container_upload']],
     ['a server tool result', body(request({ messages: [{ role: 'assistant', content: [{ type: 'web_fetch_tool_result', tool_use_id: 't', content: {} }] }] })), 'block', 403, ['messages[0].content[0].type=web_fetch_tool_result']],
     ['an unknown block in the system prompt', body(request({ system: [{ type: 'document', source: { type: 'url', url: 'https://x' } }] })), 'block', 403, ['system[0].type=document']],

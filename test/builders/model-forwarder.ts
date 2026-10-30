@@ -305,6 +305,19 @@ function admit(head: RequestHead, body: Buffer, meter: RunMeter): Allowed | { st
   return { status, reason: reservation, message, names: [] };
 }
 
+/**
+ * `admit`, with any throw a refusal. The body check bounds its own depth,
+ * so a throw is a bug. It must still answer the builder and leave a line in
+ * the record, not end the connection unanswered or take the forwarder down.
+ */
+function admitOrRefuse(head: RequestHead, body: Buffer, meter: RunMeter): ReturnType<typeof admit> {
+  try {
+    return admit(head, body, meter);
+  } catch {
+    return { status: 400, reason: 'body-check-failed', message: 'the request body could not be checked', names: [] };
+  }
+}
+
 function handle(client: net.Socket, options: ForwarderOptions): void {
   const attempt = attemptRecord(options.record);
   const refuse = (status: number, reason: RefusalReason, message: string = reason, refusedNames: string[] = []) => {
@@ -330,7 +343,7 @@ function handle(client: net.Socket, options: ForwarderOptions): void {
       if (body.kind === 'malformed') return refuse(400, 'body-malformed');
       if (body.kind === 'timeout') return refuse(408, 'body-timeout');
       if (body.kind === 'closed') return attempt.finish({ action: 'refused', reason: 'closed-before-body', status: null, usage: undefined, costUsd: null });
-      const admitted = admit(head, body.body, options.meter);
+      const admitted = admitOrRefuse(head, body.body, options.meter);
       if ('reason' in admitted) return refuse(admitted.status, admitted.reason, admitted.message, admitted.names);
       forward(client, head, body.body, credential, options, attempt, admitted);
     });

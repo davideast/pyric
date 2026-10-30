@@ -2,6 +2,7 @@
 // is a plain-HTTP server on loopback the forwarder is pointed at through its
 // test seam, and the credential is made up. Nothing here leaves loopback.
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -435,6 +436,30 @@ describe('settling a request', () => {
       expect(setup.meter.spentUsd()).toBe(expected(body));
     });
   }
+});
+
+describe('a body the check can’t walk', () => {
+  const FIXTURE = join(import.meta.dir, 'fixtures', 'deep-body-forwarder.ts');
+  const runtimes: Array<[string, string | null]> = [['Node', Bun.which('node')], ['Bun', process.execPath]];
+
+  for (const [runtime, executable] of runtimes) {
+    test.skipIf(executable === null)(`answers a body nested 100,000 deep with a recorded 400, under ${runtime}`, () => {
+      const result = spawnSync(executable ?? '', [FIXTURE], { encoding: 'utf8', timeout: 60_000 });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout.trim())).toEqual({
+        statusLine: 'HTTP/1.1 400 Bad Request',
+        record: [{ action: 'refused', reason: 'too-deep', status: 400 }],
+      });
+    });
+  }
+
+  test('answers 400 and records the connection when checking a body throws', async () => {
+    const throwing: RunMeter = { capUsd: 1, spentUsd: () => 0, inFlight: () => 0, reserve: () => { throw new RangeError('a bug in the check'); } };
+    const setup = await forwarder({ meter: throwing });
+    expect(await exchange(viaSocket(setup.socketPath), messagesRequest(haikuBody()))).toStartWith('HTTP/1.1 400 ');
+    expect(setup.received).toEqual([]);
+    expect(readChannelRecord(setup.record)).toEqual([expect.objectContaining({ action: 'refused', reason: 'body-check-failed', status: 400 })]);
+  });
 });
 
 describe('the bridge', () => {

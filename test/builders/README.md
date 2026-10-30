@@ -140,9 +140,11 @@ carries no credential the sandbox could read (`model-channel.ts`):
   allowlist taken from the
   [Messages API reference](https://platform.claude.com/docs/en/api/messages/create),
   and fails closed:
-  - the body must be a JSON object that repeats no key at any depth
-    (`strict-json.ts`), so it can't be checked as one request and run as
-    another;
+  - the body must be a JSON object nested no deeper than 64 levels, which
+    a loop measures before any walk of the body, and must repeat no key at
+    any depth (`strict-json.ts`), so it can't be checked as one request and
+    run as another. If checking a body throws anyway, the builder gets
+    `400` and the connection is recorded;
   - top-level fields must be on the list, case included. `mcp_servers`,
     `container`, `context_management`, `fallbacks`, `diagnostics` and any
     other field get `400` with the API's own wording, `<field>: Extra
@@ -150,7 +152,8 @@ carries no credential the sandbox could read (`model-channel.ts`):
     `context_management`. `service_tier` may only be `standard_only`;
   - content blocks in `messages` and `tool_result` content must be
     client-side types (text, image, document, search result, thinking,
-    tool use and result, tool reference), and the system prompt text only.
+    tool use and result, tool reference). The system prompt and a search
+    result's content take text only.
     An image's source must be `base64`, a document's `base64` or `text`: a
     `url` source has Anthropic fetch it, and a `file` isn't bounded by the
     body's size;
