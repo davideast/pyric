@@ -18,6 +18,7 @@ const context = {
   serviceAccount: {
     kind: 'application-default',
     project_id: 'test-project',
+    client_email: 'oracle@test-project.iam.gserviceaccount.com',
     credential: { getAccessToken: async () => ({ access_token: 'test-token', expires_in: 3600 }) },
   },
   rtdbAdminToken: 'test-token',

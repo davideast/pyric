@@ -47,7 +47,7 @@ export const probe: Probe = {
       throw new Error('PYRIC_ORACLE_STORAGE_BUCKET is required for the admin Storage oracle probe');
     }
     const app = initializeApp(
-      { ...oracleAppOptions(loadOracleServiceAccount()), storageBucket: bucketName },
+      { ...oracleAppOptions(await loadOracleServiceAccount()), storageBucket: bucketName },
       `admin-storage-metadata-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     const bucket = getStorage(app).bucket();

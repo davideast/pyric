@@ -125,7 +125,15 @@ PYRIC_ORACLE_PROJECT_ID=digame-mas
 
 Remove `PYRIC_ORACLE_SA_PATH` from `.env` and your shell: when it is set, the
 key file wins. Leave `GOOGLE_APPLICATION_CREDENTIALS` unset too, because ADC
-reads the file it names before the gcloud file. Rigs that use a second
+reads the file it names before the gcloud file; a rig warns when it is set.
+
+Before its first request, a rig resolves the service account ADC acts as and
+logs it, for example
+`[oracle] credential: Application Default Credentials for firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com, project digame-mas`.
+It refuses to start when ADC names no service account (a plain
+`gcloud auth application-default login` without impersonation), or when the
+account's `@<project>.iam.gserviceaccount.com` project is not
+`PYRIC_ORACLE_PROJECT_ID`. Rigs that use a second
 project read `PYRIC_SECONDARY_ORACLE_SA_PATH`, or
 `PYRIC_SECONDARY_ORACLE_PROJECT_ID` with the same ADC login, in the same way.
 

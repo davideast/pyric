@@ -62,7 +62,7 @@ if (!rawConfig || !oracleCredentialConfigured(process.env)) {
 }
 const config = JSON.parse(rawConfig) as { apiKey: string; appId: string; projectId: string };
 const { apiKey, appId, projectId } = config;
-const serviceAccount = loadOracleServiceAccount();
+const serviceAccount = await loadOracleServiceAccount();
 if (serviceAccount.project_id !== projectId) {
   console.error('✗ PYRIC_AI_FIREBASE_CONFIG and the oracle credential name different projects; nothing was run.');
   process.exit(1);

@@ -46,11 +46,11 @@ interface Credentials {
   rtdbUrl: string | undefined;
 }
 
-function credentials(): Credentials | null {
+async function credentials(): Promise<Credentials | null> {
   const rawConfig = process.env.PYRIC_ORACLE_FIREBASE_CONFIG;
   if (!oracleCredentialConfigured(process.env) || !rawConfig) return null;
   return {
-    serviceAccount: loadOracleServiceAccount(),
+    serviceAccount: await loadOracleServiceAccount(),
     config: JSON.parse(rawConfig),
     rtdbUrl: process.env.PYRIC_ORACLE_RTDB_URL,
   };
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   const firestore = await loadFirestoreScenarios();
   const rtdb = await loadRtdbScenarios();
   const all = [...firestore, ...rtdb].map((scenario) => scenario.observation.name);
-  const creds = credentials();
+  const creds = await credentials();
   if (names.length === 0 || creds === null) {
     console.log('[sdk-scenarios] plan (pass scenario names and credentials to capture):');
     for (const name of all) console.log(`  ${name}`);

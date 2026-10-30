@@ -64,7 +64,7 @@ if (!oracleCredentialConfigured(process.env) || !webConfigJson) {
   console.error('PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID are required; nothing was run.');
   process.exit(1);
 }
-const sa = loadOracleServiceAccount();
+const sa = await loadOracleServiceAccount();
 const web = JSON.parse(webConfigJson) as WebConfig;
 if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 

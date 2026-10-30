@@ -706,7 +706,7 @@ async function run(): Promise<void> {
   const collectionGroupOnly = Bun.argv.includes('--collection-group-listener');
   let restoreVerified = false;
   try {
-    const sa = loadOracleServiceAccount();
+    const sa = await loadOracleServiceAccount();
     const headers = await accessHeaders(sa);
     const web = await discoverWebConfig(sa, headers);
     if (web.projectId !== sa.project_id) throw new Error('Web config and service account target different projects');

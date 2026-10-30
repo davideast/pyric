@@ -348,7 +348,7 @@ async function main(): Promise<void> {
     const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
     return captureRulesApi(parityScope() as RulesScope);
   }
-  const sa = loadOracleServiceAccount();
+  const sa = await loadOracleServiceAccount();
   if (mode === 'absent-database') {
     const configPath = process.env.PYRIC_AI_FIREBASE_CONFIG_PATH;
     const config = configPath ? readFileSync(configPath, 'utf8') : process.env.PYRIC_AI_FIREBASE_CONFIG;

@@ -349,7 +349,7 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   // The oracle credential: the key file PYRIC_ORACLE_SA_PATH names, or
   // Application Default Credentials for PYRIC_ORACLE_PROJECT_ID. See
   // packages/conformance/docs/oracle-project-setup.md.
-  const sa = loadOracleServiceAccount();
+  const sa = await loadOracleServiceAccount();
   serviceAccount = sa;
   console.log(`[oracle] project: ${sa.project_id}`);
   const token = await oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase');

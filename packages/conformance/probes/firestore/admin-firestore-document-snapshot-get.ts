@@ -72,7 +72,7 @@ export const probe: Probe = {
   rowIds: [],
   async observe() {
     const app = initializeApp(
-      oracleAppOptions(loadOracleServiceAccount()),
+      oracleAppOptions(await loadOracleServiceAccount()),
       `admin-firestore-get-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     const db = getFirestore(app);

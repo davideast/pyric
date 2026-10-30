@@ -71,7 +71,7 @@ export interface ProbeAccess {
  */
 export async function resolveProbeAccess(): Promise<ProbeAccess> {
   if (oracleCredentialConfigured(process.env)) {
-    const sa = loadOracleServiceAccount();
+    const sa = await loadOracleServiceAccount();
     return { projectId: sa.project_id, resolveToken: async () => (await accessHeaders(sa)).auth.Authorization.slice('Bearer '.length) };
   }
   const { parityScope } = await import('../../../packages/pyric/test/rules/parity/harness.ts');

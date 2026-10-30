@@ -41,7 +41,7 @@ if (credentialsMissing) {
   process.exit(0);
 }
 
-const sa = loadOracleServiceAccount();
+const sa = await loadOracleServiceAccount();
 const web = JSON.parse(rawConfig) as WebConfig;
 if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 

@@ -437,7 +437,7 @@ async function main(): Promise<void> {
   if (!rawConfig) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG is not set.');
   const config = JSON.parse(rawConfig) as FirebaseWebConfig;
   if (!config.databaseURL) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL.');
-  const sa = loadOracleServiceAccount();
+  const sa = await loadOracleServiceAccount();
   if (sa.project_id !== config.projectId) {
     throw new Error(`oracle credential project ${sa.project_id} does not match config project ${config.projectId}.`);
   }

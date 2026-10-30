@@ -316,7 +316,7 @@ async function captureAdminMixing(sa: ServiceAccount): Promise<void> {
 
 async function main(): Promise<void> {
   const mode = process.argv[2];
-  const sa = loadOracleServiceAccount();
+  const sa = await loadOracleServiceAccount();
   if (mode === 'admin-mixing') return captureAdminMixing(sa);
   if (mode === 'cross-database') {
     const configPath = process.env.PYRIC_AI_FIREBASE_CONFIG_PATH;

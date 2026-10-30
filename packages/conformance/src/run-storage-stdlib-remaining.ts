@@ -289,7 +289,7 @@ export async function runStorageStdlibRemaining(mode: Mode): Promise<void> {
   if (!oracleCredentialConfigured(process.env) || !webConfigJson) {
     throw new Error('remaining probes require PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
   }
-  const sa = loadOracleServiceAccount();
+  const sa = await loadOracleServiceAccount();
   const web = JSON.parse(webConfigJson) as WebConfig;
   if (mode === 'native-fields') {
     const { runStorageStdlibNativeFields } = await import('./run-storage-stdlib-native-fields.ts');
@@ -298,6 +298,6 @@ export async function runStorageStdlibRemaining(mode: Mode): Promise<void> {
   if (!oracleCredentialConfigured(process.env, SECONDARY_ORACLE_VARIABLES)) {
     throw new Error('remaining cross-service probes require PYRIC_SECONDARY_ORACLE_SA_PATH or PYRIC_SECONDARY_ORACLE_PROJECT_ID');
   }
-  const secondarySa = loadOracleServiceAccount(process.env, SECONDARY_ORACLE_VARIABLES);
+  const secondarySa = await loadOracleServiceAccount(process.env, SECONDARY_ORACLE_VARIABLES);
   return runRemainingCrossService(sa, web, secondarySa);
 }

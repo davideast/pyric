@@ -85,7 +85,6 @@ import {
 } from '../rules-corpus/rtdb/index.ts';
 import { RTDB_RULES_SCOPE } from './oracle-access-token.ts';
 import {
-  describeOracleCredential,
   loadOracleServiceAccount,
   oracleAccessToken,
   oracleAppOptions,
@@ -240,7 +239,7 @@ function printInertPlan({ scenarios, deployScenarios }: RtdbSelection): void {
  */
 async function mintCustomToken(sa: ServiceAccount, uid: string, claims: Record<string, unknown>): Promise<string> {
   const iat = Math.floor(Date.now() / 1000) - 120;
-  const email = await oracleServiceAccountEmail(sa);
+  const email = oracleServiceAccountEmail(sa);
   return signOracleJwt(sa, {
     iss: email,
     sub: email,
@@ -486,13 +485,12 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<v
   if (!config.databaseURL) {
     throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL — an RTDB instance URL is required to deploy and run rules.');
   }
-  const serviceAccount = loadOracleServiceAccount();
+  const serviceAccount = await loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
 
   console.log(`[oracle:rules-rtdb] project: ${config.projectId}`);
   console.log(`[oracle:rules-rtdb] database: ${config.databaseURL}`);
-  console.log(`[oracle:rules-rtdb] credential: ${describeOracleCredential(serviceAccount)}`);
   console.log(`[oracle:rules-rtdb] firebase ${fbSdkVersion}\n`);
 
   const rtdbAdminToken = await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE);
@@ -912,7 +910,7 @@ async function captureMultiInstance(): Promise<void> {
   if (!secondUrl) throw new Error('PYRIC_ORACLE_SECOND_DATABASE_URL names the second instance the capture runs against.');
   const defaultUrl = config.databaseURL.replace(/\/$/, '');
   const second = secondUrl.replace(/\/$/, '');
-  const serviceAccount = loadOracleServiceAccount();
+  const serviceAccount = await loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
   const instances = { default: defaultUrl, second } as const;

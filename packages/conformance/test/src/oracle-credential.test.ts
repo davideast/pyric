@@ -13,6 +13,7 @@ import {
   ORACLE_VARIABLES,
   SECONDARY_ORACLE_VARIABLES,
   selectOracleCredentialSource,
+  serviceAccountProject,
   signOracleJwt,
   type OracleCredentialDeps,
   type OracleKey,
@@ -39,15 +40,29 @@ function fakeCredential(token: string, email?: string): Credential {
   return { ...credential, getServiceAccountEmail: async () => email } as Credential;
 }
 
+function credentialThatCannotNameItsAccount(): Credential {
+  return {
+    getAccessToken: async () => ({ access_token: 'adc-token', expires_in: 3600 }),
+    getServiceAccountEmail: async () => { throw new Error('no client_email'); },
+  } as Credential;
+}
+
 interface Recorded {
   readPaths: string[];
   certKeys: OracleKey[];
   adcCalls: number;
+  logs: string[];
+  warnings: string[];
 }
 
-function fakeDeps(files: Record<string, string> = {}): { deps: OracleCredentialDeps; recorded: Recorded } {
-  const recorded: Recorded = { readPaths: [], certKeys: [], adcCalls: 0 };
+function fakeDeps(
+  files: Record<string, string> = {},
+  adcCredential: Credential = fakeCredential('adc-token', IMPERSONATED_EMAIL),
+): { deps: OracleCredentialDeps; recorded: Recorded } {
+  const recorded: Recorded = { readPaths: [], certKeys: [], adcCalls: 0, logs: [], warnings: [] };
   const deps: OracleCredentialDeps = {
+    log: (message) => recorded.logs.push(message),
+    warn: (message) => recorded.warnings.push(message),
     readFile(path) {
       recorded.readPaths.push(path);
       const contents = files[path];
@@ -60,14 +75,16 @@ function fakeDeps(files: Record<string, string> = {}): { deps: OracleCredentialD
     },
     applicationDefault() {
       recorded.adcCalls += 1;
-      return fakeCredential('adc-token', IMPERSONATED_EMAIL);
+      return adcCredential;
     },
   };
   return { deps, recorded };
 }
 
+const ADC_ENV = { PYRIC_ORACLE_PROJECT_ID: 'oracle-project' };
+
 function adcAccount(credential: Credential = fakeCredential('adc-token', IMPERSONATED_EMAIL)): OracleServiceAccount {
-  return { kind: 'application-default', project_id: 'oracle-project', credential };
+  return { kind: 'application-default', project_id: 'oracle-project', credential, client_email: IMPERSONATED_EMAIL };
 }
 
 function keyAccount(): OracleServiceAccount {
@@ -133,55 +150,124 @@ describe('applicationDefaultProject', () => {
 });
 
 describe('loadOracleServiceAccount', () => {
-  it('builds a cert credential from the key file and takes the project from the key', () => {
+  it('builds a cert credential from the key file and takes the project from the key', async () => {
     const { deps, recorded } = fakeDeps({ '/k.json': JSON.stringify(key) });
-    const sa = loadOracleServiceAccount({ PYRIC_ORACLE_SA_PATH: '/k.json', PYRIC_ORACLE_PROJECT_ID: 'ignored' }, ORACLE_VARIABLES, deps);
+    const sa = await loadOracleServiceAccount({ PYRIC_ORACLE_SA_PATH: '/k.json', PYRIC_ORACLE_PROJECT_ID: 'ignored' }, ORACLE_VARIABLES, deps);
     expect(sa.kind).toBe('key-file');
     expect(sa.project_id).toBe('key-project');
     expect(recorded.readPaths).toEqual(['/k.json']);
     expect(recorded.certKeys).toEqual([key]);
     expect(recorded.adcCalls).toBe(0);
+    expect(recorded.logs).toEqual([`[oracle] credential: key file for ${key.client_email}, project key-project`]);
   });
 
-  it('uses Application Default Credentials and the project variable when no key file is named', () => {
+  it('uses Application Default Credentials and the project variable when no key file is named', async () => {
     const { deps, recorded } = fakeDeps();
-    const sa = loadOracleServiceAccount({ PYRIC_ORACLE_PROJECT_ID: 'oracle-project' }, ORACLE_VARIABLES, deps);
+    const sa = await loadOracleServiceAccount(ADC_ENV, ORACLE_VARIABLES, deps);
     expect(sa.kind).toBe('application-default');
     expect(sa.project_id).toBe('oracle-project');
+    expect(oracleServiceAccountEmail(sa)).toBe(IMPERSONATED_EMAIL);
     expect(recorded.adcCalls).toBe(1);
     expect(recorded.readPaths).toEqual([]);
     expect(recorded.certKeys).toEqual([]);
+    expect(recorded.warnings).toEqual([]);
   });
 
-  it('fails before building any credential when ADC has no project', () => {
+  it('logs the account ADC acts as, at load time', async () => {
     const { deps, recorded } = fakeDeps();
-    expect(() => loadOracleServiceAccount({}, ORACLE_VARIABLES, deps)).toThrow(/PYRIC_ORACLE_PROJECT_ID/);
+    await loadOracleServiceAccount(ADC_ENV, ORACLE_VARIABLES, deps);
+    expect(recorded.logs).toEqual([
+      `[oracle] credential: Application Default Credentials for ${IMPERSONATED_EMAIL}, project oracle-project`,
+    ]);
+  });
+
+  it('fails before building any credential when ADC has no project', async () => {
+    const { deps, recorded } = fakeDeps();
+    await expect(loadOracleServiceAccount({}, ORACLE_VARIABLES, deps)).rejects.toThrow(/PYRIC_ORACLE_PROJECT_ID/);
     expect(recorded.adcCalls).toBe(0);
   });
 
-  it('surfaces a missing key file rather than falling back to ADC', () => {
+  it('refuses a plain user ADC login, which names no service account', async () => {
+    for (const credential of [fakeCredential('adc-token'), fakeCredential('adc-token', ''), credentialThatCannotNameItsAccount()]) {
+      const { deps, recorded } = fakeDeps({}, credential);
+      await expect(loadOracleServiceAccount(ADC_ENV, ORACLE_VARIABLES, deps)).rejects.toThrow(/impersonate-service-account/);
+      expect(recorded.logs).toEqual([]);
+    }
+  });
+
+  it('refuses a service account from another project', async () => {
+    const { deps, recorded } = fakeDeps({}, fakeCredential('adc-token', 'stale@other-project.iam.gserviceaccount.com'));
+    await expect(loadOracleServiceAccount(ADC_ENV, ORACLE_VARIABLES, deps))
+      .rejects.toThrow(/stale@other-project\.iam\.gserviceaccount\.com, which belongs to project other-project, but PYRIC_ORACLE_PROJECT_ID is oracle-project/);
+    expect(recorded.logs).toEqual([]);
+  });
+
+  it('refuses a service account whose email does not name its project', async () => {
+    const { deps } = fakeDeps({}, fakeCredential('adc-token', '123-compute@developer.gserviceaccount.com'));
+    await expect(loadOracleServiceAccount(ADC_ENV, ORACLE_VARIABLES, deps)).rejects.toThrow(/does not name its project/);
+  });
+
+  it('warns when GOOGLE_APPLICATION_CREDENTIALS replaces the gcloud login', async () => {
     const { deps, recorded } = fakeDeps();
-    expect(() => loadOracleServiceAccount({ PYRIC_ORACLE_SA_PATH: '/missing.json' }, ORACLE_VARIABLES, deps)).toThrow(/ENOENT/);
+    await loadOracleServiceAccount({ ...ADC_ENV, GOOGLE_APPLICATION_CREDENTIALS: '/old/key.json' }, ORACLE_VARIABLES, deps);
+    expect(recorded.warnings).toHaveLength(1);
+    expect(recorded.warnings[0]).toContain('GOOGLE_APPLICATION_CREDENTIALS is set');
+    expect(recorded.warnings[0]).toContain('/old/key.json');
+  });
+
+  it('still refuses the wrong account when GOOGLE_APPLICATION_CREDENTIALS names it', async () => {
+    const { deps, recorded } = fakeDeps({}, fakeCredential('adc-token', 'key@other-project.iam.gserviceaccount.com'));
+    const env = { ...ADC_ENV, GOOGLE_APPLICATION_CREDENTIALS: '/old/key.json' };
+    await expect(loadOracleServiceAccount(env, ORACLE_VARIABLES, deps)).rejects.toThrow(/belongs to project other-project/);
+    expect(recorded.warnings).toHaveLength(1);
+  });
+
+  it('does not warn about GOOGLE_APPLICATION_CREDENTIALS when a key file is named', async () => {
+    const { deps, recorded } = fakeDeps({ '/k.json': JSON.stringify(key) });
+    await loadOracleServiceAccount({ PYRIC_ORACLE_SA_PATH: '/k.json', GOOGLE_APPLICATION_CREDENTIALS: '/adc.json' }, ORACLE_VARIABLES, deps);
+    expect(recorded.warnings).toEqual([]);
+  });
+
+  it('surfaces a missing key file rather than falling back to ADC', async () => {
+    const { deps, recorded } = fakeDeps();
+    await expect(loadOracleServiceAccount({ PYRIC_ORACLE_SA_PATH: '/missing.json' }, ORACLE_VARIABLES, deps)).rejects.toThrow(/ENOENT/);
     expect(recorded.adcCalls).toBe(0);
   });
 
-  it('loads the secondary project from its own variables', () => {
-    const { deps } = fakeDeps();
+  it('loads the secondary project from its own variables and checks the account against it', async () => {
     const env = { PYRIC_ORACLE_PROJECT_ID: 'oracle-project', PYRIC_SECONDARY_ORACLE_PROJECT_ID: 'secondary-project' };
-    expect(loadOracleServiceAccount(env, SECONDARY_ORACLE_VARIABLES, deps).project_id).toBe('secondary-project');
+    const secondary = fakeDeps({}, fakeCredential('adc-token', 'sa@secondary-project.iam.gserviceaccount.com'));
+    expect((await loadOracleServiceAccount(env, SECONDARY_ORACLE_VARIABLES, secondary.deps)).project_id).toBe('secondary-project');
+    const mismatched = fakeDeps();
+    await expect(loadOracleServiceAccount(env, SECONDARY_ORACLE_VARIABLES, mismatched.deps))
+      .rejects.toThrow(/PYRIC_SECONDARY_ORACLE_PROJECT_ID is secondary-project/);
+  });
+});
+
+describe('serviceAccountProject', () => {
+  it('reads the project from IAM and App Engine service account emails', () => {
+    expect(serviceAccountProject('firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com')).toBe('digame-mas');
+    expect(serviceAccountProject('digame-mas@appspot.gserviceaccount.com')).toBe('digame-mas');
+  });
+
+  it('returns null for emails that do not name a project', () => {
+    expect(serviceAccountProject('123-compute@developer.gserviceaccount.com')).toBeNull();
+    expect(serviceAccountProject('someone@example.com')).toBeNull();
   });
 });
 
 describe('oracleAppOptions and describeOracleCredential', () => {
-  it('passes the credential and the project to firebase-admin', () => {
+  it('passes the credential, the project, and under ADC the signing account to firebase-admin', () => {
     const sa = adcAccount();
-    expect(oracleAppOptions(sa)).toEqual({ credential: sa.credential, projectId: 'oracle-project' });
+    expect(oracleAppOptions(sa)).toEqual({ credential: sa.credential, projectId: 'oracle-project', serviceAccountId: IMPERSONATED_EMAIL });
+    const keyed = keyAccount();
+    expect(oracleAppOptions(keyed)).toEqual({ credential: keyed.credential, projectId: 'key-project' });
   });
 
-  it('names the source without exposing the key', () => {
-    expect(describeOracleCredential(adcAccount())).toBe('Application Default Credentials');
+  it('names the source and the account without exposing the key', () => {
+    expect(describeOracleCredential(adcAccount())).toBe(`Application Default Credentials for ${IMPERSONATED_EMAIL}`);
     const described = describeOracleCredential(keyAccount());
-    expect(described).toContain(key.client_email);
+    expect(described).toBe(`key file for ${key.client_email}`);
     expect(described).not.toContain('PRIVATE KEY');
   });
 });
@@ -193,17 +279,9 @@ describe('oracleAccessToken under ADC', () => {
 });
 
 describe('oracleServiceAccountEmail', () => {
-  it('reads the key email from a key file', async () => {
-    expect(await oracleServiceAccountEmail(keyAccount())).toBe(key.client_email);
-  });
-
-  it('reads the impersonated account from ADC', async () => {
-    expect(await oracleServiceAccountEmail(adcAccount())).toBe(IMPERSONATED_EMAIL);
-  });
-
-  it('refuses an ADC credential that names no account, pointing at the impersonated login', async () => {
-    await expect(oracleServiceAccountEmail(adcAccount(fakeCredential('adc-token')))).rejects.toThrow(/impersonate-service-account/);
-    await expect(oracleServiceAccountEmail(adcAccount(fakeCredential('adc-token', '')))).rejects.toThrow(/impersonate-service-account/);
+  it('reads the key email from a key file and the checked account under ADC', () => {
+    expect(oracleServiceAccountEmail(keyAccount())).toBe(key.client_email);
+    expect(oracleServiceAccountEmail(adcAccount())).toBe(IMPERSONATED_EMAIL);
   });
 });
 

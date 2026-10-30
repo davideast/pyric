@@ -47,7 +47,11 @@ interface OracleAccountBase {
 
 export type OracleServiceAccount =
   | (OracleAccountBase & { kind: 'key-file'; key: OracleKey })
-  | (OracleAccountBase & { kind: 'application-default' });
+  | (OracleAccountBase & {
+      kind: 'application-default';
+      /** The service account ADC acts as, checked against the project at load time. */
+      client_email: string;
+    });
 
 /** The variables one oracle credential is read from. The secondary project uses its own pair. */
 export interface OracleCredentialVariables {
@@ -66,17 +70,21 @@ export const SECONDARY_ORACLE_VARIABLES: OracleCredentialVariables = {
   project: 'PYRIC_SECONDARY_ORACLE_PROJECT_ID',
 };
 
-/** The seams a test replaces: reading the key file and building firebase-admin credentials. */
+/** The seams a test replaces: the key file, the firebase-admin credentials, and the capture log. */
 export interface OracleCredentialDeps {
   readFile(path: string): string;
   cert(key: OracleKey): Credential;
   applicationDefault(): Credential;
+  log(message: string): void;
+  warn(message: string): void;
 }
 
 const defaultDeps: OracleCredentialDeps = {
   readFile: (path) => readFileSync(path, 'utf8'),
   cert: (key) => cert(key as Parameters<typeof cert>[0]),
   applicationDefault: () => applicationDefault(),
+  log: (message) => console.log(message),
+  warn: (message) => console.warn(message),
 };
 
 /** A key file wins when its variable is set. Otherwise the capture uses ADC. */
@@ -115,15 +123,22 @@ export function applicationDefaultProject(
   );
 }
 
-/** Load the oracle credential the environment selects. */
-export function loadOracleServiceAccount(
+/**
+ * Load the oracle credential the environment selects, and log the account it
+ * acts as. Under ADC the account is resolved here, before any capture request,
+ * and refused unless it is a service account in the oracle project.
+ */
+export async function loadOracleServiceAccount(
   env: OracleEnv = process.env,
   variables: OracleCredentialVariables = ORACLE_VARIABLES,
   deps: OracleCredentialDeps = defaultDeps,
-): OracleServiceAccount {
+): Promise<OracleServiceAccount> {
   const source = selectOracleCredentialSource(env, variables);
-  if (source.kind === 'key-file') return keyFileAccount(source.path, deps);
-  return applicationDefaultAccount(applicationDefaultProject(env, variables), deps);
+  const sa = source.kind === 'key-file'
+    ? keyFileAccount(source.path, deps)
+    : await applicationDefaultAccount(env, variables, deps);
+  deps.log(`[oracle] credential: ${describeOracleCredential(sa)}, project ${sa.project_id}`);
+  return sa;
 }
 
 function keyFileAccount(path: string, deps: OracleCredentialDeps): OracleServiceAccount {
@@ -131,30 +146,35 @@ function keyFileAccount(path: string, deps: OracleCredentialDeps): OracleService
   return { kind: 'key-file', key, project_id: key.project_id, credential: deps.cert(key) };
 }
 
-function applicationDefaultAccount(projectId: string, deps: OracleCredentialDeps): OracleServiceAccount {
-  return { kind: 'application-default', project_id: projectId, credential: deps.applicationDefault() };
-}
-
-/** The firebase-admin app options that reach the oracle project with this credential. */
-export function oracleAppOptions(sa: OracleServiceAccount): { credential: Credential; projectId: string } {
-  return { credential: sa.credential, projectId: sa.project_id };
-}
-
-/** A one-line description of the credential for a capture log. Names no secret. */
-export function describeOracleCredential(sa: OracleServiceAccount): string {
-  if (sa.kind === 'key-file') return `key file for ${sa.key.client_email}`;
-  return 'Application Default Credentials';
+async function applicationDefaultAccount(
+  env: OracleEnv,
+  variables: OracleCredentialVariables,
+  deps: OracleCredentialDeps,
+): Promise<OracleServiceAccount> {
+  const projectId = applicationDefaultProject(env, variables);
+  warnWhenAdcReadsAnExplicitFile(env, variables, deps);
+  const credential = deps.applicationDefault();
+  const email = await applicationDefaultEmail(credential);
+  assertAccountInProject(email, projectId, variables);
+  return { kind: 'application-default', project_id: projectId, credential, client_email: email };
 }
 
 /**
- * An OAuth access token. A key file mints one for exactly `scope`. ADC returns
- * firebase-admin's token, whose scopes (cloud-platform, firebase.database,
- * userinfo.email, and the rest of firebase-admin's set) cover every scope the
- * captures ask for.
+ * ADC reads `GOOGLE_APPLICATION_CREDENTIALS` before the gcloud login, so a
+ * leftover value (a revoked key, another project's file) replaces the
+ * impersonated login. The account check that follows still guards the project.
  */
-export async function oracleAccessToken(sa: OracleServiceAccount, scope: string): Promise<string> {
-  if (sa.kind === 'key-file') return mintAccessToken(sa.key, scope);
-  return (await sa.credential.getAccessToken()).access_token;
+function warnWhenAdcReadsAnExplicitFile(
+  env: OracleEnv,
+  variables: OracleCredentialVariables,
+  deps: OracleCredentialDeps,
+): void {
+  const explicitAdcFile = env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!explicitAdcFile) return;
+  deps.warn(
+    `[oracle] warning: ${variables.keyPath} is unset and GOOGLE_APPLICATION_CREDENTIALS is set, so Application ` +
+      `Default Credentials come from ${explicitAdcFile}, not the gcloud login. Unset it to use the impersonated login.`,
+  );
 }
 
 /** firebase-admin's ADC credential can name the account it acts as; the public type omits it. */
@@ -166,15 +186,66 @@ function namesItsAccount(credential: Credential): credential is Credential & Acc
   return typeof (credential as Partial<AccountNamingCredential>).getServiceAccountEmail === 'function';
 }
 
-/** The service account the credential acts as: the key's, or the impersonated one under ADC. */
-export async function oracleServiceAccountEmail(sa: OracleServiceAccount): Promise<string> {
-  if (sa.kind === 'key-file') return sa.key.client_email;
-  const email = namesItsAccount(sa.credential) ? await sa.credential.getServiceAccountEmail() : '';
+const IMPERSONATED_LOGIN_HINT =
+  'Log in with `gcloud auth application-default login --impersonate-service-account=<oracle service account>`.';
+
+async function applicationDefaultEmail(credential: Credential): Promise<string> {
+  const email = namesItsAccount(credential) ? await credential.getServiceAccountEmail().catch(() => '') : '';
   if (email) return email;
   throw new Error(
-    'Application Default Credentials name no service account. Log in with ' +
-      '`gcloud auth application-default login --impersonate-service-account=<oracle service account>`.',
+    `Application Default Credentials name no service account; a plain user login cannot run the oracle captures. ${IMPERSONATED_LOGIN_HINT}`,
   );
+}
+
+/** `<name>@<project>.iam.gserviceaccount.com`, a service account created in the project. */
+const IAM_ACCOUNT_PATTERN = /@([a-z0-9-]+)\.iam\.gserviceaccount\.com$/;
+/** `<project>@appspot.gserviceaccount.com`, the App Engine default account. */
+const APP_ENGINE_ACCOUNT_PATTERN = /^([a-z0-9-]+)@appspot\.gserviceaccount\.com$/;
+
+/** The project a service account belongs to, read from its email, or null when the email does not say. */
+export function serviceAccountProject(email: string): string | null {
+  return IAM_ACCOUNT_PATTERN.exec(email)?.[1] ?? APP_ENGINE_ACCOUNT_PATTERN.exec(email)?.[1] ?? null;
+}
+
+function assertAccountInProject(email: string, projectId: string, variables: OracleCredentialVariables): void {
+  const accountProject = serviceAccountProject(email);
+  if (accountProject === projectId) return;
+  const found = accountProject ? `belongs to project ${accountProject}` : 'does not name its project';
+  throw new Error(
+    `Application Default Credentials act as ${email}, which ${found}, but ${variables.project} is ${projectId}. ` +
+      IMPERSONATED_LOGIN_HINT,
+  );
+}
+
+/** The firebase-admin app options that reach the oracle project with this credential. */
+export function oracleAppOptions(
+  sa: OracleServiceAccount,
+): { credential: Credential; projectId: string; serviceAccountId?: string } {
+  const options = { credential: sa.credential, projectId: sa.project_id };
+  if (sa.kind === 'key-file') return options;
+  return { ...options, serviceAccountId: sa.client_email };
+}
+
+/** The service account the credential acts as: the key's, or the impersonated one under ADC. */
+export function oracleServiceAccountEmail(sa: OracleServiceAccount): string {
+  return sa.kind === 'key-file' ? sa.key.client_email : sa.client_email;
+}
+
+/** A one-line description of the credential for a capture log. Names no secret. */
+export function describeOracleCredential(sa: OracleServiceAccount): string {
+  const source = sa.kind === 'key-file' ? 'key file' : 'Application Default Credentials';
+  return `${source} for ${oracleServiceAccountEmail(sa)}`;
+}
+
+/**
+ * An OAuth access token. A key file mints one for exactly `scope`. ADC returns
+ * firebase-admin's token, whose scopes (cloud-platform, firebase.database,
+ * userinfo.email, and the rest of firebase-admin's set) cover every scope the
+ * captures ask for.
+ */
+export async function oracleAccessToken(sa: OracleServiceAccount, scope: string): Promise<string> {
+  if (sa.kind === 'key-file') return mintAccessToken(sa.key, scope);
+  return (await sa.credential.getAccessToken()).access_token;
 }
 
 /**
@@ -202,7 +273,7 @@ async function signWithIamCredentials(
   bytes: Uint8Array,
   fetchImpl: typeof fetch,
 ): Promise<Buffer> {
-  const email = await oracleServiceAccountEmail(sa);
+  const email = oracleServiceAccountEmail(sa);
   const token = (await sa.credential.getAccessToken()).access_token;
   const response = await fetchImpl(
     `${IAM_CREDENTIALS_API}/projects/-/serviceAccounts/${encodeURIComponent(email)}:signBlob`,

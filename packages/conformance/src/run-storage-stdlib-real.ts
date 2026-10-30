@@ -204,7 +204,7 @@ async function run(): Promise<void> {
     return runStorageStdlibRemaining(Bun.argv.includes('--native-fields') ? 'native-fields' : 'remaining-cross-service');
   }
 
-  const sa = loadOracleServiceAccount();
+  const sa = await loadOracleServiceAccount();
   const web = JSON.parse(webConfigJson) as WebConfig;
   if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 

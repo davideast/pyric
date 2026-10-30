@@ -55,7 +55,7 @@ async function discoverConfig(token: string, projectId: string): Promise<Firebas
 }
 
 async function main(): Promise<void> {
-  const serviceAccount = loadOracleServiceAccount();
+  const serviceAccount = await loadOracleServiceAccount();
   const firebaseToken = await oracleAccessToken(serviceAccount, 'https://www.googleapis.com/auth/firebase');
   const config = await discoverConfig(firebaseToken, serviceAccount.project_id);
   if (config.projectId !== serviceAccount.project_id) throw new Error('discovered Web App belongs to a different project');

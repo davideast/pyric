@@ -58,7 +58,7 @@ if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG || !oracleCredentialConfigured(pro
 }
 
 const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG) as WebConfig;
-const sa = loadOracleServiceAccount();
+const sa = await loadOracleServiceAccount();
 if (!config.databaseURL) throw new Error('the web config has no databaseURL');
 if (config.projectId !== sa.project_id) throw new Error('the web config and the service account name different projects');
 const DB_URL = config.databaseURL.replace(/\/+$/, '');
