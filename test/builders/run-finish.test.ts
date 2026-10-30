@@ -1,7 +1,7 @@
 // The end of a run whose sandbox left a link where the harness reads or
 // appends: the run still gets its record and its measurement line, and the
 // harness touches nothing through the link.
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import { channelEvent } from './model-channel.ts';
 import { builderRunDirsAt, type BuilderRunDirs } from './round-paths.ts';
 import { finishRun, KEPT_PHASE_OUTPUT, RUN_PHASE_LOG, type FinishInput, type RunEnd } from './run-finish.ts';
 import { BUILDER_LOG } from './run-phase.ts';
+import * as runRecordModule from './run-record.ts';
 import type { RunRecord } from './run-record.ts';
 import { createRunDirs } from './scratch.ts';
 import { filesContaining } from './token-scan.ts';
@@ -43,7 +44,7 @@ function plainRun(): { dirs: BuilderRunDirs; outside: string; end: RunEnd } {
   writeFileSync(dirs.briefJson, '{}\n');
   const outcome = { action: 'forwarded', reason: null, status: 200, usage: undefined, costUsd: 0.25, reservedUsd: 0.25, chargedUsd: 0.25 } as const;
   const channel = [channelEvent('api.anthropic.com', 'POST /v1/messages HTTP/1.1', undefined, outcome)];
-  const end: RunEnd = { dirs, channel, phaseOutput: 'phase output\n', startedAt: new Date(), dataDir: join(base, 'data', 'run'), measurements: join(base, 'data', 'measurements.jsonl') };
+  const end: RunEnd = { dirs, channel, phaseOutput: 'phase output\n', startedAt: new Date(), wallMs: 4321, dataDir: join(base, 'data', 'run'), measurements: join(base, 'data', 'measurements.jsonl') };
   return { dirs, outside, end };
 }
 
@@ -74,7 +75,7 @@ describe('finishRun on a planted link', () => {
     const { lines, errors } = readMeasurements(end.measurements);
     expect(errors).toEqual([]);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ kind: 'builder', run: 'fake-1-haiku', meteredCostUsd: 0.25, costUsd: 0.3 });
+    expect(lines[0]).toEqual({ kind: 'builder', run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', maxBudgetUsd: 1, meteredCostUsd: 0.25, tokens: null, wallMs: 4321 });
   });
 
   test('reads none of a run root whose report and logs directory are links, and still keeps it', async () => {
@@ -154,5 +155,37 @@ describe.skipIf(UID === 0)('finishRun on a run root whose permissions the builde
     await finishRun(input(), end);
     expect(readMeasurements(end.measurements).lines).toHaveLength(1);
     expect(readFileSync(join(end.dataDir, 'logs', RUN_PHASE_LOG), 'utf8')).toBe('phase output\n');
+  });
+});
+
+/** One Node-layer line of `network.jsonl` that reached for a Google host. */
+const googleLine = (host: unknown) => JSON.stringify({ time: new Date().toISOString(), layer: 'node', pid: 1, thread: 0, process: 'node', kind: 'dns', via: 'dns.lookup', host, google: true, catalogGap: false, metadata: false, action: 'refused' });
+
+const hostsOf = (record: RunRecord) => record.harness.network.googleEvents.map((event) => ('host' in event ? event.host : null));
+
+describe('finishRun on a network record the builder wrote', () => {
+  const lines: [string, string][] = [['a null line', 'null'], ['a line that is a number', '1'], ['a Google event whose host is not a string', googleLine(5)]];
+  for (const [what, line] of lines) {
+    test(`keeps the run and its measurement line, and leaves out ${what}`, async () => {
+      const { dirs, end } = plainRun();
+      writeFileSync(dirs.networkLog, `${googleLine('firestore.googleapis.com')}\n${line}\n`);
+      const record = await finishRun(input(), end);
+      expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+      expect(record.harness.plantedLinks).toEqual(['network.jsonl: 1 line is not a network event; the harness left it out']);
+      expect(hostsOf(record)).toEqual(['firestore.googleapis.com']);
+      expect(readFileSync(join(end.dataDir, 'network.jsonl'), 'utf8')).toContain(`\n${line}\n`);
+    });
+  }
+
+  test('appends the measurement line, and still keeps the run, when building its record throws', async () => {
+    const { end } = plainRun();
+    const spy = spyOn(runRecordModule, 'runRecord').mockImplementationOnce(() => {
+      throw new Error('made-up failure');
+    });
+    const record = await finishRun(input(), end).finally(() => spy.mockRestore());
+    expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+    expect(record.harness.plantedLinks).toEqual(['network.jsonl: building the run record failed: made-up failure']);
+    expect(record.harness.network.googleEvents).toEqual([]);
+    expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
   });
 });

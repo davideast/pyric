@@ -69,9 +69,11 @@ builder rule (`.agents/skills/app-builder/SKILL.md`):
 - `harness.plantedLinks` is not empty (each entry is `<file>: <why>`):
   something in the sandbox left a link where the harness reads or appends
   once the sandbox stops, aimed at the host's files, or left a file there
-  the harness could not check, merge into or write. The harness skipped
-  those files, so the record may lack the builder's report, usage or
-  network lines;
+  the harness could not check, merge into, write or read; or wrote lines
+  in `network.jsonl` that are not network events, or a network record the
+  harness could not build its record from. The harness skipped those files
+  or lines, so the record may lack the builder's report, usage or network
+  lines;
 - it launched a browser of its own instead of the harness browser (below).
 
 **A browser of its own.** The harness browser records every request it

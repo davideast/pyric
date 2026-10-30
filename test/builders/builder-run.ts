@@ -100,8 +100,14 @@ export function phaseEnvironment(home: string, env: NodeJS.ProcessEnv = process.
   return phase;
 }
 
+/** What the run phase printed, and how long it took by the harness's own clock. */
+interface PhaseRun {
+  output: string;
+  wallMs: number;
+}
+
 /** Runs the phase; resolves its output, which the caller writes once the sandbox has stopped. */
-async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs): Promise<string> {
+async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs): Promise<PhaseRun> {
   const invocation = input.builder.invocation({
     briefText: dirs.briefText,
     briefJson: dirs.briefJson,
@@ -114,13 +120,15 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
   const phase: Phase = { ...invocation, wallClockMs, modelChannel: true, log: BUILDER_LOG };
   writeFileSync(dirs.phase, `${JSON.stringify(phase, null, 2)}\n`);
   const { command, args } = namespace.enter(process.execPath, [RUN_PHASE, dirs.root], REPO_ROOT);
+  const started = Date.now();
   const result = await runTimedCommand(command, args, { cwd: REPO_ROOT, env: phaseEnvironment(dirs.home), timeoutMs: wallClockMs + PHASE_MARGIN_MS });
+  const wallMs = Date.now() - started;
   input.say(`run phase exited ${result.code}${result.timedOut ? ' (stopped at its limit)' : ''}`);
-  return result.output;
+  return { output: result.output, wallMs };
 }
 
 /** Runs the builder in a sandbox that has started, with the forwarder outside it; stops both. */
-async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<string> {
+async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<PhaseRun> {
   let forwarder: Listening | undefined;
   try {
     writeFileSync(dirs.started, `${new Date().toISOString()}\n`);
@@ -152,7 +160,7 @@ export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
   input.say(`${identity.run}: starting its sandbox in ${dirs.root}`);
   const readOnly = [playwrightBrowsersPath(), input.packagesDir, ...input.builder.readOnly];
   const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
-  const phaseOutput = await runInSandbox(namespace, input, dirs, channelRecord);
-  const end = { dirs, channel: readChannelRecord(channelRecord), phaseOutput, startedAt, dataDir: runDataDir(identity.round, identity.run), measurements: measurementsFile() };
+  const phase = await runInSandbox(namespace, input, dirs, channelRecord);
+  const end = { dirs, channel: readChannelRecord(channelRecord), phaseOutput: phase.output, startedAt, wallMs: phase.wallMs, dataDir: runDataDir(identity.round, identity.run), measurements: measurementsFile() };
   return finishRun(input, end);
 }

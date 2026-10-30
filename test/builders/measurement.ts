@@ -3,6 +3,13 @@
  * the run ends, and one line per verification, appended by the verifier
  * when it has judged that run. `measure` joins them by round and run id. The file is
  * append-only; nothing rewrites a line.
+ *
+ * A builder line holds only what the harness owns: the run's identity, what
+ * the model forwarder metered, and the harness's own timing of the run
+ * phase. Nothing in it is read from the run root, which the builder can
+ * write, so `round` appends it before it reads anything there. What claude
+ * printed, the report and the network record are in the run's
+ * `report.json`.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -21,18 +28,12 @@ export const builderMeasurementSchema = z.object({
   model: z.string().min(1),
   /** The run's cap, `--max-budget-usd`. */
   maxBudgetUsd: cost,
-  /** What claude said the run cost. Null when it printed no usage: it crashed or was stopped at its wall-clock cap. */
-  costUsd: cost.nullable(),
   /** What the model forwarder metered from the responses it passed back, an estimate that errs high. */
   meteredCostUsd: cost,
+  /** The tokens the forwarder metered; null when it metered no response. */
   tokens: tokens.nullable(),
-  turns: count.nullable(),
-  /** Null when the run phase never said how the builder ended. */
-  wallMs: count.nullable(),
-  report: z.enum(['valid', 'missing', 'invalid']),
-  /** The builder's own problems plus the ones the harness adds: an allowed must-be-refused action, a Google-host event. */
-  problemsReported: count,
-  googleHostEvents: count,
+  /** How long the run phase took, by the harness's own clock. */
+  wallMs: count,
 }).strict();
 
 /** How the verifier judged each reported problem of one run. */
