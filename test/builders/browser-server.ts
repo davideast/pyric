@@ -20,7 +20,6 @@
  * (which flushes the NetLog) on SIGTERM, SIGINT or when its stdin closes.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,9 +39,13 @@ export const BROWSER_WS_ENV = 'PYRIC_BUILDER_BROWSER_WS';
  */
 export const PLAYWRIGHT_CLIENT_ENV = 'PYRIC_BUILDER_PLAYWRIGHT';
 
-/** The harness's own `@playwright/test` entry, inside the repo, which the sandbox binds read-only. */
+/**
+ * The harness's own `@playwright/test` ES module entry, inside the repo, which
+ * the sandbox binds read-only. The ES entry, since a dynamic `import()` of
+ * the CommonJS one has no named `chromium`.
+ */
 export function playwrightClient(): string {
-  return createRequire(import.meta.url).resolve('@playwright/test');
+  return fileURLToPath(import.meta.resolve('@playwright/test'));
 }
 
 /** Chromium's arguments for one run. */
