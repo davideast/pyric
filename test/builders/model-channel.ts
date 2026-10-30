@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import net from 'node:net';
 import type { RequestHead } from './http-head.ts';
 import type { RefusalReason } from './model-policy.ts';
-import { pathOf } from './model-policy.ts';
+import { droppedHeaderNames, pathOf } from './model-policy.ts';
 import { classifyHost, type HostClass } from './recorder/google-hosts.ts';
 import type { MeteredUsage } from './usage-tap.ts';
 import type { Tokens } from './usage.ts';
@@ -30,8 +30,8 @@ import type { Tokens } from './usage.ts';
 export type ForwardNote = 'upstream-error' | 'client-closed';
 
 export type ChannelOutcome =
-  | { action: 'forwarded'; reason: ForwardNote | null; status: number | null; usage: MeteredUsage | undefined; costUsd: number | null }
-  | { action: 'refused'; reason: RefusalReason; status: number | null; usage: undefined; costUsd: null };
+  | { action: 'forwarded'; reason: ForwardNote | null; status: number | null; usage: MeteredUsage | undefined; costUsd: number | null; reservedUsd: number; chargedUsd: number }
+  | { action: 'refused'; reason: RefusalReason; status: number | null; usage: undefined; costUsd: null; toolTypes?: string[] };
 
 /** One connection to the forwarder, as a line of `network.jsonl`. */
 export interface ModelChannelEvent extends HostClass {
@@ -51,6 +51,13 @@ export interface ModelChannelEvent extends HostClass {
   model: string | null;
   tokens: Tokens | null;
   costUsd: number | null;
+  /** A forwarded request's worst case, reserved before it went, and what the meter charged once it ended. */
+  reservedUsd: number | null;
+  chargedUsd: number | null;
+  /** The server tools a refused request named. */
+  toolTypes: string[];
+  /** The names of the builder's headers the forwarder did not send on. */
+  droppedHeaders: string[];
 }
 
 export function channelEvent(host: string, requestLine: string, head: RequestHead | undefined, outcome: ChannelOutcome, time: Date = new Date()): ModelChannelEvent {
@@ -69,6 +76,10 @@ export function channelEvent(host: string, requestLine: string, head: RequestHea
     model: outcome.usage?.model ?? null,
     tokens: outcome.usage?.tokens ?? null,
     costUsd: outcome.costUsd,
+    reservedUsd: outcome.action === 'forwarded' ? outcome.reservedUsd : null,
+    chargedUsd: outcome.action === 'forwarded' ? outcome.chargedUsd : null,
+    toolTypes: outcome.action === 'refused' ? outcome.toolTypes ?? [] : [],
+    droppedHeaders: head === undefined ? [] : droppedHeaderNames(head),
   };
 }
 
@@ -78,9 +89,9 @@ export function readChannelRecord(path: string): ModelChannelEvent[] {
   return readFileSync(path, 'utf8').split('\n').filter((line) => line.trim() !== '').map((line) => JSON.parse(line) as ModelChannelEvent);
 }
 
-/** The metered cost of a run: the sum of its forwarded requests' costs. */
+/** The metered cost of a run: what the meter charged its forwarded requests. */
 export function meteredCostUsd(events: readonly ModelChannelEvent[]): number {
-  return events.reduce((sum, event) => sum + (event.costUsd ?? 0), 0);
+  return events.reduce((sum, event) => sum + (event.chargedUsd ?? event.costUsd ?? 0), 0);
 }
 
 export interface Listening {

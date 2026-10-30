@@ -34,7 +34,7 @@ const RECORD: NetworkEvent[] = [
   { time, layer: 'browser', kind: 'incomplete', via: 'browser-server', reason: 'killed', google: false, catalogGap: false, metadata: false },
 ];
 
-const forwarded = (costUsd: number) => channelEvent('api.anthropic.com', 'POST /v1/messages HTTP/1.1', undefined, { action: 'forwarded', reason: null, status: 200, usage: undefined, costUsd }, new Date(time));
+const forwarded = (costUsd: number) => channelEvent('api.anthropic.com', 'POST /v1/messages HTTP/1.1', undefined, { action: 'forwarded', reason: null, status: 200, usage: undefined, costUsd, reservedUsd: costUsd, chargedUsd: costUsd }, new Date(time));
 const CHANNEL: ModelChannelEvent[] = [forwarded(0.2), forwarded(0.1)];
 
 function outcome(overrides: Partial<RunOutcome> = {}): RunOutcome {

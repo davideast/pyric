@@ -11,8 +11,13 @@
  *
  * Every connection is one line of the run's channel record, written outside
  * the run directory: forwarded or refused, with the reason, the status, and
- * for a forwarded request the usage it metered and what that cost. A run that
- * has spent its cap, or a round its total, gets 403 (`model-meter.ts`).
+ * for a forwarded request the usage it metered and what that cost.
+ *
+ * Once a request's body is in, the forwarder checks it (`message-body.ts`:
+ * JSON, client tools only, a numeric `max_tokens`) and reserves its worst
+ * case on the run's meter (`model-meter.ts`). A request whose worst case
+ * doesn't fit the run's cap or the round's total gets 403; one over the
+ * run's two in flight gets 429 with `retry-after`.
  */
 import { appendFileSync } from 'node:fs';
 import http from 'node:http';
@@ -20,8 +25,9 @@ import https from 'node:https';
 import type net from 'node:net';
 import { hostInHeadStart, namedHost, parseHead, shownRequestLine, type RequestHead } from './http-head.ts';
 import { channelEvent, listen, type ChannelOutcome, type ForwardNote, type Listening } from './model-channel.ts';
-import type { RunMeter } from './model-meter.ts';
-import { forwardedHeaders, MODEL_API_HOST, requestRefusal, type RefusalReason } from './model-policy.ts';
+import { checkMessageBody, COUNT_TOKENS_PATH, type BodyCheck } from './message-body.ts';
+import type { Reservation, RunMeter } from './model-meter.ts';
+import { forwardedHeaders, MODEL_API_HOST, pathOf, requestRefusal, type RefusalReason } from './model-policy.ts';
 import { costOf } from './model-prices.ts';
 import { bodyFrom, framingOf, MAX_BODY_BYTES, type Framing } from './request-body.ts';
 import { usageTap, type UsageTap } from './usage-tap.ts';
@@ -158,12 +164,17 @@ function attemptRecord(record: string) {
   };
 }
 
-const STATUS_TEXT: Record<number, string> = { 400: 'Bad Request', 403: 'Forbidden', 408: 'Request Timeout', 431: 'Request Header Fields Too Large', 502: 'Bad Gateway' };
+const STATUS_TEXT: Record<number, string> = { 400: 'Bad Request', 403: 'Forbidden', 408: 'Request Timeout', 429: 'Too Many Requests', 431: 'Request Header Fields Too Large', 502: 'Bad Gateway' };
+const ERROR_TYPE: Record<number, string> = { 403: 'permission_error', 429: 'rate_limit_error' };
 
-/** An error in the Messages API's own shape, so claude reports it as one. */
-function respondWithError(socket: net.Socket, status: number, reason: string): void {
-  const body = JSON.stringify({ type: 'error', error: { type: status === 403 ? 'permission_error' : 'invalid_request_error', message: `pyric builder model channel: ${reason}` } });
-  socket.end(`HTTP/1.1 ${status} ${STATUS_TEXT[status] ?? ''}\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`);
+/** Seconds a builder told to wait for a request in flight waits before it retries. */
+const IN_FLIGHT_RETRY_AFTER_S = 2;
+
+/** An error in the Messages API's own shape, so claude reports it as one; a 429 says when to retry. */
+function respondWithError(socket: net.Socket, status: number, message: string): void {
+  const body = JSON.stringify({ type: 'error', error: { type: ERROR_TYPE[status] ?? 'invalid_request_error', message: `pyric builder model channel: ${message}` } });
+  const retry = status === 429 ? `retry-after: ${IN_FLIGHT_RETRY_AFTER_S}\r\n` : '';
+  socket.end(`HTTP/1.1 ${status} ${STATUS_TEXT[status] ?? ''}\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\n${retry}connection: close\r\n\r\n${body}`);
 }
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'te', 'trailer', 'upgrade']);
@@ -179,28 +190,41 @@ function responseHead(response: http.IncomingMessage): string {
   return `${lines.join('\r\n')}\r\n\r\n`;
 }
 
-/** The `model` a Messages request body names, for pricing a response that does not say. */
-function requestedModel(body: Buffer): string | undefined {
-  try {
-    const parsed = JSON.parse(body.toString('utf8')) as { model?: unknown };
-    return typeof parsed.model === 'string' ? parsed.model : undefined;
-  } catch {
-    return undefined;
-  }
+interface Allowed {
+  path: string;
+  check: Extract<BodyCheck, { kind: 'allowed' }>;
+  reservation: Reservation;
 }
 
-function forward(client: net.Socket, head: RequestHead, body: Buffer, credential: string, options: ForwarderOptions, attempt: ReturnType<typeof attemptRecord>): void {
+/**
+ * What a request that ended is charged. A response cut off keeps its whole
+ * reservation, however much of it was metered. One that ended is charged
+ * what its usage says; with no usage, a token count and an error cost
+ * nothing, and any other answer costs its reservation.
+ */
+function chargeAtEnd(allowed: Allowed, note: ForwardNote | null, status: number | null, costUsd: number | null): number {
+  const reserved = allowed.reservation.reservedUsd;
+  if (note !== null) return Math.max(reserved, costUsd ?? 0);
+  if (costUsd !== null) return costUsd;
+  const isFree = allowed.path === COUNT_TOKENS_PATH || status !== 200;
+  return isFree ? 0 : reserved;
+}
+
+function forward(client: net.Socket, head: RequestHead, body: Buffer, credential: string, options: ForwarderOptions, attempt: ReturnType<typeof attemptRecord>, allowed: Allowed): void {
   const upstream = options.upstream ?? MODEL_API_UPSTREAM;
-  const charge = options.meter.charge();
+  const { reservation, check } = allowed;
   let reading: UsageTap | undefined;
   let status: number | null = null;
   const metered = () => {
     const usage = reading?.current();
-    const costUsd = usage === undefined ? null : costOf(usage.tokens, usage.model, usage.speed);
-    if (costUsd !== null) charge.set(costUsd);
+    const costUsd = usage === undefined ? null : costOf(usage.tokens, usage.model, { speed: usage.speed ?? check.modifiers.speed, usOnly: check.modifiers.usOnly });
     return { usage, costUsd };
   };
-  const finish = (note: ForwardNote | null) => attempt.finish({ action: 'forwarded', reason: note, status, ...metered() });
+  const finish = (note: ForwardNote | null) => {
+    const { usage, costUsd } = metered();
+    reservation.settle(chargeAtEnd(allowed, note, status, costUsd));
+    attempt.finish({ action: 'forwarded', reason: note, status, usage, costUsd, reservedUsd: reservation.reservedUsd, chargedUsd: reservation.chargedUsd() });
+  };
 
   const transport = upstream.tls ? https : http;
   const request = transport.request({
@@ -213,12 +237,11 @@ function forward(client: net.Socket, head: RequestHead, body: Buffer, credential
     ...(upstream.tls ? { servername: MODEL_API_HOST } : {}),
   }, (response) => {
     status = response.statusCode ?? null;
-    const tap = usageTap(response.headers['content-type'], requestedModel(body));
+    const tap = usageTap(response.headers['content-type'], check.model);
     reading = tap;
     client.write(responseHead(response));
     response.on('data', (chunk: Buffer) => {
       tap.write(chunk);
-      metered();
       const flushed = client.write(chunk);
       if (flushed) return;
       response.pause();
@@ -247,11 +270,23 @@ function forward(client: net.Socket, head: RequestHead, body: Buffer, credential
   request.end(body);
 }
 
+/** Checks a whole request's body and reserves its worst case: an `Allowed`, or why it is refused. */
+function admit(head: RequestHead, body: Buffer, meter: RunMeter): Allowed | { status: number; reason: RefusalReason; message: string; toolTypes: string[] } {
+  const path = pathOf(head.target);
+  const check = checkMessageBody(path, body);
+  if (check.kind === 'refused') return check;
+  const reservation = meter.reserve(check.reservedUsd);
+  if (typeof reservation !== 'string') return { path, check, reservation };
+  const status = reservation === 'in-flight' ? 429 : 403;
+  const message = `${reservation}: this request may cost up to $${check.reservedUsd.toFixed(4)}`;
+  return { status, reason: reservation, message, toolTypes: [] };
+}
+
 function handle(client: net.Socket, options: ForwarderOptions): void {
   const attempt = attemptRecord(options.record);
-  const refuse = (status: number, reason: RefusalReason) => {
-    attempt.finish({ action: 'refused', reason, status, usage: undefined, costUsd: null });
-    respondWithError(client, status, reason);
+  const refuse = (status: number, reason: RefusalReason, message: string = reason, toolTypes: string[] = []) => {
+    attempt.finish({ action: 'refused', reason, status, usage: undefined, costUsd: null, toolTypes });
+    respondWithError(client, status, message);
   };
   client.on('error', () => client.destroy());
   readHead(client, options.headTimeoutMs ?? HEAD_TIMEOUT_MS, (read) => {
@@ -268,13 +303,13 @@ function handle(client: net.Socket, options: ForwarderOptions): void {
     if (framing === undefined) return refuse(400, 'framing');
     const credential = options.credential;
     if (credential === undefined) return refuse(403, 'no-credential');
-    const cap = options.meter.capReached();
-    if (cap !== undefined) return refuse(403, cap);
     readBody(client, read.rest, framing, (body) => {
       if (body.kind === 'malformed') return refuse(400, 'body-malformed');
       if (body.kind === 'timeout') return refuse(408, 'body-timeout');
       if (body.kind === 'closed') return attempt.finish({ action: 'refused', reason: 'closed-before-body', status: null, usage: undefined, costUsd: null });
-      forward(client, head, body.body, credential, options, attempt);
+      const admitted = admit(head, body.body, options.meter);
+      if ('reason' in admitted) return refuse(admitted.status, admitted.reason, admitted.message, admitted.toolTypes);
+      forward(client, head, body.body, credential, options, attempt, admitted);
     });
   });
 }

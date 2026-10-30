@@ -12,13 +12,15 @@
  * path or query, among them claude's `HEAD /api/hello` warm-up and its
  * `GET /v1/models` lookup, which the same page says a gateway may reject.
  *
- * On the way out the forwarder drops the builder's credential headers and
+ * On the way out the forwarder keeps only the builder's allowed headers and
  * sets its own `Authorization: Bearer <token>`, from the harness's
  * environment. `anthropic-version` and `anthropic-beta` go on as sent: the
  * OAuth capability claude declares for a subscription token is carried in
  * `anthropic-beta`, and the API answers 401 without it.
  */
-import { headerValues, isAbsoluteUri, type RequestHead } from './http-head.ts';
+import { isAbsoluteUri, type RequestHead } from './http-head.ts';
+import type { BodyRefusalReason } from './message-body.ts';
+import type { MeterRefusal } from './model-meter.ts';
 
 export const MODEL_API_HOST = 'api.anthropic.com';
 
@@ -40,8 +42,8 @@ export type RefusalReason =
   | 'body-timeout'
   | 'closed-before-body'
   | 'no-credential'
-  | 'run-cap'
-  | 'round-cap';
+  | BodyRefusalReason
+  | MeterRefusal;
 
 function splitTarget(target: string): { path: string; query: string } {
   const at = target.indexOf('?');
@@ -62,24 +64,44 @@ export function requestRefusal(head: RequestHead): RefusalReason | undefined {
 /** The path of a request target, without its query, for the record. */
 export const pathOf = (target: string) => splitTarget(target).path;
 
-/** Fields that describe one hop, the builder's credentials, and what the forwarder sets itself. */
-const DROPPED = new Set([
-  'authorization', 'x-api-key', 'proxy-authorization', 'cookie',
-  'host', 'connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'upgrade',
-  'transfer-encoding', 'content-length', 'accept-encoding', 'expect',
+/**
+ * The builder's headers that go on, by name. The gateway page's "Request
+ * headers" names `anthropic-version`, `anthropic-beta` and the
+ * `x-claude-code-*` session, agent and hint headers; the Anthropic SDK's
+ * own `x-stainless-*` headers and the plain content headers go too.
+ *
+ * The same page asks gateways to pass every `anthropic-*` header rather than
+ * an allowlist, so a capability a later Claude Code adds as a new header is
+ * dropped here. Each request's line in the record names what was dropped.
+ */
+const ALLOWED_HEADERS: ReadonlySet<string> = new Set([
+  'anthropic-version', 'anthropic-beta', 'content-type', 'accept', 'user-agent',
+  'x-claude-code-session-id', 'x-claude-code-agent-id', 'x-claude-code-parent-agent-id',
+  'x-claude-code-request-class', 'x-claude-code-agent-type', 'x-claude-code-compaction',
+  'x-claude-code-context-compacted', 'x-claude-code-prev-tool-durations', 'x-claude-code-prompt-id',
 ]);
+const ALLOWED_PREFIX = 'x-stainless-';
+
+/** Headers the forwarder sets or frames itself, so dropping the builder's is no news. */
+const REPLACED_HEADERS: ReadonlySet<string> = new Set(['host', 'authorization', 'content-length', 'transfer-encoding', 'accept-encoding', 'connection', 'keep-alive']);
+
+const isAllowedHeader = (name: string) => ALLOWED_HEADERS.has(name) || name.startsWith(ALLOWED_PREFIX);
+
+/** The names of the builder's headers that don't go on, for the record. Never their values. */
+export function droppedHeaderNames(head: RequestHead): string[] {
+  const names = head.headers.map(([name]) => name).filter((name) => !isAllowedHeader(name) && !REPLACED_HEADERS.has(name));
+  return [...new Set(names)];
+}
 
 /**
- * The headers the forwarder sends to the model API: the builder's, less the
- * dropped ones and any the builder named in `Connection`, plus the real
- * credential, the API's host, the body's length, and `identity`, so the
- * forwarder can read the usage in the response.
+ * The headers the forwarder sends to the model API: the builder's allowed
+ * ones, plus the real credential, the API's host, the body's length, and
+ * `identity`, so the forwarder can read the usage in the response.
  */
 export function forwardedHeaders(head: RequestHead, credential: string, bodyLength: number): Record<string, string> {
-  const named = new Set(headerValues(head, 'connection').flatMap((value) => value.split(',')).map((name) => name.trim().toLowerCase()));
   const kept: Record<string, string> = {};
   for (const [name, value] of head.headers) {
-    if (DROPPED.has(name) || named.has(name)) continue;
+    if (!isAllowedHeader(name)) continue;
     kept[name] = kept[name] === undefined ? value : `${kept[name]}, ${value}`;
   }
   return {

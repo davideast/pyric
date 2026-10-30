@@ -125,15 +125,24 @@ carries no credential the sandbox could read (`model-channel.ts`):
 - the **forwarder** (`model-forwarder.ts`), in the harness, outside the
   sandbox, listens on that socket and reads one request per connection. It
   passes on only `POST /v1/messages` and `POST /v1/messages/count_tokens`,
-  each with or without `?beta=true` (`model-policy.ts`). It drops the
-  request's `Authorization`, `x-api-key` and hop headers, sets
-  `Authorization: Bearer <token>` from the harness's own environment, keeps
-  `anthropic-version` and `anthropic-beta` as sent, and sends the request to
-  `api.anthropic.com:443` over TLS. The response streams back unbuffered.
-  Everything else is refused: a CONNECT, an absolute URI, any other method,
-  path or query (claude's `HEAD /api/hello` warm-up and `GET /v1/models`
-  lookup among them) gets `403`; a head it can't read gets `400`, one over
-  16 KiB `431`, one that doesn't end within 10 seconds `408`.
+  each with or without `?beta=true` (`model-policy.ts`). It sends on only
+  an allowlist of the request's headers: `anthropic-version` and
+  `anthropic-beta` as sent, `content-type`, `accept`, `user-agent`,
+  `x-stainless-*`, and the `x-claude-code-*` headers the gateway page names.
+  It sets `Authorization: Bearer <token>` from the harness's own
+  environment and sends the request to `api.anthropic.com:443` over TLS.
+  The response streams back unbuffered. Everything else is refused: a
+  CONNECT, an absolute URI, any other method, path or query (claude's
+  `HEAD /api/hello` warm-up and `GET /v1/models` lookup among them) gets
+  `403`; a head it can't read gets `400`, one over 16 KiB `431`, one that
+  doesn't end within 10 seconds `408`.
+- the forwarder also reads the **body** (`message-body.ts`). A builder gets
+  client tools only: a body that names `mcp_servers` gets `403`, and one
+  with a `tools` entry that has a `type` (a server tool such as
+  `web_search_*`, `web_fetch_*`, `code_execution_*` or `advisor_*`) gets
+  `400` naming the type after `Input tag`, the wording claude retries on
+  without its advisor tool. A body that isn't JSON, or a Messages request
+  without a positive integer `max_tokens`, gets `400`.
 
 Why a placeholder `CLAUDE_CODE_OAUTH_TOKEN` and not `ANTHROPIC_AUTH_TOKEN`:
 with the OAuth variable set, claude authenticates as a subscription and
@@ -148,19 +157,33 @@ Sources: [env vars](https://code.claude.com/docs/en/env-vars),
 **Every connection is recorded**, forwarded or refused, malformed, cut off,
 or timed out: one `model-channel` line with the request line (shortened,
 unprintable bytes escaped), the host it named, the reason, the status, and
-for a forwarded request the model, tokens and metered cost. The forwarder
+for a forwarded request the model, tokens, metered cost, the worst case it
+reserved and what the meter charged. It also names the headers it dropped
+and the server tools it refused, never a header's value. The forwarder
 writes `<builders root>/<round>/<run>.model-channel.jsonl`, beside the run
 directory, which the sandbox can't see; `round` appends those lines to the
 run's `network.jsonl` once the sandbox has stopped.
 
-**The forwarder meters the round.** From each response's usage
-(`message_start` and `message_delta` in a stream, `usage` in JSON) it prices
-the request (`model-prices.ts`: first-party rates as of 2026-10-06, cache
-writes at the one-hour rate, an unknown model at the highest rate, fast
-mode doubled, so the figure errs high). Before each request it checks the
-run's spend against `--max-budget-usd` and the round's against
-`--max-round-usd`, and answers `403` once either is reached. claude still
-gets `--max-budget-usd` too.
+**The forwarder meters the round** (`model-meter.ts`). Before it sends a
+request on, it reserves the request's worst case: a token per byte of the
+body, plus an allowance per image or document and a fixed overhead, all
+priced as cache writes, plus `max_tokens` of output. The request gets `403`
+when that doesn't fit what is left of the run's `--max-budget-usd` or the
+round's `--max-round-usd`, with every open reservation counted in full, so
+requests sent at once can't pass a cap between them. A run has at most two
+requests in flight; a third gets `429` with `retry-after: 2`. When the
+response ends, the reservation settles to the cost of its usage
+(`message_start` and `message_delta` in a stream, `usage` in JSON). A
+response cut off keeps its whole reservation, and a `200` with no usage
+costs its reservation, except a token count, which costs nothing.
+
+The prices (`model-prices.ts`) are the first-party rates read from the
+[pricing page](https://platform.claude.com/docs/en/about-claude/pricing) on
+2026-10-29, by exact model id. They err high: any id the table doesn't name
+exactly is charged its highest rate (Claude Opus 4 and 4.1's $15 and $75),
+cache writes the one-hour rate, cache reads a tenth of input, Claude Haiku
+5.5 its long-prompt rate, fast mode twice and US-only inference 1.1 times.
+claude still gets `--max-budget-usd` too.
 
 **The token scan.** Before `round` keeps anything, it looks for the token's
 value in the report, the brief, `network.jsonl`, `logs/` and the app
@@ -519,11 +542,23 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   to `ANTHROPIC_BASE_URL`, but not whether it checks the token's form first.
   If it does, or sends something else, the first round fails at the first
   request (401 or 403 in the run's record), and spends nothing.
-- **The meter checks between requests.** A request already under way can
-  carry a run past its cap by its own cost; the next is refused. The price
-  table is dated: a model it doesn't name is charged its highest rate, so
-  the metered cost errs high, but a price rise above that rate would make it
-  err low until the table is updated.
+- **The reservation is an estimate of the worst case.** A token per byte
+  bounds text. An image or a PDF is priced by its pixels or pages, and the
+  allowance per block (10K tokens for an image, 200K for a document) could
+  in principle be passed by a large PDF. A response that costs more than its
+  reservation is charged in full when it settles, so the next request is
+  refused, but that one response can carry a run past its cap. Server-side
+  charges beyond tokens can't arise, since server tools are refused.
+- **The price table is dated** (2026-10-29). A price rise would make the
+  meter err low until the table is updated.
+- **The header allowlist can drop a new capability.** The gateway page asks
+  gateways to pass every `anthropic-*` header through, since Claude Code
+  adds capabilities as new headers. The forwarder drops any header not on
+  its list, so such a capability fails or turns off. Each request's line
+  names the headers dropped, so a run shows it.
+- **The in-flight cap slows claude.** claude runs subagents and side
+  requests at once. Past two in flight it gets `429` and retries after two
+  seconds, which shows up as wall-clock time, not as a failure.
 - **The token scan finds the value as written.** It does not decode
   anything, so the token base64-encoded or split across lines would pass.
   It covers what is kept, not the rest of the scratch directory (the run's
