@@ -9,14 +9,18 @@
  * app directory under the recorder with the run's scratch HOME and
  * `ANTHROPIC_BASE_URL` pointed at the bridge, and writes
  * what happened to `<run>/phase-result.json`. The builder's output goes to
- * `logs/builder.log`.
+ * `logs/<phase.log>`, `builder.log` for a builder.
+ *
+ * `reproduce` enters the same phase with `modelChannel: false`: no bridge
+ * and no `ANTHROPIC_BASE_URL`, so the command it runs has no way out of the
+ * sandbox at all.
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AppRun } from '../apps/driver.ts';
 import { noDriverBrowser } from './app-install.ts';
-import { BROWSER_WS_ENV, startBrowserServer, type BrowserServer } from './browser-server.ts';
+import { BROWSER_WS_ENV, PLAYWRIGHT_CLIENT_ENV, playwrightClient, startBrowserServer, type BrowserServer } from './browser-server.ts';
 import { channelEnvironment, startBridge, type Listening } from './model-channel.ts';
 import { builderRunDirsAt, type BuilderRunDirs } from './round-paths.ts';
 import { assertInsideSandbox, inventoryLine } from './sandbox-check.ts';
@@ -27,6 +31,10 @@ export const phaseSchema = z.object({
   args: z.array(z.string()),
   env: z.record(z.string()),
   wallClockMs: z.number().int().positive(),
+  /** Whether the command gets the model channel. Only a model builder does. */
+  modelChannel: z.boolean(),
+  /** The file in `logs/` the command's output goes to. */
+  log: z.string().regex(/^[a-z0-9][a-z0-9.-]*\.log$/),
 }).strict();
 
 export type Phase = z.infer<typeof phaseSchema>;
@@ -75,20 +83,27 @@ async function runBuilder(app: AppRun, phase: Phase, env: Record<string, string>
   }
 }
 
+/** The model channel's bridge, when the phase gets one, and the variables that point the command at it. */
+async function startChannel(phase: Phase, dirs: BuilderRunDirs): Promise<{ bridge?: Listening; env: Record<string, string> }> {
+  if (!phase.modelChannel) return { env: {} };
+  const bridge = await startBridge(dirs.modelSocket);
+  return { bridge, env: channelEnvironment(bridge.port) };
+}
+
 async function runPhase(dirs: BuilderRunDirs): Promise<void> {
   const phase = phaseSchema.parse(JSON.parse(readFileSync(dirs.phase, 'utf8')));
   const app = new AppRun('builder', dirs.app, dirs.home, noDriverBrowser);
   let bridge: Listening | undefined;
   let browser: BrowserServer | undefined;
   try {
-    step('starting the model channel bridge and the harness browser');
-    const started = await startBridge(dirs.modelSocket);
-    bridge = started;
+    step(phase.modelChannel ? 'starting the model channel bridge and the harness browser' : 'starting the harness browser, with no model channel');
+    const channel = await startChannel(phase, dirs);
+    bridge = channel.bridge;
     browser = await startBrowserServer({ netLogPath: dirs.netLog, networkLog: dirs.networkLog, home: dirs.home });
-    const env = { ...recorderEnvironment(dirs.networkLog), ...phase.env, ...channelEnvironment(started.port), [BROWSER_WS_ENV]: browser.wsEndpoint };
-    step(`builder: ${phase.command}, for at most ${phase.wallClockMs / 60_000} minutes`);
+    const env = { ...recorderEnvironment(dirs.networkLog), ...phase.env, ...channel.env, [BROWSER_WS_ENV]: browser.wsEndpoint, [PLAYWRIGHT_CLIENT_ENV]: playwrightClient() };
+    step(`command: ${phase.command}, for at most ${phase.wallClockMs / 60_000} minutes`);
     const { result, output } = await runBuilder(app, phase, env);
-    writeFileSync(join(dirs.logs, BUILDER_LOG), output);
+    writeFileSync(join(dirs.logs, phase.log), output);
     writeFileSync(dirs.phaseResult, `${JSON.stringify(result)}\n`);
   } finally {
     step('stopping the harness browser');
@@ -106,7 +121,7 @@ if (import.meta.main) {
   if (root === undefined) throw new Error('usage: bun test/builders/run-phase.ts <run dir>');
   const dirs = builderRunDirsAt(root);
   stepsLog = join(dirs.logs, PHASE_STEPS_LOG);
-  step(inventoryLine(assertInsideSandbox(root, 'start a builder')));
+  step(inventoryLine(assertInsideSandbox(root, 'start a builder or a reproduction')));
   await runPhase(dirs);
   // AppRun's command races the builder against a sleep of its whole
   // wall-clock cap and never clears that timer, which would hold this

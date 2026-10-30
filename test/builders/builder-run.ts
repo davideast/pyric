@@ -112,7 +112,7 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
     maxBudgetUsd: input.identity.maxBudgetUsd,
   });
   const wallClockMs = input.brief.limits.wallClockMinutes * 60_000;
-  const phase: Phase = { ...invocation, wallClockMs };
+  const phase: Phase = { ...invocation, wallClockMs, modelChannel: true, log: BUILDER_LOG };
   writeFileSync(dirs.phase, `${JSON.stringify(phase, null, 2)}\n`);
   const { command, args } = namespace.enter(process.execPath, [RUN_PHASE, dirs.root], REPO_ROOT);
   const result = await runTimedCommand(command, args, { cwd: REPO_ROOT, env: phaseEnvironment(dirs.home), timeoutMs: wallClockMs + PHASE_MARGIN_MS });
@@ -120,7 +120,8 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
   input.say(`run phase exited ${result.code}${result.timedOut ? ' (stopped at its limit)' : ''}`);
 }
 
-function readPhaseResult(dirs: BuilderRunDirs): PhaseResult | null {
+/** How the phase said its command ended; null when it never wrote that, or wrote something else. */
+export function readPhaseResult(dirs: BuilderRunDirs): PhaseResult | null {
   if (!existsSync(dirs.phaseResult)) return null;
   const parsed = phaseResultSchema.safeParse(JSON.parse(readFileSync(dirs.phaseResult, 'utf8')));
   return parsed.success ? parsed.data : null;

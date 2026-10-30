@@ -82,7 +82,7 @@ describe('what enters the sandbox', () => {
   });
 
   test('phase.json has no field that could carry a value from the harness’s environment', () => {
-    const phase = { ...claudeBuilder(files()).invocation(RUN), wallClockMs: 60_000 };
+    const phase = { ...claudeBuilder(files()).invocation(RUN), wallClockMs: 60_000, modelChannel: true, log: 'builder.log' };
     expect(phaseSchema.parse(phase)).toEqual(phase);
     expect(phaseSchema.safeParse({ ...phase, passEnv: [OAUTH_TOKEN_ENV] }).success).toBe(false);
   });
