@@ -156,9 +156,12 @@ try, in `<builders root>/<round>/<run>.repros/<slug>/<stamp>-try-<n>/`:
    tarballs, writes the fake config again and copies the script in as
    `pyric-repro.<ext>`. These writes happen outside the sandbox into the
    builder's work, so each target must be a plain file or absent, and `app`
-   a plain directory;
-2. starts the try's own sandbox and installs the app inside it, as a round's
-   run does;
+   a plain directory. The app's own `.npmrc` is renamed `.npmrc.from-builder`,
+   so only the harness's flags configure npm;
+2. starts the try's own sandbox and installs the app inside it, offline from
+   the shared cache. Unlike a round's run, it never falls back to installing
+   on the host: the app's `package.json` is the builder's, and could name any
+   dependency or source. A cold cache makes the try inconclusive;
 3. enters the run phase (`run-phase.ts`) with `modelChannel: false`: the
    sandbox inventory first, then the harness browser and
    `node [--import @pyric/cli/register] pyric-repro.<ext>` in the app under
@@ -172,8 +175,17 @@ means pyric behaved as production does. Any other exit or a timeout is
 inconclusive (`repro-verdict.ts`). A `google-host:` problem reproduces when
 the try's network record reaches for that host again, whatever the exit.
 
-The command exits 0 when a try reproduced, 1 when the problem stays
-unconfirmed. It keeps `repro.json` (each try's outcome, reason, exit and
+Any other failure of a try (the extract, the install, the phase) is an
+inconclusive try too, kept like the rest. Once a try's sandbox has stopped,
+the harness checks that each file it reads or appends to (`network.jsonl`,
+the NetLog, the phase's result and logs) is absent or a plain file reached
+through plain directories (`planted-links.ts`), since the sandbox could have
+left a link there to a file of the host's; a round's run checks its own the
+same way.
+
+The command exits 0 when a try reproduced, 1 when a try found pyric
+behaving as production does and none reproduced (unconfirmed), and 3 when no
+try could tell (inconclusive). It keeps `repro.json` (each try's outcome, reason, exit and
 Google hosts), the script, and each try's `network.jsonl` and `logs/` in
 `<data root>/runs/<round>/<run>/repros/<slug>/<stamp>/`, and never
 overwrites an earlier reproduction. The slug is the selector in lowercase
@@ -597,7 +609,8 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
 - **A cold npm cache installs outside the sandbox.** When the shared cache
   lacks something the app needs, `npm install --ignore-scripts` runs outside
   once to warm it. The Node recorder refuses any Google host it reaches for,
-  but the kernel does not block that install. A builder that installs new
+  but the kernel does not block that install. `reproduce` never does this
+  for a builder's app. A builder that installs new
   packages itself (a later pull request) needs a registry it can reach from
   inside the sandbox, such as a local mirror.
 - **The catch-all listener takes ports 80 and 443 only.** A connection by
