@@ -18,7 +18,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp } from '../../src/app/index.js';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import type { FirebaseApp } from '../../src/app/types.js';
-import { CustomProvider, getLimitedUseToken, getToken, initializeAppCheck, ReCaptchaV3Provider } from '../../src/app-check/index.js';
+import { CustomProvider, getLimitedUseToken, getToken, initializeAppCheck } from '../../src/app-check/index.js';
 import { AIError, getAI, getGenerativeModel } from '../../src/ai/index.js';
 import { AiBroker } from '../../src/ai/broker/broker.js';
 import { AiBrokerError } from '../../src/ai/broker/synthesizer.js';
@@ -49,8 +49,13 @@ function newApp(): FirebaseApp {
   return app;
 }
 
+/**
+ * A CustomProvider whose tokens the sandbox signs. Bun has no `document`, so a
+ * reCAPTCHA provider throws from initializeAppCheck here, as upstream's does.
+ */
 function withAppCheck(app: FirebaseApp) {
-  return initializeAppCheck(app, { provider: new ReCaptchaV3Provider('site-key') });
+  const provider = new CustomProvider({ getToken: () => mintAppCheckToken({ appId: OPTIONS.appId, projectId: OPTIONS.projectId }, 3600) });
+  return initializeAppCheck(app, { provider });
 }
 
 let warn: ReturnType<typeof spyOn> | undefined;

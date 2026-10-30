@@ -70,6 +70,9 @@ export function initializeAppCheck(app: FirebaseApp | undefined, options: AppChe
   activate(target, options.provider, options.isTokenAutoRefreshEnabled);
   const handle = new AppCheckHandle(target);
   handles.set(target, handle);
+  // Last, as upstream: a provider that throws here leaves the app initialized,
+  // so the same options then return this handle (see providers.ts).
+  options.provider.initialize();
   return handle;
 }
 
