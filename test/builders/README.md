@@ -192,12 +192,17 @@ forwarder holds no token and refuses every request.
    `network.jsonl`, `logs/` and `app.tgz` (the app without `node_modules`).
 7. Appends the run's line to `<data root>/measurements.jsonl`.
 
+The measurement line goes in as soon as the run's record is built, before
+the token scan and the copies, so a later failure (a file the harness
+can't read, say) can't lose the run's spend.
+
 When the sandbox left a link on a file step 5 or 6 would read or append to
 (`planted-links.ts`), the run still gets its record and its measurement
-line, so its spend is counted. The harness skips the merges and every such
-file, and writes the phase's output straight into the kept `logs/`.
-`harness.plantedLinks` names the files, relative to the run root, and the
-verifier treats the run as invalid.
+line. The harness skips the merges and every such file in the reads, the
+token scan and the copies, and keeps the phase's output, redacted, as
+`phase-output.log` beside `report.json`, where no file of the run root is
+copied. `harness.plantedLinks` names the files, relative to the run root,
+and the verifier treats the run as invalid.
 
 `round` exits 0 when every run ended with a valid report and no planted
 link, 1 otherwise.

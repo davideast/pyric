@@ -2,19 +2,21 @@
 // appends: the run still gets its record and its measurement line, and the
 // harness touches nothing through the link.
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseBrief } from './brief.ts';
 import { readMeasurements } from './measurement.ts';
 import { channelEvent } from './model-channel.ts';
 import { builderRunDirsAt, type BuilderRunDirs } from './round-paths.ts';
-import { finishRun, RUN_PHASE_LOG, type FinishInput, type RunEnd } from './run-finish.ts';
+import { finishRun, KEPT_PHASE_OUTPUT, RUN_PHASE_LOG, type FinishInput, type RunEnd } from './run-finish.ts';
 import { BUILDER_LOG } from './run-phase.ts';
 import type { RunRecord } from './run-record.ts';
 import { createRunDirs } from './scratch.ts';
+import { filesContaining } from './token-scan.ts';
 
-const HOST_TEXT = 'host\n';
+const HOST_TEXT = 'host-file-text-the-harness-must-not-keep\n';
+const UID = process.getuid?.() ?? -1;
 const USAGE_LINE = JSON.stringify({ type: 'result', subtype: 'success', num_turns: 2, total_cost_usd: 0.3, usage: { input_tokens: 1, output_tokens: 2 } });
 
 function input(): FinishInput {
@@ -60,7 +62,7 @@ describe('finishRun on a planted link', () => {
     expect(kept.harness.meteredCostUsd).toBe(0.25);
     expect(kept.harness.usage?.costUsd).toBe(0.3);
     expect(existsSync(join(end.dataDir, 'network.jsonl'))).toBe(false);
-    expect(readFileSync(join(end.dataDir, 'logs', RUN_PHASE_LOG), 'utf8')).toBe('phase output\n');
+    expect(readFileSync(join(end.dataDir, KEPT_PHASE_OUTPUT), 'utf8')).toBe('phase output\n');
 
     const { lines, errors } = readMeasurements(end.measurements);
     expect(errors).toEqual([]);
@@ -78,7 +80,44 @@ describe('finishRun on a planted link', () => {
     expect(record.harness.report).toEqual({ state: 'invalid', errors: ['report.json is a planted link; the harness did not read it'] });
     expect(record.harness.usage).toBeNull();
     expect(readFileSync(outside, 'utf8')).toBe(HOST_TEXT);
-    expect(readFileSync(join(end.dataDir, 'logs', RUN_PHASE_LOG), 'utf8')).toBe('phase output\n');
+    expect(readFileSync(join(end.dataDir, KEPT_PHASE_OUTPUT), 'utf8')).toBe('phase output\n');
     expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+  });
+
+  test('keeps the measurement, and nothing of the host, when a directory sits at the run-phase log', async () => {
+    const { dirs, end } = plantedRun();
+    const phaseLog = join(dirs.logs, RUN_PHASE_LOG);
+    renameSync(phaseLog, `${phaseLog}.was`);
+    mkdirSync(phaseLog);
+    symlinkSync(join(dirs.root, '..', 'host-file'), join(phaseLog, 'inside'));
+    const record = await finishRun(input(), end);
+    expect(record.harness.plantedLinks).toEqual(['logs/02-run-phase.log', 'network.jsonl']);
+    expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+    expect(readFileSync(join(end.dataDir, KEPT_PHASE_OUTPUT), 'utf8')).toBe('phase output\n');
+    expect(existsSync(join(end.dataDir, 'logs', RUN_PHASE_LOG))).toBe(false);
+    expect(filesContaining(end.dataDir, HOST_TEXT.trim())).toEqual([]);
+  });
+
+  test('finds the token in the phase output of a planted run, and keeps it redacted', async () => {
+    const { end } = plantedRun();
+    const secret = 'made-up-token-in-the-phase-output';
+    const record = await finishRun({ ...input(), scanned: [secret] }, { ...end, phaseOutput: `said ${secret}\n` });
+    expect(record.harness.tokenFoundIn).toContain(KEPT_PHASE_OUTPUT);
+    expect(filesContaining(end.dataDir, secret)).toEqual([]);
+  });
+});
+
+describe('finishRun on a file it cannot read', () => {
+  test.skipIf(UID === 0)('appends the measurement line before a chmod 000 file under logs/ stops the keep', async () => {
+    const { dirs, end } = plantedRun();
+    const locked = join(dirs.logs, 'locked.log');
+    writeFileSync(locked, 'locked\n');
+    chmodSync(locked, 0o000);
+    try {
+      await expect(finishRun(input(), end)).rejects.toThrow('EACCES');
+      expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+    } finally {
+      chmodSync(locked, 0o600);
+    }
   });
 });
