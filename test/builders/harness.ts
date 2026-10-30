@@ -18,6 +18,15 @@
  *       Runs every brief of the round once per model, each builder in its
  *       own sandbox, at the run cap given, under the round cap given.
  *       Neither cap has a default.
+ *   check-briefs <round> [--briefs <dir>]
+ *       Validates a round's briefs as `round` would, and starts nothing.
+ *   reproduce <round> <run> --list
+ *   reproduce <round> <run> <problem> --script <file.mjs> [--expect <text>] [--register]
+ *             [--packages <dir>] [--minutes <n>]
+ *       Re-runs one problem of a kept run with the verifier's script, in a
+ *       fresh copy of the builder's app on the same tarballs, in the same
+ *       sandbox as a round's run and with no model channel: up to two
+ *       tries. Exits 0 when it reproduced, 1 when unconfirmed. Files nothing.
  *   measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
  *       Per model: cost per run and per verification, confirmed new findings
  *       per app, the share thrown out, cost per confirmed new finding, and
@@ -26,14 +35,19 @@
  * Every command that runs a builder refuses to run (exit 2) where the
  * sandbox is unavailable; there is no fallback without it.
  */
+import { existsSync } from 'node:fs';
+import { readBriefs } from './brief.ts';
 import { PreflightFailed, runCanary } from './canary/canary.ts';
-import { flagValue, rejectUnknownFlags, UsageError } from './cli-args.ts';
+import { flagValue, positionals, rejectUnknownFlags, UsageError } from './cli-args.ts';
 import { formatSummary, summarize } from './measure.ts';
 import { readMeasurements } from './measurement.ts';
 import { NamespaceUnavailable } from './namespace.ts';
 import { runRound } from './round.ts';
 import { parseRoundOptions } from './round-options.ts';
-import { measurementsFile } from './round-paths.ts';
+import { briefsDir, measurementsFile } from './round-paths.ts';
+import { runReproduce } from './reproduce.ts';
+import { listLines } from './reproduce-check.ts';
+import { parseReproduceOptions, REPRODUCE_USAGE } from './reproduce-options.ts';
 
 interface Command {
   usage: string;
@@ -47,7 +61,7 @@ function positiveInteger(flag: string, raw: string | undefined): number | undefi
   return value;
 }
 
-/** Each command, by name. The run and reproduce commands join this table. */
+/** Each command, by name. The run command joins this table. */
 const COMMANDS: Record<string, Command> = {
   canary: {
     usage: 'canary [--build] [--packages <dir>]',
@@ -63,6 +77,28 @@ const COMMANDS: Record<string, Command> = {
     async run(args) {
       const passed = await runRound(parseRoundOptions(args));
       return passed ? 0 : 1;
+    },
+  },
+  'check-briefs': {
+    usage: 'check-briefs <round> [--briefs <dir>]',
+    async run(args) {
+      rejectUnknownFlags(args, ['--briefs']);
+      const [round, ...extra] = positionals(args, new Set(['--briefs']));
+      if (round === undefined || extra.length > 0) throw new UsageError('check-briefs takes one round name');
+      const dir = flagValue(args, '--briefs') ?? briefsDir(round);
+      const { briefs, errors } = existsSync(dir) ? readBriefs(dir) : { briefs: [], errors: [`no briefs directory ${dir}`] };
+      for (const error of errors) console.error(`✗ ${error}`);
+      if (errors.length === 0) console.log(`✓ ${briefs.length} briefs in ${dir}: ${briefs.map((brief) => brief.id).join(', ')}`);
+      return errors.length === 0 ? 0 : 1;
+    },
+  },
+  reproduce: {
+    usage: REPRODUCE_USAGE,
+    async run(args) {
+      const command = parseReproduceOptions(args);
+      if (!command.list) return (await runReproduce(command)) ? 0 : 1;
+      for (const line of listLines(command.round, command.run)) console.log(line);
+      return 0;
     },
   },
   measure: {

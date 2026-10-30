@@ -12,6 +12,10 @@
  *   `runs/<round>/<run>/` (what the harness keeps of each run), the
  *   append-only `measurements.jsonl`, and `builder.settings.json`, the
  *   Claude Code permission file builders run with.
+ *
+ * A reproduction (`reproduce.ts`) works in `<round>/<run>.repros/<problem>/`
+ * in scratch, a fresh directory per try, and keeps what it found in
+ * `runs/<round>/<run>/repros/<problem>/<stamp>/`.
  */
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -60,3 +64,10 @@ export const builderRunRoot = (round: string, run: string) => join(buildersRoot(
 
 /** The forwarder's record of a run, outside the run root, so nothing in the sandbox can write it. */
 export const channelRecordFile = (round: string, run: string) => join(buildersRoot(), round, `${run}.model-channel.jsonl`);
+
+/** Where one try of a reproduction runs: a fresh scratch directory beside the run's. */
+export const reproTryRoot = (round: string, run: string, problem: string, stamp: string, attempt: number) =>
+  join(buildersRoot(), round, `${run}.repros`, problem, `${stamp}-try-${attempt}`);
+
+/** Where a reproduction keeps what it found, inside the run's data. */
+export const reproDataDir = (round: string, run: string, problem: string, stamp: string) => join(runDataDir(round, run), 'repros', problem, stamp);
