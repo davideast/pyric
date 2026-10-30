@@ -7,9 +7,9 @@
     "rtdb-modular#147"
   ],
   "description": "query(ref, orderByKey(), startAt(\"b\"), endAt(\"d\")) — seed children with keys a..e; observe windowed matched keys in key order.",
-  "observedAt": "2026-05-18T04:28:06.901Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:35.475Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

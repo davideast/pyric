@@ -6,8 +6,8 @@
     "rtdb-modular#M75c"
   ],
   "description": "Whether onChildChanged co-fires with onChildMoved on a reorder. Under query(ref, orderByChild(\"score\")) with children a/b/c (score 10/20/30), subscribe BOTH listeners and record which fire for three mutation kinds: (1) a change to the ordered field that moves sort position (value-change-that-reorders: b.score 20→40), (2) a change to a NON-ordered sibling field (pure value change, no reorder: a.label), (3) a change to the ordered field that does NOT change rank (value/priority change without a move: c.score 30→35).",
-  "observedAt": "2026-07-22T11:07:55.691Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T16:55:29.329Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

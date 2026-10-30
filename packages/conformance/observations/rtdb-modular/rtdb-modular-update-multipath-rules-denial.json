@@ -5,9 +5,9 @@
     "rtdb-modular#118"
   ],
   "description": "Multi-path update where one path is denied by rules — confirm the WHOLE update rejects and neither path is written (atomicity contract).",
-  "observedAt": "2026-05-18T03:36:39.158Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:05.422Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
     "code": "PERMISSION_DENIED",

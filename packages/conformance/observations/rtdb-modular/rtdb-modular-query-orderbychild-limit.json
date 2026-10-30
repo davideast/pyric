@@ -6,9 +6,9 @@
     "rtdb-modular#150"
   ],
   "description": "query(ref, orderByChild(\"pos\"), limitToFirst(2)) — verify the result window respects both ordering and limit.",
-  "observedAt": "2026-05-18T03:36:49.451Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:31.948Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

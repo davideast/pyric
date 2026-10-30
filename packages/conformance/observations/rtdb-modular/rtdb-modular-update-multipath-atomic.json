@@ -6,9 +6,9 @@
     "rtdb#23"
   ],
   "description": "Multi-path update — update(parentRef, {\"a/x\":1, \"b/y\":2}) — verify both subtrees land in a single call. The \"fan-out\" pattern is RTDB's most distinctive feature.",
-  "observedAt": "2026-05-18T03:36:38.272Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:04.525Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

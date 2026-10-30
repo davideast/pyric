@@ -4,15 +4,15 @@
   "rowIds": [
     "rtdb#71"
   ],
-  "description": "Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through SimulateHandler, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.",
-  "observedAt": "2026-05-18T10:16:14.901Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "description": "Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through the in-process engine, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.",
+  "observedAt": "2026-10-30T16:56:18.615Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "totalOps": 29,
-    "agreements": 28,
-    "disagreements": 1,
-    "agreementRate": 0.9655172413793104,
+    "agreements": 29,
+    "disagreements": 0,
+    "agreementRate": 1,
     "ruleIds": [
       "r1-auth-only",
       "r2-own-uid",
@@ -23,21 +23,7 @@
       "r7-pathvar-binding",
       "r8-combined-check"
     ],
-    "divergences": [
-      {
-        "ruleId": "r4-validate-structure",
-        "opLabel": "missing body denied (validate fails)",
-        "opPath": "/entry",
-        "operation": "write",
-        "authPresent": true,
-        "prodAllowed": false,
-        "prodCode": "PERMISSION_DENIED",
-        "simAllowed": true,
-        "simReason": "Rule expression evaluated to true",
-        "simErrorCode": null,
-        "agree": false
-      }
-    ],
+    "divergences": [],
     "allResults": [
       {
         "ruleId": "r1-auth-only",
@@ -74,7 +60,7 @@
         "prodAllowed": false,
         "prodCode": null,
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'read' rule grants access; the deepest, at '/r1-auth-only', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -87,14 +73,14 @@
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'write' rule grants access; the deepest, at '/r1-auth-only', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
       {
         "ruleId": "r2-own-uid",
         "opLabel": "matching uid read allowed",
-        "opPath": "/THP041EPnYbzh9c8GGBniSDoUKc2/value",
+        "opPath": "/OzXSjoT2CYTP3sYadk5YQLCUWkc2/value",
         "operation": "read",
         "authPresent": true,
         "prodAllowed": true,
@@ -107,7 +93,7 @@
       {
         "ruleId": "r2-own-uid",
         "opLabel": "matching uid write allowed",
-        "opPath": "/THP041EPnYbzh9c8GGBniSDoUKc2/value",
+        "opPath": "/OzXSjoT2CYTP3sYadk5YQLCUWkc2/value",
         "operation": "write",
         "authPresent": true,
         "prodAllowed": true,
@@ -126,7 +112,7 @@
         "prodAllowed": false,
         "prodCode": null,
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'read' rule grants access; the deepest, at '/r2-own-uid/$uid', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -139,7 +125,7 @@
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'write' rule grants access; the deepest, at '/r2-own-uid/$uid', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -152,7 +138,7 @@
         "prodAllowed": false,
         "prodCode": null,
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'read' rule grants access; the deepest, at '/r2-own-uid/$uid', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -216,10 +202,10 @@
         "authPresent": true,
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
-        "simAllowed": true,
-        "simReason": "Rule expression evaluated to true",
+        "simAllowed": false,
+        "simReason": "Validation rule evaluated to false",
         "simErrorCode": null,
-        "agree": false
+        "agree": true
       },
       {
         "ruleId": "r5-cascade-root-grant",
@@ -282,7 +268,7 @@
         "prodAllowed": false,
         "prodCode": null,
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'read' rule grants access; the deepest, at '/r6-deny-everything', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -295,7 +281,7 @@
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'write' rule grants access; the deepest, at '/r6-deny-everything', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -308,14 +294,14 @@
         "prodAllowed": false,
         "prodCode": null,
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'read' rule grants access; the deepest, at '/r6-deny-everything', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
       {
         "ruleId": "r7-pathvar-binding",
         "opLabel": "matching pathvar allows",
-        "opPath": "/sessions/kopuqCk3cATBbHZsSamIZkrVDd22",
+        "opPath": "/sessions/nhh200UtF3TKW3EtGOFOtDQyjLp2",
         "operation": "read",
         "authPresent": true,
         "prodAllowed": true,
@@ -328,7 +314,7 @@
       {
         "ruleId": "r7-pathvar-binding",
         "opLabel": "matching pathvar allows write",
-        "opPath": "/sessions/kopuqCk3cATBbHZsSamIZkrVDd22",
+        "opPath": "/sessions/nhh200UtF3TKW3EtGOFOtDQyjLp2",
         "operation": "write",
         "authPresent": true,
         "prodAllowed": true,
@@ -347,7 +333,7 @@
         "prodAllowed": false,
         "prodCode": null,
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'read' rule grants access; the deepest, at '/r7-pathvar-binding/sessions/$sessionId', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -360,8 +346,8 @@
         "prodAllowed": false,
         "prodCode": null,
         "simAllowed": false,
-        "simReason": null,
-        "simErrorCode": "NO_MATCHING_RULE",
+        "simReason": "No 'read' rule grants access; the deepest, at '/', evaluated to false",
+        "simErrorCode": null,
         "agree": true
       },
       {
@@ -373,7 +359,7 @@
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'write' rule grants access; the deepest, at '/r8-combined-check', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -386,7 +372,7 @@
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'write' rule grants access; the deepest, at '/r8-combined-check', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
@@ -399,7 +385,7 @@
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
         "simAllowed": false,
-        "simReason": "Rule expression evaluated to false",
+        "simReason": "No 'write' rule grants access; the deepest, at '/r8-combined-check', evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
