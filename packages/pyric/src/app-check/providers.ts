@@ -1,7 +1,9 @@
 /**
- * The three attestation providers. The sandbox has no attestation service, so
- * it never calls a provider, as production never does under a debug token
- * (capture `app-check-client-debug-get-token`, `customProviderCalls: 0`).
+ * The three attestation providers. The sandbox has no reCAPTCHA, so it never
+ * calls a reCAPTCHA provider. It calls a `CustomProvider` as production does
+ * when no debug token is set (`state.ts`); under a debug token production
+ * never calls one (capture `app-check-client-debug-get-token`,
+ * `customProviderCalls: 0`), and neither does the sandbox.
  * `isEqual` decides whether a second `initializeAppCheck` has the same options.
  */
 export interface AppCheckTokenFromProvider {
@@ -33,6 +35,10 @@ export class ReCaptchaEnterpriseProvider implements ComparableProvider {
 
 export class CustomProvider implements ComparableProvider {
   constructor(private readonly options: CustomProviderOptions) {}
+  /** @internal The app's own `getToken`, called as upstream `CustomProvider.getToken` calls it; a rejection propagates. */
+  getToken(): Promise<AppCheckTokenFromProvider> {
+    return this.options.getToken();
+  }
   /** Upstream compares the getToken functions by source text, so a provider rebuilt by the same factory is equal. */
   isEqual(other: unknown): boolean {
     return other instanceof CustomProvider && String(other.options.getToken) === String(this.options.getToken);

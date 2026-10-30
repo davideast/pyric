@@ -31,7 +31,7 @@ export interface FirebaseImportsCase {
   hosted: boolean;
 }
 
-const PROJECT_ID = 'demo-firebase-imports';
+export const PROJECT_ID = 'demo-firebase-imports';
 
 /**
  * Loaded with `--require`, which Node runs before the register's `--import`.
@@ -230,7 +230,7 @@ const APP_FILES: Record<string, string> = {
 };
 
 /** The preload and the empty gcloud folder sit outside the project, so Next never watches them. */
-interface Safety {
+export interface Safety {
   preload: string;
   sinkPort: number;
   emptyGcloud: string;
@@ -264,13 +264,13 @@ interface SafetyRecord {
 }
 
 /** The trapped connections a case may not have. */
-function escapedConnections(records: readonly SafetyRecord[]): string[] {
+export function escapedConnections(records: readonly SafetyRecord[]): string[] {
   return records
     .filter((record) => record.kind === 'connection' && record.detail !== NEXT_VERSION_CHECK)
     .map((record) => record.detail);
 }
 
-function readSafetyLog(path: string): SafetyRecord[] {
+export function readSafetyLog(path: string): SafetyRecord[] {
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line !== '');
   return lines.map((line) => JSON.parse(line) as SafetyRecord);
@@ -286,7 +286,7 @@ async function answers(url: string): Promise<boolean> {
   }
 }
 
-async function waitForNext(url: string, running: () => boolean): Promise<void> {
+export async function waitForNext(url: string, running: () => boolean): Promise<void> {
   const deadline = Date.now() + 180_000;
   for (;;) {
     assert.ok(running(), `pyric sandbox exited before Next served ${url}`);
@@ -310,7 +310,7 @@ function slug(name: string): string {
 }
 
 /** The env each Next process runs with: the safety preload, the sink, and no credentials. */
-function nextEnv(app: App, safety: Safety): Record<string, string> {
+export function nextEnv(app: App, safety: Safety): Record<string, string> {
   return {
     PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}`,
     NODE_OPTIONS: `--require ${safety.preload}`,
@@ -420,14 +420,18 @@ async function listenSink(): Promise<Server> {
   return sink;
 }
 
+/** A case with its own steps, run after the Firestore cases on the same app and safety preload. */
+export type ExtraCase = (app: App, safety: Safety) => Promise<void>;
+
 /**
  * Writes the app, then runs each case in turn. With `refusals`, it then runs
- * the cases where `withPyric` has to refuse to start (#1625).
+ * the cases where `withPyric` has to refuse to start (#1625), and then each
+ * of `extraCases`.
  */
 export async function runFirebaseImports(
   app: App,
   cases: readonly FirebaseImportsCase[],
-  options: { refusals?: boolean } = {},
+  options: { refusals?: boolean; extraCases?: readonly ExtraCase[] } = {},
 ): Promise<void> {
   // The rewrite keeps the Next origin, which the host's origin guard refuses (#1194).
   app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
@@ -437,6 +441,7 @@ export async function runFirebaseImports(
     const safety = { ...files, sinkPort: (sink.address() as AddressInfo).port };
     for (const testCase of cases) await runCase(app, safety, testCase);
     if (options.refusals === true) await runRefusals(app, { env: nextEnv(app, safety), escapes });
+    for (const extraCase of options.extraCases ?? []) await extraCase(app, safety);
   } finally {
     await new Promise<void>((resolve) => sink.close(() => resolve()));
   }
