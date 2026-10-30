@@ -3,6 +3,8 @@
  */
 import type { NextConfigObject } from './types.js';
 import { getClientAliases, getNodeBuiltinFallbacks } from './client-aliases.js';
+import { BRIDGE_IMPORT_LOADER, bridgeImportRewrites } from './bridge-imports.js';
+import { resolveAiMode } from '../serve/firebase-module-swap.js';
 
 interface WebpackOptions {
   isServer: boolean;
@@ -30,6 +32,22 @@ function assembleClientResolveSection(existingResolve: Record<string, any> | und
   resolveSection.fallback = Object.assign(currentFallbacks, newFallbacks);
 
   return resolveSection;
+}
+
+/**
+ * In production AI mode, a rule that runs the bridge import loader on the
+ * shadow-app wrappers, so their Firebase SDK imports escape the aliases that
+ * name the wrappers themselves (see `bridge-imports.ts`).
+ */
+function assembleClientModuleSection(existingModule: Record<string, any> | undefined): Record<string, any> | undefined {
+  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
+  const options = isProductionAiMode ? bridgeImportRewrites() : undefined;
+  if (options === undefined) return existingModule;
+  const moduleSection = existingModule !== undefined ? Object.assign({}, existingModule) : {};
+  const rules = Array.isArray(moduleSection.rules) ? [...moduleSection.rules] : [];
+  rules.push({ test: Object.keys(options.rewrites), use: [{ loader: BRIDGE_IMPORT_LOADER, options }] });
+  moduleSection.rules = rules;
+  return moduleSection;
 }
 
 /** The module that installs React's commit hook; it must evaluate before React. */
@@ -98,6 +116,7 @@ export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject
       return resolvedConfig;
     }
     resolvedConfig.resolve = assembleClientResolveSection(resolvedConfig.resolve);
+    resolvedConfig.module = assembleClientModuleSection(resolvedConfig.module);
     resolvedConfig.experiments = assembleClientExperimentsSection(resolvedConfig.experiments);
     resolvedConfig.output = assembleClientOutputSection(resolvedConfig.output);
     resolvedConfig.entry = assembleClientEntry(resolvedConfig.entry);

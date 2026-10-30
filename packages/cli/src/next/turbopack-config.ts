@@ -3,12 +3,33 @@
  */
 import type { NextConfigObject } from './types.js';
 import { getClientAliases } from './client-aliases.js';
+import { BRIDGE_IMPORT_LOADER, bridgeImportRewrites, bridgeModuleFileNames } from './bridge-imports.js';
+import { resolveAiMode } from '../serve/firebase-module-swap.js';
+
+/**
+ * In production AI mode, a rule per shadow-app wrapper that runs the bridge
+ * import loader, so the wrapper's Firebase SDK import escapes the alias that
+ * names the wrapper itself. Keyed by the wrapper's file name; the loader
+ * leaves any other file of that name unchanged.
+ */
+function assembleBridgeRules(existingRules: Record<string, any> | undefined): Record<string, any> | undefined {
+  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
+  const options = isProductionAiMode ? bridgeImportRewrites() : undefined;
+  if (options === undefined) return existingRules;
+  const rules = existingRules !== undefined ? Object.assign({}, existingRules) : {};
+  for (const name of bridgeModuleFileNames()) {
+    rules[name] = { loaders: [{ loader: BRIDGE_IMPORT_LOADER, options }], as: '*.js' };
+  }
+  return rules;
+}
 
 function assembleTurbopackAliases(existingTurbo: Record<string, any> | undefined): Record<string, any> {
   const turboSection = existingTurbo !== undefined ? Object.assign({}, existingTurbo) : {};
   const currentAliases = turboSection.resolveAlias !== undefined ? Object.assign({}, turboSection.resolveAlias) : {};
   const pyricAliases = getClientAliases();
   turboSection.resolveAlias = Object.assign(currentAliases, pyricAliases);
+  const rules = assembleBridgeRules(turboSection.rules);
+  if (rules !== undefined) turboSection.rules = rules;
   return turboSection;
 }
 
