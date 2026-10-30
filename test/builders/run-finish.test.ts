@@ -11,6 +11,7 @@ import { channelEvent } from './model-channel.ts';
 import { builderRunDirsAt, type BuilderRunDirs } from './round-paths.ts';
 import { finishRun, KEPT_PHASE_OUTPUT, RUN_PHASE_LOG, type FinishInput, type RunEnd } from './run-finish.ts';
 import { BUILDER_LOG } from './run-phase.ts';
+import * as ownerAccessModule from './owner-access.ts';
 import * as runRecordModule from './run-record.ts';
 import type { RunRecord } from './run-record.ts';
 import { createRunDirs } from './scratch.ts';
@@ -187,5 +188,21 @@ describe('finishRun on a network record the builder wrote', () => {
     expect(record.harness.plantedLinks).toEqual(['network.jsonl: building the run record failed: made-up failure']);
     expect(record.harness.network.googleEvents).toEqual([]);
     expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
+  });
+});
+
+describe.skipIf(UID === 0)('finishRun on a file the harness still can’t read', () => {
+  test('names the file in the record, so the run is not clean', async () => {
+    const { dirs, end } = plainRun();
+    const builderLog = join(dirs.logs, BUILDER_LOG);
+    chmodSync(builderLog, 0o000);
+    const spy = spyOn(ownerAccessModule, 'restoreOwnerAccess').mockImplementation(() => {});
+    const record = await finishRun(input(), end).finally(() => {
+      spy.mockRestore();
+      chmodSync(builderLog, 0o600);
+    });
+    expect(record.harness.plantedLinks).toEqual(['logs/builder.log: logs/builder.log is unreadable']);
+    expect(record.harness.usage).toBeNull();
+    expect(readMeasurements(end.measurements).lines).toHaveLength(1);
   });
 });
