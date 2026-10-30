@@ -15,6 +15,12 @@
   messaging's `register`, `unregister`, `onRegistered` and `onUnregistered`
   can be imported in served mode but throw `unsupported-in-served-mode` until
   pyric implements them (#1604).
+- `SDK_VERSION` from `pyric/app` is now `12.19.0`. A second `initializeApp`
+  under an existing name with different options or settings throws
+  `app/duplicate-app` with the 12.19.0 message, which names the mismatched
+  parameter and includes the existing and new values as JSON, for example
+  `Firebase App named '[DEFAULT]' already exists with different options.
+  Existing: '{...}'. New: '{...}'.` (#1604).
 - The Vite dev server refuses to start when `VITE_GEMINI_API_KEY` is set, in
   the shell or in `.env`, and says to rename it to `GEMINI_API_KEY`. Vite
   serves every variable whose name starts with `VITE_` to the browser, so a
