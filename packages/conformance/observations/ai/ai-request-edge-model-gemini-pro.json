@@ -5,8 +5,8 @@
     "ai#request-model-gemini-pro"
   ],
   "description": "generateContent addressed to the model name gemini-pro. Records the HTTP status and error envelope production returns for that model name.",
-  "observedAt": "2026-10-28T02:26:34.277Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:55:15.054Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-pro",

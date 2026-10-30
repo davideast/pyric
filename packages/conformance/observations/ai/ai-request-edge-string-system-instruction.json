@@ -5,8 +5,8 @@
     "ai#request-string-system-instruction"
   ],
   "description": "generateContent with systemInstruction sent as a top-level string instead of a Content object. Records the HTTP status and error envelope production returns.",
-  "observedAt": "2026-10-28T02:26:34.132Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:55:14.755Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
