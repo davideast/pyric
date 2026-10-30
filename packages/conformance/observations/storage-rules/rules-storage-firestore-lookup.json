@@ -4,8 +4,8 @@
   "rowIds": [
     "storage-rules#115"
   ],
-  "description": "Storage Rules Test API verdicts for corpus pack \"firestore-lookup\" (STORAGE-XSVC). firestore.get()/exists() cross-service lookups with $(expr) interpolation, qualified function-mock names, and bool exists() results.",
-  "observedAt": "2026-07-11T03:09:46.334Z",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"firestore-lookup\" (STORAGE-XSVC). firestore.get()/exists() cross-service lookups with $(expr) interpolation, qualified function-mock names, and bool exists() results.",
+  "observedAt": "2026-10-30T19:22:01.764Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -17,5 +17,99 @@
     "firestore.get(): profile uid mismatch → deny": "DENY",
     "firestore.exists(): membership present → allow create": "ALLOW",
     "firestore.exists(): membership absent → deny create": "DENY"
+  },
+  "diagnostics": {
+    "firestore.get(): profile uid matches caller → allow": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/users/alice"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 21,
+              "currentOffset": 132,
+              "endOffset": 140
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "firestore.get(): profile uid mismatch → deny": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/users/alice"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 21,
+              "currentOffset": 132,
+              "endOffset": 140
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "firestore.exists(): membership present → allow create": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/members/alice"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 24,
+              "currentOffset": 247,
+              "endOffset": 255
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "firestore.exists(): membership absent → deny create": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/members/bob"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 24,
+              "currentOffset": 247,
+              "endOffset": 255
+            },
+            "value": false
+          }
+        ]
+      }
+    }
   }
 }
