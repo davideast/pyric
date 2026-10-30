@@ -4,11 +4,13 @@
 // files under the package (the set `bun test` discovers there) is split by index
 // modulo the shard count, and each shard passes its own files to `bun test`
 // explicitly. The package is packages/cli unless `--package` names another.
+// The run goes through the quarantine runner, which reports quarantined tests.
 //
 //   bun scripts/ci/test-shard.ts [--package=pyric] --shard=1/2 [--list] [-- <extra bun test args>]
 
 import { Glob } from 'bun';
 import { resolve } from 'node:path';
+import { runBunTest } from '../lib/quarantine/run-bun-test.ts';
 
 /** The packages whose suites are sharded, by `--package` name. */
 export const shardedPackages = {
@@ -58,10 +60,8 @@ if (import.meta.main) {
     console.log(shard.join('\n'));
   } else {
     console.log(`${name} test shard ${index}/${total}: ${shard.length} files`);
-    const run = Bun.spawnSync(['bun', 'test', ...passthrough, ...shard], {
-      cwd: root,
-      stdio: ['inherit', 'inherit', 'inherit'],
-    });
-    process.exit(run.exitCode ?? 1);
+    // Through the quarantine runner: a failure of a quarantined test alone is
+    // reported and does not fail the shard (scripts/lib/quarantine).
+    process.exit(await runBunTest({ cwd: root, args: [...passthrough, ...shard], suite: `${name}-${index}` }));
   }
 }

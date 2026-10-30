@@ -1,0 +1,122 @@
+// What the release check posts on quarantine tracking issues after a main
+// run: a quarantined test failed in it; a quarantined test passed in each of
+// the last RELEASE_STREAK main runs, so its entry can go; an entry expired, so
+// its test blocks again. Each comment carries a marker, and a comment whose
+// marker is already on the issue is not posted again. A pure function of the
+// entries, the runs' reports, and the markers already posted.
+
+import { isActive, type LoadedEntry } from './entries.ts';
+import type { QuarantineReport } from './report.ts';
+
+/** Consecutive passing main runs after which release is proposed. */
+export const RELEASE_STREAK = 20;
+
+export interface RunReports {
+  runId: number;
+  url: string;
+  /** One per suite, from the run's latest attempt of that suite's job. */
+  reports: QuarantineReport[];
+}
+
+export interface IssueComment {
+  issue: number;
+  marker: string;
+  body: string;
+}
+
+export interface ReleaseInput {
+  entries: LoadedEntry[];
+  today: string;
+  /** Main push runs, newest first; index 0 is the run that just completed.
+   *  Undefined past the last run there is. */
+  history: (index: number) => RunReports | undefined;
+  /** Markers already in a comment on each entry's issue. */
+  posted: ReadonlySet<string>;
+}
+
+type RunOutcome = 'passed' | 'failed' | 'not-run';
+
+function outcomesIn(run: RunReports, file: string): string[] {
+  return run.reports.flatMap((report) => report.entries.filter((entry) => entry.file === file).map((entry) => entry.outcome));
+}
+
+/** Failed anywhere wins; passed needs a pass somewhere and no failure. */
+export function runOutcome(run: RunReports, file: string): RunOutcome {
+  const outcomes = outcomesIn(run, file);
+  if (outcomes.includes('failed')) return 'failed';
+  if (outcomes.includes('passed')) return 'passed';
+  return 'not-run';
+}
+
+/** Consecutive passing runs from the newest, up to `limit`. A run that did
+ *  not report the entry ends the streak, so a proposal comes late, not early. */
+export function streak(history: ReleaseInput['history'], file: string, limit: number = RELEASE_STREAK): number {
+  let count = 0;
+  for (let index = 0; index < limit; index += 1) {
+    const run = history(index);
+    if (run === undefined || runOutcome(run, file) !== 'passed') return count;
+    count += 1;
+  }
+  return count;
+}
+
+function marker(kind: string, file: string, key: string | number): string {
+  return `<!-- quarantine:${kind}:${file}:${key} -->`;
+}
+
+function failedSuites(run: RunReports, file: string): string[] {
+  return run.reports.filter((report) => report.entries.some((entry) => entry.file === file && entry.outcome === 'failed')).map((report) => report.suite);
+}
+
+function quarantineStart(entry: LoadedEntry): string {
+  return entry.renewals.at(-1)?.date ?? entry.added;
+}
+
+function failedComment(entry: LoadedEntry, run: RunReports): IssueComment {
+  const mark = marker('failed', entry.file, run.runId);
+  const suites = failedSuites(run, entry.file).join(', ');
+  const body = `${mark}\n\`${entry.test}\` failed on main while quarantined (until ${entry.expires}), in ${suites}: ${run.url}\nIt did not block the run.\n`;
+  return { issue: entry.issue, marker: mark, body };
+}
+
+function releaseComment(entry: LoadedEntry, current: RunReports): IssueComment {
+  const mark = marker('release', entry.file, quarantineStart(entry));
+  const body = [
+    mark,
+    `\`${entry.test}\` passed in each of the last ${RELEASE_STREAK} main runs while quarantined, the latest ${current.url}.`,
+    '',
+    `Proposed: release it by deleting \`.github/quarantine/${entry.file}\`, in the PR that fixes it if it is not fixed yet.`,
+    '',
+  ].join('\n');
+  return { issue: entry.issue, marker: mark, body };
+}
+
+function expiredComment(entry: LoadedEntry): IssueComment {
+  const mark = marker('expired', entry.file, entry.expires);
+  const body = [
+    mark,
+    `The quarantine of \`${entry.test}\` expired on ${entry.expires}, so its failures block again.`,
+    '',
+    `To keep it quarantined, renew it with a reason: \`bun scripts/ci/quarantine.ts renew --test '${entry.test}' --reason '<why>'\``,
+    '',
+  ].join('\n');
+  return { issue: entry.issue, marker: mark, body };
+}
+
+function entryComments(entry: LoadedEntry, input: ReleaseInput, current: RunReports): IssueComment[] {
+  if (!isActive(entry, input.today)) return [expiredComment(entry)];
+  if (runOutcome(current, entry.file) === 'failed') return [failedComment(entry, current)];
+  const proposal = releaseComment(entry, current);
+  // Reading older runs costs a download each, so a posted proposal stops here.
+  if (input.posted.has(proposal.marker)) return [];
+  const releasable = streak(input.history, entry.file) >= RELEASE_STREAK;
+  if (releasable) return [proposal];
+  return [];
+}
+
+export function decideComments(input: ReleaseInput): IssueComment[] {
+  const current = input.history(0);
+  if (current === undefined) return [];
+  return input.entries.flatMap((entry) => entryComments(entry, input, current))
+    .filter((comment) => !input.posted.has(comment.marker));
+}

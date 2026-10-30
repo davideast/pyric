@@ -69,6 +69,7 @@ import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
 import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
 import { checkPlanCoversSelection, readPlan, shardApps, takeShardOptions, writeShardReport, type ShardOption } from './shard-plan.ts';
+import { finishAppRun } from '../../scripts/lib/quarantine/apps.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
@@ -357,7 +358,10 @@ async function main(): Promise<void> {
   const summary = summarize(results, total, skippedSlowClause(skippedSlow));
   for (const line of summary.lines) console.log(line);
   if (installsFailure !== undefined) console.log(`warning: cleanup failed for the shared installs: ${installsFailure}`);
-  process.exit(summary.exitCode);
+  // A failed app with an active quarantine entry is reported but does not
+  // fail the run when it is the only kind of failure (scripts/lib/quarantine).
+  const suite = shard ? `apps-${shard.index}` : 'apps';
+  process.exit(finishAppRun(suite, { apps: results, exitCode: summary.exitCode }));
 }
 
 await main();

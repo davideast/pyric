@@ -89,6 +89,28 @@ function attemptLine(report: AttemptReport | undefined, fallbackAttempt: number)
   return `- Attempt ${report.attempt}: ${report.url}`;
 }
 
+/** The test an entry would name: the test, or its file alone for a failure
+ *  bun reports as `(unnamed)`, which covers only that file's unnamed failures. */
+function quarantineTarget(failure: Failure): string | undefined {
+  const test = failure.test;
+  if (test === undefined) return undefined;
+  const unnamed = test.endsWith(' > (unnamed)');
+  if (unnamed) return testFilePath(failure);
+  return test;
+}
+
+/** How to quarantine the flake, for a failure that names a test. */
+function quarantineLines(failure: Failure): string[] {
+  const target = quarantineTarget(failure);
+  if (target === undefined) return [];
+  return [
+    'To stop it blocking while it is fixed, quarantine it for 14 days in a draft PR (it still runs and is reported):',
+    '',
+    `    bun scripts/ci/quarantine.ts add --test '${target.replace(/'/g, `'\\''`)}' --issue <this issue> --owner <who> --reason '<why>'`,
+    '',
+  ];
+}
+
 export function flakeText(failure: Failure, failed: AttemptReport, passed: AttemptReport): IssueText {
   const prefix = flakePrefix(failure);
   const body = [
@@ -100,6 +122,7 @@ export function flakeText(failure: Failure, failed: AttemptReport, passed: Attem
     `- Failed: ${failed.url}`,
     `- Passed on rerun: ${passed.url}`,
     '',
+    ...quarantineLines(failure),
   ].join('\n');
   return { prefix, title: prefix, body };
 }
