@@ -49,6 +49,8 @@ export function fakeEndpoint(opts: {
   timeoutTimes?: number;
   /** Every dry run for these scenario ids times out. */
   neverAnswers?: ReadonlySet<string>;
+  /** Every dry run for these scenario ids answers with this status, such as a 5xx or a 429 past the back-off cap. */
+  statusFor?: ReadonlyMap<string, number>;
 }): RulesDeployEndpoint & { sent: Record<string, unknown>[]; timeouts: Array<number | undefined> } {
   let live: Record<string, unknown> = structuredClone(BEFORE_RULES);
   const sent: Record<string, unknown>[] = [];
@@ -61,6 +63,8 @@ export function fakeEndpoint(opts: {
       sent.push(rules);
       timeouts.push(options?.timeoutMs);
       if (opts.neverAnswers?.has(mountedScenarioId(rules))) throw timedOut();
+      const forcedStatus = opts.statusFor?.get(mountedScenarioId(rules));
+      if (forcedStatus !== undefined) return { status: forcedStatus, body: 'forced' };
       if (opts.timeoutTimes !== undefined && sent.length <= opts.timeoutTimes) throw timedOut();
       const failsThisCall = opts.failStatus && (opts.failTimes === undefined || sent.length <= opts.failTimes);
       if (failsThisCall) return { status: opts.failStatus!, body: 'internal' };

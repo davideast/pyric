@@ -9,7 +9,8 @@
  *
  * A scenario whose policy has `noAnswer` (r61) produces no observation when
  * production does not answer: the run waits out the cool-down, writes every
- * other scenario's observation, names the scenario, and ends non-zero.
+ * other scenario's observation, names the scenario, and ends non-zero. Any
+ * other failure ends the phase the same way, without the cool-down.
  */
 import { DryRunUnanswered, captureDeployScenario, type RulesDeployEndpoint } from './rtdb-rules-deploy.ts';
 import type { RtdbDeployScenario, RtdbDeployVerdict } from '../rules-corpus/rtdb/index.ts';
@@ -61,14 +62,26 @@ export interface UnansweredScenario {
   timeoutMs: number | undefined;
 }
 
+/** The scenario that ended a phase, and why. */
+export interface FailedScenario {
+  id: string;
+  reason: string;
+}
+
 export interface DeployPhaseResult {
   observations: DeployObservation[];
   unanswered: UnansweredScenario[];
+  /** Set when a scenario failed; the phase stops there. */
+  failed?: FailedScenario;
 }
 
 export function unansweredLine(scenario: UnansweredScenario): string {
   const limit = scenario.timeoutMs === undefined ? 'its request limit' : `${scenario.timeoutMs / 1_000}s`;
   return `[oracle:rules-rtdb] ${scenario.id} produced no observation: production did not answer its dry run within ${limit}.`;
+}
+
+export function failedLine(scenario: FailedScenario): string {
+  return `[oracle:rules-rtdb] ${scenario.id} failed and produced no observation: ${scenario.reason}`;
 }
 
 function answeredLine(observation: DeployObservation): string {
@@ -81,7 +94,9 @@ function answeredLine(observation: DeployObservation): string {
 /**
  * Dry-run each scenario in order, pausing after each. A scenario whose policy
  * accepts no answer is recorded as unanswered, followed by its cool-down in
- * place of the pause; every other failure throws.
+ * place of the pause. Any other failure is recorded as `failed` and ends the
+ * phase, so nothing more is sent to an endpoint that may now be throttling,
+ * and the observations captured so far are kept for the caller.
  */
 export async function runDeployScenarios(
   endpoint: RulesDeployEndpoint,
@@ -100,7 +115,11 @@ export async function runDeployScenarios(
     } catch (error) {
       const noAnswer = scenario.largeRuleset?.noAnswer;
       const isAcceptedNoAnswer = noAnswer !== undefined && error instanceof DryRunUnanswered;
-      if (!isAcceptedNoAnswer) throw error;
+      if (!isAcceptedNoAnswer) {
+        result.failed = { id: scenario.id, reason: error instanceof Error ? error.message : String(error) };
+        deps.log(failedLine(result.failed));
+        return result;
+      }
       const unanswered = { id: scenario.id, timeoutMs: error.timeoutMs };
       result.unanswered.push(unanswered);
       deps.log(`${unansweredLine(unanswered)} Waiting ${noAnswer.cooldownMs / 1_000}s before the next rules call.`);
@@ -111,18 +130,20 @@ export async function runDeployScenarios(
 }
 
 /**
- * Write every observation, then name each unanswered scenario. Returns the
- * run's exit code: non-zero when any scenario has no observation, so the gap
- * is never silent.
+ * Write every observation, then name each unanswered or failed scenario.
+ * Returns the run's exit code: non-zero when any scenario has no observation,
+ * so the gap is never silent.
  */
 export function writeCaptureResults<T>(input: {
   observations: readonly T[];
   unanswered: readonly UnansweredScenario[];
+  failed?: FailedScenario;
   write: (observation: T) => void;
   log: (line: string) => void;
 }): number {
   for (const observation of input.observations) input.write(observation);
   for (const scenario of input.unanswered) input.log(unansweredLine(scenario));
-  const hasUnanswered = input.unanswered.length > 0;
-  return hasUnanswered ? 1 : 0;
+  if (input.failed) input.log(failedLine(input.failed));
+  const hasGap = input.unanswered.length > 0 || input.failed !== undefined;
+  return hasGap ? 1 : 0;
 }

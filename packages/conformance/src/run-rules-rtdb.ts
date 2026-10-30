@@ -101,12 +101,8 @@ import {
 } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import { canonicalize, type RulesDeployEndpoint } from './rtdb-rules-deploy.ts';
-import {
-  orderDeployScenarios,
-  runDeployScenarios,
-  writeCaptureResults,
-  type UnansweredScenario,
-} from './rtdb-rules-deploy-run.ts';
+import { orderDeployScenarios, runDeployScenarios } from './rtdb-rules-deploy-run.ts';
+import { restoreRulesBeforeLatePhase, runCapturePhases, type CapturedObservation } from './rtdb-rules-capture-run.ts';
 import { fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -568,8 +564,6 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
     },
   };
 
-  const observations: { scenario: { id: string; fm: string; rationale: string }; behavior: Record<string, unknown> }[] = [];
-  const unanswered: UnansweredScenario[] = [];
   const deployOrder = orderDeployScenarios(deployScenarios);
   const deployInput = { beforeRules, mountKey: auditKey };
   let restoreVerified = false;
@@ -578,135 +572,130 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
   // Set before the rules write, so a write that fails partway is still restored.
   let deployed = false;
 
-  try {
-    // Ordinary deploy scenarios first: dry runs against the untouched pre-run rules.
-    const early = await runDeployScenarios(endpoint, deployOrder.beforeOperations, deployInput);
-    observations.push(...early.observations);
-    unanswered.push(...early.unanswered);
+  async function captureOperations(): Promise<CapturedObservation[]> {
+    const observations: CapturedObservation[] = [];
+    if (scenarios.length === 0) return observations;
+    // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
+    // existing rules so real rules are preserved.
+    const auditSubtree: Record<string, unknown> = {};
+    for (const scenario of scenarios) {
+      auditSubtree[scenario.id] = JSON.parse(scenario.rules);
+    }
+    deployed = true;
+    await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
+    console.log(`[oracle:rules-rtdb] deployed ${scenarios.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
+    await new Promise((r) => setTimeout(r, 8_000));
 
-    if (scenarios.length > 0) {
-      // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
-      // existing rules so real rules are preserved.
-      const auditSubtree: Record<string, unknown> = {};
-      for (const scenario of scenarios) {
-        auditSubtree[scenario.id] = JSON.parse(scenario.rules);
-      }
-      deployed = true;
-      await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
-      console.log(`[oracle:rules-rtdb] deployed ${scenarios.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
-      await new Promise((r) => setTimeout(r, 8_000));
-
-      for (const scenario of scenarios) {
-        const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
-        for (const tc of scenario.cases as RtdbTestCase[]) {
-          // Match auth context to the case. An identity case signs in as the
-          // run-scoped Auth user created for that identity. A claims case signs
-          // in fresh with a custom token carrying exactly its claims. Every other
-          // signed-in case uses an anonymous sign-in, whose uid is recorded for
-          // cleanup.
-          if (tc.identity) {
-            const uid = await identityUser(tc.identity);
+    for (const scenario of scenarios) {
+      const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
+      for (const tc of scenario.cases as RtdbTestCase[]) {
+        // Match auth context to the case. An identity case signs in as the
+        // run-scoped Auth user created for that identity. A claims case signs
+        // in fresh with a custom token carrying exactly its claims. Every other
+        // signed-in case uses an anonymous sign-in, whose uid is recorded for
+        // cleanup.
+        if (tc.identity) {
+          const uid = await identityUser(tc.identity);
+          if (auth.currentUser?.uid !== uid) {
+            if (auth.currentUser) await signOut(auth);
+            // Auth intermittently refuses a freshly minted custom token as
+            // invalid; a new token a moment later is accepted, so the sign-in
+            // is retried a bounded number of times before the run fails.
+            let lastError: unknown;
+            for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
+              if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+              try {
+                await signInWithCustomToken(auth, await mintCustomToken(serviceAccount, uid, tc.identity.claims ?? {}));
+              } catch (e) {
+                lastError = e;
+              }
+            }
             if (auth.currentUser?.uid !== uid) {
-              if (auth.currentUser) await signOut(auth);
-              // Auth intermittently refuses a freshly minted custom token as
-              // invalid; a new token a moment later is accepted, so the sign-in
-              // is retried a bounded number of times before the run fails.
-              let lastError: unknown;
-              for (let attempt = 0; attempt < 5 && auth.currentUser?.uid !== uid; attempt++) {
-                if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
-                try {
-                  await signInWithCustomToken(auth, await mintCustomToken(serviceAccount, uid, tc.identity.claims ?? {}));
-                } catch (e) {
-                  lastError = e;
-                }
-              }
-              if (auth.currentUser?.uid !== uid) {
-                throw new Error(`custom-token sign-in for case "${tc.description}" failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
-              }
+              throw new Error(`custom-token sign-in for case "${tc.description}" failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
             }
-          } else if (tc.claims) {
-            if (auth.currentUser) await signOut(auth);
-            await signInWithCustomToken(auth, await adminAuth.createCustomToken(claimsUid, tc.claims));
-          } else if (tc.authPresent && (!auth.currentUser || !auth.currentUser.isAnonymous)) {
-            if (auth.currentUser) await signOut(auth);
-            runUids.add((await signInAnonymously(auth)).user.uid);
-          } else if (!tc.authPresent && auth.currentUser) {
-            await signOut(auth);
           }
-          const liveUid = auth.currentUser?.uid ?? '';
-          const opPath = substituteUid(tc.opPath, liveUid);
-          const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
-          const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
-          const mountPath = `/${auditKey}/${scenario.id}`;
-          const fullPath = `${mountPath}${opPath}`;
-
-          // Replay starts every case from an empty root, then applies its declared
-          // seed and mockData. Production capture must start from the same state:
-          // clear only this scenario's run-scoped data, then write preconditions
-          // through the rules-bypassing admin adapter.
-          await adminDb.ref(mountPath).set(null);
-          for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
-            await adminDb
-              .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
-              .set(substituteUid(seedValue, liveUid));
-          }
-          if (mockData !== undefined && mockData !== null) {
-            await adminDb.ref(fullPath).set(mockData);
-          }
-
-          let allowed = false;
-          try {
-            if (tc.operation === 'read') {
-              await rtdbGet(rtdbRef(rtdb, fullPath));
-            } else if (tc.operation === 'query') {
-              const constraints = queryConstraintsOf(substituteUid(tc.query!, liveUid)).map((spec) => {
-                switch (spec[0]) {
-                  case 'orderByChild': return orderByChild(spec[1]);
-                  case 'orderByKey': return orderByKey();
-                  case 'orderByValue': return orderByValue();
-                  case 'orderByPriority': return orderByPriority();
-                  case 'equalTo': return equalTo(spec[1]);
-                  case 'startAt': return startAt(spec[1]);
-                  case 'endAt': return endAt(spec[1]);
-                  case 'limitToFirst': return limitToFirst(spec[1]);
-                  case 'limitToLast': return limitToLast(spec[1]);
-                }
-              });
-              await rtdbGet(rtdbQuery(rtdbRef(rtdb, fullPath), ...constraints));
-            } else if (tc.operation === 'update') {
-              await rtdbUpdate(rtdbRef(rtdb, fullPath), newData as Record<string, unknown>);
-            } else {
-              await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
-            }
-            allowed = true;
-          } catch {
-            allowed = false;
-          }
-          behavior[tc.description] = allowed ? 'ALLOW' : 'DENY';
+        } else if (tc.claims) {
+          if (auth.currentUser) await signOut(auth);
+          await signInWithCustomToken(auth, await adminAuth.createCustomToken(claimsUid, tc.claims));
+        } else if (tc.authPresent && (!auth.currentUser || !auth.currentUser.isAnonymous)) {
+          if (auth.currentUser) await signOut(auth);
+          runUids.add((await signInAnonymously(auth)).user.uid);
+        } else if (!tc.authPresent && auth.currentUser) {
+          await signOut(auth);
         }
-        observations.push({ scenario, behavior });
-        const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
-        const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
-        console.log(`  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies}`);
-      }
+        const liveUid = auth.currentUser?.uid ?? '';
+        const opPath = substituteUid(tc.opPath, liveUid);
+        const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
+        const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
+        const mountPath = `/${auditKey}/${scenario.id}`;
+        const fullPath = `${mountPath}${opPath}`;
 
-      if (auth.currentUser) {
-        try { await signOut(auth); } catch { /* ignored */ }
+        // Replay starts every case from an empty root, then applies its declared
+        // seed and mockData. Production capture must start from the same state:
+        // clear only this scenario's run-scoped data, then write preconditions
+        // through the rules-bypassing admin adapter.
+        await adminDb.ref(mountPath).set(null);
+        for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
+          await adminDb
+            .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
+            .set(substituteUid(seedValue, liveUid));
+        }
+        if (mockData !== undefined && mockData !== null) {
+          await adminDb.ref(fullPath).set(mockData);
+        }
+
+        let allowed = false;
+        try {
+          if (tc.operation === 'read') {
+            await rtdbGet(rtdbRef(rtdb, fullPath));
+          } else if (tc.operation === 'query') {
+            const constraints = queryConstraintsOf(substituteUid(tc.query!, liveUid)).map((spec) => {
+              switch (spec[0]) {
+                case 'orderByChild': return orderByChild(spec[1]);
+                case 'orderByKey': return orderByKey();
+                case 'orderByValue': return orderByValue();
+                case 'orderByPriority': return orderByPriority();
+                case 'equalTo': return equalTo(spec[1]);
+                case 'startAt': return startAt(spec[1]);
+                case 'endAt': return endAt(spec[1]);
+                case 'limitToFirst': return limitToFirst(spec[1]);
+                case 'limitToLast': return limitToLast(spec[1]);
+              }
+            });
+            await rtdbGet(rtdbQuery(rtdbRef(rtdb, fullPath), ...constraints));
+          } else if (tc.operation === 'update') {
+            await rtdbUpdate(rtdbRef(rtdb, fullPath), newData as Record<string, unknown>);
+          } else {
+            await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
+          }
+          allowed = true;
+        } catch {
+          allowed = false;
+        }
+        behavior[tc.description] = allowed ? 'ALLOW' : 'DENY';
       }
-      // Restore before the large-ruleset dry runs: their read-back compares
-      // the live rules with the snapshot, and an unanswered one can leave the
-      // rules endpoint answering 429 for minutes, so no rules write follows it.
-      await writeRules(beforeRules);
-      deployed = false;
+      observations.push({ scenario, behavior });
+      const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
+      const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
+      console.log(`  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies}`);
     }
 
-    // Large-ruleset deploy scenarios last (#1692). One that production does
-    // not answer, under a no-answer policy, is waited out and left without an
-    // observation instead of failing the run.
-    const late = await runDeployScenarios(endpoint, deployOrder.afterOperations, deployInput);
-    observations.push(...late.observations);
-    unanswered.push(...late.unanswered);
-  } finally {
+    if (auth.currentUser) {
+      try { await signOut(auth); } catch { /* ignored */ }
+    }
+    return observations;
+  }
+
+  // Restore before the large-ruleset dry runs: their read-back compares the
+  // live rules with the snapshot, and an unanswered one can leave the rules
+  // endpoint answering 429 for minutes, so no rules write follows it.
+  async function restoreBeforeLate(): Promise<void> {
+    if (!deployed) return;
+    await restoreRulesBeforeLatePhase({ writeRules, readRules }, beforeRules);
+    deployed = false;
+  }
+
+  async function restoreAndCleanUp(): Promise<void> {
     // Restore + read-back verify ALWAYS runs, success or failure. A run that
     // only dry-ran deploys never wrote rules, so it only reads back.
     try {
@@ -752,47 +741,57 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
     try { await adminDeleteApp(adminApp); } catch { /* ignored */ }
   }
 
-  // Only write observations once BOTH invariants held. A run that could not
-  // prove it left the database as it found it — same rules, no residual data —
-  // must not be treated as a clean capture.
-  if (!restoreVerified) {
-    throw new Error('restore invariant NOT verified — refusing to write observations. Inspect the database rules manually.');
-  }
-  if (!dataCleanupVerified) {
-    throw new Error(`data cleanup invariant NOT verified — refusing to write observations. Delete /${auditKey} manually.`);
-  }
-  if (!userCleanupVerified) {
-    throw new Error(`user cleanup invariant NOT verified; refusing to write observations. Delete the Auth users ${[...runUids].join(', ')} manually.`);
+  // Only write observations once every invariant held. A run that could not
+  // prove it left the database as it found it — same rules, no residual data,
+  // no run users — must not be treated as a clean capture.
+  function assertCleanRun(): void {
+    if (!restoreVerified) {
+      throw new Error('restore invariant NOT verified — refusing to write observations. Inspect the database rules manually.');
+    }
+    if (!dataCleanupVerified) {
+      throw new Error(`data cleanup invariant NOT verified — refusing to write observations. Delete /${auditKey} manually.`);
+    }
+    if (!userCleanupVerified) {
+      throw new Error(`user cleanup invariant NOT verified; refusing to write observations. Delete the Auth users ${[...runUids].join(', ')} manually.`);
+    }
   }
 
-  mkdirSync(OBS_DIR, { recursive: true });
-  const exitCode = writeCaptureResults({
-    observations,
-    unanswered,
-    write: ({ scenario, behavior }) => {
-      const path = observationPath(scenario);
-      const linkage = existsSync(path)
-        ? observationLinkageOf(JSON.parse(readFileSync(path, 'utf8')))
-        : observationLinkageOf(undefined);
-      const obs: Observation = {
-        name: rtdbObservationName(scenario),
-        matrixRow: linkage.matrixRow,
-        rowIds: linkage.rowIds,
-        description: 'deployCases' in scenario
-          ? `RTDB rules deploy verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by dry-run deploys to the rules endpoint, which validate without deploying. ${scenario.rationale}`
-          : `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
-        observedAt: new Date().toISOString(),
-        fbSdkVersion,
-        projectId: config.projectId,
-        behavior,
-      };
-      writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
-      console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
-    },
+  function writeObservation({ scenario, behavior }: CapturedObservation): void {
+    mkdirSync(OBS_DIR, { recursive: true });
+    const path = observationPath(scenario);
+    const linkage = existsSync(path)
+      ? observationLinkageOf(JSON.parse(readFileSync(path, 'utf8')))
+      : observationLinkageOf(undefined);
+    const obs: Observation = {
+      name: rtdbObservationName(scenario),
+      matrixRow: linkage.matrixRow,
+      rowIds: linkage.rowIds,
+      description: 'deployCases' in scenario
+        ? `RTDB rules deploy verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by dry-run deploys to the rules endpoint, which validate without deploying. ${scenario.rationale}`
+        : `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
+      observedAt: new Date().toISOString(),
+      fbSdkVersion,
+      projectId: config.projectId,
+      behavior,
+    };
+    writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
+    console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
+  }
+
+  const exitCode = await runCapturePhases({
+    earlyDeploys: () => runDeployScenarios(endpoint, deployOrder.beforeOperations, deployInput),
+    operations: captureOperations,
+    restoreBeforeLate,
+    // Large-ruleset deploy scenarios last (#1692). A failure here keeps every
+    // observation captured before it; the run then ends non-zero.
+    lateDeploys: () => runDeployScenarios(endpoint, deployOrder.afterOperations, deployInput),
+    restoreAndCleanUp,
+    assertClean: assertCleanRun,
+    write: writeObservation,
     log: (line) => console.error(line),
   });
 
-  const outcome = exitCode === 0 ? 'capture complete' : `capture incomplete: ${unanswered.length} scenario(s) produced no observation`;
+  const outcome = exitCode === 0 ? 'capture complete' : 'capture incomplete (the scenarios named above have no observation)';
   console.log(`\n[oracle:rules-rtdb] ${outcome}: rules restored, run data and run users removed, all read-back verified.`);
   console.log('[oracle:rules-rtdb] Existing observation matrixRow/rowIds linkage was preserved.');
   console.log('[oracle:rules-rtdb] NEXT: review the observation diff, then run `bun run compat:validate`.');

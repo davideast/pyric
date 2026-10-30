@@ -75,16 +75,32 @@ describe('rtdb-rules deploy scenarios production does not answer', () => {
     expect(r61Sends).toHaveLength(1);
   });
 
-  it('still fails the run when a scenario without a no-answer policy times out', async () => {
+  it('stops at a scenario that times out without a no-answer policy, naming it and keeping what came before', async () => {
     const endpoint = fakeEndpoint({ neverAnswers: new Set(['r51-fixture']) });
-    await expect(runDeployScenarios(endpoint, [ORDINARY, LARGE_RETRYING], INPUT, recordingDeps())).rejects.toThrow(
-      /r51-fixture .* timed out/,
-    );
+    const result = await runDeployScenarios(endpoint, [ORDINARY, LARGE_RETRYING, LARGE_SINGLE], INPUT, recordingDeps());
+    expect(result.observations.map((o) => o.scenario.id)).toEqual(['r29-fixture']);
+    expect(result.failed).toEqual({ id: 'r51-fixture', reason: expect.stringMatching(/timed out on all 3 attempt/) });
+    // Nothing after the failure is sent to an endpoint that may now be throttled.
+    expect(endpoint.sent.some((rules) => Object.keys(rules[MOUNT_KEY] as object)[0] === 'r61-fixture')).toBe(false);
   });
 
-  it('still fails the run on any other error from a single-attempt scenario', async () => {
-    const endpoint = fakeEndpoint({ failStatus: 500 });
-    await expect(runDeployScenarios(endpoint, [LARGE_SINGLE], INPUT, recordingDeps())).rejects.toThrow(/returned 500/);
+  it("records a 5xx on a single-attempt scenario's only try as its failure", async () => {
+    const endpoint = fakeEndpoint({ statusFor: new Map([['r61-fixture', 503]]) });
+    const result = await runDeployScenarios(endpoint, [LARGE_RETRYING, LARGE_SINGLE], INPUT, recordingDeps());
+    expect(result.observations.map((o) => o.scenario.id)).toEqual(['r51-fixture']);
+    expect(result.failed).toEqual({ id: 'r61-fixture', reason: expect.stringMatching(/dry run returned 503/) });
+    expect(result.unanswered).toEqual([]);
+  });
+
+  it('records a 429 that outlasted the back-off cap as the failure', async () => {
+    const endpoint = fakeEndpoint({ statusFor: new Map([['r51-fixture', 429]]) });
+    const result = await runDeployScenarios(endpoint, [LARGE_RETRYING], INPUT, recordingDeps());
+    expect(result.failed).toEqual({ id: 'r51-fixture', reason: expect.stringMatching(/dry run returned 429/) });
+  });
+
+  it('reports no failure when every scenario answered', async () => {
+    const result = await runDeployScenarios(fakeEndpoint({}), [ORDINARY], INPUT, recordingDeps());
+    expect(result.failed).toBeUndefined();
   });
 });
 
@@ -102,6 +118,20 @@ describe('rtdb-rules capture results', () => {
     expect(exitCode).toBe(1);
     expect(events.slice(0, 2)).toEqual(['write r29-fixture', 'write r51-fixture']);
     expect(events.slice(2).join('\n')).toMatch(/r61-fixture produced no observation: production did not answer its dry run within 300s/);
+  });
+
+  it('writes every observation, then names the failed scenario and why, and ends non-zero', () => {
+    const events: string[] = [];
+    const exitCode = writeCaptureResults({
+      observations: [observation('r29-fixture')],
+      unanswered: [],
+      failed: { id: 'r61-fixture', reason: 'r61-fixture :: case: dry run returned 503: forced' },
+      write: (o) => events.push(`write ${o.scenario.id}`),
+      log: (line) => events.push(line),
+    });
+    expect(exitCode).toBe(1);
+    expect(events[0]).toBe('write r29-fixture');
+    expect(events[1]).toMatch(/r61-fixture failed and produced no observation: r61-fixture :: case: dry run returned 503/);
   });
 
   it('ends zero when every scenario was answered', () => {
