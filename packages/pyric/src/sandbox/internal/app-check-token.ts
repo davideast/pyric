@@ -19,6 +19,13 @@ const SANDBOX_KID = 'pyric-sandbox';
 const SANDBOX_KEY = 'pyric-sandbox-app-check-signing-key';
 const SIGNATURE_BLOCKS = 8;
 
+/**
+ * The web SDK's stand-in when it has no token to send, such as after a
+ * provider rejects: base64 of `{"error":"UNKNOWN_ERROR"}` (`formatDummyToken`
+ * in `@firebase/app-check` 0.11.3). AI Logic refuses it.
+ */
+export const APP_CHECK_PLACEHOLDER_TOKEN = 'eyJlcnJvciI6IlVOS05PV05fRVJST1IifQ==';
+
 export interface AppCheckIdentity {
   appId: string;
   projectId: string;

@@ -18,7 +18,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp } from '../../src/app/index.js';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import type { FirebaseApp } from '../../src/app/types.js';
-import { getLimitedUseToken, getToken, initializeAppCheck, ReCaptchaV3Provider } from '../../src/app-check/index.js';
+import { CustomProvider, getLimitedUseToken, getToken, initializeAppCheck, ReCaptchaV3Provider } from '../../src/app-check/index.js';
 import { AIError, getAI, getGenerativeModel } from '../../src/ai/index.js';
 import { AiBroker } from '../../src/ai/broker/broker.js';
 import { AiBrokerError } from '../../src/ai/broker/synthesizer.js';
@@ -118,6 +118,119 @@ describe('ai#sandbox-app-check-required', () => {
   it('chat sends are refused the same way', async () => {
     const chat = getGenerativeModel(getAI(newApp()), { model: MODEL }).startChat();
     expectCapturedRefusal(await rejection(chat.sendMessage('ping')), 'generateContent');
+  });
+});
+
+describe('app-check#custom-provider-without-debug-token: AI Logic judges the provider token', () => {
+  type ProviderToken = { token: string; expireTimeMillis: number };
+  const hour = () => Date.now() + 3_600_000;
+
+  function customApp(getTokenFromProvider: () => Promise<ProviderToken>) {
+    const counter = { calls: 0 };
+    const app = newApp();
+    const provider = new CustomProvider({
+      getToken: async () => {
+        counter.calls += 1;
+        return getTokenFromProvider();
+      },
+    });
+    initializeAppCheck(app, { provider, isTokenAutoRefreshEnabled: false });
+    return { app, counter };
+  }
+
+  it('a provider token the sandbox signed answers', async () => {
+    const { app, counter } = customApp(() => mintAppCheckToken({ appId: OPTIONS.appId, projectId: OPTIONS.projectId }, 3600));
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expect((await model.generateContent('ping')).response.text().length).toBeGreaterThan(0);
+    expect(counter.calls).toBe(1);
+  });
+
+  it('a provider token that is not an App Check token is refused', async () => {
+    const { app, counter } = customApp(async () => ({ token: 'not-an-app-check-token', expireTimeMillis: hour() }));
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
+    expectCapturedRefusal(await rejection(model.countTokens('ping')), 'countTokens');
+    expect(counter.calls).toBe(1);
+  });
+
+  it('a provider that rejects sends the SDK placeholder, which is refused', async () => {
+    const { app, counter } = customApp(async () => {
+      throw new Error('attestation failed');
+    });
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
+    expectCapturedRefusal(await rejection(model.generateContentStream('ping')), 'streamGenerateContent');
+    expect(counter.calls).toBe(2);
+  });
+
+  // Upstream getLimitedUseToken has no placeholder: the rejection reaches
+  // makeRequest's catch, which wraps it as AIError('error', 'Error fetching
+  // from <url>: <message>') (@firebase/ai 2.12.0 getHeaders and makeRequest).
+  it('with limited-use tokens, a provider that rejects fails the request with the SDK fetch wrapper', async () => {
+    const attestation = new Error('attestation failed');
+    const { app, counter } = customApp(async () => {
+      throw attestation;
+    });
+    const model = getGenerativeModel(getAI(app, { useLimitedUseAppCheckTokens: true }), { model: MODEL });
+    const ops: Array<[string, Promise<unknown>]> = [
+      ['generateContent', model.generateContent('ping')],
+      ['streamGenerateContent', model.generateContentStream('ping')],
+      ['countTokens', model.countTokens('ping')],
+    ];
+    for (const [op, request] of ops) {
+      const error = await rejection(request);
+      const url = `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}`;
+      expect(error).toBeInstanceOf(AIError);
+      expect(error.code).toBe('error');
+      expect(error.message).toBe(`AI: Error fetching from ${url}: attestation failed (AI/error)`);
+      expect(error.customErrorData).toBeUndefined();
+      expect(error.stack).toBe(attestation.stack);
+    }
+    expect(counter.calls).toBe(3);
+  });
+
+  it('with limited-use tokens, a provider that rejects with an AbortError passes it through, as makeRequest does', async () => {
+    const abort = new DOMException('stopped', 'AbortError');
+    const { app } = customApp(async () => {
+      throw abort;
+    });
+    const model = getGenerativeModel(getAI(app, { useLimitedUseAppCheckTokens: true }), { model: MODEL });
+    const error: unknown = await rejection(model.generateContent('ping'));
+    expect(error).toBe(abort);
+  });
+
+  it('a transport handle carries the provider token as given', async () => {
+    // The worker bridge carries this claim to the worker's broker, which gates it.
+    const claims: Array<string | null> = [];
+    const recording: AnswerEngine = {
+      async generateContent(_req, _model, appCheckClaim) {
+        claims.push(appCheckClaim?.token ?? null);
+        return { candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'pyric' }] }, finishReason: 'STOP' }] };
+      },
+      streamGenerateContent() {
+        return (async function* none() {})();
+      },
+      async countTokens() {
+        return { totalTokens: 1, promptTokensDetails: [] };
+      },
+    };
+    const { app: invalid } = customApp(async () => ({ token: 'not-an-app-check-token', expireTimeMillis: hour() }));
+    const { app: failing } = customApp(async () => {
+      throw new Error('attestation failed');
+    });
+    await getGenerativeModel(createTransportAI(invalid, undefined, recording), { model: MODEL }).generateContent('ping');
+    await getGenerativeModel(createTransportAI(failing, undefined, recording), { model: MODEL }).generateContent('ping');
+    expect(claims).toEqual(['not-an-app-check-token', SDK_PLACEHOLDER_TOKEN]);
+  });
+
+  it('under a debug token the provider is never called', async () => {
+    (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    const { app, counter } = customApp(async () => {
+      throw new Error('not called');
+    });
+    const model = getGenerativeModel(getAI(app), { model: MODEL });
+    expect((await model.generateContent('ping')).response.text().length).toBeGreaterThan(0);
+    expect(counter.calls).toBe(0);
   });
 });
 
