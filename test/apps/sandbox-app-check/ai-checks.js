@@ -42,9 +42,11 @@ function targetKind(ai) {
 /**
  * With no debug token set, the SDK calls a CustomProvider and sends the token
  * it returns; AI Logic refuses a token that is not a valid App Check token,
- * and the placeholder the SDK sends when the provider rejects (#1642).
+ * and the placeholder the SDK sends when the provider rejects (#1642). With
+ * limited-use tokens there is no placeholder: the request is never sent, and
+ * the SDK wraps the provider's error as `AIError` code `error`.
  */
-async function customProviderOutcome(tag, name, getToken) {
+async function customProviderOutcome(tag, name, getToken, aiOptions) {
   let calls = 0;
   const provider = new CustomProvider({
     getToken: async () => {
@@ -54,7 +56,7 @@ async function customProviderOutcome(tag, name, getToken) {
   });
   const app = initializeApp(options, `${tag}-custom-${name}`);
   initializeAppCheck(app, { provider, isTokenAutoRefreshEnabled: false });
-  const result = await outcome(() => modelFor(getAI(app)).generateContent("ping"));
+  const result = await outcome(() => modelFor(getAI(app, aiOptions)).generateContent("ping"));
   return { providerCalled: calls > 0, result };
 }
 
@@ -66,6 +68,9 @@ async function runCustomProviderChecks(tag, tokenUrl) {
     rejects: await customProviderOutcome(tag, "rejects", async () => {
       throw new Error("attestation failed");
     }),
+    limitedUseRejects: await customProviderOutcome(tag, "limited-rejects", async () => {
+      throw new Error("attestation failed");
+    }, { useLimitedUseAppCheckTokens: true }),
   };
 }
 

@@ -17,6 +17,8 @@
 // the token it returns, and so does the sandbox (#1642): a provider backed by
 // a server that mints with firebase-admin's createToken answers, and one that
 // returns a token that is not an App Check token, or rejects, gets the 403.
+// With limited-use tokens a rejecting provider sends no request: the call
+// fails with the SDK's `Error fetching from <url>: <message>` wrapper.
 import assert from 'node:assert/strict';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
@@ -57,6 +59,14 @@ function expected(targetKind: string) {
       valid: { providerCalled: true, result: 'answered' },
       invalidToken: { providerCalled: true, result: refusal('generateContent') },
       rejects: { providerCalled: true, result: refusal('generateContent') },
+      limitedUseRejects: {
+        providerCalled: true,
+        result: {
+          code: 'error',
+          status: null,
+          message: 'AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/gemini-flash-lite-latest:generateContent: attestation failed (AI/error)',
+        },
+      },
     },
   };
 }
