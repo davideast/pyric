@@ -5,36 +5,28 @@
  * forwarder, which alone holds the harness's token. Everything that runs
  * code from the app or the builder runs inside the run's own sandbox: the
  * install, the export of the installed package's conformance pages, and the
- * run phase (`run-phase.ts`), which starts the builder. Afterward it merges
- * the forwarder's record into the run's network record, looks for the token
- * in everything it keeps, keeps the run's data and appends its measurement
- * line.
+ * run phase (`run-phase.ts`), which starts the builder. Afterward
+ * `run-finish.ts` merges the records, scans for the token, keeps the run's
+ * data and appends its measurement line.
  */
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { prepareApp, runCommand, runTimedCommand, type Tarballs } from '../apps/install.ts';
+import { prepareApp, runTimedCommand, type Tarballs } from '../apps/install.ts';
 import { installApp, npmCacheDir } from './app-install.ts';
 import { renderBrief, type Brief } from './brief.ts';
 import { playwrightBrowsersPath } from './browser-server.ts';
 import type { Builder } from './builder-command.ts';
-import { appendMeasurement } from './measurement.ts';
-import { readChannelRecord, type Listening, type ModelChannelEvent } from './model-channel.ts';
+import { readChannelRecord, type Listening } from './model-channel.ts';
 import { startModelForwarder } from './model-forwarder.ts';
 import type { RunMeter } from './model-meter.ts';
 import { startEgressNamespace, type EgressNamespace } from './namespace.ts';
 import type { Provenance } from './provenance.ts';
-import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
-import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
-import { readBuilderReport } from './report.ts';
 import { builderRunDirsAt, builderRunRoot, channelRecordFile, measurementsFile, runDataDir, type BuilderRunDirs } from './round-paths.ts';
-import { BUILDER_LOG, phaseResultSchema, type Phase, type PhaseResult } from './run-phase.ts';
-import { measurementLine, runRecord, type RunIdentity, type RunRecord } from './run-record.ts';
-import { parseJsonText } from './parse.ts';
-import { assertNoPlantedLinks } from './planted-links.ts';
+import { finishRun } from './run-finish.ts';
+import { BUILDER_LOG, type Phase } from './run-phase.ts';
+import type { RunIdentity, RunRecord } from './run-record.ts';
 import { createRunDirs, demoProjectId, writeFakeFirebaseConfig } from './scratch.ts';
-import { copyRedacted, filesContaining, redactedText, type Secrets } from './token-scan.ts';
-import { usageFrom } from './usage.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const STARTERS = fileURLToPath(new URL('./starters', import.meta.url));
@@ -127,61 +119,6 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
   return result.output;
 }
 
-/** How the phase said its command ended; null when it never wrote that, or wrote something else. */
-export function readPhaseResult(dirs: BuilderRunDirs): PhaseResult | null {
-  if (!existsSync(dirs.phaseResult)) return null;
-  const json = parseJsonText(readFileSync(dirs.phaseResult, 'utf8'));
-  const parsed = json.ok ? phaseResultSchema.safeParse(json.value) : undefined;
-  return parsed?.success === true ? parsed.data : null;
-}
-
-const readIfExists = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
-
-/** What `keep` copies of the scratch directory. */
-const keptPaths = (dirs: BuilderRunDirs) => [dirs.report, dirs.briefJson, dirs.networkLog, dirs.logs, dirs.app];
-
-/** The kept files, relative to the run root, that hold any of `secrets`. Names files, never a value. */
-export function tokenFoundIn(dirs: BuilderRunDirs, secrets: readonly string[]): string[] {
-  const found = new Set(secrets.flatMap((secret) => keptPaths(dirs).flatMap((path) => filesContaining(path, secret))));
-  return [...found].map((path) => relative(dirs.root, path)).sort();
-}
-
-const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
-
-/**
- * Copies what the harness keeps of the run into the data root, with the
- * token's value replaced wherever it turns up. The app is packed without
- * node_modules, and withheld when any file of it held the token.
- */
-export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: Secrets): Promise<void> {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(dataDir, 'report.json'), redactedText(`${JSON.stringify(record, null, 2)}\n`, token));
-  copyRedacted(dirs.briefJson, join(dataDir, 'brief.json'), token);
-  copyRedacted(dirs.networkLog, join(dataDir, 'network.jsonl'), token);
-  copyRedacted(dirs.logs, join(dataDir, 'logs'), token);
-  if (record.harness.tokenFoundIn.some(isInApp)) return;
-  const tar = await runCommand('tar', ['-czf', join(dataDir, 'app.tgz'), '--exclude=node_modules', '-C', dirs.root, 'app'], { cwd: dirs.root });
-  if (tar.code !== 0) throw new Error(`packing the app failed (exit ${tar.code}):\n${tar.output}`);
-}
-
-export const RUN_PHASE_LOG = '02-run-phase.log';
-
-/** Every file of the run root the harness reads or appends to once the sandbox has stopped. */
-export const harnessTouchedPaths = (dirs: BuilderRunDirs) => [
-  dirs.networkLog, dirs.netLog, dirs.report, dirs.phaseResult, join(dirs.logs, BUILDER_LOG), join(dirs.logs, RUN_PHASE_LOG),
-];
-
-/**
- * Once nothing in the sandbox can write the run root: refuses a planted link
- * on any file the harness touches, then appends the forwarder's lines and the
- * browser's NetLog to the run's network record.
- */
-export function mergeRecords(dirs: BuilderRunDirs, channel: readonly ModelChannelEvent[]): void {
-  assertNoPlantedLinks(dirs.root, harnessTouchedPaths(dirs));
-  if (channel.length > 0) appendFileSync(dirs.networkLog, channel.map((event) => `${JSON.stringify(event)}\n`).join(''));
-  if (existsSync(dirs.netLog)) appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
-}
-
 /** Runs the builder in a sandbox that has started, with the forwarder outside it; stops both. */
 async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<string> {
   let forwarder: Listening | undefined;
@@ -200,11 +137,6 @@ async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, 
   }
 }
 
-function tokenNotice(run: string, found: readonly string[]): string {
-  const withheld = found.some(isInApp) ? ' and the app is withheld' : '';
-  return `${run}: the harness's token turned up in ${found.join(', ')}; the kept copies are redacted${withheld}`;
-}
-
 /**
  * Runs one builder and keeps its data. Resolves the run's record. Throws
  * `NamespaceUnavailable`, before the run counts as started, when its sandbox
@@ -221,26 +153,6 @@ export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
   const readOnly = [playwrightBrowsersPath(), input.packagesDir, ...input.builder.readOnly];
   const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
   const phaseOutput = await runInSandbox(namespace, input, dirs, channelRecord);
-  const channel = readChannelRecord(channelRecord);
-  mergeRecords(dirs, channel);
-  writeFileSync(join(dirs.logs, RUN_PHASE_LOG), phaseOutput);
-  const token = input.scanned;
-  const found = tokenFoundIn(dirs, token);
-  if (found.length > 0) input.say(tokenNotice(identity.run, found));
-  const record = runRecord({
-    identity,
-    brief: input.brief,
-    provenance: input.provenance,
-    startedAt,
-    endedAt: new Date(),
-    exit: readPhaseResult(dirs),
-    report: readBuilderReport(dirs.report),
-    record: readNetworkRecord(dirs.networkLog),
-    channel,
-    usage: usageFrom(readIfExists(join(dirs.logs, BUILDER_LOG))),
-    tokenFoundIn: found,
-  });
-  await keep(record, dirs, runDataDir(identity.round, identity.run), token);
-  appendMeasurement(measurementsFile(), measurementLine(record));
-  return record;
+  const end = { dirs, channel: readChannelRecord(channelRecord), phaseOutput, startedAt, dataDir: runDataDir(identity.round, identity.run), measurements: measurementsFile() };
+  return finishRun(input, end);
 }

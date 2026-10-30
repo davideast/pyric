@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mergeRecords, readPhaseResult } from './builder-run.ts';
+import { mergeRecords, readPhaseResult } from './run-finish.ts';
 import { channelEvent } from './model-channel.ts';
 import { assertNoPlantedLinks, PlantedLink, plantedLinkProblem } from './planted-links.ts';
 import { tryEvidence } from './reproduce.ts';
