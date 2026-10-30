@@ -10,7 +10,7 @@
  * what happened to `<run>/phase-result.json`. The builder's output goes to
  * `logs/builder.log`.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AppRun } from '../apps/driver.ts';
@@ -42,8 +42,13 @@ export type PhaseResult = z.infer<typeof phaseResultSchema>;
 
 export const BUILDER_LOG = 'builder.log';
 
+/** Where the phase writes each step as it happens, so a phase that hangs can still be read. */
+export const PHASE_STEPS_LOG = 'run-phase-steps.log';
+let stepsLog: string | undefined;
+
 function step(line: string): void {
   console.log(`▸ ${line}`);
+  if (stepsLog !== undefined) appendFileSync(stepsLog, `${new Date().toISOString()} ${line}\n`);
 }
 
 /** The values of `names` in this process's environment; a name that is unset is left out. */
@@ -82,15 +87,25 @@ async function runPhase(dirs: BuilderRunDirs): Promise<void> {
     writeFileSync(join(dirs.logs, BUILDER_LOG), output);
     writeFileSync(dirs.phaseResult, `${JSON.stringify(result)}\n`);
   } finally {
+    step('stopping the harness browser');
     await browser?.stop();
+    step('stopping the app processes');
     await app.close();
+    step('closing the bridge');
     await bridge?.close();
+    step('stopped');
   }
 }
 
 if (import.meta.main) {
   const root = process.argv[2];
   if (root === undefined) throw new Error('usage: bun test/builders/run-phase.ts <run dir>');
+  const dirs = builderRunDirsAt(root);
+  stepsLog = join(dirs.logs, PHASE_STEPS_LOG);
   step(inventoryLine(assertInsideSandbox(root, 'start a builder')));
-  await runPhase(builderRunDirsAt(root));
+  await runPhase(dirs);
+  // AppRun's command races the builder against a sleep of its whole
+  // wall-clock cap and never clears that timer, which would hold this
+  // process open for the rest of the cap. Everything is stopped by now.
+  process.exit(0);
 }

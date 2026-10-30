@@ -70,9 +70,13 @@ async function exportConformanceDocs(namespace: EgressNamespace, dirs: BuilderRu
   if (result.code !== 0) throw new Error(`exporting the conformance pages failed (exit ${result.code}):\n${result.output}`);
 }
 
-/** The run phase's environment: PATH, the run's HOME, and only the variables the builder takes from the harness. */
+/**
+ * The run phase's environment: PATH, the run's HOME, where Playwright's
+ * browsers are (read from the harness's own HOME, since the run's has none),
+ * and only the variables the builder takes from the harness.
+ */
 function phaseEnvironment(home: string, passEnv: readonly string[]): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: home };
+  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: home, PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath() };
   for (const name of [...passEnv, 'LANG', 'TMPDIR']) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
   }
