@@ -8,6 +8,7 @@ import {
   setTokenAutoRefreshEnabled,
 } from "firebase/app-check";
 import { runAiChecks } from "./ai-checks.js";
+import { appCheck as sharedAppCheck } from "./src/firebase.ts";
 
 const app = initializeApp({
   apiKey: "AIzaSyDemoKeyForReproOnly000000000000",
@@ -52,3 +53,6 @@ window.runAppCheck = async () => {
 };
 
 window.runAiChecks = runAiChecks;
+
+/** The shared firebase.ts initialized App Check with reCAPTCHA in the page: its token has three segments. */
+window.runSharedAppCheck = async () => ({ tokenSegments: (await getToken(sharedAppCheck)).token.split(".").length });

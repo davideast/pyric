@@ -19,11 +19,37 @@
 // returns a token that is not an App Check token, or rejects, gets the 403.
 // With limited-use tokens a rejecting provider sends no request: the call
 // fails with the SDK's `Error fetching from <url>: <message>` wrapper.
+//
+// A server has no `document`, so the Firebase SDK's reCAPTCHA providers throw
+// `ReferenceError: document is not defined` from initializeAppCheck there,
+// debug token or not, and so does the sandbox (#1643): in a registered Node
+// process, and in a server-rendered module that imports the app's shared
+// firebase.ts. A server attests with a CustomProvider instead.
 import assert from 'node:assert/strict';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
 declare function runAppCheck(): Promise<Record<string, unknown>>;
+declare function runSharedAppCheck(): Promise<Record<string, unknown>>;
 declare function runAiChecks(tag: string, tokenUrl: string): Promise<Record<string, unknown>>;
+
+const NO_DOCUMENT = { name: 'ReferenceError', message: 'document is not defined' };
+
+/**
+ * What the real SDK does in plain Node (firebase 12.13.0): the first
+ * initializeAppCheck throws after App Check is set up for the app, so the same
+ * options return the handle and another site key is a second initialization.
+ */
+const RECAPTCHA_WITHOUT_DOCUMENT = { first: NO_DOCUMENT, sameOptions: 'returned', otherSiteKey: 'appCheck/already-initialized' };
+const RECAPTCHA_CHECKS = {
+  ReCaptchaV3Provider: { noDebug: RECAPTCHA_WITHOUT_DOCUMENT, debug: RECAPTCHA_WITHOUT_DOCUMENT },
+  ReCaptchaEnterpriseProvider: { noDebug: RECAPTCHA_WITHOUT_DOCUMENT, debug: RECAPTCHA_WITHOUT_DOCUMENT },
+};
+
+function loggedJson(output: string, label: string): unknown {
+  const line = output.match(new RegExp(`^${label} (.*)$`, 'm'));
+  assert.ok(line, output);
+  return JSON.parse(line[1]!);
+}
 
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 /**
@@ -135,13 +161,32 @@ export default scenario(async (app) => {
     assert.equal(consoleHints(app), REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
   });
 
-  await app.step('a registered Node process gets the same refusal and the same answers', async () => {
+  await app.step('the page\'s shared firebase.ts initializes App Check with reCAPTCHA', async () => {
+    assert.deepEqual(await page.evaluate(() => runSharedAppCheck()), { tokenSegments: 3 });
+  });
+
+  const node = await app.step('a registered Node process runs the App Check and AI Logic checks', async () => {
     // PYRIC_SANDBOX=local: the process runs its own sandbox, in process.
     const { output } = await app.serverScript('ai-server.mjs', [tokenUrl], { env: { PYRIC_SANDBOX: 'local' }, timeoutMs: 60_000 });
-    const line = output.match(/^ai-checks (.*)$/m);
-    assert.ok(line, output);
-    assert.deepEqual(JSON.parse(line[1]!), expected('sandbox'));
-    assert.match(output, HINT);
+    return output;
+  });
+
+  await app.step('a registered Node process: initializeAppCheck with reCAPTCHA throws document is not defined', () => {
+    assert.deepEqual(loggedJson(node, 'recaptcha-checks'), RECAPTCHA_CHECKS);
+  });
+
+  await app.step('a registered Node process with a CustomProvider gets the same refusal and the same answers', () => {
+    assert.deepEqual(loggedJson(node, 'ai-checks'), expected('sandbox'));
+    assert.match(node, HINT);
+  });
+
+  await app.step('a server-rendered module: the shared firebase.ts throws document is not defined, a CustomProvider works', async () => {
+    const response = await fetch(`${host.url}/ssr/app-check?token=${encodeURIComponent(tokenUrl)}`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      sharedFirebase: { ok: false, ...NO_DOCUMENT },
+      customProvider: { ok: true, value: { providerCalls: 1, sameToken: true } },
+    });
   });
 
   const workerHost = await app.step('start a SharedWorker dev server', () =>
