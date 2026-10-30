@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromiumArgs, HOST_RESOLVER_RULES, stopBrowserChild } from './browser-server.ts';
+import { chromiumArgs, HOST_RESOLVER_RULES, playwrightClient, stopBrowserChild } from './browser-server.ts';
 import { browserRecordIncomplete, readNetworkRecord } from './recorder/network-record.ts';
 
 describe('chromiumArgs', () => {
@@ -52,5 +52,13 @@ describe('stopBrowserChild', () => {
     expect(record).toEqual([expect.objectContaining({ layer: 'browser', kind: 'incomplete', via: 'browser-server' })]);
     expect(browserRecordIncomplete(record)).toBe(true);
     expect(lines.join('\n')).toContain('was killed');
+  });
+});
+
+describe('playwrightClient', () => {
+  test('names an entry whose dynamic import has chromium.connect, as a builder imports it', async () => {
+    const client = (await import(playwrightClient())) as { chromium?: { connect?: unknown } };
+    expect(playwrightClient()).toEndWith('.mjs');
+    expect(typeof client.chromium?.connect).toBe('function');
   });
 });
