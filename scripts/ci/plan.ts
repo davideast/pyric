@@ -98,13 +98,13 @@ export function determineRtdbDifferential(input: {
 
 /** The code the app scenarios run as an installed user project: the Vite
  *  plugin and served hosts, the register hook and remote sandbox client, the
- *  Firebase project resolution, pyric-admin, the AI broker, the published
+ *  `pyric` bin and its commands (#1671), pyric-admin, the AI broker, the published
  *  manifests and the packaging that builds the tarballs, and the apps. */
 const APP_SCENARIO_INPUTS = [
   /^packages\/cli\/src\/serve\//,
   /^packages\/cli\/src\/register\//,
   /^packages\/cli\/src\/remote\//,
-  /^packages\/cli\/src\/cli\/firebase-project\.ts$/,
+  /^packages\/cli\/src\/cli\//,
   /^packages\/pyric-admin\/src\//,
   /^packages\/pyric\/src\/ai\//,
   /^packages\/[^/]+\/package\.json$/,

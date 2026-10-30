@@ -2,6 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { parseNameStatus, determineAppScenarios, determinePackaging, determineReleaseProof, determineRtdbDifferential } from './plan.ts';
 
 describe('app scenario selection', () => {
+  test('runs for a pull request touching the pyric bin or any of its commands', () => {
+    for (const path of ['packages/cli/src/cli/index.ts', 'packages/cli/src/cli/run.ts']) {
+      expect(determineAppScenarios({ event: 'pull_request', paths: [{ path }] })).toBe(true);
+    }
+  });
+
   test('runs for a pull request touching the Vite plugin, register hook, pyric-admin, AI broker, manifests, packaging, or apps', () => {
     for (const path of [
       'packages/cli/src/serve/vite-plugin.ts',
