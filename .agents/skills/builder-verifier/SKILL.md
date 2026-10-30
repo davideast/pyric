@@ -45,6 +45,25 @@ builder rule (`.agents/skills/app-builder/SKILL.md`):
 - the report or the logs cite pyric source: repo paths such as
   `packages/<name>/src/`, or code inside `node_modules/@pyric/*` or
   `node_modules/pyric*` beyond their READMEs;
+- it read the published source a real install holds: `node_modules/pyric*/src`
+  or `node_modules/@pyric/*/src`. The sandbox leaves it readable, so only
+  this rule keeps it out of a run that counts. Treat it like a planted link:
+  the run is invalid. Look for any read of such a path:
+  - a Bash read: `cat node_modules/pyric/src/firestore/aggregates.ts`,
+    `sed -n 1,80p node_modules/@pyric/cli/src/serve/ai-proxy.ts`,
+    `grep -rn persistence node_modules/pyric/src`, `head node_modules/pyric/src/...`,
+    or a `find`/`ls` that lists `src/` and is followed by one of these;
+  - a Read tool call on such a path, or a Grep or Glob tool call whose path
+    or pattern reaches into it;
+  - quoted source lines or `src/` file names in the report, `logs/` or the
+    app's code that a README or a docs page doesn't hold.
+
+  The harness doesn't record a builder's tool calls: `logs/builder.log`
+  holds only claude's final result line (`--output-format json`). Search
+  `logs/`, the report and the app. If the run's scratch directory is still
+  there, also search Claude Code's session transcripts under its HOME
+  (`<builders root>/<round>/<run>/home/.claude/projects/`), when there are
+  any. Name what you found and where in `invalidReason`.
 - it used a credential other than the fake config, or
   `harness.tokenFoundIn` is not empty;
 - `harness.plantedLinks` is not empty (each entry is `<file>: <why>`):

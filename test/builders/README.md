@@ -569,8 +569,9 @@ nsenter -t <child pid> -U -m -n -p -i -u -C --preserve-credentials --root env -C
 - read-only: `/usr` (with the `/bin`, `/lib`, `/lib64` and `/sbin` links), a
   short list of `/etc` entries (the loader cache, `ssl/certs` and
   `ssl/openssl.cnf` but not the root-only `ssl/private`, fonts, `passwd`,
-  `group`, `nsswitch.conf` and similar: `ETC_ENTRIES`), the repo,
-  the `node` and `bun` installs, and Playwright's browsers;
+  `group`, `nsswitch.conf` and similar: `ETC_ENTRIES`), the harness's view
+  of its repo (below), the packed packages, the `node` and `bun` installs,
+  and Playwright's browsers;
 - read-write: the run directory only;
 - the npm cache read-only, with an overlay mounted on it from inside, before
   any run command enters, whose upper layer is in the sandbox's `/tmp`. npm writes local tarballs into its
@@ -582,6 +583,29 @@ nsenter -t <child pid> -U -m -n -p -i -u -C --preserve-credentials --root env -C
 
 There is no `/mnt`, no `/run/WSL`, no `/run/user` and no home directory
 beyond the bound paths. The network namespace has only `lo`.
+
+**The harness's view of its repo** (`harness-view.ts`). A builder works from
+the public docs and the packed packages, so the sandbox never gets the
+repo: its tests, its internals and its git history aren't there, and a
+`cat <repo>/packages/pyric/src/...` from the builder's shell finds no file.
+What a builder can read of pyric is what a real install of the published
+packages holds, and that includes their `src/` under
+`app/node_modules/pyric*` and `app/node_modules/@pyric/*`. David decided it
+stays readable: the app-builder skill's rule, not the sandbox, keeps a
+builder out of it, and the verifier marks a run that reads it invalid, the
+same as one that planted a link. The harness keeps no record of a builder's
+tool calls, so the verifier looks for those reads in the report, `logs/`
+and the app (`.agents/skills/builder-verifier/SKILL.md`). The sandbox
+gets, at the paths the host has them, `test/builders` (the run
+phase, the recorder, the inventory, the docs export, the canary's plants),
+the few repo files that code imports (`test/apps`' process driver and its
+helpers, and `packages/cli/src/google-endpoints.ts`, the Google endpoint
+catalog the recorder classifies hosts with), and zod and Playwright's
+client, with their dependencies, at `node_modules/<name>`. Nothing else of
+`packages/`, no other test, and no `.git`. A file the harness's code starts
+importing inside the sandbox goes on that list: `harness-view.test.ts`
+walks the imports of every entry point that runs inside and fails offline on
+one that isn't bound.
 
 **The holder.** bwrap's command adds two routes that send every IPv4 and IPv6
 address to loopback, then runs `recorder/holder.mjs`, which holds the sandbox
@@ -601,7 +625,7 @@ one entered command mounts the npm cache's overlay. Every other command
 enters through `setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all
 --securebits=+noroot,+noroot_locked`. Without that, a command nsenter starts
 in the sandbox's user namespace has every capability there, enough to
-remount a read-only bind of a host directory (the repo, the npm cache's
+remount a read-only bind of a host directory (the harness's files, the npm cache's
 lower layer, the node and bun installs, Playwright's browsers) read-write,
 and since those files belong to the harness's uid, which is uid 0 inside,
 writes would reach the host. With an empty bounding set and `noroot`
