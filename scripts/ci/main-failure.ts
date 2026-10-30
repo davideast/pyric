@@ -13,10 +13,11 @@
 // passed: each test (or job, when its log names no test) that failed in
 // attempt 1 is a flake, filed as one `lane:velocity` issue titled
 // `Flaky on main: <test>`, or commented on an open issue that already names
-// the test file. Attempt 2 failed: open or update the one `Main is red: `
-// issue. Attempt 2 cancelled: attempt 1's failures go to the unconfirmed
-// issue. Any green run closes the red issue. Nothing is rerun past attempt 1,
-// so a run is never rerun twice. Issues go through `github-issues.ts`.
+// the test file's repository path. Attempt 2 failed: open or update the one
+// `Main is red: ` issue. Attempt 2 cancelled: attempt 1's failures go to the
+// unconfirmed issue. Any green run closes the red and unconfirmed issues.
+// Nothing is rerun past attempt 1, so a run is never rerun twice. Issues go
+// through `github-issues.ts`.
 //
 // Environment: RUN_ID (required), RUN_ATTEMPT (the attempt that completed;
 // a dispatch leaves it empty and every attempt of the run is classified),

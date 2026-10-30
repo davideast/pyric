@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { MAX_FLAKE_ISSUES, decide, type IssueAction } from './decide.ts';
-import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, flakePrefix, testFileStem } from './issue-text.ts';
+import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, flakePrefix, namesPath, testFilePath } from './issue-text.ts';
 import { RUN, SHA, SPARSE, TESTS_JOB, attempt, hookTimeout, packaging } from './test-fixtures.ts';
+
+const SPARSE_FILE = 'test/serve/worker/client/rtdb-sparse-array-holes.test.ts';
 
 function issueActions(actions: ReturnType<typeof decide>['actions']): IssueAction[] {
   return actions.filter((action): action is IssueAction => action.kind.startsWith('file-'));
@@ -97,7 +99,7 @@ describe('deciding what a completed main run needs', () => {
       previous: attempt(2, 'failure'),
       openIssues: [{ number: 50, title: `${RED_PREFIX}abc fails x` }],
     });
-    expect(plan.actions.map((action) => action.kind)).toEqual(['close-red']);
+    expect(plan.actions.map((action) => action.kind)).toEqual(['close']);
   });
 
   test('attempt 1 failed after a newer push: file it unconfirmed instead of rerunning', () => {
@@ -124,25 +126,57 @@ describe('deciding what a completed main run needs', () => {
     expect(unconfirmed?.body).toContain(SPARSE);
   });
 
-  test('a flake comments on an open issue filed by hand that names its test file', () => {
+  test('a flake comments on an open issue filed by hand that names its test file\'s path', () => {
     const plan = decide({
       current: attempt(2, 'success'),
       previous: attempt(1, 'failure', [hookTimeout]),
       openIssues: [
         { number: 50, title: `${RED_PREFIX}abc fails x`, body: `- \`${SPARSE}\`` },
-        { number: 1593, title: 'rtdb-sparse-array-holes setup hook times out at 5 s on CI (flake)', body: '' },
+        { number: 1593, title: `${SPARSE_FILE} setup hook times out at 5 s on CI (flake)`, body: '' },
       ],
     });
     expect(issueActions(plan.actions).map((action) => action.existing)).toEqual([1593]);
   });
 
-  test('a flake finds a hand-filed issue that names its test file only in the body', () => {
+  test('a flake finds a hand-filed issue that names its test file\'s path only in the body', () => {
     const plan = decide({
       current: attempt(2, 'success'),
       previous: attempt(1, 'failure', [hookTimeout]),
-      openIssues: [{ number: 1263, title: 'Flaky CLI test: worker client', body: 'see rtdb-sparse-array-holes.test.ts' }],
+      openIssues: [{ number: 1263, title: 'Flaky CLI test: worker client', body: `see ${SPARSE_FILE}:12` }],
     });
     expect(issueActions(plan.actions)[0]?.existing).toBe(1263);
+  });
+
+  test('a bare file name or stem is not enough to match an issue', () => {
+    const plan = decide({
+      current: attempt(2, 'success'),
+      previous: attempt(1, 'failure', [hookTimeout]),
+      openIssues: [
+        { number: 1593, title: 'rtdb-sparse-array-holes setup hook times out at 5 s on CI (flake)' },
+        { number: 1594, title: 'Flaky', body: 'rtdb-sparse-array-holes.test.ts' },
+        { number: 1595, title: 'Flaky', body: `packages/cli/${SPARSE_FILE}` },
+      ],
+    });
+    expect(issueActions(plan.actions)[0]?.existing).toBeUndefined();
+  });
+
+  test('a second flaky test in the same file comments on that file\'s flake issue', () => {
+    const sibling = { ...hookTimeout, test: `${SPARSE_FILE} > another test` };
+    const plan = decide({
+      current: attempt(2, 'success'),
+      previous: attempt(1, 'failure', [sibling]),
+      openIssues: [{ number: 1700, title: flakePrefix(hookTimeout) }],
+    });
+    expect(issueActions(plan.actions)[0]?.existing).toBe(1700);
+  });
+
+  test('a flake whose log names no test file matches only its own issue', () => {
+    const plan = decide({
+      current: attempt(2, 'success'),
+      previous: attempt(1, 'failure', [packaging]),
+      openIssues: [{ number: 1800, title: 'Packaging gate flakes', body: 'Packaging gate' }],
+    });
+    expect(issueActions(plan.actions)[0]?.existing).toBeUndefined();
   });
 
   test('the lane\'s own flake issue wins over a hand-filed one', () => {
@@ -157,15 +191,37 @@ describe('deciding what a completed main run needs', () => {
     expect(issueActions(plan.actions)[0]?.existing).toBe(1700);
   });
 
-  test('the test file stem drops the directory and the test extension', () => {
-    expect(testFileStem(hookTimeout)).toBe('rtdb-sparse-array-holes');
-    expect(testFileStem(packaging)).toBeUndefined();
+  test('the test file path is the repository path before the test name', () => {
+    expect(testFilePath(hookTimeout)).toBe(SPARSE_FILE);
+    expect(testFilePath(packaging)).toBeUndefined();
+  });
+
+  test('a path matches as a whole path only', () => {
+    expect(namesPath(`see \`${SPARSE_FILE}\``, SPARSE_FILE)).toBe(true);
+    expect(namesPath(`${SPARSE_FILE}:12`, SPARSE_FILE)).toBe(true);
+    expect(namesPath(`packages/cli/${SPARSE_FILE}`, SPARSE_FILE)).toBe(false);
+    expect(namesPath(`${SPARSE_FILE}x`, SPARSE_FILE)).toBe(false);
+    expect(namesPath('test/auth.test.ts', 'auth.test.ts')).toBe(false);
   });
 
   test('a green run closes the open main is red issue, naming the run', () => {
     const plan = decide({ current: attempt(1, 'success'), openIssues: [{ number: 50, title: `${RED_PREFIX}abc fails x` }] });
     expect(plan.actions).toEqual([
-      { kind: 'close-red', number: 50, body: `Build & Test passed on main at ${SHA}: ${RUN}/attempts/1\n` },
+      { kind: 'close', prefix: RED_PREFIX, number: 50, body: `Build & Test passed on main at ${SHA}: ${RUN}/attempts/1\n` },
+    ]);
+  });
+
+  test('a green run closes the open unconfirmed issue too', () => {
+    const plan = decide({
+      current: attempt(1, 'success'),
+      openIssues: [
+        { number: 50, title: `${RED_PREFIX}abc fails x` },
+        { number: 60, title: `${UNCONFIRMED_PREFIX}abc failed x` },
+      ],
+    });
+    expect(plan.actions.map((action) => (action.kind === 'close' ? [action.prefix, action.number] : []))).toEqual([
+      [RED_PREFIX, 50],
+      [UNCONFIRMED_PREFIX, 60],
     ]);
   });
 
@@ -175,7 +231,7 @@ describe('deciding what a completed main run needs', () => {
       previous: attempt(1, 'failure', [hookTimeout]),
       openIssues: [{ number: 50, title: `${RED_PREFIX}abc fails x` }],
     });
-    expect(plan.actions.map((action) => action.kind)).toEqual(['file-flake', 'close-red']);
+    expect(plan.actions.map((action) => action.kind)).toEqual(['file-flake', 'close']);
   });
 
   test('a green run with nothing open does nothing', () => {

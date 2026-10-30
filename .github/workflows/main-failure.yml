@@ -12,11 +12,13 @@
 #   - attempt 2 passed: each test that failed in attempt 1 (or its job, when
 #     the log names no test) is a flake, filed as one lane:velocity issue
 #     titled "Flaky on main: `<test>`", or commented on an open issue that
-#     already names the test file;
+#     already names the test file's repository path (so a second flaky test
+#     in the same file comments on that file's flake issue);
 #   - attempt 2 failed: open or update the one "Main is red: " issue, naming
 #     the commit, the failing jobs and tests, and both attempts;
 #   - attempt 2 cancelled: attempt 1's failures go to the unconfirmed issue;
-#   - any green run closes the red issue with a comment naming the run;
+#   - any green run closes the red and unconfirmed issues with a comment
+#     naming the run;
 #   - nothing is rerun past attempt 1, so it cannot loop.
 #
 # A manual dispatch classifies a past run by id. With dry_run (the default) it

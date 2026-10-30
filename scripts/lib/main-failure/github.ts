@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { closeOpenIssue, openOrUpdateIssue, type Gh } from '../../ci/github-issues.ts';
 import { FAILED, MAX_FLAKE_ISSUES, decide, type AttemptReport, type IssueAction, type OpenIssue, type Plan } from './decide.ts';
-import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, testFileStem } from './issue-text.ts';
+import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, testFilePath } from './issue-text.ts';
 import { checkoutResolver, namedFailedJobs, parseFailures, type Failure, type FileResolver } from './parse-log.ts';
 
 const ISSUE_LABEL = 'lane:velocity';
@@ -168,12 +168,13 @@ function searchIssues(context: Context, query: string): OpenIssue[] {
   return checkedList<OpenIssue>(found, ISSUE_SHAPE, 'issues');
 }
 
-/** This lane's open issues, and any open issue that names a test file in
- *  `failures`. */
+/** This lane's open issues, and any open issue that names the repository
+ *  path of a test file in `failures`. `decide` checks the path again on a
+ *  word boundary, since search matches loosely. */
 function openIssues(context: Context, failures: Failure[]): OpenIssue[] {
   const prefixes = [FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX].map((prefix) => `"${prefix.replace(/: $/, '')}" in:title`);
-  const stems = [...new Set(failures.map(testFileStem).filter((stem) => stem !== undefined))].slice(0, MAX_FLAKE_ISSUES);
-  const queries = [...prefixes, ...stems.map((stem) => `"${stem}" in:title,body`)];
+  const paths = [...new Set(failures.map(testFilePath).filter((path) => path !== undefined))].slice(0, MAX_FLAKE_ISSUES);
+  const queries = [...prefixes, ...paths.map((path) => `"${path}" in:title,body`)];
   const byNumber = new Map<number, OpenIssue>();
   for (const issue of queries.flatMap((query) => searchIssues(context, query))) byNumber.set(issue.number, issue);
   return [...byNumber.values()].sort((a, b) => a.number - b.number);
@@ -238,22 +239,24 @@ function fileIssue(context: Context, action: IssueAction, index: number): string
   return openOrUpdateIssue(context.gh, { prefix: action.prefix, title: action.title, label: ISSUE_LABEL, bodyFile });
 }
 
-function closeRed(context: Context, body: string): string {
-  const closed = closeOpenIssue(context.gh, RED_PREFIX, writeBody(context, 'close-red.md', body));
-  if (closed === undefined) return 'no open issue to close';
+function closeStanding(context: Context, prefix: string, body: string, index: number): string {
+  const closed = closeOpenIssue(context.gh, prefix, writeBody(context, `close-${index}.md`, body));
+  if (closed === undefined) return `no open "${prefix.trim()}" issue to close`;
   return `closed #${closed}`;
 }
 
 /** Carries out every action but the rerun, which `handleAttempt` runs. */
 function applyFilings(context: Context, plan: Plan): void {
   plan.actions.forEach((action, index) => {
-    if (action.kind === 'close-red') console.log(closeRed(context, action.body));
+    if (action.kind === 'close') console.log(closeStanding(context, action.prefix, action.body, index));
     else if (action.kind !== 'rerun') console.log(fileIssue(context, action, index));
   });
 }
 
 interface Planned {
   current: AttemptReport;
+  previous?: AttemptReport;
+  issues: OpenIssue[];
   plan: Plan;
 }
 
@@ -261,7 +264,7 @@ function planFor(context: Context, runId: number, attempt: number, superseded: b
   const current = collectAttempt(context, runId, attempt);
   const previous = attempt === 2 ? collectAttempt(context, runId, 1) : undefined;
   const issues = openIssues(context, [...(previous?.failures ?? []), ...current.failures]);
-  return { current, plan: decide({ current, previous, openIssues: issues, superseded }) };
+  return { current, previous, issues, plan: decide({ current, previous, openIssues: issues, superseded }) };
 }
 
 function plansRerun(plan: Plan): boolean {
@@ -279,6 +282,14 @@ export async function handleAttempt(context: Context, runId: number, attempt: nu
   context.log(describePlan(first.current, first.plan));
   if (!plansRerun(first.plan)) {
     applyFilings(context, first.plan);
+    return;
+  }
+  // Reading the logs and issues takes time, so a push may have landed since
+  // the first check. Check again right before the rerun joins the group.
+  if (supersededNow(context, run)) {
+    const late = decide({ current: first.current, previous: first.previous, openIssues: first.issues, superseded: true });
+    context.log(describePlan(first.current, late));
+    applyFilings(context, late);
     return;
   }
   context.gh(['run', 'rerun', String(runId), '--failed', '--repo', context.repo]);

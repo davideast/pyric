@@ -36,12 +36,23 @@ export function flakePrefix(failure: Failure): string {
   return `${FLAKE_PREFIX}\`${truncate(failureSubject(failure), MAX_TITLE - FLAKE_PREFIX.length - 2)}\``;
 }
 
-/** The test file's name without its directory or test extension, which an
- *  issue filed by hand is likely to mention. */
-export function testFileStem(failure: Failure): string | undefined {
+/** The repository path of the failing test's file, or undefined when the
+ *  failure names no test file. A bare file name is not enough to match an
+ *  issue on: the repository holds many `index.test.ts` and `auth.test.ts`. */
+export function testFilePath(failure: Failure): string | undefined {
   const file = failure.test?.split(' > ')[0];
   if (file === undefined || !TEST_FILE.test(file)) return undefined;
-  return file.split('/').at(-1)?.replace(TEST_FILE, '');
+  return file;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Whether `text` names `path` as a whole path: not as the tail of a longer
+ *  path, and not as the head of a longer file name. */
+export function namesPath(text: string, path: string): boolean {
+  return new RegExp(`(?<![\\w./-])${escapeRegExp(path)}(?![\\w.-])`).test(text);
 }
 
 function subjectText(failure: Failure): string {
@@ -126,7 +137,7 @@ export function unconfirmedText(failed: AttemptReport, why: string): IssueText {
   return { prefix: UNCONFIRMED_PREFIX, title, body };
 }
 
-export function closeRedBody(current: AttemptReport): string {
+export function closeBody(current: AttemptReport): string {
   return `Build & Test passed on main at ${current.headSha}: ${current.url}\n`;
 }
 
@@ -149,7 +160,7 @@ function describeAction(action: Action): string {
     case 'file-flake': return describeIssue(action, 'File a flake');
     case 'file-red': return describeIssue(action, 'File main is red');
     case 'file-unconfirmed': return describeIssue(action, 'File unconfirmed failures');
-    case 'close-red': return `Close #${action.number} with the comment:\n${indent(action.body)}`;
+    case 'close': return `Close #${action.number} with the comment:\n${indent(action.body)}`;
   }
 }
 

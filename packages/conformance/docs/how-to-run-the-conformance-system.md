@@ -103,12 +103,15 @@ CI runs these same gates in `.github/workflows/build.yml`, plus
 `compat:lint-terms` and the audit gate, and publishes the coverage table to the
 job summary. When a push run on main fails, `.github/workflows/main-failure.yml`
 reruns its failed jobs once, if the commit is still the head of main and no
-newer push run is pending. If the rerun passes, it opens one `lane:velocity`
-issue per flaky test, titled like "Flaky on main: `<test>`", or comments on an
-open issue that already names the test file. If the rerun fails, it opens or
-updates the one "Main is red: " issue, and the next green run on main closes it.
-Failures it could not rerun, or whose rerun was cancelled, go to the one
-"Unconfirmed failures on main: " issue.
+newer push run is pending; it checks again right before the rerun. If the
+rerun passes, it opens one `lane:velocity` issue per flaky test, titled like
+"Flaky on main: `<test>`", or comments on an open issue that already names the
+test file's repository path, such as `packages/cli/test/auth.test.ts`. So a
+second flaky test in a file that already has a flake issue is commented on that
+issue instead of getting its own. If the rerun fails, it opens or updates the
+one "Main is red: " issue. Failures it could not rerun, or whose rerun was
+cancelled, go to the one "Unconfirmed failures on main: " issue. The next green
+run on main closes both.
 
 ## The command inventory
 

@@ -14,6 +14,8 @@ interface FakeRepo {
   conclusions: Record<number, string>;
   latest: number;
   mainHead: string;
+  /** Reads of main that still return `mainHead`; later reads return a newer commit. */
+  headMovesAfter?: number;
   /** Other push runs of the workflow, newest first. */
   otherRuns: { id: number; status: string }[];
   issues: { number: number; title: string; body?: string }[];
@@ -72,6 +74,15 @@ function hasRerun(calls: string[][]): boolean {
   return calls.some((call) => call[0] === 'run' && call[1] === 'rerun');
 }
 
+function mainHeadNow(repo: FakeRepo): string {
+  if (repo.headMovesAfter === undefined) return repo.mainHead;
+  if (repo.headMovesAfter > 0) {
+    repo.headMovesAfter -= 1;
+    return repo.mainHead;
+  }
+  return 'e'.repeat(40);
+}
+
 function fakeApi(repo: FakeRepo, calls: string[][], path: string): unknown {
   const attemptJobs = /^actions\/runs\/7\/attempts\/(\d+)\/jobs/.exec(path);
   if (attemptJobs) return jobsJson(repo.conclusions[Number(attemptJobs[1])]);
@@ -83,7 +94,7 @@ function fakeApi(repo: FakeRepo, calls: string[][], path: string): unknown {
     throw new Error('gh api failed: HTTP 502');
   }
   if (path === 'actions/runs/7') return runJson(repo, repo.latest);
-  if (path === 'branches/main') return { commit: { sha: repo.mainHead } };
+  if (path === 'branches/main') return { commit: { sha: mainHeadNow(repo) } };
   if (path.startsWith('actions/workflows/99/runs')) return { workflow_runs: [...repo.otherRuns.map(otherRunJson), runJson(repo, 1)] };
   throw new Error(`unexpected api path ${path}`);
 }
@@ -215,11 +226,34 @@ describe('handling a completed attempt', () => {
   });
 
   test('a flake whose test file a hand-filed issue names is commented there, not retitled', async () => {
-    const issues = [{ number: 1593, title: 'rtdb-sparse-array-holes setup hook times out at 5 s on CI (flake)', body: '' }];
+    const issues = [{ number: 1593, title: 'Flaky worker client', body: `packages/cli/${SPARSE.split(' > ')[0]} times out at 5 s` }];
     const fake = fakeGitHub(fakeRepo({ issues }));
     await handleAttempt(fake.context, 7, 1);
     const writes = fake.calls.filter((call) => call[0] === 'issue' && call[1] !== 'list').map((call) => call.slice(0, 3));
     expect(writes).toEqual([['issue', 'comment', '1593']]);
+  });
+
+  test('a push that lands while the attempt is read: the check right before the rerun files it unconfirmed', async () => {
+    const fake = fakeGitHub(fakeRepo({ headMovesAfter: 1 }));
+    await handleAttempt(fake.context, 7, 1);
+    expect(hasRerun(fake.calls)).toBe(false);
+    expect(fake.calls.filter((call) => call.at(-1) === 'repos/o/r/branches/main')).toHaveLength(2);
+    expect(issueCreates(fake.calls)).toEqual([`${UNCONFIRMED_PREFIX}7b8dfc570 failed ${TESTS_JOB}`]);
+    expect(fake.logged.map((text) => text.split('\n')[1])).toEqual([
+      'attempt 1 failed: rerun its failed jobs once',
+      'attempt 1 failed, but rerunning it would share the concurrency group with a newer push run: filed unconfirmed',
+    ]);
+  });
+
+  test('a green run closes the open red and unconfirmed issues', async () => {
+    const issues = [
+      { number: 50, title: `${RED_PREFIX}abc fails x` },
+      { number: 60, title: `${UNCONFIRMED_PREFIX}abc failed x` },
+    ];
+    const fake = fakeGitHub(fakeRepo({ conclusions: { 1: 'success' }, issues }));
+    await handleAttempt(fake.context, 7, 1);
+    const closes = fake.calls.filter((call) => call[0] === 'issue' && call[1] === 'close').map((call) => call[2]);
+    expect(closes).toEqual(['50', '60']);
   });
 
   test('anything but a push run of Build & Test on main is refused before it is rerun', async () => {

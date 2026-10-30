@@ -1,18 +1,19 @@
 // Decides what one completed attempt of a Build & Test push run on main
 // needs: a rerun, flake issues, the main is red issue, the unconfirmed issue,
-// closing the red issue, or nothing. A pure function of the attempt, the
+// closing the red and unconfirmed issues, or nothing. A pure function of the attempt, the
 // attempt before it, and the open issues.
 
 import type { Failure } from './parse-log.ts';
 import {
   RED_PREFIX,
   UNCONFIRMED_PREFIX,
-  closeRedBody,
+  closeBody,
   failureSubject,
   flakePrefix,
   flakeText,
   redText,
-  testFileStem,
+  namesPath,
+  testFilePath,
   unconfirmedText,
 } from './issue-text.ts';
 
@@ -57,7 +58,7 @@ export interface IssueAction {
 export type Action =
   | { kind: 'rerun'; runId: number }
   | IssueAction
-  | { kind: 'close-red'; number: number; body: string };
+  | { kind: 'close'; prefix: string; number: number; body: string };
 
 export interface Plan {
   reason: string;
@@ -74,18 +75,20 @@ function isLaneStandingIssue(issue: OpenIssue): boolean {
   return issue.title.startsWith(RED_PREFIX) || issue.title.startsWith(UNCONFIRMED_PREFIX);
 }
 
-function mentions(issue: OpenIssue, stem: string): boolean {
-  return issue.title.includes(stem) || (issue.body ?? '').includes(stem);
+function mentions(issue: OpenIssue, path: string): boolean {
+  return namesPath(issue.title, path) || namesPath(issue.body ?? '', path);
 }
 
 /** The open issue a flake belongs to: this lane's issue for the test, or else
- *  any other open issue that names the test file, such as one filed by hand. */
+ *  any other open issue that names the test file's repository path, such as
+ *  one filed by hand or this lane's issue for another test in the same file.
+ *  A failure with no test file matches only its own issue. */
 function flakeIssue(openIssues: OpenIssue[], failure: Failure): number | undefined {
   const own = issueWithPrefix(openIssues, flakePrefix(failure));
   if (own !== undefined) return own;
-  const stem = testFileStem(failure);
-  if (stem === undefined) return undefined;
-  return openIssues.find((issue) => !isLaneStandingIssue(issue) && mentions(issue, stem))?.number;
+  const path = testFilePath(failure);
+  if (path === undefined) return undefined;
+  return openIssues.find((issue) => !isLaneStandingIssue(issue) && mentions(issue, path))?.number;
 }
 
 function uniqueSubjects(failures: Failure[]): Failure[] {
@@ -108,10 +111,13 @@ function unconfirmedAction(failed: AttemptReport, why: string, openIssues: OpenI
   return { kind: 'file-unconfirmed', ...unconfirmedText(failed, why), existing: issueWithPrefix(openIssues, UNCONFIRMED_PREFIX) };
 }
 
-function closeRedAction(current: AttemptReport, openIssues: OpenIssue[]): Action[] {
-  const open = issueWithPrefix(openIssues, RED_PREFIX);
-  if (open === undefined) return [];
-  return [{ kind: 'close-red', number: open, body: closeRedBody(current) }];
+/** A green run closes the open red and unconfirmed issues. */
+function closeStandingActions(current: AttemptReport, openIssues: OpenIssue[]): Action[] {
+  return [RED_PREFIX, UNCONFIRMED_PREFIX].flatMap((prefix): Action[] => {
+    const open = issueWithPrefix(openIssues, prefix);
+    if (open === undefined) return [];
+    return [{ kind: 'close', prefix, number: open, body: closeBody(current) }];
+  });
 }
 
 const SUPERSEDED_REASON = 'a newer push to main superseded it before the rerun';
@@ -136,7 +142,7 @@ function decideFailed(input: DecisionInput): Plan {
 
 function decidePassed(input: DecisionInput): Plan {
   const { current, previous, openIssues } = input;
-  const closing = closeRedAction(current, openIssues);
+  const closing = closeStandingActions(current, openIssues);
   const rerunPassed = current.attempt === 2 && previous !== undefined && FAILED.has(previous.conclusion);
   if (!rerunPassed) return { reason: `attempt ${current.attempt} passed`, actions: closing };
   const flakes = uniqueSubjects(previous.failures).slice(0, MAX_FLAKE_ISSUES)
