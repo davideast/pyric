@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findEdgeRuntimeFiles } from '../../../src/next/edge-runtime.js';
 import { withPyric } from '../../../src/next/index.js';
+import { markRegisterActive } from '../../../src/register/activation.js';
+
+/** The register's activation mark (`src/register/activation.ts`). */
+const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
 
 describe('Edge runtime detection', () => {
   let root: string;
@@ -19,6 +23,7 @@ describe('Edge runtime detection', () => {
   });
 
   afterEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -58,6 +63,7 @@ describe('withPyric Edge runtime warning', () => {
     writeFileSync(join(root, 'app/api/ping/route.ts'), "export const runtime = 'edge';\n");
     process.chdir(root);
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
+    markRegisterActive();
     warnings = [];
     console.warn = (...args: unknown[]) => {
       warnings.push(args.join(' '));

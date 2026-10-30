@@ -7,6 +7,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { Worker } from 'node:worker_threads';
 import { readFileSync } from 'node:fs';
+import { execFile, execSync, fork, spawn, spawnSync } from 'node:child_process';
 
 const CLOSED_PORT = Number(process.env.SCENARIO_CLOSED_PORT);
 const results = {};
@@ -106,6 +107,47 @@ record(
   'file worker with its own execArgv',
   await workerOutcome(new URL('./worker-probe.cjs', import.meta.url), { execArgv: [] }),
 );
+
+// Child processes (#1618). The register reached this process on the command
+// line, so a child that only inherits the environment, or one given its own
+// NODE_OPTIONS or env, started without it before the fix.
+const SAFETY = ['--import', './safety.mjs'];
+const childArgs = (name) => [...SAFETY, 'child-probe.mjs', name];
+
+/** The `admin` and `guard` a child printed, or what went wrong. */
+function childOutcome(stdout) {
+  const line = String(stdout).split('\n').find((text) => text.startsWith('{"child"'));
+  if (line === undefined) return `no output: ${String(stdout).slice(0, 200)}`;
+  const { admin, guard } = JSON.parse(line);
+  return `${admin}, guard ${guard}`;
+}
+
+/** Runs an async child to exit and returns what it printed. */
+function asyncChild(child) {
+  return new Promise((resolve) => {
+    let stdout = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.on('error', (error) => resolve(`spawn error: ${error.message}`));
+    child.on('close', () => resolve(stdout));
+  });
+}
+
+const childProbes = {
+  'spawn(process.execPath)': () => asyncChild(spawn(process.execPath, childArgs('spawn'))),
+  'fork with its own execArgv': () => asyncChild(
+    fork('child-probe.mjs', ['fork'], { execArgv: SAFETY, stdio: ['ignore', 'pipe', 'inherit', 'ipc'] }),
+  ),
+  'spawnSync with its own NODE_OPTIONS': () => spawnSync(process.execPath, childArgs('spawnSync'), {
+    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
+  }).stdout,
+  'execFile with an env of only PATH': () => new Promise((resolve) => {
+    execFile(process.execPath, childArgs('execFile'), { env: { PATH: process.env.PATH } }, (_error, stdout) => resolve(stdout));
+  }),
+  'execSync through a shell': () => execSync(`"${process.execPath}" ${childArgs('execSync').join(' ')}`),
+};
+for (const [name, run] of Object.entries(childProbes)) {
+  record(`child: ${name}`, childOutcome(await run()));
+}
 
 proxy.close();
 const escaped = globalThis[Symbol.for('scenario.escaped')] ?? null;
