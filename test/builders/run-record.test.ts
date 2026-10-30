@@ -50,6 +50,7 @@ function outcome(overrides: Partial<RunOutcome> = {}): RunOutcome {
     channel: CHANNEL,
     usage: { tokens: { input: 1, output: 2, cacheCreation: 0, cacheRead: 0 }, costUsd: 0.25, turns: 3, ending: 'success' },
     tokenFoundIn: [],
+    plantedLinks: [],
     ...overrides,
   };
 }

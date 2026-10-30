@@ -59,6 +59,13 @@ export interface HarnessFields extends RunIdentity {
   meteredCostUsd: number;
   /** Files of the run that held the harness's token, which `round` redacted or withheld. Empty unless something leaked. */
   tokenFoundIn: string[];
+  /**
+   * Files of the run root, relative to it, that the harness would read or
+   * append to but found to be a link, or reached through one, once the
+   * sandbox stopped (`planted-links.ts`). The harness skipped them and the
+   * merges. Empty unless the sandbox planted one, which makes the run invalid.
+   */
+  plantedLinks: string[];
   automaticProblems: AutomaticProblem[];
   /** Must-be-refused actions of the brief the report says nothing about. */
   missingRefusals: string[];
@@ -121,6 +128,7 @@ export interface RunOutcome {
   channel: readonly ModelChannelEvent[];
   usage: Usage | null;
   tokenFoundIn: string[];
+  plantedLinks: string[];
 }
 
 /**
@@ -153,6 +161,7 @@ export function runRecord(outcome: RunOutcome): RunRecord {
       usage: outcome.usage,
       meteredCostUsd: meteredCostUsd(outcome.channel),
       tokenFoundIn: outcome.tokenFoundIn,
+      plantedLinks: outcome.plantedLinks,
       automaticProblems: automatic,
       missingRefusals: missingRefusals(outcome.brief, builder),
       problemsReported: (builder?.problems.length ?? 0) + automatic.length,

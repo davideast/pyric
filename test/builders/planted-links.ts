@@ -38,8 +38,16 @@ export function plantedLinkProblem(root: string, path: string): string | undefin
   return undefined;
 }
 
+/** Each of `paths` that is unsafe to read or append to, with why. */
+export function plantedLinks(root: string, paths: readonly string[]): { path: string; problem: string }[] {
+  return paths.flatMap((path) => {
+    const problem = plantedLinkProblem(root, path);
+    return problem === undefined ? [] : [{ path, problem }];
+  });
+}
+
 /** Throws `PlantedLink`, naming each problem, unless every path is safe to read or append to. */
 export function assertNoPlantedLinks(root: string, paths: readonly string[]): void {
-  const problems = paths.map((path) => plantedLinkProblem(root, path)).filter((problem) => problem !== undefined);
+  const problems = plantedLinks(root, paths).map((planted) => planted.problem);
   if (problems.length > 0) throw new PlantedLink(`refusing to touch the run's files outside the sandbox:\n- ${problems.join('\n- ')}`);
 }

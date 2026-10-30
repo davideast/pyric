@@ -3,6 +3,11 @@
  * root: merge the forwarder's record and the browser's NetLog into the run's
  * network record, look for the token in everything it keeps, build the run's
  * record, keep the run's data and append its measurement line.
+ *
+ * When the sandbox left a link on a file the harness would touch
+ * (`planted-links.ts`), the harness skips the merges and every such file,
+ * but still keeps the record, naming the planted paths, and the measurement
+ * line, so the run's spend is counted and the evidence is kept.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -11,16 +16,16 @@ import type { Brief } from './brief.ts';
 import { appendMeasurement } from './measurement.ts';
 import type { ModelChannelEvent } from './model-channel.ts';
 import { parseJsonText } from './parse.ts';
-import { assertNoPlantedLinks } from './planted-links.ts';
+import { assertNoPlantedLinks, plantedLinks } from './planted-links.ts';
 import type { Provenance } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
-import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
-import { readBuilderReport } from './report.ts';
+import { appendBrowserEvents, readNetworkRecord, type NetworkEvent } from './recorder/network-record.ts';
+import { readBuilderReport, type ReadReport } from './report.ts';
 import type { BuilderRunDirs } from './round-paths.ts';
 import { BUILDER_LOG, phaseResultSchema, type PhaseResult } from './run-phase.ts';
 import { measurementLine, runRecord, type RunIdentity, type RunRecord } from './run-record.ts';
 import { copyRedacted, filesContaining, redactedText, type Secrets } from './token-scan.ts';
-import { usageFrom } from './usage.ts';
+import { usageFrom, type Usage } from './usage.ts';
 
 export const RUN_PHASE_LOG = '02-run-phase.log';
 
@@ -103,11 +108,45 @@ export interface RunEnd {
   measurements: string;
 }
 
+/** What the record reads of the run root: each file, unless it is planted. */
+interface RunFiles {
+  exit: PhaseResult | null;
+  report: ReadReport;
+  record: NetworkEvent[];
+  usage: Usage | null;
+}
+
+function readRunFiles(dirs: BuilderRunDirs, planted: ReadonlySet<string>): RunFiles {
+  const isReadable = (path: string) => !planted.has(path);
+  const builderLog = join(dirs.logs, BUILDER_LOG);
+  const unreadReport: ReadReport = { state: 'invalid', report: null, errors: [`${relative(dirs.root, dirs.report)} is a planted link; the harness did not read it`] };
+  return {
+    exit: isReadable(dirs.phaseResult) ? readPhaseResult(dirs) : null,
+    report: isReadable(dirs.report) ? readBuilderReport(dirs.report) : unreadReport,
+    record: isReadable(dirs.networkLog) ? readNetworkRecord(dirs.networkLog) : [],
+    usage: isReadable(builderLog) ? usageFrom(readIfExists(builderLog)) : null,
+  };
+}
+
+/** The phase's output, kept straight into the run's data, for a run root that holds a planted link. */
+function keepPhaseOutput(dataDir: string, phaseOutput: string, scanned: Secrets): void {
+  mkdirSync(join(dataDir, 'logs'), { recursive: true });
+  writeFileSync(join(dataDir, 'logs', RUN_PHASE_LOG), redactedText(phaseOutput, scanned));
+}
+
+const plantedNotice = (run: string, paths: readonly string[]) => `${run}: the sandbox left a link at ${paths.join(', ')}; the harness skipped the merges and those files, and the run is invalid`;
+
 /** Ends a run whose sandbox has stopped: merges, scans, keeps and measures it. Resolves its record. */
 export async function finishRun(input: FinishInput, end: RunEnd): Promise<RunRecord> {
   const { dirs, channel } = end;
-  mergeRecords(dirs, channel);
-  writeFileSync(join(dirs.logs, RUN_PHASE_LOG), end.phaseOutput);
+  const planted = plantedLinks(dirs.root, harnessTouchedPaths(dirs)).map((link) => link.path);
+  const hasPlantedLinks = planted.length > 0;
+  const plantedNames = planted.map((path) => relative(dirs.root, path)).sort();
+  if (hasPlantedLinks) input.say(plantedNotice(input.identity.run, plantedNames));
+  else {
+    mergeRecords(dirs, channel);
+    writeFileSync(join(dirs.logs, RUN_PHASE_LOG), end.phaseOutput);
+  }
   const found = tokenFoundIn(dirs, input.scanned);
   if (found.length > 0) input.say(tokenNotice(input.identity.run, found));
   const record = runRecord({
@@ -116,14 +155,13 @@ export async function finishRun(input: FinishInput, end: RunEnd): Promise<RunRec
     provenance: input.provenance,
     startedAt: end.startedAt,
     endedAt: new Date(),
-    exit: readPhaseResult(dirs),
-    report: readBuilderReport(dirs.report),
-    record: readNetworkRecord(dirs.networkLog),
+    ...readRunFiles(dirs, new Set(planted)),
     channel,
-    usage: usageFrom(readIfExists(join(dirs.logs, BUILDER_LOG))),
     tokenFoundIn: found,
+    plantedLinks: plantedNames,
   });
   await keep(record, dirs, end.dataDir, input.scanned);
+  if (hasPlantedLinks) keepPhaseOutput(end.dataDir, end.phaseOutput, input.scanned);
   appendMeasurement(end.measurements, measurementLine(record));
   return record;
 }

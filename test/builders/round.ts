@@ -147,11 +147,18 @@ function summaryLine(result: RunResult): string {
   if ('skipped' in result) return `- ${result.run}: not started (${result.skipped})`;
   if ('error' in result) return `✗ ${result.run}: ${result.error.split('\n')[0]}`;
   const { harness } = result.record;
-  const mark = harness.report.state === 'valid' ? '✓' : '✗';
-  return `${mark} ${result.run}: report ${harness.report.state}, ${harness.problemsReported} problems, ${harness.network.googleEvents.length} Google-host events, ${costLine(result.record)}`;
+  const mark = isCleanRecord(result.record) ? '✓' : '✗';
+  const planted = harness.plantedLinks.length > 0 ? `, planted links at ${harness.plantedLinks.join(', ')}` : '';
+  return `${mark} ${result.run}: report ${harness.report.state}${planted}, ${harness.problemsReported} problems, ${harness.network.googleEvents.length} Google-host events, ${costLine(result.record)}`;
 }
 
-const isCleanRun = (result: RunResult) => 'record' in result && result.record.harness.report.state === 'valid';
+/** A run whose report holds the shape, and whose sandbox planted no link. */
+function isCleanRecord(record: RunRecord): boolean {
+  const { harness } = record;
+  return harness.report.state === 'valid' && harness.plantedLinks.length === 0;
+}
+
+const isCleanRun = (result: RunResult) => 'record' in result && isCleanRecord(result.record);
 
 function startLine(options: RoundOptions, checked: Checked): string {
   const { runs, briefs, builder } = checked;
@@ -184,7 +191,7 @@ async function runOne(context: RoundContext, planned: PlannedRun): Promise<RunRe
 }
 
 /**
- * Runs the round. Resolves true when every run ended with a valid report.
+ * Runs the round. Resolves true when every run ended with a valid report and no planted link.
  * Throws `NamespaceUnavailable` when a run's sandbox could not start.
  */
 export async function runRound(options: RoundOptions): Promise<boolean> {
