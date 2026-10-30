@@ -7,6 +7,7 @@
  * stopped.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import type { ModelChannelEvent } from '../model-channel.ts';
 import type { BrowserEvent } from './chromium-netlog.ts';
 
 /** What the Node layer did about an event. */
@@ -85,7 +86,7 @@ export interface IncompleteMarker {
   metadata: false;
 }
 
-export type NetworkEvent = NodeNetworkEvent | NamespaceDnsEvent | NamespaceConnectEvent | IncompleteMarker | (BrowserEvent & { time: string });
+export type NetworkEvent = NodeNetworkEvent | NamespaceDnsEvent | NamespaceConnectEvent | ModelChannelEvent | IncompleteMarker | (BrowserEvent & { time: string });
 
 /** Appends a marker that the browser's part of the record may be cut short. */
 export function appendBrowserIncomplete(path: string, reason: string, time: Date = new Date()): void {
