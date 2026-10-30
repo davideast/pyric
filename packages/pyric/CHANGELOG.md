@@ -21,6 +21,10 @@
   parameter and includes the existing and new values as JSON, for example
   `Firebase App named '[DEFAULT]' already exists with different options.
   Existing: '{...}'. New: '{...}'.` (#1604).
+- A second `initializeAppCheck` on the same app treats an omitted
+  `isTokenAutoRefreshEnabled` as `false`, as firebase 12.19.0 does. Calls
+  that differ only in omitting it versus passing `false` now return the same
+  instance instead of throwing `appCheck/already-initialized` (#1604).
 - The Vite dev server refuses to start when `VITE_GEMINI_API_KEY` is set, in
   the shell or in `.env`, and says to rename it to `GEMINI_API_KEY`. Vite
   serves every variable whose name starts with `VITE_` to the browser, so a
