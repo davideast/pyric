@@ -6,8 +6,8 @@
     "storage-rules#130"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"firestore-lookup-budget\" (STORAGE-P3-LOOKUP-BUDGET). Mocked firestore.get/exists return, error, caching, distinct-document budget, and lazy-evaluation behavior without touching a real Firestore database.",
-  "observedAt": "2026-07-21T06:03:34.592Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:53.271Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -5,8 +5,8 @@
     "storage-rules#207"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-int64-precision\" (STORAGE-H1-INT64). Ints are documented as 64-bit; JavaScript doubles make distinct values above 2^53 equal and leave overflow unmodeled.",
-  "observedAt": "2026-10-27T02:46:27.727Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:54.406Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

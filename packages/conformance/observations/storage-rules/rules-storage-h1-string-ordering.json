@@ -5,8 +5,8 @@
     "storage-rules#213"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-string-ordering\" (STORAGE-H1-STRING-ORDER). String ordering above the BMP separates code point order from UTF-16 code unit order.",
-  "observedAt": "2026-10-27T02:46:25.026Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:54.921Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

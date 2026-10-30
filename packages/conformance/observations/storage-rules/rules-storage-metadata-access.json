@@ -5,8 +5,8 @@
     "storage-rules#114"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-access\" (STORAGE-META). resource.metadata custom-metadata access in dotted and bracket form (identical resolution) and missing-key deny.",
-  "observedAt": "2026-09-28T06:04:28.743Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:55.985Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
