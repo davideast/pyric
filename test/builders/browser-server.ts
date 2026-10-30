@@ -31,6 +31,23 @@ export const HOST_RESOLVER_RULES = 'MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 
 /** The environment variable a builder reads the endpoint from. */
 export const BROWSER_WS_ENV = 'PYRIC_BUILDER_BROWSER_WS';
 
+/**
+ * The environment variable naming the Playwright client the server itself
+ * runs, so a builder or a repro script connects with the same version:
+ * `const { chromium } = await import(process.env.PYRIC_BUILDER_PLAYWRIGHT)`.
+ * A run's app installs offline and has no Playwright of its own.
+ */
+export const PLAYWRIGHT_CLIENT_ENV = 'PYRIC_BUILDER_PLAYWRIGHT';
+
+/**
+ * The harness's own `@playwright/test` ES module entry, inside the repo, which
+ * the sandbox binds read-only. The ES entry, since a dynamic `import()` of
+ * the CommonJS one has no named `chromium`.
+ */
+export function playwrightClient(): string {
+  return fileURLToPath(import.meta.resolve('@playwright/test'));
+}
+
 /** Chromium's arguments for one run. */
 export function chromiumArgs(netLogPath: string): string[] {
   return [`--log-net-log=${netLogPath}`, `--host-resolver-rules=${HOST_RESOLVER_RULES}`];

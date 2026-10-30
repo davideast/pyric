@@ -29,3 +29,20 @@ export function provenance(repoRoot: string, tarballs: Tarballs): Provenance {
     tarballs: Object.fromEntries([...tarballs].map(([name, file]) => [name, sha256File(file)])),
   };
 }
+
+/**
+ * How `tarballs` differ from the ones a run installed: each package whose
+ * tarball is missing, extra, or has another sha256. Empty when they are the same.
+ */
+export function tarballMismatches(installed: Provenance['tarballs'], tarballs: Tarballs): string[] {
+  const current = Object.fromEntries([...tarballs].map(([name, file]) => [name, sha256File(file)]));
+  const names = [...new Set([...Object.keys(installed), ...Object.keys(current)])].sort();
+  return names.flatMap((name) => {
+    const was = installed[name];
+    const is = current[name];
+    if (was === is) return [];
+    if (was === undefined) return [`${name} was not installed by the run`];
+    if (is === undefined) return [`${name} has no tarball here`];
+    return [`${name} is ${is.slice(0, 12)}, the run installed ${was.slice(0, 12)}`];
+  });
+}

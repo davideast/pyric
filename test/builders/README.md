@@ -16,6 +16,10 @@ Builder apps never enter CI.
 bun test/builders/harness.ts canary [--build] [--packages <dir>]
 bun test/builders/harness.ts round <round> --models <id,id> --max-budget-usd <usd> --max-round-usd <usd>
     [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]
+bun test/builders/harness.ts check-briefs <round> [--briefs <dir>]
+bun test/builders/harness.ts reproduce <round> <run> --list
+bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
+    [--expect <text>] [--register] [--packages <dir>] [--minutes <n>]
 bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
 ```
 
@@ -25,9 +29,25 @@ bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-n
   build is packed, as `bun test/apps/run.ts` does.
 - `--packages <dir>` installs tarballs already in `<dir>`.
 
-`round` runs every brief of a round once per model (below). `measure`
-summarizes `measurements.jsonl`. The `run` and `reproduce` commands come in
-a later pull request.
+`round` runs every brief of a round once per model (below).
+`check-briefs` validates a round's briefs as `round` would and starts
+nothing. `reproduce` re-runs one problem of a kept run for the verifier
+(below). `measure` summarizes `measurements.jsonl`. The `run` command comes
+in a later pull request.
+
+## The skills
+
+Three agents work a round, each from a skill in `.agents/skills/`:
+
+- `builder-brief-writer` writes the round's briefs (Opus 5.5, with repo
+  access) and checks them with `check-briefs`.
+- `app-builder` is each builder's rules: `round` passes it to `claude -p` as
+  `--append-system-prompt-file`.
+- `builder-verifier` judges each run (Opus 5.5): valid or not, reproduced
+  with `reproduce` or not, classified, shrunk to an app scenario, deduped
+  against GitHub issues through REST reads, and staged. In round 1 it stages
+  issue drafts in `<data root>/runs/<round>/issue-drafts/` for David and
+  files nothing. It writes `verdict.json` per run.
 
 ## A round
 
@@ -111,6 +131,70 @@ or `PYRIC_BUILDERS_DIR`). Run data is under the data root
 `briefs/<round>/` unless `--briefs` names a directory, the runs, the
 measurements, and `builder.settings.json`, the Claude Code permission file,
 which is tool-specific and so stays out of the repo.
+
+## Reproducing a problem
+
+```
+bun test/builders/harness.ts reproduce r1 r1-1-haiku-5-5 --list
+bun test/builders/harness.ts reproduce r1 r1-1-haiku-5-5 p1 --script repro.mjs --expect 'permission-denied'
+```
+
+`--list` prints each problem of the kept run by its selector: a builder
+problem's id, `refusal-allowed-<n>` (the n-th must-be-refused action the
+builder reported allowed), or `google-host:<host>`. Before it starts a
+sandbox, `reproduce` checks (exit 2 with every problem): the run's kept
+`report.json` and `app.tgz`, that the selector names a problem, the script
+(`.mjs`, `.js` or `.cjs`), the checkout as the canary checks it, and that
+the tarballs in `--packages` (`dist/packages` by default) have the sha256
+the run recorded. A reproduction on other tarballs tests other code, so it
+refuses.
+
+It then makes up to two tries and stops at the first that reproduces. Each
+try, in `<builders root>/<round>/<run>.repros/<slug>/<stamp>-try-<n>/`:
+
+1. extracts `app/` from `app.tgz`, pins its Pyric dependencies to the
+   tarballs, writes the fake config again and copies the script in as
+   `pyric-repro.<ext>`. These writes happen outside the sandbox into the
+   builder's work, so each target must be a plain file or absent, and `app`
+   a plain directory. The app's own `.npmrc` is renamed `.npmrc.from-builder`,
+   so only the harness's flags configure npm;
+2. starts the try's own sandbox and installs the app inside it, offline from
+   the shared cache. Unlike a round's run, it never falls back to installing
+   on the host: the app's `package.json` is the builder's, and could name any
+   dependency or source. A cold cache makes the try inconclusive;
+3. enters the run phase (`run-phase.ts`) with `modelChannel: false`: the
+   sandbox inventory first, then the harness browser and
+   `node [--import @pyric/cli/register] pyric-repro.<ext>` in the app under
+   the recorder, for at most `--minutes` (10 by default). There is no bridge,
+   no forwarder and no token: nothing the script starts can leave the
+   sandbox.
+
+A try reproduces a builder problem or an allowed refusal when the script
+exits 1, and with `--expect`, only when its output holds that text. Exit 0
+means pyric behaved as production does. Any other exit or a timeout is
+inconclusive (`repro-verdict.ts`). A `google-host:` problem reproduces when
+the try's network record reaches for that host again, whatever the exit.
+
+Any other failure of a try (the extract, the install, the phase) is an
+inconclusive try too, kept like the rest. Once a try's sandbox has stopped,
+the harness checks that each file it reads or appends to (`network.jsonl`,
+the NetLog, the phase's result and logs) is absent or a plain file reached
+through plain directories (`planted-links.ts`), since the sandbox could have
+left a link there to a file of the host's; a round's run checks its own the
+same way.
+
+The command exits 0 when a try reproduced, 1 when a try found pyric
+behaving as production does and none reproduced (unconfirmed), and 3 when no
+try could tell (inconclusive). It keeps `repro.json` (each try's outcome, reason, exit and
+Google hosts), the script, and each try's `network.jsonl` and `logs/` in
+`<data root>/runs/<round>/<run>/repros/<slug>/<stamp>/`, and never
+overwrites an earlier reproduction. The slug is the selector in lowercase
+letters, digits and dashes (`repro-target.ts`), since the builder chose the
+ids. It files nothing.
+
+Both builders and repro scripts get `PYRIC_BUILDER_PLAYWRIGHT`, the
+harness's own `@playwright/test` entry: the run's app installs offline and
+has no Playwright, and the client must match the browser server's version.
 
 ## The model channel
 
@@ -525,7 +609,8 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
 - **A cold npm cache installs outside the sandbox.** When the shared cache
   lacks something the app needs, `npm install --ignore-scripts` runs outside
   once to warm it. The Node recorder refuses any Google host it reaches for,
-  but the kernel does not block that install. A builder that installs new
+  but the kernel does not block that install. `reproduce` never does this
+  for a builder's app. A builder that installs new
   packages itself (a later pull request) needs a registry it can reach from
   inside the sandbox, such as a local mirror.
 - **The catch-all listener takes ports 80 and 443 only.** A connection by
