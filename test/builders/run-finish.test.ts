@@ -32,22 +32,29 @@ function input(): FinishInput {
   };
 }
 
-/** A run root whose `network.jsonl` and run-phase log the sandbox replaced with links to a host file. */
-function plantedRun(): { dirs: BuilderRunDirs; outside: string; end: RunEnd } {
+/** A run root as a builder left it, with a host file beside it. */
+function plainRun(): { dirs: BuilderRunDirs; outside: string; end: RunEnd } {
   const base = mkdtempSync(join(tmpdir(), 'run-finish-'));
   const outside = join(base, 'host-file');
   writeFileSync(outside, HOST_TEXT);
   const dirs = builderRunDirsAt(join(base, 'run'));
   createRunDirs(dirs.root);
-  renameSync(dirs.networkLog, `${dirs.networkLog}.was`);
-  symlinkSync(outside, dirs.networkLog);
-  symlinkSync(outside, join(dirs.logs, RUN_PHASE_LOG));
   writeFileSync(join(dirs.logs, BUILDER_LOG), `${USAGE_LINE}\n`);
   writeFileSync(dirs.briefJson, '{}\n');
   const outcome = { action: 'forwarded', reason: null, status: 200, usage: undefined, costUsd: 0.25, reservedUsd: 0.25, chargedUsd: 0.25 } as const;
   const channel = [channelEvent('api.anthropic.com', 'POST /v1/messages HTTP/1.1', undefined, outcome)];
   const end: RunEnd = { dirs, channel, phaseOutput: 'phase output\n', startedAt: new Date(), dataDir: join(base, 'data', 'run'), measurements: join(base, 'data', 'measurements.jsonl') };
   return { dirs, outside, end };
+}
+
+/** A run root whose `network.jsonl` and run-phase log the sandbox replaced with links to a host file. */
+function plantedRun(): { dirs: BuilderRunDirs; outside: string; end: RunEnd } {
+  const run = plainRun();
+  const { dirs, outside } = run;
+  renameSync(dirs.networkLog, `${dirs.networkLog}.was`);
+  symlinkSync(outside, dirs.networkLog);
+  symlinkSync(outside, join(dirs.logs, RUN_PHASE_LOG));
+  return run;
 }
 
 describe('finishRun on a planted link', () => {
@@ -107,17 +114,45 @@ describe('finishRun on a planted link', () => {
   });
 });
 
-describe('finishRun on a file it cannot read', () => {
-  test.skipIf(UID === 0)('appends the measurement line before a chmod 000 file under logs/ stops the keep', async () => {
+/**
+ * The sandbox's uid 0 is the harness's own uid, so a builder can take the
+ * owner's permissions away from anything in the run root. As uid 0 the
+ * harness reads through them anyway, so these run only as another user.
+ */
+describe.skipIf(UID === 0)('finishRun on a run root whose permissions the builder changed', () => {
+  test('keeps a chmod 000 file under logs/', async () => {
     const { dirs, end } = plantedRun();
     const locked = join(dirs.logs, 'locked.log');
     writeFileSync(locked, 'locked\n');
     chmodSync(locked, 0o000);
-    try {
-      await expect(finishRun(input(), end)).rejects.toThrow('EACCES');
-      expect(readMeasurements(end.measurements).lines).toHaveLength(1);
-    } finally {
-      chmodSync(locked, 0o600);
-    }
+    await finishRun(input(), end);
+    expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+    expect(readFileSync(join(end.dataDir, 'logs', 'locked.log'), 'utf8')).toBe('locked\n');
+  });
+
+  test('keeps the measurement and the logs when logs/ is chmod 000', async () => {
+    const { dirs, end } = plainRun();
+    chmodSync(dirs.logs, 0o000);
+    const record = await finishRun(input(), end);
+    expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+    expect(record.harness.usage?.costUsd).toBe(0.3);
+    expect(readFileSync(join(end.dataDir, 'logs', RUN_PHASE_LOG), 'utf8')).toBe('phase output\n');
+  });
+
+  test('merges into a chmod 444 network.jsonl', async () => {
+    const { dirs, end } = plainRun();
+    chmodSync(dirs.networkLog, 0o444);
+    const record = await finishRun(input(), end);
+    expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+    expect(record.harness.meteredCostUsd).toBe(0.25);
+    expect(readFileSync(join(end.dataDir, 'network.jsonl'), 'utf8')).toContain('"layer":"model-channel"');
+  });
+
+  test('writes the run-phase log into a chmod 555 logs/', async () => {
+    const { dirs, end } = plainRun();
+    chmodSync(dirs.logs, 0o555);
+    await finishRun(input(), end);
+    expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+    expect(readFileSync(join(end.dataDir, 'logs', RUN_PHASE_LOG), 'utf8')).toBe('phase output\n');
   });
 });
