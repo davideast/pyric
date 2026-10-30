@@ -14,6 +14,9 @@ Builder apps never enter CI.
 
 ```
 bun test/builders/harness.ts canary [--build] [--packages <dir>]
+bun test/builders/harness.ts round <round> --models <id,id> --max-budget-usd <usd>
+    [--builder claude|<script>] [--briefs <dir>] [--packages <dir> | --build] [--concurrency 1|2]
+bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
 ```
 
 `canary` is the harness's integration test. Run it before every round.
@@ -22,8 +25,167 @@ bun test/builders/harness.ts canary [--build] [--packages <dir>]
   build is packed, as `bun test/apps/run.ts` does.
 - `--packages <dir>` installs tarballs already in `<dir>`.
 
-The `round`, `run`, `reproduce` and `measure` commands come in later pull
-requests.
+`round` runs every brief of a round once per model (below). `measure`
+summarizes `measurements.jsonl`. The `run` and `reproduce` commands come in
+a later pull request.
+
+## A round
+
+```
+bun test/builders/harness.ts round r1 --models claude-haiku-5-5,claude-sonnet-5-5 --max-budget-usd 2
+```
+
+`--models` and `--max-budget-usd` are required and have no default: a round
+spends money only at a cap someone typed. Every run gets the same cap, so
+the comparison between models is findings per dollar. Before it packs or
+spends anything, `round` checks every brief, the builder, the checkout (as
+the canary does), and that no run of the round exists yet; a round never
+overwrites a run. Any problem exits 2 with the whole list.
+
+It then packs the workspace once and runs each brief once per model, brief
+by brief, at most two at once (`--concurrency 1` for one). Each run holds a
+heavy-run slot (`scripts/lib/heavy-run-slots.ts`) for its whole length, so
+builders never pile onto a full app run. A run is `<brief id>-<model>`, for
+example `r1-1-haiku-5-5`.
+
+**The builder is injectable.** `--builder claude` (the default) starts
+
+```
+claude -p <prompt> --model <id> --max-budget-usd <usd> --output-format json \
+  --settings <data root>/builder.settings.json --append-system-prompt-file .agents/skills/app-builder/SKILL.md
+```
+
+and needs `claude` on PATH, both files, and `CLAUDE_CODE_OAUTH_TOKEN` (from
+`claude setup-token`) in the harness's environment; the run's HOME holds no
+login. The token reaches the builder through the environment only and is
+never written to a file. `--builder <script>` starts `node <script>` in the
+same place with the same environment: `fixtures/fake-builder.mjs` is a
+scripted builder with no model, which is how `round` is tested end to end.
+
+**Each run, in order** (`builder-run.ts`):
+
+1. Lays out `<builders root>/<round>/<run>/`: the starter app for the
+   brief's framework (`starters/<framework>/package.json`) with its Pyric
+   dependencies pinned to the tarballs (`prepareApp`, which calls
+   `pinPyricPackages`), a fake Firebase config (a `demo-<run>` project and a
+   fake API key), `brief.md` and `brief.json`, and `docs/site/`, the site's
+   Markdown from `packages/site-docs/src/content/` at the same commit.
+2. Starts the run's own sandbox, as the canary does, and installs the app
+   inside it (`app-install.ts`, the canary's install).
+3. Writes `docs/conformance/`: the conformance pages the installed
+   `@pyric/cli/conformance/docs` ships, exported inside the sandbox
+   (`docs-export.mjs`). So a builder reads the docs of the tarballs it builds
+   with.
+4. Starts the model channel's forwarder (below), then enters the run phase
+   (`run-phase.ts`) into the sandbox. The phase checks it is inside the
+   sandbox, starts the channel's bridge and the harness browser, and runs
+   the builder in `app/` under the recorder with the run's scratch HOME, for
+   at most the brief's wall-clock minutes.
+5. Reads the builder's `report.json`, its usage, and the network record, and
+   keeps the run in `<data root>/runs/<round>/<run>/`: `report.json` (the
+   builder's report and the harness's fields), `brief.json`,
+   `network.jsonl`, `logs/` and `app.tgz` (the app without `node_modules`).
+6. Appends the run's line to `<data root>/measurements.jsonl`.
+
+`round` exits 0 when every run ended with a valid report, 1 otherwise.
+
+**Where things go.** Scratch is under the builders root (`~/pyric-builders`,
+or `PYRIC_BUILDERS_DIR`). Run data is under the data root
+(`~/pyric-ops/assurance/builders`, or `PYRIC_BUILDERS_DATA_DIR`): briefs in
+`briefs/<round>/` unless `--briefs` names a directory, the runs, the
+measurements, and `builder.settings.json`, the Claude Code permission file,
+which is tool-specific and so stays out of the repo.
+
+## The model channel
+
+A builder is `claude -p`, and it runs inside the sandbox with every tool it
+starts, so the model API needs a way out that nothing else has
+(`model-channel.ts`):
+
+- the **forwarder**, in the harness, outside the sandbox, listens on
+  `<run>/model.sock`, reads one `CONNECT host:port` per connection, and
+  tunnels it only to `api.anthropic.com:443`. Any other target gets `403`
+  and is never dialed.
+- the **bridge**, inside the sandbox, listens on 127.0.0.1 and pipes each
+  connection to that socket. The builder reaches it through `HTTPS_PROXY`;
+  `NO_PROXY` keeps loopback direct.
+
+The decision is made outside the sandbox, where no builder process can
+change it, and TLS runs end to end, so the forwarder sees only the CONNECT
+line. Each CONNECT is a `model-channel` line in `network.jsonl`, tunneled
+(`allowed`) or `refused`. Claude Code's other traffic is turned off with
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` and the telemetry switches.
+
+## The brief
+
+One JSON file per brief, validated by `brief.ts` before a round starts. The
+builder gets it as `brief.md`, in the plan's layout, and as `brief.json`.
+
+| Field | Holds |
+|---|---|
+| `id` | `<round>-<n>` |
+| `targetArea` | `{ area, whyWeak }`: one area from the evidence map, and why it is weak |
+| `stressDimensions` | one or two of `scale`, `lifecycle`, `integration`, `combination`, `concurrency` |
+| `appIdea` | one paragraph |
+| `framework` | `next-16`, `vite` or `node-server` |
+| `features` | the pyric surfaces, named as the docs name them |
+| `userJourney` | what a person does, step by step |
+| `mustBeRefused` | two to five `{ action, firebaseDoc, productionAnswer }`; `firebaseDoc` must be an `https://firebase.google.com/` page |
+| `limits` | `{ wallClockMinutes }` |
+
+The model and the dollar cap are the round's, not the brief's, since each
+brief runs once per model at one cap. A brief with a field the shape does
+not name fails.
+
+## The report
+
+The builder writes `report.json` in its run directory; `report.ts`
+validates it:
+
+```
+steps:     [{ n, did, result: worked | broke | stuck, log }]
+worked:    [short lines]
+problems:  [{ id, summary, step, docsLedMeToExpect: { page, quote } | null,
+              whatHappened, errorText, logs: [paths], reproHint }]
+refusals:  [{ action, firebaseDoc, productionAnswer, pyricAnswer,
+              result: refused | allowed | not-attempted }]
+stuck:     { where, lastError, whatIWouldTryNext } | null
+```
+
+A report with any other field fails, so a builder can't write the fields
+only the harness writes. The kept `report.json` is
+`{ builder, harness }` (`run-record.ts`): `builder` is the report, or null
+when it is missing or invalid, and `harness` holds the run's identity and
+cap, the commit and each tarball's sha256, how the builder ended, the
+report's state and errors, every Google-host and metadata event in the
+network record, whether the browser's record is cut short, the usage from
+claude's result line (null when it printed none), the must-be-refused
+actions the report leaves out, and the problems the harness adds itself:
+
+- each must-be-refused action the builder reports pyric `allowed`;
+- each Google host or metadata address the run reached for, one per host,
+  with every layer that saw it. Chromium's UDP connect to a Google DNS
+  address, its IPv6 check, sends no packet and is not counted.
+
+## Measurement
+
+`measurements.jsonl` is append-only (`measurement.ts`). `round` appends a
+`builder` line per run: model, brief, cost, tokens, turns, wall time, the
+report's state, problems reported (the builder's plus the harness's) and
+Google-host events. The verifier, in a later pull request, appends a
+`verification` line per judged run: its cost and tokens, and its count per
+verdict (confirmed by class, duplicate, needs capture, unconfirmed,
+builder's own bug, invalid). A bad line is an error naming its line
+number, never skipped.
+
+`measure` joins them by run id and prints, per model: cost per builder run,
+cost per verifier report, confirmed new findings per app (confirmed, not
+duplicates, per judged run), the share of reported problems the verifier
+threw out (unconfirmed, builder's own bug, invalid run), cost per confirmed
+new finding, and the 90th-percentile cost of a run plus its verification.
+The nightly model is the one with the lower cost per confirmed new finding;
+with `--runs-per-night <n>` it also prints the nightly cap, `n` times that
+model's 90th-percentile cost.
 
 ## The canary
 
@@ -274,8 +436,14 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   as a `udp` connect and is not treated as a request.
 - **The NetLog is written when the browser closes.** A browser killed before
   it closes leaves a NetLog the reader still parses, up to its last whole
-  line. That is acceptable for the canary, since a missing browser event
-  fails it. For PR 2: when `browser-server.ts` kills the browser after its
-  stop times out, it must write an `incomplete` marker into `network.jsonl`,
-  so a builder run's missing browser events read as unknown, not as absent.
-  Today it only prints a console line.
+  line. When `browser-server.ts` kills the browser after its stop times
+  out, it appends an `incomplete` marker (`layer: browser`, `kind:
+  incomplete`) to `network.jsonl`, and a run's record says
+  `browserIncomplete`, so missing browser events read as unknown, not as
+  absent.
+- **A builder can't install new packages.** The sandbox has no registry. A
+  builder works with the starter's dependencies; one that needs more says so
+  in its report. A local mirror inside the sandbox would lift this.
+- **The model channel reaches one host from inside the sandbox.** Anything
+  in the run can use it, but only to `api.anthropic.com:443`, over TLS it
+  can't see into.
