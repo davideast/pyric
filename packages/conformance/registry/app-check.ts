@@ -162,6 +162,17 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     plane: 'app-check',
+    rowRef: 'custom-provider-without-debug-token',
+    flipped: 'unit-backed',
+    section: SEC_INIT,
+    api: 'getToken(appCheck), getLimitedUseToken(appCheck) with a CustomProvider and no debug token',
+    featureKeys: ['CustomProvider', 'getToken', 'getLimitedUseToken'],
+    behavior: 'With `FIREBASE_APPCHECK_DEBUG_TOKEN` neither `true` nor a string, the SDK calls the `CustomProvider` and returns its token as given, caching it until its `expireTimeMillis`. When the provider rejects, `getToken` and `getLimitedUseToken` reject with its error, an `onTokenChanged` error handler receives it, and AI Logic gets the placeholder token, which it refuses with a 403.',
+    evidence: 'Upstream source only, `@firebase/app-check` 0.11.3 `dist/esm/index.esm.js`: `initializeDebugMode` (lines 638 to 657), `getToken$2` (the provider path from line 783, `makeDummyTokenResult` on error), `getLimitedUseToken$1`, `CustomProvider.getToken` (lines 1374 to 1388), and the public `getToken` rethrowing `result.error`. A real-SDK Node run in the ai-app-check hunt (GATE-1) saw the provider called and its token, or the placeholder, sent to AI Logic. No committed capture.',
+    notes: 'The sandbox cannot verify a token Google signed, so AI Logic\'s gate in the sandbox admits only a sandbox-signed token (one `pyric-admin` `createToken` or the sandbox mints). Upstream reads the debug global at the first `initializeAppCheck` in the page; the sandbox reads it at each one.',
+  }),
+  row({
+    plane: 'app-check',
     rowRef: 'recaptcha-providers-construct',
     section: SEC_INIT,
     api: 'new ReCaptchaV3Provider(siteKey); new ReCaptchaEnterpriseProvider(siteKey)',

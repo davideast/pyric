@@ -22,7 +22,7 @@
  */
 import type { FirebaseApp } from '../app/types.js';
 import { appCheckActivationOf, appCheckTokenFor } from '../sandbox/internal/app-check-activation.js';
-import { checkAppCheckToken } from '../sandbox/internal/app-check-token.js';
+import { APP_CHECK_PLACEHOLDER_TOKEN, checkAppCheckToken } from '../sandbox/internal/app-check-token.js';
 import type { AppCheckClaim, WireErrorEnvelope } from './broker/types.js';
 
 /** Production's message for a refused request (capture `app-check-ai-gate-wire`), verbatim. */
@@ -32,9 +32,6 @@ export const APP_CHECK_REQUIRED_MESSAGE =
 /** Pyric's guidance, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
   'Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check';
-
-/** The web SDK's stand-in when attestation fails: base64 of `{"error":"UNKNOWN_ERROR"}`. */
-const SDK_PLACEHOLDER_TOKEN = 'eyJlcnJvciI6IlVOS05PV05fRVJST1IifQ==';
 
 /** The captured refusal envelope (`app-check-ai-gate-wire`, `noHeader.raw`). */
 export function appCheckRequired(): WireErrorEnvelope {
@@ -54,7 +51,7 @@ function expiresAfter(claims: Readonly<Record<string, unknown>>, nowMillis: numb
 export async function admitsAppCheckToken(token: string | null, nowMillis: number = Date.now()): Promise<boolean> {
   const isMissing = token === null || token === '';
   if (isMissing) return false;
-  if (token === SDK_PLACEHOLDER_TOKEN) return false;
+  if (token === APP_CHECK_PLACEHOLDER_TOKEN) return false;
   const check = await checkAppCheckToken(token);
   if (!check.ok) return false;
   return expiresAfter(check.claims, nowMillis);
