@@ -20,8 +20,11 @@ const step = z.object({
   log: z.string(),
 }).strict();
 
+/** The forms of the selectors the harness gives its own problems (`repro-target.ts`), which a builder's id must not take. */
+export const RESERVED_PROBLEM_ID = /^(refusal-allowed-\d+$|google-host:)/;
+
 const problem = z.object({
-  id: text,
+  id: text.refine((id) => !RESERVED_PROBLEM_ID.test(id), 'must not take the form of a harness selector (refusal-allowed-<n>, google-host:<host>)'),
   summary: text,
   step: stepNumber,
   /** What the docs said would happen; null when no page led the builder to expect anything. */

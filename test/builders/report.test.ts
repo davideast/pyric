@@ -18,6 +18,15 @@ describe('parseBuilderReport', () => {
     expect(errorsFor(fixture())).toEqual([]);
   });
 
+  test('rejects a problem id that takes the form of a harness selector', () => {
+    const report = fixture();
+    const [problem] = report.problems as Record<string, unknown>[];
+    for (const id of ['refusal-allowed-1', 'google-host:firestore.googleapis.com']) {
+      expect(errorsFor({ ...report, problems: [{ ...problem, id }] })).toEqual(['problems.0.id: must not take the form of a harness selector (refusal-allowed-<n>, google-host:<host>)']);
+    }
+    expect(errorsFor({ ...report, problems: [{ ...problem, id: 'refusal-allowed-write' }] })).toEqual([]);
+  });
+
   test('rejects the fields only the harness writes', () => {
     expect(errorsFor({ ...fixture(), network: [], usage: { costUsd: 0 } })).toEqual(["(top level): Unrecognized key(s) in object: 'network', 'usage'"]);
   });

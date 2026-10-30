@@ -106,6 +106,9 @@ field, and adds its own (network events, usage, provenance) beside it.
 - `docsLedMeToExpect` is `null` when no page told you what to expect.
   Otherwise the quote is copied word for word from the page.
 - One problem per behavior. Two symptoms of one cause are one problem.
+- Number problems `p1`, `p2`, and so on. An id that starts with
+  `refusal-allowed-` or `google-host:` makes the report invalid: the harness
+  names its own problems that way.
 - A must-be-refused action pyric allowed is a refusal with `result:
   allowed`; the harness counts it as a problem on its own, so don't add it
   to `problems` too unless you saw more than that.
