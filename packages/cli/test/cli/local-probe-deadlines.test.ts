@@ -21,8 +21,6 @@ const dist = (path: string): string => pathToFileURL(join(resolve(import.meta.di
 
 interface CommandRun {
   readonly result: unknown;
-  /** Milliseconds from the call until the command settled. */
-  readonly commandMs: number;
   /** Whether a command run through `beforeSentinel` settled before its sentinel timer fired. */
   readonly beatSentinel?: boolean;
   /** Milliseconds from the command settling until the parent saw the child exit. */
@@ -31,7 +29,7 @@ interface CommandRun {
 
 /**
  * Run `body` (module source whose last statement assigns `result`) in a Node
- * child, timing the command and the exit after it.
+ * child, timing the exit after it.
  *
  * `body` may wrap its command in `beforeSentinel(sentinelMs, () => command)`,
  * which arms a sentinel timer in the same turn as the call. The command beats
@@ -52,10 +50,8 @@ const beforeSentinel = async (sentinelMs, run) => {
     clearTimeout(sentinel);
   }
 };
-const started = performance.now();
 ${body}
-const commandMs = performance.now() - started;
-process.stdout.write(JSON.stringify({ result, commandMs, beatSentinel, endedAt: Date.now() }));`;
+process.stdout.write(JSON.stringify({ result, beatSentinel, endedAt: Date.now() }));`;
   const child = spawn('node', ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '';
   child.stdout.setEncoding('utf8');
@@ -66,8 +62,8 @@ process.stdout.write(JSON.stringify({ result, commandMs, beatSentinel, endedAt: 
     child.once('exit', () => {
       const exitedAt = Date.now();
       try {
-        const printed = JSON.parse(stdout) as { result: unknown; commandMs: number; beatSentinel?: boolean; endedAt: number };
-        resolvePromise({ result: printed.result, commandMs: printed.commandMs, beatSentinel: printed.beatSentinel, lingerMs: exitedAt - printed.endedAt });
+        const printed = JSON.parse(stdout) as { result: unknown; beatSentinel?: boolean; endedAt: number };
+        resolvePromise({ result: printed.result, beatSentinel: printed.beatSentinel, lingerMs: exitedAt - printed.endedAt });
       } catch {
         reject(new Error(`the command child printed no result: ${JSON.stringify(stdout)}`));
       }
