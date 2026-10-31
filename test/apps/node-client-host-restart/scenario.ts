@@ -25,6 +25,7 @@
 // "server restarted" line. Nothing waits on a timeout: each wait ends on an
 // event (a log line or a write), and its bound only fails the scenario.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { scenario, sleep, type App, type AppProcess, type DevServer } from '../driver.ts';
 
 /** The writer never runs past two minutes of writes. */
@@ -62,17 +63,56 @@ async function restartByConfigEdit(app: App, host: DevServer): Promise<number> {
   return Date.now();
 }
 
-async function untilIssuedAfter(writer: AppProcess, at: number, count: number, limitMs: number): Promise<void> {
+async function untilIssuedAfter(writer: AppProcess, at: number, count: number, limitMs: number, diagnose: () => Promise<string>): Promise<void> {
   const deadline = Date.now() + limitMs;
   while (ticksOf(writer).filter((tick) => tick.issuedAt > at).length < count) {
     assert.ok(writer.running, `the writer exited before ${count} writes after the restart:\n${writer.output}`);
-    assert.ok(Date.now() < deadline, `the writer issued fewer than ${count} writes within ${limitMs / 1000}s of the restart:\n${writer.output}`);
+    const isPastDeadline = Date.now() >= deadline;
+    if (isPastDeadline) {
+      assert.fail(`the writer issued fewer than ${count} writes within ${limitMs / 1000}s of the restart:\n${await diagnose()}\n${writer.output}`);
+    }
     await sleep(100);
   }
 }
 
-async function storedTicks(app: App, url: string): Promise<number[]> {
-  const { output } = await app.serverScript('ticks.mjs', [], { env: { PYRIC_SANDBOX: `remote:${url}` } });
+/** The writer's process state from /proc (R, S, T for stopped, Z, ...), or why it could not be read. */
+function processState(pid: number | undefined): string {
+  if (pid === undefined) return 'no pid';
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] ?? 'unreadable';
+  } catch (error) {
+    return `unreadable (${(error as Error).message})`;
+  }
+}
+
+/**
+ * What a stall looked like (#1268): whether the writer process still runs, and
+ * which ticks the host stored after the restart. Stored ticks the writer never
+ * logged mean its writes reached the host and its output was lost; none mean
+ * its writes stopped reaching the host.
+ */
+async function stallDiagnosis(app: App, url: string, writer: AppProcess, restartedAt: number): Promise<string> {
+  const logged = ticksOf(writer);
+  const lastBeforeRestart = Math.max(-1, ...logged.filter((tick) => tick.issuedAt <= restartedAt).map((tick) => tick.n));
+  const loggedAfter = logged.filter((tick) => tick.n > lastBeforeRestart).map((tick) => tick.n);
+  let storedAfter: string;
+  try {
+    const stored = await storedTicks(app, url, 20_000);
+    storedAfter = JSON.stringify(stored.filter((n) => n > lastBeforeRestart));
+  } catch (error) {
+    storedAfter = `could not be read: ${(error as Error).message.split('\n')[0]}`;
+  }
+  return [
+    `[#1268 diagnosis] writer process: ${writer.running ? 'running' : 'exited'}, pid ${writer.pid}, state ${processState(writer.pid)}`,
+    `[#1268 diagnosis] last tick issued before the restart and logged: ${lastBeforeRestart}`,
+    `[#1268 diagnosis] ticks after it the writer logged: ${JSON.stringify(loggedAfter)}`,
+    `[#1268 diagnosis] ticks after it the host stored: ${storedAfter}`,
+  ].join('\n');
+}
+
+async function storedTicks(app: App, url: string, timeoutMs?: number): Promise<number[]> {
+  const { output } = await app.serverScript('ticks.mjs', [], { env: { PYRIC_SANDBOX: `remote:${url}` }, timeoutMs });
   const line = output.match(/^ticks (.*)$/m);
   assert.ok(line, `ticks.mjs printed no ticks:\n${output}`);
   return JSON.parse(line[1]!) as number[];
@@ -130,7 +170,7 @@ export default scenario(async (app) => {
     }));
 
   await app.step(`the writer issues ${TICKS_AFTER_RESTART} writes after the restart, then stops`, async () => {
-    await untilIssuedAfter(writer, restartedAt, TICKS_AFTER_RESTART, 60_000);
+    await untilIssuedAfter(writer, restartedAt, TICKS_AFTER_RESTART, 60_000, () => stallDiagnosis(app, host.url, writer, restartedAt));
     app.writeFile('writer-stop', '');
   });
 
