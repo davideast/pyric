@@ -200,6 +200,17 @@ describe('/__pyric/denials', () => {
     expect(notes).toEqual([]);
   });
 
+  it('closes the connection with an early 413, so a reused socket cannot read the next request as the unread upload (#1706)', async () => {
+    const h = await startServe(recordingLogger().logger);
+    const oversized = await fetch(`${h.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(denialBody({ message: 'x'.repeat(1024 * 1024) })),
+    });
+    expect(oversized.status).toBe(413);
+    expect(oversized.headers.get('connection')).toBe('close');
+  });
+
   it('prints a same-origin denial carrying terminal escapes as one safe block', async () => {
     const { logger, notes } = recordingLogger();
     const h = await startServe(logger);

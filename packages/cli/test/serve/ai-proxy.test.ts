@@ -235,6 +235,7 @@ describe('/__pyric/ai-proxy', () => {
       body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES + 1),
     });
     expect(res.status).toBe(413);
+    expect(res.headers.get('connection')).toBe('close');
     expect(seen).toEqual([]);
   });
 
