@@ -4,7 +4,7 @@
  * the child environment (activator + APPENDED NODE_OPTIONS), the register
  * module URL, and the `[dev]` line prefixer.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import {
   buildChildEnv,
@@ -285,8 +285,7 @@ describe('waitForSandboxPeer (first-run race guard)', () => {
 
   it('returns false at the deadline when no peer ever connects', async () => {
     let now = 0;
-    const realNow = Date.now;
-    Date.now = () => now;
+    const clock = spyOn(performance, 'now').mockImplementation(() => now);
     try {
       const ok = await waitForSandboxPeer('http://localhost:1', {
         timeoutMs: 1000,
@@ -296,7 +295,32 @@ describe('waitForSandboxPeer (first-run race guard)', () => {
       });
       expect(ok).toBe(false);
     } finally {
-      Date.now = realNow;
+      clock.mockRestore();
+    }
+  });
+
+  it('ends at its deadline while the wall clock stands still (#1705)', async () => {
+    let now = 0;
+    let sleeps = 0;
+    const clock = spyOn(performance, 'now').mockImplementation(() => now);
+    const frozenAt = Date.now();
+    const wall = spyOn(Date, 'now').mockImplementation(() => frozenAt);
+    try {
+      const ok = await waitForSandboxPeer('http://localhost:1', {
+        timeoutMs: 1000,
+        intervalMs: 100,
+        fetchImpl: async () => health(false),
+        sleep: async () => {
+          now += 100;
+          sleeps += 1;
+          if (sleeps > 20) throw new Error('the wait outlived its 1000 ms deadline');
+        },
+      });
+      expect(ok).toBe(false);
+      expect(sleeps).toBe(10);
+    } finally {
+      clock.mockRestore();
+      wall.mockRestore();
     }
   });
 
