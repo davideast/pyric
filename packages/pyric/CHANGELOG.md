@@ -61,7 +61,7 @@ The register, network guard and Storage lint changes can stop code that ran befo
 - Second `initializeAppCheck` that omits `isTokenAutoRefreshEnabled` where the first passed `false`, or the reverse: before, returned the existing handle. Now, throws `appCheck/already-initialized`. Concurrent `getToken`: before, two tokens and two listener calls. Now, one token and one listener call (#1388).
 - Role `function` in AI Logic `contents`: before, accepted. Now, refused with production's 400. The bad-role error text now lists `MODEL, USER`, as production's does (#1412).
 - Role `assistant` in AI Logic `contents`: before, refused. Now, accepted (#1542).
-- App Check verification in production AI mode on Node 22: before, failed with `PYRIC_REAL_SDK_STOPPED`. Now, verifies the token (#1709).
+- App Check verification in production AI mode on Node 22: before, failed with `PYRIC_REAL_SDK_STOPPED`. Now, verifies the token (#1707, #1709).
 - `PYRIC_AI_MODE=production` in Next.js: before, ignored on the page. Now, the page uses the real `firebase/ai` and `firebase/app-check` (#1650).
 
 #### Firestore and Storage rules
