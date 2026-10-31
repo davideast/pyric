@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { answerAndClose } from '../bridge/server/peer.js';
 import {
   hasGeneratedActivitySemantics,
   type ActivityIncident,
@@ -40,10 +41,13 @@ export async function handleActivity(
     onIncident(body);
     res.writeHead(204).end();
   } catch (error) {
-    res.writeHead(error instanceof ActivityBodyTooLargeError ? 413 : 400, {
-      'content-type': 'text/plain; charset=utf-8',
-    });
-    res.end(error instanceof Error ? error.message : String(error));
+    const headers = { 'content-type': 'text/plain; charset=utf-8' };
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof ActivityBodyTooLargeError) {
+      answerAndClose(req, res, 413, headers, message);
+      return;
+    }
+    res.writeHead(400, headers).end(message);
   }
 }
 

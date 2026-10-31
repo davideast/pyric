@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { collectBody } from '../bridge/server/peer.js';
+import { answerAndClose, BODY_TOO_LARGE_CODE, collectBody } from '../bridge/server/peer.js';
 import type { ThresholdConfigStore } from './threshold-config-store.js';
 import { readThresholdConfig } from './runtime/rate-threshold-config.js';
 
@@ -15,8 +15,15 @@ export async function handleThresholdConfig(store: ThresholdConfigStore, req: In
     if (!input || typeof input.revision !== 'string' || !/^[a-f0-9]{64}$/.test(input.revision) || input.config === undefined) throw new Error('Load threshold settings before saving.');
     res.end(JSON.stringify(await store.save(readThresholdConfig(input.config), input.revision)));
   } catch (error) {
+    const isError = error instanceof Error;
+    const body = JSON.stringify({ error: isError ? error.message : 'Unable to save threshold settings.' });
+    const tooLarge = isError && 'code' in error && error.code === BODY_TOO_LARGE_CODE;
+    if (tooLarge) {
+      answerAndClose(req, res, 413, {}, body);
+      return true;
+    }
     res.statusCode = 400;
-    res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Unable to save threshold settings.' }));
+    res.end(body);
   }
   return true;
 }

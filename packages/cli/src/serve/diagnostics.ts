@@ -1,7 +1,7 @@
 import type { PersistenceStatus } from './hosted/persistence/commits.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import { collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
+import { answerAndClose, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
 import { DIAGNOSTIC_EVENT_LIMIT, DIAGNOSTIC_PHASES, diagnosticUrl, type BrowserDiagnosticReport } from './runtime/diagnostics-report.js';
 
 const CLIENT_LIMIT = 32;
@@ -107,7 +107,11 @@ export function createDiagnostics(mode: () => 'hosted' | 'browser', persistence?
       res.writeHead(204).end();
     } catch (error) {
       const tooLarge = error instanceof Error && 'code' in error && error.code === BODY_TOO_LARGE_CODE;
-      res.writeHead(tooLarge ? 413 : 400).end('Invalid diagnostic report.');
+      if (tooLarge) {
+        answerAndClose(req, res, 413, {}, 'Invalid diagnostic report.');
+        return;
+      }
+      res.writeHead(400).end('Invalid diagnostic report.');
     }
   };
 }

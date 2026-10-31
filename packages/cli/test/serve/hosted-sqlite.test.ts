@@ -118,6 +118,10 @@ test('the hosted host serves its objects on the byte route and advertises it at 
   expect(await runNodeFixture('byte-route-mount', 30_000)).toBe('Byte route mount passed');
 }, 60_000);
 
+test('the hosted method and repro routes close the connection with an early 413, and answer the next request (#1710)', async () => {
+  expect(await runNodeFixture('method-body-limit', 30_000)).toBe('Hosted method body limit passed');
+}, 60_000);
+
 // Stages and finishes a 256 MiB upload.
 test('a chunked upload stages in one file, finishes by moving it, and keeps host memory flat', async () => {
   expect(await runNodeFixture('upload-staging', 90_000)).toBe('Upload staging passed');

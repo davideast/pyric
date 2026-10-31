@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { handleActivity } from '../../src/serve/activity-route.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 const servers: Server[] = [];
 const ACTIVITY_TOKEN = 'activity-test-token';
@@ -173,6 +174,34 @@ describe('activity route', () => {
     });
     expect(oversized.status).toBe(413);
     expect(incidents).toEqual([]);
+  });
+
+  it('closes the connection with an early 413, and answers the next request (#1710)', async () => {
+    const url = await startActivityServer(() => {});
+    const oversized = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: url, 'x-pyric-activity-token': ACTIVITY_TOKEN },
+      body: JSON.stringify({ ...incident(), padding: 'x'.repeat(1024 * 1024) }),
+    });
+    await expectClosedEarlyAnswer(oversized, 413, url);
+  });
+
+  it('closes the connection when a chunked upload passes the limit, and answers the next request (#1710)', async () => {
+    const url = await startActivityServer(() => {});
+    const padding = new TextEncoder().encode(JSON.stringify({ ...incident(), padding: 'x'.repeat(1024 * 1024) }));
+    // A stream has no content-length, so the route counts bytes as they arrive.
+    const chunked = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(padding);
+        controller.close();
+      },
+    });
+    const oversized = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: url, 'x-pyric-activity-token': ACTIVITY_TOKEN },
+      body: chunked,
+    });
+    await expectClosedEarlyAnswer(oversized, 413, url);
   });
 
 });
