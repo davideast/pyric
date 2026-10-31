@@ -19,6 +19,7 @@ import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { AI_PROXY_BODY_LIMIT_BYTES, aiUpstreamGuardAllowance, fetchAiUpstream, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
 import { NET_GUARD_GLOBAL } from '../../src/register/net-guard.js';
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-aiproxy-'));
@@ -234,8 +235,7 @@ describe('/__pyric/ai-proxy', () => {
       headers: { 'content-type': 'application/json' },
       body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES + 1),
     });
-    expect(res.status).toBe(413);
-    expect(res.headers.get('connection')).toBe('close');
+    await expectClosedEarlyAnswer(res, 413, `${h.url}/__pyric/ai-proxy/chat/completions`);
     expect(seen).toEqual([]);
   });
 

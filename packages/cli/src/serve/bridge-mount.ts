@@ -27,7 +27,7 @@ import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
-import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
+import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { pointerHeldByAnotherHost } from './discovery.js';
 import { boundedFetch } from '../bounded-request.js';
 import { pyricVersion } from './standalone-assets.js';
@@ -418,8 +418,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const repro = await runtime.captureRepro(call.projectDir);
           res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(repro));
         } catch (error) {
+          const body = JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
+          if (isBodyTooLarge(error)) {
+            answerAndClose(req, res, 413, { 'content-type': 'application/json' }, body);
+            return true;
+          }
           res.writeHead(400, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+          res.end(body);
         }
         return true;
       }
@@ -446,12 +451,14 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const result = await runtime.runMethod(call, req.socket);
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
         } catch (error) {
-          const isError = error instanceof Error;
-          const summary = isError ? error.message : String(error);
-          const exceedsBodyLimit = isError && 'code' in error && error.code === BODY_TOO_LARGE_CODE;
-          const status = exceedsBodyLimit ? 413 : 400;
-          res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, summary }));
+          const summary = error instanceof Error ? error.message : String(error);
+          const body = JSON.stringify({ ok: false, summary });
+          if (isBodyTooLarge(error)) {
+            answerAndClose(req, res, 413, { 'content-type': 'application/json' }, body);
+            return true;
+          }
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(body);
         }
         return true;
       }

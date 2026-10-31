@@ -6,6 +6,7 @@ import { createIndexConfigStore } from '../../src/serve/index-config-store.js';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { startStaticServer, silentServeLogger } from '../../src/serve/server.js';
 import { createIndexConfigClient } from '../../src/serve/runtime/index-config-client.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 async function fixture(run: (root: string, serverUrl: string, token: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), 'pyric-index-route-'));
@@ -137,4 +138,14 @@ test('POST /__pyric/indexes returns 400 when previewing an unconfigured service'
   expect(previewRes.status).toBe(400);
   const body = await previewRes.json();
   expect(body.error).toContain('Set firestore.indexes in firebase.json');
+}));
+
+test('an oversized index request is answered 413 with the connection closed, and the next request is answered (#1710)', () => fixture(async (_root, serverUrl, token) => {
+  const endpoint = `${serverUrl}/__pyric/indexes`;
+  const oversized = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'x-pyric-session-token': token, 'content-type': 'application/json' },
+    body: JSON.stringify({ query: {}, padding: 'x'.repeat(1024 * 1024) }),
+  });
+  await expectClosedEarlyAnswer(oversized, 413, endpoint);
 }));
