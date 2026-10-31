@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import { answerAndClose, BODY_TOO_LARGE_CODE, collectBody } from '../bridge/server/peer.js';
+import { answerAndClose, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import type { IndexConfigStore } from './index-config-store.js';
 
 const firestoreQuerySchema = z.object({
@@ -32,10 +32,8 @@ export async function handleIndexConfig(store: IndexConfigStore, req: IncomingMe
     if (req.method === 'PUT' && !input.revision) throw new Error('Preview the index change before applying it.');
     res.end(JSON.stringify(req.method === 'PUT' ? await store.apply(input.query, input.revision!) : await store.preview(input.query)));
   } catch (error) {
-    const isError = error instanceof Error;
-    const body = JSON.stringify({ error: isError ? error.message : 'Unable to read the index configuration.' });
-    const tooLarge = isError && 'code' in error && error.code === BODY_TOO_LARGE_CODE;
-    if (tooLarge) {
+    const body = JSON.stringify({ error: error instanceof Error ? error.message : 'Unable to read the index configuration.' });
+    if (isBodyTooLarge(error)) {
       answerAndClose(req, res, 413, {}, body);
       return true;
     }

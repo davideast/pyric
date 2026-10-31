@@ -449,9 +449,14 @@ export function createConsumerSession(
  *  code lets a route answer 413 instead of treating it as malformed JSON. */
 export const BODY_TOO_LARGE_CODE = 'PYRIC_BODY_TOO_LARGE';
 
+/** Whether `error` is the one {@link collectBody} or {@link collectRawBody} throws past the limit. */
+export function isBodyTooLarge(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === BODY_TOO_LARGE_CODE;
+}
+
 /**
- * Answer a request before its body was read to its end, as a 413 is, and
- * close the connection.
+ * Give a short answer to a request before its body was read to its end, as
+ * a 413 is, and close the connection.
  *
  * The server is still owed the rest of the upload, so a client that reuses
  * the socket would have its next request read as that remainder and answered
@@ -459,9 +464,13 @@ export const BODY_TOO_LARGE_CODE = 'PYRIC_BODY_TOO_LARGE';
  * fresh connection (RFC 9112 §9.6). Node ends the socket after such an
  * answer on its own. Bun's `node:http` server keeps it open while the upload
  * is unread, and Bun's fetch then waits on that socket, so its next request
- * hangs (#1710). Ending the socket once the answer is written sends the same
- * FIN under both. `end` rather than `destroy`: the rest of the upload is still
+ * hangs (#1710). Ending the socket in `res.end`'s callback sends the same FIN
+ * under both. `end` rather than `destroy`: the rest of the upload is still
  * read and discarded, so the client is not reset before it reads the answer.
+ *
+ * The answer must be short. Under Bun, `res.end`'s callback runs before a
+ * large body is flushed, so ending the socket there cuts it off: a 1 MB body
+ * was truncated, while bodies up to 256 KB arrived whole (#1720 review).
  */
 export function answerAndClose(
   req: IncomingMessage,
