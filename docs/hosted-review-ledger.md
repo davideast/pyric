@@ -13,7 +13,7 @@ Reconciled against `main` at `314c234c1`. Each open item was checked four ways: 
 
 Status changes: none. No later work closed any item. All 14 tracked issues are still open, and the only merged pull request that names them is the 2026-10-27 reconciliation, #1390. Commits since then touched three of the named files (`sandbox-backend.ts`, `in-process.ts`, `registry/firestore.ts`) for other reasons, and none changed the behavior an item describes.
 
-The 2026-10-27 list left out two items that were open on 2026-10-17 with no recorded close: C11 and I9b. Both are still open and are added below. Neither has an issue yet.
+The 2026-10-27 list left out two items that were open on 2026-10-17 with no recorded close: C11 and I9b. Both are still open and are added below. Each now has an issue: C11 is #1715 and I9b is #1716.
 
 What is left:
 
@@ -23,13 +23,13 @@ What is left:
 - A11: evaluate a batch `set` under its own method when a later write in the batch deletes the path. #1382
 - A12: carry a skipped document through to the next flush, or state in the warning and the contract that it will be dropped. #1383
 - A13: David rules whether the in-process MCP store skips or fails closed, then the code follows. #1384
-- C11: David decides on each of the three behavior changes. No issue.
+- C11: David decides on each of the three behavior changes. #1715
 - D7: build the per-consumer observation queue that reports a gap instead of closing the socket with 1013. #1385
 - E1: add oracle-backed registry rows for the query refusals and for batch and transaction `not-found` and `already-exists`. #1386
 - F1: run the hosted suites of record and the ledger acceptances in CI. #1053
 - H2: David decides on the `node:sqlite` experimental warning. #1057
 - I6: re-run the persistence baseline at a commit before the backend, and encode its ceilings in the harness. #1052
-- I9b: run `quick_check` in place, or decline I9b with the reason in `archive.ts`. No issue.
+- I9b: run `quick_check` in place, or decline I9b with the reason in `archive.ts`. #1716
 - I17: re-derive the slow-consumer memory ceiling from a frozen baseline and pass it in CI. #1055
 - No ledger letter: the phase 4 multi-client run, #1051, and the persistence contract's memory bounds, #1056.
 
@@ -282,7 +282,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 Each is `declined` or `open` once you decide. Record the decision here.
 
-Reconciled 2026-10-17 at `81b9d9a4`: no decision is recorded for any of the three. For the third, no code under `packages/cli/src/serve` or `packages/cli/src/bridge` ends a dropped client's pending SDK operation activity; only AI streams finish as `cancelled`, on unsubscribe. Left: an owner decision on each bullet. Reconciled 2026-10-30 at `314c234c1`: still open. No decision is recorded. The 2026-10-27 list left C11 out, and it has no issue. For the third bullet, the host now notes `interrupted` for a dropped port in its diagnostics recorder (`hosted/runtime.ts:482`), but that does not give the pending observations a terminal status. `host-ai.ts` still finishes only AI streams as `cancelled`.
+Reconciled 2026-10-17 at `81b9d9a4`: no decision is recorded for any of the three. For the third, no code under `packages/cli/src/serve` or `packages/cli/src/bridge` ends a dropped client's pending SDK operation activity; only AI streams finish as `cancelled`, on unsubscribe. Left: an owner decision on each bullet. Reconciled 2026-10-30 at `314c234c1`: still open. No decision is recorded. The 2026-10-27 list left C11 out. Tracked in #1715. For the third bullet, the host now notes `interrupted` for a dropped port in its diagnostics recorder (`hosted/runtime.ts:482`), but that does not give the pending observations a terminal status. `host-ai.ts` still finishes only AI streams as `cancelled`.
 
 - `auth.setTenantId` no longer retargets a live session (`packages/cli/src/serve/worker/host-auth.ts:305`). The real SDK only affects future sign-ins, so this may be a fix, but no test pins either behavior and listeners opened under the old tenant keep the old claim.
 - The in-page tab-sync fallback no longer propagates sign-in and sign-out across tabs (`packages/cli/src/serve/entries/tab-sync-wiring.ts`). The rewritten tests pin the new behavior. This is a visible change for users of the fallback.
@@ -477,7 +477,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I9. Undo history grows the database without bound
 
-- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19. The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory. Reconciled 2026-10-17 at `81b9d9a4`, I9b is open: `archive.ts` still copies the directory to a temporary directory to run `quick_check`, now leaving out the object files, and its comment gives the reason (opening SQLite can alter sidecars). Left: run it in place, or decline I9b with that reason. Reconciled 2026-10-30 at `314c234c1`: still open. `archive.ts:48` still copies to a temporary directory before `quick_check`. The 2026-10-27 list left I9b out. It has no issue.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19. The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory. Reconciled 2026-10-17 at `81b9d9a4`, I9b is open: `archive.ts` still copies the directory to a temporary directory to run `quick_check`, now leaving out the object files, and its comment gives the reason (opening SQLite can alter sidecars). Left: run it in place, or decline I9b with that reason. Reconciled 2026-10-30 at `314c234c1`: still open. `archive.ts:48` still copies to a temporary directory before `quick_check`. The 2026-10-27 list left I9b out. Tracked in #1716.
 - Location: `packages/cli/src/serve/hosted/persistence/undo.ts:14`, `history.ts:45`, `archive.ts:44`.
 - Defect: every allowed write stores prior and next documents in `history_records` forever; nothing prunes. The history contract admits unbounded disk; the persistence contract does not mention it. `fresh` also copies the whole directory to the temp filesystem to run `quick_check`.
 - Acceptance: a retention bound on `history_records` with a test, the bound stated in the persistence contract, and `quick_check` run in place.
