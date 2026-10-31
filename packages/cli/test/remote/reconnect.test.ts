@@ -494,7 +494,24 @@ describe('close() with an onDisconnect the host has not answered (#1723)', () =>
 
   it('leaves the onDisconnect unsettled on the lazy handle and still rejects the write', async () => {
     const { first, lazy } = await lazyOnHost(answersReadsOnly);
+    cleanups.push(first.stop);
     const { onDisconnect, write } = await unansweredCalls(lazy, first, 1);
+
+    lazy.close();
+    await waitFor(() => write.settled);
+    await Bun.sleep(50);
+
+    expect(errorOf(write)?.message).toContain('closed by the client');
+    expect(onDisconnect.settled).toBe(false);
+    expect(unhandled).toEqual([]);
+  });
+
+  it('leaves an onDisconnect held while the lazy handle reconnects unsettled, and still rejects a held write', async () => {
+    const { lazy, drop } = await lazyOnHost();
+    await drop();
+    void lazy.channel.op({ method: 'rtdb.onDisconnectSet', instance, path: 'status/alice', value: 'offline' });
+    const onDisconnect = track(lazy.channel.op({ method: 'rtdb.onDisconnectRemove', instance, path: 'status/bob' }));
+    const write = track(lazy.rtdb.set('status/alice', 'online'));
 
     lazy.close();
     await waitFor(() => write.settled);

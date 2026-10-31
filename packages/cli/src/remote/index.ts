@@ -139,7 +139,8 @@ export interface ConnectRemoteSandboxOptions {
    * flight by its fate at a drop and hands the caller, as `resend`, the RTDB
    * writes and reads to send again on its next connection; it leaves listeners
    * quiet, so the caller can reconnect and resubscribe them. When absent, the
-   * close rejects every pending op and ends every listener with `unavailable`.
+   * close rejects every pending op except an RTDB onDisconnect, which stays
+   * unsettled, and ends every listener with `unavailable`.
    */
   onConnectionLost?: (reason: string, resend: ReleasedOp[]) => void;
 }
@@ -1482,7 +1483,9 @@ export function createLazyRemoteSandbox(
       closed = true;
       cancelReconnect();
       subscriptions.clear();
-      held.fail(closedByClientError());
+      // An onDisconnect held for the next connection is never sent, and never
+      // settles, as the SDK leaves a queued one after repoInterrupt (#1723).
+      held.close(closedByClientError(), (payload) => fateAtDrop(payload) === 'forget');
       const settled = inner;
       inner = null;
       current = null;
