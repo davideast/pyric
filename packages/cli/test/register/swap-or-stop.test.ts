@@ -111,6 +111,18 @@ describe('stopFor: firebase-admin', () => {
     expect(stopFor(fromApp('file:///work/app/node_modules/firebase-admin/package.json'), allowed)).toBeNull();
   });
 
+  it("lets Node 22 resolve an allowed CommonJS file again by its own path with no importer (#1707)", () => {
+    const allowed = new Set([ADMIN_FILE]);
+    const reload = load({ specifier: '/work/app/node_modules/firebase-admin/lib/app/index.js', url: ADMIN_FILE, importer: undefined, aiMode: 'production' });
+    expect(stopFor(reload, allowed)).toBeNull();
+  });
+
+  it('stops a no-importer load of a firebase-admin file the hook never allowed, or by another specifier', () => {
+    const reload = load({ specifier: '/work/app/node_modules/firebase-admin/lib/app/index.js', url: ADMIN_FILE, importer: undefined, aiMode: 'production' });
+    expect(stopFor(reload, noneAllowed())).not.toBeNull();
+    expect(stopFor({ ...reload, specifier: 'firebase-admin/app' }, new Set([ADMIN_FILE]))).not.toBeNull();
+  });
+
   it('stops a createRequire forge of a firebase-admin importer the hook never allowed', () => {
     const forgedImporter = 'file:///work/app/node_modules/firebase-admin/x.js';
     expect(stopFor(load({ specifier: './lib/app/index.js', url: ADMIN_FILE, importer: forgedImporter }), noneAllowed())).not.toBeNull();
