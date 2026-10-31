@@ -268,7 +268,7 @@ export interface RemoteSandbox extends RemoteSandboxBase {
   readonly storage: RemoteStorage;
   /** Admin auth user CRUD. */
   readonly auth: RemoteAuthAdmin;
-  /** Close the connection. In-flight ops reject; subscriptions stop. */
+  /** Close the connection. In-flight ops reject, except an RTDB onDisconnect, which never settles; subscriptions stop. */
   close(): void;
 }
 
@@ -300,9 +300,9 @@ export interface RemoteSandboxCore {
   /** Resolves on `attach-ack`; rejects when no browser tab is connected. */
   ready: Promise<void>;
   channel: RemoteSandboxChannel;
-  /** Report a transport failure to pending calls and active listeners, as `code` (default `unavailable`). */
+  /** Report a transport failure to pending calls and active listeners, as `code` (default `unavailable`); an onDisconnect stays unsettled. */
   fail(reason: string, code?: string): void;
-  /** Close explicitly; reject pending calls (as `code`, default `unavailable`) and quietly detach listeners. Idempotent. */
+  /** Close explicitly; reject pending calls (as `code`, default `unavailable`) except an onDisconnect, which stays unsettled, and quietly detach listeners. Idempotent. */
   dispose(reason?: string, code?: string): void;
   /**
    * Settle a drop the caller reconnects from: every call in flight meets its
@@ -580,7 +580,11 @@ export function createRemoteSandboxCore(
     const err = remoteError(code, disposed);
     for (const call of pending.values()) {
       clearTimeout(call.timer);
-      call.reject(err);
+      // A sent onDisconnect never settles, as on a drop: @firebase/database
+      // ends a closed connection through repoInterrupt, which clears its
+      // request callbacks. The presence sample leaves it without a handler.
+      const isForgotten = fateAtDrop(call.payload) === 'forget';
+      if (!isForgotten) call.reject(err);
     }
     pending.clear();
     subs.clear();

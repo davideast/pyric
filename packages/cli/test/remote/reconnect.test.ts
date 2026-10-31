@@ -454,6 +454,71 @@ describe('remoteSandbox calls across a host restart (#1107)', () => {
 /** A heartbeat short enough for a test: ping every 50 ms, 300 ms of silence is a drop. */
 const fastHeartbeat = { intervalMs: 50, timeoutMs: 300 };
 
+// #1723: @firebase/database 1.1.3 ends a closed connection through
+// repoInterrupt, which clears its request callbacks, so a sent onDisconnect
+// never settles. The presence sample leaves that promise without a handler,
+// so rejecting it on close ended a Node process on an unhandled rejection.
+describe('close() with an onDisconnect the host has not answered (#1723)', () => {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown): void => { unhandled.push(reason); };
+  beforeEach(() => {
+    unhandled.length = 0;
+    process.on('unhandledRejection', record);
+  });
+  afterEach(() => { process.off('unhandledRejection', record); });
+
+  const answersReadsOnly = (method: string): boolean => method === 'rtdb.get';
+
+  /** Issues a bare onDisconnect, as the presence sample does, and a write; the host answers neither. */
+  async function unansweredCalls(remote: RemoteSandbox, host: { ops: string[] }, opsBefore: number) {
+    const onDisconnect = track(remote.channel.op({ method: 'rtdb.onDisconnectSet', instance, path: 'status/alice', value: 'offline' }));
+    const write = track(remote.rtdb.set('status/alice', 'online'));
+    await waitFor(() => host.ops.length === opsBefore + 2);
+    return { onDisconnect, write };
+  }
+
+  it('leaves the onDisconnect unsettled on the eager handle and still rejects the write', async () => {
+    const host = await startFakeHost(0, 'first', answersReadsOnly);
+    cleanups.push(host.stop);
+    const remote = await connectRemoteSandbox({ url: `http://127.0.0.1:${host.port}` });
+    const { onDisconnect, write } = await unansweredCalls(remote, host, 0);
+
+    remote.close();
+    await waitFor(() => write.settled);
+    await Bun.sleep(50);
+
+    expect(errorOf(write)?.message).toContain('closed by the client');
+    expect(onDisconnect.settled).toBe(false);
+    expect(unhandled).toEqual([]);
+  });
+
+  it('leaves the onDisconnect unsettled on the lazy handle and still rejects the write', async () => {
+    const { first, lazy } = await lazyOnHost(answersReadsOnly);
+    const { onDisconnect, write } = await unansweredCalls(lazy, first, 1);
+
+    lazy.close();
+    await waitFor(() => write.settled);
+    await Bun.sleep(50);
+
+    expect(errorOf(write)?.message).toContain('closed by the client');
+    expect(onDisconnect.settled).toBe(false);
+    expect(unhandled).toEqual([]);
+  });
+
+  it('leaves a bare onDisconnect without an unhandled rejection', async () => {
+    const host = await startFakeHost(0, 'first', answersReadsOnly);
+    cleanups.push(host.stop);
+    const remote = await connectRemoteSandbox({ url: `http://127.0.0.1:${host.port}` });
+    void remote.channel.op({ method: 'rtdb.onDisconnectSet', instance, path: 'status/alice', value: 'offline' });
+    await waitFor(() => host.ops.length === 1);
+
+    remote.close();
+    await Bun.sleep(50);
+
+    expect(unhandled).toEqual([]);
+  });
+});
+
 describe('remoteSandbox when its host stops answering without closing the socket (#973)', () => {
   beforeEach(() => setHeartbeatForTesting(fastHeartbeat));
   afterEach(() => setHeartbeatForTesting(undefined));
