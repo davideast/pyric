@@ -54,6 +54,25 @@ function describeOpenAiModel(model: string | undefined): string {
   return `model ${sanitizeForTerminal(model)}`;
 }
 
+/**
+ * The Gemini key name Pyric does not read: by default Vite serves `VITE_` variables
+ * to the browser, so a key there would reach the page (#1632).
+ */
+const IGNORED_GEMINI_KEY = 'VITE_GEMINI_API_KEY';
+
+/**
+ * Why there is no key, when the only Gemini key in the environment is one
+ * Pyric ignores, or `null`. People moving a key out of `VITE_GEMINI_API_KEY`
+ * see from the banner why it no longer counts (#1659). Never the value.
+ */
+function ignoredGeminiKeyNote(): string | null {
+  if (hasGeminiStaticKey(undefined)) return null;
+  const value = process.env[IGNORED_GEMINI_KEY];
+  const holdsKey = value !== undefined && value.trim() !== '';
+  if (!holdsKey) return null;
+  return `${IGNORED_GEMINI_KEY} is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY`;
+}
+
 /** Mark + body for one AI status line, in both terminal flavors. */
 function describeAiStatus(status: AiStartupStatus): { mark: string; body: string } {
   const upstream = resolveAiProxyUpstream(status.proxyUpstream);
@@ -72,13 +91,15 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     };
   }
   const engine = status.engine;
+  const ignoredKeyNote = ignoredGeminiKeyNote();
   if (engine === undefined) {
     // Visible absence, the `• rules    no firestore.rules ...` idiom: AI
-    // silence used to be indistinguishable from AI-not-wired-up.
-    return {
-      mark: '•',
-      body: `no engine configured; the served page's getAI() picks one; ${proxyChain}`,
-    };
+    // silence used to be indistinguishable from AI-not-wired-up. The page
+    // can still pick gemini, whose key this server attaches, so an ignored
+    // key is named here too.
+    let body = `no engine configured; the served page's getAI() picks one; ${proxyChain}`;
+    if (ignoredKeyNote !== null) body = `${body}; ${ignoredKeyNote}`;
+    return { mark: '•', body };
   }
   if (engine.kind === 'openai') {
     const model = describeOpenAiModel(engine.model);
@@ -95,6 +116,7 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     // `.env` (`loadViteAiEnv`) before this prints.
     const hasKey = hasGeminiStaticKey(engine.apiKey);
     let key = 'no API key; set GEMINI_API_KEY';
+    if (ignoredKeyNote !== null) key = `no API key; ${ignoredKeyNote}`;
     if (hasKey) key = 'API key set';
     let endpoint = GEMINI_DEFAULT_BASE_URL;
     if (engine.baseUrl !== undefined) endpoint = redactUrl(engine.baseUrl);
