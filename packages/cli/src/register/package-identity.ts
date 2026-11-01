@@ -61,6 +61,15 @@ function nameFromDirectory(directory: string): string | null {
   return name;
 }
 
+/**
+ * The package `<directory>/package.json` names, or `null` when it names none,
+ * without looking further up. `withPyric` reads each installed package's own
+ * name this way (#1626), so a nameless manifest never takes a parent's name.
+ */
+export function manifestNameAt(directory: string): string | null {
+  return manifestName(directory);
+}
+
 /** The package a resolved module URL belongs to, or `null` for a URL outside any named package. */
 export function packageNameOf(url: string): string | null {
   const isFileUrl = url.startsWith('file:');

@@ -70,6 +70,15 @@ function sdkFamilyOf(name: string | null): SdkFamily | null {
   return isClientPackage ? 'client' : null;
 }
 
+/**
+ * Whether a `package.json` `name` is a Firebase SDK this hook stops when the
+ * swap does not choose it. `withPyric` keeps every such dependency external,
+ * however the app names it, so Node resolves it here (#1626).
+ */
+export function isFirebaseSdkName(name: string | null): boolean {
+  return sdkFamilyOf(name) !== null;
+}
+
 function isInstalledFile(url: string): boolean {
   return url.startsWith('file:') && url.includes('/node_modules/');
 }
