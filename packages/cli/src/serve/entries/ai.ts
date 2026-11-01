@@ -40,6 +40,19 @@ import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../wo
 import { AI_PROXY_PATH, browserGeminiEngine } from '../worker/ai-proxy-paths.js';
 import { useWorker } from './worker-runtime.js';
 import { workerClientForApp } from './app-client.js';
+import { sandbox } from './app-backend.js';
+import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
+
+// An in-page sandbox runs its own AI broker, so its `request_rejected`,
+// `response_blocked`, and `model_substituted` events need a relay to reach
+// the dev server terminal. The worker and hosted planes relay from their own
+// broker. This entry is the only one that runs the in-page broker, so the
+// relay is installed here, once per page, whatever other services the page
+// imports (#1638). It needs no capability token: the denial relay it rides
+// carries none.
+if (!useWorker) {
+  setupAiDiagnosticsRelay({ subscribe: (listener) => sandbox.onEvent(listener) }, fetch);
+}
 
 // ── Mirror surface — path-independent (the mirror always runs in-page) ────
 export {
