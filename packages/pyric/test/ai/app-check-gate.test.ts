@@ -24,7 +24,7 @@ import { AiBroker } from '../../src/ai/broker/broker.js';
 import { AiBrokerError, errorEnvelope } from '../../src/ai/broker/synthesizer.js';
 import type { AnswerEngine } from '../../src/ai/broker/types.js';
 import { createTransportAI } from '../../src/ai/internal.js';
-import { APP_CHECK_HINT } from '../../src/ai/app-check-gate.js';
+import { APP_CHECK_HINT, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
 import { mintAppCheckToken, signAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
@@ -105,8 +105,54 @@ describe('ai#sandbox-app-check-required', () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     await rejection(model.generateContent('one'));
     await rejection(model.generateContent('two'));
-    const hints = warn.mock.calls.filter((call: unknown[]) => String(call[0]).includes(APP_CHECK_HINT));
+    const hints = warn.mock.calls.filter((call: unknown[]) => String(call[0]).includes(APP_CHECK_SERVER_HINT));
     expect(hints).toHaveLength(1);
+  });
+
+  it('a server process gets guidance it can follow: the debug token on globalThis beside a CustomProvider, then a minted token (#1639)', async () => {
+    const scope = globalThis as { document?: unknown; WorkerGlobalScope?: unknown };
+    expect(typeof scope.document).toBe('undefined');
+    expect(typeof scope.WorkerGlobalScope).toBe('undefined');
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
+    expect(logged).toContain(`[pyric/ai] ${APP_CHECK_SERVER_HINT}`);
+    const debugStep = logged.indexOf('set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true');
+    const providerStep = logged.indexOf('new CustomProvider({ getToken })');
+    const mintedStep = logged.indexOf("getAppCheck().createToken(appId)");
+    expect(debugStep).toBeGreaterThan(-1);
+    expect(providerStep).toBeGreaterThan(debugStep);
+    expect(mintedStep).toBeGreaterThan(providerStep);
+    expect(logged).toContain('expireTimeMillis: Date.now() + ttlMillis');
+    expect(logged).not.toContain('self.');
+    expect(logged).not.toContain(APP_CHECK_HINT);
+  });
+
+  it('a worker realm, which has WorkerGlobalScope and no document, gets the browser guidance', async () => {
+    const scope = globalThis as { WorkerGlobalScope?: unknown };
+    scope.WorkerGlobalScope = class WorkerGlobalScope {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+      expect(logged.join('\n')).not.toContain(APP_CHECK_SERVER_HINT);
+    } finally {
+      delete scope.WorkerGlobalScope;
+    }
+  });
+
+  it('a page, which has a document, gets the browser guidance', async () => {
+    const scope = globalThis as { document?: unknown };
+    scope.document = {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+    } finally {
+      delete scope.document;
+    }
   });
 
   it('initializeAppCheck then getAI answers', async () => {
