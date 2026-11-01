@@ -294,6 +294,15 @@ export default scenario(async (app) => {
       app.writeFile('.env', `VITE_GEMINI_API_KEY=${SERVER_KEY}\n`);
       assertRefusedViteKey(await viteRun(app, await app.freePort(), { GEMINI_STAND_IN_URL: standIn.url }));
     });
+
+    // `pyric sandbox` serves no `import.meta.env` and does not read the
+    // variable either, so its banner names it as ignored (#1659).
+    await app.step('pyric sandbox with only VITE_GEMINI_API_KEY set: the banner names it as ignored and says to rename it', async () => {
+      app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: '.' } })}\n`);
+      const sandbox = await app.sandboxServer({ env: { VITE_GEMINI_API_KEY: SERVER_KEY } });
+      await sandbox.process.waitForLog(/ai {7}.*VITE_GEMINI_API_KEY is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY/);
+      assert.ok(!sandbox.process.output.includes(SERVER_KEY), 'the banner never prints the key');
+    });
   } finally {
     standIn.server.close();
   }

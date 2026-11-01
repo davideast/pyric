@@ -22,6 +22,8 @@ const PACKAGES: ReadonlyArray<readonly [segment: string, name: string]> = [
   ['/node_modules/@firebase/firestore/', '@firebase/firestore'],
   ['/node_modules/@firebase/ai/', '@firebase/ai'],
   ['/node_modules/@firebase/util/', '@firebase/util'],
+  ['/node_modules/@firebase/app/', '@firebase/app'],
+  ['/node_modules/@firebase/app-check/', '@firebase/app-check'],
   ['/node_modules/@firebase/auth/', '@firebase/auth'],
   ['/node_modules/firebase-functions/', 'firebase-functions'],
   ['/node_modules/next/', 'next'],
@@ -55,6 +57,9 @@ const FIREBASE_APP_CHECK_FILE = 'file:///work/app/node_modules/firebase/app-chec
 const FIREBASE_FIRESTORE_FILE = 'file:///work/app/node_modules/firebase/firestore/dist/index.mjs';
 const AT_FIRESTORE_FILE = 'file:///work/app/node_modules/@firebase/firestore/dist/index.node.mjs';
 const AT_AI_FILE = 'file:///work/app/node_modules/@firebase/ai/dist/index.node.mjs';
+const AT_APP_FILE = 'file:///work/app/node_modules/@firebase/app/dist/esm/index.esm.js';
+const AT_APP_CHECK_FILE = 'file:///work/app/node_modules/@firebase/app-check/dist/esm/index.esm.js';
+const AT_UTIL_FILE = 'file:///work/app/node_modules/@firebase/util/dist/node-esm/index.node.esm.js';
 
 describe('stopFor: firebase-admin', () => {
   it('stops the real firebase-admin from app code, naming the import, the importer, the file and the fix', () => {
@@ -175,12 +180,31 @@ describe('stopFor: the client SDK', () => {
     expect(stopFor(load({ specifier: 'firebase/app', url: FIREBASE_APP_FILE, importer: SHADOW_IMPORTER }), noneAllowed())).toBeNull();
   });
 
-  it('lets production AI mode load the real AI SDK and its packages from any importer, such as a server runner', () => {
+  it("lets production AI mode load the firebase package's ai, app and app-check files from any importer, such as a server runner", () => {
     const vite = 'file:///work/app/node_modules/vite/dist/node/module-runner.js';
-    for (const url of [FIREBASE_AI_FILE, FIREBASE_APP_FILE, FIREBASE_APP_CHECK_FILE, AT_AI_FILE]) {
+    for (const url of [FIREBASE_AI_FILE, FIREBASE_APP_FILE, FIREBASE_APP_CHECK_FILE]) {
       expect(stopFor(load({ url, aiMode: 'production', importer: vite }), noneAllowed())).toBeNull();
     }
-    expect(stopFor(load({ url: 'file:///work/app/node_modules/@firebase/util/dist/index.mjs', aiMode: 'production' }), noneAllowed())).toBeNull();
+  });
+
+  it('stops app code importing the @firebase/* packages firebase/ai needs, in production AI mode too (#1635)', () => {
+    const vite = 'file:///work/app/node_modules/vite/dist/node/module-runner.js';
+    const direct = [AT_AI_FILE, AT_APP_FILE, AT_APP_CHECK_FILE, AT_UTIL_FILE];
+    for (const url of direct) {
+      expect(stopFor(load({ specifier: '@firebase/x', url, aiMode: 'production' }), noneAllowed())).not.toBeNull();
+      expect(stopFor(load({ specifier: '@firebase/x', url, aiMode: 'production', importer: vite }), noneAllowed())).not.toBeNull();
+      expect(stopFor(load({ specifier: '@firebase/x', url, aiMode: 'production', importer: undefined }), noneAllowed())).not.toBeNull();
+    }
+  });
+
+  it('still stops app code importing @firebase/* after firebase/ai loaded the same files (#1635)', () => {
+    const allowed = noneAllowed();
+    expect(stopFor(load({ specifier: 'firebase/ai', url: FIREBASE_AI_FILE, aiMode: 'production' }), allowed)).toBeNull();
+    expect(stopFor(load({ specifier: '@firebase/ai', url: AT_AI_FILE, importer: FIREBASE_AI_FILE, aiMode: 'production' }), allowed)).toBeNull();
+    expect(stopFor(load({ specifier: '@firebase/app-check', url: AT_APP_CHECK_FILE, importer: AT_AI_FILE, aiMode: 'production' }), allowed)).toBeNull();
+    for (const url of [AT_AI_FILE, AT_APP_CHECK_FILE]) {
+      expect(stopFor(load({ specifier: '@firebase/x', url, aiMode: 'production' }), allowed)).not.toBeNull();
+    }
   });
 
   it('stops the rest of the firebase package in production AI mode, by alias or by absolute path', () => {
