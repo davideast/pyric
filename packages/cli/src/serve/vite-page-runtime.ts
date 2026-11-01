@@ -1,5 +1,5 @@
 import { REACT_BOOTSTRAP } from './react-bootstrap.js';
-import type { ConfigEnv, UserConfig } from 'vite';
+import type { ConfigEnv, ResolvedConfig, UserConfig } from 'vite';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import {
   loadViteAiEnv,
@@ -26,6 +26,7 @@ export interface VitePageRuntimeOptions {
 export interface VitePageRuntime {
   applies(env: ConfigEnv): boolean;
   config(config: UserConfig, env: ConfigEnv): UserConfig;
+  configResolved(resolved: Pick<ResolvedConfig, 'envPrefix'>): void;
   ai(): ResolvedViteAiConfig;
   buildStart(emitFile: (chunk: { type: 'chunk'; id: string; name: string }) => string): void;
   generateBundle(getFileName: (referenceId: string) => string): void;
@@ -65,6 +66,8 @@ export function createVitePageRuntime(input: {
   let sandboxBuild = false;
   let initChunkRef: string | undefined;
   let initChunkFile: string | undefined;
+  /** The dev server's loaded env, kept for the key refusal once `envPrefix` is resolved. */
+  let devServerEnv: Record<string, string> | undefined;
 
   return {
     applies(env) {
@@ -77,12 +80,18 @@ export function createVitePageRuntime(input: {
       // output and `vite preview`, which serves it, never held the key. The
       // same condition as `isDevServer` in `vite-plugin.ts`.
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
-      if (isDevServer) refuseBrowserServedGeminiKey(loadedEnv);
+      devServerEnv = isDevServer ? loadedEnv : undefined;
       resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
       // The Vite dev server is the process `pyric sandbox` guards, and it
       // dials these destinations itself, so its guard must permit them.
       permitAiUpstreams(resolvedAi);
       return sandboxBuild ? { build: { target: 'esnext' } } : {};
+    },
+    configResolved(resolved) {
+      // After every plugin's `config` hook, so this is the `envPrefix` Vite
+      // serves `import.meta.env` by (#1659).
+      if (devServerEnv === undefined) return;
+      refuseBrowserServedGeminiKey(devServerEnv, resolved.envPrefix);
     },
     ai() {
       return resolvedAi;
