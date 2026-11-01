@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "admin-alias": "npm:firebase-admin@13.6.0",
     "firebase": "12.12.0",
     "firebase-admin": "13.6.0",
     "next": "16.4.3",
