@@ -6,9 +6,10 @@
  * credentials. The dev server sends it on with the gemini engine's own
  * request code (`GeminiUpstream` from `pyric/ai/internal`): the key from the
  * server's environment or ADC, to the server's configured base URL. A
- * successful answer streams back unchanged. An error comes back with its
- * status and with any credential it quotes masked, so the browser engine
- * reads Gemini's own error and never the key. The body is bounded as the
+ * successful answer streams back unchanged, except an error event inside a
+ * stream, which has any credential it quotes masked (#1660). An error comes
+ * back with its status and with any credential it quotes masked, so the
+ * browser engine reads Gemini's own error and never the key. The body is bounded as the
  * openai route's is.
  *
  * The browser chooses only the model and the call. The target and the
@@ -87,6 +88,63 @@ async function relayRedactedError(upstream: Response, credentials: readonly stri
   res.end(text);
 }
 
+/** Does this SSE `data:` payload hold an error event, `{"error": ...}`? */
+function isErrorEvent(data: string): boolean {
+  try {
+    const value = JSON.parse(data) as unknown;
+    return value !== null && typeof value === 'object' && 'error' in value;
+  } catch {
+    return false;
+  }
+}
+
+/** One SSE line, with an error event's data masked; any other line as it came. */
+function maskDataLine(line: string, credentials: readonly string[]): string {
+  const prefix = /^data: ?/.exec(line)?.[0];
+  if (prefix === undefined) return line;
+  const carriageReturn = line.endsWith('\r') ? '\r' : '';
+  const data = line.slice(prefix.length, line.length - carriageReturn.length);
+  if (!isErrorEvent(data)) return line;
+  return `${prefix}${redactUpstreamError(data, credentials)}${carriageReturn}`;
+}
+
+/**
+ * A 2xx stream with every error event's credentials masked, as the gemini
+ * engine masks the same event (#1660). Lines pass on as soon as they are
+ * complete; only a partial line waits for the rest.
+ */
+function maskStreamErrors(body: ReadableStream<Uint8Array>, credentials: readonly string[]): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let pending = '';
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(bytes, controller) {
+      // Only the new text is searched, so one long line over many reads stays linear.
+      const arrived = decoder.decode(bytes, { stream: true });
+      const lastNewline = arrived.lastIndexOf('\n');
+      const completesNoLine = lastNewline === -1;
+      if (completesNoLine) {
+        pending += arrived;
+        return;
+      }
+      const lines = (pending + arrived.slice(0, lastNewline)).split('\n');
+      pending = arrived.slice(lastNewline + 1);
+      controller.enqueue(encoder.encode(lines.map((line) => `${maskDataLine(line, credentials)}\n`).join('')));
+    },
+    flush(controller) {
+      pending += decoder.decode();
+      if (pending !== '') controller.enqueue(encoder.encode(maskDataLine(pending, credentials)));
+    },
+  }));
+}
+
+/** The upstream's 2xx answer, a stream's error events masked whatever content type it names. */
+function maskedSuccess(response: Response, action: string, credentials: readonly string[]): Response {
+  const isStream = action.startsWith('streamGenerateContent') && response.body !== null;
+  if (!isStream) return response;
+  return new Response(maskStreamErrors(response.body, credentials), { status: response.status, headers: response.headers });
+}
+
 /**
  * The gemini proxy handler. One `GeminiUpstream` serves every request, so an
  * ADC token is looked up once and reused, as the engine itself does.
@@ -132,7 +190,7 @@ export function createGeminiProxy(
       return;
     }
     if (response.ok) {
-      await relayAiUpstream(response, res);
+      await relayAiUpstream(maskedSuccess(response, call.action, credentials), res);
       return;
     }
     await relayRedactedError(response, credentials, res);

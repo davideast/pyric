@@ -41,3 +41,21 @@ window.runGeminiError = async (tag, modelName = "gemini-echo-url") => {
   const model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), { model: modelName });
   return outcome(async () => (await model.generateContent("Say hi")).response.text());
 };
+
+// A model the scenario's stand-in answers with a 200 stream that carries an
+// error event mid-response, quoting the key (#1660). The page reports every
+// chunk it iterates and how the aggregate settles, so the scenario can look
+// for the key in what the app sees.
+window.runGeminiStreamError = async (tag) => {
+  const app = initializeApp(options, tag);
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider("site-key"), isTokenAutoRefreshEnabled: true });
+  const model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), { model: "gemini-stream-error" });
+  const chunks = [];
+  const settled = await outcome(async () => {
+    const result = await model.generateContentStream("Say hi");
+    for await (const chunk of result.stream) chunks.push(JSON.stringify(chunk));
+    return JSON.stringify(await result.response);
+  });
+  return { chunks, settled };
+};
