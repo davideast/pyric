@@ -43,7 +43,18 @@ const ALLOWED_EDGES: readonly string[] = [
 
 const RULES_ROOT = resolve(import.meta.dir, '../../src/rules');
 
-/** Every module specifier a file names: imports, re-exports, `import()`, import types and `require`. */
+/**
+ * Marks a statement the guard cannot place, so it fails closed: an `import()`
+ * or `require` whose argument is not a literal string, or a `declare module`
+ * for a relative path, which augments a module elsewhere in the tree.
+ */
+const UNPLACEABLE = '<unplaceable>';
+
+/**
+ * Every module specifier a file names: imports, re-exports, `import()`, import
+ * types, `require`, `import x = require()` and `declare module`. A statement
+ * the guard cannot place is returned as `<unplaceable> <what it is>`.
+ */
 function moduleSpecifiers(file: string): string[] {
   const sourceFile = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const specifiers: string[] = [];
@@ -51,14 +62,20 @@ function moduleSpecifiers(file: string): string[] {
     if (node !== undefined && ts.isStringLiteralLike(node)) specifiers.push(node.text);
   };
   const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+    if (ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name)) {
+      const isRelative = node.name.text.startsWith('.');
+      specifiers.push(isRelative ? `${UNPLACEABLE} declare module '${node.name.text}'` : node.name.text);
+    } else if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       addString(node.moduleSpecifier);
     } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       addString(node.moduleReference.expression);
     } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
       addString(node.argument.literal);
     } else if (ts.isCallExpression(node) && isImportOrRequire(node.expression)) {
-      addString(node.arguments[0]);
+      const argument = node.arguments[0];
+      const isLiteral = argument !== undefined && ts.isStringLiteralLike(argument);
+      if (isLiteral) addString(argument);
+      else specifiers.push(`${UNPLACEABLE} ${node.expression.getText(sourceFile)}(${argument?.getText(sourceFile) ?? ''})`);
     }
     ts.forEachChild(node, visit);
   };
@@ -72,14 +89,18 @@ function isImportOrRequire(callee: ts.Expression): boolean {
   return isDynamicImport || isRequire;
 }
 
+/** The workspace's own packages, which sit above the engine. */
+const PYRIC_PACKAGES = ['pyric', 'pyric-admin', 'create-pyric'];
+
 /** Pyric itself under any name: a self-import reaches outside the engine whatever subpath it names. */
 function isPyricPackage(specifier: string): boolean {
-  const isPyric = specifier === 'pyric' || specifier.startsWith('pyric/');
+  const isUnscoped = PYRIC_PACKAGES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
   const isScoped = specifier.startsWith('@pyric/');
-  return isPyric || isScoped;
+  return isUnscoped || isScoped;
 }
 
 function leavesRoot(root: string, file: string, specifier: string): boolean {
+  if (specifier.startsWith(UNPLACEABLE)) return true;
   const isRelative = specifier.startsWith('./') || specifier.startsWith('../');
   if (!isRelative) return isPyricPackage(specifier);
   const target = relative(root, resolve(dirname(file), specifier));
@@ -167,7 +188,8 @@ describe('the boundary guard on a fixture tree', () => {
       "export const later = () => import('@pyric/cli');",
     ].join('\n'));
     const allowed = ['allowed.ts -> ../sandbox/internal/tool-handler.js'];
-    expect(compareToAllowlist(boundaryEdges(root), allowed)).toEqual({
+    const edges = boundaryEdges(root).filter((edge) => edge.startsWith('nested/') || edge.startsWith('allowed.ts'));
+    expect(compareToAllowlist(edges, allowed)).toEqual({
       added: [
         'nested/deep/new-edge.ts -> ../../../database/replay.js',
         'nested/deep/new-edge.ts -> ../../../sandbox/sandbox-context.js',
@@ -176,6 +198,31 @@ describe('the boundary guard on a fixture tree', () => {
       ],
       stale: [],
     });
+  });
+
+  test('counts require, import-equals and export-star edges, and fails closed on what it cannot place', () => {
+    write('forms/edges.ts', [
+      "const sandbox = require('../../sandbox/index.js');",
+      "import admin = require('pyric-admin');",
+      "export * from '../../database/replay.js';",
+      "export * as scaffold from 'create-pyric/templates';",
+      "const name = './grammar/a.js';",
+      "export const dynamic = () => import(name);",
+      "export const built = () => require(`../${name}`);",
+      "declare module './grammar/a.js' { interface A { extra: true } }",
+      "declare module 'ohm-js' { interface Grammar { extra: true } }",
+      "import inside = require('../engine.js');",
+    ].join('\n'));
+    const edges = boundaryEdges(root).filter((edge) => edge.startsWith('forms/'));
+    expect(edges).toEqual([
+      'forms/edges.ts -> ../../database/replay.js',
+      'forms/edges.ts -> ../../sandbox/index.js',
+      "forms/edges.ts -> <unplaceable> declare module './grammar/a.js'",
+      'forms/edges.ts -> <unplaceable> import(name)',
+      'forms/edges.ts -> <unplaceable> require(`../${name}`)',
+      'forms/edges.ts -> create-pyric/templates',
+      'forms/edges.ts -> pyric-admin',
+    ]);
   });
 
   test('fails on an allowlist entry whose import is gone', () => {

@@ -29,6 +29,10 @@ describe('parseLog', () => {
     ]);
   });
 
+  test('keeps a path exactly as git wrote it, apart from the newline after the header', () => {
+    expect(parseLog('\x1eaaa\x1f2026-10-28\x1ffix: spaces\0\n packages/odd name.ts \0')[0]?.paths).toEqual([' packages/odd name.ts ']);
+  });
+
   test('reads empty output as no commits and rejects a truncated header', () => {
     expect(parseLog('')).toEqual([]);
     expect(() => parseLog('\x1eaaa\x1f2026-10-28\0\npath\0')).toThrow('incomplete log record');
@@ -77,7 +81,7 @@ describe('measure and formatReport', () => {
     commit('e'.repeat(40), ['packages/pyric/src/rules/e.ts']),
     commit('f'.repeat(40), ['packages/pyric/src/rules/f.ts']),
   ];
-  const window = { ref: 'origin/main', head: '1'.repeat(40), since: '2026-10-01T00:00:00', until: '2026-10-30T23:59:59' };
+  const reportWindow = { ref: 'origin/main', head: '1'.repeat(40), since: '2026-10-01T00:00:00', until: '2026-10-30T23:59:59' };
 
   test('counts a commit as crossing when any path is outside, and keeps only those paths', () => {
     const result = measure(commits);
@@ -88,8 +92,8 @@ describe('measure and formatReport', () => {
   });
 
   test('prints the figure, the verdict and each crossing commit with its paths', () => {
-    expect(formatReport(measure(commits), window)).toContain([
-      '1 of 6 commits (17%) also touch paths outside the boundary.',
+    expect(formatReport(measure(commits), reportWindow)).toContain([
+      '1 of 6 commits (16.7%) also touch paths outside the boundary.',
       'The test is fewer than 1 in 5: this window meets the split test.',
       '',
       'bbbbbbbbb 2026-10-28 subject bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
@@ -100,10 +104,10 @@ describe('measure and formatReport', () => {
 
   test('fails the test at exactly 1 in 5 and on an empty window', () => {
     const atThreshold = measure(commits.slice(1));
-    expect(formatReport(atThreshold, window)).toContain('1 of 5 commits (20%) also touch');
-    expect(formatReport(atThreshold, window)).toContain('this window does not meet the split test');
-    expect(formatReport(measure([]), window)).toContain('0 of 0 commits (0%)');
-    expect(formatReport(measure([]), window)).toContain('this window does not meet the split test');
+    expect(formatReport(atThreshold, reportWindow)).toContain('1 of 5 commits (20.0%) also touch');
+    expect(formatReport(atThreshold, reportWindow)).toContain('this window does not meet the split test');
+    expect(formatReport(measure([]), reportWindow)).toContain('0 of 0 commits (0.0%)');
+    expect(formatReport(measure([]), reportWindow)).toContain('this window does not meet the split test');
   });
 });
 
@@ -130,6 +134,7 @@ describe('the report against a real repository', () => {
 
   git(['init', '-q', '-b', 'main']);
   commitFiles('chore: seed', { 'packages/pyric/src/rules/a.ts': '1', 'packages/pyric/src/sandbox/s.ts': '1' }, '2026-09-01T12:00:00Z');
+  commitFiles('fix(rules): early on the first day in UTC', { 'packages/pyric/src/rules/a.ts': '1b' }, '2026-10-01T03:00:00Z');
   commitFiles('fix(rules): inside only', { 'packages/pyric/src/rules/a.ts': '2', 'packages/pyric/test/rules/a.test.ts': '2' }, '2026-10-10T12:00:00Z');
   commitFiles('fix(rules): crosses into sandbox', { 'packages/pyric/src/rules/a.ts': '3', 'packages/pyric/src/sandbox/s.ts': '3' }, '2026-10-12T12:00:00Z');
   commitFiles('fix(sandbox): outside only', { 'packages/pyric/src/sandbox/s.ts': '4' }, '2026-10-13T12:00:00Z');
@@ -141,31 +146,31 @@ describe('the report against a real repository', () => {
   commitFiles('fix(rules): after the window', { 'packages/pyric/src/rules/a.ts': '5', 'packages/cli/c.ts': '5' }, '2026-11-20T12:00:00Z');
 
   test('counts non-merge commits in the window that touch the engine, with both sides of a rename', () => {
-    const window = resolveWindow(['--ref=main', '--since=2026-10-01', '--until=2026-10-31'], repo);
-    const result = measure(readCommits(window, repo));
-    expect(result.total).toBe(3);
+    const reportWindow = resolveWindow(['--ref=main', '--since=2026-10-01', '--until=2026-10-31'], repo);
+    const result = measure(readCommits(reportWindow, repo));
+    expect(result.total).toBe(4);
     expect(result.crossings.map(({ commit: { subject }, outside }) => ({ subject, outside }))).toEqual([
       { subject: 'refactor: move s into rules', outside: ['packages/pyric/src/sandbox/s.ts'] },
       { subject: 'fix(rules): crosses into sandbox', outside: ['packages/pyric/src/sandbox/s.ts'] },
     ]);
   });
 
-  test('runs from the command line and prints the report', () => {
+  test('runs from the command line and reads bare dates in UTC whatever the local timezone', () => {
     const script = resolve(import.meta.dir, 'rules-boundary-report.ts');
     const output = execFileSync(process.execPath, [script, '--ref=main', '--since=2026-10-01', '--until=2026-10-31'], {
       cwd: repo,
       encoding: 'utf8',
-      env,
+      env: { ...env, TZ: 'America/Los_Angeles' },
     });
     expect(output).toContain('Rules boundary report: main at ');
-    expect(output).toContain('Window: 2026-10-01T00:00:00 to 2026-10-31T23:59:59');
-    expect(output).toContain('2 of 3 commits (67%) also touch paths outside the boundary.');
+    expect(output).toContain('Window: 2026-10-01T00:00:00Z to 2026-10-31T23:59:59Z');
+    expect(output).toContain('2 of 4 commits (50.0%) also touch paths outside the boundary.');
     expect(output).toContain('fix(rules): crosses into sandbox\n  packages/pyric/src/sandbox/s.ts\n');
   });
 
   test('defaults to the last 30 days and rejects a bad --days', () => {
-    const window = resolveWindow(['--ref=main'], repo, new Date('2026-10-31T12:00:00Z'));
-    expect({ since: window.since, until: window.until }).toEqual({ since: '2026-10-01T12:00:00Z', until: '2026-10-31T12:00:00Z' });
+    const reportWindow = resolveWindow(['--ref=main'], repo, new Date('2026-10-31T12:00:00Z'));
+    expect({ since: reportWindow.since, until: reportWindow.until }).toEqual({ since: '2026-10-01T12:00:00Z', until: '2026-10-31T12:00:00Z' });
     expect(() => resolveWindow(['--ref=main', '--days=0'], repo)).toThrow('--days must be a positive whole number');
   });
 });
