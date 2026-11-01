@@ -14,6 +14,7 @@ import type {
   ResolvedIdentity,
   OpMessage,
 } from '../protocol.js';
+import { FirebaseError } from 'pyric/app';
 import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
@@ -253,6 +254,62 @@ export async function acceptProviderCredential(
   return hydrateCred(auth, raw);
 }
 
+/** The parts of a staged `UserCredential` the host needs: who signs in, and through which provider. */
+export interface StagedSignInResult {
+  readonly user: {
+    readonly uid: string;
+    readonly email?: string | null;
+    readonly displayName?: string | null;
+    readonly photoURL?: string | null;
+  };
+  readonly providerId: string | null;
+}
+
+/**
+ * Stage the user this port's next `signInWithCredential` for
+ * `result.providerId` signs in as (served `sandbox.mockSignInResult`, #1466).
+ * Sent without waiting, as the `tenantId` setter is: the port delivers in
+ * order, so the host has it before the next sign-in. The checks the host would
+ * make run here first, so a malformed result throws at the call.
+ */
+export function stageSignInResult(auth: ClientAuth, result: StagedSignInResult): void {
+  const providerId = result.providerId;
+  const uid = result.user?.uid;
+  const hasProvider = typeof providerId === 'string' && providerId !== '';
+  const hasUid = typeof uid === 'string' && uid !== '';
+  if (!hasProvider || !hasUid) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'sandbox.mockSignInResult: result.providerId and result.user.uid must be non-empty strings.',
+    );
+  }
+  const identity: ResolvedIdentity = {
+    uid,
+    providerId,
+    email: profileField(result.user.email),
+    displayName: profileField(result.user.displayName),
+    photoURL: profileField(result.user.photoURL),
+    customClaims: {},
+  };
+  // The signature is void, so an error reply (a deleted app, a refused send)
+  // has nowhere to go; the next sign-in reports auth/no-mock-configured.
+  rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.mockSignInResult', identity }).catch(() => {});
+}
+
+/** A staged profile field the host accepts: a string, or null when absent. Anything else throws at the call. */
+function profileField(value: unknown): string | null {
+  const isAbsent = value === undefined || value === null;
+  if (isAbsent) return null;
+  const isString = typeof value === 'string';
+  if (!isString) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'sandbox.mockSignInResult: result.user.email, displayName and photoURL must be strings or null.',
+    );
+  }
+  return value;
+}
+
 /**
  * Re-establish THIS PORT's session for an existing identity (#754).
  */
@@ -424,38 +481,57 @@ export async function updateCurrentUser(
   auth.currentUser = toClientUser(auth.port, raw);
 }
 
+/** The fields of an `AuthCredential` the served client reads. */
+type SignInCredential = {
+  providerId: string;
+  signInMethod?: string;
+  idToken?: string | null;
+  accessToken?: string | null;
+  rawNonce?: string | null;
+  email?: string | null;
+  displayName?: string | null;
+  photoURL?: string | null;
+  uid?: string | null;
+  toJSON?: () => Record<string, unknown>;
+};
+
 /**
- * OAuth Credential Sign-In (`auth.signInWithCredential`) over the SharedWorker.
+ * Credential sign-in (`auth.signInWithCredential`) over the SharedWorker.
+ * An email credential crosses as `toJSON()`, which carries its password or
+ * link, so the host can check it; an OAuth credential sends its identity fields.
  */
 export async function signInWithCredential(
   auth: ClientAuth,
-  credential: {
-    providerId: string;
-    idToken?: string | null;
-    accessToken?: string | null;
-    rawNonce?: string | null;
-    email?: string | null;
-    displayName?: string | null;
-    photoURL?: string | null;
-    uid?: string | null;
-  },
+  credential: SignInCredential,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
     t: 'op',
     id: nextId(),
     method: 'auth.signInWithCredential',
-    credential: {
-      providerId: credential.providerId,
-      idToken: credential.idToken ?? null,
-      accessToken: credential.accessToken ?? null,
-      rawNonce: credential.rawNonce ?? null,
-      email: credential.email ?? null,
-      displayName: credential.displayName ?? null,
-      photoURL: credential.photoURL ?? null,
-      uid: credential.uid ?? null,
-    },
+    credential: credentialWire(credential),
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
+}
+
+type CredentialWire = NonNullable<Extract<OpMessage, { method: 'auth.signInWithCredential' }>['credential']>;
+
+/** A credential with no sign-in method sends an empty one, which the host refuses. */
+function credentialWire(credential: SignInCredential): CredentialWire {
+  const isEmailCredential = credential.providerId === 'password';
+  if (isEmailCredential) {
+    const serialized = credential.toJSON?.() ?? {};
+    return { ...serialized, providerId: credential.providerId, signInMethod: credential.signInMethod ?? '' };
+  }
+  return {
+    providerId: credential.providerId,
+    idToken: credential.idToken ?? null,
+    accessToken: credential.accessToken ?? null,
+    rawNonce: credential.rawNonce ?? null,
+    email: credential.email ?? null,
+    displayName: credential.displayName ?? null,
+    photoURL: credential.photoURL ?? null,
+    uid: credential.uid ?? null,
+  };
 }
 
 export function beforeAuthStateChanged(): never {

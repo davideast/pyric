@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { BrokerSendError, type BrokerMessage } from 'pyric/messaging/internal';
 import { messageArgument, RENAMES, TARGET_FIELDS } from '../../arguments/messaging.js';
-import { operationFailure } from '../../context.js';
+import { operationFailure } from '../../sandbox-context.js';
 import { messagingBrokerFor } from '../../service-handles.js';
 import type { Args, InvalidArguments, MethodRecord, MethodValidationContext } from '../../method-types.js';
 
@@ -28,6 +28,7 @@ function refuseAmbiguousTarget(args: Args, ctx: MethodValidationContext): Invali
 export default {
   tool: 'messaging',
   method: 'send',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-admin',
   effect: 'write',
   signature: 'send(message{token?, topic?, condition?, notification?, data?})',

@@ -10,11 +10,13 @@
  * socket in any state. `req.setTimeout()` is no substitute: it does not arm
  * until the `connect` event.
  *
- * Discovery's health probes and the register beacon both go through
- * {@link boundedRequest}. The http modules load on first use, so a runtime
+ * Discovery's health probes and the register beacon go through
+ * {@link boundedRequest}; the CLI's other local probes (snapshot, serve
+ * diagnostics, the sandbox peer wait, the collision probe) go through its
+ * fetch-shaped {@link boundedFetch} (#1167). The http modules load on first use, so a runtime
  * without them loses the request only, never the importing module.
  */
-import type { IncomingMessage, OutgoingHttpHeaders, request as httpRequestFn } from 'node:http';
+import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders, request as httpRequestFn } from 'node:http';
 import { createRequire } from 'node:module';
 
 /** The most response body a bounded request reads. Past it, the request gives up. */
@@ -33,10 +35,15 @@ export interface BoundedRequestOptions {
    * deadline still ends it.
    */
   readonly unref?: boolean;
+  /** The most response body to read. Past it, the request gives up. Defaults to {@link MAX_RESPONSE_BYTES}. */
+  readonly maxBytes?: number;
+  /** Ends the request early, as the deadline would. */
+  readonly signal?: AbortSignal;
 }
 
 export interface BoundedResponse {
   readonly status: number;
+  readonly headers: IncomingHttpHeaders;
   readonly body: Buffer;
 }
 
@@ -73,13 +80,18 @@ function readBody(res: IncomingMessage, maxBytes: number): Promise<Buffer | null
 /**
  * Send one request to `url` and read its response, all within
  * `options.deadlineMs` of the call. `null` for a refused or dropped connect,
- * an error, a body past {@link MAX_RESPONSE_BYTES}, a url the http module
- * rejects, or the deadline passing. Never rejects. Redirects are not followed:
+ * an error, a body past `options.maxBytes`, a url the http module rejects, an
+ * aborted `options.signal`, or the deadline passing. Never rejects. Redirects are not followed:
  * a 3xx is returned as its own status. No agent is used, and the socket is
  * destroyed when the result settles, so nothing outlives the call.
  */
 export function boundedRequest(url: string, options: BoundedRequestOptions): Promise<BoundedResponse | null> {
   return new Promise((resolve) => {
+    const signal = options.signal;
+    if (signal?.aborted) {
+      resolve(null);
+      return;
+    }
     let req: ReturnType<RequestFn>;
     try {
       // No agent: a pooled keep-alive socket would outlive the call.
@@ -93,10 +105,13 @@ export function boundedRequest(url: string, options: BoundedRequestOptions): Pro
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
+      signal?.removeEventListener('abort', onAbort);
       req.destroy();
       resolve(result);
     };
     const deadline = setTimeout(() => finish(null), options.deadlineMs);
+    const onAbort = (): void => finish(null);
+    signal?.addEventListener('abort', onAbort, { once: true });
     if (options.unref) {
       deadline.unref();
       req.on('socket', (socket) => socket.unref());
@@ -104,9 +119,9 @@ export function boundedRequest(url: string, options: BoundedRequestOptions): Pro
     req.on('error', () => finish(null));
     req.on('response', (res: IncomingMessage) => {
       res.on('error', () => finish(null));
-      void readBody(res, MAX_RESPONSE_BYTES).then((body) => {
+      void readBody(res, options.maxBytes ?? MAX_RESPONSE_BYTES).then((body) => {
         const hasBody = body !== null;
-        finish(hasBody ? { status: res.statusCode ?? 0, body } : null);
+        finish(hasBody ? { status: res.statusCode ?? 0, headers: res.headers, body } : null);
       });
     });
     req.end(options.body);
@@ -132,4 +147,48 @@ export async function getJsonWithin(url: string, deadlineMs: number): Promise<Js
   } catch {
     return null;
   }
+}
+
+/** Options for {@link boundedFetch}: a bounded request plus fetch's redirect mode. */
+export interface BoundedFetchOptions extends BoundedRequestOptions {
+  /**
+   * Redirects are never followed. `'error'` rejects on a 3xx, as fetch does;
+   * `'manual'`, the default, returns it.
+   */
+  readonly redirect?: 'error' | 'manual';
+}
+
+/** Statuses whose `Response` must have a null body. */
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+function headersOf(incoming: IncomingHttpHeaders): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(incoming)) {
+    const values = Array.isArray(value) ? value : [value];
+    for (const one of values) {
+      const isPresent = one !== undefined;
+      if (isPresent) headers.append(name, one);
+    }
+  }
+  return headers;
+}
+
+/**
+ * {@link boundedRequest} in fetch's shape, for code written against `fetch`
+ * and its injectable `fetchImpl` seams. Resolves a `Response` whose body is
+ * already read, and rejects with a `TypeError` where `boundedRequest` gives
+ * `null`, as `fetch` rejects on a network error or an abort.
+ */
+export async function boundedFetch(input: string | URL, options: BoundedFetchOptions): Promise<Response> {
+  const url = String(input);
+  const response = await boundedRequest(url, options);
+  if (response === null) throw new TypeError(`fetch failed: ${url}`);
+  const { status } = response;
+  const isRedirect = status >= 300 && status < 400;
+  const refusesRedirect = isRedirect && options.redirect === 'error';
+  if (refusesRedirect) throw new TypeError(`fetch failed: ${url} redirected`);
+  const isConstructible = status >= 200 && status <= 599;
+  if (!isConstructible) throw new TypeError(`fetch failed: ${url} answered ${status}`);
+  const body = NULL_BODY_STATUSES.has(status) ? null : new Uint8Array(response.body);
+  return new Response(body, { status, headers: headersOf(response.headers) });
 }

@@ -3,7 +3,16 @@ import { EventEmitter } from 'node:events';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { npmInstall, npmInstallArgs, shouldRetryOnline, type CommandResult } from './install.ts';
+import {
+  debugLogTail,
+  NESTED_INSTALL_ATTEMPT_MS,
+  npmInstall,
+  npmInstallArgs,
+  retryOnceOnTimeout,
+  shouldRetryOnline,
+  type CommandResult,
+  type TimedResult,
+} from './install.ts';
 import { copyTree, dependencySetKey, SharedInstalls, type CopyWorker } from './shared-installs.ts';
 
 const dirs: string[] = [];
@@ -54,6 +63,96 @@ describe('the retry after stale npm metadata', () => {
     });
     expect(calls).toBe(1);
     expect(result.code).toBe(1);
+  });
+});
+
+describe('the infrastructure retry of a nested install that hangs (#1476)', () => {
+  const timedOut = (output: string): TimedResult => ({ code: null, output, timedOut: true });
+  const finished = (code: number, output: string): TimedResult => ({ code, output, timedOut: false });
+
+  async function retried(results: TimedResult[]) {
+    const lines: string[] = [];
+    let attempts = 0;
+    let resets = 0;
+    const result = await retryOnceOnTimeout(
+      async () => {
+        attempts += 1;
+        return results.shift() ?? finished(1, 'called too often');
+      },
+      { what: 'chat: npm install in my-chat', reset: async () => { resets += 1; }, report: (line) => lines.push(line) },
+    );
+    return { result, lines, attempts, resets };
+  }
+
+  test('an attempt that finishes runs once and prints one line, so every run can be counted', async () => {
+    const { result, lines, attempts, resets } = await retried([finished(0, 'added 412 packages\n')]);
+    expect(attempts).toBe(1);
+    expect(resets).toBe(0);
+    expect(result).toEqual(finished(0, 'added 412 packages\n'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^\[runner\] chat: npm install in my-chat exited 0 in \d+ s, 1 attempt$/);
+  });
+
+  test('a failed attempt is never retried, whatever its exit code', async () => {
+    const { result, lines, attempts } = await retried([finished(1, 'npm error code E404\n')]);
+    expect(attempts).toBe(1);
+    expect(result.code).toBe(1);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('exited 1');
+    expect(lines[0]).not.toContain('retry');
+  });
+
+  test('an attempt that times out is reset and tried once more, and both are printed as an infrastructure retry', async () => {
+    const { result, lines, attempts, resets } = await retried([timedOut('stalled\n'), finished(0, 'added 412 packages\n')]);
+    expect(attempts).toBe(2);
+    expect(resets).toBe(1);
+    expect(result.code).toBe(0);
+    expect(result.timedOut).toBe(false);
+    expect(result.output).toContain('stalled\n');
+    expect(result.output).toContain('[runner] infrastructure retry');
+    expect(result.output).toContain('added 412 packages\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^\[runner\] infrastructure retry: chat: npm install in my-chat timed out after \d+ s; trying it once more$/);
+    expect(lines[1]).toMatch(/^\[runner\] chat: npm install in my-chat exited 0 in \d+ s, 2 attempts \(1 infrastructure retry\)$/);
+  });
+
+  test('a second timeout is not retried again, and the result says it timed out', async () => {
+    const { result, lines, attempts } = await retried([timedOut('stalled\n'), timedOut('stalled again\n'), finished(0, 'never')]);
+    expect(attempts).toBe(2);
+    expect(result.timedOut).toBe(true);
+    expect(result.output).toContain('stalled again\n');
+    expect(lines[1]).toContain('timed out in');
+    expect(lines[1]).toContain('2 attempts (1 infrastructure retry)');
+  });
+
+  test('npmInstall keeps the timeout flag of the attempt it returns', async () => {
+    const result = await npmInstall('/cache', async () => timedOut('stalled\n'));
+    expect(result.timedOut).toBe(true);
+  });
+
+  test('the nested install has its own debug log directory and a fetch timeout below the attempt limit', () => {
+    const args = npmInstallArgs('/cache', 'offline', '/logs');
+    expect(args).toContain('--logs-dir=/logs');
+    expect(args).toContain('--progress=false');
+    expect(args).toContain('--update-notifier=false');
+    const fetchTimeout = Number(args.find((arg) => arg.startsWith('--fetch-timeout='))?.split('=')[1]);
+    expect(fetchTimeout).toBeGreaterThan(0);
+    expect(fetchTimeout).toBeLessThan(NESTED_INSTALL_ATTEMPT_MS);
+    expect(npmInstallArgs('/cache').some((arg) => arg.startsWith('--logs-dir'))).toBe(false);
+  });
+
+  test('the end of the newest npm debug log is read, and no log reads as a note', () => {
+    const logs = tempDir();
+    expect(debugLogTail(join(logs, 'missing'), 3)).toContain('no npm debug log');
+    writeFileSync(join(logs, '2026-10-28T12_00_00_000Z-debug-0.log'), 'old 1\nold 2\n');
+    const lines = Array.from({ length: 10 }, (_, index) => `${index} silly fetch manifest pkg-${index}`);
+    writeFileSync(join(logs, '2026-10-28T12_05_00_000Z-debug-0.log'), `${lines.join('\n')}\n`);
+    const tail = debugLogTail(logs, 3);
+    expect(tail).toContain('2026-10-28T12_05_00_000Z-debug-0.log');
+    expect(tail).toContain('9 silly fetch manifest pkg-9');
+    expect(tail).toContain('7 silly fetch manifest pkg-7');
+    expect(tail).not.toContain('6 silly');
+    expect(tail).not.toContain('old');
   });
 });
 

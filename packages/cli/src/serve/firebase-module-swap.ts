@@ -8,7 +8,8 @@
  * container.
  *
  * Every plane that swaps Firebase modules reads {@link swappedFirebaseEntries}:
- * the `pyric sandbox` import map (`html-injection.ts`) and the Vite resolver
+ * the `pyric sandbox` import map (`html-injection.ts`, through
+ * {@link importMapFirebaseEntries}) and the Vite resolver
  * (`vite-module-swap.ts`). Every front door resolves the mode with
  * {@link resolveAiMode}. One table and one precedence rule, so the planes
  * cannot disagree about what production mode means. It imports only Node
@@ -78,6 +79,106 @@ export function swappedFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebase
   return swapped;
 }
 
+/**
+ * The Firebase SDK modules `pyric sandbox` builds for the browser from the
+ * project's own `firebase` install in production AI mode, to the entry key of
+ * each (`/__pyric/sdk/<key>.js`). One build, so the three share one
+ * `@firebase/app` component registry. The Vite and register planes resolve
+ * the Firebase SDK themselves and never read this.
+ */
+export const REAL_SDK_ENTRIES: ReadonlyMap<ServedFirebaseSpecifier, string> = new Map([
+  ['firebase/app', 'firebase-sdk-app'],
+  ['firebase/ai', 'firebase-sdk-ai'],
+  ['firebase/app-check', 'firebase-sdk-app-check'],
+]);
+
+/**
+ * The `@firebase/*` packages the real AI SDK and the passthrough's
+ * `firebase/app` and `firebase/app-check` import. Only a real SDK file reaches
+ * them; app code importing them is stopped (#1635).
+ */
+const PRODUCTION_AI_SDK_PACKAGES: ReadonlySet<string> = new Set([
+  '@firebase/ai',
+  '@firebase/app',
+  '@firebase/app-check',
+  '@firebase/app-check-interop-types',
+  '@firebase/component',
+  '@firebase/logger',
+  '@firebase/util',
+]);
+
+/**
+ * The firebase-admin files the App Check verifier bridge's
+ * `firebase-admin/app` and `firebase-admin/app-check` load, by path inside the
+ * package. Traced from a `verifyToken` run of the built bridge against
+ * firebase-admin 13.10.0: the ESM wrappers, `lib/app/`, `lib/app-check/`,
+ * `lib/utils/` and the manifest `lib/utils/index.js` reads for the version.
+ * A firebase-admin release that reaches further fails closed: the stop fires
+ * and the `ai-production-app-check` scenario shows it.
+ */
+const ADMIN_BRIDGE_FILES: readonly string[] = [
+  'package.json',
+  'lib/esm/app/',
+  'lib/esm/app-check/',
+  'lib/app/',
+  'lib/app-check/',
+  'lib/utils/',
+];
+
+/** Whether a path inside a package is `entry`, or lies under it when `entry` is a folder (ends in `/`). */
+function isUnderEntry(pathInPackage: string, entry: string): boolean {
+  const isFolder = entry.endsWith('/');
+  if (isFolder) return pathInPackage.startsWith(entry);
+  return pathInPackage === entry;
+}
+
+/** Whether a firebase-admin file, by its path inside the package, is one the verifier bridge's pair loads. */
+export function isAdminBridgeFile(pathInPackage: string | null): boolean {
+  if (pathInPackage === null) return false;
+  return ADMIN_BRIDGE_FILES.some((entry) => isUnderEntry(pathInPackage, entry));
+}
+
+/** Whether a client SDK package is one that `firebase/ai`, `firebase/app` and `firebase/app-check` import. */
+export function isProductionAiSdkPackage(packageName: string): boolean {
+  return PRODUCTION_AI_SDK_PACKAGES.has(packageName);
+}
+
+/** The `firebase` package's own folders for the {@link REAL_SDK_ENTRIES}: `ai`, `app` and `app-check`. */
+const PRODUCTION_AI_FIREBASE_FOLDERS: ReadonlySet<string> = new Set(
+  [...REAL_SDK_ENTRIES.keys()].map((specifier) => specifier.slice('firebase/'.length)),
+);
+
+/**
+ * Whether production AI mode lets a file of the real Firebase SDK load from
+ * any importer: a `firebase` file under `ai/`, `app/` or `app-check/` (the
+ * {@link REAL_SDK_ENTRIES}). A server runner, such as Vite's, imports those by
+ * file URL. The `@firebase/*` packages they import are not among them: those
+ * load only from an SDK file the register already allowed (`swap-or-stop.ts`),
+ * so app code that imports them directly is stopped, as in sandbox mode
+ * (#1635). Every other file of the client SDK is swapped or stopped too.
+ * `pathInPackage` is the file's path inside its package.
+ */
+export function isProductionAiSdkFile(packageName: string, pathInPackage: () => string | null): boolean {
+  if (packageName !== 'firebase') return false;
+  const folder = pathInPackage()?.split('/')[0];
+  return folder !== undefined && PRODUCTION_AI_FIREBASE_FOLDERS.has(folder);
+}
+
+/**
+ * The import-map plane's specifier to entry key table: the swap, plus, in
+ * production AI mode, the unswapped `firebase/ai` sent to the Firebase SDK
+ * that `pyric sandbox` builds. A browser has no package resolution, so on
+ * this plane an unswapped specifier still needs a URL.
+ */
+export function importMapFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebaseSpecifier, string> {
+  const entries = new Map(swappedFirebaseEntries(mode));
+  for (const [specifier, key] of REAL_SDK_ENTRIES) {
+    const isUnswapped = !entries.has(specifier);
+    if (isUnswapped) entries.set(specifier, key);
+  }
+  return entries;
+}
+
 /** This package's root (`src/serve/` and `dist/serve/` both sit two levels below it), as written and resolved. */
 const PACKAGE_ROOTS: readonly string[] = (() => {
   const root = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/');
@@ -92,10 +193,20 @@ const PACKAGE_ROOTS: readonly string[] = (() => {
 /** The shadow-app wrappers, relative to the package root. */
 const SHADOW_MODULE = /^(?:dist|src)\/(?:register\/(?:client\/)?app-bridge[^/]*|serve\/entries\/app-ai-passthrough[^/]*)$/;
 
+/** The register's App Check verifier for production AI mode, relative to the package root. */
+const ADMIN_BRIDGE_MODULE = /^(?:dist|src)\/register\/app-bridge-admin-app-check\.(?:js|ts)$/;
+
 function importerFile(importer: string): string {
   const withoutQuery = importer.replace(/[?#].*$/, '');
   const path = withoutQuery.startsWith('file://') ? fileURLToPath(withoutQuery) : withoutQuery;
   return path.replaceAll('\\', '/');
+}
+
+/** Whether an importer is one of this package's own modules whose path, relative to the package root, matches `module`. */
+function isPackageModule(importer: string | undefined, module: RegExp): boolean {
+  if (importer === undefined) return false;
+  const file = importerFile(importer);
+  return PACKAGE_ROOTS.some((root) => file.startsWith(root) && module.test(file.slice(root.length)));
 }
 
 /**
@@ -105,15 +216,37 @@ function importerFile(importer: string): string {
  * happens to be named `app-bridge.js` is still swapped.
  */
 export function isShadowAppImporter(importer: string | undefined): boolean {
-  if (importer === undefined) return false;
-  const file = importerFile(importer);
-  return PACKAGE_ROOTS.some((root) => file.startsWith(root) && SHADOW_MODULE.test(file.slice(root.length)));
+  return isPackageModule(importer, SHADOW_MODULE);
 }
 
-/** The SDK modules a shadow-app wrapper imports for itself. */
+/** The client SDK modules every shadow-app wrapper imports for itself. */
 const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/app-check']);
 
-/** Whether this import is a shadow-app wrapper reaching the Firebase SDK it wraps. */
-export function isBypassedBridgeImport(specifier: string, importer: string | undefined): boolean {
-  return BRIDGED_SPECIFIERS.has(specifier) && isShadowAppImporter(importer);
+/**
+ * The firebase-admin pair that only the register's App Check verifier imports
+ * (`register/app-bridge-admin-app-check.ts`), and only in production AI mode,
+ * where the register loads it. No browser plane serves them.
+ */
+const ADMIN_BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase-admin/app', 'firebase-admin/app-check']);
+
+/**
+ * Whether this import is a shadow-app wrapper reaching the Firebase SDK it
+ * wraps. The firebase-admin pair counts only when `aiMode` is `production`,
+ * so a plane that passes no mode never bypasses it.
+ */
+export function isBypassedBridgeImport(specifier: string, importer: string | undefined, aiMode?: AiMode): boolean {
+  if (BRIDGED_SPECIFIERS.has(specifier)) return isShadowAppImporter(importer);
+  const isAdminBridgeImport = ADMIN_BRIDGED_SPECIFIERS.has(specifier) && aiMode === 'production';
+  return isAdminBridgeImport && isPackageModule(importer, ADMIN_BRIDGE_MODULE);
+}
+
+/**
+ * Where a bypassed bridge import goes on the import-map plane: the entry key
+ * of the Firebase SDK module `pyric sandbox` builds. The bare specifier
+ * cannot stay, because the import map sends it back to the wrapper itself.
+ * Undefined for every import {@link isBypassedBridgeImport} does not name.
+ */
+export function bridgeImportEntryKey(specifier: string, importer: string | undefined): string | undefined {
+  if (!isBypassedBridgeImport(specifier, importer)) return undefined;
+  return REAL_SDK_ENTRIES.get(specifier as ServedFirebaseSpecifier);
 }

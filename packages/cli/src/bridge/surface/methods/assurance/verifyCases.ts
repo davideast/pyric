@@ -25,6 +25,7 @@ import type { OperationResult } from '../../types.js';
 export default {
   tool: 'assurance',
   method: 'verifyCases',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'verifyCases(fixture?, candidateRules?, service?: firestore)',

@@ -8,8 +8,8 @@
  * a typo would otherwise open an empty instance and read back nothing.
  */
 import { resolveDatabaseInstance } from 'pyric/sandbox/internal';
-import { projectDatabaseInstances, type KnownDatabaseInstances } from './database-instance-catalog.js';
-import type { SurfaceContext } from './types.js';
+import type { KnownDatabaseInstances } from './database-instance-catalog.js';
+import type { SandboxSurfaceContext } from './types.js';
 
 /** The instances listed in a refusal, the default first. */
 function describeKnown(known: KnownDatabaseInstances): string {
@@ -32,11 +32,11 @@ export function unknownInstanceMessage(name: string, known: KnownDatabaseInstanc
  * the default instance, else the instance name. Throws the refusal for an
  * instance the project does not have.
  */
-export async function instanceSelector(ctx: SurfaceContext, raw: unknown): Promise<string | undefined> {
+export async function instanceSelector(ctx: SandboxSurfaceContext, raw: unknown): Promise<string | undefined> {
   if (raw === undefined) return undefined;
   const instance = resolveDatabaseInstance(String(raw));
   if (instance === undefined) return undefined;
-  const catalog = ctx.databaseInstances ?? await projectDatabaseInstances(ctx.sandbox, ctx.projectDir);
+  const catalog = await ctx.databaseInstances();
   const selector = catalog.select(instance.name);
   if (selector === null) throw new Error(unknownInstanceMessage(instance.name, catalog.known()));
   return selector;

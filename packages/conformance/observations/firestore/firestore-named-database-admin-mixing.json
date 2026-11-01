@@ -1,0 +1,35 @@
+{
+  "name": "firestore-named-database-admin-mixing",
+  "matrixRow": "firestore MD3",
+  "rowIds": [
+    "firestore#MD3"
+  ],
+  "description": "The Admin SDK mixing (default) and `probes`: a set() in (default) of a field holding a probes DocumentReference, a WriteBatch from (default) with one set() in each database, and a (default) transaction that reads and writes probes documents. Records whether each commits and what was stored.",
+  "observedAt": "2026-10-28T11:06:48.443Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "method": "getFirestore(adminApp) and getFirestore(adminApp, 'probes') with the service account; transaction maxAttempts 1; every document under __pyric_named_db_c2/<run>/c4 deleted from both databases and read back missing. packages/conformance/src/capture-firestore-named-databases-deployed.ts.",
+  "behavior": {
+    "reference-to-other-database": "committed",
+    "batch-spanning-databases": "error:3:3 INVALID_ARGUMENT: The request was for database 'projects/digame-mas/databases/(default)' but was attempting to access database 'projects/digame-mas/databases/probes'",
+    "transaction-reads-and-writes-other-database": "error:3:3 INVALID_ARGUMENT: The request was for database 'projects/digame-mas/databases/(default)' but was attempting to access database 'projects/digame-mas/databases/probes'"
+  },
+  "diagnostics": {
+    "stored": {
+      "referenceReadBack": {
+        "path": "__pyric_named_db_c2/waopl87f/c4/target",
+        "databaseId": "(default)"
+      },
+      "referenceValueOnTheWire": "projects/digame-mas/databases/probes/documents/__pyric_named_db_c2/waopl87f/c4/target",
+      "batch": {
+        "default": null,
+        "probes": null
+      },
+      "transaction": {
+        "default": null,
+        "probes": null
+      }
+    },
+    "cleanupLeft": []
+  }
+}

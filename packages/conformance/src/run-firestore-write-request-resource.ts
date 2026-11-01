@@ -23,16 +23,16 @@ import {
   terminate,
   updateDoc,
 } from 'firebase/firestore';
-import { cert, deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
+import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
+import { loadOracleServiceAccount, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   FIREBASE_API,
   accessHeaders,
   jsonRequest,
-  resolveServiceAccount,
   type AccessHeaders,
   type ServiceAccount,
   type WebConfig,
@@ -114,14 +114,13 @@ async function withAdminRetry<T>(op: () => Promise<T>): Promise<T> {
 }
 
 async function run(): Promise<void> {
-  const credentialPath = process.env.PYRIC_ORACLE_SA_PATH;
-  if (!credentialPath) {
-    console.log('[write-request-resource] inert: set PYRIC_ORACLE_SA_PATH to capture.');
+  if (!oracleCredentialConfigured(process.env)) {
+    console.log('[write-request-resource] inert: set PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials, to capture.');
     return;
   }
   const releaseLock = acquireRunLock(LOCK_PATH);
   try {
-    const sa = resolveServiceAccount(credentialPath);
+    const sa = await loadOracleServiceAccount();
     const headers = await accessHeaders(sa);
     const web = await discoverWebConfig(sa, headers);
     if (web.projectId !== sa.project_id) throw new Error('Web config and service account target different projects');
@@ -131,7 +130,7 @@ async function run(): Promise<void> {
     const content = injectProbeRules(selected.content, runId);
     const files = replaceSelectedRulesFile(snapshot.ruleset, selected, content);
 
-    const admin = initializeAdminApp({ credential: cert(sa as Parameters<typeof cert>[0]) }, `pyric-wrr-admin-${runId}`);
+    const admin = initializeAdminApp(oracleAppOptions(sa), `pyric-wrr-admin-${runId}`);
     const adminDb = getAdminFirestore(admin);
     const app = initializeApp(web as FirebaseOptions, `pyric-wrr-${runId}`);
     const db = getFirestore(app);

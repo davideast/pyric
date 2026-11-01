@@ -41,6 +41,7 @@ function tokensOf(credential: Credential): { idToken?: string; accessToken?: str
 export default {
   tool: 'auth',
   method: 'signInWithCredential',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature:

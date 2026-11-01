@@ -3,7 +3,7 @@
   "capturedAt": "2026-09-27T20:35:28.442Z",
   "projectId": "digame-mas",
   "method": "Rules Test API projects.test, one generated ruleset per probe; each case is a get with uid a (granted when the ruleset works) and uid b (denied). probeBlock() in packages/conformance/src/capture-rules-compile-limits.ts generates each shape.",
-  "calls": 69,
+  "calls": 75,
   "boundaries": [
     {
       "service": "firestore",
@@ -88,6 +88,18 @@
       "shape": "glob-nested",
       "largestPass": 1,
       "smallestFail": 2
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain",
+      "largestPass": 98,
+      "smallestFail": 99
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain-calls",
+      "largestPass": 99,
+      "smallestFail": 100
     },
     {
       "service": "storage",
@@ -1486,6 +1498,150 @@
           "description": "Invalid glob match expression. Only one glob match is permitted in a match declaration path.",
           "line": 5,
           "column": 7
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain-calls",
+      "n": 98,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain-calls",
+      "n": 99,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain-calls",
+      "n": 100,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 105,
+          "column": 22
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 105,
+          "column": 35
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain",
+      "n": 98,
+      "compiles": true,
+      "issues": [],
+      "cases": [
+        {
+          "description": "uid a",
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "uid b",
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain",
+      "n": 99,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 22
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 42
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 50
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 70
+        }
+      ],
+      "cases": []
+    },
+    {
+      "service": "firestore",
+      "shape": "and-chain",
+      "n": 100,
+      "compiles": false,
+      "issues": [
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 22
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 50
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 78
+        },
+        {
+          "severity": "ERROR",
+          "description": "Expression is too complex to evaluate safely.",
+          "line": 5,
+          "column": 98
         }
       ],
       "cases": []

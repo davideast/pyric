@@ -7,7 +7,9 @@ export interface ChangedPath {
 }
 
 export interface CheckSetInput {
-  event: 'pull_request' | 'push' | 'schedule' | 'workflow_dispatch';
+  /** `merge_group` is a merge queue run: a group of pull requests tested
+   *  together on a gh-readonly-queue branch before they merge. */
+  event: 'pull_request' | 'merge_group' | 'push' | 'schedule' | 'workflow_dispatch';
   labels: readonly string[];
   paths: readonly ChangedPath[];
 }

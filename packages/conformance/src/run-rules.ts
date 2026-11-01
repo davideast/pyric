@@ -94,6 +94,41 @@ function observationPath(scenario: Scenario): string {
   return join(OBS_DIR, `${observationName(scenario)}.json`);
 }
 
+/** Diagnostics keys only `run-firestore-real.ts` writes. An observation that
+ *  carries one was captured against a real database, because the Rules Test
+ *  API cannot evaluate the scenario. Overwriting it here would replace the
+ *  production fact with the Test API's limitation and report false drift. */
+const REAL_DATABASE_DIAGNOSTICS = ['productionDatabase', 'hostedTestApiLimitation'];
+
+export function isRealDatabaseObservation(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const existing = JSON.parse(readFileSync(path, 'utf8')) as Partial<Observation>;
+  const diagnostics = existing.diagnostics;
+  if (!diagnostics || typeof diagnostics !== 'object') return false;
+  return REAL_DATABASE_DIAGNOSTICS.some((key) => key in diagnostics);
+}
+
+export function partitionByOwner(
+  scenarios: Scenario[],
+  ownedElsewhere: (scenario: Scenario) => boolean =
+    (scenario) => isRealDatabaseObservation(observationPath(scenario)),
+): { capture: Scenario[]; owned: Scenario[] } {
+  const owned = scenarios.filter(ownedElsewhere);
+  const capture = scenarios.filter((scenario) => !owned.includes(scenario));
+  return { capture, owned };
+}
+
+export function ownedSkipLine(scenario: Scenario): string {
+  return `${scenario.id}: owned by run-firestore-real.ts, not captured here`;
+}
+
+function printOwned(owned: Scenario[]): void {
+  if (owned.length === 0) return;
+  console.log(`  Leaving ${owned.length} real-database scenario(s) alone:`);
+  for (const scenario of owned) console.log(`    - ${ownedSkipLine(scenario)}`);
+  console.log('');
+}
+
 export function selectFirestoreScenarios(args: string[]): Scenario[] {
   if (args.filter((arg) => arg === '--scenario').length > 1) {
     throw new Error('only one --scenario selector is allowed');
@@ -222,11 +257,15 @@ async function capture(scenarios: Scenario[]): Promise<void> {
 }
 
 if (import.meta.main) {
-  const scenarios = selectFirestoreScenarios(process.argv.slice(2));
+  const { capture: scenarios, owned } = partitionByOwner(
+    selectFirestoreScenarios(process.argv.slice(2)),
+  );
   // credential.ts loads no Firebase code, so the inert path stays light.
   if (!hasParityCredential()) {
     printInertPlan(scenarios);
+    printOwned(owned);
     process.exit(0);
   }
+  printOwned(owned);
   await capture(scenarios);
 }

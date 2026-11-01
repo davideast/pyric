@@ -8,6 +8,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'storage',
   method: 'listAll',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
   signature: 'listAll(prefix?)',

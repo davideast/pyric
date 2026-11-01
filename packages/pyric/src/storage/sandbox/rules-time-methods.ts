@@ -1,3 +1,4 @@
+import { ValueRangeError } from '../../rules/simulator/wrappers/base.js';
 import { Duration } from '../../rules/simulator/wrappers/duration.js';
 import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
 import type { EvalCtx } from './rules-evaluator.js';
@@ -14,7 +15,6 @@ import { isRuleError as isErr } from './rules-values.js';
 const DURATION_UNITS = ['w', 'd', 'h', 'm', 's', 'ms', 'ns'];
 const MIN_TIMESTAMP_MILLIS = -62135596800000;
 const MAX_TIMESTAMP_MILLIS = 253402300799999;
-const MAX_DURATION_SECONDS = 315576000000;
 
 /**
  * `timestamp.date(year, month, day)` (UTC midnight, 1-based month) and
@@ -74,22 +74,14 @@ export function evalDurationNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
         `duration.value() got unknown unit "${unit}", expected one of ${DURATION_UNITS.join(', ')}`,
       );
     }
-    const d = Duration.fromValue(magnitude, unit);
-    if (!Number.isFinite(d.seconds) || Math.abs(d.seconds) > MAX_DURATION_SECONDS) {
-      throw new RuleEvalError(`duration.value() exceeds maximum range of +/-10000 years`);
-    }
-    return d;
+    return inDurationRange(() => Duration.fromValue(magnitude, unit));
   }
   if (expr.method === 'time') {
     if (args.length !== 4 || !args.every((a) => typeof a === 'number' && Number.isInteger(a))) {
       throw new RuleEvalError(`duration.time() expects (hours, minutes, seconds, nanos) numbers`);
     }
     const [hours, minutes, seconds, nanos] = args as [number, number, number, number];
-    const d = Duration.fromTime(hours, minutes, seconds, nanos);
-    if (!Number.isFinite(d.seconds) || Math.abs(d.seconds) > MAX_DURATION_SECONDS) {
-      throw new RuleEvalError(`duration.time() exceeds maximum range of +/-10000 years`);
-    }
-    return d;
+    return inDurationRange(() => Duration.fromTime(hours, minutes, seconds, nanos));
   }
   if (expr.method === 'abs') {
     if (args.length !== 1 || !(args[0] instanceof Duration)) {
@@ -98,6 +90,19 @@ export function evalDurationNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
     return Duration.abs(args[0]);
   }
   throw new RuleEvalError(`unsupported duration.${expr.method}()`);
+}
+
+/**
+ * A duration built by `build`, or production's "Duration is not valid" error
+ * when it is past the protobuf bound of 315,576,000,000 seconds.
+ */
+function inDurationRange(build: () => Duration): Duration {
+  try {
+    return build();
+  } catch (err) {
+    if (err instanceof ValueRangeError) throw new RuleEvalError(err.message);
+    throw err;
+  }
 }
 
 /**

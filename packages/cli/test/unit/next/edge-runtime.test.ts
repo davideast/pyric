@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findEdgeRuntimeFiles } from '../../../src/next/edge-runtime.js';
 import { withPyric } from '../../../src/next/index.js';
+import { markRegisterActive } from '../../../src/register/activation.js';
+
+/** The register's activation mark (`src/register/activation.ts`). */
+const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
 
 describe('Edge runtime detection', () => {
   let root: string;
@@ -19,6 +23,7 @@ describe('Edge runtime detection', () => {
   });
 
   afterEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -47,6 +52,7 @@ describe('Edge runtime detection', () => {
 describe('withPyric Edge runtime warning', () => {
   const savedCwd = process.cwd();
   const savedSandbox = process.env.PYRIC_SANDBOX;
+  const savedGuard = process.env.PYRIC_GUARD;
   let root: string;
   let warnings: string[];
   const originalWarn = console.warn;
@@ -55,8 +61,10 @@ describe('withPyric Edge runtime warning', () => {
     root = mkdtempSync(join(tmpdir(), 'pyric-edge-warn-'));
     mkdirSync(join(root, 'app/api/ping'), { recursive: true });
     writeFileSync(join(root, 'app/api/ping/route.ts'), "export const runtime = 'edge';\n");
+    writeFileSync(join(root, 'next.config.mjs'), 'export default {};\n');
     process.chdir(root);
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
+    markRegisterActive();
     warnings = [];
     console.warn = (...args: unknown[]) => {
       warnings.push(args.join(' '));
@@ -69,6 +77,10 @@ describe('withPyric Edge runtime warning', () => {
     rmSync(root, { recursive: true, force: true });
     if (savedSandbox === undefined) delete process.env.PYRIC_SANDBOX;
     else process.env.PYRIC_SANDBOX = savedSandbox;
+    // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
+    if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
+    else process.env.PYRIC_GUARD = savedGuard;
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
   });
 
   it('warns in the development server phase and names the Edge file', async () => {

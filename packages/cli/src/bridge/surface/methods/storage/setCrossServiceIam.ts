@@ -7,6 +7,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'storage',
   method: 'setCrossServiceIam',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'setCrossServiceIam(mode: granted|denied)',

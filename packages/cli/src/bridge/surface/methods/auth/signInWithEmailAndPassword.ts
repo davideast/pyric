@@ -14,6 +14,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'auth',
   method: 'signInWithEmailAndPassword',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'signInWithEmailAndPassword(email, password)',

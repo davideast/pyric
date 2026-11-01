@@ -2,15 +2,17 @@ import { stampHostedTarget } from './runtime/hosted-target.js';
 import type { OwnersConfig } from './owners-config.js';
 import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
-import { swappedFirebaseEntries, type AiMode } from './firebase-module-swap.js';
+import { importMapFirebaseEntries, type AiMode } from './firebase-module-swap.js';
 
 /**
  * The import-map targets, specifier to served URL, for one AI mode. Derived
  * from the shared swap table, so the Vite resolver serves the same modules.
+ * In production AI mode `firebase/ai` goes to the Firebase SDK that
+ * `pyric sandbox` builds from the project's `firebase` install.
  */
 export function sdkImportMap(mode: AiMode = 'sandbox'): Record<string, string> {
   const imports: Record<string, string> = {};
-  for (const [specifier, entryKey] of swappedFirebaseEntries(mode)) {
+  for (const [specifier, entryKey] of importMapFirebaseEntries(mode)) {
     imports[specifier] = `/__pyric/sdk/${entryKey}.js`;
   }
   return imports;

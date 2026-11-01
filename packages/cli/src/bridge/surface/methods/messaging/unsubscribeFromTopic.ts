@@ -7,6 +7,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'messaging',
   method: 'unsubscribeFromTopic',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-admin',
   effect: 'write',
   signature: 'unsubscribeFromTopic(tokens[], topic)',

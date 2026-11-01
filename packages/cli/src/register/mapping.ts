@@ -18,10 +18,16 @@
  * narrow: only the two package roots match. `@firebase/*` internals,
  * `firebase-functions`, and anything merely *containing* "firebase" pass
  * through untouched.
+ *
+ * Next 16's Turbopack renames server externals (#1443): it links
+ * `.next/node_modules/firebase-admin-<16 hex>` to the installed package and
+ * imports `firebase-admin-<hash>/app`. `canonicalFirebaseSpecifier` names such
+ * an import by its package, and the hooks map the canonical name only after
+ * the renamed import resolved into the real package (`package-identity.ts`).
  */
 
 import { parsePyricSandbox } from 'pyric/sandbox/internal';
-import { isBypassedBridgeImport, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+import { isBypassedBridgeImport, isProductionAiSdkFile, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
 
 const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
   // firebase-admin first — `firebase-admin` must never match the bare
@@ -57,6 +63,53 @@ function nodeHostClientTarget(specifier: string): string | null {
 }
 
 /**
+ * A Turbopack-renamed package root: `firebase-admin` or `firebase`, a dash and
+ * exactly 16 lowercase hex characters, then the end or a non-empty subpath.
+ * Anchored at the start, so `firebase-functions-<hash>`, `@firebase/*` and
+ * `my-firebase-<hash>` never match.
+ */
+const RENAMED_FIREBASE = /^(firebase-admin|firebase)-[0-9a-f]{16}(\/.+)?$/;
+
+/**
+ * The canonical name of a Turbopack-renamed Firebase import
+ * (`firebase-admin-<hash>/app` → `firebase-admin/app`), or `null` when the
+ * specifier isn't one. The name alone proves nothing: the caller confirms the
+ * import resolved into the package of that name before mapping it.
+ */
+export function canonicalFirebaseSpecifier(specifier: string): string | null {
+  const match = RENAMED_FIREBASE.exec(specifier);
+  if (match === null) return null;
+  const [, packageRoot, subpath = ''] = match;
+  return `${packageRoot}${subpath}`;
+}
+
+export interface RealFirebaseLoad {
+  /** The specifier as written, or its canonical name when Turbopack renamed it. */
+  specifier: string;
+  importer: string | undefined;
+  /** The package the resolved file belongs to, `firebase` or `@firebase/*`. */
+  packageName: string;
+  /** The resolved file's path inside that package; read only for `firebase` in production AI mode. */
+  pathInPackage: () => string | null;
+  aiMode: AiMode;
+}
+
+/**
+ * Whether the swap table hands this client SDK load to the real SDK (ADR
+ * 0022): one of pyric's shadow modules reaching the `firebase/app` or
+ * `firebase/app-check` it wraps, or, in production AI mode, the files of
+ * `firebase/ai`, `firebase/app` and `firebase/app-check`
+ * (`isProductionAiSdkFile`). The `@firebase/*` packages those import are
+ * allowed only from a real SDK file the stop in `swap-or-stop.ts` already
+ * allowed, never from app code (#1635).
+ */
+export function choosesRealFirebase(load: RealFirebaseLoad): boolean {
+  if (isBypassedBridgeImport(load.specifier, load.importer, load.aiMode)) return true;
+  const isProductionMode = load.aiMode === 'production';
+  return isProductionMode && isProductionAiSdkFile(load.packageName, load.pathInPackage);
+}
+
+/**
  * Map a Firebase specifier to its pyric mirror, or return `null` when the
  * specifier is not a Firebase package (leave it for the default resolver).
  */
@@ -66,11 +119,12 @@ export function mapFirebaseSpecifier(
   options?: MapFirebaseOptions,
 ): string | null {
   const isFirebaseAppSpecifier = specifier === 'firebase/app';
-  if (isBypassedBridgeImport(specifier, importer)) {
+  const aiMode = resolveAiMode(options?.aiMode, process.env);
+  if (isBypassedBridgeImport(specifier, importer, aiMode)) {
     return null;
   }
 
-  const isProductionMode = resolveAiMode(options?.aiMode, process.env) === 'production';
+  const isProductionMode = aiMode === 'production';
   const isFirebaseAiSpecifier = specifier === 'firebase/ai';
   const isProductionAiPassthrough = isProductionMode && isFirebaseAiSpecifier;
   if (isProductionAiPassthrough) {

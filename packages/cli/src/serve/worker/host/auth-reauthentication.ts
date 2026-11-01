@@ -1,7 +1,7 @@
 import { FirebaseError } from 'pyric/app';
 import { AuthCredential, OAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup,
   type MintedSession, type UserCredential } from 'pyric/auth';
-import { withoutJwtClaims } from 'pyric/sandbox/internal';
+import { rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 import type { OpMessage } from '../protocol.js';
 import { requireMatchingPortSession } from './auth-session-seeder.js';
 
@@ -33,7 +33,7 @@ export async function reauthenticateSession(current: MintedSession | null, messa
   }
   const user = Object.assign(result.user, { tenantId: original.user.tenantId });
   const token = await user.getIdTokenResult();
-  // Rules read the token claim set without the JWT registered claims, as a fresh session does.
-  const session: MintedSession = { user, state: { ...original.state, token: withoutJwtClaims(token.claims) } };
+  // Rules read the full token claim set, JWT registered claims included, as a fresh session does.
+  const session: MintedSession = { user, state: { ...original.state, token: rulesTokenFromIdToken(token.claims) } };
   return { session, providerId: result.providerId };
 }

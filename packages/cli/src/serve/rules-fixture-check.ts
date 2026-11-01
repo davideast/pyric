@@ -3,6 +3,7 @@ import { basename, join } from 'node:path';
 import {
   SimulateFirestoreRulesHandler,
   TestCaseSchema,
+  caseShapeRefusal,
   type TestCase,
 } from 'pyric/rules/internal';
 import {
@@ -74,7 +75,18 @@ function discoverProjectFixtureFiles(projectDir: string): DiscoveredFixtureFile[
   return found;
 }
 
-function extractFirestoreTestCases(raw: unknown): TestCase[] | null {
+/**
+ * What a fixture file holds: no Firestore cases, Firestore cases, or cases
+ * one of which the case check refuses. A refused fixture is reported, not
+ * skipped silently, so a case written with a misspelled field or a create
+ * that names a resource is not quietly left out of the check.
+ */
+type ExtractedCases =
+  | { kind: 'none' }
+  | { kind: 'refused'; reason: string }
+  | { kind: 'cases'; cases: TestCase[] };
+
+function extractFirestoreTestCases(raw: unknown): ExtractedCases {
   let candidateList: unknown[] | null = null;
   if (Array.isArray(raw)) {
     candidateList = raw;
@@ -88,15 +100,21 @@ function extractFirestoreTestCases(raw: unknown): TestCase[] | null {
       candidateList = [record];
     }
   }
-  if (!candidateList || candidateList.length === 0) return null;
+  if (!candidateList || candidateList.length === 0) return { kind: 'none' };
+  // A list with no `method` anywhere is some other service's cases, such as
+  // Realtime Database cases, which name an `operation`.
+  const isFirestoreCaseList = candidateList.some(
+    (item) => typeof item === 'object' && item !== null && 'method' in item,
+  );
+  if (!isFirestoreCaseList) return { kind: 'none' };
 
   const parsedCases: TestCase[] = [];
-  for (const item of candidateList) {
-    const parsed = TestCaseSchema.safeParse(item);
-    if (!parsed.success) return null;
-    parsedCases.push(parsed.data);
+  for (const [i, item] of candidateList.entries()) {
+    const refusal = caseShapeRefusal(item);
+    if (refusal) return { kind: 'refused', reason: `case ${i}: ${refusal}` };
+    parsedCases.push(TestCaseSchema.parse(item));
   }
-  return parsedCases;
+  return { kind: 'cases', cases: parsedCases };
 }
 
 function formatDivergenceReason(div: VerifyDivergence): string {
@@ -127,6 +145,7 @@ export async function runProjectFixturesOnRulesReload(
   let failed = 0;
   let checks = 0;
   const failureLines: string[] = [];
+  const warningLines: string[] = [];
 
   for (const file of files) {
     let raw: unknown;
@@ -189,8 +208,13 @@ export async function runProjectFixturesOnRulesReload(
     }
 
     if (input.service === 'firestore' && input.firestoreRules) {
-      const testCases = extractFirestoreTestCases(raw);
-      if (!testCases) continue;
+      const extracted = extractFirestoreTestCases(raw);
+      if (extracted.kind === 'refused') {
+        warningLines.push(`  ⚠ [pyric] fixtures: [${file.name}] not checked, ${extracted.reason}`);
+        continue;
+      }
+      if (extracted.kind === 'none') continue;
+      const testCases = extracted.cases;
 
       const sim = new SimulateFirestoreRulesHandler().simulate(input.firestoreRules, testCases);
       if (!sim.success) continue;
@@ -234,6 +258,7 @@ export async function runProjectFixturesOnRulesReload(
       lines.push(...failureLines);
     }
   }
+  lines.push(...warningLines);
 
   return { ran, passed, failed, checks, ok, lines };
 }

@@ -4,6 +4,7 @@
   "dependencies": {
     "@pyric/cli": "*",
     "firebase": "12.13.0",
+    "firebase-admin": "13.6.0",
     "vite": "7.3.2"
   }
 }

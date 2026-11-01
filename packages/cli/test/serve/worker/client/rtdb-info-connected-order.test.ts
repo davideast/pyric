@@ -26,7 +26,8 @@ class Host {
   private server: ReturnType<typeof Bun.serve> | undefined;
   private sockets = 0;
 
-  constructor() {
+  /** `unanswered` picks the operations the host receives and never replies to. */
+  constructor(private readonly unanswered: (frame: WorkerFrame) => boolean = () => false) {
     const probe = Bun.serve({ port: 0, fetch: () => new Response('probe') });
     this.port = probe.port as number;
     void probe.stop(true);
@@ -39,6 +40,7 @@ class Host {
 
   start(): void {
     const received = this.received;
+    const unanswered = this.unanswered;
     const nextSocket = (): number => { this.sockets += 1; return this.sockets; };
     this.server = Bun.serve<{ socket: number }, undefined>({
       port: this.port,
@@ -60,7 +62,8 @@ class Host {
           if (message.type !== 'worker-message') return;
           const frame = message.message as WorkerFrame;
           received.push({ socket: socket.data.socket, frame });
-          if (frame.t !== 'op') return;
+          const awaitsReply = frame.t === 'op' || frame.t === 'disconnect';
+          if (!awaitsReply || unanswered(frame)) return;
           socket.send(JSON.stringify({ type: 'worker-message-result', message: { t: 'res', id: frame.id, ok: true, value: null } }));
         },
       },
@@ -95,7 +98,7 @@ function open(host: Host) {
   });
   cleanups.push(() => db.port.close());
   const attaches = () => states.filter(state => state === 'attached').length;
-  return { database: client.rtdbGetDatabase(db), states, attaches };
+  return { db, database: client.rtdbGetDatabase(db), states, attaches };
 }
 
 /**
@@ -115,6 +118,22 @@ function rearmPresence(database: client.ClientRtdb): boolean[] {
 }
 
 const isRearm = (frame: WorkerFrame): boolean => frame.method === 'rtdb.onDisconnectSet' && frame.path === '/status/alice';
+
+/** Whether `promise` is still unsettled once the timers queued now have run. */
+async function staysPending(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false;
+  const settle = (): void => { settled = true; };
+  promise.then(settle, settle);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  return !settled;
+}
+
+/** An onDisconnect the host took and has not answered, as the presence sample issues it. */
+async function sentOnDisconnect(host: Host, database: client.ClientRtdb): Promise<{ rearm: Promise<void> }> {
+  const rearm = client.rtdbOnDisconnect(client.rtdbRef(database, 'status/alice')).set('offline');
+  await until(() => host.framesOn(1).some(isRearm));
+  return { rearm };
+}
 
 test('.info/connected turns true after the restore and the held flush, so a re-armed onDisconnect follows them', async () => {
   const host = new Host();
@@ -157,4 +176,32 @@ test('.info/connected is never sent to the host or replayed on re-attach', async
 
   const infoFrames = host.received.filter(({ frame }) => JSON.stringify(frame).includes('.info'));
   expect(infoFrames).toEqual([]);
+});
+
+// #1215: @firebase/database 1.1.3 ends a deleted app's connection through
+// repoInterrupt, which clears its request callbacks, so a sent onDisconnect
+// never settles. Rejecting it left the presence sample's bare call unhandled.
+
+test('closing the connection leaves an onDisconnect the host has not answered unsettled', async () => {
+  const host = new Host(isRearm);
+  host.start();
+  const { db, database, attaches } = open(host);
+  await until(() => attaches() === 1);
+  const { rearm } = await sentOnDisconnect(host, database);
+
+  db.port.close();
+
+  expect(await staysPending(rearm)).toBe(true);
+});
+
+test('deleting the app leaves an onDisconnect the host has not answered unsettled', async () => {
+  const host = new Host(isRearm);
+  host.start();
+  const { db, database, attaches } = open(host);
+  await until(() => attaches() === 1);
+  const { rearm } = await sentOnDisconnect(host, database);
+
+  await client.disconnectClient(db);
+
+  expect(await staysPending(rearm)).toBe(true);
 });

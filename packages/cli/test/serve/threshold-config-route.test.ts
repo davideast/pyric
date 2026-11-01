@@ -6,6 +6,7 @@ import { createThresholdConfigStore } from '../../src/serve/threshold-config-sto
 import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { startStaticServer, silentServeLogger } from '../../src/serve/server.js';
 import { createThresholdConfigClient } from '../../src/serve/runtime/threshold-config-client.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 test('project threshold client round-trips through the guarded namespace; other origins and missing tokens cannot write', async () => {
   const root = await mkdtemp(join(tmpdir(), 'pyric-threshold-route-'));
@@ -25,5 +26,22 @@ test('project threshold client round-trips through the guarded namespace; other 
     await client.save({ sustainedSeconds: 3, firestore: { documentReads: 30 }, rtdb: { deliveries: null } }, current.revision);
     expect((await createThresholdConfigClient(fetcher).read())!.config).toEqual({ sustainedSeconds: 3, firestore: { documentReads: 30 }, rtdb: { deliveries: null } });
     await expect(client.save({}, current.revision)).rejects.toThrow('changed');
+  } finally { await server.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('an oversized threshold save is answered 413 with the connection closed, and the next request is answered (#1710)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pyric-threshold-route-'));
+  await mkdir(join(root, 'public')); await writeFile(join(root, 'public/index.html'), '<html></html>');
+  const namespace = createPyricNamespace({ sdkDir: root, thresholds: createThresholdConfigStore(root), initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }) });
+  const server = await startStaticServer({ publicDir: join(root, 'public'), port: 0, host: '127.0.0.1', namespaceHandler: namespace, logger: silentServeLogger() });
+  try {
+    const init = await (await fetch(server.url + '/__pyric/init.json')).json();
+    const endpoint = server.url + '/__pyric/thresholds';
+    const oversized = await fetch(endpoint, {
+      method: 'PUT',
+      headers: { 'x-pyric-session-token': init.sessionToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ config: {}, padding: 'x'.repeat(1024 * 1024) }),
+    });
+    await expectClosedEarlyAnswer(oversized, 413, endpoint);
   } finally { await server.stop(); await rm(root, { recursive: true, force: true }); }
 });

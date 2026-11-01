@@ -21,6 +21,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'firestore',
   method: 'extractIndexes',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'extractIndexes(queries?[{path, constraints?[asc|desc]}])',

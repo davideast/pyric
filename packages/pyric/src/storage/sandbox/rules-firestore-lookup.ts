@@ -6,7 +6,7 @@ import {
   RuleUnsupportedError,
 } from './rules-evaluation-error.js';
 import { StorageLatLng } from './rules-latlng.js';
-import { StoragePath } from './rules-path.js';
+import { StoragePath, interpolationSegments, isPathValue, pathValueSegments } from './rules-path.js';
 import { describeRulesType as describeType } from '../../rules/simulator/rules-type.js';
 import { RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
@@ -156,16 +156,6 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   return { data: wrapFirestoreValue(fields) as Record<string, unknown> };
 }
 
-/** Whether a rules value has the rules type `path`. */
-function isPathValue(value: unknown): value is RulesValue {
-  return value instanceof StoragePath || (value instanceof RulesValue && value.typeName === 'path');
-}
-
-function pathValueSegments(value: RulesValue): string[] {
-  if (value instanceof StoragePath) return value.segments;
-  return String(value).split('/').filter(Boolean);
-}
-
 /**
  * One segment of the key that counts distinct documents. A segment holding a
  * `/` is percent-encoded, as production's own argument rendering shows
@@ -175,17 +165,10 @@ function accessKeySegment(segment: string): string {
   return segment.replaceAll('%', '%25').replaceAll('/', '%2F');
 }
 
-/**
- * The segments one interpolation contributes. Production decides by the
- * value's rules type, not its contents: a string or number is exactly one
- * segment, even when it holds a `/`, and a `path` value (a `{rest=**}`
- * capture or `path()`) splices in as its segments
- * (capture `rules-storage-storage-lookup-path-interpolation`).
- */
+/** The segments one interpolation contributes ({@link interpolationSegments}), or an error that denies. */
 function interpolatedSegments(value: unknown): string[] {
-  if (typeof value === 'string') return [value];
-  if (typeof value === 'number') return [String(value)];
-  if (isPathValue(value)) return pathValueSegments(value);
+  const segments = interpolationSegments(value);
+  if (segments !== undefined) return segments;
   throw new RuleEvalError(
     `Firestore path interpolation resolved to ${describeType(value)} (expected a string or a path)`,
   );

@@ -153,3 +153,21 @@ describe('GeminiEngine: Application Default Credentials token cache', () => {
     expect(h.authHeaders.length).toBe(1);
   });
 });
+
+describe('GeminiEngine: VITE_GEMINI_API_KEY is not a credential (#1632)', () => {
+  it('ignores the variable and uses Application Default Credentials instead', async () => {
+    process.env.VITE_GEMINI_API_KEY = 'AIzaFAKE-1632-adc';
+    const h = harness({});
+    await h.engine.generateContent(REQUEST, MODEL);
+    expect(h.authHeaders).toEqual(['Bearer adc-token-1']);
+  });
+
+  it('names only the server variables in its 401', async () => {
+    process.env.VITE_GEMINI_API_KEY = 'AIzaFAKE-1632-adc';
+    const h = harness({ failFirstLookup: true });
+    const err = await h.engine.generateContent(REQUEST, MODEL).catch((e: unknown) => e);
+    const message = (err as AiBrokerError).envelope.error.message;
+    expect(message).toContain('GEMINI_API_KEY or GOOGLE_GENAI_API_KEY');
+    expect(message).not.toContain('VITE_');
+  });
+});

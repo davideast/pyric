@@ -185,7 +185,7 @@ export { requestStatusLabel } from '../types/request-observation.js';
 export { createActiveListenerState } from '../active-listeners.js';
 export { asSentence } from './sentence.js';
 export {
-  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, withIdTokenClaims, withoutJwtClaims,
+  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
   type TokenClaimAccount, type TokenClaimRecord,
 } from './auth-token-claims.js';
 export { absolutePhotoUrl, realmOrigin } from './photo-url.js';
@@ -232,6 +232,17 @@ export {
   type FirestoreRulesConfigOptions,
   type UnresolvedFirestoreTarget,
 } from './firestore-rules-config.js';
+// The Storage rules a firebase.json deploys to each bucket, shared by every
+// plane that loads them.
+export {
+  DEFAULT_STORAGE_RULES_FILE,
+  storageRulesConfig,
+  type StorageRulesBucketTarget,
+  type StorageRulesConfig,
+  type StorageRulesConfigOptions,
+  type StorageRulesFile,
+  type UnresolvedStorageRulesTarget,
+} from './storage-rules-config.js';
 export { parsePyricSandbox, isRemoteActivation, type PyricSandboxActivation } from './sandbox-activation.js';
 export {
   clearProcessActivation,
@@ -251,3 +262,10 @@ export {
   type AppCheckTokenParts,
   type MintedAppCheckToken,
 } from './app-check-token.js';
+export {
+  appCheckActivationOf,
+  appCheckTokenFor,
+  recordAppCheckActivation,
+  type AppCheckActivation,
+  type AppCheckTokenOptions,
+} from './app-check-activation.js';

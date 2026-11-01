@@ -26,7 +26,8 @@
  * (post-sentinel) value before handing it to {@link DataTree}.
  *
  * Read-side array coercion (the inverse — integer-keyed objects render
- * back as arrays on `val()`) lives in {@link coerceArrays}, mirroring
+ * back as arrays on `val()`) lives in {@link coerceArrays} and
+ * {@link asSdkArray}, mirroring
  * `ChildrenNode.val()`'s `allIntegerKeys && maxKey < 2 * numKeys` rule.
  *
  * Upstream references (clone @ 6a9d3d18):
@@ -35,7 +36,8 @@
  *   - `core/snap/ChildrenNode.ts:194-230` (val array coercion)
  */
 import { SDK_VERSION } from '../../app/diagnostics.js';
-import type { JsonValue } from './data-tree.js';
+import { validateUpdatePaths } from '../writable-path.js';
+import { pathSegments, type JsonValue } from './data-tree.js';
 
 /** True for invalid Firebase keys. Mirrors `INVALID_KEY_REGEX_`
  *  (`validation.ts:45`): `.`, `#`, `$`, `/`, `[`, `]`, control chars. */
@@ -57,54 +59,105 @@ function isInvalidJSONNumber(value: unknown): boolean {
   );
 }
 
-/** The metadata keys RTDB exempts from key validation. */
-function isMetadataKey(key: string): boolean {
-  return key === '.priority' || key === '.value' || key === '.sv';
+/** Where in a write a validation error points, as the SDK prints it: the
+ *  path's segments joined with `.`, or nothing at the root
+ *  (`validationPathToErrorString`). */
+function propertyText(segments: readonly string[]): string {
+  return segments.length === 0 ? '' : `in property '${segments.join('.')}'`;
+}
+
+/** The start of the SDK's error for a refused argument, such as
+ *  `push failed: value argument ` (`util.errorPrefix`). */
+export function errorPrefix(fnName: string, argName: string): string {
+  return `${fnName} failed: ${argName} argument `;
+}
+
+/** The start of the SDK's error for a refused transaction result. */
+export const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
+
+/**
+ * Validate a value against RTDB's write rules, throwing the SDK's error (a
+ * plain `Error` with the same text) on the first violation. Mirrors
+ * `validateFirebaseData` (`@firebase/database` 1.1.3): `undefined`, a
+ * function, `NaN` or an infinity anywhere, an invalid key, or a `.value`
+ * key beside real children. An array hole is skipped, as the SDK's `each`
+ * skips it; an element that is explicitly `undefined` is not. `path` is the
+ * path the SDK names in the error (for `push`, the parent's), and `prefix`
+ * names the call, as {@link errorPrefix} builds it.
+ */
+export function validateWrite(value: unknown, path: string, prefix = errorPrefix('set', 'value')): void {
+  validateData(value, pathSegments(path), prefix);
+}
+
+/** Whether the SDK accepts `value` as a priority: null, a string, a finite
+ *  number, or a server value (`isValidPriority`). */
+function isValidPriority(value: unknown): boolean {
+  if (value === null || typeof value === 'string') return true;
+  if (typeof value === 'number') return !isInvalidJSONNumber(value);
+  return typeof value === 'object' && Object.hasOwn(value, '.sv');
 }
 
 /**
- * Validate a value against RTDB's write rules, throwing the upstream
- * error shape (a plain `Error`) on the first violation. Mirrors
- * `validateFirebaseData` (`validation.ts:112-199`). `pathPrefix` is the
- * absolute path the value is being written to — used for a prod-shaped
- * error message.
+ * Validate `update()` values as the SDK does before sending them
+ * (`validateFirebaseMergeDataArg`): an object, each value valid at its path,
+ * a valid priority under each key ending in `.priority`, then valid and
+ * non-overlapping keys. Returns the values.
  */
-export function validateWrite(value: unknown, pathPrefix: string): void {
-  validateData(value, pathPrefix, 'set');
+export function validateUpdate(values: unknown, path: string): Record<string, unknown> {
+  const prefix = errorPrefix('update', 'values');
+  if (values === null || typeof values !== 'object') {
+    throw new Error(`${prefix} must be an object containing the children to replace.`);
+  }
+  const patch = values as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    const keySegments = pathSegments(key);
+    validateData(value, [...pathSegments(path), ...keySegments], prefix);
+    const isPriorityKey = keySegments[keySegments.length - 1] === '.priority';
+    if (isPriorityKey && !isValidPriority(value)) {
+      throw new Error(
+        `${prefix}contains an invalid value for '/${keySegments.join('/')}', which must be a valid ` +
+          'Firebase priority (a string, finite number, server value, or null).',
+      );
+    }
+  }
+  validateUpdatePaths(patch);
+  return patch;
 }
 
-function validateData(value: unknown, path: string, fnName: string): void {
+function validateData(value: unknown, segments: readonly string[], prefix: string): void {
+  const where = propertyText(segments);
   if (value === undefined) {
-    throw new Error(`${fnName} failed: value argument contains undefined in property '${path}'`);
+    throw new Error(`${prefix}contains undefined ${where}`);
   }
   if (typeof value === 'function') {
-    throw new Error(`${fnName} failed: value argument contains a function in property '${path}'`);
+    throw new Error(`${prefix}contains a function ${where} with contents = ${String(value)}`);
   }
   if (isInvalidJSONNumber(value)) {
-    throw new Error(`${fnName} failed: value argument contains ${String(value)} in property '${path}'`);
+    throw new Error(`${prefix}contains ${String(value)} ${where}`);
   }
   if (value === null || typeof value !== 'object') {
     return;
   }
-  if (Array.isArray(value)) {
-    // Arrays validate per-element. Holes (`undefined`) are skipped (they
-    // become absent integer keys), matching `each` over a sparse array.
-    for (let i = 0; i < value.length; i++) {
-      if (!(i in value)) continue;
-      const el = value[i];
-      if (el === undefined) continue;
-      validateData(el, `${path}/${i}`, fnName);
-    }
-    return;
-  }
+  let hasDotValue = false;
+  let hasActualChild = false;
+  // Own enumerable keys, as the SDK's `each` walks them: an array hole is
+  // not a key, so it is skipped.
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (!isMetadataKey(key) && !isValidKey(key)) {
-      throw new Error(
-        `${fnName} failed: value argument contains an invalid key (${key}) in path ${path}. ` +
-          'Keys must be non-empty strings and can\'t contain ".", "#", "$", "/", "[", or "]"',
-      );
+    if (key === '.value') {
+      hasDotValue = true;
+    } else if (key !== '.priority' && key !== '.sv') {
+      hasActualChild = true;
+      if (!isValidKey(key)) {
+        throw new Error(
+          `${prefix} contains an invalid key (${key}) ${where}.  Keys must be non-empty strings ` +
+            'and can\'t contain ".", "#", "$", "/", "[", or "]"',
+        );
+      }
     }
-    validateData(child, `${path}/${key}`, fnName);
+    validateData(child, [...segments, key], prefix);
+  }
+  if (hasDotValue && hasActualChild) {
+    throw new Error(`${prefix} contains ".value" child ${where} in addition to actual children.`);
   }
 }
 
@@ -121,8 +174,8 @@ function validateData(value: unknown, path: string, fnName: string): void {
  * Leaf primitives (string / number / boolean) pass through unchanged —
  * including at the root (DB-B13: `set(ref(db), 'hello')` is legal).
  */
-export function normalizeWrite(value: unknown, pathPrefix: string): JsonValue {
-  validateWrite(value, pathPrefix);
+export function normalizeWrite(value: unknown, pathPrefix: string, prefix = errorPrefix('set', 'value')): JsonValue {
+  validateWrite(value, pathPrefix, prefix);
   return normalizeNode(value) as JsonValue;
 }
 
@@ -276,13 +329,14 @@ export function normalizeRuleWrite(value: unknown, priority: string | number | n
 
 /**
  * Read-side array coercion. RTDB renders an integer-keyed object back as
- * an array on `DataSnapshot.val()` when ALL keys are non-negative
- * integers AND the max key is `< 2 * numKeys` (a density heuristic that
+ * an array on `DataSnapshot.val()` when all keys are non-negative
+ * integers and the max key is `< 2 * numKeys` (a density heuristic that
  * avoids materializing a giant sparse array). Mirrors `ChildrenNode.val`
  * (`ChildrenNode.ts:196-230`). Recurses into children.
  *
- * Absent integer slots become array holes filled with `null` (matching
- * prod, where a coerced array's missing indices read back as `null`).
+ * Only the indexes that hold a value are assigned, so a missing index is
+ * an array hole, not `null`: upstream copies `array[key] = obj[key]` for
+ * the present keys only (RT-6, #1371).
  */
 export function coerceArrays(value: JsonValue): JsonValue {
   if (value === null || typeof value !== 'object') return value;
@@ -290,29 +344,30 @@ export function coerceArrays(value: JsonValue): JsonValue {
     // Already an array (shouldn't occur in stored data, but be defensive).
     return value.map((v) => coerceArrays(v));
   }
-  const obj = value as Record<string, JsonValue>;
-  const keys = Object.keys(obj);
-  let allIntegerKeys = keys.length > 0;
-  let maxKey = 0;
-  for (const k of keys) {
-    if (/^(0|[1-9]\d*)$/.test(k)) {
-      maxKey = Math.max(maxKey, Number(k));
-    } else {
-      allIntegerKeys = false;
-      break;
-    }
-  }
-  if (allIntegerKeys && maxKey < 2 * keys.length) {
-    const arr: JsonValue[] = [];
-    for (let i = 0; i <= maxKey; i++) {
-      const child = obj[String(i)];
-      arr[i] = child === undefined ? null : coerceArrays(child);
-    }
-    return arr;
-  }
   const out: Record<string, JsonValue> = {};
-  for (const [k, v] of Object.entries(obj)) {
+  for (const [k, v] of Object.entries(value as Record<string, JsonValue>)) {
     out[k] = coerceArrays(v);
   }
-  return out;
+  return asSdkArray(out) ?? out;
+}
+
+const INTEGER_KEY = /^(0|[1-9]\d*)$/;
+
+/**
+ * `children` as the array `val()` renders, or `null` when the SDK keeps
+ * them an object: some key is not an integer, or the largest is not below
+ * twice the key count. Children are copied as they are, without recursing.
+ */
+export function asSdkArray(children: Record<string, JsonValue>): JsonValue[] | null {
+  const keys = Object.keys(children);
+  if (keys.length === 0) return null;
+  let maxKey = 0;
+  for (const key of keys) {
+    if (!INTEGER_KEY.test(key)) return null;
+    maxKey = Math.max(maxKey, Number(key));
+  }
+  if (maxKey >= 2 * keys.length) return null;
+  const array: JsonValue[] = [];
+  for (const key of keys) array[Number(key)] = children[key];
+  return array;
 }

@@ -15,10 +15,15 @@
 // serial one. A `bun test` job whose summary is missing, or counts fewer files
 // than the plan gave it (a test file that exits the process ends its job
 // early), fails.
+//
+// A full run is heavy: it takes a machine-wide slot (lib/heavy-run-slots.ts)
+// before it samples the machine, and waits while two other heavy runs hold
+// both slots, so the concurrency it picks reflects the run holding the other.
 
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { takeHeavyRunSlot } from './lib/heavy-run-slots.ts';
 import { chooseConcurrency, sampleMachineLoad, type MachineLoad } from './lib/test-all/concurrency.ts';
 import { addCounts, emptyCounts, formatCounts } from './lib/test-all/counts.ts';
 import { planJobs, readSerialChain, type TestJob } from './lib/test-all/plan.ts';
@@ -104,6 +109,7 @@ function warmUpJob(root: string): TestJob {
 async function main(): Promise<number> {
   const options = parseOptions(process.argv.slice(2));
   const logDir = join(options.root, 'test-results', 'test-all');
+  await takeHeavyRunSlot();
   const machine = await sampleMachineLoad();
   const concurrency = concurrencyFor(options, machine);
   const isChosenSerial = options.jobs === undefined && concurrency === 1;

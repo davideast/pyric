@@ -70,6 +70,7 @@ function checkInstants(args: Args, fail: Fail): InvalidArguments | null {
 export default {
   tool: 'rules',
   method: 'simulate',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `simulate(service: ${SERVICES.join('|')}, operation?: ${REQUEST_METHODS.join('|')}, path?, uid?, data?, query?, cases?, rules?, instance?, requestTime?)`,

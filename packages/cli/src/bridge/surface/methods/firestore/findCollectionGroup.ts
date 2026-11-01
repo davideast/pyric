@@ -30,6 +30,7 @@ interface HostSummary {
 export default {
   tool: 'firestore',
   method: 'findCollectionGroup',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'findCollectionGroup(collectionId)',
