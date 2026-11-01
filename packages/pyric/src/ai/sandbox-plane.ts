@@ -111,7 +111,7 @@ function normalizeRequest<T>(request: T): T {
 
 /** Translate a failure to the SDK's error, logging pyric's App Check guidance once per app beside it. */
 function planeError(target: AITarget, err: unknown, modelResource: string, op: string): unknown {
-  const error = toAIError(err, modelResource, op);
+  const error = toAIError(err, modelResource, op, target.backend);
   if (isAppCheckRefusal(error)) target.appCheck?.warnRefused();
   return error;
 }
