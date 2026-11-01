@@ -19,6 +19,13 @@
 // runs the engine itself, so the page's AIError and the terminal's
 // rejection block must both read `API key ***`.
 //
+// A third model answers a 200 stream that carries an error event
+// mid-response, quoting the key in plain text (#1660). On every plane the
+// page must see that event with `***` in place of the key: the dev server's
+// gemini proxy masks it for the SharedWorker and in-page engines, and the
+// engine masks it on `hosted: true`. The SharedWorker refuses the plain-text
+// key through the proxy too, not only a key quoted in the URL.
+//
 // Vite serves every `VITE_`-prefixed variable to any module that reads
 // `import.meta.env`. The page never reads it, so no module the dev server
 // serves may carry the dev server's `VITE_` value: Pyric's own modules must
@@ -31,6 +38,7 @@ import { scenario, type App, type DevServer } from '../driver.ts';
 
 declare function runGemini(tag: string, withAppCheck: boolean): Promise<Record<string, unknown>>;
 declare function runGeminiError(tag: string, model?: string): Promise<{ ok: boolean; status?: number; message?: string }>;
+declare function runGeminiStreamError(tag: string): Promise<StreamErrorResult>;
 
 /** A made-up key. The stand-in accepts only this one. */
 const SERVER_KEY = 'scenario-gemini-key-1584';
@@ -44,6 +52,8 @@ const MODEL = 'gemini-2.5-flash';
 const ECHO_MODEL = 'gemini-echo-url';
 /** The model the stand-in refuses with Gemini's invalid-key message, quoting the key in plain text. */
 const ECHO_KEY_MODEL = 'gemini-echo-key';
+/** The model the stand-in answers with a 200 stream that carries an error event quoting the key. */
+const STREAM_ERROR_MODEL = 'gemini-stream-error';
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
 /** The SDK's request URL adds `alt=sse` to a stream (#1640). */
@@ -92,6 +102,13 @@ function answer(action: string, response: import('node:http').ServerResponse): v
   response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
 }
 
+/** One answer event, then an error event that quotes the key in plain text. */
+function streamWithError(key: string | null, response: import('node:http').ServerResponse): void {
+  const error = { error: { code: 500, message: `Quota check failed for API key ${key ?? ''}.`, status: 'INTERNAL' } };
+  response.writeHead(200, { 'content-type': 'text/event-stream' });
+  response.end(`data: ${JSON.stringify(RESPONSE)}\r\n\r\ndata: ${JSON.stringify(error)}\r\n\r\n`);
+}
+
 function echoMessage(url: string, key: string | null): string {
   const quotesKey = url.includes(`/models/${ECHO_KEY_MODEL}:`);
   if (quotesKey) return `API key ${key ?? ''} not valid. Please pass a valid API key.`;
@@ -105,17 +122,24 @@ function echoError(url: string, key: string | null, response: import('node:http'
 }
 
 /** The Gemini REST API, as far as these three calls go. */
-function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[]; server: Server }> {
+function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[]; streamed: Array<string | null>; server: Server }> {
   const seen: Seen[] = [];
+  const streamed: Array<string | null> = [];
   const echoed: Echoed[] = [];
   const server = createServer((request, response) => {
     const path = request.url ?? '';
     const isEcho = [ECHO_MODEL, ECHO_KEY_MODEL].some((model) => path.startsWith(`/v1beta/models/${model}:`));
+    const isStreamError = path.startsWith(`/v1beta/models/${STREAM_ERROR_MODEL}:streamGenerateContent`);
     const action = path.match(new RegExp(`^/v1beta/models/${MODEL}:(\\w+)`))?.[1] ?? `unexpected ${request.method} ${path}`;
     const key = path.match(/[?&]key=([^&]*)/)?.[1] ?? null;
-    if (!isEcho) seen.push({ action, key: key === null ? null : decodeURIComponent(key) });
+    if (!isEcho && !isStreamError) seen.push({ action, key: key === null ? null : decodeURIComponent(key) });
     request.resume();
     request.on('end', () => {
+      if (isStreamError) {
+        streamed.push(key === null ? null : decodeURIComponent(key));
+        streamWithError(key === null ? null : decodeURIComponent(key), response);
+        return;
+      }
       if (isEcho) {
         const url = `http://${request.headers.host}${path}`;
         echoed.push({ url, body: echoError(url, key === null ? null : decodeURIComponent(key), response) });
@@ -132,7 +156,7 @@ function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[];
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
-      resolve({ url: `http://127.0.0.1:${port}`, seen, echoed, server });
+      resolve({ url: `http://127.0.0.1:${port}`, seen, echoed, streamed, server });
     });
   });
 }
@@ -157,6 +181,19 @@ function assertMaskedRefusal(result: { ok: boolean; status?: number; message?: s
   assert.match(result.message ?? '', /was refused by the gateway/);
   assert.match(result.message ?? '', /key=\*\*\*/);
   assert.ok(!(result.message ?? '').includes(SERVER_KEY), result.message);
+}
+
+interface StreamErrorResult { chunks: string[]; settled: { ok: boolean; text?: string; message?: string } }
+
+/**
+ * The page iterated the stream's error event with the key masked, and the
+ * stand-in sent that event with the key the server attached.
+ */
+function assertMaskedStreamError(result: StreamErrorResult, streamed: Array<string | null>): void {
+  assert.equal(streamed.at(-1), SERVER_KEY, 'the stand-in streamed an error quoting the key');
+  const seen = JSON.stringify(result);
+  assert.ok(!seen.includes(SERVER_KEY), seen);
+  assert.match(seen, /Quota check failed for API key \*\*\*\./);
 }
 
 /** Every body the browser received, so the scenario can look for the key in them. */
@@ -234,6 +271,18 @@ export default scenario(async (app) => {
       assert.equal(standIn.echoed.length, 2);
     });
 
+    await app.step('SharedWorker: an upstream error that quotes the key in plain text reaches the browser masked', async () => {
+      const result = await page.evaluate((model) => runGeminiError('error-quotes-key', model), ECHO_KEY_MODEL);
+      assert.ok(standIn.echoed.at(-1)!.body.includes(`API key ${SERVER_KEY} not valid`), 'the stand-in quoted the key');
+      assert.equal(result.status, 400);
+      assert.ok(!(result.message ?? '').includes(SERVER_KEY), result.message);
+      assert.match(result.message ?? '', /API key \*\*\* not valid/);
+    });
+
+    await app.step('SharedWorker: an error event mid-stream reaches the browser with the key masked', async () => {
+      assertMaskedStreamError(await page.evaluate(() => runGeminiStreamError('stream-error')), standIn.streamed);
+    });
+
     const hostedServer = await app.step('start the dev server with hosted: true', () =>
       app.devServer({ name: 'hosted-dev-server', env: { ...env, HOSTED: '1' } }));
 
@@ -259,6 +308,11 @@ export default scenario(async (app) => {
       assert.ok(!hostedServer.process.output.includes(SERVER_KEY), 'the hosted dev server printed the key');
     });
 
+    await app.step('hosted: true: an error event mid-stream reaches the page with the key masked', async () => {
+      const hostedPage = await openPage(app, hostedServer);
+      assertMaskedStreamError(await hostedPage.evaluate(() => runGeminiStreamError('hosted-stream-error')), standIn.streamed);
+    });
+
     await app.step('in-page sandbox: the same refusal and the same answer', async () => {
       const context = await app.browser();
       await context.addInitScript(() => {
@@ -270,6 +324,7 @@ export default scenario(async (app) => {
       // In-page fetches are reported to the context, so the last step checks this error's body too.
       app.expectHostError(new RegExp(`^400 POST /__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`));
       assertMaskedRefusal(await inPage.evaluate(() => runGeminiError('in-page-error-quotes-url')));
+      assertMaskedStreamError(await inPage.evaluate(() => runGeminiStreamError('in-page-stream-error')), standIn.streamed);
       assert.deepEqual(standIn.seen, answeredAt(3));
     });
 
