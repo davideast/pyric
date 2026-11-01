@@ -24,6 +24,7 @@ From November 2, 2026, production AI Logic answers a request without a valid App
 - **A `CustomProvider` is called.** With no debug token set, the sandbox's `firebase/app-check` now calls your `CustomProvider`, and the AI Logic gate checks the token it returns. A token the sandbox signed is accepted, such as one a server mints with `firebase-admin` `createToken`. Any other token, or a provider that rejects, gets production's 403. With `useLimitedUseAppCheckTokens: true`, a provider that rejects stops the request before it is sent, and the call fails with `AIError` code `error`, as the Firebase SDK does. The documented setup, a debug token under `import.meta.env.DEV`, works as before (#1648).
 - **A reCAPTCHA provider throws without a `document`.** In a Node process or a server-rendered module, `initializeAppCheck` with `ReCaptchaV3Provider` or `ReCaptchaEnterpriseProvider` throws `ReferenceError: document is not defined`, as the Firebase SDK does. Before, it returned a handle. On a server, use a `CustomProvider` (#1664).
 - **Re-initializing and concurrent `getToken` follow the SDK.** A second `initializeAppCheck` that differs from the first in the raw `isTokenAutoRefreshEnabled` value now throws `appCheck/already-initialized`, so an omitted value no longer equals `false`. Concurrent `getToken` calls share one token, and `onTokenChanged` listeners fire once (#1388).
+- **Production AI mode verifies App Check tokens on Node 22.** Under `@pyric/cli/register` on Node 22, the App Check verifier failed on the first Firebase-issued token with `PYRIC_REAL_SDK_STOPPED`. Node 22 resolves a CommonJS file inside `firebase-admin` a second time with no importer, and the register stopped that second pass. It now lets that pass through for a file it already allowed, so verification works as on Node 24 (#1707, #1709).
 - **Production AI mode works in Next.js.** `withPyric` now reads `PYRIC_AI_MODE`. With `PYRIC_AI_MODE=production`, a Next page gets the Firebase SDK's `firebase/ai` attached to the real `firebase/app-check`, so AI Logic requests carry `X-Firebase-AppCheck`, as on Vite. Before, the page got pyric's scripted answers (#1650).
 - **Proxied AI engines work under `pyric sandbox -- next dev`.** alpha.30.2 refused a page served by a wrapped dev server with a 403 when it used the openai engine, or the gemini engine on the SharedWorker or in-page plane. The guarded `/__pyric/*` routes now accept the wrapped dev server's port (#1497, #1438).
 - **AI Logic roles match production.** The sandbox refuses role `function` with production's 400. `@firebase/ai` 2.12.0's `ChatSession` sends function responses under role `function`, so a `ChatSession` with tools now fails in the sandbox as it does in production. Send function responses with `generateContent` under role `user` (#1412). Role `assistant` inside `contents` is now accepted, and role `system` is still refused (#1542).
@@ -60,6 +61,7 @@ The register, network guard and Storage lint changes can stop code that ran befo
 - Second `initializeAppCheck` that omits `isTokenAutoRefreshEnabled` where the first passed `false`, or the reverse: before, returned the existing handle. Now, throws `appCheck/already-initialized`. Concurrent `getToken`: before, two tokens and two listener calls. Now, one token and one listener call (#1388).
 - Role `function` in AI Logic `contents`: before, accepted. Now, refused with production's 400. The bad-role error text now lists `MODEL, USER`, as production's does (#1412).
 - Role `assistant` in AI Logic `contents`: before, refused. Now, accepted (#1542).
+- App Check verification in production AI mode on Node 22: before, failed with `PYRIC_REAL_SDK_STOPPED`. Now, verifies the token (#1707, #1709).
 - `PYRIC_AI_MODE=production` in Next.js: before, ignored on the page. Now, the page uses the real `firebase/ai` and `firebase/app-check` (#1650).
 
 #### Firestore and Storage rules
@@ -161,6 +163,7 @@ Each of these refuses something that used to work. Check them before you upgrade
 - Vite no longer pre-bundles a second copy of `pyric`, so a page that imports `pyric/auth` shares one app registry with the served `firebase/*` entries (#1508).
 - Two projects starting `vite dev` at once no longer read each other's half-written SharedWorker bundle (#1217).
 - The SharedWorker version-skew warning is reworded in plain language (#1216).
+- `/__pyric/denials` and the AI proxies close the connection when they refuse an oversized body with 413. Before, a client that sent its next request on the same socket, as Bun's `fetch` does, got a 400 for that request (#1706, #1708).
 
 #### Fix the Node host and the register
 

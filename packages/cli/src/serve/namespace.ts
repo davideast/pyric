@@ -23,7 +23,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { BODY_TOO_LARGE_CODE, collectBody } from '../bridge/server/peer.js';
+import { BODY_TOO_LARGE_CODE, closingHeaders, collectBody } from '../bridge/server/peer.js';
 import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
@@ -563,7 +563,7 @@ async function handleDenials(
   } catch (error) {
     const tooLarge = (error as { code?: unknown } | null)?.code === BODY_TOO_LARGE_CODE;
     if (tooLarge) {
-      res.writeHead(413, { 'content-type': 'text/plain' }).end('Payload Too Large');
+      res.writeHead(413, closingHeaders({ 'content-type': 'text/plain' })).end('Payload Too Large');
       return;
     }
     /* malformed body: drop it; this is a diagnostics side channel */

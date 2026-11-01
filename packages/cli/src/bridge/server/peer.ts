@@ -449,6 +449,17 @@ export function createConsumerSession(
  *  code lets a route answer 413 instead of treating it as malformed JSON. */
 export const BODY_TOO_LARGE_CODE = 'PYRIC_BODY_TOO_LARGE';
 
+/**
+ * Headers for an answer sent before the request body was read to its end,
+ * as a 413 is. The server is still owed the rest of the upload, so a client
+ * that reuses the socket would have its next request read as that remainder
+ * and answered 400 (#1706). Closing the connection sends the next request on
+ * a fresh one (RFC 9112 §9.6).
+ */
+export function closingHeaders(headers: Record<string, string> = {}): Record<string, string> {
+  return { ...headers, connection: 'close' };
+}
+
 function bodyTooLarge(): Error {
   return Object.assign(new Error('request body too large'), { code: BODY_TOO_LARGE_CODE });
 }

@@ -394,6 +394,10 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       # Bun re-downloads every dependency from the registry without this;
       # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
@@ -453,6 +457,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       # Bun re-downloads every dependency from the registry without this;
       # persisting its install cache lets `bun install` reuse prior downloads.
@@ -517,6 +525,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
@@ -721,6 +732,10 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       # Bun re-downloads every dependency from the registry without this;
       # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
@@ -803,6 +818,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - run: bun test scripts/publish-alpha.test.ts scripts/lib/proven-stamp.test.ts
 
   conformance-gates:

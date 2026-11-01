@@ -17,7 +17,7 @@ import { permitGuardHost } from '../register/net-guard.js';
 import { FIREBASE_AI_LOGIC_HOST } from '../google-endpoints.js';
 import type { AiMode } from './firebase-module-swap.js';
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
-import { BODY_TOO_LARGE_CODE, collectRawBody } from '../bridge/server/peer.js';
+import { BODY_TOO_LARGE_CODE, closingHeaders, collectRawBody } from '../bridge/server/peer.js';
 
 /** The dev server's diagnostics throttle, as this module needs it: the
  *  denials route owns the instance, and the proxy shares it so a failing
@@ -328,7 +328,7 @@ export async function readAiProxyBody(
   } catch (error) {
     const tooLarge = (error as { code?: unknown }).code === BODY_TOO_LARGE_CODE;
     const status = tooLarge ? 413 : 400;
-    res.writeHead(status, { 'content-type': 'text/plain' }).end(tooLarge ? 'Payload Too Large' : 'Bad Request');
+    res.writeHead(status, closingHeaders({ 'content-type': 'text/plain' })).end(tooLarge ? 'Payload Too Large' : 'Bad Request');
     return null;
   }
 }

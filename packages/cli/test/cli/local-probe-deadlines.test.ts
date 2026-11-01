@@ -21,22 +21,37 @@ const dist = (path: string): string => pathToFileURL(join(resolve(import.meta.di
 
 interface CommandRun {
   readonly result: unknown;
-  /** Milliseconds from the call until the command settled. */
-  readonly commandMs: number;
+  /** Whether a command run through `beforeSentinel` settled before its sentinel timer fired. */
+  readonly beatSentinel?: boolean;
   /** Milliseconds from the command settling until the parent saw the child exit. */
   readonly lingerMs: number;
 }
 
 /**
  * Run `body` (module source whose last statement assigns `result`) in a Node
- * child, timing the command and the exit after it.
+ * child, timing the exit after it.
+ *
+ * `body` may wrap its command in `beforeSentinel(sentinelMs, () => command)`,
+ * which arms a sentinel timer in the same turn as the call. The command beats
+ * the sentinel only if its own deadline timers end it first. Timers fire in
+ * the order they fall due, so a child the machine stalls or starves (#1705)
+ * runs late on both and keeps that order, where a wall-clock bound fails.
  */
 function runInNode(body: string): Promise<CommandRun> {
   const script = `let result;
-const started = performance.now();
+let beatSentinel;
+const beforeSentinel = async (sentinelMs, run) => {
+  let fired = false;
+  const sentinel = setTimeout(() => { fired = true; }, sentinelMs);
+  try {
+    return await run();
+  } finally {
+    beatSentinel = !fired;
+    clearTimeout(sentinel);
+  }
+};
 ${body}
-const commandMs = performance.now() - started;
-process.stdout.write(JSON.stringify({ result, commandMs, endedAt: Date.now() }));`;
+process.stdout.write(JSON.stringify({ result, beatSentinel, endedAt: Date.now() }));`;
   const child = spawn('node', ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '';
   child.stdout.setEncoding('utf8');
@@ -47,8 +62,8 @@ process.stdout.write(JSON.stringify({ result, commandMs, endedAt: Date.now() }))
     child.once('exit', () => {
       const exitedAt = Date.now();
       try {
-        const printed = JSON.parse(stdout) as { result: unknown; commandMs: number; endedAt: number };
-        resolvePromise({ result: printed.result, commandMs: printed.commandMs, lingerMs: exitedAt - printed.endedAt });
+        const printed = JSON.parse(stdout) as { result: unknown; beatSentinel?: boolean; endedAt: number };
+        resolvePromise({ result: printed.result, beatSentinel: printed.beatSentinel, lingerMs: exitedAt - printed.endedAt });
       } catch {
         reject(new Error(`the command child printed no result: ${JSON.stringify(stdout)}`));
       }
@@ -146,10 +161,10 @@ describe('local probe deadlines', () => {
       const run = await runInNode(`const { runSnapshot } = await import(${JSON.stringify(dist('cli/snapshot.js'))});
 const { parseArgs } = await import(${JSON.stringify(dist('cli/parse-args.js'))});
 const sink = { write() {} };
-result = await runSnapshot(parseArgs(['snapshot', '--port', '${hole.port}']), { cwd: ${JSON.stringify(cwd)}, stdout: sink, stderr: sink });`);
+result = await beforeSentinel(3000, () => runSnapshot(parseArgs(['snapshot', '--port', '${hole.port}']), { cwd: ${JSON.stringify(cwd)}, stdout: sink, stderr: sink }));`);
       expect(run.result).toBe(2);
-      // Two 750 ms probes: init.json, then state.
-      expect(run.commandMs).toBeLessThan(2_500);
+      // Two 750 ms probes, init.json then state, end before a timer for twice their sum.
+      expect(run.beatSentinel).toBe(true);
       expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
     } finally {
       hole.close();
@@ -162,10 +177,11 @@ result = await runSnapshot(parseArgs(['snapshot', '--port', '${hole.port}']), { 
       const run = await runInNode(`const { runServeDiagnostics } = await import(${JSON.stringify(dist('cli/serve-diagnostics.js'))});
 const { parseArgs } = await import(${JSON.stringify(dist('cli/parse-args.js'))});
 let output = '';
-const code = await runServeDiagnostics(parseArgs(['serve', 'diagnostics', '--url', 'http://127.0.0.1:${hole.port}']), { stdout: { write(value) { output += value; } } });
+const code = await beforeSentinel(6000, () => runServeDiagnostics(parseArgs(['serve', 'diagnostics', '--url', 'http://127.0.0.1:${hole.port}']), { stdout: { write(value) { output += value; } } }));
 result = { code, report: JSON.parse(output) };`);
       expect(run.result).toMatchObject({ code: 2, report: { server: { http: 'unreachable' } } });
-      expect(run.commandMs).toBeLessThan(4_000);
+      // The 3 s deadline ends the request before a timer for twice it.
+      expect(run.beatSentinel).toBe(true);
       expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
     } finally {
       hole.close();
@@ -176,9 +192,10 @@ result = { code, report: JSON.parse(output) };`);
     const hole = await blackholedPort();
     try {
       const run = await runInNode(`const { waitForSandboxPeer } = await import(${JSON.stringify(dist('cli/sandbox-runner.js'))});
-result = await waitForSandboxPeer('http://127.0.0.1:${hole.port}', { timeoutMs: 1000, intervalMs: 100 });`);
+result = await beforeSentinel(2000, () => waitForSandboxPeer('http://127.0.0.1:${hole.port}', { timeoutMs: 1000, intervalMs: 100 }));`);
       expect(run.result).toBe(false);
-      expect(run.commandMs).toBeLessThan(2_500);
+      // The 1 s timeout ends the wait before a timer for twice it.
+      expect(run.beatSentinel).toBe(true);
       expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
     } finally {
       hole.close();

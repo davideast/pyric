@@ -28,6 +28,7 @@
  * Loaded by both resolve hooks, including the loader-thread one, so it imports
  * node built-ins and side-effect-free modules only.
  */
+import { fileURLToPath } from 'node:url';
 import { packageNameOf, pathInPackageOf } from './package-identity.js';
 import { choosesRealFirebase } from './mapping.js';
 import {
@@ -148,6 +149,20 @@ function stopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string)
 }
 
 /**
+ * Whether this load is Node 22 resolving again a CommonJS file this hook
+ * already allowed. Node 22 resolves a CommonJS file imported from ESM a second
+ * time, by its own path and with no importer; Node 24 does not. That second
+ * pass loads nothing new, so it goes ahead. An app's import of the same file
+ * names its importer, so it still stops.
+ */
+function isCjsReloadOfAllowedFile(load: ResolvedLoad, allowedUrls: ReadonlySet<string>): boolean {
+  const hasNoImporter = load.importer === undefined;
+  const wasAllowed = allowedUrls.has(load.url);
+  if (!hasNoImporter || !wasAllowed) return false;
+  return load.specifier === fileURLToPath(load.url);
+}
+
+/**
  * The error that stops this load, or `null` when the load may go ahead: it is
  * not the real SDK, or the swap table chose the real SDK here. `allowedUrls`
  * is the calling hook's record of the real SDK files it allowed; an allowed
@@ -158,6 +173,7 @@ export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | n
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
+  if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;
   if (isAllowedRealLoad(load, packageName, family, allowedUrls)) {
     allowedUrls.add(load.url);
     return null;
