@@ -255,19 +255,29 @@ export async function GET() {
 }
 `;
 
-/** Imports the client SDK's own packages, `@firebase/app` and `@firebase/firestore`, directly. */
+/**
+ * Imports the client SDK's own packages, `@firebase/firestore` and
+ * `@firebase/app`, directly and each on its own, so each answers for itself.
+ */
 const FIREBASE_SCOPE_ROUTE = `export const dynamic = 'force-dynamic';
 
 ${LOAD_FAILURE}
 
 export async function GET() {
+  const loads = {};
+  try {
+    const firestore = await import('@firebase/firestore');
+    loads.firestore = typeof firestore.getDoc === 'function' ? 'loaded' : 'no getDoc';
+  } catch (error) {
+    loads.firestore = loadFailure(error);
+  }
   try {
     const app = await import('@firebase/app');
-    await import('@firebase/firestore');
-    return Response.json({ load: 'loaded', sdk: app.SDK_VERSION ?? null });
+    loads.app = 'loaded ' + (app.SDK_VERSION ?? '');
   } catch (error) {
-    return Response.json({ load: loadFailure(error) });
+    loads.app = loadFailure(error);
   }
+  return Response.json(loads);
 }
 `;
 
@@ -394,15 +404,14 @@ function escapes(log: string): { realFirebase: string[]; connections: string[] }
   return { realFirebase, connections: escapedConnections(records) };
 }
 
-/** Requests a route that imports a real SDK and expects the register to have stopped it. */
-async function expectStopped(url: string, safetyLog: string): Promise<void> {
+const STOPPED = 'PYRIC_REAL_SDK_STOPPED';
+
+/** Requests a route that imports a real SDK and expects `expected`: the register stopped each import. */
+async function expectStopped(url: string, safetyLog: string, expected: Record<string, string>): Promise<void> {
   const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   const body = await jsonFrom(response);
   const { realFirebase, connections } = escapes(safetyLog);
-  assert.deepEqual(
-    { body, realFirebase, connections },
-    { body: { load: 'PYRIC_REAL_SDK_STOPPED' }, realFirebase: [], connections: [] },
-  );
+  assert.deepEqual({ body, realFirebase, connections }, { body: expected, realFirebase: [], connections: [] });
 }
 
 async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase): Promise<void> {
@@ -473,14 +482,18 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
   // Node resolves them and the register stops each one.
   if (hasAliasedAdmin(app)) {
     await app.step(`${testCase.name}: an npm-aliased firebase-admin stops at load, and nothing runs or leaves`, async () => {
-      await expectStopped(`${nextUrl}/api/aliased-admin`, safetyLog);
+      await expectStopped(`${nextUrl}/api/aliased-admin`, safetyLog, { load: STOPPED });
       await sandbox.waitForLog(/found {2}file:\/\/\S+\/admin-alias\/lib\/(esm\/)?app\/index\.js/, { timeoutMs: 10_000 });
     });
   }
 
   await app.step(`${testCase.name}: a direct @firebase/* import stops at load, and nothing runs or leaves`, async () => {
-    await expectStopped(`${nextUrl}/api/firebase-scope`, safetyLog);
-    await sandbox.waitForLog(/stopped loading the real @firebase\/app/, { timeoutMs: 10_000 });
+    await expectStopped(`${nextUrl}/api/firebase-scope`, safetyLog, { firestore: STOPPED, app: STOPPED });
+    // Each stop names the package Node resolved. Were @firebase/firestore
+    // bundled, its own import of @firebase/app would stop instead, and no line
+    // would name @firebase/firestore.
+    await sandbox.waitForLog(/stopped loading the real @firebase\/firestore\n/, { timeoutMs: 10_000 });
+    await sandbox.waitForLog(/stopped loading the real @firebase\/app\n/, { timeoutMs: 10_000 });
   });
 
   // ADR 0022: a load the register can't map stops before the real firebase-admin runs.
