@@ -74,6 +74,35 @@ describe('missingRefusals', () => {
     expect(missingRefusals(brief(), { ...report(), refusals: first === undefined ? [] : [{ ...first, action: '  ANOTHER user\'s write under the given rules ' }] })).toEqual(["an upload larger than the rules' size limit"]);
     expect(missingRefusals(brief(), null)).toHaveLength(2);
   });
+
+  // Round 1's builders reported every refusal, in their own words (#1767).
+  const STORAGE_RULES = 'https://firebase.google.com/docs/storage/security/rules-conditions';
+  const OTHER_PAGE = 'https://firebase.google.com/docs/storage/web/handle-errors';
+  const entry = (action: string, firebaseDoc = STORAGE_RULES) => ({ action, firebaseDoc, productionAnswer: 'storage/unauthorized', pyricAnswer: 'storage/unauthorized', result: 'refused' as const });
+  const reporting = (...refusals: ReturnType<typeof entry>[]): BuilderReport => ({ ...report(), refusals });
+
+  test('counts an entry in the builder’s words when it cites the action’s Firebase page', () => {
+    expect(missingRefusals(brief(), reporting(entry("upload to another user's folder"), entry('a 300 MiB upload over the 256 MiB limit')))).toEqual([]);
+  });
+
+  test('counts one action the builder split into two entries', () => {
+    expect(missingRefusals(brief(), reporting(entry("another user's write under the given rules"), entry('an empty upload'), entry('a 600 MiB upload')))).toEqual([]);
+  });
+
+  test('names the action no entry is left for when the page has fewer entries than actions', () => {
+    expect(missingRefusals(brief(), reporting(entry("an upload larger than the rules' size limit")))).toEqual(["another user's write under the given rules"]);
+    expect(missingRefusals(brief(), reporting(entry('a write somewhere')))).toEqual(["an upload larger than the rules' size limit"]);
+  });
+
+  test('does not count an entry that cites another page', () => {
+    expect(missingRefusals(brief(), reporting(entry("upload to another user's folder"), entry('a big upload', OTHER_PAGE)))).toEqual(["an upload larger than the rules' size limit"]);
+  });
+
+  test('compares pages without a trailing slash, a fragment or a query, and in any case', () => {
+    const variants = [`${STORAGE_RULES}/`, `${STORAGE_RULES}#size`, `${STORAGE_RULES.replace('firebase.google.com', 'Firebase.Google.com')}?hl=en`];
+    expect(missingRefusals(brief(), reporting(entry('one', variants[0]), entry('two', variants[1])))).toEqual([]);
+    expect(missingRefusals(brief(), reporting(entry('one', variants[2]), entry('two', variants[2])))).toEqual([]);
+  });
 });
 
 describe('runRecord', () => {
