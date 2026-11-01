@@ -155,6 +155,20 @@ describe('Duration — abs', () => {
   });
 });
 
+describe('Duration — negated', () => {
+  test('flips the sign of both fields', () => {
+    const n = Duration.fromValue(1500, 'ms').negated();
+    expect(n.seconds).toBe(-1);
+    expect(n.nanos).toBe(-500_000_000);
+    expect(n.negated().equals(Duration.fromValue(1500, 'ms'))).toBe(true);
+  });
+
+  test('stays valid at the range bound', () => {
+    const max = Duration.fromValue(315_576_000_000, 's');
+    expect(max.negated().seconds).toBe(-315_576_000_000);
+  });
+});
+
 describe('Duration — method dispatch', () => {
   test('seconds() / nanos() return signed fields', () => {
     const d = Duration.fromValue(1500, 'ms'); // {1, 500_000_000}

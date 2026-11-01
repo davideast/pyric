@@ -130,6 +130,14 @@ export class Duration extends RulesValue {
   }
 
   /**
+   * Unary minus, `-d`. Canonical form keeps both fields the same sign and
+   * the range bound is symmetric, so negating a valid duration is valid.
+   */
+  negated(): Duration {
+    return new Duration(-this.seconds, -this.nanos);
+  }
+
+  /**
    * Millisecond approximation. Used only by legacy `as number` sites
    * that bypass binaryOp; comparison/arithmetic go through binaryOp's
    * field-wise path so sub-ms precision survives. See REBUILD_PLAN 0.C.

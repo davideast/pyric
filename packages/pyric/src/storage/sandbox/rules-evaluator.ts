@@ -65,7 +65,7 @@ export function evaluateStorageRules(
   // Its count and reasons are the first allowing evaluation's, or the last
   // denying one's.
   let result: EvaluationResult | undefined;
-  for (const method of impliedVerbs(input.request)) {
+  for (const method of impliedVerbs(input)) {
     result = evaluateGranularRequest(rules, input, method, nowMillis, firestoreLookup);
     if (result.allowed) return result;
   }
@@ -75,16 +75,20 @@ export function evaluateStorageRules(
 
 /**
  * The granular verbs a request implies. A coarse `read` is a `get` or a
- * `list`. A coarse `write` that carries `request.resource` stores an object,
- * so it is a `create` or an `update`; one without is a `delete`. Binding only
- * these keeps a coarse request from allowing what production would deny for
- * the operation it stands for, such as an oversized upload admitted by a
- * `request.method == 'delete'` arm.
+ * `list`. A coarse `write` without `request.resource` is a `delete`. One
+ * with a payload stores an object: a `create` when nothing is stored at the
+ * path (`resource` is null), an `update` when something is, never both.
+ * Binding only the verb production could evaluate keeps a coarse request
+ * from allowing what production would deny for the operation it stands
+ * for, such as an oversized upload admitted by a
+ * `request.method == 'delete'` or `request.method == 'update'` arm.
  */
-function impliedVerbs(request: EvaluationInput['request']): readonly StorageVerb[] {
+function impliedVerbs(input: EvaluationInput): readonly StorageVerb[] {
+  const { request } = input;
   if (request.method !== 'write') return expandVerb(request.method);
-  const storesObject = request.resource !== undefined;
-  return storesObject ? ['create', 'update'] : ['delete'];
+  if (request.resource === undefined) return ['delete'];
+  const objectStored = input.resource !== null;
+  return objectStored ? ['update'] : ['create'];
 }
 
 /** The input with its request's method replaced by one granular verb. */
@@ -444,7 +448,7 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(a)) return a;
       if (expr.op === '-') {
         if (a instanceof RulesFloat) return new RulesFloat(-a.value);
-        if (a instanceof Duration) return new Duration(-a.seconds, -a.nanos);
+        if (a instanceof Duration) return a.negated();
         if (typeof a !== 'number') return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
         return -a;
       }

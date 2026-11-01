@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules, type StorageRequestMethod } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { StoragePath } from '../../../src/storage/sandbox/rules-path.js';
 
 // Storage evaluator semantics that production and the Firestore engine
 // share: unknown methods are absorbable errors, a coarse request binds each
@@ -66,7 +67,7 @@ describe('evaluateStorageRules: coarse requests bind granular methods', () => {
     expect(evaluate('read', "request.method == 'read'", 'read').allowed).toBe(false);
   });
 
-  it('binds a coarse write with a payload to create and update, never delete', () => {
+  it('binds a coarse write with a payload to create or update, never delete', () => {
     const rules = rulesFor('write', "request.method == 'delete' || request.resource.size < 100");
     const write = (size: number) => evaluateStorageRules(rules, {
       request: { auth: { uid: 'alice' }, method: 'write', path, resource: { size } },
@@ -75,6 +76,41 @@ describe('evaluateStorageRules: coarse requests bind granular methods', () => {
     expect(write(1000).allowed).toBe(false);
     expect(write(10).allowed).toBe(true);
     expect(evaluate('write', "request.method == 'update'", 'write').allowed).toBe(false);
+  });
+
+  // A coarse write over no stored object is a create: production has no
+  // object to update, so an `update` arm can't admit an oversized upload.
+  it('binds a coarse write with a payload and no stored object to create only', () => {
+    const rules = rulesFor('write', "request.method == 'update' || request.resource.size < 10 * 1024 * 1024");
+    const write = (size: number) => evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'write', path, resource: { size } },
+      resource: null,
+    });
+    expect(write(20 * 1024 * 1024).allowed).toBe(false);
+    expect(write(10).allowed).toBe(true);
+  });
+
+  // A coarse write over a stored object is an update, so a `create` arm
+  // can't admit it.
+  it('binds a coarse write with a payload over a stored object to update only', () => {
+    const rules = rulesFor('write', "request.method == 'create' || request.resource.size < 10 * 1024 * 1024");
+    const write = (size: number) => evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'write', path, resource: { size } },
+      resource: { size: 1 },
+    });
+    expect(write(20 * 1024 * 1024).allowed).toBe(false);
+    expect(write(10).allowed).toBe(true);
+  });
+
+  it('applies only the grants for the verb a coarse write binds', () => {
+    const rules = rulesFor('delete', 'true');
+    const write = (resource: { size: number } | null) => evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'write', path, resource: { size: 20 * 1024 * 1024 } },
+      resource,
+    });
+    expect(write(null).allowed).toBe(false);
+    expect(write({ size: 1 }).allowed).toBe(false);
+    expect(evaluate('delete', 'true', 'write').allowed).toBe(true);
   });
 
   it('binds a coarse write without a payload to delete', () => {
@@ -115,5 +151,18 @@ describe('evaluateStorageRules: unary minus on a duration', () => {
     expect(evaluate('read', "-duration.value(1, 's') == duration.value(-1, 's')").allowed).toBe(true);
     expect(evaluate('read', "-duration.value(1, 's') < duration.value(0, 's')").allowed).toBe(true);
     expect(evaluate('read', "-(-duration.value(1500, 'ms')) == duration.value(1500, 'ms')").allowed).toBe(true);
+  });
+});
+
+describe('evaluateStorageRules: path segments survive bind()', () => {
+  it('keeps a bound value with a slash as one segment', () => {
+    const bound = new StoragePath('/users/{uid}').bind({ uid: 'a/b' });
+    expect(bound.segments).toEqual(['users', 'a/b']);
+    expect(bound.bind({}).segments).toEqual(['users', 'a/b']);
+  });
+
+  it('reads the kept segment by index in a rule', () => {
+    expect(evaluate('read', "path('/users/{uid}').bind({'uid': 'a/b'})[1] == 'a/b'").allowed).toBe(true);
+    expect(evaluate('read', "path('/users/{uid}').bind({'uid': 'a/b'})[2] == 'b'").allowed).toBe(false);
   });
 });
