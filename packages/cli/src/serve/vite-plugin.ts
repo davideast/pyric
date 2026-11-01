@@ -318,6 +318,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
     },
 
     async configResolved(resolved) {
+      pageRuntime.configResolved(resolved);
       moduleSwap.configResolved(resolved);
       serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
       // A sandbox build stamps pages without a dev server, so configureServer
