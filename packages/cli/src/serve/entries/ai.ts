@@ -179,10 +179,11 @@ function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined 
   return options;
 }
 
-function aiErrorFromWire(err: unknown, modelResource: string, op: string): unknown {
+/** The worker's wire error as the SDK's AIError, its URL built for the handle's backend as the in-page plane builds it (#1640). */
+function aiErrorFromWire(err: unknown, modelResource: string, op: string, backend: ipAi.Backend | undefined): unknown {
   const envelope = (err as { aiEnvelope?: Parameters<typeof aiErrorFromEnvelope>[0] } | null)
     ?.aiEnvelope;
-  return envelope ? setAiEvidence(aiErrorFromEnvelope(envelope, modelResource, op), err && typeof err === 'object' ? getAiEvidence(err) ?? {} : {}) : err;
+  return envelope ? setAiEvidence(aiErrorFromEnvelope(envelope, modelResource, op, backend), err && typeof err === 'object' ? getAiEvidence(err) ?? {} : {}) : err;
 }
 
 // ── The port-forwarding AnswerEngine (worker path) ─────────────────────────
@@ -191,7 +192,11 @@ function aiErrorFromWire(err: unknown, modelResource: string, op: string): unkno
  * The handle's App Check claim rides every request to the worker broker,
  * which plays AI Logic's gate (`pyric/ai`'s `app-check-gate.ts`).
  */
-function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEngineConfigWire | undefined): AnswerTransport {
+function portEngine(
+  db: ReturnType<typeof workerClientForApp>,
+  engineWire: AiEngineConfigWire | undefined,
+  backend: ipAi.Backend | undefined,
+): AnswerTransport {
   const params = (model: string, request: Record<string, unknown>, appCheck: AppCheckClaim | undefined) => ({
     model,
     request,
@@ -203,7 +208,7 @@ function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEng
       try {
         return unpackAiEvidence(await aiGenerateContent(db, params(model, req, appCheck)));
       } catch (err) {
-        throw aiErrorFromWire(err, model, 'generateContent');
+        throw aiErrorFromWire(err, model, 'generateContent', backend);
       }
     },
     streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): AsyncIterable<Record<string, unknown>> {
@@ -212,7 +217,7 @@ function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEng
         try {
           for await (const chunk of inner) yield unpackAiEvidence(chunk);
         } catch (err) {
-          throw aiErrorFromWire(err, model, 'streamGenerateContent');
+          throw aiErrorFromWire(err, model, 'streamGenerateContent', backend);
         }
       })();
     },
@@ -220,7 +225,7 @@ function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEng
       try {
         return unpackAiEvidence(await aiCountTokens(db, params(model, req, appCheck)));
       } catch (err) {
-        throw aiErrorFromWire(err, model, 'countTokens');
+        throw aiErrorFromWire(err, model, 'countTokens', backend);
       }
     },
   };
@@ -304,7 +309,7 @@ export const getAI = (
         return createTransportAI(
           resolved,
           options,
-          portEngine(workerClientForApp(resolved), wire),
+          portEngine(workerClientForApp(resolved), wire, options?.backend),
           assertAlive,
         );
       }

@@ -69,6 +69,7 @@ export function createTransportAI(
   };
   const target: TransportTarget = {
     kind: 'transport',
+    backend,
     transport,
     ...(assertAlive !== undefined ? { assertAlive } : {}),
     // Read App Check now, as the SDK's AI service does when it is built; the
