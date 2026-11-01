@@ -163,25 +163,51 @@ A match is a **duplicate**: record its number and stage nothing.
 ### 6. Stage a draft
 
 For each confirmed finding that is not a duplicate, write
-`<data root>/runs/<round>/issue-drafts/<run>--<slug>.md`:
+`<data root>/runs/<round>/issue-drafts/<run>--<slug>.md` in pyric's issue
+standard (examples: #1772 and #1774 for support, #1775 for a defect). Each
+bold field is one or two lines; a **Done when** list may take a line per item.
+
+A Firebase API pyric lacks:
 
 ```
-Title: <what pyric does wrong, in one line>
-Labels: <the lane label of the PRIORITIES.md section it serves>, source:app-builder
+Title: Support <API> in <package>
+Labels: support, <lane label>
 
-## What happens
-## Reproduction
-<the shrunk reproduction, and the scenario under test/apps/ to extend>
-## Production's behavior
-<the classification and its evidence: the doc, the observation, or the SDK source>
+**Missing:** <what fails under pyric, with the exact error>
 
-Found by: <builder model> builder, run <run>. Verified by: <your model>.
+**In production:** <what the API does>. [Reference](<Firebase or Google Cloud reference page>)
+
+**Workaround:** <what a developer can do today, or none>
+
+**Done when:**
+- <the implementation>
+- <the scenario under test/apps/ that checks it>
+
+Found by builder run <run> (repro: `runs/<round>/<run>/repros/<problem>/`).
+```
+
+A defect (pyric differs from production, misleading docs, an unclear error):
+
+```
+Title: <what breaks, in one line>
+Labels: bug, <lane label>
+
+**What breaks:** <what the developer hits>
+
+**Expected:** <production's behavior and its evidence: the doc, the observation, or the SDK source>
+
+**Repro:** <the shrunk reproduction>. Harness record: `runs/<round>/<run>/repros/<problem>/`.
+
+**Done when:** <the scenario under test/apps/ to add or extend>, failing on main first.
+
+Found by builder run <run> (repro: `runs/<round>/<run>/repros/<problem>/`).
 ```
 
 The lane labels are `lane:app-check`, `lane:velocity`, `lane:rules`,
 `lane:multi-resource`, `lane:reliability`, `lane:node-host`,
 `lane:functions`, `lane:demos` and `lane:live-mode`, one per section of
-`PRIORITIES.md`. `source:app-builder` is a label only David creates.
+`PRIORITIES.md`. Use only `support` or `bug` and one lane label; no other
+label exists for builder findings.
 
 ## verdict.json
 
