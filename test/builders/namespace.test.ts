@@ -3,13 +3,13 @@
 // address routes to loopback, and the only lookups are of `.invalid` names,
 // so nothing here can leave the machine.
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
 import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
-import { DROP_CAPABILITIES, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
+import { awaitSandboxExit, DROP_CAPABILITIES, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
 
 /** A DNS query for `name`, type A, recursion desired. */
 function query(name: string, id = 0x1234): Buffer {
@@ -184,5 +184,67 @@ describe('startEgressNamespace', () => {
     const events = readFileSync(networkLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { kind: string; host: string; port?: number });
     expect(events.filter((event) => event.kind === 'dns').map((event) => event.host)).toContain('canary-probe.invalid');
     expect(events.filter((event) => event.kind === 'connect')).toEqual([expect.objectContaining({ via: 'catch-all', address: '192.0.2.1', port: 80 })]);
+  }, SANDBOX_TEST_TIMEOUT_MS);
+});
+
+/**
+ * A child whose `exit` and `close` never reach its listeners, as when Bun
+ * misses a child's exit under load (#1274). Round 1 hung this way (#1767):
+ * a run's builder exited, and `stop` waited on bwrap's `close` forever.
+ */
+function losingExit(child: ChildProcess): ChildProcess {
+  const emit = child.emit.bind(child);
+  child.emit = ((event: string | symbol, ...args: unknown[]) => (event === 'exit' || event === 'close' ? false : emit(event, ...args))) as ChildProcess['emit'];
+  return child;
+}
+
+const exitedPromise = (child: ChildProcess) => new Promise<void>((resolve) => {
+  child.once('close', () => resolve());
+  child.once('error', () => resolve());
+});
+
+const within = <T>(promise: Promise<T>, ms: number) => Promise.race([promise.then(() => 'settled'), new Promise((resolve) => setTimeout(() => resolve('still waiting'), ms))]);
+
+const isRunning = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+describe('awaitSandboxExit', () => {
+  const timing = { exitMs: 1000, killMs: 1000, pollMs: 20 };
+
+  test('ends a stop whose exit the runtime never reports, from /proc', async () => {
+    const child = losingExit(spawn('true', [], { stdio: 'ignore' }));
+    const started = performance.now();
+    expect(await within(awaitSandboxExit(child, exitedPromise(child), timing), 5000)).toBe('settled');
+    expect(performance.now() - started).toBeLessThan(timing.exitMs);
+  });
+
+  test('kills a sandbox that outlives its stop, and goes on once it is gone', async () => {
+    const child = losingExit(spawn('sleep', ['30'], { stdio: 'ignore' }));
+    const pid = child.pid ?? 0;
+    expect(await within(awaitSandboxExit(child, exitedPromise(child), timing), 5000)).toBe('settled');
+    expect(isRunning(pid)).toBe(false);
+  });
+
+  test('stops waiting on a sandbox SIGKILL does not end', async () => {
+    const signals: string[] = [];
+    const undying = { pid: process.pid, kill: (signal: string) => signals.push(signal) } as unknown as ChildProcess;
+    expect(await within(awaitSandboxExit(undying, new Promise(() => {}), timing), 5000)).toBe('settled');
+    expect(signals).toEqual(['SIGKILL']);
+  });
+});
+
+describe('startEgressNamespace stop', () => {
+  test('returns when bwrap exits though the runtime never reports it (#1767)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const spawnChild = (command: string, args: string[], options: SpawnOptions) => losingExit(spawn(command, args, options));
+    const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root, spawnChild, stopTiming: { exitMs: 10_000, killMs: 2000, pollMs: 50 } });
+    // Within the wait before SIGKILL: /proc shows bwrap gone, so the stop needs no kill.
+    expect(await within(namespace.stop(), 5000)).toBe('settled');
   }, SANDBOX_TEST_TIMEOUT_MS);
 });
