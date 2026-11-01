@@ -146,6 +146,7 @@ function sandboxHandle(sandbox: Sandbox, broker: AiBroker, options?: AIOptions, 
     : resolveClientAppIncludingDeleted(app);
   const target: SandboxTarget = {
     kind: 'sandbox',
+    backend,
     sandbox,
     broker,
     ...(appRuntime !== undefined

@@ -3,7 +3,9 @@
 // A remote:<url> left in a .env file after the host moved ports is stale: the
 // script warns once and uses this project's running host instead. With the
 // host stopped and a pointer naming a port whose connects never complete, a
-// script still exits promptly once discovery gives up (#1162).
+// script still exits promptly once discovery gives up (#1162). A script that
+// closes its handle with an onDisconnect the host has not answered exits 0,
+// with no unhandled rejection (#1723).
 import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
 
@@ -42,6 +44,17 @@ export default scenario(async (app) => {
     assert.match(typo.output, /'save' is neither a command on PATH nor a `pyric sandbox` method/);
     await app.serverScript('server.mjs', ['found after a mistyped method'], { env: { PYRIC_SANDBOX: 'remote' } });
     assert.equal(await page.evaluate(() => readStatus()), 'found after a mistyped method');
+  });
+
+  // @firebase/database ends a closed connection through repoInterrupt, which
+  // clears its request callbacks, so a sent onDisconnect never settles. The
+  // Node client rejected it on close, and the presence sample's bare call
+  // ended the process on an unhandled rejection (#1723).
+  await app.step('a script that closes with an onDisconnect unanswered exits 0', async () => {
+    const result = await app.serverScript('close-with-ondisconnect.mjs', [host.url], { env: { PYRIC_SANDBOX: 'remote' } });
+    assert.match(result.output, /closed with an onDisconnect unanswered/);
+    assert.match(result.output, /exiting with code 0/);
+    assert.doesNotMatch(result.output, /closed by the client/);
   });
 
   await app.step('a script exits promptly when the pointer names a port that never answers', async () => {

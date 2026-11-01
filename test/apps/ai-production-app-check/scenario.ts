@@ -145,14 +145,27 @@ export default scenario(async (app) => {
     assert.deepEqual(mirror, [], `the page loaded Pyric's App Check mirror: ${mirror.join(', ')}`);
   });
 
-  await app.step('a registered Node process in production AI mode sends the token too', async () => {
+  await app.step('a registered Node process in production AI mode sends the token too, and its own @firebase/* imports stop', async () => {
     const result = await app.serverScript('server.mjs', [], { env: { PYRIC_AI_MODE: 'production', PYRIC_SANDBOX: `remote:${host.url}` } });
     const line = result.output.trim().split('\n').filter((l) => l.startsWith('{')).at(-1) ?? '';
-    const report = JSON.parse(line) as { token: string; seen: { host: string; appCheck: string | null }[]; mirrorLoaded: boolean; bridgeLoaded: boolean };
+    const report = JSON.parse(line) as {
+      token: string;
+      seen: { host: string; appCheck: string | null }[];
+      mirrorLoaded: boolean;
+      bridgeLoaded: boolean;
+      direct: Record<string, string>;
+    };
     assert.equal(report.token, 'attested-by-the-server');
     assert.equal(report.bridgeLoaded, true, 'the module record missed the App Check bridge, so it proves nothing');
     assert.equal(report.mirrorLoaded, false, "the server loaded Pyric's App Check mirror");
     assert.deepEqual(report.seen.map((s) => s.appCheck), ['attested-by-the-server'], line);
+    const stopped = 'PYRIC_REAL_SDK_STOPPED';
+    assert.deepEqual(report.direct, {
+      '@firebase/app': stopped,
+      '@firebase/app-check': stopped,
+      '@firebase/ai': stopped,
+      '@firebase/util': stopped,
+    }, "app code's own @firebase/* imports loaded the real packages (#1635)");
   });
 
   const firebaseToken = await app.step("sign a token shaped like Firebase's, and publish its key as Firebase's public keys", () => {

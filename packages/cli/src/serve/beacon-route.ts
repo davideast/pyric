@@ -30,7 +30,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { BODY_TOO_LARGE_CODE, collectBody } from '../bridge/server/peer.js';
+import { answerAndClose, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { getHeader } from './server.js';
 import { BEACON_TOKEN_HEADER, type BeaconReport } from '../register/beacon.js';
 
@@ -127,8 +127,8 @@ export async function handleBeacon(
   try {
     body = await collectBody(req, BEACON_BODY_LIMIT_BYTES);
   } catch (err) {
-    if ((err as { code?: string }).code === BODY_TOO_LARGE_CODE) {
-      res.writeHead(413, { 'content-type': 'text/plain' }).end('Payload Too Large');
+    if (isBodyTooLarge(err)) {
+      answerAndClose(req, res, 413, { 'content-type': 'text/plain' }, 'Payload Too Large');
       return;
     }
     // Malformed JSON: drop it. Proof-of-life is a side channel.
