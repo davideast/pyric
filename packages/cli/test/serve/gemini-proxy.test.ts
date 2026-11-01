@@ -183,6 +183,37 @@ describe('/__pyric/ai-proxy/gemini', () => {
     expect(text).toBe('refused /v1beta/models/gemini-2.5-flash:generateContent\nAuthorization: Bearer ***');
   });
 
+  // #1660: a 200 stream can carry `data: {"error": ...}` mid-response.
+  it('masks the key in a mid-stream error event and leaves answer events as they came', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const answer = 'data: {"candidates":[{"content":{"parts":[{"text":"see https://x.example/?key=not-a-credential"}]}}]}\r\n\r\n';
+    const error = `data: ${JSON.stringify({ error: { code: 500, message: `Quota check failed for API key ${KEY}.`, status: 'INTERNAL' } })}\r\n\r\n`;
+    const upstream = standIn(() => new Response(answer + error, { headers: { 'content-type': 'text/event-stream' } }));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const text = await response.text();
+    expect(text).not.toContain(KEY);
+    expect(text).toBe(`${answer}data: ${JSON.stringify({ error: { code: 500, message: 'Quota check failed for API key ***.', status: 'INTERNAL' } })}\r\n\r\n`);
+  });
+
+  it('masks a mid-stream error event the upstream splits across reads', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const event = `data: ${JSON.stringify({ error: { code: 500, message: `refused ${KEY}`, status: 'INTERNAL' } })}\n\n`;
+    const cut = event.indexOf(KEY) + 3;
+    const upstream = standIn(() => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(event.slice(0, cut)));
+        controller.enqueue(new TextEncoder().encode(event.slice(cut)));
+        controller.close();
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } }));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    expect(await response.text()).toBe(`data: ${JSON.stringify({ error: { code: 500, message: 'refused ***', status: 'INTERNAL' } })}\n\n`);
+  });
+
   it('answers 413 for a body over the limit and never calls the upstream', async () => {
     process.env.GEMINI_API_KEY = KEY;
     const upstream = standIn();
