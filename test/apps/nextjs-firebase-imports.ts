@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Server } from 'node:net';
 import { dirname, join } from 'node:path';
-import { sleep, type App } from './driver.ts';
+import { sleep, type App, type AppProcess } from './driver.ts';
 import { PROBE_ROUTE, runRefusals } from './nextjs-refuses-without-register.ts';
 
 export interface FirebaseImportsCase {
@@ -414,6 +414,19 @@ async function expectStopped(url: string, safetyLog: string, expected: Record<st
   assert.deepEqual({ body, realFirebase, connections }, { body: expected, realFirebase: [], connections: [] });
 }
 
+/**
+ * Waits for the register's stop of `packageName`, logged after `since`, whose
+ * `found` line ends in `foundPath`. Every stop ends with the same code line,
+ * and stops from earlier steps are already in the log, so a step waits for
+ * its own stop block: the package line and, two lines on, the file it found.
+ * The register writes each block once per file, in one write.
+ */
+async function waitForStop(sandbox: AppProcess, since: number, packageName: string, foundPath: RegExp): Promise<void> {
+  const name = packageName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  const block = new RegExp(`stopped loading the real ${name}\\n(?:[^\\n]*\\n){2}[^\\n]*found {2}file:\\/\\/\\S+${foundPath.source}`);
+  await sandbox.waitForLog(block, { since, timeoutMs: 10_000 });
+}
+
 async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase): Promise<void> {
   const sandboxPort = await app.freePort();
   const nextPort = await app.freePort();
@@ -482,22 +495,25 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
   // Node resolves them and the register stops each one.
   if (hasAliasedAdmin(app)) {
     await app.step(`${testCase.name}: an npm-aliased firebase-admin stops at load, and nothing runs or leaves`, async () => {
+      const since = sandbox.mark();
       await expectStopped(`${nextUrl}/api/aliased-admin`, safetyLog, { load: STOPPED });
-      await sandbox.waitForLog(/found {2}file:\/\/\S+\/admin-alias\/lib\/(esm\/)?app\/index\.js/, { timeoutMs: 10_000 });
+      await waitForStop(sandbox, since, 'firebase-admin', /\/admin-alias\/lib\/(esm\/)?app\/index\.js/);
     });
   }
 
   await app.step(`${testCase.name}: a direct @firebase/* import stops at load, and nothing runs or leaves`, async () => {
+    const since = sandbox.mark();
     await expectStopped(`${nextUrl}/api/firebase-scope`, safetyLog, { firestore: STOPPED, app: STOPPED });
     // Each stop names the package Node resolved. Were @firebase/firestore
-    // bundled, its own import of @firebase/app would stop instead, and no line
-    // would name @firebase/firestore.
-    await sandbox.waitForLog(/stopped loading the real @firebase\/firestore\n/, { timeoutMs: 10_000 });
-    await sandbox.waitForLog(/stopped loading the real @firebase\/app\n/, { timeoutMs: 10_000 });
+    // bundled, its own import of @firebase/app would stop instead, and no
+    // block would name @firebase/firestore.
+    await waitForStop(sandbox, since, '@firebase/firestore', /\/@firebase\/firestore\/\S+/);
+    await waitForStop(sandbox, since, '@firebase/app', /\/@firebase\/app\/\S+/);
   });
 
   // ADR 0022: a load the register can't map stops before the real firebase-admin runs.
   await app.step(`${testCase.name}: the real firebase-admin stops at load, and nothing runs or leaves`, async () => {
+    const since = sandbox.mark();
     const response = await fetch(`${nextUrl}/api/real-admin`, { signal: AbortSignal.timeout(120_000) });
     const body = await jsonFrom(response);
     const records = readSafetyLog(safetyLog);
@@ -508,10 +524,9 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
       { body: { load: 'PYRIC_REAL_SDK_STOPPED' }, realFirebase: [], connections: [] },
     );
     // The stop reaches stderr through Next and the launcher, so it can land
-    // just after the response does.
-    await sandbox.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { timeoutMs: 10_000 });
-    assert.match(sandbox.output, /stopped loading the real firebase-admin/);
-    assert.match(sandbox.output, /found {2}file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
+    // just after the response does. The aliased and @firebase/* stops logged
+    // earlier end with the same code line, so the wait names this file (#1626).
+    await waitForStop(sandbox, since, 'firebase-admin', /\/firebase-admin\/lib\/app\/index\.js/);
     await page.close();
     await sandbox.stop();
   });
