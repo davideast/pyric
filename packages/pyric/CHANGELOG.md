@@ -2,6 +2,97 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.32
+
+pyric 0.1.0-alpha.32 is on the `exp` dist-tag. `latest` stays at alpha.30.2.
+
+```bash
+npm create pyric@exp my-app
+# or, in an existing project
+npm install pyric@exp
+npm install -D @pyric/cli@exp
+```
+
+This release covers everything merged to `main` since alpha.31. It closes more ways a Gemini key or the real Firebase SDK can reach code that shouldn't have it, gives App Check hints that work where they are printed, and makes sandbox AI errors, RTDB `onDisconnect` and the dev server's 413 answers behave as production and the Firebase SDK do.
+
+### New in this release
+
+- **Production AI mode stops app code's own `@firebase/*` imports.** Under `@pyric/cli/register` with `PYRIC_AI_MODE=production`, app code that imports `@firebase/app`, `@firebase/app-check`, `@firebase/ai` or `@firebase/util` itself now fails with `PYRIC_REAL_SDK_STOPPED`, as it already did in sandbox AI mode. `firebase/ai` still loads the real SDK. The stop message names the `firebase/*` import to use instead, except for `@firebase/util`, where it says pyric serves no `firebase/*` import for it (#1732).
+- **App Check hints fit where they are printed.** A Node process or a server-rendered module now gets a hint it can follow: set `globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true` beside a `CustomProvider`, or return a token minted with `firebase-admin`'s `createToken`. Pages and their workers keep the browser hint. A page that uses AI Logic on the in-page sandbox without Firestore, RTDB or Storage now prints AI refusals in the dev server terminal too (#1733).
+- **Sandbox AI errors quote the URL the SDK builds.** On a `VertexAIBackend` handle, the URL in an error names the Vertex AI path with its location. On every backend, a stream's error URL ends with `?alt=sse` (#1738).
+- **The Gemini key refusal follows `envPrefix`.** The Vite dev server refuses a Gemini key that Vite would serve to the page under the app's `envPrefix`, and leaves alone one it would not (#1739).
+- **The startup banner explains an ignored `VITE_GEMINI_API_KEY`.** When it is the only Gemini key set, the AI line says it is ignored and to rename it to `GEMINI_API_KEY` (#1742).
+- **A pending `onDisconnect` stays pending on close.** Closing the client no longer rejects an RTDB `onDisconnect` the host hasn't answered, so the presence sample from the Firebase docs, which runs on the web hosted client, no longer logs an unhandled rejection or ends a Node process (#1722). The Node remote client does the same when it closes (#1727).
+- **A 413 for an oversized body closes the connection.** Each dev server route that answers an oversized body with 413 now closes the connection and ends the socket, so the next request is answered on a fresh connection under Node and Bun. `/__pyric/rate-captures` and the Storage byte route still answer 400 and keep the connection open: see Known gaps (#1720).
+
+### Behavior changes
+
+Each change moves pyric toward what production does. Code that relied on the old behavior will now see different results. Each entry names the old behavior, the new behavior and the PR.
+
+The production AI mode import stop and the `envPrefix` key refusal can stop code that ran before: see Breaking changes.
+
+#### App Check and AI Logic
+
+- App Check hint in a process with no `document`: before, the browser hint, which says to set `self.FIREBASE_APPCHECK_DEBUG_TOKEN = true`, a line that throws in Node. Now, a hint that names `globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN` beside a `CustomProvider`, or a token minted with `firebase-admin`'s `createToken` (#1733).
+- AI refusals from a page that uses AI Logic on the in-page sandbox without Firestore, RTDB or Storage: before, shown only in the browser console. Now, also printed in the dev server terminal, with blocked responses and model substitutions (#1733).
+- Sandbox AI error URL on a `VertexAIBackend` handle: before, `projects/sandbox/models/<model>`. Now, `projects/sandbox/locations/<location>/publishers/google/models/<model>`. On every backend, a stream's error URL now ends with `?alt=sse`. Only the URL in error messages changes (#1738).
+- Gemini engine errors: before, an upstream error's `status` field and an error event inside a successful stream could carry the server's key. Now, both are masked as `***`, on the SharedWorker, in-page and `hosted: true` planes. The masked event still reaches the app (#1740).
+
+#### Vite dev server and Gemini keys
+
+- `VITE_GEMINI_API_KEY` with an `envPrefix` that leaves out `VITE_`: before, the dev server refused to start. Now, it starts, because Vite doesn't serve that variable (#1739).
+- AI banner line when `VITE_GEMINI_API_KEY` is the only Gemini key set: before, `no engine configured` or `gemini (no API key; set GEMINI_API_KEY)`. Now, it says `VITE_GEMINI_API_KEY` is set and ignored, and to rename it to `GEMINI_API_KEY`. This shows on `pyric dev` and `pyric sandbox`, and on the Vite dev server's gemini line when `envPrefix` leaves out `VITE_` and the variable is set in the shell (#1742).
+
+#### Realtime Database
+
+- Pending `onDisconnect` when the web hosted client closes, through `deleteApp` or a port close: before, rejected with "The hosted sandbox connection is closed." or `app-deleted`, so with no handler a page logged an unhandled rejection and a Node process exited. Now, it never settles, as in `@firebase/database` 1.1.3. Every other outstanding call still rejects (#1722).
+- Pending `onDisconnect` when the Node remote client closes or its transport fails: before, rejected with "remote sandbox connection closed by the client". Now, it never settles. Every other outstanding call still rejects. One held while the client reconnects still fails at the 10-second hold deadline (#1727).
+
+#### Dev server
+
+- Oversized bodies on `/__pyric/beacon`, `/__pyric/diagnostics`, `/__pyric/activity` and `/__pyric/hosted/method`: before, a 413 that kept the connection open, so the next request on that socket could get a 400 under Node or hang under Bun. Now, the 413 closes the connection and ends the socket. `/__pyric/denials` and the AI proxies also end the socket now, which fixes the hang under Bun (#1720).
+- Oversized bodies on `/__pyric/hosted/repro`, `/__pyric/thresholds` and `/__pyric/indexes`: before, 400. Now, 413 with the same JSON error body, and the connection closes (#1720).
+
+#### CLI
+
+- `pyric sandbox` peer wait after a process pause: before, the deadline was read from the wall clock, so after a pause the wait could poll again for nearly its whole timeout. Now, it reads the monotonic clock its timers run on, and gives up once its timeout is spent (#1724).
+
+### Breaking changes
+
+Each of these refuses something that used to work. Check them before you upgrade.
+
+- **Production AI mode stops app code's own `@firebase/*` imports.** With `PYRIC_AI_MODE=production` under `@pyric/cli/register`, an app import of `@firebase/app`, `@firebase/app-check`, `@firebase/ai` or `@firebase/util` fails with `PYRIC_REAL_SDK_STOPPED`. Before, it loaded the real package. Import `firebase/app`, `firebase/app-check` or `firebase/ai` instead. Pyric serves no `firebase/*` import for `@firebase/util`, and the stop message says so. See Security (#1732).
+- **The Vite dev server refuses a Gemini key its `envPrefix` serves.** The dev server refuses to start while a Gemini key sits in a name that starts with one of the app's `envPrefix` entries: `GEMINI_` refuses `GEMINI_API_KEY`, and `GOOGLE_` refuses `GOOGLE_GENAI_API_KEY`. Before, it started, and Vite served the key to every page. The message names the prefix that serves the key and says to rename the key or change `envPrefix`. `vite build` and `vite preview` are not refused. See Security (#1739).
+
+### Security
+
+#### Keep AI keys on the server
+
+- The Vite dev server refuses to start while a Gemini key sits in a variable the app's `envPrefix` serves to the browser. A prefix refuses only the key names that start with it: `VITE_` refuses `VITE_GEMINI_API_KEY`, under the default prefix or any `envPrefix` that includes `VITE_`, `GEMINI_` refuses `GEMINI_API_KEY`, and `GOOGLE_` refuses `GOOGLE_GENAI_API_KEY`. The message never quotes the key (#1739).
+- The gemini engine and the `/__pyric/ai-proxy/gemini` route mask the server's key in an upstream error's `status` field and in error events inside a successful stream (#1740).
+- The AI Logic guide has a section on keeping a Gemini key on the server. It warns that a Vite `define` of `process.env.GEMINI_API_KEY` writes the key into every module that reads it, which pyric does not stop (#1742).
+
+#### Stop the real Firebase SDKs under the register
+
+- In production AI mode, the `@firebase/*` packages load only when a real SDK file the register allowed imports them. App code that imports them directly stops with `PYRIC_REAL_SDK_STOPPED` (#1732).
+
+### Known gaps
+
+- `/__pyric/rate-captures` and the Storage byte route still answer before reading the whole body without closing the connection (#1721).
+- In production AI mode, app code can still load a real `firebase/app` or `firebase/app-check` file by importing it by absolute path (#1735).
+- For a Node process connected with `PYRIC_SANDBOX=remote:<url>`, the dev server terminal still prints the browser App Check hint. The process's own output has the server hint (#1736).
+- Network error text from the upstream fetch is not masked on either AI plane (#1737).
+- An error event inside a successful Gemini stream reaches the app, masked since #1740. The Firebase SDK drops such a chunk, so an app never sees it in production (#1753).
+- The Vite plugin reads `.env` before Vite resolves its config, and a `VITE_GEMINI_API_KEY` set only in `.env` doesn't get the banner note (#1743).
+
+### Everything else
+
+#### Docs
+
+- The AI Logic guide adds "Keep a Gemini API key on the server": the key in `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY`, why not `VITE_GEMINI_API_KEY`, keeping `envPrefix` off `GEMINI_` and `GOOGLE_`, and the `define` warning (#1742).
+
+**Full changelog:** https://github.com/davideast/pyric/compare/v0.1.0-alpha.31...v0.1.0-alpha.32
+
 ## 0.1.0-alpha.31
 
 pyric 0.1.0-alpha.31 is on the `exp` dist-tag. `latest` stays at alpha.30.2.
