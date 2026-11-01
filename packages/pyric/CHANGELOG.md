@@ -78,10 +78,11 @@ Each of these refuses something that used to work. Check them before you upgrade
 
 ### Known gaps
 
-- `/__pyric/rate-captures`, the Storage byte route and the `/__pyric/state` write still answer before reading the whole body without closing the connection (#1721).
+- `/__pyric/rate-captures` and the Storage byte route still answer before reading the whole body without closing the connection (#1721).
 - In production AI mode, app code can still load a real `firebase/app` or `firebase/app-check` file by importing it by absolute path (#1735).
 - For a Node process connected with `PYRIC_SANDBOX=remote:<url>`, the dev server terminal still prints the browser App Check hint. The process's own output has the server hint (#1736).
 - Network error text from the upstream fetch is not masked on either AI plane (#1737).
+- An error event inside a successful Gemini stream reaches the app, masked since #1740. The Firebase SDK drops such a chunk, so an app never sees it in production (#1753).
 - The Vite plugin reads `.env` before Vite resolves its config, and a `VITE_GEMINI_API_KEY` set only in `.env` doesn't get the banner note (#1743).
 
 ### Everything else
