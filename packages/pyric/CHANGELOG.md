@@ -17,13 +17,13 @@ This release covers everything merged to `main` since alpha.31. It closes more w
 
 ### New in this release
 
-- **Production AI mode stops app code's own `@firebase/*` imports.** Under `@pyric/cli/register` with `PYRIC_AI_MODE=production`, app code that imports `@firebase/app`, `@firebase/app-check`, `@firebase/ai` or `@firebase/util` itself now fails with `PYRIC_REAL_SDK_STOPPED`, as it already did in sandbox AI mode. `firebase/ai` still loads the real SDK, and the stop message names the `firebase/*` import to use instead (#1732).
+- **Production AI mode stops app code's own `@firebase/*` imports.** Under `@pyric/cli/register` with `PYRIC_AI_MODE=production`, app code that imports `@firebase/app`, `@firebase/app-check`, `@firebase/ai` or `@firebase/util` itself now fails with `PYRIC_REAL_SDK_STOPPED`, as it already did in sandbox AI mode. `firebase/ai` still loads the real SDK. The stop message names the `firebase/*` import to use instead, except for `@firebase/util`, where it says pyric serves no `firebase/*` import for it (#1732).
 - **App Check hints fit where they are printed.** A Node process or a server-rendered module now gets a hint it can follow: set `globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true` beside a `CustomProvider`, or return a token minted with `firebase-admin`'s `createToken`. Pages and their workers keep the browser hint. A page that uses AI Logic on the in-page sandbox without Firestore, RTDB or Storage now prints AI refusals in the dev server terminal too (#1733).
 - **Sandbox AI errors quote the URL the SDK builds.** On a `VertexAIBackend` handle, the URL in an error names the Vertex AI path with its location. On every backend, a stream's error URL ends with `?alt=sse` (#1738).
 - **The Gemini key refusal follows `envPrefix`.** The Vite dev server refuses a Gemini key that Vite would serve to the page under the app's `envPrefix`, and leaves alone one it would not (#1739).
 - **The startup banner explains an ignored `VITE_GEMINI_API_KEY`.** When it is the only Gemini key set, the AI line says it is ignored and to rename it to `GEMINI_API_KEY` (#1742).
-- **A pending `onDisconnect` stays pending on close.** Closing the client no longer rejects an RTDB `onDisconnect` the host hasn't answered, so the presence sample from the Firebase docs no longer logs an unhandled rejection or ends a Node process. This applies to the web hosted client (#1722) and the Node remote client (#1727).
-- **Every early 413 closes the connection.** Each dev server route that refuses an oversized body now closes the connection and ends the socket, so the next request is answered on a fresh connection under Node and Bun (#1720).
+- **A pending `onDisconnect` stays pending on close.** Closing the client no longer rejects an RTDB `onDisconnect` the host hasn't answered, so the presence sample from the Firebase docs, which runs on the web hosted client, no longer logs an unhandled rejection or ends a Node process (#1722). The Node remote client does the same when it closes (#1727).
+- **A 413 for an oversized body closes the connection.** Each dev server route that answers an oversized body with 413 now closes the connection and ends the socket, so the next request is answered on a fresh connection under Node and Bun. `/__pyric/rate-captures` and the Storage byte route still answer 400 and keep the connection open: see Known gaps (#1720).
 
 ### Behavior changes
 
@@ -46,7 +46,7 @@ The production AI mode import stop and the `envPrefix` key refusal can stop code
 #### Realtime Database
 
 - Pending `onDisconnect` when the web hosted client closes, through `deleteApp` or a port close: before, rejected with "The hosted sandbox connection is closed." or `app-deleted`, so with no handler a page logged an unhandled rejection and a Node process exited. Now, it never settles, as in `@firebase/database` 1.1.3. Every other outstanding call still rejects (#1722).
-- Pending `onDisconnect` when the Node remote client closes or its transport fails: before, rejected with "remote sandbox connection closed by the client". Now, it never settles. One held while the client reconnects still fails at the 10-second hold deadline (#1727).
+- Pending `onDisconnect` when the Node remote client closes or its transport fails: before, rejected with "remote sandbox connection closed by the client". Now, it never settles. Every other outstanding call still rejects. One held while the client reconnects still fails at the 10-second hold deadline (#1727).
 
 #### Dev server
 
@@ -61,14 +61,14 @@ The production AI mode import stop and the `envPrefix` key refusal can stop code
 
 Each of these refuses something that used to work. Check them before you upgrade.
 
-- **Production AI mode stops app code's own `@firebase/*` imports.** With `PYRIC_AI_MODE=production` under `@pyric/cli/register`, an app import of `@firebase/app`, `@firebase/app-check`, `@firebase/ai` or `@firebase/util` fails with `PYRIC_REAL_SDK_STOPPED`. Before, it loaded the real package. Import `firebase/app`, `firebase/app-check` or `firebase/ai` instead. See Security (#1732).
-- **The Vite dev server refuses a Gemini key its `envPrefix` serves.** With an `envPrefix` that covers `GEMINI_` or `GOOGLE_`, the dev server refuses to start while `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY` holds a key. Before, it started, and Vite served the key to every page. The message names the prefix that serves the key and says to rename the key or change `envPrefix`. `vite build` and `vite preview` are not refused. See Security (#1739).
+- **Production AI mode stops app code's own `@firebase/*` imports.** With `PYRIC_AI_MODE=production` under `@pyric/cli/register`, an app import of `@firebase/app`, `@firebase/app-check`, `@firebase/ai` or `@firebase/util` fails with `PYRIC_REAL_SDK_STOPPED`. Before, it loaded the real package. Import `firebase/app`, `firebase/app-check` or `firebase/ai` instead. Pyric serves no `firebase/*` import for `@firebase/util`, and the stop message says so. See Security (#1732).
+- **The Vite dev server refuses a Gemini key its `envPrefix` serves.** The dev server refuses to start while a Gemini key sits in a name that starts with one of the app's `envPrefix` entries: `GEMINI_` refuses `GEMINI_API_KEY`, and `GOOGLE_` refuses `GOOGLE_GENAI_API_KEY`. Before, it started, and Vite served the key to every page. The message names the prefix that serves the key and says to rename the key or change `envPrefix`. `vite build` and `vite preview` are not refused. See Security (#1739).
 
 ### Security
 
 #### Keep AI keys on the server
 
-- The Vite dev server refuses to start while a Gemini key sits in a variable the app's `envPrefix` serves to the browser: `VITE_GEMINI_API_KEY` under the default prefix, `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY` under a prefix that covers `GEMINI_` or `GOOGLE_`. The message never quotes the key (#1739).
+- The Vite dev server refuses to start while a Gemini key sits in a variable the app's `envPrefix` serves to the browser. A prefix refuses only the key names that start with it: `VITE_` refuses `VITE_GEMINI_API_KEY`, under the default prefix or any `envPrefix` that includes `VITE_`, `GEMINI_` refuses `GEMINI_API_KEY`, and `GOOGLE_` refuses `GOOGLE_GENAI_API_KEY`. The message never quotes the key (#1739).
 - The gemini engine and the `/__pyric/ai-proxy/gemini` route mask the server's key in an upstream error's `status` field and in error events inside a successful stream (#1740).
 - The AI Logic guide has a section on keeping a Gemini key on the server. It warns that a Vite `define` of `process.env.GEMINI_API_KEY` writes the key into every module that reads it, which pyric does not stop (#1742).
 
