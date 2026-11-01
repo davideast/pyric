@@ -26,6 +26,12 @@
 // engine masks it on `hosted: true`. The SharedWorker refuses the plain-text
 // key through the proxy too, not only a key quoted in the URL.
 //
+// A dev server with no key in its environment takes an ADC token from a
+// stand-in `gcloud` on its PATH. The token has a second line, so Node's fetch
+// refuses the `Authorization` header before it sends anything, and its error
+// quotes the header, token included (#1737). The page's error and the dev
+// server's terminal must both read `***` in place of the token.
+//
 // Vite serves every `VITE_`-prefixed variable to any module that reads
 // `import.meta.env`. The page never reads it, so no module the dev server
 // serves may carry the dev server's `VITE_` value: Pyric's own modules must
@@ -35,7 +41,9 @@
 // Vite never serves `VITE_GEMINI_API_KEY`, so the dev server starts, and an
 // `envPrefix` that covers `GEMINI_` refuses a key in `GEMINI_API_KEY`.
 import assert from 'node:assert/strict';
+import { chmodSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { join } from 'node:path';
 import type { BrowserContext } from 'playwright';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
@@ -57,6 +65,8 @@ const ECHO_MODEL = 'gemini-echo-url';
 const ECHO_KEY_MODEL = 'gemini-echo-key';
 /** The model the stand-in answers with a 200 stream that carries an error event quoting the key. */
 const STREAM_ERROR_MODEL = 'gemini-stream-error';
+/** A made-up ADC token. Its second line makes it an invalid header value. */
+const ADC_TOKEN = 'scenario-adc-token-1737';
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
 /** The SDK's request URL adds `alt=sse` to a stream (#1640). */
@@ -208,6 +218,22 @@ function recordBodies(context: BrowserContext): string[] {
   return bodies;
 }
 
+/** A `gcloud` that prints a two-line access token, as a stand-in for ADC. */
+function writeStandInGcloud(app: App): string {
+  app.writeFile('gcloud', `#!/bin/sh\nprintf '${ADC_TOKEN}\\nsecond-line\\n'\n`);
+  chmodSync(join(app.dir, 'gcloud'), 0o755);
+  return `${app.dir}:${process.env.PATH ?? ''}`;
+}
+
+/** The page's error and the terminal quote the fetch error with the token masked. */
+async function assertMaskedFetchError(result: { ok: boolean; message?: string }, server: DevServer, since: number): Promise<void> {
+  assert.equal(result.ok, false);
+  assert.ok(!(result.message ?? '').includes(ADC_TOKEN), result.message);
+  assert.match(result.message ?? '', /Failed to connect to Gemini API at .*"Bearer \*\*\*" is an invalid header value/);
+  await server.process.waitForLog(/upstream unreachable: .*"Bearer \*\*\*" is an invalid header value/, { since });
+  assert.ok(!server.process.output.includes(ADC_TOKEN), 'the dev server printed the token');
+}
+
 async function openPage(app: App, host: DevServer) {
   const page = await app.page(host.url);
   await page.waitForFunction(() => 'runGemini' in window);
@@ -337,6 +363,15 @@ export default scenario(async (app) => {
     await app.step('hosted: true: an error event mid-stream reaches the page with the key masked', async () => {
       const hostedPage = await openPage(app, hostedServer);
       assertMaskedStreamError(await hostedPage.evaluate(() => runGeminiStreamError('hosted-stream-error')), standIn.streamed);
+    });
+
+    await app.step('SharedWorker, ADC: a fetch error that quotes the token reaches the page and the terminal masked', async () => {
+      const adcEnv = { GEMINI_STAND_IN_URL: standIn.url, PATH: writeStandInGcloud(app) };
+      const adcServer = await app.devServer({ name: 'adc-dev-server', env: adcEnv });
+      const adcPage = await openPage(app, adcServer);
+      const since = adcServer.process.mark();
+      await assertMaskedFetchError(await adcPage.evaluate(() => runGeminiError('adc-fetch-error', 'gemini-2.5-flash')), adcServer, since);
+      assert.deepEqual(standIn.seen, answeredAt(2), 'nothing reached the stand-in');
     });
 
     await app.step('in-page sandbox: the same refusal and the same answer', async () => {
