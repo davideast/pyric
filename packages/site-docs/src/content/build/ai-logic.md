@@ -151,6 +151,35 @@ For model-specific routing or a scripted configuration shared by the whole dev s
 
 Generation settings such as `maxOutputTokens`, `temperature`, `topP`, `stopSequences`, and JSON response formatting carry over to the OpenAI request. `topK` and `thinkingConfig` have no equivalent and are dropped locally. Local models do not reproduce production model quality, safety policy, latency, quotas, billing, or service availability, so verify model-dependent behaviour against the production backend before release.
 
+## Keep a Gemini API key on the server
+
+To answer with a real Gemini model during development, set `ai.engine` to the gemini engine and put your key in `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY`, in your shell or, with the Vite dev server, in `.env.local`:
+
+```ts
+pyric({
+  ai: {
+    engine: { kind: 'gemini' },
+  },
+})
+```
+
+Pyric's dev server reads the key and attaches it to requests itself, so the key never reaches the page.
+
+Do not name the key `VITE_GEMINI_API_KEY`. Vite serves every `VITE_` variable to the browser, so the Vite dev server refuses to start with it set. `pyric dev`, `pyric sandbox` and `@pyric/cli/register` ignore it, and the `pyric dev` and `pyric sandbox` startup banner names it as ignored. For the same reason, keep your Vite `envPrefix` from covering `GEMINI_` or `GOOGLE_`.
+
+A `define` entry in your Vite config also puts the key in the page:
+
+```ts
+// Wrong: Vite writes the key into every module that reads process.env.GEMINI_API_KEY.
+export default defineConfig({
+  define: {
+    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY),
+  },
+})
+```
+
+Pyric does not stop this, because the config is yours. Remove the entry and let the dev server read the key.
+
 ## Pass through to production AI models
 
 To evaluate your application against live Google AI or Vertex AI models during development, set `PYRIC_AI_MODE` to `production` in `.env.local`:
