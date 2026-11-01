@@ -21,6 +21,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'assurance',
   method: 'export',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'export(campaignId, path?)',

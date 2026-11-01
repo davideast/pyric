@@ -26,6 +26,7 @@ import type {
 import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import type { AiBroker } from './broker/broker.js';
+import type { AppCheckAttachment } from './app-check-gate.js';
 import type { AnswerEngine, EngineConfig } from './broker/types.js';
 import type { Backend } from './backend.js';
 import type { TypedSchema } from './schema.js';
@@ -52,18 +53,26 @@ export type AppAI = AI & { readonly app: FirebaseApp };
 /** Per-handle sandbox dispatch state. */
 export interface SandboxTarget {
   kind: 'sandbox';
+  /** The handle's backend: the SDK's request URL, which errors quote, depends on it. */
+  backend: Backend;
   sandbox: Sandbox;
   broker: AiBroker;
   /** App-backed handles assert their container is live before every operation. */
   assertAlive?: () => void;
+  /** App-backed handles attach App Check to every request; handles with no app have none and are not gated. */
+  appCheck?: AppCheckAttachment;
 }
 
 /** Adapter-owned transport target. It deliberately has no local sandbox or broker. */
 export interface TransportTarget {
   kind: 'transport';
+  /** The handle's backend: the SDK's request URL, which errors quote, depends on it. */
+  backend: Backend;
   transport: AnswerEngine;
   /** App-backed handles assert their container is live before every operation. */
   assertAlive?: () => void;
+  /** App-backed handles attach App Check to every request; handles with no app have none and are not gated. */
+  appCheck?: AppCheckAttachment;
 }
 
 /** Internal dispatch state carried by every branded AI handle. */

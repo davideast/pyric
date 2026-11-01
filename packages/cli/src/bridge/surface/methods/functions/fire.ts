@@ -151,6 +151,7 @@ function reportExecution(
 export default {
   tool: 'functions',
   method: 'fire',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'fire(trigger, path, value, timeoutMs?)',

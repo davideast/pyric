@@ -22,3 +22,7 @@ export {
 export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';
 export { isEmailSignInLink, resolveEmailLinkIdentity } from './email-link.js';
 export { resolveCustomTokenIdentity } from './tokens.js';
+export { isFederatedProviderId } from './providers.js';
+export { noMockConfiguredError } from './sign-in.js';
+export { SERVED_SANDBOX_HOOK } from './sandbox/driver.js';
+export type { ServedSandboxHook } from './sandbox/driver.js';

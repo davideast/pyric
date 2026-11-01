@@ -1,7 +1,7 @@
 import { FirebaseError } from 'pyric/app';
 import type { InboundMessage } from '../protocol.js';
 import type { ClientDb, ClientPort } from './handles.js';
-import { endPortSubscriptions, rejectPendingRequests, wirePort } from './core.js';
+import { endPortSubscriptions, forgetOnDisconnectCalls, rejectPendingRequests, wirePort } from './core.js';
 import { closeSendOrder } from './send-order.js';
 
 type TransportChoice = Promise<(port: ClientPort) => ClientDb>;
@@ -83,6 +83,7 @@ export function getDeferredFirestore(choice: TransportChoice | (() => TransportC
       observers.clear();
       closeSendOrder(port);
       const closedError = new FirebaseError('app/app-deleted', 'Firebase App was deleted');
+      forgetOnDisconnectCalls(port);
       rejectPendingRequests(port, closedError);
       endPortSubscriptions(port, new FirebaseError('aborted', 'The operation was aborted.'), closedError);
       port.onmessage = null;

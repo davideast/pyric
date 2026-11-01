@@ -13,36 +13,37 @@
  * ../registry/messaging.ts) via `rowIds`. Citation is not replay —
  * the rows stay `unverified` until the conformance suite replays them.
  *
- * Requires: PYRIC_MESSAGING_SA_BASE64.
+ * Requires: PYRIC_MESSAGING_PROJECT_ID (or PYRIC_ORACLE_PROJECT_ID) with
+ * Application Default Credentials, or PYRIC_MESSAGING_SA_BASE64. See
+ * src/messaging-credential.ts and docs/oracle-project-setup.md.
  * Run: bun run packages/conformance/src/messaging-send-probes.ts
  */
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initializeApp, cert, deleteApp } from 'firebase-admin/app';
+import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
-import type { ServiceAccount } from 'firebase-admin/app';
+import { loadMessagingServiceAccount, messagingAccessToken, messagingSendEndpoint } from './messaging-credential.ts';
+import { oracleAppOptions } from './oracle-credential.ts';
 import { resolvedAdminVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // messaging-send-* observations belong to the 'messaging-admin' surface.
 const OBS_DIR = join(HERE, '..', 'observations', 'messaging-admin');
 
-const b64 = process.env.PYRIC_MESSAGING_SA_BASE64;
-if (!b64) {
-  console.error('✗ PYRIC_MESSAGING_SA_BASE64 is not set.');
+const sa = await loadMessagingServiceAccount().catch((error: unknown) => {
+  console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
-}
-const sa = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')) as ServiceAccount & { project_id?: string };
-const projectId = (sa.projectId ?? sa.project_id)!;
+});
+const projectId = sa.project_id;
 
 const adminSdkVersion = resolvedAdminVersion();
 
-const app = initializeApp({ credential: cert(sa) }, 'messaging-send-probes');
-const ENDPOINT = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+const app = initializeApp(oracleAppOptions(sa), 'messaging-send-probes');
+const ENDPOINT = messagingSendEndpoint(sa);
 
 async function rawSend(payload: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
-  const { access_token } = await app.options.credential!.getAccessToken();
+  const access_token = await messagingAccessToken(sa);
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },

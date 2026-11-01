@@ -57,3 +57,15 @@ export function nodeSocketPrototypes(): object[] {
   return builtinPrototypes([['node:net', 'Socket']]);
 }
 
+/**
+ * The `http.ClientRequest` prototype. Every `http.request` and `https.request`
+ * reaches `ClientRequest.prototype.onSocket` once it has a socket, whether an
+ * Agent made it or the caller's `createConnection` did, and before the request
+ * line is written. It is the one place the request's own `method` and `path`
+ * are readable: an Agent's `createConnection` receives `path: null`. A
+ * `CONNECT` request names its real destination there.
+ */
+export function nodeClientRequestPrototypes(): object[] {
+  return builtinPrototypes([['node:http', 'ClientRequest']]);
+}
+

@@ -6,12 +6,13 @@ import {
   fieldValuesOf,
   RENAMES,
 } from '../../arguments/firestore.js';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'firestore',
   method: 'setDoc',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'setDoc(path, data, options?)',

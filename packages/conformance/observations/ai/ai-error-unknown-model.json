@@ -4,10 +4,10 @@
   "rowIds": [
     "ai#error-unknown-model"
   ],
-  "description": "Error envelope for a model name production has never served. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
-  "observedAt": "2026-07-10T01:47:04.446Z",
+  "description": "Error envelope for a model name production has never served.",
+  "observedAt": "2026-10-28T02:04:02.686Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
   "behavior": {

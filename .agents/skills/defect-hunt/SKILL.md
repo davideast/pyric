@@ -143,8 +143,11 @@ anyway: a safety hook blocks those git commands.
   confirm they are at rest before the next. A capture that does not print its
   restore line makes this urgent, not optional.
 - Credentials are passed by env for the one command that needs them. Never
-  print them, never write them to `.env` or anywhere in the repo, and point
-  `PYRIC_ORACLE_SA_PATH` at a file outside the checkout.
+  print them, never write them to `.env` or anywhere in the repo. The oracle
+  rigs run keyless: with `PYRIC_ORACLE_SA_PATH` unset they use Application
+  Default Credentials and `PYRIC_ORACLE_PROJECT_ID` names the project
+  (`packages/conformance/docs/oracle-project-setup.md`). A key file, when one
+  is used, stays outside the checkout.
 - The final ledger lists `FALSE`, `NEEDS_RUNTIME` and unverified items next to
   the confirmed ones.
 - Issues and PR text describe pyric, generically. They do not name the app or

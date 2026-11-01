@@ -500,13 +500,17 @@ describe('rtdb-modular CDD: calls in flight at a hosted connection drop', () => 
   });
   // pyric-admin and the worker bridge iterate an array value by index;
   // their own tests pin those planes. The sandbox side is an admin handle's
-  // array read, which keeps one child per index.
+  // array read, which keeps one child per index, and an object with integer
+  // keys, which the write stores by key and reads back as the same array.
   row('AS1', async () => {
-    const target = api.ref(getAdminDatabase(initializeSandbox()), 'ticks');
-    await api.set(target, ['a', 'b', 'c']);
-    const snap = await api.get(target);
-    expect(snap.val()).toEqual(['a', 'b', 'c']);
-    expect([snap.size, snap.hasChildren(), keys(snap), snap.child('1').val()]).toEqual([3, true, ['0', '1', '2'], 'b']);
+    const db = getAdminDatabase(initializeSandbox());
+    for (const written of [['a', 'b', 'c'], { 0: 'a', 1: 'b', 2: 'c' }]) {
+      const target = api.ref(db, 'ticks');
+      await api.set(target, written);
+      const snap = await api.get(target);
+      expect(snap.val()).toEqual(['a', 'b', 'c']);
+      expect([snap.size, snap.hasChildren(), keys(snap), snap.child('1').val()]).toEqual([3, true, ['0', '1', '2'], 'b']);
+    }
   });
 
   // Row RS1 records the client SDKs in a server process that

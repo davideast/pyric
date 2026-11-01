@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { parseNameStatus, determineAppScenarios, determinePackaging, determineRtdbDifferential } from './plan.ts';
+import { parseNameStatus, determineAppScenarios, determinePackaging, determineReleaseProof, determineRtdbDifferential } from './plan.ts';
 
 describe('app scenario selection', () => {
+  test('runs for a pull request touching the pyric bin or any of its commands', () => {
+    for (const path of ['packages/cli/src/cli/index.ts', 'packages/cli/src/cli/run.ts']) {
+      expect(determineAppScenarios({ event: 'pull_request', paths: [{ path }] })).toBe(true);
+    }
+  });
+
   test('runs for a pull request touching the Vite plugin, register hook, pyric-admin, AI broker, manifests, packaging, or apps', () => {
     for (const path of [
       'packages/cli/src/serve/vite-plugin.ts',
@@ -32,6 +38,7 @@ describe('app scenario selection', () => {
   test('always runs outside pull requests', () => {
     expect(determineAppScenarios({ event: 'schedule', paths: [] })).toBe(true);
     expect(determineAppScenarios({ event: 'push', paths: [] })).toBe(true);
+    expect(determineAppScenarios({ event: 'merge_group', paths: [] })).toBe(true);
   });
 });
 
@@ -61,6 +68,7 @@ describe('RTDB differential selection', () => {
   test('always runs outside pull requests', () => {
     expect(determineRtdbDifferential({ event: 'schedule', paths: [] })).toBe(true);
     expect(determineRtdbDifferential({ event: 'push', paths: [] })).toBe(true);
+    expect(determineRtdbDifferential({ event: 'merge_group', paths: [] })).toBe(true);
   });
 });
 
@@ -87,5 +95,27 @@ describe('CI change input', () => {
 
   test('skips packaging gate when no packaging proof required on PR', () => {
     expect(determinePackaging({ event: 'pull_request', labels: [], paths: [{ path: 'README.md' }] })).toBe(false);
+  });
+
+  test('forces packaging gate on a merge group, which carries no labels', () => {
+    expect(determinePackaging({ event: 'merge_group', labels: [], paths: [] })).toBe(true);
+  });
+});
+
+describe('release proof selection (install matrix and standalone smoke)', () => {
+  test('a pull request opts in with the ci-packaging label only', () => {
+    expect(determineReleaseProof({ event: 'pull_request', labels: ['ci-packaging'] })).toBe(true);
+    expect(determineReleaseProof({ event: 'pull_request', labels: [] })).toBe(false);
+    expect(determineReleaseProof({ event: 'pull_request', labels: ['ci-full'] })).toBe(false);
+  });
+
+  test('a merge group always runs it, since one of its pull requests may carry the label', () => {
+    expect(determineReleaseProof({ event: 'merge_group', labels: [] })).toBe(true);
+  });
+
+  test('push, schedule and dispatch keep today\'s behavior', () => {
+    for (const event of ['push', 'schedule', 'workflow_dispatch'] as const) {
+      expect(determineReleaseProof({ event, labels: [] })).toBe(false);
+    }
   });
 });

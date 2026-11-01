@@ -1,0 +1,77 @@
+# SDK drift: pyric's suites against the newest firebase and firebase-admin.
+#
+# Every other workflow runs against the lockfile, so a new SDK release that
+# breaks pyric would first show up when a user installs it. This job rewrites
+# the two SDK specifiers in the runner's checkout, installs without the
+# lockfile, and runs the suites (scripts/ci/sdk-drift.ts). Two tiers:
+#
+#   in-range  the newest release pyric's declared range allows. A failure turns
+#             the run red: users installing inside pyric's range get a broken
+#             pyric, which is a defect.
+#   latest    npm's `latest` tag, which may be a newer major. A failure opens or
+#             updates one issue per package and major, labeled
+#             lane:reliability, and the run stays green.
+#
+# Runs daily and on demand, never on pull requests. It is not part of
+# `CI / required`. compat:oracle-versions fails by design on any version change
+# and is reported as observations to re-capture, never as a failure.
+
+name: SDK drift
+
+on:
+  schedule:
+    # Daily at 04:23 UTC, clear of the build (09:17), slow scenarios (09:47),
+    # playground (10:43), and oracle re-capture (Monday 06:00) crons.
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: SDK drift (${{ matrix.tier }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        tier: [in-range, latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Test the drift script
+        run: bun test scripts/ci/sdk-drift.test.ts
+      - name: Run the suites against the ${{ matrix.tier }} SDKs
+        id: drift
+        continue-on-error: ${{ matrix.tier == 'latest' }}
+        run: bun scripts/ci/sdk-drift.ts run --tier=${{ matrix.tier }} --result="$RUNNER_TEMP/sdk-drift-result.json"
+      - name: File the latest-tier failure as issues
+        if: matrix.tier == 'latest' && steps.drift.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/ci/sdk-drift.ts file-issues --result="$RUNNER_TEMP/sdk-drift-result.json"
+      - name: Upload the drift result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-drift-${{ matrix.tier }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sdk-drift-result.json
+          if-no-files-found: warn
+          retention-days: 14

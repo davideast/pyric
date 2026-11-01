@@ -123,6 +123,8 @@ async function buildCtx(): Promise<HostCtx> {
         ? (url) => new EventSource(url) as unknown as EventSourceLike
         : null,
   });
+  // This worker runs in the browser: the gemini engine sends through the dev server.
+  ctx.aiRunsInBrowser = true;
   return ctx;
 }
 

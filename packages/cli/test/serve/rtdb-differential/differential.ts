@@ -14,7 +14,7 @@
  * The Node plane runs the CLI's built `dist`, so build the CLI first. The exit
  * code is 1 when any sequence mismatches.
  */
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -40,15 +40,25 @@ export interface PlaneRunner {
 }
 
 /** Build `run-plane.ts` for Node, with the CLI's sources resolved to its built `dist`. */
-async function buildNodeRunner(directory: string): Promise<string> {
-  symlinkSync(join(REPO_ROOT, 'node_modules'), join(directory, 'node_modules'), 'dir');
+function buildNodeRunner(directory: string): Promise<string> {
+  return buildForNode(directory, 'run-plane.ts');
+}
+
+/**
+ * Build one script in this folder for Node into `directory`, with the CLI's
+ * sources resolved to its built `dist`, and return the built file's path.
+ */
+export async function buildForNode(directory: string, script: string): Promise<string> {
+  const linked = join(directory, 'node_modules');
+  if (!existsSync(linked)) symlinkSync(join(REPO_ROOT, 'node_modules'), linked, 'dir');
+  const naming = script.replace(/\.ts$/, '.mjs');
   const distRoot = `${join(CLI_ROOT, 'dist')}/`;
   const build = await Bun.build({
-    entrypoints: [join(HERE, 'run-plane.ts')],
+    entrypoints: [join(HERE, script)],
     outdir: directory,
     target: 'node',
     packages: 'external',
-    naming: 'run-plane.mjs',
+    naming,
     plugins: [{
       name: 'cli-dist',
       setup(builder) {
@@ -62,7 +72,7 @@ async function buildNodeRunner(directory: string): Promise<string> {
     }],
   });
   if (!build.success) throw new Error(`Node runner build failed: ${build.logs.map(String).join('\n')}`);
-  return join(directory, 'run-plane.mjs');
+  return join(directory, naming);
 }
 
 export async function createPlaneRunner(options: { chunks?: number } = {}): Promise<PlaneRunner> {

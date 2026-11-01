@@ -30,6 +30,8 @@ export interface AiRejectionPayload {
   code?: unknown;
   /** The rejection reason: production's own message for shape errors. */
   message?: unknown;
+  /** Pyric's guidance beside production's message, such as the App Check gate's. */
+  hint?: unknown;
 }
 
 /** Loosely-typed mirror of the AI blocked-response payload. Unlike a
@@ -99,10 +101,10 @@ function formatModelLine(model: unknown, engine: unknown): string | null {
 /**
  * Format a relayed AI broker rejection into the compact terminal block, the
  * same `  [pyric] ...` idiom the denial relay and the ai-proxy warning print.
- * Three lines at most: the reason production itself gives, then the model
- * (with the resolved engine, since a rejection reads very differently for
- * `scripted` than for a real upstream), then the wire status. Exported for
- * unit tests.
+ * The reason production itself gives, then the model (with the resolved
+ * engine, since a rejection reads very differently for `scripted` than for a
+ * real upstream), then the wire status, then pyric's guidance when the broker
+ * gave one (the App Check gate does). Exported for unit tests.
  */
 export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
   const message = readText(payload.message) ?? 'request rejected';
@@ -117,6 +119,8 @@ export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
     if (code !== null) suffix = ` (${code})`;
     lines.push(`      ${label}${suffix}`);
   }
+  const hint = readText(payload.hint);
+  if (hint !== null) lines.push(`      ${hint}`);
   return lines.join('\n');
 }
 

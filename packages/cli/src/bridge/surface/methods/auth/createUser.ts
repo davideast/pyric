@@ -14,7 +14,7 @@ import {
   RENAMES,
   tenantId,
 } from '../../arguments/auth.js';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 interface TenantSeedInput {
@@ -70,6 +70,7 @@ function tenantSeed(args: Args, tenant: string): TenantSeedInput {
 export default {
   tool: 'auth',
   method: 'createUser',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-admin',
   effect: 'write',
   signature: 'createUser(uid?, email?, password?, displayName?, customClaims?, tenantId?)',

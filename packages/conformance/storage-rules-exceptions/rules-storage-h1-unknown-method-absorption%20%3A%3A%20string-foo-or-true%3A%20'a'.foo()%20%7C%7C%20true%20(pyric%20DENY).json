@@ -1,1 +1,0 @@
-{"kind":"verdict","rowId":"storage-rules#211","productionVerdict":"ALLOW","evaluatorVerdict":"DENY","reason":"an unknown method is an error value production absorbs with || true; pyric throws past the absorption","issue":"ST-H1-8"}

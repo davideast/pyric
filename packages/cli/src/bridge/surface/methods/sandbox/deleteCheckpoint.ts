@@ -17,6 +17,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'sandbox',
   method: 'deleteCheckpoint',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'deleteCheckpoint(name, confirm)',

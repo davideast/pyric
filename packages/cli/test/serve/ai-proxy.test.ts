@@ -16,9 +16,10 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
-import { aiUpstreamGuardAllowance, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
+import { AI_PROXY_BODY_LIMIT_BYTES, aiUpstreamGuardAllowance, fetchAiUpstream, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
 import { NET_GUARD_GLOBAL } from '../../src/register/net-guard.js';
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-aiproxy-'));
@@ -117,8 +118,8 @@ describe('/__pyric/ai-proxy', () => {
       headers: {
         'content-type': 'application/json',
         authorization: 'Bearer test-key',
-        origin: 'http://evil.example',
-        referer: 'http://evil.example/page',
+        origin: new URL(h.url).origin,
+        referer: `${h.url}/page`,
         cookie: 'session=secret',
       },
       body: JSON.stringify({ model: 'llama3', messages: [] }),
@@ -194,6 +195,69 @@ describe('/__pyric/ai-proxy', () => {
       received += decoder.decode(value, { stream: true });
     }
     expect(received).toBe('data: {"n":1}\n\ndata: {"n":2}\n\ndata: [DONE]\n\n');
+  });
+
+  it('refuses a cross-origin POST with 403 and never calls the upstream', async () => {
+    const seen: string[] = [];
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        seen.push(req.url);
+        return Response.json({ choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1?key=configured`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', origin: 'http://localhost:1' },
+      body: JSON.stringify({ model: 'm', messages: [] }),
+    });
+    expect(res.status).toBe(403);
+    expect(seen).toEqual([]);
+  });
+
+  it('answers 413 for a body over the limit and never calls the upstream', async () => {
+    const seen: string[] = [];
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        seen.push(req.url);
+        return Response.json({ choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES + 1),
+    });
+    await expectClosedEarlyAnswer(res, 413, `${h.url}/__pyric/ai-proxy/chat/completions`);
+    expect(seen).toEqual([]);
+  });
+
+  it('forwards a body at the limit byte for byte', async () => {
+    let received = 0;
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        received = (await req.arrayBuffer()).byteLength;
+        return Response.json({ choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: new Uint8Array(AI_PROXY_BODY_LIMIT_BYTES),
+    });
+    expect(res.status).toBe(200);
+    expect(received).toBe(AI_PROXY_BODY_LIMIT_BYTES);
   });
 
   it('rejects non-POST with 405', async () => {
@@ -289,6 +353,26 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     expect(line).toContain('429');
     expect(line).toContain('Retry-After: 12s');
     expect(line).toMatch(/no automatic retry/i);
+  });
+
+  it('masks the key and bearer a request sent when the upstream quotes them in Retry-After (#1631)', async () => {
+    const key = 'fake-header-key-1631';
+    const token = 'ya29.fake-bearer-1631';
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => new Response('slow down', { status: 429, headers: { 'retry-after': `30 ${key} ${token}` } }),
+    });
+    upstreams.push(upstream);
+    const { logger, notes } = recordingLogger();
+    const throttle = { shouldPrint: () => true };
+    const headers = { 'x-goog-api-key': key, authorization: `Bearer ${token}` };
+    const res = await fetchAiUpstream(`http://127.0.0.1:${upstream.port}/v1beta/m:generateContent`, { method: 'POST', headers }, throttle, logger);
+    await res.body?.cancel();
+    expect(notes.length).toBe(1);
+    expect(notes[0]).not.toContain(key);
+    expect(notes[0]).not.toContain(token);
+    expect(notes[0]).toContain('Retry-After: 30 *** ***');
   });
 
   it('stays quiet on a 2xx upstream', async () => {
@@ -475,6 +559,34 @@ describe('formatAiProxyWarning', () => {
     expect(block.split('\n').length).toBe(3);
     expect(block).not.toContain('\u001b');
     expect(block.length).toBeLessThan(320);
+  });
+
+  it('masks a credential the request carried when a Retry-After quotes it (#1631)', () => {
+    const key = 'fake-retry-key/1631';
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 429,
+      retryAfter: `30 ${key} ${encodeURIComponent(key)}`,
+      credentials: [key],
+    });
+    expect(block).not.toContain(key);
+    expect(block).not.toContain(encodeURIComponent(key));
+    expect(block).toContain('Retry-After: 30 *** ***');
+  });
+
+  it('masks a credential before the length cap, so no prefix of it survives', () => {
+    const key = `fake-key-${'k'.repeat(80)}`;
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 429,
+      retryAfter: `30 ${key}`,
+      credentials: [key],
+    });
+    expect(block).not.toContain('fake-key-');
   });
 
   it('renders the mid-stream abort block', () => {

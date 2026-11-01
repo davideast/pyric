@@ -163,6 +163,7 @@ export {
   projectEvaluatedRule,
 } from '../test/spec.js';
 export type { EvaluatedRuleInfo } from '../test/spec.js';
+export { caseShapeRefusal } from '../test/case-shape.js';
 
 // ─── Sentinel expression engine ──────────────────────────────────────
 export { resolveExpressionsInData, ExpressionWalkError } from '../simulator/expression/walk-data.js';

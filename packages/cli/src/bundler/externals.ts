@@ -62,9 +62,12 @@ export const pyricEsbuildExternals: readonly string[] = Object.freeze(
 
 /**
  * The package names, for configuration that takes names rather than patterns,
- * such as Vite's `ssr.external`. The `@firebase` scope has no single name, and
- * needs none: its packages are dependencies of `firebase`, and a bundler that
- * keeps `firebase` external leaves those imports to Node as well.
+ * such as Vite's `ssr.external`. The `@firebase` scope has no single name, so
+ * it is not here. A bundler that keeps `firebase` external leaves the SDK's own
+ * `@firebase/*` imports to Node, but an app's direct `@firebase/*` import, or
+ * an npm alias of a Firebase SDK, is bundled unless listed by name.
+ * `withPyric` lists those from what is installed
+ * (`next/server-external-packages.ts`, #1626).
  */
 export const pyricExternalPackages: readonly string[] = Object.freeze(
   EXTERNAL_FAMILIES.filter((family) => family.kind === 'package').map((family) => family.name),

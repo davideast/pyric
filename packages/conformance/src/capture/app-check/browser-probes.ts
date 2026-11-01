@@ -41,7 +41,17 @@ export interface BrowserProbeInput {
   firebaseConfig: Record<string, unknown>;
   debugToken: string;
   unregisteredDebugToken: string;
+  /** When set, only these standalone probes run; the main flow and every AI request are skipped. */
+  only?: string[];
 }
+
+/** Browser probes that run on their own, without the main flow. The ones that send an AI request are AI_REQUEST_BROWSER_PROBES (enforcement-guard.ts). */
+export const STANDALONE_BROWSER_PROBES = [
+  'app-check-client-initialize-twice',
+  'app-check-client-initialize-twice-unset-auto-refresh',
+  'app-check-client-get-token-concurrent',
+  'app-check-client-get-token-before-initialize',
+] as const;
 
 async function bundle(): Promise<string> {
   const built = await Bun.build({
@@ -147,18 +157,47 @@ export async function runBrowserProbes(input: BrowserProbeInput, failures: strin
     }
   };
 
+  const wanted = (name: string) => !input.only || input.only.includes(name);
+
   try {
     const validCaptured: CapturedRequest[] = [];
     const valid = await openPage(await browser.newContext(), origin, input.debugToken, validCaptured, secrets);
 
-    await probe('app-check-client-initialize-twice', async () => {
+    if (wanted('app-check-client-initialize-twice')) await probe('app-check-client-initialize-twice', async () => {
       const behavior = await call<Record<string, unknown>>(valid, 'initializeTwice', firebaseConfig);
       writeObservation(context, 'app-check-client-initialize-twice',
         'initializeAppCheck called a second time on the same app: with identical options (same provider instance), with a new provider instance built from the same factory, and with a different isTokenAutoRefreshEnabled.',
         behavior, 'client');
     });
 
-    await probe('app-check-client-get-token-before-initialize', async () => {
+    if (wanted('app-check-client-initialize-twice-unset-auto-refresh')) await probe('app-check-client-initialize-twice-unset-auto-refresh', async () => {
+      const behavior = await call<Record<string, unknown>>(valid, 'initializeTwiceUnsetAutoRefresh', firebaseConfig);
+      writeObservation(context, 'app-check-client-initialize-twice-unset-auto-refresh',
+        'initializeAppCheck called a second time on the same app with the same provider instance, where one of the two calls omits isTokenAutoRefreshEnabled: omitted then false, false then omitted, and omitted both times.',
+        behavior, 'client');
+    });
+
+    if (wanted('app-check-client-get-token-concurrent')) await probe('app-check-client-get-token-concurrent', async () => {
+      const behavior = await call<Record<string, unknown>>(valid, 'concurrentGetToken', firebaseConfig);
+      const tokens = ['firstA', 'firstB', 'forcedA', 'forcedB'].map((key) => remember(behavior[key] as Facts));
+      const [firstA, firstB, forcedA, forcedB] = tokens as [Facts, Facts, Facts, Facts];
+      const listenerTokens = behavior.listenerTokens as string[];
+      secrets.values.push(...listenerTokens);
+      writeObservation(context, 'app-check-client-get-token-concurrent',
+        'Debug mode only (registered debug token): two getToken calls started together with no cached token, then two getToken(appCheck, true) calls started together, with a listener registered before the first pair. Records whether each pair resolved to one token, whether the forced pair differs from the first, and the listener call count read 300 ms after each pair.',
+        {
+          customProviderCalls: behavior.providerCalls,
+          first: shape(firstA),
+          concurrentFirstShareOneToken: firstA.token !== null && firstB.token === firstA.token,
+          forced: shape(forcedA),
+          concurrentForcedShareOneToken: forcedA.token !== null && forcedB.token === forcedA.token,
+          forcedDiffersFromFirst: forcedA.token !== firstA.token,
+          listenerCallsAfterConcurrentFirst: behavior.listenerCallsAfterConcurrentFirst,
+          listenerCallsAfterConcurrentForced: behavior.listenerCallsAfterConcurrentForced,
+        }, 'client');
+    });
+
+    if (wanted('app-check-client-get-token-before-initialize')) await probe('app-check-client-get-token-before-initialize', async () => {
       validCaptured.length = 0;
       const behavior = await call<Record<string, unknown>>(valid, 'beforeInitialize', firebaseConfig);
       const late = behavior.getTokenAfterLateInitialize as Facts | null;
@@ -171,6 +210,8 @@ export async function runBrowserProbes(input: BrowserProbeInput, failures: strin
           aiRequestAfterLateInitialize: headerFacts(validCaptured[0], { lateGetToken: late?.token ?? null }),
         }, 'client');
     });
+
+    if (input.only) return;
 
     validCaptured.length = 0;
     const main = await call<Record<string, unknown>>(valid, 'mainFlow', firebaseConfig);

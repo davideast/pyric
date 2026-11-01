@@ -27,10 +27,12 @@ import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
-import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
+import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { pointerHeldByAnotherHost } from './discovery.js';
+import { boundedFetch } from '../bounded-request.js';
 import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
+import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
@@ -40,8 +42,14 @@ import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-
 
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
-const HEALTH_PATH = '/__pyric/health';
+export const HEALTH_PATH = '/__pyric/health';
 const BRIDGE_VERSION = pyricVersion();
+
+/** The 503 a closed mount answers its routes with, so a client knows the host is going away. */
+export function answerMountClosed(res: ServerResponse): void {
+  res.writeHead(503, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
+}
 
 /**
  * Test-only: `PYRIC_TEST_PEER_LIVENESS_MS` shortens the host's peer liveness
@@ -68,6 +76,15 @@ export interface BridgeMountOptions {
    *  `allowedHosts: true` = the caller (vite `server.allowedHosts: true`) opted
    *  into all hosts. Omit ⇒ loopback-only. */
   upgradeGuard?: { boundHost: string; allowedHosts?: string[] | true };
+  /** Accept a page on the port of a dev server that proxies `/__pyric/*` to
+   *  this one (`pyric sandbox -- next dev`). Only the standalone server sets
+   *  it. A mount inside a dev server, such as the Vite plugin's, serves the
+   *  page on its own port, which the connection's port already covers. */
+  learnsProxyPorts?: boolean;
+  /** The app's ports, shared with the namespace's guarded routes. The caller
+   *  that passes them teaches them from each request, so the mount does not.
+   *  Absent, the mount keeps its own and learns when `learnsProxyPorts`. */
+  appPorts?: AppPorts;
 }
 
 export interface BridgeMount {
@@ -131,6 +148,10 @@ export interface BridgeHostAttachment {
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
+  // The ports a page of this app may name in its Origin (see app-ports.ts).
+  const sharesPorts = opts.appPorts !== undefined;
+  const appPorts = opts.appPorts ?? createAppPorts(opts.upgradeGuard?.boundHost ?? 'localhost');
+  const learnsHere = opts.learnsProxyPorts === true && !sharesPorts;
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
   let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
@@ -313,6 +334,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     instanceId: bridge.instanceId,
 
     async handler(req, res, url) {
+      if (learnsHere) appPorts.learn(req);
       const isHealthRequest = url.pathname === HEALTH_PATH;
       const isMcpRequest = url.pathname === MCP_PATH;
       const isHostedRepro = url.pathname === HOSTED_REPRO_PATH;
@@ -321,8 +343,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
       const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes);
       if (rejectsClosedRequest) {
-        res.writeHead(503, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
+        answerMountClosed(res);
         return true;
       }
       if (isHealthRequest) {
@@ -338,7 +359,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const allowedHosts = guard?.allowedHosts;
           const hasNamedHosts = Array.isArray(allowedHosts);
           const extra = hasNamedHosts ? allowedHosts : [];
-          const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extra);
+          const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extra, appPorts.forRequest(req));
           if (isForbidden) {
             res.writeHead(403, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
@@ -397,8 +418,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const repro = await runtime.captureRepro(call.projectDir);
           res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(repro));
         } catch (error) {
+          const body = JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
+          if (isBodyTooLarge(error)) {
+            answerAndClose(req, res, 413, { 'content-type': 'application/json' }, body);
+            return true;
+          }
           res.writeHead(400, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+          res.end(body);
         }
         return true;
       }
@@ -425,12 +451,14 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const result = await runtime.runMethod(call, req.socket);
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
         } catch (error) {
-          const isError = error instanceof Error;
-          const summary = isError ? error.message : String(error);
-          const exceedsBodyLimit = isError && 'code' in error && error.code === BODY_TOO_LARGE_CODE;
-          const status = exceedsBodyLimit ? 413 : 400;
-          res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, summary }));
+          const summary = error instanceof Error ? error.message : String(error);
+          const body = JSON.stringify({ ok: false, summary });
+          if (isBodyTooLarge(error)) {
+            answerAndClose(req, res, 413, { 'content-type': 'application/json' }, body);
+            return true;
+          }
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(body);
         }
         return true;
       }
@@ -534,7 +562,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           const allowedHosts = guard.allowedHosts;
           const hasNamedHosts = Array.isArray(allowedHosts);
           const extra = hasNamedHosts ? allowedHosts : [];
-          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra);
+          const acceptsProxiedPage = opts.learnsProxyPorts === true;
+          const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
+          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra, ports);
           if (isForbidden) {
             socket.destroy();
             return;
@@ -583,11 +613,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         if (hasNoCollisionProbe) return;
         const cannotProbe = !currentOrigin?.port || attachmentClosed;
         if (cannotProbe) return;
+        // By default a bounded request, connect included, so a family whose
+        // connect never completes leaves no socket pending past 1 s (#1167).
+        const probeHealth = (url: string): Promise<Response> => {
+          const injected = collision.fetchImpl;
+          if (injected) return injected(url, { signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]) });
+          return boundedFetch(url, { deadlineMs: 1000, signal: collisionAbort.signal });
+        };
         for (const probe of [`http://127.0.0.1:${currentOrigin.port}`, `http://[::1]:${currentOrigin.port}`]) {
           try {
-            const response = await (collision.fetchImpl ?? fetch)(`${probe}${HEALTH_PATH}`, {
-              signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]),
-            });
+            const response = await probeHealth(`${probe}${HEALTH_PATH}`);
             if (attachmentClosed) return;
             const isUnavailable = response.status !== 200;
             if (isUnavailable) continue;

@@ -29,6 +29,16 @@ export const FS_BASE_CASE: Omit<TestCase, 'description'> = {
   resource: { a: 1, b: 2, s: 'str' },
 };
 
+/**
+ * The base case for one method. A create finds no document, so a create case
+ * names no existing `resource`; pyric refuses one that does (#1338).
+ */
+export function fsBaseCase(method: TestCase['method'] = 'get'): Omit<TestCase, 'description'> {
+  if (method !== 'create') return { ...FS_BASE_CASE, method };
+  const { resource: _resource, ...withoutResource } = FS_BASE_CASE;
+  return { ...withoutResource, method };
+}
+
 /** Fixed instant shared by local capability and production acceptance probes. */
 export const FIRESTORE_PROBE_TIME = '2024-01-01T00:00:00Z';
 
@@ -45,7 +55,7 @@ export function resolveFsProbe(probe: FsProbe): { rules: string; cases: TestCase
   if ('rules' in probe) return { rules: probe.rules, cases: probe.cases };
   const rules = FS_RULESET(probe.expr, probe.method === 'create' || probe.method === 'update' || probe.method === 'delete' ? 'write' : 'read');
   const cases: TestCase[] = [{
-    description: 'probe', ...FS_BASE_CASE, method: probe.method ?? 'get',
+    description: 'probe', ...fsBaseCase(probe.method ?? 'get'),
     functionMocks: probe.withMocks, query: probe.query,
   }];
   return { rules, cases };
@@ -193,11 +203,11 @@ export function fsProbeFor(c: LanguageConstruct): FsProbe {
       'allow-create': 'create', 'allow-update': 'update', 'allow-delete': 'delete',
     };
     if (name === 'allow-write') {
-      return { rules: FS_RULESET('true', 'write'), cases: [{ description: 'probe', ...FS_BASE_CASE, method: 'create' }] };
+      return { rules: FS_RULESET('true', 'write'), cases: [{ description: 'probe', ...fsBaseCase('create') }] };
     }
     if (name in allowVerbs) {
       const verb = name === 'allow-list' ? 'list' : name.slice('allow-'.length);
-      return { rules: FS_RULESET('true', verb), cases: [{ description: 'probe', ...FS_BASE_CASE, method: allowVerbs[name] }] };
+      return { rules: FS_RULESET('true', verb), cases: [{ description: 'probe', ...fsBaseCase(allowVerbs[name]) }] };
     }
     if (name === 'match') return { expr: 'true' }; // the standard ruleset is one match block
     if (name === 'rules_version') return { expr: 'true' }; // ruleset declares rules_version = '2'

@@ -98,7 +98,7 @@ const DENY_ALL = { rules: { '.read': 'false', '.write': 'false' } };
 describe('oracle conformance (rtdb)', () => {
   // ── round-trips & write equivalence ──────────────────────────────────
 
-  it('rtdb-set-then-get-roundtrip (KNOWN DIVERGENCE: object-key ordering)', async () => {
+  it('rtdb-set-then-get-roundtrip (object-key ordering)', async () => {
     // Prod capture: the written value reads back intact BUT
     // `roundTripEqual: false`. RTDB returns object children in
     // LEXICOGRAPHIC key order, so a `JSON.stringify(payload) ===
@@ -106,10 +106,9 @@ describe('oracle conformance (rtdb)', () => {
     // differs even though the value is structurally identical (the
     // recorded readBack keys — count, hello, ok — are sorted).
     //
-    // The sandbox (src/database/sandbox/data-tree.ts) PRESERVES insertion
-    // order on read-back, so the same stringify round-trip is `true`. Pin
-    // BOTH sides so neither drifts unnoticed: the value round-trips (the
-    // environment-independent fact), and the key-ordering divergence.
+    // The sandbox's `val()` builds keys in priority, then key order, as
+    // production does (hunt finding RT-7, #1371). This test pinned the
+    // sandbox keeping insertion order before that fix.
     const obs = load('rtdb-set-then-get-roundtrip.json');
     const { db } = setup();
     // Write with a deliberately NON-sorted insertion order (hello, count, ok).
@@ -123,9 +122,8 @@ describe('oracle conformance (rtdb)', () => {
     // Prod (the target): a stringify round-trip is FALSE because RTDB
     // reorders keys lexicographically.
     expect(obs.roundTripEqual).toBe(false);
-    // Sandbox today: keys keep insertion order → stringify round-trip is TRUE.
-    expect(Object.keys(readBack)).toEqual(['hello', 'count', 'ok']);
-    expect(JSON.stringify(payload) === JSON.stringify(readBack)).toBe(true);
+    expect(Object.keys(readBack)).toEqual(Object.keys(obs.readBack as Record<string, unknown>));
+    expect(JSON.stringify(payload) === JSON.stringify(readBack)).toBe(obs.roundTripEqual as boolean);
   });
 
   it('rtdb-remove-vs-set-null', async () => {

@@ -27,6 +27,19 @@ function assertRequiredPath(message: Record<string, unknown>): void {
   }
 }
 
+/** The `ResolvedIdentity` the picker hands over and a served test stages. */
+function requireResolvedIdentity(identity: unknown): void {
+  requireRecord(identity, 'identity');
+  requireString(identity.uid, 'identity.uid');
+  requireString(identity.providerId, 'identity.providerId');
+  for (const field of ['email', 'displayName', 'photoURL']) {
+    const value = identity[field];
+    const isNullableString = value === undefined || value === null || typeof value === 'string';
+    requireShape(isNullableString, `identity.${field}`);
+  }
+  requireOptionalRecord(identity.customClaims, 'identity.customClaims');
+}
+
 function assertSharedAuthFields(message: Record<string, unknown>): void {
   const method = message.method;
   const isAuthMethod = typeof method === 'string' && method.startsWith('auth.');
@@ -376,21 +389,18 @@ export function assertOperationArguments(message: Record<string, unknown>): void
         const isNullableString = value === undefined || value === null || typeof value === 'string';
         requireShape(isNullableString, `credential.${field}`);
       }
-      return;
-    }
-    case 'auth.acceptIdentity': {
-      const identity = message.identity;
-      requireRecord(identity, 'identity');
-      requireString(identity.uid, 'identity.uid');
-      requireString(identity.providerId, 'identity.providerId');
-      for (const field of ['email', 'displayName', 'photoURL']) {
-        const value = identity[field];
-        const isNullableString = value === undefined || value === null || typeof value === 'string';
-        requireShape(isNullableString, `identity.${field}`);
+      // An email credential's method and secret; the engine decides a missing one.
+      for (const field of ['signInMethod', 'password']) {
+        const value = credential[field];
+        const isOptionalString = value === undefined || typeof value === 'string';
+        requireShape(isOptionalString, `credential.${field}`);
       }
-      requireOptionalRecord(identity.customClaims, 'identity.customClaims');
       return;
     }
+    case 'auth.acceptIdentity':
+    case 'auth.mockSignInResult':
+      requireResolvedIdentity(message.identity);
+      return;
     case 'auth.adminCreateUser':
       requireRecord(message.request, 'request');
       return;
@@ -498,10 +508,21 @@ export function assertOperationArguments(message: Record<string, unknown>): void
 }
 
 
+/** An App Check claim is absent (a handle with no app) or a record whose token is a string or null. */
+function assertAiAppCheck(appCheck: unknown): void {
+  const hasNoClaim = appCheck === undefined;
+  if (hasNoClaim) return;
+  requireRecord(appCheck, 'appCheck');
+  const token = appCheck.token;
+  const hasTokenShape = token === null || typeof token === 'string';
+  requireShape(hasTokenShape, 'appCheck.token');
+}
+
 /** Unary and streaming AI requests share the same adapter-owned wire fields. */
 export function assertAiArguments(message: Record<string, unknown>): void {
   requireString(message.model, 'model');
   requireRecord(message.request, 'request');
+  assertAiAppCheck(message.appCheck);
   const engine = message.engine;
   const hasNoEngine = engine === undefined;
   if (hasNoEngine) return;

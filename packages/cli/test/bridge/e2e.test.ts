@@ -1,7 +1,8 @@
 /**
  * End-to-end MCP integration test.
  *
- * Spins up the bridge in sandbox mode on a random port, connects a
+ * Spins up a bridge with a browser peer socket (`peer-bridge-server.ts`, the
+ * parts `pyric sandbox --bridge` composes) on a random port, connects a
  * fake browser-side peer (real WebSocket from Node's `ws` package
  * dispatching against a real `LocalEnvironment` via the same logic
  * the browser uses), then drives MCP tool calls through the MCP
@@ -25,7 +26,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { startServer, type ServerHandle } from '../../src/bridge/server.js';
+import { startPeerBridgeServer, type PeerBridgeServer } from './peer-bridge-server.js';
 import {
   dispatchSandboxTool,
   SANDBOX_TOOL_NAMES,
@@ -36,12 +37,12 @@ import {
 } from '../../src/bridge/protocol.js';
 import { BRIDGE_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 
-const PORT = 5179; // distinct from default 5174
-
-let server: ServerHandle;
+let server: PeerBridgeServer;
+let PORT = 0;
 
 beforeAll(async () => {
-  server = await startServer({ port: PORT, disableAuditLog: true, silent: true });
+  server = await startPeerBridgeServer();
+  PORT = server.port;
 });
 
 afterAll(async () => {

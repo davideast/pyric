@@ -44,6 +44,8 @@ export interface ReleasedOp {
 
 interface HeldCall {
   send: (target: HeldCallTarget) => Promise<unknown>;
+  /** The op to send; absent for a byte route lookup. */
+  payload?: WorkerOpPayload;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   /** Present for a call issued while lost; it fails when this fires. */
@@ -61,6 +63,11 @@ export interface HeldCalls {
   flush(target: HeldCallTarget): void;
   /** Fail every held call once with `error`; none is sent. */
   fail(error: Error): void;
+  /**
+   * Close: forget each held op `isForgotten` picks, unsettled, and fail every
+   * other held call once with `error`; none is sent.
+   */
+  close(error: Error, isForgotten: (payload: WorkerOpPayload) => boolean): void;
   /** How many calls are held. */
   readonly size: number;
 }
@@ -91,9 +98,9 @@ export function createHeldCalls(options: { lastAttempt: () => string | undefined
     call.reject(expiredError());
   }
 
-  function admit(send: HeldCall['send'], issuedAt: number): Promise<unknown> {
+  function admit(send: HeldCall['send'], issuedAt: number, payload?: WorkerOpPayload): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
-      const call: HeldCall = { send, resolve, reject };
+      const call: HeldCall = { send, payload, resolve, reject };
       held.push(call);
       // The deadline counts from the call, not from when it reached the hold.
       const remaining = issuedAt + holdDeadlineMs - Date.now();
@@ -103,7 +110,7 @@ export function createHeldCalls(options: { lastAttempt: () => string | undefined
 
   return {
     hold(payload, issuedAt) {
-      return admit((target) => target.op(payload), issuedAt);
+      return admit((target) => target.op(payload), issuedAt, payload);
     },
     holdByteRoute(issuedAt) {
       return admit(async (target) => target.byteRoute?.(), issuedAt) as Promise<RemoteByteRoute | undefined>;
@@ -111,6 +118,7 @@ export function createHeldCalls(options: { lastAttempt: () => string | undefined
     holdAgain(calls) {
       const reheld = calls.map((call): HeldCall => ({
         send: (target) => target.op(call.payload),
+        payload: call.payload,
         resolve: call.resolve,
         reject: call.reject,
       }));
@@ -121,6 +129,12 @@ export function createHeldCalls(options: { lastAttempt: () => string | undefined
     },
     fail(error) {
       for (const call of take()) call.reject(error);
+    },
+    close(error, isForgotten) {
+      for (const call of take()) {
+        const isForgottenOp = call.payload !== undefined && isForgotten(call.payload);
+        if (!isForgottenOp) call.reject(error);
+      }
     },
     get size() {
       return held.length;

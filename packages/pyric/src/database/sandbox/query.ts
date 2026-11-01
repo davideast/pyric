@@ -44,21 +44,49 @@ export function emptySpec(): QuerySpec {
   return { orderBy: null, bounds: [], limit: null };
 }
 
-/** Whether the spec already has a lower-bound (start) constraint. A
- *  `startAt`/`startAfter`/`equalTo` all set the start. */
-function specHasStart(spec: QuerySpec): boolean {
-  return spec.bounds.some(
-    (b) => b.kind === 'startAt' || b.kind === 'startAfter' || b.kind === 'equalTo',
-  );
+type StartKind = 'startAt' | 'startAfter' | 'equalTo';
+type EndKind = 'endAt' | 'endBefore' | 'equalTo';
+
+/** Whether a bound sets the start: `startAt`, `startAfter` or `equalTo`. */
+function isStartKind(kind: Bound['kind']): kind is StartKind {
+  return kind === 'startAt' || kind === 'startAfter' || kind === 'equalTo';
 }
 
-/** Whether the spec already has an upper-bound (end) constraint. A
- *  `endAt`/`endBefore`/`equalTo` all set the end. */
-function specHasEnd(spec: QuerySpec): boolean {
-  return spec.bounds.some(
-    (b) => b.kind === 'endAt' || b.kind === 'endBefore' || b.kind === 'equalTo',
-  );
+/** Whether a bound sets the end: `endAt`, `endBefore` or `equalTo`. */
+function isEndKind(kind: Bound['kind']): kind is EndKind {
+  return kind === 'endAt' || kind === 'endBefore' || kind === 'equalTo';
 }
+
+/** Whether the spec already has a lower-bound (start) constraint. */
+function specHasStart(spec: QuerySpec): boolean {
+  return spec.bounds.some((b) => isStartKind(b.kind));
+}
+
+/** Whether the spec already has an upper-bound (end) constraint. */
+function specHasEnd(spec: QuerySpec): boolean {
+  return spec.bounds.some((b) => isEndKind(b.kind));
+}
+
+/** The public call that set each ordering, as the SDK names it in errors. */
+const ORDER_BY_CALL: Record<OrderBy['kind'], string> = {
+  child: 'orderByChild',
+  key: 'orderByKey',
+  priority: 'orderByPriority',
+  value: 'orderByValue',
+};
+
+// The SDK's texts, kept verbatim: startAt names `startBefore`, and endAt and
+// endBefore say "Starting point" for an end point.
+const START_ALREADY_SET: Record<StartKind, string> = {
+  startAt: 'startAt: Starting point was already set (by another call to startAt, startBefore or equalTo).',
+  startAfter: 'startAfter: Starting point was already set (by another call to startAt, startAfter, or equalTo).',
+  equalTo: 'equalTo: Starting point was already set (by another call to startAt/startAfter or equalTo).',
+};
+const END_ALREADY_SET: Record<EndKind, string> = {
+  endAt: 'endAt: Starting point was already set (by another call to endAt, endBefore or equalTo).',
+  endBefore: 'endBefore: Starting point was already set (by another call to endAt, endBefore or equalTo).',
+  equalTo: 'equalTo: Ending point was already set (by another call to endAt/endBefore or equalTo).',
+};
 
 /**
  * Append a constraint, returning a NEW spec. (Constraints are immutable
@@ -77,23 +105,16 @@ export function applyConstraint(
   switch (c.kind) {
     case 'orderBy':
       if (spec.orderBy !== null) {
-        throw new Error("You can't combine multiple orderBy calls.");
+        throw new Error(`${ORDER_BY_CALL[c.spec.kind]}: You can't combine multiple orderBy calls.`);
       }
       return { ...spec, orderBy: c.spec };
     case 'bound': {
-      const setsStart =
-        c.bound.kind === 'startAt' || c.bound.kind === 'startAfter' || c.bound.kind === 'equalTo';
-      const setsEnd =
-        c.bound.kind === 'endAt' || c.bound.kind === 'endBefore' || c.bound.kind === 'equalTo';
-      if (setsStart && specHasStart(spec)) {
-        throw new Error(
-          `${c.bound.kind}: Starting point was already set (by another call to startAt, startAfter, or equalTo).`,
-        );
+      const kind = c.bound.kind;
+      if (isStartKind(kind) && specHasStart(spec)) {
+        throw new Error(START_ALREADY_SET[kind]);
       }
-      if (setsEnd && specHasEnd(spec)) {
-        throw new Error(
-          `${c.bound.kind}: Ending point was already set (by another call to endAt, endBefore, or equalTo).`,
-        );
+      if (isEndKind(kind) && specHasEnd(spec)) {
+        throw new Error(END_ALREADY_SET[kind]);
       }
       return { ...spec, bounds: [...spec.bounds, c.bound] };
     }

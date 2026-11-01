@@ -20,6 +20,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'assurance',
   method: 'verify',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'verify(campaignId, rules, includeCandidates?, verificationId?)',

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 
-import { projectDatabaseInstances } from '../../../src/bridge/surface/database-instance-catalog.js';
+import { projectDatabaseInstances } from '../../../src/bridge/surface/database-instance-project.js';
 
 const PROJECT = 'legacy-catalog';
 

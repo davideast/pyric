@@ -48,6 +48,7 @@ function eventsFor(args: Record<string, unknown>, projectDir: string): EventSour
 export default {
   tool: 'sandbox',
   method: 'apply',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'apply(branch, events? | sessionPath?)',

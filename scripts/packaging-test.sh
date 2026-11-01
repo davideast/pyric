@@ -523,8 +523,11 @@ SHAPEJS
 (cd "$WORK/consumer" && node __export-shape.mjs)
 
 # Start and exercise the installed bridge through its public package entry.
-# The fake WebSocket peer is the browser half of the sandbox relay; the MCP
-# client proves tools/list and a forwarded call work from the packed artifact.
+# The standalone bridge has no browser socket (#1468), so the fake page must be
+# closed with the no-browser-peer code, and the MCP client proves tools/list
+# and an in-process call work from the packed artifact. Each await has a 30 s
+# deadline that names its step, so a missed message fails here instead of
+# hanging the job until CI cancels it (#1549).
 cat > "$SDK_FREE_CONSUMER/__bridge-smoke.mjs" <<'BRIDGEJS'
 import { readFileSync } from 'node:fs';
 import WebSocket from 'ws';
@@ -532,22 +535,39 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startServer } from '@pyric/cli/bridge';
 
-const server = await startServer({
-  port: 0,
-  project: 'packed-smoke',
-  disableAuditLog: true,
-  silent: true,
-});
-let socket;
-let client;
-try {
-  const healthBefore = await (await fetch(`${server.url}/health`)).json();
-  if (healthBefore.mode !== 'sandbox' || healthBefore.sandboxConnected !== false) {
-    throw new Error(`unexpected initial health: ${JSON.stringify(healthBefore)}`);
-  }
+// Every await gets a deadline that names its step, so a missed message fails
+// here with that name instead of hanging the job until CI cancels it (#1549).
+const STEP_DEADLINE_MS = 30_000;
+// Mirrors NO_BROWSER_PEER_CLOSE_CODE in packages/cli/src/bridge/protocol.ts,
+// which the package does not export.
+const NO_BROWSER_PEER_CLOSE_CODE = 4010;
 
-  socket = new WebSocket(server.url.replace(/^http/, 'ws') + '/sandbox');
-  await new Promise((resolve, reject) => {
+async function step(name, work) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`packed bridge smoke: "${name}" did not finish within ${STEP_DEADLINE_MS / 1000} s`)),
+      STEP_DEADLINE_MS,
+    );
+  });
+  try {
+    return await Promise.race([work(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function health(url) {
+  return (await fetch(`${url}/health`)).json();
+}
+
+// The standalone bridge has no browser socket (#1468): a page that opens
+// /sandbox and says hello is closed with NO_BROWSER_PEER_CLOSE_CODE and a
+// reason naming `pyric sandbox --bridge`, and never gets a hello-ack.
+function helloFromPage(url) {
+  const socket = new WebSocket(url.replace(/^http/, 'ws') + '/sandbox');
+  const messages = [];
+  return new Promise((resolve, reject) => {
     socket.once('error', reject);
     socket.on('open', () => socket.send(JSON.stringify({
       type: 'hello',
@@ -555,52 +575,63 @@ try {
       tools: ['sandbox_inspect'],
       sandboxId: 'packed-smoke-peer',
     })));
-    socket.on('message', (raw) => {
-      const message = JSON.parse(raw.toString());
-      if (message.type === 'hello-ack') resolve();
-      if (message.type === 'tool-call') {
-        socket.send(JSON.stringify({
-          type: 'tool-result',
-          id: message.id,
-          ok: true,
-          result: { ok: true, summary: 'packed sandbox peer responded' },
-        }));
-      }
-    });
+    socket.on('message', (raw) => messages.push(raw.toString()));
+    socket.on('close', (code, reason) => resolve({ code, reason: reason.toString(), messages }));
   });
+}
 
-  const healthConnected = await (await fetch(`${server.url}/health`)).json();
-  if (healthConnected.mode !== 'sandbox' || healthConnected.sandboxConnected !== true) {
-    throw new Error(`unexpected connected health: ${JSON.stringify(healthConnected)}`);
+const contract = JSON.parse(readFileSync(process.env.PYRIC_RELEASE_CONTRACT, 'utf8'));
+const server = await step('startServer', () => startServer({
+  port: 0,
+  project: 'packed-smoke',
+  disableAuditLog: true,
+  silent: true,
+}));
+let client;
+try {
+  const healthBefore = await step('GET /health before the page', () => health(server.url));
+  if (healthBefore.mode !== 'sandbox' || healthBefore.sandboxConnected !== false) {
+    throw new Error(`unexpected initial health: ${JSON.stringify(healthBefore)}`);
+  }
+
+  const closed = await step('page socket closed by the bridge', () => helloFromPage(server.url));
+  const isRefused = closed.code === NO_BROWSER_PEER_CLOSE_CODE && closed.reason.includes('pyric sandbox --bridge');
+  if (!isRefused || closed.messages.length > 0) {
+    throw new Error(`the bridge did not refuse the page as expected: ${JSON.stringify(closed)}`);
+  }
+
+  const healthAfter = await step('GET /health after the page', () => health(server.url));
+  if (healthAfter.sandboxConnected !== false) {
+    throw new Error(`a refused page registered as the sandbox peer: ${JSON.stringify(healthAfter)}`);
   }
 
   client = new Client({ name: 'packed-bridge-smoke', version: '1' });
-  await client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`)));
-  const listed = await client.listTools();
-  // The served bridge advertises the transport surface a browser sandbox peer
-  // executes (`bridgeTools`), not the in-process product surface's six service
-  // tools (`mcpTools`). The two are pinned separately in the release
-  // contract because they now diverge.
-  const expected = JSON.parse(readFileSync(process.env.PYRIC_RELEASE_CONTRACT, 'utf8')).bridgeTools;
+  await step('MCP client connect', () =>
+    client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`))));
+  const listed = await step('tools/list', () => client.listTools());
+  // The standalone bridge advertises only the tools that run in its own
+  // process (`standaloneBridgeTools`). The forwarded tools a browser peer
+  // executes stay in `bridgeTools`, the surface `pyric sandbox --bridge` serves.
+  const expected = contract.standaloneBridgeTools;
   const actual = listed.tools.map((tool) => tool.name);
   if (JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())) {
     throw new Error(
       `packed bridge MCP contract drifted\nexpected: ${expected.join(', ')}\nactual:   ${actual.join(', ')}`,
     );
   }
-  const called = await client.callTool({ name: 'sandbox_inspect', arguments: {} });
+  const called = await step('tools/call auth_whoami', () =>
+    client.callTool({ name: 'auth_whoami', arguments: {} }));
   const payload = JSON.parse(called.content[0].text);
-  if (!payload.ok || payload.summary !== 'packed sandbox peer responded') {
-    throw new Error(`unexpected forwarded result: ${JSON.stringify(payload)}`);
+  if (!payload.ok) {
+    throw new Error(`unexpected in-process result: ${JSON.stringify(payload)}`);
   }
   if (payload._pyric?.mode !== 'sandbox' || payload._pyric?.project !== 'packed-smoke') {
     throw new Error(`unexpected bridge provenance: ${JSON.stringify(payload._pyric)}`);
   }
-  console.log(`  ✓ packed @pyric/cli bridge starts, lists the exact ${actual.length}-tool contract, and relays a sandbox call`);
+  console.log(`  ✓ packed @pyric/cli bridge starts, refuses a browser page, lists the exact ${actual.length}-tool contract, and runs an in-process call`);
 } finally {
-  await client?.close().catch(() => {});
-  socket?.close();
-  await server.stop();
+  await step('MCP client close', () => client?.close().catch(() => {}) ?? Promise.resolve());
+  await step('server.stop', () => server.stop());
 }
 BRIDGEJS
 (cd "$SDK_FREE_CONSUMER" && PYRIC_RELEASE_CONTRACT="$RELEASE_CONTRACT" node __bridge-smoke.mjs)

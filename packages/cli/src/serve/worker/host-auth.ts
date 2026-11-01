@@ -40,12 +40,13 @@ import {
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
-  type OAuthCredentialPayload,
 } from './host/auth-session-seeder.js';
-import { withoutJwtClaims } from 'pyric/sandbox/internal';
+import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
+import { rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
+import { createStagedSignInResults, type StagedSignInResults } from './host/staged-sign-in-results.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
 
@@ -69,6 +70,18 @@ export function authSubsFor(ctx: HostCtx): Map<PortLike, Map<string, 'authState'
     _authSubs.set(ctx, m);
   }
   return m;
+}
+
+const _stagedSignInResults = new WeakMap<HostCtx, StagedSignInResults>();
+
+/** The sign-in results each of this host's ports staged (`auth.mockSignInResult`). */
+export function stagedSignInResultsFor(ctx: HostCtx): StagedSignInResults {
+  let staged = _stagedSignInResults.get(ctx);
+  if (!staged) {
+    staged = createStagedSignInResults();
+    _stagedSignInResults.set(ctx, staged);
+  }
+  return staged;
 }
 
 function portTenantsFor(ctx: HostCtx): Map<PortLike, string | null> {
@@ -231,9 +244,9 @@ function refreshPortAuthorization(
   session: MintedSession,
   claims: Record<string, unknown>,
 ): void {
-  // Rules read the token's claim set without the JWT registered claims, as
-  // the in-process session does.
-  session.state.token = withoutJwtClaims(claims);
+  // Rules read the token's full claim set, JWT registered claims included,
+  // as the in-process session does.
+  session.state.token = rulesTokenFromIdToken(claims);
 
   // Frozen sandbox.withAuth handles capture the old token. Clear all
   // session-handle caches so this port and any same-uid sibling rebuild from
@@ -257,6 +270,7 @@ export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   ctx.portSessions?.delete(port);
   portTenantsFor(ctx).delete(port);
   _lastAuthStateUid.delete(port);
+  stagedSignInResultsFor(ctx).clear(port);
 }
 
 // ─── Auth op handlers ─────────────────────────────────────────────────────
@@ -533,24 +547,20 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const rawMsg: Record<string, unknown> = msg;
         const hasProvider = typeof rawMsg.providerId === 'string';
         const cred = (msg.credential ?? (hasProvider ? rawMsg : undefined)) as
-          | OAuthCredentialPayload
+          | CredentialPayload
           | undefined;
         const hasNoCredential = cred === undefined || !cred.providerId;
         if (hasNoCredential) {
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
-        const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);
-        const session = authSandboxOps.mintSession(auth, {
-          kind: 'provider',
-          uid,
-          providerId: cred.providerId,
-          tenantId,
-          ...portOriginScope(port),
-        });
+        const takeStaged = (providerId: string) => stagedSignInResultsFor(ctx).take(port, providerId);
+        const { session, providerId, isNewUser } = signInWithCredentialPayload(auth, cred, {
+          tenantId, ...portOriginScope(port),
+        }, takeStaged);
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, credReply(session, cred.providerId, isNewUser));
+        ok(port, msg.id, credReply(session, providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -568,6 +578,14 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, providerId, isNewUser));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.mockSignInResult': {
+      try {
+        stagedSignInResultsFor(ctx).stage(port, msg.identity);
+        ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

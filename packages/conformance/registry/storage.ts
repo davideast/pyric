@@ -288,10 +288,10 @@ export const storageRegistry = {
         row1({
           rowRef: "11",
           featureKeys: ["getStorage"],
-          behavior: "`getStorage(app, bucketUrl?)` accepts Firebase's bucket argument; the sandbox remains bound to its configured single bucket",
+          behavior: "`getStorage(app, bucketUrl?)` opens the bucket the URL names, with its own objects and the rules deployed to it; the app's default bucket is stored under the key `pyric-default`",
           status: "diverged-documented",
-          evidence: "Package resolution owns production selection. The sandbox accepts the canonical argument but does not model production multi-bucket routing; `unit:service.test.ts` pins the configured `pyric-default` bucket.",
-          conformanceTests: ["packages/pyric/test/storage/service.test.ts"],
+          evidence: "Package resolution owns production selection. `unit:service.test.ts` pins a bucket URL other than the app's `storageBucket` opening its own bucket, and the default bucket's store key `pyric-default`; `unit:storage/per-bucket-rules.test.ts` pins each bucket's objects and rules apart. The in-page plane still reports the default bucket as `pyric-default` in metadata and references (#1519).",
+          conformanceTests: ["packages/pyric/test/storage/service.test.ts","packages/pyric/test/storage/per-bucket-rules.test.ts"],
         }),
         row1({
           rowRef: "117",
@@ -445,9 +445,9 @@ export const storageRegistry = {
         row2({
           rowRef: "114",
           api: "ref(storage, url).bucket",
-          behavior: "Production gives a reference on the URL's bucket, including a bucket other than the app's default. The sandbox serves one bucket, so the reference is on that bucket, at the URL's path",
+          behavior: "Production gives a reference on the URL's bucket, including a bucket other than the app's default. The sandbox's `ref()` keeps the handle's bucket, at the URL's path; `getStorage(app, bucketUrl)` reaches another bucket",
           status: "diverged-documented",
-          evidence: "Production observation `client-storage-ref-urls` (firebase 12.13.0) records `gsOtherBucket` and `firebaseDownloadUrlOtherBucket` (`bucket: 'other-bucket'`) and `gsDefaultBucket` (`bucket: 'b'`, the configured bucket). The sandbox serves one bucket, as `getStorage(app, bucketUrl?)` does (storage#11): an object an app wrote through another bucket's handle is in that one bucket, so a URL naming another bucket reads it there. The storage oracle suite replays it against the engine's `ref()`, and `storage-ref-urls.test.ts` against the served page client's `ref()`: both pin production's `other-bucket` beside the sandbox's bucket and the URL's `fullPath`.",
+          evidence: "Production observation `client-storage-ref-urls` (firebase 12.13.0) records `gsOtherBucket` and `firebaseDownloadUrlOtherBucket` (`bucket: 'other-bucket'`) and `gsDefaultBucket` (`bucket: 'b'`, the configured bucket). `ref()` keeps the handle's bucket: a URL naming another bucket reads that path in the handle's bucket. To reach another bucket, an app opens it with `getStorage(app, bucketUrl)` (storage#11). The storage oracle suite replays it against the engine's `ref()`, and `storage-ref-urls.test.ts` against the served page client's `ref()`: both pin production's `other-bucket` beside the sandbox's bucket and the URL's `fullPath`.",
           risk: ["specific-field"],
           riskScore: 1,
           riskReasons: ["asserts a specific field/property value"],
@@ -1315,12 +1315,12 @@ export const storageRegistry = {
         row15({
           rowRef: "105",
           behavior: "Op-level enforcement: `uploadBytes` against a denied path throws `storage/unauthorized` on sandbox / `storage/unauthorized` on prod, `.code` exposed on both",
-          evidence: "ST-B1 fixed: sandbox now throws a `StorageError` (see `src/storage/errors.ts`) whose `.code === 'storage/unauthorized'` — matching prod's `FirebaseError.code`. Probe: `unit:error-codes.test.ts` (\"unauthorized when rules deny the operation\"). Residual divergence (documented, not a `.code` gap): the sandbox `StorageError.name` is `'StorageError'` (plain `Error` subclass, same shape as Firestore's `SandboxError`) where prod reports `name: 'FirebaseError'` / `isFirebaseError: true`, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: `packages/conformance/observations/storage/storage-rules-denied-error-code.json` (against blockingfun, fb-js-sdk 12.13.0: `code: 'storage/unauthorized'`, message `\"Firebase Storage: User does not have permission to access '<path>'.\"`, `name: 'FirebaseError'`, `isFirebaseError: true`).",
+          evidence: "ST-B1 fixed: sandbox now throws a `StorageError` (see `src/storage/errors.ts`) whose `.code === 'storage/unauthorized'` — matching prod's `FirebaseError.code`. Probe: `unit:error-codes.test.ts` (\"unauthorized when rules deny the operation\"). Residual divergence (documented, not a `.code` gap): the sandbox `StorageError.name` is `'StorageError'` (plain `Error` subclass, same shape as Firestore's `SandboxError`) where prod reports `name: 'FirebaseError'` / `isFirebaseError: true`, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: `packages/conformance/observations/storage/storage-rules-denied-error-code.json` (against blockingfun, fb-js-sdk 12.13.0: `code: 'storage/unauthorized'`, message `\"Firebase Storage: User does not have permission to access '<path>'.\"`, `name: 'FirebaseError'`, `isFirebaseError: true`). Extended 2026-10-27: `storage-rules-denied-signed-out-error-code` (digame-mas, fb-js-sdk 12.13.0) records that with no signed-in user an upload under `allow read, write: if request.auth != null` and one outside any grant both throw `storage/unauthorized` with HTTP 403, never `storage/unauthenticated`; the sandbox gives the same code, pinned by `unit:storage/oracle-conformance.test.ts`.",
           risk: ["specific-value","error-code","specific-field","rules-denial"],
           riskScore: 8,
           riskReasons: ["asserts 3 specific value(s)","asserts Firebase error code(s): `storage/unauthorized`, `storage/unauthorized`","asserts a specific field/property value","asserts rules-denial behavior"],
           automation: "oracle-backed",
-          oracleObservations: ["storage-rules-denied-error-code"],
+          oracleObservations: ["storage-rules-denied-error-code", "storage-rules-denied-signed-out-error-code"],
           conformanceTests: ["packages/pyric/test/storage/error-codes.test.ts"],
         }),
         row15({
