@@ -24,7 +24,7 @@ import { AiBroker } from '../../src/ai/broker/broker.js';
 import { AiBrokerError } from '../../src/ai/broker/synthesizer.js';
 import type { AnswerEngine } from '../../src/ai/broker/types.js';
 import { createTransportAI } from '../../src/ai/internal.js';
-import { APP_CHECK_HINT } from '../../src/ai/app-check-gate.js';
+import { APP_CHECK_HINT, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
 import { mintAppCheckToken, signAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
@@ -100,8 +100,32 @@ describe('ai#sandbox-app-check-required', () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     await rejection(model.generateContent('one'));
     await rejection(model.generateContent('two'));
-    const hints = warn.mock.calls.filter((call: unknown[]) => String(call[0]).includes(APP_CHECK_HINT));
+    const hints = warn.mock.calls.filter((call: unknown[]) => String(call[0]).includes(APP_CHECK_SERVER_HINT));
     expect(hints).toHaveLength(1);
+  });
+
+  it('a process with no document gets guidance it can follow: a CustomProvider, and no self or reCAPTCHA (#1639)', async () => {
+    expect(typeof (globalThis as { document?: unknown }).document).toBe('undefined');
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
+    expect(logged).toContain(`[pyric/ai] ${APP_CHECK_SERVER_HINT}`);
+    expect(logged).toContain('new CustomProvider({ getToken })');
+    expect(logged).not.toContain('self.');
+    expect(logged).not.toContain(APP_CHECK_HINT);
+  });
+
+  it('a page, which has a document, gets the browser guidance', async () => {
+    const scope = globalThis as { document?: unknown };
+    scope.document = {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+    } finally {
+      delete scope.document;
+    }
   });
 
   it('initializeAppCheck then getAI answers', async () => {

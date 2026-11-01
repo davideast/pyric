@@ -18,7 +18,10 @@
  *
  * The error the app gets stays production's. Pyric's guidance rides beside
  * it: on the `request_rejected` event the dev server prints, and once per app
- * as a `console.warn` in the page or process.
+ * as a `console.warn` in the page or process. A process with no `document`
+ * (a registered Node process, a server-rendered module) gets its own guidance:
+ * the reCAPTCHA providers throw there and it has no `self`, so it attests with
+ * a CustomProvider (#1639).
  */
 import type { FirebaseApp } from '../app/types.js';
 import { appCheckActivationOf, appCheckTokenFor } from '../sandbox/internal/app-check-activation.js';
@@ -30,9 +33,20 @@ import { RequestHeadersFailure } from './errors.js';
 export const APP_CHECK_REQUIRED_MESSAGE =
   'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
-/** Pyric's guidance, printed beside production's error, never in place of it. */
+/** Pyric's guidance for a page, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
   'Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check';
+
+/** Pyric's guidance for a process with no `document`, where reCAPTCHA throws and `self` does not exist. */
+export const APP_CHECK_SERVER_HINT =
+  "Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. This process has no document, so the reCAPTCHA providers throw here. Call initializeAppCheck(app, { provider: new CustomProvider({ getToken }) }) before getAI(app), with a getToken that returns { token, expireTimeMillis } for a token your server mints with firebase-admin's getAppCheck().createToken(appId). https://firebase.google.com/docs/ai-logic/app-check";
+
+/** The guidance for the realm the app runs in: a page has a `document`, a server process does not. */
+function appCheckHintForThisRealm(): string {
+  const hasDocument = typeof (globalThis as { document?: unknown }).document !== 'undefined';
+  if (hasDocument) return APP_CHECK_HINT;
+  return APP_CHECK_SERVER_HINT;
+}
 
 /** The captured refusal envelope (`app-check-ai-gate-wire`, `noHeader.raw`). */
 export function appCheckRequired(): WireErrorEnvelope {
@@ -83,7 +97,7 @@ const warnedApps = new WeakSet<object>();
 function warnOnce(app: FirebaseApp): void {
   if (warnedApps.has(app)) return;
   warnedApps.add(app);
-  console.warn(`[pyric/ai] ${APP_CHECK_HINT}`);
+  console.warn(`[pyric/ai] ${appCheckHintForThisRealm()}`);
 }
 
 /**

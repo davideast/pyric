@@ -11,7 +11,11 @@
 // that never initialized App Check, or initialized it after getAI, gets
 // production's 403; one that initialized it first answers, with or without
 // the debug provider, and with limited-use tokens. Pyric's guidance prints in
-// the dev server terminal and the browser console beside the error.
+// the dev server terminal and the browser console beside the error, on every
+// plane, including a page whose only Firebase services are App Check and AI
+// Logic on the in-page sandbox (#1638). A registered Node process gets
+// guidance it can follow there: a CustomProvider, and nothing that needs
+// `self` or `document` (#1639).
 //
 // With no debug token set, production calls an app's CustomProvider and sends
 // the token it returns, and so does the sandbox (#1642): a provider backed by
@@ -60,6 +64,8 @@ const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To
 const REFUSED_APPS_PER_RUN = 4;
 
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
+/** The guidance a process with no `document` prints: a CustomProvider, since reCAPTCHA throws there. */
+const SERVER_HINT = /\[pyric\/ai\] .*This process has no document, so the reCAPTCHA providers throw here\. Call initializeAppCheck\(app, \{ provider: new CustomProvider\(\{ getToken \}\) \}\) before getAI\(app\)/;
 
 function refusal(op: string) {
   return {
@@ -187,7 +193,12 @@ export default scenario(async (app) => {
 
   await app.step('a registered Node process with a CustomProvider gets the same refusal and the same answers', () => {
     assert.deepEqual(loggedJson(node, 'ai-checks'), expected('sandbox'));
-    assert.match(node, HINT);
+  });
+
+  await app.step('a registered Node process: the guidance names a CustomProvider and nothing that throws in Node', () => {
+    assert.match(node, SERVER_HINT);
+    assert.doesNotMatch(node, HINT);
+    assert.doesNotMatch(node, /self\.FIREBASE_APPCHECK_DEBUG_TOKEN/);
   });
 
   await app.step('a server-rendered module: the shared firebase.ts throws document is not defined, a CustomProvider works', () =>
@@ -207,18 +218,24 @@ export default scenario(async (app) => {
     await workerHost.process.waitForLog(HINT, { since });
   });
 
-  await app.step('in-page sandbox: the same refusal and the same answers', async () => {
+  // A fresh dev server: the SharedWorker one already printed this refusal, and
+  // a dev server prints a repeat only once. The page uses only App Check and
+  // AI Logic, so nothing but the AI entry can relay the refusal (#1638).
+  const inPageHost = await app.step('start a dev server for the in-page sandbox', () =>
+    app.devServer({ name: 'in-page-dev-server', env: { SANDBOX_APP_CHECK_PLANE: 'shared-worker' } }));
+
+  await app.step('in-page sandbox: the same refusal and the same answers, with the hint in the terminal', async () => {
     const context = await app.browser();
     await context.addInitScript(() => {
       (globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__ = true;
     });
-    const inPage = await openPage(app, workerHost);
+    const inPage = await openPage(app, inPageHost);
     const hintsBefore = consoleHints(app);
+    const since = inPageHost.process.mark();
     const result = await inPage.evaluate((url) => runAiChecks('in-page', url), tokenUrl);
     assert.deepEqual(result, expected('sandbox'));
-    // The terminal already printed this refusal for the SharedWorker page, and
-    // the dev server throttles a repeat, so the page console is the evidence here.
     assert.equal(consoleHints(app) - hintsBefore, REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
+    await inPageHost.process.waitForLog(HINT, { since });
   });
 
   await app.step('no request left the browser for reCAPTCHA or App Check', () => {
