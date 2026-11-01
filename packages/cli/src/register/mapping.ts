@@ -98,10 +98,10 @@ export interface RealFirebaseLoad {
  * Whether the swap table hands this client SDK load to the real SDK (ADR
  * 0022): one of pyric's shadow modules reaching the `firebase/app` or
  * `firebase/app-check` it wraps, or, in production AI mode, the files of
- * `firebase/ai`, `firebase/app` and `firebase/app-check` and the `@firebase/*`
- * packages they import (`isProductionAiSdkFile`). The stop in
- * `swap-or-stop.ts` allows exactly these, so the swap and the stop cannot
- * disagree.
+ * `firebase/ai`, `firebase/app` and `firebase/app-check`
+ * (`isProductionAiSdkFile`). The `@firebase/*` packages those import are
+ * allowed only from a real SDK file the stop in `swap-or-stop.ts` already
+ * allowed, never from app code (#1635).
  */
 export function choosesRealFirebase(load: RealFirebaseLoad): boolean {
   if (isBypassedBridgeImport(load.specifier, load.importer, load.aiMode)) return true;

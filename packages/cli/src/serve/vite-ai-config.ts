@@ -58,23 +58,64 @@ export function loadViteAiEnv(
   return loaded;
 }
 
-/** The Gemini key name Vite would serve to the browser. */
+/** The names the gemini engine reads its key from, in the order it reads them. */
+const GEMINI_SERVER_KEYS = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
+/** The Gemini key name Vite serves to the browser under its default `envPrefix`. */
 const BROWSER_SERVED_GEMINI_KEY = 'VITE_GEMINI_API_KEY';
+/** Vite's `envPrefix` when the app sets none. */
+const DEFAULT_ENV_PREFIX = 'VITE_';
+
+/** The app's `envPrefix` as Vite resolves it: a list, `VITE_` when unset. */
+function envPrefixList(envPrefix: string | string[] | undefined): string[] {
+  if (envPrefix === undefined) return [DEFAULT_ENV_PREFIX];
+  if (typeof envPrefix === 'string') return [envPrefix];
+  return envPrefix;
+}
+
+/** The prefix that makes Vite serve `name` to the browser, or `undefined` when none does. */
+function servingPrefix(name: string, prefixes: string[]): string | undefined {
+  return prefixes.find((prefix) => name.startsWith(prefix));
+}
+
+/** What to do about a key in `name`, which Vite serves because of `prefix`. */
+function refusalAdvice(name: string, prefix: string, prefixes: string[]): string {
+  const serverName = GEMINI_SERVER_KEYS.find((key) => key !== name && servingPrefix(key, prefixes) === undefined);
+  if (serverName === undefined) {
+    return `Change envPrefix in your Vite config so it does not cover ${GEMINI_SERVER_KEYS.join(' or ')}, then put the key in GEMINI_API_KEY. Pyric's dev server reads GEMINI_API_KEY and keeps it on the server.`;
+  }
+  const keepsIt = `Pyric's dev server reads ${serverName} and keeps it on the server.`;
+  const isServerName = (GEMINI_SERVER_KEYS as readonly string[]).includes(name);
+  if (isServerName) {
+    return `Remove ${prefix} from envPrefix in your Vite config, or rename the key to ${serverName} in your environment or .env file. ${keepsIt}`;
+  }
+  return `Rename it to ${serverName} in your environment or .env file. ${keepsIt}`;
+}
 
 /**
- * Refuse a dev server whose environment or `.env` holds a Gemini key in
- * `VITE_GEMINI_API_KEY`. Vite serves every `VITE_`-prefixed variable to the
- * browser, so the key would reach every page the dev server serves (#1632).
- * `env` is what `loadViteAiEnv` returned, which includes the shell's
- * environment. A blank value holds no key and is left alone.
+ * Refuse a dev server whose environment or `.env` holds a Gemini key that
+ * Vite would serve to the browser: `VITE_GEMINI_API_KEY`, or a name the
+ * gemini engine reads, whenever the app's `envPrefix` covers it. Vite serves
+ * every variable whose name starts with an `envPrefix` entry, so the key
+ * would reach every page the dev server serves (#1632, #1659). `env` is what
+ * `loadViteAiEnv` returned, which includes the shell's environment, and
+ * `envPrefix` is the resolved config's. A blank value holds no key and is
+ * left alone, and the message never quotes the key.
  */
-export function refuseBrowserServedGeminiKey(env: Record<string, string | undefined>): void {
-  const value = env[BROWSER_SERVED_GEMINI_KEY];
-  const holdsKey = value !== undefined && value.trim() !== '';
-  if (!holdsKey) return;
-  throw new Error(
-    `@pyric/cli/vite: ${BROWSER_SERVED_GEMINI_KEY} is set. Vite serves every variable whose name starts with VITE_ to the browser, so this key would reach every page the dev server serves. Rename it to GEMINI_API_KEY in your environment or .env file. Pyric's dev server reads GEMINI_API_KEY and keeps it on the server.`,
-  );
+export function refuseBrowserServedGeminiKey(
+  env: Record<string, string | undefined>,
+  envPrefix?: string | string[],
+): void {
+  const prefixes = envPrefixList(envPrefix);
+  for (const name of [BROWSER_SERVED_GEMINI_KEY, ...GEMINI_SERVER_KEYS]) {
+    const prefix = servingPrefix(name, prefixes);
+    if (prefix === undefined) continue;
+    const value = env[name];
+    const holdsKey = value !== undefined && value.trim() !== '';
+    if (!holdsKey) continue;
+    throw new Error(
+      `@pyric/cli/vite: ${name} is set. Vite serves every variable whose name starts with ${prefix} to the browser, so this key would reach every page the dev server serves. ${refusalAdvice(name, prefix, prefixes)}`,
+    );
+  }
 }
 
 /** Convert a public declarative engine into the JSON-safe worker wire shape. */

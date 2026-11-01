@@ -3,7 +3,7 @@
  */
 import type { NextConfig, NextConfigFunction, NextConfigObject, PyricNextOptions } from './types.js';
 import { enforceSandboxGuard, isProductionPassthrough } from './guard.js';
-import { augmentServerExternalPackages } from './server-external-packages.js';
+import { augmentServerExternalPackages, projectDirWarning } from './server-external-packages.js';
 import { augmentWebpackConfig } from './webpack-config.js';
 import { augmentTurbopackConfig } from './turbopack-config.js';
 import { augmentDevRewrites } from './dev-rewrites.js';
@@ -20,6 +20,13 @@ function isFunctionConfig(config: NextConfig): config is NextConfigFunction {
 
 function warnAboutEdgeRuntime(): void {
   const warning = formatEdgeRuntimeWarning(findEdgeRuntimeFiles(process.cwd()));
+  if (warning !== null) {
+    console.warn(warning);
+  }
+}
+
+function warnAboutProjectDir(): void {
+  const warning = projectDirWarning(process.cwd());
   if (warning !== null) {
     console.warn(warning);
   }
@@ -60,8 +67,12 @@ function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOpt
  * During the development server phase (`pyric sandbox -- next dev`):
  *   - Applies Webpack and Turbopack alias mappings to swap `firebase/*` imports
  *     for Pyric local sandbox mirrors on client components.
- *   - Adds `firebase` and `firebase-admin` to `serverExternalPackages` to prevent
- *     inlining in Server Components and API routes, preserving `@pyric/cli/register` hooks.
+ *   - Adds `firebase`, `firebase-admin`, every installed `@firebase/*` package and
+ *     every name a Firebase SDK is installed under (an npm alias such as
+ *     `"admin": "npm:firebase-admin@13"`) to `serverExternalPackages`, so Server
+ *     Components and API routes leave them to Node and `@pyric/cli/register`.
+ *     It finds them in the `node_modules` folders above `process.cwd()`, and
+ *     warns when that directory has no `next.config.*`.
  *   - Configures dev-time rewrites (`/__pyric/*`) to proxy socket and bridge traffic
  *     to the local Pyric server without CORS errors.
  *   - Enforces a bundler safety interlock (guard) to prevent accidental connections to
@@ -84,6 +95,7 @@ export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): 
     enforceSandboxGuard(options);
     blockByDefaultInDevServer(phase);
     warnAboutEdgeRuntime();
+    warnAboutProjectDir();
 
     const resolvedConfig = isFunctionConfig(config) ? await config(phase, defaults) : config;
     return applyPyricEnhancements(resolvedConfig, options);

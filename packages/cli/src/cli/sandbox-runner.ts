@@ -46,14 +46,17 @@ export async function waitForSandboxPeer(
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const intervalMs = opts.intervalMs ?? 250;
   const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
-  const deadline = Date.now() + timeoutMs;
+  // The monotonic clock: a wall clock that steps, or reads stale after the
+  // process is paused, would move the deadline away from the timers that
+  // enforce it (#1705).
+  const deadline = performance.now() + timeoutMs;
   // By default each poll is bounded by the time left, connect included, so a
   // health port whose connect never completes cannot carry the wait past its
   // timeout or hold the process open after it (#1167).
   const fetchHealth = (url: string): Promise<Response> => {
     const injected = opts.fetchImpl;
     if (injected) return injected(url);
-    return boundedFetch(url, { deadlineMs: Math.max(1, deadline - Date.now()) });
+    return boundedFetch(url, { deadlineMs: Math.max(1, deadline - performance.now()) });
   };
   for (;;) {
     try {
@@ -65,7 +68,7 @@ export async function waitForSandboxPeer(
     } catch {
       // Health not up yet — keep polling until the deadline.
     }
-    if (Date.now() >= deadline) return false;
+    if (performance.now() >= deadline) return false;
     await sleep(intervalMs);
   }
 }

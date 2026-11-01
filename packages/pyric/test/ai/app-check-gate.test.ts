@@ -19,12 +19,12 @@ import { deleteApp } from '../../src/app/index.js';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import type { FirebaseApp } from '../../src/app/types.js';
 import { CustomProvider, getLimitedUseToken, getToken, initializeAppCheck } from '../../src/app-check/index.js';
-import { AIError, getAI, getGenerativeModel } from '../../src/ai/index.js';
+import { AIError, VertexAIBackend, getAI, getGenerativeModel } from '../../src/ai/index.js';
 import { AiBroker } from '../../src/ai/broker/broker.js';
-import { AiBrokerError } from '../../src/ai/broker/synthesizer.js';
+import { AiBrokerError, errorEnvelope } from '../../src/ai/broker/synthesizer.js';
 import type { AnswerEngine } from '../../src/ai/broker/types.js';
 import { createTransportAI } from '../../src/ai/internal.js';
-import { APP_CHECK_HINT } from '../../src/ai/app-check-gate.js';
+import { APP_CHECK_HINT, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
 import { mintAppCheckToken, signAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
@@ -75,12 +75,17 @@ async function rejection(promise: Promise<unknown>): Promise<AIError> {
   throw new Error('expected the request to be refused');
 }
 
+/** The request URL's `<task>` and query: the SDK's `RequestURL` adds `alt=sse` to a stream (@firebase/ai 2.12.0). */
+function taskAndQuery(op: string): string {
+  return op === 'streamGenerateContent' ? `${op}?alt=sse` : op;
+}
+
 /** The SDK error the capture saw, with the sandbox's request URL in place of the oracle project's. */
 function expectCapturedRefusal(error: AIError, op: string): void {
   const captured = aiHeader.noAppCheck.generation;
   const expectedMessage = (captured.message as string)
     .replace('projects/genkit-idx/', 'projects/sandbox/')
-    .replace(':generateContent:', `:${op}:`);
+    .replace(':generateContent:', `:${taskAndQuery(op)}:`);
   expect(error).toBeInstanceOf(AIError);
   expect(error.code).toBe(captured.code);
   expect(error.message).toBe(expectedMessage);
@@ -100,8 +105,54 @@ describe('ai#sandbox-app-check-required', () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     await rejection(model.generateContent('one'));
     await rejection(model.generateContent('two'));
-    const hints = warn.mock.calls.filter((call: unknown[]) => String(call[0]).includes(APP_CHECK_HINT));
+    const hints = warn.mock.calls.filter((call: unknown[]) => String(call[0]).includes(APP_CHECK_SERVER_HINT));
     expect(hints).toHaveLength(1);
+  });
+
+  it('a server process gets guidance it can follow: the debug token on globalThis beside a CustomProvider, then a minted token (#1639)', async () => {
+    const scope = globalThis as { document?: unknown; WorkerGlobalScope?: unknown };
+    expect(typeof scope.document).toBe('undefined');
+    expect(typeof scope.WorkerGlobalScope).toBe('undefined');
+    warn = spyOn(console, 'warn').mockImplementation(() => {});
+    await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
+    expect(logged).toContain(`[pyric/ai] ${APP_CHECK_SERVER_HINT}`);
+    const debugStep = logged.indexOf('set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true');
+    const providerStep = logged.indexOf('new CustomProvider({ getToken })');
+    const mintedStep = logged.indexOf("getAppCheck().createToken(appId)");
+    expect(debugStep).toBeGreaterThan(-1);
+    expect(providerStep).toBeGreaterThan(debugStep);
+    expect(mintedStep).toBeGreaterThan(providerStep);
+    expect(logged).toContain('expireTimeMillis: Date.now() + ttlMillis');
+    expect(logged).not.toContain('self.');
+    expect(logged).not.toContain(APP_CHECK_HINT);
+  });
+
+  it('a worker realm, which has WorkerGlobalScope and no document, gets the browser guidance', async () => {
+    const scope = globalThis as { WorkerGlobalScope?: unknown };
+    scope.WorkerGlobalScope = class WorkerGlobalScope {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+      expect(logged.join('\n')).not.toContain(APP_CHECK_SERVER_HINT);
+    } finally {
+      delete scope.WorkerGlobalScope;
+    }
+  });
+
+  it('a page, which has a document, gets the browser guidance', async () => {
+    const scope = globalThis as { document?: unknown };
+    scope.document = {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+    } finally {
+      delete scope.document;
+    }
   });
 
   it('initializeAppCheck then getAI answers', async () => {
@@ -184,7 +235,7 @@ describe('app-check#custom-provider-without-debug-token: AI Logic judges the pro
     ];
     for (const [op, request] of ops) {
       const error = await rejection(request);
-      const url = `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}`;
+      const url = `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${taskAndQuery(op)}`;
       expect(error).toBeInstanceOf(AIError);
       expect(error.code).toBe('error');
       expect(error.message).toBe(`AI: Error fetching from ${url}: attestation failed (AI/error)`);
@@ -236,6 +287,73 @@ describe('app-check#custom-provider-without-debug-token: AI Logic judges the pro
     const model = getGenerativeModel(getAI(app), { model: MODEL });
     expect((await model.generateContent('ping')).response.text().length).toBeGreaterThan(0);
     expect(counter.calls).toBe(0);
+  });
+});
+
+// The SDK's `RequestURL` builds the Vertex AI path from
+// `VertexAIBackend._getModelPath`, `/v1beta/projects/<project>/locations/<location>/<model>`
+// with `<model>` = `publishers/google/models/<name>`, and adds `alt=sse` to a
+// stream (@firebase/ai 2.12.0). The sandbox's error URL keeps project `sandbox`.
+describe('ai#sandbox-app-check-required: the error URL follows the handle backend (#1640)', () => {
+  const vertexUrl = (location: string, op: string) =>
+    `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/locations/${location}/publishers/google/models/${MODEL}:${taskAndQuery(op)}`;
+  const gate = `[403 Forbidden] ${aiHeader.noAppCheck.generation.message.split('[403 Forbidden] ')[1]}`;
+
+  it('a Vertex AI sandbox handle names the Vertex AI path, and a stream adds alt=sse', async () => {
+    const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend('europe-west4') }), { model: MODEL });
+    const ops: Array<[string, Promise<unknown>]> = [
+      ['generateContent', model.generateContent('ping')],
+      ['streamGenerateContent', model.generateContentStream('ping')],
+      ['countTokens', model.countTokens('ping')],
+    ];
+    for (const [op, request] of ops) {
+      const error = await rejection(request);
+      expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('europe-west4', op)}: ${gate}`);
+    }
+  });
+
+  it('a Vertex AI handle with no location names us-central1, as the SDK defaults it', async () => {
+    const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend() }), { model: MODEL });
+    const error = await rejection(model.generateContent('ping'));
+    expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('us-central1', 'generateContent')}: ${gate}`);
+  });
+
+  it('a Vertex AI transport handle translates a broker envelope with the Vertex AI path', async () => {
+    const refused = () => new AiBrokerError(errorEnvelope(503, 'overloaded', 'UNAVAILABLE'));
+    const failing: AnswerEngine = {
+      async generateContent() {
+        throw refused();
+      },
+      streamGenerateContent() {
+        return (async function* fails() {
+          throw refused();
+        })();
+      },
+      async countTokens() {
+        throw refused();
+      },
+    };
+    const ai = createTransportAI(newApp(), { backend: new VertexAIBackend('asia-northeast1') }, failing);
+    const model = getGenerativeModel(ai, { model: MODEL });
+    const unary = await rejection(model.generateContent('ping'));
+    expect(unary.message).toBe(`AI: Error fetching from ${vertexUrl('asia-northeast1', 'generateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
+    const stream = await rejection(model.generateContentStream('ping').then((result) => result.response));
+    expect(stream.message).toBe(`AI: Error fetching from ${vertexUrl('asia-northeast1', 'streamGenerateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
+  });
+
+  it('with limited-use tokens on Vertex AI, a provider that rejects names the Vertex AI path', async () => {
+    const app = newApp();
+    initializeAppCheck(app, {
+      provider: new CustomProvider({
+        getToken: async () => {
+          throw new Error('attestation failed');
+        },
+      }),
+      isTokenAutoRefreshEnabled: false,
+    });
+    const ai = getAI(app, { backend: new VertexAIBackend('us-east4'), useLimitedUseAppCheckTokens: true });
+    const error = await rejection(getGenerativeModel(ai, { model: MODEL }).generateContentStream('ping').then((result) => result.response));
+    expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('us-east4', 'streamGenerateContent')}: attestation failed (AI/error)`);
   });
 });
 

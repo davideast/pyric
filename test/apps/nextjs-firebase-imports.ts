@@ -5,6 +5,11 @@
 // `firebase` SDK, and a client component that lists it in Chromium. Each case
 // runs it under `pyric sandbox -- next dev` with one bundler.
 //
+// #1626: a route that imports `firebase-admin` under an npm alias, or
+// `@firebase/*` directly, must reach Node's resolver too, so the register
+// stops it on both bundlers. The Next 16 app installs `admin-alias`
+// (`npm:firebase-admin`); the Next 15 app has only the `@firebase/*` route.
+//
 // Next 16's Turbopack keeps server externals external but renames them
 // (`firebase-admin-<16 hex>/app`). Before #1443 the register let the renamed
 // import through, and the route ran the real `firebase-admin`.
@@ -14,14 +19,15 @@
 // connection to a host other than loopback to a sink this scenario runs on
 // 127.0.0.1, which closes it at once, and records it. In each registered
 // process it also records any import that resolves into a real
-// `firebase-admin` or `firebase` package. The app
+// `firebase-admin`, `firebase` or `@firebase/*` package, or the aliased
+// `admin-alias`. The app
 // processes run with a fresh HOME, CLOUDSDK_CONFIG pointed at an empty folder,
 // no GOOGLE_APPLICATION_CREDENTIALS, and a `demo-` project id.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Server } from 'node:net';
 import { dirname, join } from 'node:path';
-import { sleep, type App } from './driver.ts';
+import { sleep, type App, type AppProcess } from './driver.ts';
 import { PROBE_ROUTE, runRefusals } from './nextjs-refuses-without-register.ts';
 
 export interface FirebaseImportsCase {
@@ -78,7 +84,7 @@ net.Socket.prototype.connect = function (...args) {
 // register's answer: a renamed import the register checks and then maps never
 // shows here as the real package. A resolve hook, not a load hook: on Node
 // 22.15 a load hook breaks require() of CommonJS inside Next.
-const REAL_FIREBASE = /\\/node_modules\\/(firebase-admin|firebase)(-[0-9a-f]{16})?\\//;
+const REAL_FIREBASE = /\\/node_modules\\/(firebase-admin|firebase|admin-alias|@firebase\\/[^/]+)(-[0-9a-f]{16})?\\//;
 const spy = {
   resolve(specifier, context, nextResolve) {
     const result = nextResolve(specifier, context);
@@ -217,6 +223,64 @@ export async function GET() {
 }
 `;
 
+/** The npm alias of `firebase-admin` the Next 16 app installs (#1626). */
+const ADMIN_ALIAS = 'admin-alias';
+
+/**
+ * How a route reports an import that failed: the stop's code, or the message.
+ * Turbopack rethrows a failed external import as a new error whose message
+ * carries the original one, code line included, so the code is read from there
+ * when the error has none of its own.
+ */
+const LOAD_FAILURE = `function loadFailure(error) {
+  const message = String(error?.message ?? error);
+  return error?.code ?? /^code: (\\S+)$/m.exec(message)?.[1] ?? message;
+}`;
+
+/**
+ * Imports `firebase-admin` by its npm alias. Bundled, it runs the real SDK
+ * without Node ever resolving it; kept external, the register stops it.
+ */
+const ALIASED_ADMIN_ROUTE = `export const dynamic = 'force-dynamic';
+
+${LOAD_FAILURE}
+
+export async function GET() {
+  try {
+    const app = await import('${ADMIN_ALIAS}/app');
+    return Response.json({ load: 'loaded', sdk: app.SDK_VERSION ?? null });
+  } catch (error) {
+    return Response.json({ load: loadFailure(error) });
+  }
+}
+`;
+
+/**
+ * Imports the client SDK's own packages, `@firebase/firestore` and
+ * `@firebase/app`, directly and each on its own, so each answers for itself.
+ */
+const FIREBASE_SCOPE_ROUTE = `export const dynamic = 'force-dynamic';
+
+${LOAD_FAILURE}
+
+export async function GET() {
+  const loads = {};
+  try {
+    const firestore = await import('@firebase/firestore');
+    loads.firestore = typeof firestore.getDoc === 'function' ? 'loaded' : 'no getDoc';
+  } catch (error) {
+    loads.firestore = loadFailure(error);
+  }
+  try {
+    const app = await import('@firebase/app');
+    loads.app = 'loaded ' + (app.SDK_VERSION ?? '');
+  } catch (error) {
+    loads.app = loadFailure(error);
+  }
+  return Response.json(loads);
+}
+`;
+
 const APP_FILES: Record<string, string> = {
   'next.config.mjs': NEXT_CONFIG,
   'firebase.json': JSON.stringify({ firestore: { rules: 'firestore.rules' } }, null, 2),
@@ -226,6 +290,7 @@ const APP_FILES: Record<string, string> = {
   'src/app/api/admin/route.js': ADMIN_ROUTE,
   'src/app/api/client/route.js': CLIENT_ROUTE,
   'src/app/api/real-admin/route.js': REAL_ADMIN_ROUTE,
+  'src/app/api/firebase-scope/route.js': FIREBASE_SCOPE_ROUTE,
   'src/app/api/probe/route.js': PROBE_ROUTE,
 };
 
@@ -236,8 +301,19 @@ export interface Safety {
   emptyGcloud: string;
 }
 
+/** Whether the app installs `firebase-admin` under {@link ADMIN_ALIAS}. */
+function hasAliasedAdmin(app: App): boolean {
+  const manifest = JSON.parse(readFileSync(join(app.dir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> };
+  return manifest.dependencies?.[ADMIN_ALIAS] !== undefined;
+}
+
+function appFiles(app: App): Record<string, string> {
+  if (!hasAliasedAdmin(app)) return APP_FILES;
+  return { ...APP_FILES, 'src/app/api/aliased-admin/route.js': ALIASED_ADMIN_ROUTE };
+}
+
 function writeApp(app: App): Omit<Safety, 'sinkPort'> {
-  for (const [path, text] of Object.entries(APP_FILES)) {
+  for (const [path, text] of Object.entries(appFiles(app))) {
     mkdirSync(dirname(join(app.dir, path)), { recursive: true });
     app.writeFile(path, text);
   }
@@ -328,6 +404,29 @@ function escapes(log: string): { realFirebase: string[]; connections: string[] }
   return { realFirebase, connections: escapedConnections(records) };
 }
 
+const STOPPED = 'PYRIC_REAL_SDK_STOPPED';
+
+/** Requests a route that imports a real SDK and expects `expected`: the register stopped each import. */
+async function expectStopped(url: string, safetyLog: string, expected: Record<string, string>): Promise<void> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+  const body = await jsonFrom(response);
+  const { realFirebase, connections } = escapes(safetyLog);
+  assert.deepEqual({ body, realFirebase, connections }, { body: expected, realFirebase: [], connections: [] });
+}
+
+/**
+ * Waits for the register's stop of `packageName`, logged after `since`, whose
+ * `found` line ends in `foundPath`. Every stop ends with the same code line,
+ * and stops from earlier steps are already in the log, so a step waits for
+ * its own stop block: the package line and, two lines on, the file it found.
+ * The register writes each block once per file, in one write.
+ */
+async function waitForStop(sandbox: AppProcess, since: number, packageName: string, foundPath: RegExp): Promise<void> {
+  const name = packageName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  const block = new RegExp(`stopped loading the real ${name}\\n(?:[^\\n]*\\n){2}[^\\n]*found {2}file:\\/\\/\\S+${foundPath.source}`);
+  await sandbox.waitForLog(block, { since, timeoutMs: 10_000 });
+}
+
 async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase): Promise<void> {
   const sandboxPort = await app.freePort();
   const nextPort = await app.freePort();
@@ -392,8 +491,29 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
     assert.deepEqual({ realFirebase, connections }, { realFirebase: [], connections: [] });
   });
 
+  // #1626: withPyric keeps the alias and the `@firebase` scope external, so
+  // Node resolves them and the register stops each one.
+  if (hasAliasedAdmin(app)) {
+    await app.step(`${testCase.name}: an npm-aliased firebase-admin stops at load, and nothing runs or leaves`, async () => {
+      const since = sandbox.mark();
+      await expectStopped(`${nextUrl}/api/aliased-admin`, safetyLog, { load: STOPPED });
+      await waitForStop(sandbox, since, 'firebase-admin', /\/admin-alias\/lib\/(esm\/)?app\/index\.js/);
+    });
+  }
+
+  await app.step(`${testCase.name}: a direct @firebase/* import stops at load, and nothing runs or leaves`, async () => {
+    const since = sandbox.mark();
+    await expectStopped(`${nextUrl}/api/firebase-scope`, safetyLog, { firestore: STOPPED, app: STOPPED });
+    // Each stop names the package Node resolved. Were @firebase/firestore
+    // bundled, its own import of @firebase/app would stop instead, and no
+    // block would name @firebase/firestore.
+    await waitForStop(sandbox, since, '@firebase/firestore', /\/@firebase\/firestore\/\S+/);
+    await waitForStop(sandbox, since, '@firebase/app', /\/@firebase\/app\/\S+/);
+  });
+
   // ADR 0022: a load the register can't map stops before the real firebase-admin runs.
   await app.step(`${testCase.name}: the real firebase-admin stops at load, and nothing runs or leaves`, async () => {
+    const since = sandbox.mark();
     const response = await fetch(`${nextUrl}/api/real-admin`, { signal: AbortSignal.timeout(120_000) });
     const body = await jsonFrom(response);
     const records = readSafetyLog(safetyLog);
@@ -404,10 +524,9 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
       { body: { load: 'PYRIC_REAL_SDK_STOPPED' }, realFirebase: [], connections: [] },
     );
     // The stop reaches stderr through Next and the launcher, so it can land
-    // just after the response does.
-    await sandbox.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { timeoutMs: 10_000 });
-    assert.match(sandbox.output, /stopped loading the real firebase-admin/);
-    assert.match(sandbox.output, /found {2}file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
+    // just after the response does. The aliased and @firebase/* stops logged
+    // earlier end with the same code line, so the wait names this file (#1626).
+    await waitForStop(sandbox, since, 'firebase-admin', /\/firebase-admin\/lib\/app\/index\.js/);
     await page.close();
     await sandbox.stop();
   });

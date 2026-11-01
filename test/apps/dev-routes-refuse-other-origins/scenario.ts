@@ -2,7 +2,8 @@
 // The app's own page still prints its rules denial in the terminal and still
 // reaches the AI upstream through the proxy. A page on another localhost port
 // cannot print to the terminal or spend the upstream, and an oversized body is
-// refused before it is buffered. The AI upstream is a local stub.
+// refused before it is buffered, with the connection closed so the next request
+// is read as a request. The AI upstream is a local stub.
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { scenario } from '../driver.ts';
@@ -142,6 +143,30 @@ export default scenario(async (app) => {
       });
       assert.equal(proxied.status, 413);
       assert.equal(hits.length, hitsBefore);
+    });
+
+    // Each route answers 413 before it has read the upload, so each closes the
+    // connection. Without that, the client sends its next request on the same
+    // socket and the server reads it as the rest of the upload, answering 400
+    // (#1706, #1710). Each request here is the next one for the request before it.
+    await app.step('every dev route that refuses an oversized body closes the connection', async () => {
+      const init = await (await fetch(`${host.url}/__pyric/init.json`)).json() as { sessionToken: string; activityToken: string };
+      const padding = 'x'.repeat(1024 * 1024);
+      const json = { 'content-type': 'application/json' };
+      const session = { ...json, 'x-pyric-session-token': init.sessionToken };
+      const refusals: Array<[string, RequestInit]> = [
+        ['/__pyric/diagnostics', { method: 'POST', headers: json, body: JSON.stringify({ padding }) }],
+        ['/__pyric/activity', { method: 'POST', headers: { ...json, origin: host.url, 'x-pyric-activity-token': init.activityToken }, body: JSON.stringify({ padding }) }],
+        ['/__pyric/thresholds', { method: 'PUT', headers: session, body: JSON.stringify({ config: {}, padding }) }],
+        ['/__pyric/indexes', { method: 'POST', headers: session, body: JSON.stringify({ query: {}, padding }) }],
+      ];
+      for (const [path, request] of refusals) {
+        const refused = await fetch(`${host.url}${path}`, request);
+        assert.equal(refused.status, 413, `${path}: ${await refused.text()}`);
+        assert.equal(refused.headers.get('connection'), 'close', path);
+      }
+      const after = await fetch(`${host.url}/__pyric/init.json`);
+      assert.equal(after.status, 200);
     });
   } finally {
     await close(upstream);

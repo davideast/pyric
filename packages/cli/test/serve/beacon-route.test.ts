@@ -21,6 +21,7 @@ import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { BEACON_BODY_LIMIT_BYTES, formatBeaconReceipt } from '../../src/serve/beacon-route.js';
 import { startStaticServer, silentServeLogger, type ServeHandle } from '../../src/serve/server.js';
 import { BEACON_TOKEN_HEADER, type BeaconReport } from '../../src/register/beacon.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 const TOKEN = 'launch-secret-token';
 
@@ -163,6 +164,12 @@ describe('/__pyric/beacon refuses everything else', () => {
     const res = await post(h.url, { body: body({ sandbox: padding }) });
     expect(res.status).toBe(413);
     expect(seen).toEqual([]);
+  });
+
+  it('closes the connection with an early 413, and answers the next request (#1710)', async () => {
+    const h = await startServe(() => {});
+    const res = await post(h.url, { body: body({ sandbox: 'x'.repeat(1024 * 1024) }) });
+    await expectClosedEarlyAnswer(res, 413, `${h.url}/__pyric/beacon`);
   });
 
   it('answers no CORS preflight, so a page cannot send the JSON content type', async () => {

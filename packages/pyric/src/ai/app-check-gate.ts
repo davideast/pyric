@@ -18,7 +18,12 @@
  *
  * The error the app gets stays production's. Pyric's guidance rides beside
  * it: on the `request_rejected` event the dev server prints, and once per app
- * as a `console.warn` in the page or process.
+ * as a `console.warn` in the page or process. A server process (a registered
+ * Node process, a server-rendered module) gets its own guidance: the reCAPTCHA
+ * providers throw there and it has no `self`, so it sets the debug token on
+ * `globalThis` beside a CustomProvider, as `build/ai-logic.md` shows (#1639).
+ * A page's workers are browser realms: they have no `document`, but `self`
+ * works there, so they keep the page guidance.
  */
 import type { FirebaseApp } from '../app/types.js';
 import { appCheckActivationOf, appCheckTokenFor } from '../sandbox/internal/app-check-activation.js';
@@ -30,9 +35,27 @@ import { RequestHeadersFailure } from './errors.js';
 export const APP_CHECK_REQUIRED_MESSAGE =
   'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
-/** Pyric's guidance, printed beside production's error, never in place of it. */
+/** Pyric's guidance for a page, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
   'Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check';
+
+/** Pyric's guidance for a server process, where reCAPTCHA throws and `self` does not exist. */
+export const APP_CHECK_SERVER_HINT =
+  "Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. This process has no document, so the reCAPTCHA providers throw here. For local development, set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck(app, { provider: new CustomProvider({ getToken }) }) before getAI(app). The sandbox does not call getToken while the debug token is set. Without the debug token, getToken returns { token, expireTimeMillis: Date.now() + ttlMillis } from a token your server mints with firebase-admin's getAppCheck().createToken(appId). https://firebase.google.com/docs/ai-logic/app-check";
+
+/**
+ * The guidance for the realm the app runs in. A page has a `document`, and a
+ * page's Web Worker, SharedWorker or service worker has `WorkerGlobalScope`:
+ * both are browser realms. Anything else is a server process.
+ */
+function appCheckHintForThisRealm(): string {
+  const scope = globalThis as { document?: unknown; WorkerGlobalScope?: unknown };
+  const hasDocument = typeof scope.document !== 'undefined';
+  const isWorkerRealm = typeof scope.WorkerGlobalScope !== 'undefined';
+  const isBrowserRealm = hasDocument || isWorkerRealm;
+  if (isBrowserRealm) return APP_CHECK_HINT;
+  return APP_CHECK_SERVER_HINT;
+}
 
 /** The captured refusal envelope (`app-check-ai-gate-wire`, `noHeader.raw`). */
 export function appCheckRequired(): WireErrorEnvelope {
@@ -83,7 +106,7 @@ const warnedApps = new WeakSet<object>();
 function warnOnce(app: FirebaseApp): void {
   if (warnedApps.has(app)) return;
   warnedApps.add(app);
-  console.warn(`[pyric/ai] ${APP_CHECK_HINT}`);
+  console.warn(`[pyric/ai] ${appCheckHintForThisRealm()}`);
 }
 
 /**

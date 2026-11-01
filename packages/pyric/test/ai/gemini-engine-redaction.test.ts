@@ -153,3 +153,45 @@ describe('GeminiEngine: credential masking in an upstream error body (#1631)', (
     expect(err.envelope.error.message).toBe('Gemini API returned status 502: <html>gateway error for key ***</html>');
   });
 });
+
+/** An engine whose upstream answers a 200 stream with these SSE frames. */
+function engineStreaming(frames: string): GeminiEngine {
+  return new GeminiEngine({
+    apiKey: FAKE_KEY,
+    fetch: (async () => new Response(frames, { status: 200, headers: { 'content-type': 'text/event-stream' } })) as unknown as typeof fetch,
+  });
+}
+
+async function drain(engine: GeminiEngine): Promise<unknown[]> {
+  const chunks: unknown[] = [];
+  for await (const chunk of engine.streamGenerateContent(EMPTY_REQUEST, 'gemini-2.5-flash')) chunks.push(chunk);
+  return chunks;
+}
+
+const ANSWER_CHUNK = { candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'see https://x.example/?key=not-a-credential' }] } }] };
+
+describe('GeminiEngine: the error status and mid-stream errors are masked too (#1660)', () => {
+  it('masks a key the upstream quotes in the error status', async () => {
+    const body = JSON.stringify({ error: { code: 400, message: 'x', status: `BAD ${FAKE_KEY}` } });
+    const { err, texts } = await surfaces(engineAnswering(400, body));
+    assertNone([...texts, err.envelope.error.status], FAKE_KEY);
+    expect(err.envelope.error.status).toBe('BAD ***');
+    expect(err.envelope.error.message).toBe('x');
+  });
+
+  it('masks a key quoted in a mid-stream error event, and passes the event through', async () => {
+    const error = { error: { code: 500, message: `Quota check failed for API key ${FAKE_KEY}.`, status: 'INTERNAL' } };
+    const chunks = await drain(engineStreaming(`data: ${JSON.stringify(ANSWER_CHUNK)}\r\n\r\ndata: ${JSON.stringify(error)}\r\n\r\n`));
+    expect(JSON.stringify(chunks)).not.toContain(FAKE_KEY);
+    expect(chunks).toEqual([
+      ANSWER_CHUNK,
+      { error: { code: 500, message: 'Quota check failed for API key ***.', status: 'INTERNAL' } },
+    ]);
+  });
+
+  it('masks a mid-stream error event the stream ends on without a separator', async () => {
+    const error = { error: { code: 500, message: `refused ${FAKE_KEY}`, status: 'INTERNAL' } };
+    const chunks = await drain(engineStreaming(`data: ${JSON.stringify(error)}`));
+    expect(chunks).toEqual([{ error: { code: 500, message: 'refused ***', status: 'INTERNAL' } }]);
+  });
+});

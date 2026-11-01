@@ -183,6 +183,64 @@ describe('/__pyric/ai-proxy/gemini', () => {
     expect(text).toBe('refused /v1beta/models/gemini-2.5-flash:generateContent\nAuthorization: Bearer ***');
   });
 
+  // #1660: a 200 stream can carry `data: {"error": ...}` mid-response.
+  it('masks the key in a mid-stream error event and leaves answer events as they came', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const answer = 'data: {"candidates":[{"content":{"parts":[{"text":"see https://x.example/?key=not-a-credential"}]}}]}\r\n\r\n';
+    const error = `data: ${JSON.stringify({ error: { code: 500, message: `Quota check failed for API key ${KEY}.`, status: 'INTERNAL' } })}\r\n\r\n`;
+    const upstream = standIn(() => new Response(answer + error, { headers: { 'content-type': 'text/event-stream' } }));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const text = await response.text();
+    expect(text).not.toContain(KEY);
+    expect(text).toBe(`${answer}data: ${JSON.stringify({ error: { code: 500, message: 'Quota check failed for API key ***.', status: 'INTERNAL' } })}\r\n\r\n`);
+  });
+
+  it('masks a mid-stream error event the upstream splits across reads', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const event = `data: ${JSON.stringify({ error: { code: 500, message: `refused ${KEY}`, status: 'INTERNAL' } })}\n\n`;
+    const cut = event.indexOf(KEY) + 3;
+    const upstream = standIn(() => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(event.slice(0, cut)));
+        controller.enqueue(new TextEncoder().encode(event.slice(cut)));
+        controller.close();
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } }));
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    expect(await response.text()).toBe(`data: ${JSON.stringify({ error: { code: 500, message: 'refused ***', status: 'INTERNAL' } })}\n\n`);
+  });
+
+  // An image answer is one multi-megabyte `data:` line that arrives over many
+  // reads; the held-back partial line must not be rescanned on every read.
+  it('passes one multi-megabyte line that arrives in many small reads through intact', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const image = 'A'.repeat(8 * 1024 * 1024);
+    const event = `data: {"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"${image}"}}]}}]}\r\n\r\n`;
+    const bytes = new TextEncoder().encode(event);
+    const READ = 4096;
+    let at = 0;
+    // One read per macrotask, so the proxy receives the line in small reads rather than one coalesced buffer.
+    const upstream = standIn(() => new Response(new ReadableStream({
+      async pull(controller) {
+        await new Promise((resolve) => setImmediate(resolve));
+        controller.enqueue(bytes.slice(at, at + READ));
+        at += READ;
+        if (at >= bytes.length) controller.close();
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } }));
+    const h = await startServe(upstream.url);
+    const started = performance.now();
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    const text = await response.text();
+    console.log(`8 MiB line in ${Math.ceil(bytes.length / READ)} reads: ${Math.round(performance.now() - started)} ms`);
+    expect(text.length).toBe(event.length);
+    expect(text === event).toBe(true);
+  }, 120_000);
+
   it('answers 413 for a body over the limit and never calls the upstream', async () => {
     process.env.GEMINI_API_KEY = KEY;
     const upstream = standIn();

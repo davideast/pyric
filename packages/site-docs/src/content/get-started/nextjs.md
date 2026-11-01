@@ -34,13 +34,13 @@ export default withPyric(nextConfig);
 |---|---|---|
 | Client `firebase/*` imports | `resolve.alias` in client compiles | `resolveAlias` |
 | Node built-ins in client code | `resolve.fallback` sets `fs`, `path` and `url` to empty modules | unchanged |
-| Server imports of `firebase` and `firebase-admin` | `serverExternalPackages` | `serverExternalPackages` |
+| Server imports of `firebase`, `firebase-admin`, `@firebase/*` and aliases of them | `serverExternalPackages` | `serverExternalPackages` |
 
 Each alias names a module `@pyric/cli` exports, such as `firebase/firestore` to `@pyric/cli/next/internal/firestore`, so both bundlers resolve it from your project's dependencies. The aliased specifiers are `firebase/ai`, `firebase/analytics`, `firebase/app`, `firebase/app-check`, `firebase/auth`, `firebase/database`, `firebase/firestore`, `firebase/firestore/lite`, `firebase/functions`, `firebase/messaging`, `firebase/messaging/sw`, `firebase/performance`, `firebase/remote-config` and `firebase/storage`. `@firebase/*` packages are never aliased, so internal SDK plumbing stays untouched.
 
 Unmodeled client subpaths (`firebase/analytics`, `firebase/firestore/lite`, `firebase/functions`, `firebase/performance` and `firebase/remote-config`) go to Pyric's deferred entries. Imports resolve so module graphs load, and calling an export throws `PyricDeferredApiError` naming that subpath instead of crashing inside an uninitialized Firebase container or reaching production services.
 
-Server components and route handlers keep `firebase` and `firebase-admin` external, so the `@pyric/cli/register` hook that `pyric sandbox` preloads routes them to the sandbox at runtime. Under `pyric sandbox --hosted`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` in server code reach the Node host as the server process's own signed-in user. Against the browser-hosted sandbox they fail with `failed-precondition`; use `firebase-admin` in server code there.
+Server components and route handlers keep `firebase` and `firebase-admin` external, so the `@pyric/cli/register` hook that `pyric sandbox` preloads routes them to the sandbox at runtime. `withPyric` also keeps every installed `@firebase/*` package and every npm alias of a Firebase SDK (such as `"admin": "npm:firebase-admin@13"`) external, so the register stops those imports instead of letting the real SDK run. It finds them in the `node_modules` folders above the directory `next dev` runs in, so run `next dev` from your project directory. A package on that list can't also be in `transpilePackages`; `withPyric` names it and refuses to start. Under `pyric sandbox --hosted`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` in server code reach the Node host as the server process's own signed-in user. Against the browser-hosted sandbox they fail with `failed-precondition`; use `firebase-admin` in server code there.
 
 ## Supervise your development server
 
