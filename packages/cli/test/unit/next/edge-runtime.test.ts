@@ -61,6 +61,7 @@ describe('withPyric Edge runtime warning', () => {
     root = mkdtempSync(join(tmpdir(), 'pyric-edge-warn-'));
     mkdirSync(join(root, 'app/api/ping'), { recursive: true });
     writeFileSync(join(root, 'app/api/ping/route.ts'), "export const runtime = 'edge';\n");
+    writeFileSync(join(root, 'next.config.mjs'), 'export default {};\n');
     process.chdir(root);
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
     markRegisterActive();
