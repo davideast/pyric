@@ -24,6 +24,9 @@
 // serves may carry the dev server's `VITE_` value: Pyric's own modules must
 // not read `import.meta.env` (#1632). A key in `VITE_GEMINI_API_KEY`, in the
 // shell or in `.env`, stops the dev server with a message to rename it.
+// The refusal follows the app's `envPrefix` (#1659): with `envPrefix: 'APP_'`
+// Vite never serves `VITE_GEMINI_API_KEY`, so the dev server starts, and an
+// `envPrefix` that covers `GEMINI_` refuses a key in `GEMINI_API_KEY`.
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { BrowserContext } from 'playwright';
@@ -173,9 +176,32 @@ async function openPage(app: App, host: DevServer) {
 }
 
 /** Starts Vite the way `devServer` does, and returns how it exited. */
-function viteRun(app: App, port: number, env: Record<string, string>) {
+function viteRun(app: App, port: number, env: Record<string, string>, configFile?: string) {
   const args = ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'];
+  if (configFile !== undefined) args.push('--config', configFile);
   return app.command('node', args, { env, timeoutMs: 30_000 });
+}
+
+/** The app's vite.config.js with the `envPrefix` named by SCENARIO_ENV_PREFIX (comma-separated). */
+const ENV_PREFIX_CONFIG = 'env-prefix.config.js';
+/** Starts a dev server from ENV_PREFIX_CONFIG through Vite's API, prints `listening`, and closes it. */
+const START_AND_CLOSE = 'start-and-close.mjs';
+
+function writeEnvPrefixApp(app: App): void {
+  app.writeFile(ENV_PREFIX_CONFIG, [
+    'import base from "./vite.config.js";',
+    'export default { ...base, envPrefix: process.env.SCENARIO_ENV_PREFIX.split(",") };',
+    '',
+  ].join('\n'));
+  app.writeFile(START_AND_CLOSE, [
+    'import { createServer } from "vite";',
+    `const server = await createServer({ configFile: "${ENV_PREFIX_CONFIG}", server: { host: "127.0.0.1", port: 0 } });`,
+    'await server.listen();',
+    'console.log("listening");',
+    'await server.close();',
+    'process.exit(0);',
+    '',
+  ].join('\n'));
 }
 
 /** The dev server refused to start, said to rename the key, and never printed it. */
@@ -286,6 +312,23 @@ export default scenario(async (app) => {
     await app.step('with the key in VITE_GEMINI_API_KEY, the dev server refuses to start and says to rename it', async () => {
       const viteEnv = { GEMINI_STAND_IN_URL: standIn.url, VITE_GEMINI_API_KEY: SERVER_KEY };
       assertRefusedViteKey(await viteRun(app, await app.freePort(), viteEnv));
+    });
+
+    await app.step('with envPrefix APP_, the dev server starts with VITE_GEMINI_API_KEY set, because Vite never serves it', async () => {
+      writeEnvPrefixApp(app);
+      const viteEnv = { GEMINI_STAND_IN_URL: standIn.url, VITE_GEMINI_API_KEY: SERVER_KEY, SCENARIO_ENV_PREFIX: 'APP_' };
+      const result = await app.command('node', [START_AND_CLOSE], { env: viteEnv, timeoutMs: 30_000 });
+      assert.equal(result.code, 0, result.output);
+      assert.match(result.output, /^listening$/m);
+    });
+
+    await app.step('with an envPrefix that covers GEMINI_, the dev server refuses a key in GEMINI_API_KEY', async () => {
+      const viteEnv = { GEMINI_STAND_IN_URL: standIn.url, GEMINI_API_KEY: SERVER_KEY, SCENARIO_ENV_PREFIX: 'VITE_,GEMINI_' };
+      const result = await viteRun(app, await app.freePort(), viteEnv, ENV_PREFIX_CONFIG);
+      assert.notEqual(result.code, 0, result.output);
+      assert.match(result.output, /GEMINI_API_KEY is set\. Vite serves every variable whose name starts with GEMINI_ to the browser/);
+      assert.match(result.output, /Remove GEMINI_ from envPrefix/);
+      assert.ok(!result.output.includes(SERVER_KEY), result.output);
     });
 
     await app.step('with the key in .env as VITE_GEMINI_API_KEY, the dev server refuses the same way', async () => {
