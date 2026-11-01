@@ -60,9 +60,11 @@ const AI_PROXY_STRIPPED_HEADERS = new Set([
   'upgrade',
 ]);
 
-/** The upstream-failure shapes the proxy surfaces to the terminal. */
+/** The upstream-failure shapes the proxy surfaces to the terminal. A
+ *  failure's `credentials` are the ones the request carried, masked from
+ *  every upstream string the block quotes. */
 type AiProxyFailure =
-  | { kind: 'unreachable'; target: string; latencyMs: number; cause: string }
+  | { kind: 'unreachable'; target: string; latencyMs: number; cause: string; credentials?: readonly string[] }
   | {
       kind: 'status';
       target: string;
@@ -73,7 +75,7 @@ type AiProxyFailure =
       /** The credentials the request carried, masked from `retryAfter`. */
       credentials?: readonly string[];
     }
-  | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string };
+  | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string; credentials?: readonly string[] };
 
 /** Longest `Retry-After` value echoed to the terminal (delta-seconds and
  *  HTTP-dates are both far shorter; anything longer is upstream noise). */
@@ -103,10 +105,12 @@ function formatRetryAfter(raw: string, credentials: readonly string[]): string |
 /**
  * Mask credentials, then flatten and cap, in that order. Both the target and
  * a raw fetch error message are remote-influenced: the URL carries whatever
- * the page put in the query string, and an error message can quote it back.
+ * the page put in the query string, and an error message can quote it back,
+ * or quote a header the request carried (#1737). So the request's exact
+ * credentials are masked too, with the gemini engine's masking.
  */
-function safeUpstreamText(text: string): string {
-  return sanitizeForTerminal(redactUrl(text));
+function safeUpstreamText(text: string, credentials: readonly string[] = []): string {
+  return sanitizeForTerminal(redactUpstreamText(text, credentials));
 }
 
 /**
@@ -147,15 +151,16 @@ function noteAiProxyFailure(
  * through to the caller), so the backoff is the app's decision, not pyric's.
  */
 export function formatAiProxyWarning(failure: AiProxyFailure, source = 'ai-proxy'): string {
-  const target = safeUpstreamText(failure.target);
+  const credentials = failure.credentials ?? [];
+  const target = safeUpstreamText(failure.target, credentials);
   let headline: string;
   if (failure.kind === 'unreachable') {
-    headline = `upstream unreachable: ${safeUpstreamText(failure.cause)}`;
+    headline = `upstream unreachable: ${safeUpstreamText(failure.cause, credentials)}`;
   } else if (failure.kind === 'status') {
     const rateLimited = failure.status === 429;
     headline = `upstream returned ${failure.status}${rateLimited ? ' (rate limited / quota exhausted)' : ''}`;
   } else {
-    headline = `upstream stream aborted mid-response: ${safeUpstreamText(failure.cause)}`;
+    headline = `upstream stream aborted mid-response: ${safeUpstreamText(failure.cause, credentials)}`;
   }
   const lines = [
     `  ⚠ [pyric] ${source}: ${headline}`,
@@ -167,7 +172,7 @@ export function formatAiProxyWarning(failure: AiProxyFailure, source = 'ai-proxy
     );
   }
   if (failure.kind === 'status' && failure.retryAfter !== undefined) {
-    const wait = formatRetryAfter(failure.retryAfter, failure.credentials ?? []);
+    const wait = formatRetryAfter(failure.retryAfter, credentials);
     if (wait !== null) {
       lines.push(`      Retry-After: ${wait}, no automatic retry; the status went to the caller`);
     }
@@ -245,15 +250,36 @@ function urlKeyParam(target: string): string | null {
 }
 
 /**
+ * A request's headers as name and value pairs, names lowercased. The pairs
+ * are read as given, not through `Headers`, which refuses a value fetch
+ * refused too: that refusal is the error whose text needs the masking.
+ */
+function headerEntries(headers: HeadersInit | undefined): Array<[string, string]> {
+  if (headers === undefined) return [];
+  const isHeaders = headers instanceof Headers;
+  const isPairs = Array.isArray(headers);
+  let entries: Array<[string, string]>;
+  if (isHeaders) entries = [...headers.entries()];
+  else if (isPairs) entries = headers.map(([name, value]) => [String(name), String(value)]);
+  else entries = Object.entries(headers).map(([name, value]) => [name, String(value)]);
+  return entries.map(([name, value]) => [name.toLowerCase(), value]);
+}
+
+/** The value of header `name` among `entries`, or null. */
+function headerValue(entries: Array<[string, string]>, name: string): string | null {
+  return entries.find(([entryName]) => entryName === name)?.[1] ?? null;
+}
+
+/**
  * The credentials an upstream request carries: the `key` URL parameter, the
  * `x-goog-api-key` header, and the `Authorization` value without its scheme.
  */
 function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestInit | undefined): string[] {
   const isRequest = input instanceof Request;
-  const headers = new Headers(isRequest ? input.headers : init?.headers);
+  const entries = headerEntries(isRequest ? input.headers : init?.headers);
   const urlKey = urlKeyParam(isRequest ? input.url : String(input));
-  const authorization = headers.get('authorization')?.replace(/^\S+\s+/, '') ?? null;
-  const found = [urlKey, headers.get('x-goog-api-key'), authorization];
+  const authorization = headerValue(entries, 'authorization')?.replace(/^\S+\s+/, '') ?? null;
+  const found = [urlKey, headerValue(entries, 'x-goog-api-key'), authorization];
   return found.filter((value): value is string => value !== null && value !== '');
 }
 
@@ -276,7 +302,7 @@ export async function fetchAiUpstream(
     upstream = await fetch(input, init);
   } catch (error) {
     note({ kind: 'unreachable', target, latencyMs: Date.now() - startedAt,
-      cause: error instanceof Error ? error.message : String(error) });
+      cause: error instanceof Error ? error.message : String(error), credentials: requestCredentials(input, init) });
     throw error;
   }
   const failed = !upstream.ok;
@@ -300,7 +326,7 @@ export async function fetchAiUpstream(
       } catch (error) {
         if (cancelled) return;
         note({ kind: 'stream-abort', target, latencyMs: Date.now() - startedAt,
-          cause: error instanceof Error ? error.message : String(error) });
+          cause: error instanceof Error ? error.message : String(error), credentials: requestCredentials(input, init) });
         controller.error(error);
       }
     },
@@ -394,10 +420,11 @@ export async function handleAiProxy(
     const cause = e instanceof Error ? e.message : String(e);
     // The 502 body quotes the same two strings the terminal block does, so it
     // gets the same masking: the target carries the page's own query string,
-    // and a fetch error routinely echoes the URL back.
+    // a fetch error routinely echoes the URL back, and it can quote a header.
+    const credentials = requestCredentials(target, { headers });
     res.writeHead(502, { 'content-type': 'text/plain' });
     res.end(
-      `pyric dev ai-proxy: upstream ${redactUrl(target)} unreachable: ${redactUrl(cause)}\n` +
+      `pyric dev ai-proxy: upstream ${redactUpstreamText(target, credentials)} unreachable: ${redactUpstreamText(cause, credentials)}\n` +
         'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
         `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
     );
