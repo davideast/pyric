@@ -14,8 +14,9 @@
 // the dev server terminal and the browser console beside the error, on every
 // plane, including a page whose only Firebase services are App Check and AI
 // Logic on the in-page sandbox (#1638). A registered Node process gets
-// guidance it can follow there: a CustomProvider, and nothing that needs
-// `self` or `document` (#1639).
+// guidance it can follow there: the debug token on globalThis beside a
+// CustomProvider, then a minted token, and nothing that needs `self` or
+// `document` (#1639).
 //
 // With no debug token set, production calls an app's CustomProvider and sends
 // the token it returns, and so does the sandbox (#1642): a provider backed by
@@ -64,8 +65,12 @@ const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To
 const REFUSED_APPS_PER_RUN = 4;
 
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
-/** The guidance a process with no `document` prints: a CustomProvider, since reCAPTCHA throws there. */
-const SERVER_HINT = /\[pyric\/ai\] .*This process has no document, so the reCAPTCHA providers throw here\. Call initializeAppCheck\(app, \{ provider: new CustomProvider\(\{ getToken \}\) \}\) before getAI\(app\)/;
+/**
+ * The guidance a server process prints, as build/ai-logic.md gives it: the
+ * debug token on globalThis beside a CustomProvider, then a token the server
+ * mints with firebase-admin.
+ */
+const SERVER_HINT = /\[pyric\/ai\] .*This process has no document, so the reCAPTCHA providers throw here\. For local development, set globalThis\.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck\(app, \{ provider: new CustomProvider\(\{ getToken \}\) \}\) before getAI\(app\)\..*getAppCheck\(\)\.createToken\(appId\)/;
 
 function refusal(op: string) {
   return {

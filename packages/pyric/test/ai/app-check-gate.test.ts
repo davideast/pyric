@@ -104,15 +104,37 @@ describe('ai#sandbox-app-check-required', () => {
     expect(hints).toHaveLength(1);
   });
 
-  it('a process with no document gets guidance it can follow: a CustomProvider, and no self or reCAPTCHA (#1639)', async () => {
-    expect(typeof (globalThis as { document?: unknown }).document).toBe('undefined');
+  it('a server process gets guidance it can follow: the debug token on globalThis beside a CustomProvider, then a minted token (#1639)', async () => {
+    const scope = globalThis as { document?: unknown; WorkerGlobalScope?: unknown };
+    expect(typeof scope.document).toBe('undefined');
+    expect(typeof scope.WorkerGlobalScope).toBe('undefined');
     warn = spyOn(console, 'warn').mockImplementation(() => {});
     await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
     const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
     expect(logged).toContain(`[pyric/ai] ${APP_CHECK_SERVER_HINT}`);
-    expect(logged).toContain('new CustomProvider({ getToken })');
+    const debugStep = logged.indexOf('set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true');
+    const providerStep = logged.indexOf('new CustomProvider({ getToken })');
+    const mintedStep = logged.indexOf("getAppCheck().createToken(appId)");
+    expect(debugStep).toBeGreaterThan(-1);
+    expect(providerStep).toBeGreaterThan(debugStep);
+    expect(mintedStep).toBeGreaterThan(providerStep);
+    expect(logged).toContain('expireTimeMillis: Date.now() + ttlMillis');
     expect(logged).not.toContain('self.');
     expect(logged).not.toContain(APP_CHECK_HINT);
+  });
+
+  it('a worker realm, which has WorkerGlobalScope and no document, gets the browser guidance', async () => {
+    const scope = globalThis as { WorkerGlobalScope?: unknown };
+    scope.WorkerGlobalScope = class WorkerGlobalScope {};
+    try {
+      warn = spyOn(console, 'warn').mockImplementation(() => {});
+      await rejection(getGenerativeModel(getAI(newApp()), { model: MODEL }).generateContent('ping'));
+      const logged = warn.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(logged).toContain(`[pyric/ai] ${APP_CHECK_HINT}`);
+      expect(logged.join('\n')).not.toContain(APP_CHECK_SERVER_HINT);
+    } finally {
+      delete scope.WorkerGlobalScope;
+    }
   });
 
   it('a page, which has a document, gets the browser guidance', async () => {
