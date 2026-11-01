@@ -148,6 +148,35 @@ describe('pyric dev AI startup status', () => {
       expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
     });
 
+    it('names VITE_GEMINI_API_KEY as ignored, and says to rename it, without printing the key (#1659)', () => {
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      const line = formatAiStatusLine({ engine: { kind: 'gemini' } });
+      expect(line).toContain('gemini (no API key; VITE_GEMINI_API_KEY is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY)');
+      expect(line).not.toContain('AIzaSyFromEnv');
+    });
+
+    it('names the ignored VITE_GEMINI_API_KEY when no engine is configured, since the page can pick gemini (#1659)', () => {
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      const line = formatAiStatusLine({ hosted: true });
+      expect(line).toContain("no engine configured; the served page's getAI() picks one;");
+      expect(line).toContain('VITE_GEMINI_API_KEY is set and ignored');
+      expect(line).not.toContain('AIzaSyFromEnv');
+    });
+
+    it('says nothing about VITE_GEMINI_API_KEY when GEMINI_API_KEY holds the key', () => {
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      process.env.GEMINI_API_KEY = 'AIzaSyServer';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).not.toContain('VITE_GEMINI_API_KEY');
+      expect(formatAiStatusLine({})).not.toContain('VITE_GEMINI_API_KEY');
+    });
+
+    it('says nothing about a blank VITE_GEMINI_API_KEY, or in production AI mode', () => {
+      process.env.VITE_GEMINI_API_KEY = '  ';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).not.toContain('VITE_GEMINI_API_KEY');
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      expect(formatAiStatusLine({ mode: 'production' })).not.toContain('VITE_GEMINI_API_KEY');
+    });
+
     it('sees a key that only a project .env holds once loadViteAiEnv has run (#950)', () => {
       const root = mkdtempSync(join(tmpdir(), 'pyric-ai-env-'));
       writeFileSync(join(root, '.env'), 'GEMINI_API_KEY=AIzaSyFromDotEnv\n');
