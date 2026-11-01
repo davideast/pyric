@@ -13,7 +13,7 @@ npm install pyric@exp
 npm install -D @pyric/cli@exp
 ```
 
-This release covers everything merged to `main` since alpha.30.2. Firebase AI Logic requires App Check for every project from November 2, 2026. This release makes App Check in the sandbox call your own providers, fail where the Firebase SDK fails, and work with production AI mode in Next.js. It also brings a large set of rules, Storage, RTDB, Firestore and Auth fixes from the October defect hunts, and closes several ways the Node register could load the real Firebase SDKs.
+This release covers everything merged to `main` since alpha.30. alpha.30.1 and alpha.30.2 shipped some of those fixes first, from their own release line. Firebase AI Logic requires App Check for every project from November 2, 2026. This release makes App Check in the sandbox call your own providers, fail where the Firebase SDK fails, and work with production AI mode in Next.js. It also brings a large set of rules, Storage, RTDB, Firestore and Auth fixes from the October defect hunts, and closes several ways the Node register could load the real Firebase SDKs.
 
 ### Get App Check ready for November 2
 
@@ -24,14 +24,13 @@ From November 2, 2026, production AI Logic answers a request without a valid App
 - **A `CustomProvider` is called.** With no debug token set, the sandbox's `firebase/app-check` now calls your `CustomProvider`, and the AI Logic gate checks the token it returns. A token the sandbox signed is accepted, such as one a server mints with `firebase-admin` `createToken`. Any other token, or a provider that rejects, gets production's 403. With `useLimitedUseAppCheckTokens: true`, a provider that rejects stops the request before it is sent, and the call fails with `AIError` code `error`, as the Firebase SDK does. The documented setup, a debug token under `import.meta.env.DEV`, works as before (#1648).
 - **A reCAPTCHA provider throws without a `document`.** In a Node process or a server-rendered module, `initializeAppCheck` with `ReCaptchaV3Provider` or `ReCaptchaEnterpriseProvider` throws `ReferenceError: document is not defined`, as the Firebase SDK does. Before, it returned a handle. On a server, use a `CustomProvider` (#1664).
 - **Re-initializing and concurrent `getToken` follow the SDK.** A second `initializeAppCheck` that differs from the first in the raw `isTokenAutoRefreshEnabled` value now throws `appCheck/already-initialized`, so an omitted value no longer equals `false`. Concurrent `getToken` calls share one token, and `onTokenChanged` listeners fire once (#1388).
-- **Production AI mode verifies App Check tokens on Node 22.** Under `@pyric/cli/register` on Node 22, the App Check verifier failed on the first Firebase-issued token with `PYRIC_REAL_SDK_STOPPED`. Node 22 resolves a CommonJS file inside `firebase-admin` a second time with no importer, and the register stopped that second pass. It now lets that pass through for a file it already allowed, so verification works as on Node 24 (#1707, #1709).
 - **Production AI mode works in Next.js.** `withPyric` now reads `PYRIC_AI_MODE`. With `PYRIC_AI_MODE=production`, a Next page gets the Firebase SDK's `firebase/ai` attached to the real `firebase/app-check`, so AI Logic requests carry `X-Firebase-AppCheck`, as on Vite. Before, the page got pyric's scripted answers (#1650).
 - **Proxied AI engines work under `pyric sandbox -- next dev`.** alpha.30.2 refused a page served by a wrapped dev server with a 403 when it used the openai engine, or the gemini engine on the SharedWorker or in-page plane. The guarded `/__pyric/*` routes now accept the wrapped dev server's port (#1497, #1438).
-- **AI Logic roles match production.** The sandbox refuses role `function` with production's 400. `@firebase/ai` 2.12.0's `ChatSession` sends function responses under role `function`, so a `ChatSession` with tools now fails in the sandbox as it does in production. Send function responses with `generateContent` under role `user` (#1412). Role `assistant` inside `contents` is now accepted, and role `system` is still refused (#1542).
+- **AI Logic roles match production.** Inside `contents`, the sandbox now accepts only roles `user`, `model` and `assistant`. Role `function` gets production's 400. `@firebase/ai` 2.12.0's `ChatSession` sends function responses under role `function`, so a `ChatSession` with tools now fails in the sandbox as it does in production. Send function responses with `generateContent` under role `user`. Roles `system`, `system_1`, `developer`, `context` and `user_context`, which the sandbox accepted before, also get production's 400 (#1412, #1542).
 
 #### Already shipped in alpha.30.1 and alpha.30.2
 
-If you are coming from alpha.30 or earlier, these App Check fixes from alpha.30.1 and alpha.30.2 also reach you in this release:
+If you are coming from alpha.30 or earlier, these fixes from alpha.30.1 and alpha.30.2 also reach you in this release:
 
 - Sandbox AI mode refuses requests without an App Check token on every plane. Call `initializeAppCheck` before `getAI` (#1535).
 - Production AI mode verifies the page's real App Check token with firebase-admin's own `verifyToken` (#1558).
@@ -39,6 +38,8 @@ If you are coming from alpha.30 or earlier, these App Check fixes from alpha.30.
 - `initializeAppCheck` names the cause when production AI mode can't create its shadow app (#1534).
 - Production AI mode works on plain `pyric sandbox` without Vite (#1537).
 - The `create-pyric` chat template, the AI Logic guide, the tutorial and the `ai-chat` example call `initializeAppCheck` before `getAI` (#1392).
+- The gemini engine on the SharedWorker and in-page planes sends through the dev server, which adds the Gemini key from its own environment. An app that initialized App Check gets Gemini's answer instead of `process is not defined` (#1592).
+- The dev server's AI proxy routes refuse requests from pages on other origins and bodies over their size limit (#1431, #1592).
 
 #### Known gaps
 
@@ -60,8 +61,7 @@ The register, network guard and Storage lint changes can stop code that ran befo
 - reCAPTCHA provider without a `document`: before, returned a handle. Now, throws `ReferenceError: document is not defined` (#1664).
 - Second `initializeAppCheck` that omits `isTokenAutoRefreshEnabled` where the first passed `false`, or the reverse: before, returned the existing handle. Now, throws `appCheck/already-initialized`. Concurrent `getToken`: before, two tokens and two listener calls. Now, one token and one listener call (#1388).
 - Role `function` in AI Logic `contents`: before, accepted. Now, refused with production's 400. The bad-role error text now lists `MODEL, USER`, as production's does (#1412).
-- Role `assistant` in AI Logic `contents`: before, refused. Now, accepted (#1542).
-- App Check verification in production AI mode on Node 22: before, failed with `PYRIC_REAL_SDK_STOPPED`. Now, verifies the token (#1707, #1709).
+- Roles `system`, `system_1`, `developer`, `context` and `user_context` in AI Logic `contents`: before, accepted. Now, refused with production's 400. Role `assistant` is still accepted (#1412, #1542).
 - `PYRIC_AI_MODE=production` in Next.js: before, ignored on the page. Now, the page uses the real `firebase/ai` and `firebase/app-check` (#1650).
 
 #### Firestore and Storage rules
@@ -69,9 +69,9 @@ The register, network guard and Storage lint changes can stop code that ran befo
 - RE2 patterns and `trim()`: before, `\s` matched Unicode white space, `.` skipped `\r`, `\pL` and the `(?i)` flag in `split()` and `replace()` were misread, and `trim()` stripped Unicode spaces. Now, `\s` is ASCII white space, `.` matches `\r`, `\pL` is the letter class, flags are kept, and `trim()` strips only code units at or below U+0020 (#1295).
 - `split()` and `replace()`: before, `split()` returned capture-group text and kept trailing empty pieces. Now, it returns neither, and never returns an empty list. Storage also refuses an oversized pattern from request data (#1449).
 - Root `match` path: before, skipped, so a ruleset rooted at another database granted access to `(default)`. Now, compared with the request, so such a ruleset grants nothing outside its root (#1395).
-- Ruleset service: before, the in-page `setRules` installed and enforced a `service firebase.storage` ruleset as Firestore rules. Now, every Firestore load path refuses a ruleset whose service is not `cloud.firestore` (#1421).
+- Ruleset service: before, the in-page `setRules` installed and enforced a `service firebase.storage` ruleset as Firestore rules. Now, every Firestore load path refuses a ruleset whose service is not `cloud.firestore`, and `pyric rules lint --service firestore` on a Storage ruleset fails at once with that compile error (#1421).
 - Version 1 recursive wildcard: before, `{x=**}` matched zero segments. Now, under version 1 it needs one or more, in Firestore (#1437) and Storage (#1404).
-- Large regexes: before, a pattern that expands very large compiled, and the first request that evaluated it could run the process out of memory. Now, Firestore and Storage refuse a pattern past RTDB's size limit at compile time (#1406).
+- Large regexes: before, a pattern that expands very large compiled, and the first request that evaluated it could run the process out of memory. Now, Firestore and Storage refuse a pattern past RTDB's size limit at compile time, and a repeat count over 1000, such as `a{1001}`, is refused too (#1406).
 - Timestamps and durations: before, values past production's range computed silently, and a NaN instant was accepted. Now, they are rule errors, as in production, and a NaN instant is refused (#1407).
 - `firestore_simulator_create`: before, a ruleset production would not load replaced the rules and documents in force. Now, it is refused with `RULES_REFUSED`, and nothing is reset (#1457).
 - Array form of `firestore` in `firebase.json`: before, ignored, so pyric fell back to `firestore.rules` or no rules. Now, the `(default)` entry's rules govern `(default)` on every plane, and each named database gets a startup warning (#1444).
@@ -82,7 +82,7 @@ The register, network guard and Storage lint changes can stop code that ran befo
 - Lookups in Storage rules: before, an interpolated request value holding `/` became several path segments. Now, it is one segment, and a `{rest=**}` capture splices in as a path (#1404).
 - Bucket name: before, rules saw `pyric-default`. Now, rules see the app's bucket name on every plane, in `rules.simulate`, the `storage` tool methods and `pyric verify` (#1513).
 - Per-bucket rules: before, the first `firebase.json` entry's rules governed every bucket. Now, in the in-page sandbox and under `PYRIC_SANDBOX=local`, each bucket enforces the rules deployed to it, and a bucket with no deployed rules denies every client operation. In page, `getStorage(app, 'gs://other')` keeps its objects apart from the default bucket. The dev server, SharedWorker and Node host still share one ruleset across buckets (#1524).
-- `pyric mcp` with no dev server: before, read a root `storage.rules`. Now, enforces the Storage rules file `firebase.json` deploys. The dev server refuses a Storage rules reload the sandbox can't install, and keeps the last good rules (#1462).
+- `pyric mcp` with no dev server: before, read a root `storage.rules`. Now, enforces the Storage rules file `firebase.json` deploys. The dev server refuses a Storage rules reload the sandbox can't install, and keeps the last good rules. It also refuses to start with such rules, for example an `import` under `rules_version = '2'`, where before it started and the worker failed (#1462).
 - `pyric-admin` remote `bucket.getFiles()`: before, a folder per object could fail with `resource-exhausted`. Now, it lists in name order and stops once a page is full (#1206).
 
 #### Firestore SDK
@@ -90,13 +90,14 @@ The register, network guard and Storage lint changes can stop code that ran befo
 - Query ordering: before, values were compared without Firestore's type order, so a plain map could rank as a `Timestamp` and `GeoPoint` ranges missed. Now, the in-page engine orders by type tag and full document key, and uses value comparison for `==` and `!=` (#1413).
 - `getAggregateFromServer` on a served page or a registered Node process: before, threw `firestore/unsupported-in-served-mode`. Now, returns the aggregate (#1399).
 - Served `onSnapshot` with an observer object: before, crashed a registered Node process with `callback is not a function`. Now, accepted in all four call forms (#1455).
+- Served snapshots: before, a listen error with no error callback was dropped, query documents took the query's `hasPendingWrites`, and `data()` returned the same object on each call. Now, the error is logged with `console.error`, query documents no longer take the query's `hasPendingWrites`, and `data()` returns a new object on each call (#1455).
 
 #### Realtime Database
 
-- `update()` in the in-page sandbox: before, applied a microtask late, so a `set()` or `remove()` in the same tick could be overwritten. Now, writes land in call order (#1402).
+- `update()` in the in-page sandbox: before, applied a microtask late, so a `set()` or `remove()` in the same tick could be overwritten. Now, writes land in call order, and listeners on the updated path fire before `update()` returns, as they do for `set()` (#1402).
 - Snapshot serialization: before, `val()` kept insertion order, and `exportVal()` and `toJSON()` could return arrays. Now, keys follow priority, then key order, `val()` leaves holes in sparse arrays, and `exportVal()` and `toJSON()` never return arrays (#1408).
 - `refFromURL` and error texts: before, a URL on another instance's host made a ref in this database. Now, it throws the SDK's host mismatch error. Query and `child()` errors use the SDK's exact text (#1409).
-- Served RTDB writes: before, `set(ref, NaN)` reached the host and deleted the value. Now, the SDK's value, priority and update-map checks run before the write is sent, and the call throws (#1461).
+- Served RTDB writes: before, `set(ref, NaN)` reached the host and deleted the value. Now, the SDK's value, priority and update-map checks run before the write is sent, and the call throws. `update()` and `onDisconnect().update()` with an array, a string or `null` throw the SDK's text (#1461).
 - `pyric-admin` RTDB: before, the in-process arm returned stored maps from `val()` and kept `null` and empty children. Now, both arms render arrays and prune as `firebase-admin` does, and throw on `NaN` (#1210).
 
 #### Auth
@@ -104,6 +105,7 @@ The register, network guard and Storage lint changes can stop code that ran befo
 - Served `signInWithCredential` with an email credential: before, signed in without checking the password or link. Now, a wrong password is refused with `auth/wrong-password`, and `providerId` on the result is `null` (#1467).
 - Served `signInWithCredential` with an unknown or look-alike provider id: before, signed in as the account the payload named. Now, refused with `auth/no-mock-configured` (#1483).
 - Served `signInWithCredential` with a federated credential: before, signed in as the account the payload named. Now, it signs in only as a result staged with `sandbox.mockSignInResult`, on every plane (#1509).
+- `pyric-admin` `verifyIdToken` on a client ID token: before, `auth_time` was the time of the `verifyIdToken` call. Now, `auth_time`, `iat` and `exp` are the values the token carries, as `firebase-admin` returns them (#1504).
 
 #### Sandbox clock
 
@@ -118,7 +120,7 @@ Each of these refuses something that used to work. Check them before you upgrade
 - **`simulate()` and the MCP `firestore_simulate_rules` tool refuse malformed cases.** `method` must be `get`, `list`, `create`, `update` or `delete` (`read` used to allow). `path` is required. Unknown fields are refused by name. `requestTime` must be ISO-8601 with an offset. A `create` with `resource` is refused. A refused case reports `UNSUPPORTED` with a reason instead of answering. `{__type: ...}` maps are read as maps, and value helpers such as `timestamp('nope')` or `latlng(91, 0)` throw a `TypeError`. Rule fixture files with a refused case are now reported on reload instead of skipped silently. This moves pyric closer to production, because each case now means the same request in the simulator and on the Rules Test API (#1453).
 - **`pyric rules simulate --service storage` builds `request.resource` per verb.** Before, `request.resource` was filled from the stored object. Now, it is built as the live upload, update, read or delete would send it. A `get` with `--data` is refused, and an unknown field in `--data` is named and refused. This moves pyric closer to production, where a re-upload carries only the metadata it sends (#1496).
 - **Storage `rules.lint` fails on error-severity findings.** It now runs the shared security lint, as Firestore lint does. Public rules fail, and Firebase's documented per-user rules (`match /{allPaths=**}` with an auth check, or a write that doesn't check `request.resource`) get error-severity SEC-5 and SEC-6 findings. A lint step that passed before can fail (#1496).
-- **The register stops the real Firebase SDKs.** Under `@pyric/cli/register`, an import that resolves into the real `firebase-admin`, or into the real `firebase` or `@firebase/*` where pyric didn't choose them, fails before the file loads with `PYRIC_REAL_SDK_STOPPED`. Before, it loaded. Run code that loads the real SDK on purpose without the register. See Security (#1522).
+- **The register stops the real Firebase SDKs.** Under `@pyric/cli/register`, an import that resolves into the real `firebase-admin`, or into the real `firebase` or `@firebase/*` where pyric didn't choose them, fails before the file loads with `PYRIC_REAL_SDK_STOPPED`. Before, it loaded. This applies in every Node child of a registered process too, whatever `env`, `NODE_OPTIONS` or `execArgv` the child is started with (#1649). Run code that loads the real SDK on purpose without the register. Production AI mode's App Check verifier still loads `firebase-admin`, on Node 22 as on Node 24 (#1709). See Security (#1522).
 - **`pyric sandbox -- next dev` refuses live Google and Firebase egress by default.** `withPyric` makes `PYRIC_GUARD=block` the default for the Next server. A route handler that calls a Google endpoint pyric doesn't mirror needs `PYRIC_GUARD_ALLOW=<host>` or `PYRIC_GUARD=warn`. See Security (#1474).
 - **`withPyric` refuses to start `next dev` when `PYRIC_SANDBOX` is set but the register isn't active.** Before, it started. Pass `{ guard: false }` to turn the check off (#1651).
 
@@ -185,7 +187,7 @@ Each of these refuses something that used to work. Check them before you upgrade
 
 #### Docs
 
-- ADR-0021 proposes Firestore named databases (#1391). ADR-0022, swap or stop, is accepted (#1510).
+- ADR-0020, one MCP tool list routed per call, is accepted (#865). ADR-0021 proposes Firestore named databases (#1391). ADR-0022, swap or stop, is accepted (#1510).
 
 **Full changelog:** https://github.com/davideast/pyric/compare/v0.1.0-alpha.30.2...v0.1.0-alpha.31
 
