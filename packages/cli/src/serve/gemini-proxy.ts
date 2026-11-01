@@ -119,11 +119,17 @@ function maskStreamErrors(body: ReadableStream<Uint8Array>, credentials: readonl
   let pending = '';
   return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     transform(bytes, controller) {
-      pending += decoder.decode(bytes, { stream: true });
-      const lines = pending.split('\n');
-      pending = lines.pop() ?? '';
-      const hasCompleteLines = lines.length > 0;
-      if (hasCompleteLines) controller.enqueue(encoder.encode(lines.map((line) => `${maskDataLine(line, credentials)}\n`).join('')));
+      // Only the new text is searched, so one long line over many reads stays linear.
+      const arrived = decoder.decode(bytes, { stream: true });
+      const lastNewline = arrived.lastIndexOf('\n');
+      const completesNoLine = lastNewline === -1;
+      if (completesNoLine) {
+        pending += arrived;
+        return;
+      }
+      const lines = (pending + arrived.slice(0, lastNewline)).split('\n');
+      pending = arrived.slice(lastNewline + 1);
+      controller.enqueue(encoder.encode(lines.map((line) => `${maskDataLine(line, credentials)}\n`).join('')));
     },
     flush(controller) {
       pending += decoder.decode();

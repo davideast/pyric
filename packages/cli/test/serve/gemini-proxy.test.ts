@@ -214,6 +214,33 @@ describe('/__pyric/ai-proxy/gemini', () => {
     expect(await response.text()).toBe(`data: ${JSON.stringify({ error: { code: 500, message: 'refused ***', status: 'INTERNAL' } })}\n\n`);
   });
 
+  // An image answer is one multi-megabyte `data:` line that arrives over many
+  // reads; the held-back partial line must not be rescanned on every read.
+  it('passes one multi-megabyte line that arrives in many small reads through intact', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const image = 'A'.repeat(8 * 1024 * 1024);
+    const event = `data: {"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"${image}"}}]}}]}\r\n\r\n`;
+    const bytes = new TextEncoder().encode(event);
+    const READ = 4096;
+    let at = 0;
+    // One read per macrotask, so the proxy receives the line in small reads rather than one coalesced buffer.
+    const upstream = standIn(() => new Response(new ReadableStream({
+      async pull(controller) {
+        await new Promise((resolve) => setImmediate(resolve));
+        controller.enqueue(bytes.slice(at, at + READ));
+        at += READ;
+        if (at >= bytes.length) controller.close();
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } }));
+    const h = await startServe(upstream.url);
+    const started = performance.now();
+    const response = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    const text = await response.text();
+    console.log(`8 MiB line in ${Math.ceil(bytes.length / READ)} reads: ${Math.round(performance.now() - started)} ms`);
+    expect(text.length).toBe(event.length);
+    expect(text === event).toBe(true);
+  }, 120_000);
+
   it('answers 413 for a body over the limit and never calls the upstream', async () => {
     process.env.GEMINI_API_KEY = KEY;
     const upstream = standIn();
