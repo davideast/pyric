@@ -38,16 +38,18 @@ function gateCapture(): GateCapture['behavior']['noHeader'] {
   return (JSON.parse(readFileSync(file, 'utf8')) as GateCapture).behavior.noHeader;
 }
 
-/** The AIError the Firebase SDK throws for AI Logic's 403. */
+/** The AIError the Firebase SDK throws for AI Logic's 403. A stream's URL carries `?alt=sse`, as the SDK builds it (#1640). */
 function refusal(op: string) {
   const gate = gateCapture();
+  const isStream = op === 'streamGenerateContent';
+  const query = isStream ? '?alt=sse' : '';
   return {
     ok: false,
     name: 'FirebaseError',
     code: 'fetch-error',
     status: gate.httpStatus,
     statusText: 'Forbidden',
-    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}: [${gate.httpStatus} Forbidden] ${gate.messageText} (AI/fetch-error)`,
+    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}${query}: [${gate.httpStatus} Forbidden] ${gate.messageText} (AI/fetch-error)`,
   };
 }
 
