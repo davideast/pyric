@@ -6,6 +6,13 @@
  * Shared by the Node remote client (`connectRemoteSandbox`, which
  * `pyric-admin` uses) and the client SDK bootstrap that `@pyric/cli/register`
  * installs (#1082), so both pick the same host for the same process.
+ *
+ * Discovery reads the project's `.pyric/serve.json` and probes the port it
+ * names, without the port scan `discoverServe` falls back to: a host found
+ * only by the scan is never attached to (`selectProjectHost`), and on a
+ * machine where closed ports never answer the scan takes seconds. A process
+ * resolves again at each reconnect, so a scan there would spend the window
+ * its held calls wait in (#1219).
  */
 import {
   discoverServe,
@@ -54,12 +61,17 @@ function warnOncePerUrl(url: string, message: string, warn?: (message: string) =
   else process.stderr.write(`${message}\n`);
 }
 
+/** The project's host as its `.pyric/serve.json` names it; no port scan. */
+export function discoverProjectPointer(cwd: string): Promise<Discovered | null> {
+  return discoverServe(cwd, () => {}, []);
+}
+
 async function resolveConfiguredHost(configuredUrl: string, options: ResolveRemoteHostOptions): Promise<ResolvedRemoteHost> {
   const choice = await selectExplicitHost({
     url: configuredUrl,
     cwd: options.cwd,
     launcherInstanceId: options.instanceId,
-    discover: options.discover,
+    discover: options.discover ?? discoverProjectPointer,
     probe: options.probe,
   });
   if (choice.kind === 'stale') throw hostError('not-found', choice.message);
@@ -73,7 +85,7 @@ async function resolveConfiguredHost(configuredUrl: string, options: ResolveRemo
 
 async function discoverProjectHost(options: ResolveRemoteHostOptions): Promise<ResolvedRemoteHost> {
   const refused: string[] = [];
-  const found = selectProjectHost(await (options.discover ?? discoverServe)(options.cwd), (m) => refused.push(m));
+  const found = selectProjectHost(await (options.discover ?? discoverProjectPointer)(options.cwd), (m) => refused.push(m));
   const hasNoDiscovery = found === null;
   if (hasNoDiscovery) {
     throw hostError(

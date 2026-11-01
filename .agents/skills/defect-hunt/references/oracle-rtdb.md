@@ -30,9 +30,10 @@ capture.
    `pyric-oracle-rtdb-2`, both dedicated, both with locked resting rules. The
    `databaseURL` in `PYRIC_ORACLE_FIREBASE_CONFIG` picks the instance.
 2. **Credentials, by env.** `PYRIC_ORACLE_FIREBASE_CONFIG` (Web SDK config JSON
-   with `databaseURL` and `apiKey`) gates capture. `PYRIC_ORACLE_SA_PATH` points
-   at a service account file outside the checkout that can mint a
-   database-scoped token and seed data. If that account lacks database admin
+   with `databaseURL` and `apiKey`) gates capture. The oracle credential
+   (`PYRIC_ORACLE_PROJECT_ID` with Application Default Credentials, or
+   `PYRIC_ORACLE_SA_PATH` naming a key file outside the checkout) mints a
+   database-scoped token and seeds data. If that account lacks database admin
    roles, stop and resolve access with a dedicated oracle service account, or
    an admin token from the Firebase CLI login wired through the runner's token
    path. Never widen an app's credentials.
@@ -51,7 +52,7 @@ capture.
 bun run packages/conformance/src/run-rules-rtdb.ts
 # one scenario, credentialed
 PYRIC_ORACLE_FIREBASE_CONFIG="$(cat <web-config.json>)" \
-  PYRIC_ORACLE_SA_PATH=<service-account.json> \
+  PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
   bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>
 ```
 
@@ -93,7 +94,7 @@ divergence.
 - The observation lands in `packages/conformance/observations/rtdb-rules/`. It
   changes only by re-capture.
 - Add or extend the registry row in `packages/conformance/registry/rules.ts`,
-  and adjust `assurance-node-counts/` in the same change.
+  and add `assurance-node-counts/rules/<pr-number>.json` in the same change.
 - Pin every disagreement in `KNOWN_DIVERGENCES` with both verdicts and the
   finding it belongs to.
 - Regenerate the scorecard and baselines; the score drops if production

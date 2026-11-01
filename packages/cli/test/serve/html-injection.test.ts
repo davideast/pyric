@@ -68,6 +68,24 @@ describe('HTML sandbox injection', () => {
   });
 });
 
+describe('the production AI mode import map (#1290)', () => {
+  it("sends firebase/ai to the project's Firebase SDK and keeps the shadow wrappers", () => {
+    const imports = sdkImportMap('production');
+    expect(imports['firebase/ai']).toBe('/__pyric/sdk/firebase-sdk-ai.js');
+    expect(imports['firebase/app']).toBe('/__pyric/sdk/app-ai-passthrough.js');
+    expect(imports['firebase/app-check']).toBe('/__pyric/sdk/app-ai-passthrough-app-check.js');
+    expect(Object.keys(imports).sort()).toEqual(Object.keys(sdkImportMap('sandbox')).sort());
+  });
+
+  it('leaves the sandbox AI mode import map unchanged', () => {
+    const imports = sdkImportMap('sandbox');
+    expect(imports['firebase/ai']).toBe('/__pyric/sdk/ai.js');
+    expect(imports['firebase/app']).toBe('/__pyric/sdk/app.js');
+    expect(imports['firebase/app-check']).toBe('/__pyric/sdk/app-check.js');
+    expect(Object.values(imports).some((url) => url.includes('firebase-sdk-'))).toBe(false);
+  });
+});
+
 function inlinedSelection(html: string): unknown {
   const scripts = [...html.matchAll(/<script data-pyric-worker-init>(.*?)<\/script>/g)];
   expect(scripts).toHaveLength(1);

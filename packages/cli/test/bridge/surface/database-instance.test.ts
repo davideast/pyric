@@ -20,7 +20,8 @@ import type { SurfaceContext } from '../../../src/bridge/surface/types.js';
 
 function contextWith(named: string[]): SurfaceContext {
   const ctx = createSurfaceContext(initializeSandbox(), mkdtempSync(join(tmpdir(), 'pyric-instance-')));
-  ctx.databaseInstances = databaseInstanceCatalog({ defaultInstance: 'demo-default-rtdb', named, pending: [] });
+  const catalog = databaseInstanceCatalog({ defaultInstance: 'demo-default-rtdb', named, pending: [] });
+  ctx.databaseInstances = async () => catalog;
   return ctx;
 }
 

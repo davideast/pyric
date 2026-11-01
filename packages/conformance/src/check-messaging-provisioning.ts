@@ -8,36 +8,25 @@
  * observation captures come later under the FCM domain-model ticket (#45),
  * in the house observation format, once rows exist to cite them.
  *
- * Requires:
- *   PYRIC_MESSAGING_SA_BASE64 — base64 of a service-account JSON whose role
- *   carries cloudmessaging.messages.create (e.g. Firebase Cloud Messaging
- *   API Admin). The project id is read from the key itself.
+ * Requires a credential whose account carries cloudmessaging.messages.create
+ * (for example Firebase Cloud Messaging API Admin), from
+ * src/messaging-credential.ts: PYRIC_MESSAGING_PROJECT_ID (or
+ * PYRIC_ORACLE_PROJECT_ID) with Application Default Credentials, or
+ * PYRIC_MESSAGING_SA_BASE64, whose key names its own project.
  *
  * Run: bun run packages/conformance/src/check-messaging-provisioning.ts
  *
  * No VAPID key needed here: that is browser-side token registration, which
  * stays deferred. This script exercises only the send plane.
  */
-import { initializeApp, cert, deleteApp } from 'firebase-admin/app';
-import type { ServiceAccount } from 'firebase-admin/app';
+import { loadMessagingServiceAccount, messagingAccessToken, messagingSendEndpoint } from './messaging-credential.ts';
 
-const b64 = process.env.PYRIC_MESSAGING_SA_BASE64;
-if (!b64) {
-  console.error('✗ PYRIC_MESSAGING_SA_BASE64 is not set.');
+const sa = await loadMessagingServiceAccount().catch((error: unknown) => {
+  console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
-}
-
-const sa = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')) as ServiceAccount & {
-  project_id?: string;
-};
-const projectId = sa.projectId ?? sa.project_id;
-if (!projectId) {
-  console.error('✗ Service-account JSON has no project id.');
-  process.exit(1);
-}
-
-const app = initializeApp({ credential: cert(sa) }, 'messaging-provision-check');
-const ENDPOINT = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+});
+const projectId = sa.project_id;
+const ENDPOINT = messagingSendEndpoint(sa);
 
 interface ProbeResult {
   status: number;
@@ -45,9 +34,7 @@ interface ProbeResult {
 }
 
 async function post(payload: unknown): Promise<ProbeResult> {
-  const credential = app.options.credential;
-  if (!credential) throw new Error('no credential on app');
-  const { access_token } = await credential.getAccessToken();
+  const access_token = await messagingAccessToken(sa);
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: {
@@ -86,8 +73,6 @@ const badToken = await post({
   validate_only: true,
   message: { token: 'not-a-real-fcm-registration-token' },
 });
-
-await deleteApp(app);
 
 const report = {
   projectId,

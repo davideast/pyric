@@ -6,10 +6,16 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { endGroup, watchChildExit } from './unreaped-exit.ts';
+import { DEFAULT_EXIT_TIMING, describeGroupProcesses, endGroup, watchChildExit, type ExitTiming } from './unreaped-exit.ts';
 
-/** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
-const LEFTOVER_TERM_MS = 1000;
+/** The waits `runCommand` uses. Tests pass short ones; the runner uses the defaults. */
+export interface CommandTiming {
+  exit: ExitTiming;
+  /** How long a process a command left behind gets after SIGTERM, before SIGKILL. */
+  leftoverTermMs: number;
+}
+
+const DEFAULT_COMMAND_TIMING: CommandTiming = { exit: DEFAULT_EXIT_TIMING, leftoverTermMs: 1000 };
 
 /** The published packages, in the order scripts/pack-packages.sh packs them. */
 const PUBLISHED_PACKAGE_DIRS = [
@@ -49,29 +55,60 @@ export interface CommandResult {
   output: string;
 }
 
+export interface CommandOptions {
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+  timing?: CommandTiming;
+}
+
 /**
  * Runs a command to exit. An exit the runner only half sees (#1274), a child
  * whose pipes a process it started holds open, or one never reaped, resolves
  * too (watchChildExit).
  */
-export function runCommand(
-  command: string,
-  args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv; spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess },
-): Promise<CommandResult> {
+export async function runCommand(command: string, args: string[], options: CommandOptions): Promise<CommandResult> {
+  const { code, output } = await spawnCommand(command, args, options, undefined);
+  return { code, output };
+}
+
+/**
+ * `runCommand`, stopped at `timeoutMs` with its whole process group. The
+ * result says it timed out and names what was still running.
+ */
+export function runTimedCommand(command: string, args: string[], options: CommandOptions & { timeoutMs: number }): Promise<TimedResult> {
+  return spawnCommand(command, args, options, options.timeoutMs);
+}
+
+function spawnCommand(command: string, args: string[], options: CommandOptions, timeoutMs: number | undefined): Promise<TimedResult> {
   return new Promise((resolvePromise, reject) => {
     const spawnChild = options.spawnChild ?? spawn;
+    const timing = options.timing ?? DEFAULT_COMMAND_TIMING;
     // Its own process group, so what it starts and leaves running can be found and ended.
     const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
     child.stdout?.on('data', (chunk) => { output += chunk; });
     child.stderr?.on('data', (chunk) => { output += chunk; });
+    let limit: ReturnType<typeof setTimeout> | undefined;
     const stopWatching = watchChildExit(child, command, (exit) => {
+      clearTimeout(limit);
       const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
-      if (hasLeftovers) void endGroup(child.pid ?? 0, LEFTOVER_TERM_MS);
-      resolvePromise({ code: exit.code, output: `${output}${exit.note}` });
-    });
+      if (hasLeftovers) void endGroup(child.pid ?? 0, timing.leftoverTermMs);
+      resolvePromise({ code: exit.code, output: `${output}${exit.note}`, timedOut: false });
+    }, timing.exit);
+    if (timeoutMs !== undefined) {
+      limit = setTimeout(() => {
+        stopWatching();
+        const group = child.pid ?? 0;
+        // Read before the stop ends them: what the command was still running.
+        const running = group === 0 ? '(unknown)' : describeGroupProcesses(group);
+        const note = `\n[runner] ${command} stopped after ${timeoutMs / 1000} s; processes in its group:\n${running}\n`;
+        if (group !== 0) void endGroup(group, timing.leftoverTermMs);
+        resolvePromise({ code: null, output: `${output}${note}`, timedOut: true });
+      }, timeoutMs);
+    }
     child.on('error', (error) => {
+      clearTimeout(limit);
       stopWatching();
       reject(error);
     });
@@ -121,11 +158,34 @@ export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
 }
 
 /**
- * `npm install` as the runner runs it: quiet, with the shared cache. Offline
- * first by default; `online` revalidates the cached package listings.
+ * How long npm waits on one registry request before it fails it. npm's default
+ * is 5 minutes, longer than an install gets here. With this, a stalled request
+ * at least ends its wait and shows in npm's debug log; npm retries it twice
+ * with backoff, so a request that stalls every time can still outlast an
+ * attempt (#1476).
  */
-export function npmInstallArgs(npmCache: string, metadata: 'offline' | 'online' = 'offline'): string[] {
-  return ['install', '--no-audit', '--no-fund', '--loglevel=error', `--prefer-${metadata}`, '--cache', npmCache];
+const FETCH_TIMEOUT_MS = 60_000;
+
+const QUIET_NPM_FLAGS = ['--no-audit', '--no-fund', '--loglevel=error', '--progress=false', '--update-notifier=false'];
+
+/**
+ * `npm install` as the runner runs it: quiet, with the shared cache. Offline
+ * first by default; `online` revalidates the cached package listings. With
+ * `logsDir`, npm writes its debug log there, so a hang can be read back.
+ */
+export function npmInstallArgs(npmCache: string, metadata: 'offline' | 'online' = 'offline', logsDir?: string): string[] {
+  const logs = logsDir ? [`--logs-dir=${logsDir}`] : [];
+  return ['install', ...QUIET_NPM_FLAGS, `--fetch-timeout=${FETCH_TIMEOUT_MS}`, `--prefer-${metadata}`, '--cache', npmCache, ...logs];
+}
+
+/**
+ * `npm install` with no registry: `--offline`, an npm cache of its own that
+ * starts empty, and a registry nothing listens on, so a request npm should
+ * not make fails at once instead of waiting. The dependency store runs it to
+ * install a run's Pyric tarballs into a tree it already holds.
+ */
+export function npmOfflineInstallArgs(npmCache: string, registry: string): string[] {
+  return ['install', ...QUIET_NPM_FLAGS, '--offline', `--registry=${registry}`, '--cache', npmCache];
 }
 
 /** npm's codes for a version range the cached package listing has no match for. */
@@ -143,10 +203,70 @@ export function shouldRetryOnline(result: CommandResult): boolean {
 }
 
 /** Run `npm install` offline first, and once more with `--prefer-online` when stale metadata failed it. */
-export async function npmInstall(npmCache: string, run: (args: string[]) => Promise<CommandResult>): Promise<CommandResult> {
-  const first = await run(npmInstallArgs(npmCache));
+export async function npmInstall<R extends CommandResult>(
+  npmCache: string,
+  run: (args: string[]) => Promise<R>,
+  logsDir?: string,
+): Promise<R> {
+  const first = await run(npmInstallArgs(npmCache, 'offline', logsDir));
   if (!shouldRetryOnline(first)) return first;
   const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
-  const second = await run(npmInstallArgs(npmCache, 'online'));
-  return { code: second.code, output: `${first.output}${note}${second.output}` };
+  const second = await run(npmInstallArgs(npmCache, 'online', logsDir));
+  return { ...second, output: `${first.output}${note}${second.output}` };
+}
+
+/**
+ * How long one nested `npm install` (`app.installProject`) gets before the
+ * runner calls it hung. On CI a passing one took 52 to 71 s; a hung one never
+ * finished in 240 s (#1476). The app's 300 s limit covers its whole scenario,
+ * so two hung attempts (220 s), their stops (up to 10 s each) and the
+ * node_modules removal leave about 50 s for the scenario's other steps, and a
+ * second hang still ends as an install error, not the app's timeout.
+ */
+export const NESTED_INSTALL_ATTEMPT_MS = 110_000;
+
+export interface TimedResult extends CommandResult {
+  /** True when the runner stopped the command at its time limit. */
+  timedOut: boolean;
+}
+
+function outcome(result: TimedResult): string {
+  return result.timedOut ? 'timed out' : `exited ${result.code}`;
+}
+
+function secondsSince(started: number): number {
+  return Math.round((performance.now() - started) / 1000);
+}
+
+/**
+ * Runs `attempt`, and once more after `reset` when it timed out. This is an
+ * infrastructure retry: an attempt that exits, with any code, is never run
+ * again. `report` gets one line every run, retried or not, so CI logs can
+ * count how often the retry happens and what it costs (#1485).
+ */
+export async function retryOnceOnTimeout(
+  attempt: () => Promise<TimedResult>,
+  options: { what: string; reset: () => Promise<void>; report: (line: string) => void },
+): Promise<TimedResult> {
+  const started = performance.now();
+  const first = await attempt();
+  if (!first.timedOut) {
+    options.report(`[runner] ${options.what} ${outcome(first)} in ${secondsSince(started)} s, 1 attempt`);
+    return first;
+  }
+  options.report(`[runner] infrastructure retry: ${options.what} timed out after ${secondsSince(started)} s; trying it once more`);
+  await options.reset();
+  const second = await attempt();
+  options.report(`[runner] ${options.what} ${outcome(second)} in ${secondsSince(started)} s, 2 attempts (1 infrastructure retry)`);
+  const note = '\n[runner] infrastructure retry: the attempt above timed out; trying it once more\n';
+  return { ...second, output: `${first.output}${note}${second.output}` };
+}
+
+/** The last `lines` lines of the newest npm debug log in `logsDir`, named, or a note that there is none. */
+export function debugLogTail(logsDir: string, lines: number): string {
+  const logs = existsSync(logsDir) ? readdirSync(logsDir).filter((name) => name.endsWith('.log')).sort() : [];
+  const newest = logs.at(-1);
+  if (!newest) return `[runner] no npm debug log in ${logsDir}\n`;
+  const text = readFileSync(join(logsDir, newest), 'utf8').trimEnd().split('\n').slice(-lines).join('\n');
+  return `[runner] the end of npm's debug log ${newest}:\n${text}\n`;
 }

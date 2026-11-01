@@ -18,13 +18,13 @@ import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { listStoredPaths } from '../../storage-state.js';
 import type { MethodRecord } from '../../method-types.js';
-import type { SurfaceContext } from '../../types.js';
+import type { SandboxSurfaceContext } from '../../types.js';
 
 /** The services a reset can be narrowed to, and `all` for every one of them. */
 export const RESET_SCOPES = ['all', 'firestore', 'database', 'storage', 'auth'] as const;
 type Scope = (typeof RESET_SCOPES)[number];
 
-async function resetScope(scope: Scope, ctx: SurfaceContext): Promise<void> {
+async function resetScope(scope: Scope, ctx: SandboxSurfaceContext): Promise<void> {
   if (scope === 'firestore') {
     const db = getAdminFirestore(ctx.sandbox);
     for (const path of Object.keys(snapshotDocuments(ctx.sandbox))) {
@@ -49,6 +49,7 @@ async function resetScope(scope: Scope, ctx: SurfaceContext): Promise<void> {
 export default {
   tool: 'sandbox',
   method: 'reset',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: `reset(scope?: ${RESET_SCOPES.join('|')}, confirm)`,

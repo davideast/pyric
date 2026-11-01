@@ -63,7 +63,7 @@ One HTTP listener per child, loopback, ephemeral port. Every plane forwards to i
 
 ## CDD shape
 
-New surface `functions-http`: kind `integration`, contractSource `firebase-functions/v2/https#onRequest`, prefix `functions-http-`, rig `functions-http`, suite `packages/cli/test/functions-http/oracle-conformance.test.ts`, `climb: true`, compatPath `packages/cli/docs/functions-http/COMPAT.md`, plus `assurance-node-counts/functions-http.json`. It is a separate surface because `functions-rtdb`'s scope note defers other families and its contract source is one export.
+New surface `functions-http`: kind `integration`, contractSource `firebase-functions/v2/https#onRequest`, prefix `functions-http-`, rig `functions-http`, suite `packages/cli/test/functions-http/oracle-conformance.test.ts`, `climb: true`, compatPath `packages/cli/docs/functions-http/COMPAT.md`, plus `assurance-node-counts/functions-http/base.json`. It is a separate surface because `functions-rtdb`'s scope note defers other families and its contract source is one export.
 
 Rows, all born `unverified` (O = needs a production observation, U = upstream-documented, P = pyric-owned and unit-backed at flip):
 

@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import { toListenerRecord, toOperationRecord, type OperationRecord } from 'pyric/sandbox';
 import type { SandboxEvent } from 'pyric/sandbox';
-import { operationFailure } from '../../context.js';
+import { operationFailure } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 
 /** Methods the log carries that read state rather than change it. */
@@ -42,6 +42,7 @@ function recordForKind(event: SandboxEvent, kind: string): OperationRecord | nul
 export default {
   tool: 'sandbox',
   method: 'events',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'events(since?, limit?, kind?: all|denials|writes|listeners)',

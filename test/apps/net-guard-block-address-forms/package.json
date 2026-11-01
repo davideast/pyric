@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pyric/cli": "*",
+    "firebase-admin": "13.6.0"
+  }
+}

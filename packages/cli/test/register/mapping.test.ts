@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
-import { mapFirebaseSpecifier } from '../../src/register/mapping.js';
+import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from '../../src/register/mapping.js';
 import { resolveEsmOnlySubpath } from '../../src/register/esm-exports.js';
 
 describe('mapFirebaseSpecifier', () => {
@@ -68,11 +68,75 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase/app-check', join(cliRoot, 'dist/register/app-bridge-app-check.js'), { aiMode: 'production', sandbox: '' })).toBeNull();
   });
 
+  it('lets the App Check verifier bridge reach the real firebase-admin in production AI mode, and maps it for app files (#1552)', () => {
+    const bridges = [join(cliRoot, 'dist/register/app-bridge-admin-app-check.js'), `file://${join(cliRoot, 'src/register/app-bridge-admin-app-check.ts')}`];
+    for (const bridge of bridges) {
+      expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode: 'production', sandbox: 'local' })).toBeNull();
+      expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode: 'production', sandbox: 'local' })).toBeNull();
+      expect(mapFirebaseSpecifier('firebase-admin/firestore', bridge, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/firestore');
+    }
+    for (const appFile of ['/home/me/app/server.mjs', '/home/me/app/dist/register/app-bridge-admin-app-check.js']) {
+      expect(mapFirebaseSpecifier('firebase-admin/app', appFile, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app');
+      expect(mapFirebaseSpecifier('firebase-admin/app-check', appFile, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app-check');
+    }
+  });
+
+  it('swaps firebase-admin for the verifier bridge in sandbox AI mode, where it never loads', () => {
+    const bridge = join(cliRoot, 'dist/register/app-bridge-admin-app-check.js');
+    expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode: 'sandbox', sandbox: 'local' })).toBe('pyric-admin/app');
+    expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode: 'sandbox', sandbox: 'local' })).toBe('pyric-admin/app-check');
+  });
+
+  it('swaps firebase-admin for every other shadow module, including a forged createRequire importer', () => {
+    for (const shadow of ['dist/register/app-bridge.js', 'dist/register/app-bridge-anything.js', 'src/register/app-bridge-shadow.ts']) {
+      expect(mapFirebaseSpecifier('firebase-admin/app', join(cliRoot, shadow), { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/app');
+    }
+  });
+
   it('swaps an app file that is merely named like a bridge', () => {
     for (const userFile of ['/home/me/app/src/register/app-bridge.js', '/home/me/app/dist/register/app-bridge.js', '/home/me/app/app-ai-passthrough.ts']) {
       expect(mapFirebaseSpecifier('firebase/app-check', userFile, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app-check');
       expect(mapFirebaseSpecifier('firebase/app', userFile, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge');
     }
+  });
+});
+
+/**
+ * #1443: Next 16's Turbopack keeps server externals external but renames them,
+ * so a route handler's `firebase-admin/app` reaches Node as
+ * `firebase-admin-<16 hex>/app`. The canonical name is what the map sees.
+ */
+describe('canonicalFirebaseSpecifier', () => {
+  const hash = 'a14c8a5423a75469';
+
+  it("names Turbopack's renamed firebase-admin and firebase imports by their package", () => {
+    expect(canonicalFirebaseSpecifier(`firebase-admin-${hash}/app`)).toBe('firebase-admin/app');
+    expect(canonicalFirebaseSpecifier(`firebase-admin-${hash}/firestore`)).toBe('firebase-admin/firestore');
+    expect(canonicalFirebaseSpecifier(`firebase-admin-${hash}`)).toBe('firebase-admin');
+    expect(canonicalFirebaseSpecifier(`firebase-${hash}/firestore`)).toBe('firebase/firestore');
+    expect(canonicalFirebaseSpecifier(`firebase-${hash}/firestore/lite`)).toBe('firebase/firestore/lite');
+    expect(canonicalFirebaseSpecifier(`firebase-${hash}`)).toBe('firebase');
+  });
+
+  it('refuses a hash that is not exactly 16 lowercase hex characters', () => {
+    expect(canonicalFirebaseSpecifier(`firebase-admin-${hash.slice(1)}/app`)).toBeNull();
+    expect(canonicalFirebaseSpecifier(`firebase-admin-${hash}0/app`)).toBeNull();
+    expect(canonicalFirebaseSpecifier(`firebase-admin-${hash.toUpperCase()}/app`)).toBeNull();
+    expect(canonicalFirebaseSpecifier(`firebase-admin-${hash}/`)).toBeNull();
+  });
+
+  it('refuses other packages, scoped internals, and names that only contain "firebase"', () => {
+    expect(canonicalFirebaseSpecifier(`firebase-functions-${hash}/v2`)).toBeNull();
+    expect(canonicalFirebaseSpecifier(`firebase-tools-${hash}`)).toBeNull();
+    expect(canonicalFirebaseSpecifier(`@firebase/app-${hash}`)).toBeNull();
+    expect(canonicalFirebaseSpecifier(`my-firebase-${hash}`)).toBeNull();
+    expect(canonicalFirebaseSpecifier(`./firebase-admin-${hash}/app`)).toBeNull();
+  });
+
+  it('leaves canonical and non-Firebase specifiers to the map', () => {
+    expect(canonicalFirebaseSpecifier('firebase-admin/app')).toBeNull();
+    expect(canonicalFirebaseSpecifier('firebase')).toBeNull();
+    expect(canonicalFirebaseSpecifier('express')).toBeNull();
   });
 });
 

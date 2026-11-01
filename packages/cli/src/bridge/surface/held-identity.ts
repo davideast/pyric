@@ -15,7 +15,7 @@
  */
 import { describeAppSession, readAppSession } from './app-session.js';
 import type { IdentityInput } from './identity.js';
-import type { OperationResult, SurfaceContext } from './types.js';
+import type { OperationResult, SandboxSurfaceContext } from './types.js';
 
 /**
  * One line naming the agent identity.
@@ -44,7 +44,7 @@ function reported(held: { mode: string; uid?: string }): OperationResult {
 }
 
 /** Set the identity every later call runs under, and report it. */
-export function switchHeldIdentity(ctx: SurfaceContext, input: IdentityInput): OperationResult {
+export function switchHeldIdentity(ctx: SandboxSurfaceContext, input: IdentityInput): OperationResult {
   return reported(ctx.identity.switchTo(input));
 }
 
@@ -68,7 +68,7 @@ export interface HeldSession {
  * `--target` takes. These two are neither of those: they are the identities
  * this process itself holds.
  */
-export function listHeldSessions(ctx: SurfaceContext): OperationResult {
+export function listHeldSessions(ctx: SandboxSurfaceContext): OperationResult {
   const agent = ctx.identity.describe();
   const appSession = readAppSession(ctx.sandbox);
 
@@ -101,7 +101,7 @@ export function listHeldSessions(ctx: SurfaceContext): OperationResult {
  * identity, said again in one phrase, because that is the question a caller
  * asks this method to answer.
  */
-export function describeBothIdentities(ctx: SurfaceContext): OperationResult {
+export function describeBothIdentities(ctx: SandboxSurfaceContext): OperationResult {
   const agent = ctx.identity.describe();
   const appSession = readAppSession(ctx.sandbox);
   const runsAs = describeAgentIdentity(agent);

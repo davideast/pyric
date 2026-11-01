@@ -82,3 +82,98 @@ describe('Vite page runtime', () => {
     expect(page.ai()).toEqual({ mode: 'sandbox', engineWire: undefined, proxyUpstream: undefined });
   });
 });
+
+describe('Vite page runtime: a Gemini key Vite would serve to the browser (#1632, #1659)', () => {
+  const FAKE_KEY = 'AIzaFAKE-1659-runtime';
+  const NAMES = ['VITE_GEMINI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
+
+  /** Run `body` with only `values` among the Gemini key names in the shell environment. */
+  function withKeys(values: Partial<Record<(typeof NAMES)[number], string>>, body: () => void): void {
+    const before = new Map(NAMES.map((name) => [name, process.env[name]]));
+    for (const name of NAMES) delete process.env[name];
+    Object.assign(process.env, values);
+    try {
+      body();
+    } finally {
+      for (const [name, value] of before) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  }
+
+  /** Start a dev server's config hooks: `config`, then `configResolved` with the app's `envPrefix`. */
+  function startDevServer(envPrefix?: string | string[], env: Record<string, unknown> = { command: 'serve', mode: 'development' }): void {
+    const page = runtime();
+    page.config({}, env as never);
+    page.configResolved({ envPrefix });
+  }
+
+  function refusal(run: () => void): string {
+    try {
+      run();
+    } catch (error) {
+      return (error as Error).message;
+    }
+    return '';
+  }
+
+  it('refuses VITE_GEMINI_API_KEY under the default envPrefix and says to rename it', () => {
+    withKeys({ VITE_GEMINI_API_KEY: FAKE_KEY }, () => {
+      const message = refusal(() => startDevServer());
+      expect(message).toContain('VITE_GEMINI_API_KEY is set');
+      expect(message).toContain('Rename it to GEMINI_API_KEY');
+      expect(message).not.toContain(FAKE_KEY);
+    });
+  });
+
+  it('leaves VITE_GEMINI_API_KEY alone when envPrefix does not cover it, because Vite never serves it', () => {
+    withKeys({ VITE_GEMINI_API_KEY: FAKE_KEY }, () => {
+      expect(() => startDevServer('APP_')).not.toThrow();
+    });
+  });
+
+  it('refuses GEMINI_API_KEY when envPrefix covers it, and names the prefix and a name it does not cover', () => {
+    withKeys({ GEMINI_API_KEY: FAKE_KEY }, () => {
+      const message = refusal(() => startDevServer(['VITE_', 'GEMINI_']));
+      expect(message).toContain('GEMINI_API_KEY is set');
+      expect(message).toContain('starts with GEMINI_');
+      expect(message).toContain('Remove GEMINI_ from envPrefix');
+      expect(message).toContain('GOOGLE_GENAI_API_KEY');
+      expect(message).not.toContain(FAKE_KEY);
+    });
+  });
+
+  it('does not advise a name envPrefix also covers', () => {
+    withKeys({ VITE_GEMINI_API_KEY: FAKE_KEY }, () => {
+      const message = refusal(() => startDevServer(['VITE_', 'GEMINI_', 'GOOGLE_']));
+      expect(message).toContain('VITE_GEMINI_API_KEY is set');
+      expect(message).not.toContain('Rename it to');
+      expect(message).toContain('Change envPrefix in your Vite config');
+    });
+  });
+
+  it('refuses GOOGLE_GENAI_API_KEY when envPrefix covers it', () => {
+    withKeys({ GOOGLE_GENAI_API_KEY: FAKE_KEY }, () => {
+      expect(refusal(() => startDevServer('GOOGLE_'))).toContain('GOOGLE_GENAI_API_KEY is set');
+    });
+  });
+
+  it('leaves GEMINI_API_KEY alone under the default envPrefix', () => {
+    withKeys({ GEMINI_API_KEY: FAKE_KEY }, () => {
+      expect(() => startDevServer()).not.toThrow();
+    });
+  });
+
+  it('leaves vite preview alone, because it serves build output that never held the key', () => {
+    withKeys({ VITE_GEMINI_API_KEY: FAKE_KEY }, () => {
+      expect(() => startDevServer(undefined, { command: 'serve', mode: 'production', isPreview: true })).not.toThrow();
+    });
+  });
+
+  it('leaves a sandbox build alone', () => {
+    withKeys({ VITE_GEMINI_API_KEY: FAKE_KEY }, () => {
+      expect(() => startDevServer(undefined, { command: 'build', mode: 'development' })).not.toThrow();
+    });
+  });
+});

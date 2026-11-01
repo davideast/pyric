@@ -376,6 +376,85 @@ describe('client round trip (worker client fns over a fake port pair)', () => {
       error: { code: 404, message: 'no such model', status: 'NOT_FOUND' },
     });
   });
+
+  // App Check in sandbox AI mode (rows ai#sandbox-app-check-*): the claim an
+  // app-backed handle attaches crosses the port, and the worker broker plays
+  // AI Logic's gate with production's 403 envelope.
+  const APP_CHECK_REFUSAL = {
+    error: {
+      code: 403,
+      message: 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check',
+      status: 'PERMISSION_DENIED',
+    },
+  };
+
+  async function sandboxToken(): Promise<string> {
+    const { mintAppCheckToken } = await import('pyric/sandbox/internal');
+    return (await mintAppCheckToken({ appId: '1:123456789012:web:abc', projectId: 'demo' }, 3600)).token;
+  }
+
+  async function refusalOf(run: () => Promise<unknown>): Promise<Error & { code?: string; aiEnvelope?: unknown }> {
+    try {
+      await run();
+    } catch (e) {
+      return e as Error & { code?: string; aiEnvelope?: unknown };
+    }
+    throw new Error('expected the worker broker to refuse');
+  }
+
+  it('a sandbox App Check token crosses the port and the worker broker answers', async () => {
+    const { client, db } = await wire();
+    const appCheck = { token: await sandboxToken() };
+    const envelope = await client.aiGenerateContent(db, { model: MODEL, request: genRequest('token'), appCheck });
+    expect((envelope as { candidates?: unknown[] }).candidates?.length).toBeGreaterThan(0);
+    const counted = await client.aiCountTokens(db, { model: MODEL, request: genRequest('token'), appCheck });
+    expect((counted as { totalTokens: number }).totalTokens).toBeGreaterThan(0);
+  });
+
+  it('the worker broker refuses a request whose claim has a null token, with production\'s envelope', async () => {
+    const { client, db } = await wire();
+    const appCheck = { token: null };
+    const unary = await refusalOf(() => client.aiGenerateContent(db, { model: MODEL, request: genRequest('no token'), appCheck }));
+    expect(unary.code).toBe('ai/PERMISSION_DENIED');
+    expect(unary.aiEnvelope).toEqual(APP_CHECK_REFUSAL);
+    const counted = await refusalOf(() => client.aiCountTokens(db, { model: MODEL, request: genRequest('no token'), appCheck }));
+    expect(counted.aiEnvelope).toEqual(APP_CHECK_REFUSAL);
+    const streamed = await refusalOf(async () => {
+      for await (const _chunk of client.aiStreamGenerateContent(db, { model: MODEL, request: genRequest('no token'), appCheck })) { /* none */ }
+    });
+    expect(streamed.aiEnvelope).toEqual(APP_CHECK_REFUSAL);
+  });
+
+  it('the worker broker refuses a tampered token', async () => {
+    const { client, db } = await wire();
+    const valid = await sandboxToken();
+    const tampered = `${valid.slice(0, -1)}${valid.at(-1) === 'A' ? 'B' : 'A'}`;
+    const refused = await refusalOf(() => client.aiGenerateContent(db, { model: MODEL, request: genRequest('tampered'), appCheck: { token: tampered } }));
+    expect(refused.aiEnvelope).toEqual(APP_CHECK_REFUSAL);
+  });
+});
+
+describe('ai op App Check claim validation', () => {
+  it('rejects a claim whose token is neither a string nor null', async () => {
+    const ctx = makeCtx();
+    const port = fakePort();
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: 'claim-shape', method: 'ai.generateContent',
+      model: MODEL, request: genRequest('bad claim'), appCheck: { token: 5 },
+    } as unknown as InboundMessage);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe('invalid-argument');
+  });
+
+  it('an op with no claim (a handle with no app) is not gated', async () => {
+    const ctx = makeCtx();
+    const port = fakePort();
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: 'no-claim', method: 'ai.generateContent',
+      model: MODEL, request: genRequest('host tooling'),
+    });
+    expect(res.ok).toBe(true);
+  });
 });
 
 // ─── Unified event stream ─────────────────────────────────────────────────

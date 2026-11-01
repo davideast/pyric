@@ -40,7 +40,6 @@ import { buildVerifyFixture } from '../../verify/fixture.js';
 import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
-import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
@@ -432,14 +431,9 @@ if (!useWorker && activityTokenFromPayload) {
   );
 }
 
-// Same plane split for the AI broker's diagnostics: an in-page sandbox runs
-// its own broker, so its `request_rejected`, `response_blocked`, and
-// `model_substituted` events need the same relay to reach the dev terminal.
-// Unlike the activity guard this needs no capability token (the denial relay
-// it rides carries none).
-if (!useWorker) {
-  setupAiDiagnosticsRelay({ subscribe: (listener) => sandbox.onEvent(listener) }, fetch);
-}
+// The in-page AI broker's diagnostics relay lives in the AI entry
+// (`entries/ai.ts`), the only entry that runs that broker, so a page that
+// uses AI Logic without Firestore, RTDB, or Storage relays too (#1638).
 
 // ── provenance (flow doc section 3a): make the shim's presence unmistakable.
 // Source says `firebase/*`; what runs is the pyric sandbox — say so loudly

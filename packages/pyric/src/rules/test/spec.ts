@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import type { ExprTraceEntry } from '../simulator/evaluator.js';
 import type { ListQueryProofReport } from '../simulator/list-query-proof.js';
+import { documentRelativePath } from '../simulator/request-path.js';
+import { projectAfterState } from '../simulator/project-after-state.js';
+import { createResourceRefusal, isIsoInstant, ISO_INSTANT_FORM } from './case-refusals.js';
+import { encodeWireDocument } from './wire-values.js';
 
 // ---- Canonical shared primitives ----
 
@@ -141,7 +145,11 @@ export const TestCaseSchema = z.object({
    * non-deterministically across CI runs. Set this whenever the rule under
    * test references `request.time`.
    */
-  requestTime: z.string().optional().describe('Override for request.time (ISO-8601). Defaults to wallclock.'),
+  requestTime: z
+    .string()
+    .refine(isIsoInstant, { message: `requestTime must be ${ISO_INSTANT_FORM}` })
+    .optional()
+    .describe('Override for request.time (ISO-8601 with Z or an offset). Defaults to wallclock.'),
   /**
    * Optional explicit write semantics (REBUILD_PLAN.md Item 0.D / Item 7).
    * When set, the simulator runs `projectAfterState(writeMode, resource, data)`
@@ -150,7 +158,9 @@ export const TestCaseSchema = z.object({
    * `tc.data` IS the after-state.
    */
   writeMode: WriteModeSchema.optional().describe('Optional write-mode override; controls update merge semantics and getAfter() projection.'),
-});
+  // A misspelled field would otherwise be dropped, and the case would ask a
+  // different question than its author wrote (FS2-CON-2).
+}).strict();
 
 export type TestCase = z.infer<typeof TestCaseSchema>;
 
@@ -548,9 +558,13 @@ export interface ApiFunctionMock {
 
 const DB_PREFIX = '/databases/(default)/documents/';
 
+/**
+ * The full resource name of a document path. A path already in the full
+ * form, `/databases/(default)/documents/users/alice`, names the same document
+ * as `users/alice`, so both give one prefix, never two (FS2-CON-1).
+ */
 export function normalizeDocPath(path: string): string {
-  const clean = path.startsWith('/') ? path.slice(1) : path;
-  return `${DB_PREFIX}${clean}`;
+  return `${DB_PREFIX}${documentRelativePath(path)}`;
 }
 
 // ---- Simplified → API format conversion ----
@@ -559,7 +573,31 @@ export interface BuildApiTestCaseOptions {
   expressionReportLevel?: ExpressionReportLevel;
 }
 
+/**
+ * `request.resource.data` as the simulator binds it (`buildContext` in
+ * `simulator/handler.ts`), so both engines see the same incoming document
+ * (FS2-SIM-10). A create or update always carries one: with a `writeMode`, the
+ * document the write leaves, from the existing `resource` and the case data
+ * through the simulator's own `projectAfterState`; without one, the case
+ * data. Any other method carries the case data when the case gives some.
+ */
+function incomingDocument(tc: TestCase): Record<string, unknown> | undefined {
+  const isWrite = tc.method === 'create' || tc.method === 'update';
+  if (!isWrite) return tc.data;
+  if (!tc.writeMode) return tc.data ?? {};
+  return projectAfterState(tc.writeMode, tc.resource ?? null, tc.data ?? {}) ?? {};
+}
+
+/**
+ * The Rules Test API request for one case.
+ *
+ * @throws {TypeError} for a case the simulator would read as a different
+ *   request: a `create` case naming an existing `resource`, or a value with
+ *   no form the Rules Test API reads as its type (bytes, vectors).
+ */
 export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {}): ApiTestCase {
+  const refusal = createResourceRefusal(tc);
+  if (refusal) throw new TypeError(refusal);
   const request: ApiTestCase['request'] = {
     auth: tc.auth === null || tc.auth === undefined
       ? undefined
@@ -574,8 +612,9 @@ export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {
     path: normalizeDocPath(tc.path),
   };
 
-  if (tc.data) {
-    request.resource = { data: tc.data };
+  const incoming = incomingDocument(tc);
+  if (incoming) {
+    request.resource = { data: encodeWireDocument(incoming, 'data') };
   }
 
   if (tc.requestTime) {
@@ -599,7 +638,7 @@ export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {
   }
 
   if (tc.resource) {
-    result.resource = { data: tc.resource };
+    result.resource = { data: encodeWireDocument(tc.resource, 'resource') };
   }
 
   if (tc.functionMocks && tc.functionMocks.length > 0) {
@@ -821,7 +860,8 @@ export function buildFunctionMock(mock: FunctionMock): ApiFunctionMock {
   };
 
   if (mock.function === 'get') {
-    result.result = { value: { data: mock.result as Record<string, unknown> } };
+    const doc = encodeWireDocument(mock.result as Record<string, unknown>, `functionMocks(${mock.path}).result`);
+    result.result = { value: { data: doc } };
   } else {
     // exists() returns a bool, not a map. Sending the map shape used for
     // get() here — { value: { data: {} } } / undefined — makes the

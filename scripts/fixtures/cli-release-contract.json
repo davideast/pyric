@@ -169,6 +169,8 @@
     "./next/internal/analytics",
     "./next/internal/app",
     "./next/internal/app-check",
+    "./next/internal/app-ai-passthrough",
+    "./next/internal/app-ai-passthrough-app-check",
     "./next/internal/auth",
     "./next/internal/firestore",
     "./next/internal/firestore-lite",
@@ -183,9 +185,10 @@
     "./package.json"
   ],
   "allowedFirebaseSdkImportEdges": [
+    "dist/register/app-bridge-admin-app-check.js -> firebase-admin/app",
+    "dist/register/app-bridge-admin-app-check.js -> firebase-admin/app-check",
     "dist/register/app-bridge-app-check.js -> firebase/app-check",
-    "dist/register/app-bridge-shadow.js -> firebase/app",
-    "dist/serve/entries/app-ai-passthrough.js -> firebase/app"
+    "dist/register/app-bridge-shadow.js -> firebase/app"
   ],
   "removedExports": [
     "./deploy",
@@ -380,6 +383,26 @@
     "auth_whoami",
     "auth_sessions",
     "messaging_deliveries",
+    "sandbox_save_capture",
+    "sandbox_list_captures",
+    "sandbox_open_capture",
+    "sandbox_rename_capture",
+    "sandbox_delete_capture"
+  ],
+  "standaloneBridgeTools": [
+    "firestore_simulate_rules",
+    "firestore_rules_stdlib_list",
+    "firestore_rules_stdlib_get",
+    "firestore_lint_rules",
+    "firestore_resolve_modules",
+    "rules_stdlib_list",
+    "rules_stdlib_get",
+    "rules_resolve_modules",
+    "pyric_can_i_use",
+    "auth_impersonate",
+    "auth_reset",
+    "auth_whoami",
+    "auth_sessions",
     "sandbox_save_capture",
     "sandbox_list_captures",
     "sandbox_open_capture",

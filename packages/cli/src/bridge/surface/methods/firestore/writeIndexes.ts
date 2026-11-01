@@ -69,6 +69,7 @@ function readExisting(path: string): IndexesFile | null {
 export default {
   tool: 'firestore',
   method: 'writeIndexes',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'writeIndexes(indexes, path?, confirm)',

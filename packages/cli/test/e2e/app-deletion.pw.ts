@@ -14,6 +14,7 @@ test('served firebase imports replay the production app-deletion lifecycle', asy
   const actual = await page.evaluate(async () => {
     const appModule = await import('firebase/app');
     const aiModule = await import('firebase/ai');
+    const appCheckModule = await import('firebase/app-check');
     const authModule = await import('firebase/auth');
     const databaseModule = await import('firebase/database');
     const firestoreModule = await import('firebase/firestore');
@@ -79,6 +80,10 @@ test('served firebase imports replay the production app-deletion lifecycle', asy
       { model: 'gemini-2.5-flash' },
     );
     const survivingApp = appModule.initializeApp(options, 'surviving-ai');
+    // AI Logic requires App Check before getAI, and so does the sandbox.
+    appCheckModule.initializeAppCheck(survivingApp, {
+      provider: new appCheckModule.ReCaptchaV3Provider('site-key'),
+    });
     const survivingAiModel = aiModule.getGenerativeModel(
       aiModule.getAI(survivingApp),
       { model: 'gemini-2.5-flash' },

@@ -24,13 +24,20 @@
  * nanos always normalize positive — `equals()` is a straight field
  * compare without per-call normalization.
  */
-import { RulesValue, NO_OP, type NoOp } from './base.js';
+import { RulesValue, NO_OP, ValueRangeError, type NoOp } from './base.js';
 import { Duration } from './duration.js';
 
 const NANOS_PER_SECOND = 1_000_000_000;
 const MS_PER_DAY = 86_400_000;
 const SECONDS_PER_DAY = 86_400;
 const SECONDS_PER_MINUTE = 60;
+/** 0001-01-01T00:00:00Z, production's earliest timestamp. */
+const MIN_SECONDS = -62_135_596_800;
+/** 9999-12-31T23:59:59Z; with nanos up to 999,999,999, the latest. */
+const MAX_SECONDS = 253_402_300_799;
+/** Production's evaluation error for a timestamp outside its range, from the capture's diagnostics. */
+export const TIMESTAMP_NOT_VALID =
+  'Timestamp is not valid. Seconds must be in range [-62,135,596,800, +253,402,300,799]. Nanos must be in range [0, +999,999,999].';
 
 /**
  * Roll over-/under-flow nanos into seconds and force nanos non-negative.
@@ -45,20 +52,33 @@ function normalize(seconds: number, nanos: number): { seconds: number; nanos: nu
   };
 }
 
+/** True for whole epoch seconds production can hold; false for NaN and infinities. */
+function isInRange(seconds: number): boolean {
+  return Number.isFinite(seconds) && seconds >= MIN_SECONDS && seconds <= MAX_SECONDS;
+}
+
 export class Timestamp extends RulesValue {
   readonly typeName = 'timestamp';
   readonly seconds: number;
   readonly nanos: number;
 
+  /**
+   * Throws production's "Timestamp is not valid" error (a {@link ValueRangeError}) when
+   * the normalized instant is outside 0001-01-01T00:00:00Z to
+   * 9999-12-31T23:59:59.999999999Z or is not finite, so arithmetic past the
+   * range, and a NaN instant, never become a value.
+   */
   constructor(seconds: number, nanos: number) {
     super();
     const norm = normalize(seconds, nanos);
+    if (!isInRange(norm.seconds)) throw new ValueRangeError(TIMESTAMP_NOT_VALID);
     this.seconds = norm.seconds;
     this.nanos = norm.nanos;
   }
 
   /** `timestamp.value(epochMs)` — milliseconds since Unix epoch. */
   static fromMillis(ms: number): Timestamp {
+    if (!Number.isFinite(ms)) throw new ValueRangeError(TIMESTAMP_NOT_VALID);
     const seconds = Math.floor(ms / 1000);
     const remainderMs = ms - seconds * 1000;
     return new Timestamp(seconds, remainderMs * 1_000_000);

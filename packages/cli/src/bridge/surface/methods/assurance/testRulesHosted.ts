@@ -23,6 +23,7 @@ import type { OperationResult } from '../../types.js';
 export default {
   tool: 'assurance',
   method: 'testRulesHosted',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'production',
   signature: 'testRulesHosted(service: firestore, rules, cases, confirm)',

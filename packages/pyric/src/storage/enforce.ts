@@ -42,7 +42,9 @@ import { emitSandboxEvent, getClock, makeSandboxOperationEvent } from 'pyric/san
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import {
   storageOperationProvenance,
+  storageRulesInForce,
   type CrossServiceIam,
+  type StorageRulesInForce,
   type StorageService,
   type Target,
 } from './service.js';
@@ -50,6 +52,7 @@ import { evaluateStorageRules } from './sandbox/rules-evaluator.js';
 import { RuleEvalError } from './sandbox/rules-evaluation-error.js';
 import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
+import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
 
 export function enforceRules(
   service: StorageService,
@@ -70,18 +73,19 @@ export function enforceRules(
     emitOperation(target, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
     return;
   }
-  if (!service.rules) {
-    const reasons = ['No Storage rules configured; default deny.'];
-    emitOperation(target, input, 'deny', reasons, 'user', false, boundProvenance);
-    throw unauthorized(input.request.method, input.request.path, ' — No Storage rules configured; default deny.');
+  const inForce = rulesFor(service, target);
+  if (inForce.kind !== 'rules') {
+    const reason = noRulesReason(inForce);
+    emitOperation(target, input, 'deny', [reason], 'user', false, boundProvenance);
+    throw unauthorized(input.request.method, input.request.path, ` — ${reason}`);
   }
-  const evaluationInput = target ? withCanonicalRulesPath(input, target.bucket) : input;
+  const evaluationInput = target ? withCanonicalRulesPath(input, target) : input;
   // `request.time` is the sandbox's clock when the caller has a sandbox handle,
   // so a `request.time < timestamp.date(...)` rule flips with it. A pure
   // evaluation with no target keeps the evaluator's own wall-clock default.
   const requestTime = target ? getClock(target.sandbox).date() : undefined;
   const result = evaluateStorageRules(
-    service.rules,
+    inForce.rules,
     evaluationInput,
     requestTime,
     firestoreLookupFor(target, service.crossServiceIam),
@@ -94,21 +98,32 @@ export function enforceRules(
   emitOperation(target, input, 'allow', result.reasons, 'user', true, boundProvenance);
 }
 
+/** The rules a request is checked against: its bucket's, through a sandbox handle. */
+function rulesFor(service: StorageService, target: Target | undefined): StorageRulesInForce {
+  if (target !== undefined) return storageRulesInForce(service, target);
+  if (service.rules) return { kind: 'rules', rules: service.rules };
+  return { kind: 'none' };
+}
+
+/** Why a request with no rules to check denies. A locked bucket names the fix. */
+function noRulesReason(inForce: Exclude<StorageRulesInForce, { kind: 'rules' }>): string {
+  if (inForce.kind === 'none') return 'No Storage rules configured; default deny.';
+  if (inForce.kind === 'second-default') {
+    return `Storage bucket "${inForce.bucket}" is a second default bucket in this sandbox, which already serves "${inForce.defaultBucket}" as its default bucket, so pyric denies every client operation on it rather than share that bucket's objects. Give each app the same storageBucket, or open the other bucket with getStorage(app, "gs://${inForce.bucket}").`;
+  }
+  const { bucket } = inForce;
+  return `Storage bucket "${bucket}" has no rules deployed in firebase.json, so pyric denies every client operation on it. Add {"bucket": "${bucket}", "rules": "<file>"} to the storage array.`;
+}
+
 /**
  * Firebase's modular Storage SDK exposes object-relative references, while
- * Storage Rules match those objects below `/b/{bucket}/o`. Keep the public
- * reference, persistence key, errors, and emitted Traffic path object-relative;
- * canonicalize only the evaluator input at this boundary.
+ * Storage Rules match those objects below `/b/{bucket}/o`, under the bucket's
+ * real name. Keep the public reference, persistence key, errors, and emitted
+ * Traffic path object-relative; canonicalize only the evaluator input at this
+ * boundary, under the name the caller knows the bucket by.
  */
-function withCanonicalRulesPath(input: EvaluationInput, bucket: string): EvaluationInput {
-  const objectPath = input.request.path.replace(/^\/+/, '');
-  return {
-    ...input,
-    request: {
-      ...input.request,
-      path: objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`,
-    },
-  };
+function withCanonicalRulesPath(input: EvaluationInput, target: Target): EvaluationInput {
+  return bindRulesBucket(input, target.bucket, rulesBucketName(target.bucket, target.bucketName));
 }
 
 /**
@@ -138,7 +153,9 @@ function emitOperation(
         result,
         origin,
         reasons,
-        detail: { bucket: target.bucket },
+        // The store key, and the name the rules saw it by, so a replay binds
+        // the same name (ST-H2-4).
+        detail: { bucket: target.bucket, bucketName: rulesBucketName(target.bucket, target.bucketName) },
         rulesDisposition: origin === 'admin'
           ? { kind: 'bypassed', reason: 'admin' }
           : evaluated

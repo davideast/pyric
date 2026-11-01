@@ -104,16 +104,17 @@ describe('pyric dev AI startup status', () => {
   });
 
   describe('gemini key from the environment', () => {
-    const names = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY', 'VITE_GEMINI_API_KEY'] as const;
+    const names = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
+    const cleared = [...names, 'VITE_GEMINI_API_KEY'] as const;
     const saved = new Map<string, string | undefined>();
     beforeEach(() => {
-      for (const name of names) {
+      for (const name of cleared) {
         saved.set(name, process.env[name]);
         delete process.env[name];
       }
     });
     afterEach(() => {
-      for (const name of names) {
+      for (const name of cleared) {
         const value = saved.get(name);
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
@@ -138,8 +139,42 @@ describe('pyric dev AI startup status', () => {
 
     it('follows the engine: a blank earlier variable shadows a later real one', () => {
       process.env.GEMINI_API_KEY = '';
+      process.env.GOOGLE_GENAI_API_KEY = 'AIzaSyFromEnv';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('does not count VITE_GEMINI_API_KEY as a key, because Vite serves it to the browser (#1632)', () => {
       process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
       expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).toContain('no API key');
+    });
+
+    it('names VITE_GEMINI_API_KEY as ignored, and says to rename it, without printing the key (#1659)', () => {
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      const line = formatAiStatusLine({ engine: { kind: 'gemini' } });
+      expect(line).toContain('gemini (no API key; VITE_GEMINI_API_KEY is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY)');
+      expect(line).not.toContain('AIzaSyFromEnv');
+    });
+
+    it('names the ignored VITE_GEMINI_API_KEY when no engine is configured, since the page can pick gemini (#1659)', () => {
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      const line = formatAiStatusLine({ hosted: true });
+      expect(line).toContain("no engine configured; the served page's getAI() picks one;");
+      expect(line).toContain('VITE_GEMINI_API_KEY is set and ignored');
+      expect(line).not.toContain('AIzaSyFromEnv');
+    });
+
+    it('says nothing about VITE_GEMINI_API_KEY when GEMINI_API_KEY holds the key', () => {
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      process.env.GEMINI_API_KEY = 'AIzaSyServer';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).not.toContain('VITE_GEMINI_API_KEY');
+      expect(formatAiStatusLine({})).not.toContain('VITE_GEMINI_API_KEY');
+    });
+
+    it('says nothing about a blank VITE_GEMINI_API_KEY, or in production AI mode', () => {
+      process.env.VITE_GEMINI_API_KEY = '  ';
+      expect(formatAiStatusLine({ engine: { kind: 'gemini' } })).not.toContain('VITE_GEMINI_API_KEY');
+      process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
+      expect(formatAiStatusLine({ mode: 'production' })).not.toContain('VITE_GEMINI_API_KEY');
     });
 
     it('sees a key that only a project .env holds once loadViteAiEnv has run (#950)', () => {

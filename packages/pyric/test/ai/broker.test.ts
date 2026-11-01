@@ -22,8 +22,10 @@ import {
   Synthesizer,
   ToolCallBuffer,
   badRole,
+  functionRoleRefused,
   emptyContents,
   geminiToOpenAIRequest,
+  lastUserText,
   loadObservationEnvelope,
   mapFinishReason,
   missingThoughtSignature,
@@ -243,6 +245,24 @@ describe('scripted engine queue and matchers', () => {
     expect(hit2.candidates![0]!.content.parts[0]!.text).toBe('second');
   });
 
+  it('matches the question, not the function response turn under role user, on a tool round trip', async () => {
+    const engine = new ScriptedEngine([
+      { match: 'weather', respond: { functionCall: { name: 'get_weather', args: { city: 'Paris' } } } },
+      { match: 'weather', respond: { text: 'sunny' } },
+    ]);
+    const first = await engine.generateContent(userReq('what is the weather in paris'), MODEL);
+    const roundTrip: GenerateContentRequest = {
+      contents: [
+        { role: 'user', parts: [{ text: 'what is the weather in paris' }] },
+        first.candidates![0]!.content,
+        { role: 'user', parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }] },
+      ],
+    };
+    expect(lastUserText(roundTrip)).toBe('what is the weather in paris');
+    const answer = await engine.generateContent(roundTrip, MODEL);
+    expect(answer.candidates![0]!.content.parts[0]!.text).toBe('sunny');
+  });
+
   it('an unconditional entry earlier in the queue wins over a later matcher', async () => {
     const engine = new ScriptedEngine([
       { respond: { text: 'unconditional-first' } },
@@ -349,6 +369,73 @@ describe('error synthesis matches captured envelopes verbatim', () => {
     expect(env.error.message).toBe(obs.messageText);
   });
 
+  it('role function rejects with ai-error-function-role-refused, which names the role', async () => {
+    const obs = loadObs('ai-error-function-role-refused.json').behavior;
+    expect(functionRoleRefused()).toEqual(obs.raw);
+    const contents: GenerateContentRequest['contents'] = [
+      { role: 'user', parts: [{ text: 'weather in Paris?' }] },
+      {
+        role: 'model',
+        parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } }, thoughtSignature: 'sig' }],
+      },
+      { role: 'function', parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }] },
+    ];
+    const env = await envelopeOf(new AiBroker().generateContent({ contents }, MODEL));
+    expect(env).toEqual(obs.raw);
+    expect(env.error.message).toBe(obs.messageText);
+    expect(env.error.message).toContain("Role 'function'");
+  });
+
+  it('role function is refused before the thought-signature check, as in production', async () => {
+    const obs = loadObs('ai-error-function-role-refused.json').behavior;
+    const contents: GenerateContentRequest['contents'] = [
+      { role: 'user', parts: [{ text: 'weather in Paris?' }] },
+      { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }] },
+      { role: 'function', parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }] },
+    ];
+    const env = await envelopeOf(new AiBroker().generateContent({ contents }, MODEL));
+    expect(env.error.message).toBe(obs.messageText);
+  });
+
+  it('accepts the roles the ai-error-bad-role capture lists, MODEL and USER, and refuses others with its text', async () => {
+    const obs = loadObs('ai-error-bad-role.json').behavior;
+    expect(obs.messageText).toContain('Please use a valid role: MODEL, USER.');
+    for (const role of ['system', 'SYSTEM_1', 'developer']) {
+      const env = await envelopeOf(
+        new AiBroker().generateContent({ contents: [{ role, parts: [{ text: 'hi' }] }] }, MODEL),
+      );
+      expect(env).toEqual(badRole(role));
+    }
+    for (const role of ['user', 'USER']) {
+      const res = await new AiBroker().generateContent({ contents: [{ role, parts: [{ text: 'hi' }] }] }, MODEL);
+      expect(res.candidates![0]!.finishReason).toBe('STOP');
+    }
+  });
+
+  it('a contents turn under role system is refused with the captured text (ai-contents-role-system)', async () => {
+    const obs = loadObs('ai-contents-role-system.json').behavior;
+    expect(obs.accepted).toBe(false);
+    const contents: GenerateContentRequest['contents'] = [
+      { role: 'system', parts: [{ text: 'You only ever reply with the word: pyric' }] },
+      { role: 'user', parts: [{ text: 'Say anything.' }] },
+    ];
+    const env = await envelopeOf(new AiBroker().generateContent({ contents }, MODEL));
+    expect(env).toEqual(obs.raw);
+    expect(env.error.message).toBe("Role 'system' is not supported. Please use a valid role: MODEL, USER.");
+  });
+
+  it('a contents turn under role assistant is accepted, as production accepts it (ai-contents-role-assistant)', async () => {
+    const obs = loadObs('ai-contents-role-assistant.json').behavior;
+    expect(obs.accepted).toBe(true);
+    const contents: GenerateContentRequest['contents'] = [
+      { role: 'user', parts: [{ text: 'Reply with exactly the word: pyric' }] },
+      { role: 'assistant', parts: [{ text: 'pyric' }] },
+      { role: 'user', parts: [{ text: 'Reply with exactly the word: pyric' }] },
+    ];
+    const res = await new AiBroker().generateContent({ contents }, MODEL);
+    expect(res.candidates![0]!.finishReason).toBe(obs.finishReason);
+  });
+
   it('empty contents rejects with ai-error-empty-contents (trailing newline and all)', async () => {
     const obs = loadObs('ai-error-empty-contents.json').behavior;
     expect(emptyContents()).toEqual(obs.raw);
@@ -362,7 +449,7 @@ describe('error synthesis matches captured envelopes verbatim', () => {
       { role: 'user', parts: [{ text: 'weather in Paris?' }] },
       { role: 'model', parts: [{ functionCall: { name: 'get_weather', args: { city: 'Paris' } } }] },
       {
-        role: 'function',
+        role: 'user',
         parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }],
       },
     ];
@@ -386,7 +473,7 @@ describe('error synthesis matches captured envelopes verbatim', () => {
         ],
       },
       {
-        role: 'function',
+        role: 'user',
         parts: [{ functionResponse: { name: 'get_weather', response: { temp: 22 } } }],
       },
     ];
@@ -476,6 +563,18 @@ describe('openai translation: request mapping', () => {
     const toolMsgs = out.messages.slice(2);
     expect(toolMsgs.map((m) => m.tool_call_id)).toEqual(['call_f_0', 'call_f_1']); // FIFO
     expect(toolMsgs[0]!.content).toBe('{"r":1}');
+  });
+
+  it('translates a contents turn under role assistant to an OpenAI assistant message (ai-contents-role-assistant)', () => {
+    const req: GenerateContentRequest = {
+      contents: [
+        { role: 'user', parts: [{ text: 'Reply with exactly the word: pyric' }] },
+        { role: 'assistant', parts: [{ text: 'pyric' }] },
+        { role: 'user', parts: [{ text: 'Reply with exactly the word: pyric' }] },
+      ],
+    };
+    const out = geminiToOpenAIRequest('m', req, false);
+    expect(out.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
   });
 
   it('skips thought parts when replaying history to OpenAI (lossy edge #4)', () => {

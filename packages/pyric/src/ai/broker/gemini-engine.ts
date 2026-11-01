@@ -4,16 +4,20 @@
  *
  * A sandbox engine an app selects with `engine: { kind: 'gemini' }`. It runs
  * on Pyric's backend server, authenticating via a local API key
- * (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` / `VITE_GEMINI_API_KEY`) or Google
+ * (`GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY`) or Google
  * Cloud Application Default Credentials (`gcloud auth application-default login`)
- * without exposing secrets to the browser. AI production mode does not use
- * it: there `firebase/ai` is the Firebase SDK.
+ * without exposing secrets to the browser. In a browser page or SharedWorker
+ * its base URL is the dev server's `/__pyric/ai-proxy/gemini` route, and the
+ * server attaches the credentials (`gemini-upstream.ts`). AI production mode
+ * does not use it: there `firebase/ai` is the Firebase SDK.
  *
  * The requested model id goes upstream unchanged, and an upstream error
  * reaches the caller with the upstream's own code, status and message.
  */
 
-import { AiBrokerError, errorEnvelope, redactUrl } from './synthesizer.js';
+import { AiBrokerError, errorEnvelope } from './synthesizer.js';
+import { GeminiUpstream, type GeminiUpstreamOptions } from './gemini-upstream.js';
+import { redactUpstreamError, redactUpstreamText } from './upstream-error-redaction.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -24,85 +28,7 @@ import type {
   WireResponse,
 } from './types.js';
 
-/** Where the gemini engine talks when no `baseUrl` overrides it. Published
- *  through `pyric/ai/internal` so the CLI's startup banner can name the same
- *  endpoint instead of keeping its own copy. */
-export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
-
-/**
- * Whether a static API key is configured: the explicit option, else the first
- * of `GEMINI_API_KEY`, `GOOGLE_GENAI_API_KEY`, `VITE_GEMINI_API_KEY` that is
- * defined, which must then be non-blank. This is the engine's own precedence
- * (a blank earlier variable shadows a later real one), published through
- * `pyric/ai/internal` so the CLI's startup banner cannot disagree with it.
- * Application Default Credentials are not consulted: a status read must never
- * shell out.
- */
-export function hasGeminiStaticKey(explicitKey: string | undefined): boolean {
-  const candidates = [
-    explicitKey,
-    process.env.GEMINI_API_KEY,
-    process.env.GOOGLE_GENAI_API_KEY,
-    process.env.VITE_GEMINI_API_KEY,
-  ];
-  const chosen = candidates.find((key) => key !== undefined);
-  return chosen !== undefined && chosen.trim() !== '';
-}
-
-const ADC_COMMAND = 'gcloud auth application-default print-access-token';
-
-/**
- * How long a looked-up ADC access token is reused. The command prints only
- * the token, not its expiry. It refreshes the credential on every run, so the
- * printed token is newly minted with the default lifetime of one hour; 30
- * minutes stays well inside that. An upstream 401 also refreshes the token
- * early.
- */
-const ADC_TOKEN_TTL_MS = 30 * 60 * 1000;
-
-type ExecCallback = (error: Error | null, stdout: string) => void;
-type ExecFn = (command: string, options: Record<string, unknown>, callback: ExecCallback) => unknown;
-
-/**
- * BROWSER-CLEAN: acquires `node:child_process` lazily via `process.getBuiltinModule`
- * so no static node import exists for browser bundlers to resolve.
- */
-function getExec(): ExecFn | null {
-  const get = (globalThis as { process?: { getBuiltinModule?: (id: string) => unknown } }).process
-    ?.getBuiltinModule;
-  const hasGetBuiltinModule = typeof get === 'function';
-  if (!hasGetBuiltinModule) {
-    return null;
-  }
-  const cp = get.call(process, 'node:child_process') as { exec?: unknown } | undefined;
-  const hasExec = cp !== undefined && typeof cp.exec === 'function';
-  if (!hasExec) {
-    return null;
-  }
-  return cp.exec as ExecFn;
-}
-
-/**
- * Runs the gcloud ADC command without blocking the event loop. The command
- * runs through the shell, as `gcloud` is a script on every platform. Stderr
- * is captured and discarded. Resolves to the empty string when no runtime
- * child process is available.
- */
-function printAdcTokenWithGcloud(): Promise<string> {
-  const exec = getExec();
-  if (exec === null) {
-    return Promise.resolve('');
-  }
-  return new Promise((resolve, reject) => {
-    exec(ADC_COMMAND, { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(String(stdout));
-    });
-  });
-}
+export { GEMINI_DEFAULT_BASE_URL, hasGeminiStaticKey } from './gemini-upstream.js';
 
 /** The `message` and `status` of a Gemini `{ error: { ... } }` body, or null. */
 function parseUpstreamError(text: string): { message: string; status: string } | null {
@@ -118,149 +44,57 @@ function parseUpstreamError(text: string): { message: string; status: string } |
   return { message: error.message as string, status: error.status as string };
 }
 
-export interface GeminiEngineOptions {
-  /** Explicit API key. Absent ⇒ resolved from environment variables or ADC. */
-  apiKey?: string;
-  /** Explicit base URL override (default: https://generativelanguage.googleapis.com). */
-  baseUrl?: string;
-  /** Explicit fetch seam for testing or custom transport. */
-  fetch?: typeof fetch;
-  /** Prints an ADC access token. Defaults to running
-   *  `gcloud auth application-default print-access-token`. */
-  printAdcToken?: () => Promise<string>;
-  /** Clock for the ADC token lifetime, in milliseconds. Defaults to `Date.now`. */
-  now?: () => number;
+/**
+ * One SSE event's data as a chunk, or undefined when it is not JSON. A 2xx
+ * stream can carry an error event mid-response; it passes through as the
+ * upstream sent it, with the credentials the request carried masked (#1660).
+ */
+function parseStreamData(data: string, credentials: readonly string[]): WireChunk | undefined {
+  let chunk: unknown;
+  try {
+    chunk = JSON.parse(data);
+  } catch {
+    return undefined;
+  }
+  const isErrorEvent = chunk !== null && typeof chunk === 'object' && 'error' in chunk;
+  if (!isErrorEvent) return chunk as WireChunk;
+  return JSON.parse(redactUpstreamError(data, credentials)) as WireChunk;
 }
 
-interface UpstreamAuth {
-  token: string;
-  isBearer: boolean;
-  /** The token came from Application Default Credentials, so a 401 can be
-   *  answered by looking up a fresh one. */
-  isAdc: boolean;
+/** A 2xx upstream answer and the credentials its request carried. */
+interface SentRequest {
+  response: Response;
+  credentials: readonly string[];
 }
+
+export type GeminiEngineOptions = GeminiUpstreamOptions;
 
 export class GeminiEngine implements AnswerEngine {
-  private readonly baseUrl: string;
-  private readonly fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-  private readonly explicitKey?: string;
-  private readonly printAdcToken: () => Promise<string>;
-  private readonly now: () => number;
-  private adcToken: { token: string; expiresAt: number } | undefined;
-  private adcLookup: Promise<string> | undefined;
+  private readonly upstream: GeminiUpstream;
 
   constructor(options?: GeminiEngineOptions) {
-    this.baseUrl = (options?.baseUrl ?? GEMINI_DEFAULT_BASE_URL).replace(/\/$/, '');
-    this.fetchImpl = options?.fetch ?? ((input, init) => fetch(input, init));
-    this.explicitKey = options?.apiKey;
-    this.printAdcToken = options?.printAdcToken ?? printAdcTokenWithGcloud;
-    this.now = options?.now ?? Date.now;
+    this.upstream = new GeminiUpstream(options);
   }
 
   /**
    * Whether a static key is configured, checking the explicit option and the
-   * same environment variables {@link resolveAuthToken} does, without
-   * resolving Application Default Credentials: a status read must never shell
-   * out, and ADC's own presence answers only at call time.
+   * same environment variables the upstream request does, without resolving
+   * Application Default Credentials: a status read must never shell out, and
+   * ADC's own presence answers only at call time.
    */
   hasKeyConfigured(): boolean {
-    return hasGeminiStaticKey(this.explicitKey);
+    return this.upstream.hasKeyConfigured();
   }
 
-  /**
-   * Resolves authentication credentials sequentially, checking static options,
-   * environment variables, and finally Google Cloud Application Default
-   * Credentials (`gcloud auth application-default print-access-token`).
-   */
-  private async resolveAuthToken(): Promise<UpstreamAuth> {
-    let key = this.explicitKey;
-    if (key === undefined) {
-      key = process.env.GEMINI_API_KEY;
-    }
-    if (key === undefined) {
-      key = process.env.GOOGLE_GENAI_API_KEY;
-    }
-    if (key === undefined) {
-      key = process.env.VITE_GEMINI_API_KEY;
-    }
-
-    if (key !== undefined) {
-      const trimmedKey = key.trim();
-      const hasStaticKey = trimmedKey !== '';
-      if (hasStaticKey) {
-        return { token: trimmedKey, isBearer: false, isAdc: false };
-      }
-    }
-
-    const adcToken = await this.cachedAdcToken();
-    if (adcToken !== '') {
-      return { token: adcToken, isBearer: true, isAdc: true };
-    }
-
-    throw new AiBrokerError(
-      errorEnvelope(
-        401,
-        'The Pyric gemini AI engine requires GEMINI_API_KEY, GOOGLE_GENAI_API_KEY, or VITE_GEMINI_API_KEY in your server environment (or Application Default Credentials via `gcloud auth application-default login`).',
-        'UNAUTHENTICATED',
-      ),
+  /** Sends one upstream request; a non-2xx answer throws the upstream's own error. */
+  private async send(model: string, action: string, body: unknown): Promise<SentRequest> {
+    const { response, credentials } = await this.upstream.sendWithCredentials(
+      this.normalizeModel(model),
+      action,
+      JSON.stringify(body),
     );
-  }
-
-  /**
-   * The ADC access token, reused for {@link ADC_TOKEN_TTL_MS}. Concurrent
-   * callers share one lookup. A failed or empty lookup is not cached, so the
-   * next request tries again. Resolves to the empty string when ADC is
-   * unavailable.
-   */
-  private cachedAdcToken(): Promise<string> {
-    const cached = this.adcToken;
-    if (cached !== undefined && this.now() < cached.expiresAt) {
-      return Promise.resolve(cached.token);
-    }
-    if (this.adcLookup !== undefined) {
-      return this.adcLookup;
-    }
-    const lookup = this.lookUpAdcToken();
-    this.adcLookup = lookup;
-    void lookup.then(() => {
-      if (this.adcLookup === lookup) {
-        this.adcLookup = undefined;
-      }
-    });
-    return lookup;
-  }
-
-  private async lookUpAdcToken(): Promise<string> {
-    let token = '';
-    try {
-      token = (await this.printAdcToken()).trim();
-    } catch {
-      return '';
-    }
-    if (token !== '') {
-      this.adcToken = { token, expiresAt: this.now() + ADC_TOKEN_TTL_MS };
-    }
-    return token;
-  }
-
-  /**
-   * Sends one upstream request. When the token came from ADC and the
-   * upstream answers 401, the cached token is dropped and the request is
-   * sent once more with a fresh one.
-   */
-  private async send(model: string, action: string, body: unknown): Promise<Response> {
-    const resource = this.normalizeModel(model);
-    const auth = await this.resolveAuthToken();
-    const first = this.formatUpstreamRequest(resource, action, auth);
-    const response = await this.post(first.url, first.headers, body);
-    if (response.status === 401 && auth.isAdc) {
-      await response.body?.cancel().catch(() => {});
-      this.adcToken = undefined;
-      const retryAuth = await this.resolveAuthToken();
-      const retry = this.formatUpstreamRequest(resource, action, retryAuth);
-      return this.checkStatus(await this.post(retry.url, retry.headers, body));
-    }
-    return this.checkStatus(response);
+    await this.checkStatus(response, credentials);
+    return { response, credentials };
   }
 
   /**
@@ -278,91 +112,33 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   /**
-   * Formats upstream REST endpoint URLs and request headers for either Google
-   * AI Studio (`generativelanguage.googleapis.com`) or Vertex AI regional APIs.
-   */
-  private formatUpstreamRequest(
-    resource: string,
-    action: string,
-    auth: { token: string; isBearer: boolean },
-  ): { url: string; headers: Record<string, string> } {
-    const isVertexUrl =
-      this.baseUrl.includes('firebasevertexai.googleapis.com') ||
-      this.baseUrl.includes('aiplatform.googleapis.com');
-    const shouldUseBearerAuth = auth.isBearer || isVertexUrl;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (shouldUseBearerAuth) {
-      headers['Authorization'] = `Bearer ${auth.token}`;
-      return {
-        url: `${this.baseUrl}/v1beta/${resource}:${action}`,
-        headers,
-      };
-    }
-
-    return {
-      url: `${this.baseUrl}/v1beta/${resource}:${action}?key=${encodeURIComponent(auth.token)}`,
-      headers,
-    };
-  }
-
-  private async post(
-    url: string,
-    headers: Record<string, string>,
-    body: unknown,
-  ): Promise<Response> {
-    try {
-      return await this.fetchImpl(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
-    } catch (err) {
-      // Redact both: `url` always carries the key when auth is a static key
-      // (not bearer/ADC); `message` is defensively redacted too in case the
-      // fetch implementation's own error text echoes the request URL.
-      const rawMessage = err instanceof Error ? err.message : String(err);
-      const safeUrl = redactUrl(url);
-      const safeMessage = redactUrl(rawMessage);
-      throw new AiBrokerError(
-        errorEnvelope(
-          502,
-          `Failed to connect to Gemini API at ${safeUrl}: ${safeMessage}`,
-          'UNAVAILABLE',
-        ),
-      );
-    }
-  }
-
-  /**
    * A non-2xx upstream answer becomes an {@link AiBrokerError} carrying the
    * upstream's own error envelope: its HTTP code, `status` and message. A
    * body that is not a Gemini error envelope keeps the HTTP code and reports
-   * the body text.
+   * the body text. Either way the credentials the request carried are masked
+   * in every form the upstream can quote them, in the message and the status
+   * alike, with the masking the gemini proxy applies to the same body
+   * (`upstream-error-redaction.ts`, #1660).
    */
-  private async checkStatus(response: Response): Promise<Response> {
+  private async checkStatus(response: Response, credentials: readonly string[]): Promise<void> {
     const isSuccess = response.ok;
-    if (isSuccess) return response;
+    if (isSuccess) return;
     const errorText = await response.text().catch(() => '');
-    const upstream = parseUpstreamError(errorText);
+    const upstream = parseUpstreamError(redactUpstreamError(errorText, credentials));
     if (upstream !== null) {
-      throw new AiBrokerError(
-        errorEnvelope(response.status, redactUrl(upstream.message), upstream.status),
-      );
+      throw new AiBrokerError(errorEnvelope(response.status, upstream.message, upstream.status));
     }
     throw new AiBrokerError(
       errorEnvelope(
         response.status,
-        `Gemini API returned status ${response.status}: ${redactUrl(errorText)}`,
+        `Gemini API returned status ${response.status}: ${redactUpstreamText(errorText, credentials)}`,
         'INTERNAL',
       ),
     );
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
-    const response = await this.send(model, 'generateContent', req);
+    const { response } = await this.send(model, 'generateContent', req);
     return (await response.json()) as WireResponse;
   }
 
@@ -370,7 +146,7 @@ export class GeminiEngine implements AnswerEngine {
     req: GenerateContentRequest,
     model: string,
   ): AsyncIterable<WireChunk> {
-    const response = await this.send(model, 'streamGenerateContent?alt=sse', req);
+    const { response, credentials } = await this.send(model, 'streamGenerateContent?alt=sse', req);
 
     const hasBody = response.body !== null && response.body !== undefined;
     if (!hasBody) {
@@ -404,12 +180,9 @@ export class GeminiEngine implements AnswerEngine {
           if (isEmptyOrDone) {
             continue;
           }
-          try {
-            const chunk = JSON.parse(dataStr) as WireChunk;
-            yield chunk;
-          } catch {
-            // Ignore malformed SSE chunk in stream
-          }
+          // A malformed SSE chunk is skipped.
+          const chunk = parseStreamData(dataStr, credentials);
+          if (chunk !== undefined) yield chunk;
         }
       }
 
@@ -421,12 +194,8 @@ export class GeminiEngine implements AnswerEngine {
           const dataStr = line.slice(6).trim();
           const isNotEmptyOrDone = dataStr !== '' && dataStr !== '[DONE]';
           if (isNotEmptyOrDone) {
-            try {
-              const chunk = JSON.parse(dataStr) as WireChunk;
-              yield chunk;
-            } catch {
-              // Ignore malformed SSE chunk in stream
-            }
+            const chunk = parseStreamData(dataStr, credentials);
+            if (chunk !== undefined) yield chunk;
           }
         }
       }
@@ -436,7 +205,7 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
-    const response = await this.send(model, 'countTokens', req);
+    const { response } = await this.send(model, 'countTokens', req);
     return (await response.json()) as CountTokensResponse;
   }
 }

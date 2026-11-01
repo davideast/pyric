@@ -11,8 +11,9 @@ import {
   type Database,
   type Unsubscribe,
 } from 'firebase/database';
-import { cert, deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
+import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
+import { oracleAppOptions, type OracleServiceAccount } from '../../oracle-credential.ts';
 
 export interface OracleProbe {
   name: string;
@@ -24,11 +25,7 @@ export interface OracleProbe {
 
 export interface RtdbDisconnectContext {
   config: FirebaseOptions & { projectId: string; databaseURL: string };
-  serviceAccount: {
-    client_email: string;
-    private_key: string;
-    project_id: string;
-  };
+  serviceAccount: OracleServiceAccount;
   rtdbAdminToken: string;
   runId: string;
 }
@@ -515,11 +512,7 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
         const events: unknown[] = [];
         const unsubscribe = observeValues(getDatabase(observerApp), path, events);
         const adminApp = initializeAdminApp({
-          credential: cert({
-            projectId: ctx.serviceAccount.project_id,
-            clientEmail: ctx.serviceAccount.client_email,
-            privateKey: ctx.serviceAccount.private_key,
-          }),
+          ...oracleAppOptions(ctx.serviceAccount),
           databaseURL: ctx.config.databaseURL,
         }, `disconnect-abrupt-admin-${ctx.runId}-${index}`);
         const uid = `pyric-disconnect-${ctx.runId}-${index}`.slice(0, 128);

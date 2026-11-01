@@ -11,6 +11,7 @@ import type {
   TestResult,
 } from './spec.js';
 import { buildApiTestCase, buildStorageApiTestCase } from './spec.js';
+import { caseShapeRefusal } from './case-shape.js';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
@@ -51,6 +52,29 @@ function requireExactApiResultCount(expected: number, results: readonly ApiTestR
   }
 }
 
+/**
+ * The wire form of every case, or the refusal the first malformed one draws,
+ * naming the case. A case the simulator would read as a different request
+ * never reaches the Rules Test API.
+ */
+function wireCases(
+  testCases: readonly TestCase[],
+  opts: TestFirestoreRulesOptions,
+): { ok: true; cases: ApiTestCase[] } | { ok: false; message: string } {
+  const cases: ApiTestCase[] = [];
+  for (const [i, tc] of testCases.entries()) {
+    const named = ` (case ${i}, ${JSON.stringify(tc?.description ?? '')})`;
+    const refusal = caseShapeRefusal(tc);
+    if (refusal) return { ok: false, message: `${refusal}${named}` };
+    try {
+      cases.push(buildApiTestCase(tc, { expressionReportLevel: opts.expressionReportLevel }));
+    } catch (e) {
+      return { ok: false, message: `${e instanceof Error ? e.message : String(e)}${named}` };
+    }
+  }
+  return { ok: true, cases };
+}
+
 export class TestFirestoreRulesHandler {
   async execute(
     scope: ProjectScope,
@@ -58,11 +82,13 @@ export class TestFirestoreRulesHandler {
     testCases: TestCase[],
     opts: TestFirestoreRulesOptions = {},
   ): Promise<TestFirestoreRulesResult> {
+    const wire = wireCases(testCases, opts);
+    if (!wire.ok) {
+      return { success: false, error: { code: 'INVALID_REQUEST', message: wire.message, recoverable: true } };
+    }
+    const apiTestCases = wire.cases;
     try {
       const token = await scope.resolveToken();
-
-      const apiTestCases: ApiTestCase[] = testCases.map((tc) =>
-        buildApiTestCase(tc, { expressionReportLevel: opts.expressionReportLevel }));
 
       const res = await fetch(`${RULES_API}/projects/${scope.projectId}:test`, {
         method: 'POST',
