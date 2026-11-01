@@ -521,6 +521,44 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     }
   });
 
+  it('masks the credentials a request carried in a stream-abort cause (review of #1765)', async () => {
+    const key = 'fake-stream-key-1765';
+    const realFetch = globalThis.fetch;
+    const aborting = async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"n":1}\n\n'));
+      },
+      pull(controller) {
+        controller.error(new TypeError(`socket reset while sending x-goog-api-key ${key}`));
+      },
+    }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    globalThis.fetch = Object.assign(aborting, { preconnect: realFetch.preconnect });
+    try {
+      const { logger, notes } = recordingLogger();
+      const throttle = { shouldPrint: () => true };
+      const headers = { 'x-goog-api-key': key };
+      const res = await fetchAiUpstream('http://up.example/v1beta/m:streamGenerateContent', { method: 'POST', headers }, throttle, logger);
+      await expect(res.text()).rejects.toThrow(key);
+      expect(notes.length).toBe(1);
+      expect(notes[0]).toContain('stream aborted mid-response: socket reset while sending x-goog-api-key ***');
+      expect(notes[0]).not.toContain(key);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('masks a header credential the target quotes, which redactUrl alone leaves (review of #1765)', async () => {
+    const key = 'fake-path-key-1765';
+    const { logger, notes } = recordingLogger();
+    const throttle = { shouldPrint: () => true };
+    const target = await disconnectedLoopbackUrl(`/gateway/${key}/v1beta/m:generateContent`);
+    const sent = fetchAiUpstream(target, { method: 'POST', headers: { 'x-goog-api-key': key } }, throttle, logger);
+    await expect(sent).rejects.toThrow();
+    expect(notes.length).toBe(1);
+    expect(notes[0]).not.toContain(key);
+    expect(notes[0]).toContain('/gateway/***/v1beta/m:generateContent');
+  });
+
   it('drops diagnostics entirely when no logger is wired (never throws)', async () => {
     const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {

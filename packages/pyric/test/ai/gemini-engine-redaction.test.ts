@@ -229,3 +229,46 @@ describe('GeminiEngine: a fetch error is masked with the exact credentials (#173
     assertNone(texts, encodeURIComponent(key));
   });
 });
+
+describe('GeminiEngine: a stream read error and nested credentials are masked (review of #1765)', () => {
+  it('masks a key a mid-stream read error quotes, as an AiBrokerError', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(ANSWER_CHUNK)}\n\n`));
+      },
+      pull(controller) {
+        controller.error(new TypeError(`socket reset while sending key ${FAKE_KEY}`));
+      },
+    });
+    const engine = new GeminiEngine({
+      apiKey: FAKE_KEY,
+      fetch: (async () => new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })) as unknown as typeof fetch,
+    });
+    const chunks: unknown[] = [];
+    const err = await captureError(async () => {
+      for await (const chunk of engine.streamGenerateContent(EMPTY_REQUEST, 'gemini-2.5-flash')) chunks.push(chunk);
+    });
+    expect(chunks).toEqual([ANSWER_CHUNK]);
+    expect(err.message).not.toContain(FAKE_KEY);
+    expect(err.envelope.error.message).toBe('Gemini API stream aborted mid-response: socket reset while sending key ***');
+    expect(err.envelope.error.status).toBe('UNAVAILABLE');
+  });
+
+  it('masks a refreshed ADC token that contains the first one, longest first', async () => {
+    const tokens = ['ya29.fake-1765', 'ya29.fake-1765-refreshed'];
+    let lookups = 0;
+    let sends = 0;
+    const engine = new GeminiEngine({
+      apiKey: '',
+      printAdcToken: async () => tokens[lookups++]!,
+      fetch: (async () => {
+        sends += 1;
+        if (sends === 1) return new Response('unauthenticated', { status: 401 });
+        throw new TypeError(`Headers.append: "Bearer ${tokens[1]}" is an invalid header value.`);
+      }) as unknown as typeof fetch,
+    });
+    const { err, texts } = await surfaces(engine);
+    assertNone(texts, 'refreshed');
+    expect(err.envelope.error.message).toEndWith(': Headers.append: "Bearer ***" is an invalid header value.');
+  });
+});
