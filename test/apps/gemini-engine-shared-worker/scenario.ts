@@ -298,7 +298,7 @@ export default scenario(async (app) => {
     await app.step('pyric sandbox with only VITE_GEMINI_API_KEY set: the banner names it as ignored and says to rename it', async () => {
       app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: '.' } })}\n`);
       const sandbox = await app.sandboxServer({ env: { VITE_GEMINI_API_KEY: SERVER_KEY } });
-      await sandbox.process.waitForLog(/ai {7}.*VITE_GEMINI_API_KEY is set and ignored, because Vite serves every VITE_ variable to the browser; rename it to GEMINI_API_KEY/);
+      await sandbox.process.waitForLog(/ai {7}.*VITE_GEMINI_API_KEY is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY/);
       assert.ok(!sandbox.process.output.includes(SERVER_KEY), 'the banner never prints the key');
     });
   } finally {

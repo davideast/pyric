@@ -151,7 +151,7 @@ describe('pyric dev AI startup status', () => {
     it('names VITE_GEMINI_API_KEY as ignored, and says to rename it, without printing the key (#1659)', () => {
       process.env.VITE_GEMINI_API_KEY = 'AIzaSyFromEnv';
       const line = formatAiStatusLine({ engine: { kind: 'gemini' } });
-      expect(line).toContain('gemini (no API key; VITE_GEMINI_API_KEY is set and ignored, because Vite serves every VITE_ variable to the browser; rename it to GEMINI_API_KEY)');
+      expect(line).toContain('gemini (no API key; VITE_GEMINI_API_KEY is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY)');
       expect(line).not.toContain('AIzaSyFromEnv');
     });
 

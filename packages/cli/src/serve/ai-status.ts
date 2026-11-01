@@ -55,7 +55,7 @@ function describeOpenAiModel(model: string | undefined): string {
 }
 
 /**
- * The Gemini key name Pyric does not read: Vite serves every `VITE_` variable
+ * The Gemini key name Pyric does not read: by default Vite serves `VITE_` variables
  * to the browser, so a key there would reach the page (#1632).
  */
 const IGNORED_GEMINI_KEY = 'VITE_GEMINI_API_KEY';
@@ -70,7 +70,7 @@ function ignoredGeminiKeyNote(): string | null {
   const value = process.env[IGNORED_GEMINI_KEY];
   const holdsKey = value !== undefined && value.trim() !== '';
   if (!holdsKey) return null;
-  return `${IGNORED_GEMINI_KEY} is set and ignored, because Vite serves every VITE_ variable to the browser; rename it to GEMINI_API_KEY`;
+  return `${IGNORED_GEMINI_KEY} is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY`;
 }
 
 /** Mark + body for one AI status line, in both terminal flavors. */

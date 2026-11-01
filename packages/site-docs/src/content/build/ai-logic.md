@@ -165,7 +165,9 @@ pyric({
 
 Pyric's dev server reads the key and attaches it to requests itself, so the key never reaches the page.
 
-Do not name the key `VITE_GEMINI_API_KEY`. Vite serves every `VITE_` variable to the browser, so the Vite dev server refuses to start with it set. `pyric dev`, `pyric sandbox` and `@pyric/cli/register` ignore it, and the `pyric dev` and `pyric sandbox` startup banner names it as ignored. For the same reason, keep your Vite `envPrefix` from covering `GEMINI_` or `GOOGLE_`.
+Do not name the key `VITE_GEMINI_API_KEY`. Vite serves every variable whose name starts with an `envPrefix` entry to the browser, and `envPrefix` is `VITE_` by default. While your `envPrefix` covers `VITE_`, the Vite dev server refuses to start with that variable set. `pyric dev`, `pyric sandbox` and `@pyric/cli/register` ignore it, and the `pyric dev` and `pyric sandbox` startup banner names it as ignored.
+
+For the same reason, keep your Vite `envPrefix` from covering `GEMINI_` or `GOOGLE_`. When it does, the Vite dev server refuses to start while `GEMINI_API_KEY` or `GOOGLE_GENAI_API_KEY` holds a key.
 
 A `define` entry in your Vite config also puts the key in the page:
 
