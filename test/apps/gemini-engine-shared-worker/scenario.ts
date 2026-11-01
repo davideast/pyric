@@ -24,8 +24,6 @@
 // serves may carry the dev server's `VITE_` value: Pyric's own modules must
 // not read `import.meta.env` (#1632). A key in `VITE_GEMINI_API_KEY`, in the
 // shell or in `.env`, stops the dev server with a message to rename it.
-// `pyric sandbox` serves no `import.meta.env` and does not read the variable
-// either, so its banner names it as ignored and says to rename it (#1659).
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { BrowserContext } from 'playwright';
@@ -295,6 +293,8 @@ export default scenario(async (app) => {
       assertRefusedViteKey(await viteRun(app, await app.freePort(), { GEMINI_STAND_IN_URL: standIn.url }));
     });
 
+    // `pyric sandbox` serves no `import.meta.env` and does not read the
+    // variable either, so its banner names it as ignored (#1659).
     await app.step('pyric sandbox with only VITE_GEMINI_API_KEY set: the banner names it as ignored and says to rename it', async () => {
       app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: '.' } })}\n`);
       const sandbox = await app.sandboxServer({ env: { VITE_GEMINI_API_KEY: SERVER_KEY } });
