@@ -1,5 +1,6 @@
 import { describeRulesType } from './rules-type.js';
 import { RulesFloat } from './wrappers/float.js';
+import { INT64_MIN, roundToInt, rulesFloatValue, rulesInt } from './rules-int.js';
 
 /**
  * The `math` namespace of the rules language. Firestore and Storage rules
@@ -27,46 +28,46 @@ export class MathFailure {
   constructor(readonly message: string) {}
 }
 
+/** An int or float argument: `int` holds an int's exact value, `value` its double. */
+interface MathArgument {
+  value: number;
+  int?: bigint;
+}
+
 interface MathFunction {
   /** The overload list production prints in its argument errors. */
   readonly overloads: string;
   readonly arity: number;
-  apply(args: readonly number[], floats: readonly boolean[]): unknown;
-}
-
-const INT64_MIN = -(2 ** 63);
-const INT64_MAX = 2 ** 63;
-
-/** Round half up to an int, NaN as 0, saturated at the int64 bounds. */
-function roundToInt(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  if (value <= INT64_MIN) return INT64_MIN;
-  if (value >= INT64_MAX) return INT64_MAX;
-  return Math.round(value) + 0; // + 0 turns -0 into 0
+  apply(args: readonly MathArgument[]): unknown;
 }
 
 const float = (value: number) => new RulesFloat(value);
+
+/** `math.abs` of an int: the int64 minimum has no positive int64, and production returns it unchanged. */
+function absInt(value: bigint): bigint {
+  return value < 0n && value !== INT64_MIN ? -value : value;
+}
 
 const MATH: ReadonlyMap<string, MathFunction> = new Map<string, MathFunction>([
   ['abs', {
     overloads: 'math.abs(int), math.abs(float)',
     arity: 1,
-    // The int64 minimum has no positive int64: production returns it unchanged.
-    apply: ([x], [isFloat]) => (isFloat ? float(Math.abs(x!)) : x === INT64_MIN ? x : Math.abs(x!)),
+    apply: ([x]) => (x!.int === undefined ? float(Math.abs(x!.value)) : absInt(x!.int)),
   }],
-  ['ceil', { overloads: 'math.ceil(float)', arity: 1, apply: ([x]) => float(Math.ceil(x!)) }],
-  ['floor', { overloads: 'math.floor(float)', arity: 1, apply: ([x]) => float(Math.floor(x!)) }],
-  ['round', { overloads: 'math.round(float)', arity: 1, apply: ([x]) => roundToInt(x!) }],
-  ['sqrt', { overloads: 'math.sqrt(float)', arity: 1, apply: ([x]) => float(Math.sqrt(x!)) }],
-  ['pow', { overloads: 'math.pow(float, float)', arity: 2, apply: ([x, y]) => float(Math.pow(x!, y!)) }],
-  ['isNaN', { overloads: 'math.isNaN(float)', arity: 1, apply: ([x]) => Number.isNaN(x!) }],
+  ['ceil', { overloads: 'math.ceil(float)', arity: 1, apply: ([x]) => float(Math.ceil(x!.value)) }],
+  ['floor', { overloads: 'math.floor(float)', arity: 1, apply: ([x]) => float(Math.floor(x!.value)) }],
+  ['round', { overloads: 'math.round(float)', arity: 1, apply: ([x]) => x!.int ?? roundToInt(x!.value) }],
+  ['sqrt', { overloads: 'math.sqrt(float)', arity: 1, apply: ([x]) => float(Math.sqrt(x!.value)) }],
+  ['pow', { overloads: 'math.pow(float, float)', arity: 2, apply: ([x, y]) => float(Math.pow(x!.value, y!.value)) }],
+  ['isNaN', { overloads: 'math.isNaN(float)', arity: 1, apply: ([x]) => Number.isNaN(x!.value) }],
 ]);
 
-/** The numeric value of an int or float argument, or undefined for any other type. */
-function numeric(value: unknown): { value: number; isFloat: boolean } | undefined {
-  if (value instanceof RulesFloat) return { value: value.value, isFloat: true };
-  if (typeof value === 'number') return { value, isFloat: !Number.isInteger(value) };
-  return undefined;
+/** An int or float argument, or undefined for any other type. */
+function numeric(value: unknown): MathArgument | undefined {
+  const int = rulesInt(value);
+  if (int !== undefined) return { value: Number(int), int };
+  const double = rulesFloatValue(value);
+  return double === undefined ? undefined : { value: double };
 }
 
 /** Apply `math.<name>` to its evaluated arguments. */
@@ -82,5 +83,5 @@ export function applyMath(name: string, args: readonly unknown[]): unknown {
       `Unsupported operation error. Received: math.${name}(${args.map(describeRulesType).join(', ')}). Expected: ${fn.overloads}.`,
     );
   }
-  return fn.apply(numbers.map((n) => n!.value), numbers.map((n) => n!.isFloat));
+  return fn.apply(numbers as MathArgument[]);
 }

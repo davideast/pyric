@@ -1,21 +1,26 @@
 import { NO_OP, RulesValue, ValueRangeError } from '../../rules/simulator/wrappers/base.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
-import { DIVIDE_BY_ZERO_MESSAGE } from '../../rules/simulator/eval-error.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
+import { RuleError } from './rules-values.js';
 import {
-  RuleError,
-  numericValue as numVal,
-} from './rules-values.js';
+  IntFailure,
+  type IntOperator,
+  intArithmetic,
+  isRulesInt,
+  rulesFloatValue,
+  rulesInt,
+  rulesNumberAsDouble,
+} from '../../rules/simulator/rules-int.js';
 
 /** The value types whose `is` test reads the value's own type name. */
 const VALUE_TYPE_NAMES = new Set(['timestamp', 'duration', 'bytes', 'latlng', 'path']);
 
 /**
  * `value is <type>` check. Numbers use the RULES-B5 model: a `RulesFloat`
- * wrapper is a FLOAT, a bare number is an INT — so `1.0 is float` and
- * `!(1.0 is int)` type by literal form exactly as production does. A bare
- * NON-integral number (a fractional value that arrived from data rather than
+ * wrapper is a FLOAT, and a bigint or a bare integral number is an INT
+ * (`rules-int.ts`), so `1.0 is float` and `!(1.0 is int)` type by literal
+ * form exactly as production does. A bare NON-integral number (a fractional value that arrived from data rather than
  * a literal, e.g. a Firestore-lookup double) still reads as float. `number`
  * accepts either. Timestamps, durations, and bytes are wrapper values that
  * carry their type name.
@@ -24,9 +29,9 @@ export function typeMatches(v: unknown, typeName: string): boolean | RuleError {
   switch (typeName) {
     case 'string': return typeof v === 'string';
     case 'bool': return typeof v === 'boolean';
-    case 'int': return typeof v === 'number' && Number.isInteger(v);
-    case 'float': return v instanceof RulesFloat || (typeof v === 'number' && !Number.isInteger(v));
-    case 'number': return v instanceof RulesFloat || typeof v === 'number';
+    case 'int': return isRulesInt(v);
+    case 'float': return rulesFloatValue(v) !== undefined;
+    case 'number': return rulesNumberAsDouble(v) !== undefined;
     case 'list': return Array.isArray(v);
     case 'set': return v instanceof FirestoreSet;
     case 'map': return isRulesMap(v);
@@ -88,44 +93,42 @@ function unsupportedOperation(op: string, left: unknown, right: unknown): RuleEr
   );
 }
 
-/** True for a float (RulesFloat); ints are bare numbers. */
-function isFloatNum(v: unknown): boolean {
-  return v instanceof RulesFloat;
-}
-
 /** The arithmetic operators `evalArithmetic` answers. */
-export type ArithmeticOperator = '+' | '-' | '*' | '/' | '%';
+export type ArithmeticOperator = IntOperator;
 
 /**
  * `+`, `-`, `*`, `/`, and `%` over operands that are not Timestamp, Duration,
- * or Bytes values. `+` concatenates two strings. Ints and floats compute
- * numerically, and the result is a float when either operand is one. Int
- * division truncates toward zero, and an int zero divisor for `/` or `%` is
- * an error. A float zero divisor yields Infinity or NaN. Every other operand
- * pair, including list + list, is production's "Unsupported operation error",
- * an error value that `&&` and `||` absorb.
+ * or Bytes values. `+` concatenates two strings. Two ints compute in int64
+ * (`rules-int.ts`): division truncates toward zero, a zero divisor is an
+ * error, and a result past the range is production's "Integer value is out
+ * of the range" error, except `MIN / -1`, which is `MIN`. An int and a float,
+ * or two floats, compute as doubles into a float, and a float zero divisor
+ * yields Infinity or NaN. Every other operand pair, including list + list,
+ * is production's "Unsupported operation error". Each error is an error
+ * value that `&&` and `||` absorb.
  */
 export function evalArithmetic(op: ArithmeticOperator, left: unknown, right: unknown): unknown {
   if (op === '+' && typeof left === 'string' && typeof right === 'string') return left + right;
-  const l = numVal(left);
-  const r = numVal(right);
-  if (l === undefined || r === undefined) return unsupportedOperation(op, left, right);
-  const float = isFloatNum(left) || isFloatNum(right);
-  let result: number;
-  switch (op) {
-    case '+': result = l + r; break;
-    case '-': result = l - r; break;
-    case '*': result = l * r; break;
-    case '/':
-      if (!float && r === 0) return new RuleError(DIVIDE_BY_ZERO_MESSAGE);
-      result = float ? l / r : Math.trunc(l / r);
-      break;
-    case '%':
-      if (!float && r === 0) return new RuleError(DIVIDE_BY_ZERO_MESSAGE);
-      result = l % r;
-      break;
+  const leftInt = rulesInt(left);
+  const rightInt = rulesInt(right);
+  if (leftInt !== undefined && rightInt !== undefined) {
+    const result = intArithmetic(op, leftInt, rightInt);
+    return result instanceof IntFailure ? new RuleError(result.message) : result;
   }
-  return float ? new RulesFloat(result) : result;
+  const l = rulesNumberAsDouble(left);
+  const r = rulesNumberAsDouble(right);
+  if (l === undefined || r === undefined) return unsupportedOperation(op, left, right);
+  return new RulesFloat(floatArithmetic(op, l, r));
+}
+
+function floatArithmetic(op: ArithmeticOperator, l: number, r: number): number {
+  switch (op) {
+    case '+': return l + r;
+    case '-': return l - r;
+    case '*': return l * r;
+    case '/': return l / r;
+    case '%': return l % r;
+  }
 }
 
 /** The ordering operators `evalOrdering` answers. */
@@ -140,14 +143,22 @@ export type OrderingOperator = '<' | '>' | '<=' | '>=';
  * `&&` and `||` absorb.
  */
 export function evalOrdering(op: OrderingOperator, left: unknown, right: unknown): boolean | RuleError {
-  const l = numVal(left);
-  const r = numVal(right);
+  const l = orderingNumber(left);
+  const r = orderingNumber(right);
   if (l !== undefined && r !== undefined) return orders(op, l, r);
   if (typeof left === 'string' && typeof right === 'string') return orders(op, left, right);
   return unsupportedOperation(op, left, right);
 }
 
-function orders<T extends number | string>(op: OrderingOperator, left: T, right: T): boolean {
+/**
+ * A number as ordering reads it: an int exactly, as a bigint, and a float as
+ * its double. JavaScript orders a bigint and a number by exact value.
+ */
+function orderingNumber(value: unknown): bigint | number | undefined {
+  return rulesInt(value) ?? rulesFloatValue(value);
+}
+
+function orders<T extends bigint | number | string>(op: OrderingOperator, left: T, right: T): boolean {
   switch (op) {
     case '<': return left < right;
     case '>': return left > right;

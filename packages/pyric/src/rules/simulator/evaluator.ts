@@ -23,7 +23,18 @@ import { RulesValue, NO_OP } from './wrappers/base.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
-import { DIVIDE_BY_ZERO_MESSAGE, EvalError, ResourceLimitError } from './eval-error.js';
+import { Duration } from './wrappers/duration.js';
+import { EvalError, ResourceLimitError } from './eval-error.js';
+import {
+  IntFailure,
+  type IntOperator,
+  intArithmetic,
+  isRulesInt,
+  negateInt,
+  numericLiteralValue,
+  rulesFloatValue,
+  rulesInt,
+} from './rules-int.js';
 import { UnsupportedError } from './unsupported-error.js';
 
 export { EvalError, EvalError as RuleEvalError } from './eval-error.js';
@@ -78,13 +89,10 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
 
     case 'literal':
       // RULES-B5: a source literal written with a decimal point is a FLOAT
-      // (`1.0`, `1.5`), even when its value is integral. The grammar's
-      // `number_float` rule preserves the original text in `raw`, so a `.`
-      // there is the float signal. Bare integer literals (`1`) stay raw
-      // numbers (= int). Non-numeric literals (string/bool/null) pass through.
-      if (typeof expr.value === 'number' && expr.raw.includes('.')) {
-        return new RulesFloat(expr.value);
-      }
+      // (`1.0`, `1.5`), even when its value is integral. A literal of digits
+      // is an int64, read from its source text so every bit survives
+      // (`rules-int.ts`). Non-numeric literals (string/bool/null) pass through.
+      if (typeof expr.value === 'number') return numericLiteralValue(expr.value, expr.raw);
       // A bytes literal (`b'...'`) evaluates to the same Bytes value as `toUtf8()`.
       if (expr.value instanceof Uint8Array) return new Bytes(expr.value);
       return expr.value;
@@ -102,9 +110,13 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
       if (expr.op === '-') {
         const v = evaluate(expr.operand, ctx, scope);
         // RULES-B5: negating a float stays a float (`-1.5 is float`); negating
-        // an int stays an int. Preserve the operand's type tag.
-        if (v instanceof RulesFloat) return new RulesFloat(-v.value);
-        if (typeof v === 'number') return -v;
+        // an int stays an int, and `-MIN` is past int64, an error value.
+        // Negating a duration is the duration of the opposite sign.
+        const float = rulesFloatValue(v);
+        if (float !== undefined) return new RulesFloat(-float);
+        if (v instanceof Duration) return v.negated();
+        const int = rulesInt(v);
+        if (int !== undefined) return intResult(negateInt(int));
         throw new EvalError(
           `Unsupported operation error. Received: -${describeRulesType(v)}. Expected: -int, -float, -duration.`,
           expr,
@@ -207,12 +219,12 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
       const value = evaluate(expr.value, ctx, scope);
       switch (expr.typeName) {
         case 'string': return typeof value === 'string';
-        // RULES-B5: int and float are DISTINCT types. A bare JS number is an
-        // int; a RulesFloat wrapper is a float. `number` matches either.
+        // RULES-B5: int and float are DISTINCT types. A bigint or a bare
+        // integral JS number is an int (`rules-int.ts`); a RulesFloat wrapper
+        // is a float. `number` matches either.
         // `1.5 is int` → false, `1 is float` → false, `1.0 is float` → true.
         case 'int':
-          if (value instanceof RulesValue) return false;
-          return typeof value === 'number';
+          return isRulesInt(value);
         case 'float':
           return value instanceof RulesFloat;
         case 'number':
@@ -221,7 +233,7 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
           // IS a number, so it must pass here.
           if (value instanceof RulesFloat) return true;
           if (value instanceof RulesValue) return false;
-          return typeof value === 'number';
+          return typeof value === 'number' || typeof value === 'bigint';
         case 'bool': return typeof value === 'boolean';
         case 'null': return value === null;
         case 'list': return Array.isArray(value);
@@ -286,7 +298,7 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
         } else {
           try {
             const val = evaluate(seg, ctx, scope);
-            if (typeof val !== 'string' && (typeof val !== 'number' || !Number.isInteger(val))) {
+            if (typeof val !== 'string' && !isRulesInt(val)) {
               throw new EvalError(`Type error. Received: [${describeRulesType(val)}] Expected: [string].`, seg);
             }
             parts.push(String(val));
@@ -497,8 +509,8 @@ function evaluateBinaryOp(
     // genuinely ordered numeric op for `-`/`/`/`%` and the comparisons). Route
     // it through `RulesFloat(lv).binaryOp(op, rv)` so the result re-tags as a
     // float and `5 / 2.0` does float division (2.5), not int truncation.
-    if (typeof lv === 'number' && rv instanceof RulesFloat) {
-      const r = new RulesFloat(lv).binaryOp(op, rv);
+    if (isRulesInt(lv) && rv instanceof RulesFloat) {
+      const r = new RulesFloat(Number(lv)).binaryOp(op, rv);
       if (r !== NO_OP) return r;
     }
     // Right-side dispatch for symmetric/commutative ops only. Avoids
@@ -528,10 +540,11 @@ function evaluateBinaryOp(
   // SAME comparable type. CEL has no cross-type ordering overload, so `'a' < 1`
   // is an error, not the JS-coerced `false` the bare `as number` casts produced.
   // (Comparable wrappers — Bytes, Timestamp, Duration — were already dispatched
-  // via binaryOp above; anything reaching here is a raw number or string.)
+  // via binaryOp above; anything reaching here is an int, a bare number or a
+  // string. JavaScript orders a bigint and a number by exact value.)
   if (op === '<' || op === '>' || op === '<=' || op === '>=') {
     const sameComparable =
-      (typeof lv === 'number' && typeof rv === 'number') ||
+      (isNumeric(lv) && isNumeric(rv)) ||
       (typeof lv === 'string' && typeof rv === 'string');
     if (!sameComparable) {
       throw new EvalError(
@@ -558,7 +571,7 @@ function evaluateBinaryOp(
       // duration and timestamp pairs were dispatched above through the
       // wrappers' `binaryOp`, and any other wrapper operand errored there.
       if (typeof lv === 'string' && typeof rv === 'string') return lv + rv;
-      if (typeof lv === 'number' && typeof rv === 'number') return lv + rv;
+      if (isNumeric(lv) && isNumeric(rv)) return numericArithmetic('+', lv, rv);
       throw new EvalError(
         `Operator '+' is not defined between ${describeRulesType(lv)} and ${describeRulesType(rv)}`,
       );
@@ -567,18 +580,39 @@ function evaluateBinaryOp(
     case '*':
     case '/':
     case '%': {
-      if (typeof lv !== 'number' || typeof rv !== 'number') {
+      if (!isNumeric(lv) || !isNumeric(rv)) {
         throw new EvalError(
           `Unsupported operation error. Received: ${describeRulesType(lv)} ${op} ${describeRulesType(rv)}.`,
         );
       }
-      if (op === '-') return lv - rv;
-      if (op === '*') return lv * rv;
-      if (rv === 0) throw new EvalError(DIVIDE_BY_ZERO_MESSAGE);
-      return op === '/' ? Math.trunc(lv / rv) : lv % rv;
+      return numericArithmetic(op, lv, rv);
     }
     default: throw new EvalError(`Unknown binary op: ${op}`);
   }
+}
+
+/** An int (a bigint or a bare integral number) or a bare number with a fraction from a host value. */
+function isNumeric(value: unknown): value is bigint | number {
+  return typeof value === 'bigint' || typeof value === 'number';
+}
+
+/**
+ * Arithmetic on two numbers that are not `RulesFloat` wrappers (those
+ * dispatched above). Two ints compute in int64 (`rules-int.ts`): a result
+ * past the range, or a zero divisor, is an error value. A bare number with a
+ * fraction, from a host value, makes the result a float.
+ */
+function numericArithmetic(op: IntOperator, lv: bigint | number, rv: bigint | number): unknown {
+  const l = rulesInt(lv);
+  const r = rulesInt(rv);
+  if (l !== undefined && r !== undefined) return intResult(intArithmetic(op, l, r));
+  return new RulesFloat(Number(lv)).binaryOp(op, rv);
+}
+
+/** An int result, or its failure as an error value. */
+function intResult(result: bigint | IntFailure): bigint {
+  if (result instanceof IntFailure) throw new EvalError(result.message);
+  return result;
 }
 
 /** An `&&`/`||`/`!` operand, a ternary condition, or an allow condition must be a bool. */
