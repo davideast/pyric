@@ -1,5 +1,9 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { withPyric } from '../../../src/next/index.js';
+import { markRegisterActive } from '../../../src/register/activation.js';
+
+/** The register's activation mark (`src/register/activation.ts`). */
+const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
 
 async function resolveWith(config: any): Promise<Record<string, any>> {
   const wrapped = withPyric(config) as (phase: string, defaults: Record<string, any>) => Promise<Record<string, any>>;
@@ -13,12 +17,14 @@ describe('withPyric webpack ordering', () => {
   beforeEach(() => {
     process.env.NODE_ENV = 'development';
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
+    markRegisterActive();
   });
 
   // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
   const savedGuard = process.env.PYRIC_GUARD;
 
   afterEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
     process.env.NODE_ENV = savedNodeEnv;
     if (saved === undefined) delete process.env.PYRIC_SANDBOX;
     else process.env.PYRIC_SANDBOX = saved;

@@ -2,6 +2,7 @@
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import { signInWithEmailLink } from './email-link.js';
 import type { AuthProvider } from './providers.js';
+import type { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { makeAuthError } from './sandbox-backend.js';
 import { targetOf, type SandboxTarget } from './target.js';
 import type {
@@ -194,6 +195,19 @@ export async function getRedirectResult(
   return targetOf(auth).backend.takeRedirectResult();
 }
 
+/**
+ * The `auth/no-mock-configured` refusal `signInWithCredential` throws when no
+ * sign-in result is staged for the credential's provider. Shared through
+ * `pyric/auth/internal` so the served planes refuse with the same code and
+ * message.
+ */
+export function noMockConfiguredError(providerId: string): FirebaseError {
+  return makeAuthError(
+    'auth/no-mock-configured',
+    `signInWithCredential(providerId: ${providerId}): no mock configured. Pre-stage with sandbox.mockSignInResult(auth, {user, providerId: '${providerId}', …}).`,
+  );
+}
+
 export async function signInWithCredential(
   auth: Auth,
   credential: AuthCredential,
@@ -221,12 +235,7 @@ export async function signInWithCredential(
   }
 
   const mock = backend.consumeMockResult(providerId);
-  if (!mock) {
-    throw makeAuthError(
-      'auth/no-mock-configured',
-      `signInWithCredential(providerId: ${providerId}): no mock configured. Pre-stage with sandbox.mockSignInResult(auth, {user, providerId: '${providerId}', …}).`,
-    );
-  }
+  if (!mock) throw noMockConfiguredError(providerId);
   const credentialProviderId = mock.providerId ?? providerId;
   backend.assertSignInAllowed(mock.user.uid);
   backend.recordProviderSignIn(mock.user, credentialProviderId);

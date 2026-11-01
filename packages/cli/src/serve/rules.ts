@@ -31,6 +31,7 @@ import {
   type FirestoreRulesConfig,
 } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
+import { compileStorageRules } from 'pyric/storage/internal';
 import { readFirebaseRcSync, type FirebaseJson, type FirebaseRc } from '../cli/firebase-json.js';
 import {
   describeFirebaseProject,
@@ -275,10 +276,16 @@ function relativeToProject(cwd: string, file: string): string {
   return isInsideProject ? rel : file;
 }
 
+/** `compileStorageRules` opens some of its reasons with this; the message here says it already. */
+const STORAGE_COMPILE_PREFIX = /^Storage rules do not compile: /;
+
 /**
  * Resolve and validate a raw Storage rules source. Modular sources are
  * authored in storage.modules.rules and resolved in memory before the
  * sandbox sees them; firebase.json can continue to point at storage.rules.
+ * The source is checked by the sandbox's own install gate,
+ * `compileStorageRules`, so every source this accepts installs on every
+ * plane, and a reload this refuses is reported as refused.
  */
 export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
   let source = raw;
@@ -303,6 +310,12 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
     throw new Error(
       `${asSentence(`pyric sandbox: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)}`)} Fix the rules before serving.`,
     );
+  }
+  try {
+    compileStorageRules(source);
+  } catch (e) {
+    const reason = (e instanceof Error ? e.message : String(e)).replace(STORAGE_COMPILE_PREFIX, '');
+    throw new Error(`${asSentence(`pyric sandbox: ${sourcePath} does not compile: ${reason}`)} Fix the rules before serving.`);
   }
   return source;
 }

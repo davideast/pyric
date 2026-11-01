@@ -4,8 +4,8 @@ import path from 'node:path';
 import type { ViteDevServer } from 'vite';
 import type { FirebaseProjectResolution } from '../cli/firebase-project.js';
 import type {
-  FunctionsRtdbProject,
-} from '../functions-rtdb/project.js';
+  FunctionsProject,
+} from '../functions/project.js';
 import type { BridgeMount } from './bridge-mount.js';
 import type {
   ViteFunctionsDevelopmentAttachment,
@@ -14,7 +14,7 @@ import type {
 
 export interface ResolvedViteGenerationFunctions {
   options: { region?: string; instance?: string; watch?: boolean };
-  project: FunctionsRtdbProject | null;
+  project: FunctionsProject | null;
   projectId: string | null;
 }
 
@@ -25,7 +25,7 @@ export interface ResolvedViteGenerationFunctions {
 export function resolveViteGenerationFunctions(input: {
   projectDir: string;
   options: false | { region?: string; instance?: string; watch?: boolean };
-  discover(projectDir: string): FunctionsRtdbProject | null;
+  discover(projectDir: string): FunctionsProject | null;
   firebaseProject: FirebaseProjectResolution;
 }): ResolvedViteGenerationFunctions {
   const { projectDir, options, discover, firebaseProject } = input;
@@ -49,7 +49,7 @@ export function attachViteGenerationFunctions(input: {
 }): ViteFunctionsDevelopmentAttachment | null {
   const { server, projectDir, cliRoot, bridge, resolved, registerModuleUrl, attach } = input;
   if (!resolved.project || !resolved.projectId || !bridge || !server.httpServer) return null;
-  const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
+  const builtChild = path.join(cliRoot, 'dist/functions/child.js');
   const fileExists = input.fileExists ?? existsSync;
   const childModuleUrl = fileExists(builtChild) ? builtChild : undefined;
   const host =

@@ -26,9 +26,14 @@
  * canonical form so `equals()` is a straight field compare without
  * normalizing on every call.
  */
-import { RulesValue, NO_OP, type NoOp } from './base.js';
+import { RulesValue, NO_OP, ValueRangeError, type NoOp } from './base.js';
 
 const NANOS_PER_SECOND = 1_000_000_000;
+/** The protobuf Duration bound, about 10,000 years either way. */
+const MAX_SECONDS = 315_576_000_000;
+/** Production's evaluation error for a duration past the bound, from the capture's diagnostics. */
+export const DURATION_NOT_VALID =
+  'Duration is not valid. Seconds must be in range [-315,576,000,000, +315,576,000,000]. Nanos must be in range [-999,999,999, +999,999,999]. Nanos must have the same sign as seconds.';
 
 const SECONDS_PER_UNIT: Record<string, number> = {
   w: 7 * 24 * 60 * 60,
@@ -61,14 +66,26 @@ function normalize(seconds: number, nanos: number): { seconds: number; nanos: nu
   return { seconds: s, nanos: n };
 }
 
+/** True for whole seconds inside the protobuf bound; false for NaN and infinities. */
+function isInRange(seconds: number): boolean {
+  return Number.isFinite(seconds) && Math.abs(seconds) <= MAX_SECONDS;
+}
+
 export class Duration extends RulesValue {
   readonly typeName = 'duration';
   readonly seconds: number;
   readonly nanos: number;
 
+  /**
+   * Throws production's "Duration is not valid" error (a {@link ValueRangeError}) when
+   * the normalized seconds are past the protobuf bound or not finite, so
+   * `duration.value()`, `duration.time()` and duration arithmetic past the
+   * bound never become a value.
+   */
   constructor(seconds: number, nanos: number) {
     super();
     const norm = normalize(seconds, nanos);
+    if (!isInRange(norm.seconds)) throw new ValueRangeError(DURATION_NOT_VALID);
     this.seconds = norm.seconds;
     this.nanos = norm.nanos;
   }

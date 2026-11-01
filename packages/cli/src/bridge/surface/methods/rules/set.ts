@@ -16,6 +16,7 @@ const EXAMPLE_RULES = [
 export default {
   tool: 'rules',
   method: 'set',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: `set(service: ${SERVICES.join('|')}, rules, instance?)`,

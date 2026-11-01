@@ -50,6 +50,8 @@ export type SandboxTarget = {
   auth: AuthState;
   admin?: boolean;
   connection: RtdbConnectionLifecycle;
+  /** The instance's root URL when known, which `refFromURL` checks a URL's host against. */
+  instanceUrl?: string;
 };
 export type SandboxLiveTarget = {
   kind: 'sandbox-live';
@@ -63,6 +65,8 @@ export type SandboxLiveTarget = {
   assertUsable?: () => void;
   admin?: boolean;
   connection: RtdbConnectionLifecycle;
+  /** The instance's root URL when known, which `refFromURL` checks a URL's host against. */
+  instanceUrl?: string;
 };
 export type Target = SandboxTarget | SandboxLiveTarget;
 

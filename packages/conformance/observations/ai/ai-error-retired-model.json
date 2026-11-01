@@ -4,10 +4,10 @@
   "rowIds": [
     "ai#error-retired-model"
   ],
-  "description": "Error envelope for a retired model family (Gemini 1.5, retired 2025-09-24 per the message text). Distinct from unknown-model: production distinguishes never-existed from retired. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
-  "observedAt": "2026-07-10T01:47:04.515Z",
+  "description": "Error envelope for a retired model family (Gemini 1.5, retired 2025-09-24 per the message text). Distinct from unknown-model: production distinguishes never-existed from retired.",
+  "observedAt": "2026-10-28T02:04:02.762Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
   "behavior": {

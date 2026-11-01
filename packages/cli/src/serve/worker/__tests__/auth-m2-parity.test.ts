@@ -39,6 +39,7 @@ import {
   updateProfile,
   updateCurrentUser,
   signInWithCredential,
+  stageSignInResult,
   onAuthStateChanged,
   onIdTokenChanged,
   listUsers,
@@ -60,6 +61,22 @@ import { getFirestore } from 'pyric/firestore';
 import { getDatabase } from 'pyric/database';
 import { getAuth, sandbox as authSandboxOps } from 'pyric/auth';
 import type { ClientPort } from '../client/handles.js';
+
+/** Stage the identity the port's next federated signInWithCredential signs in as (#1466). */
+async function stageOnPort(
+  ctx: HostCtx,
+  port: PortLike,
+  identity: { uid: string; email: string; displayName?: string | null; providerId?: string },
+): Promise<void> {
+  await handleMessage(ctx, port, {
+    t: 'op',
+    id: `stage-${identity.uid}`,
+    method: 'auth.mockSignInResult',
+    identity: {
+      providerId: 'google.com', displayName: null, photoURL: null, customClaims: {}, ...identity,
+    },
+  } as InboundMessage);
+}
 
 function tick(ms = 15): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -263,6 +280,15 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
   it('4. signInWithCredential seeds providerData and authenticates over the SharedWorker', async () => {
     const { clientAuth } = await createTestHarness();
 
+    stageSignInResult(clientAuth, {
+      user: {
+        uid: 'google-user-999',
+        email: 'googleuser@example.com',
+        displayName: 'Google OAuth User',
+        photoURL: 'https://example.com/avatar.png',
+      },
+      providerId: 'google.com',
+    });
     const cred = await signInWithCredential(clientAuth, {
       providerId: 'google.com',
       idToken: 'mock-google-id-token-999',
@@ -459,6 +485,7 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
       },
     };
 
+    await stageOnPort(ctx, testPort, { uid: 'oauth-tenant-user', email: 'oauth-tenant@example.com' });
     await handleMessage(ctx, testPort, {
       t: 'op',
       id: 'oauth-tenant-op',
@@ -571,7 +598,22 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
       },
     };
 
-    // Swift and Flutter send providerId, idToken, accessToken, rawNonce directly on the op message
+    // Swift and Flutter send providerId, idToken, accessToken, rawNonce directly on the op message.
+    // With nothing staged the host refuses it, as in-page does (#1466).
+    const flatPayload = {
+      method: 'auth.signInWithCredential',
+      providerId: 'google.com',
+      idToken: 'token-oauth-flat',
+      email: 'flat-mobile@example.com',
+      displayName: 'Flat Mobile User',
+      tenantId: 'tenant-mobile',
+    };
+    await handleMessage(ctx, testPort, { ...flatPayload, t: 'op', id: 'flat-unstaged-op' } as unknown as InboundMessage);
+    const unstaged = sentMessages.find((m) => m.t === 'res' && m.id === 'flat-unstaged-op');
+    expect(unstaged).toMatchObject({ ok: false, error: { code: 'auth/no-mock-configured' } });
+    expect(portSession(ctx, testPort)).toBeNull();
+
+    await stageOnPort(ctx, testPort, { uid: 'flat-mobile-user', email: 'flat-mobile@example.com', displayName: 'Flat Mobile User' });
     await handleMessage(ctx, testPort, {
       t: 'op',
       id: 'flat-oauth-op',
@@ -641,6 +683,7 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(signInRes.value.additionalUserInfo.isNewUser).toBe(false);
 
     // 3. auth.signInWithCredential on new user should return isNewUser = true
+    await stageOnPort(ctx, testPort, { uid: 'oauth-fresh-user', email: 'oauth-fresh@example.com' });
     await handleMessage(ctx, testPort, {
       t: 'op',
       id: 'oauth-new-op',
@@ -657,6 +700,7 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(oauthNewRes.value.additionalUserInfo.isNewUser).toBe(true);
 
     // 4. auth.signInWithCredential on existing user should return isNewUser = false
+    await stageOnPort(ctx, testPort, { uid: 'oauth-fresh-user', email: 'oauth-fresh@example.com' });
     await handleMessage(ctx, testPort, {
       t: 'op',
       id: 'oauth-existing-op',

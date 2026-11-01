@@ -35,8 +35,14 @@ export const rig: RigManifestRecord = {
       {
         name: 'PYRIC_ORACLE_SA_PATH',
         description:
-          'Path to a service-account JSON, defaulting to ignored/service-account.json. Required to mint the short-lived firebase.database-scoped OAuth token the rules-deploy endpoint (/.settings/rules.json) demands and to seed data via the admin SDK — a web config alone cannot deploy RTDB rules, so a resolvable service account is mandatory for a real capture even though the env var itself may be omitted in favor of the default path.',
+          'Path to a service-account JSON. The credential mints the short-lived firebase.database-scoped OAuth token the rules-deploy endpoint (/.settings/rules.json) demands, seeds data via the admin SDK, and signs custom tokens. A web config alone cannot deploy RTDB rules, so a real capture needs this key or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials.',
         permission: 'roles/firebasedatabase.admin (firebase.database OAuth scope)',
+      },
+      {
+        name: 'PYRIC_ORACLE_PROJECT_ID',
+        description:
+          'The oracle project id, read when PYRIC_ORACLE_SA_PATH is unset. The rig then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<oracle service account>`, as packages/conformance/docs/oracle-project-setup.md describes. Custom tokens are then signed through IAM Credentials signBlob.',
+        permission: 'roles/firebasedatabase.admin (firebase.database OAuth scope); iam.serviceAccounts.signBlob on itself (custom tokens)',
       },
     ],
     projectFeatures: [

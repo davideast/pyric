@@ -20,7 +20,14 @@ export const rig: RigManifestRecord = {
       {
         name: 'PYRIC_ORACLE_SA_PATH',
         description:
-          'Service-account JSON path for the dedicated oracle project. Mints the OAuth token for the App Check management API and backs firebase-admin createToken and verifyToken.',
+          'Service-account JSON path for the dedicated oracle project. Mints the OAuth token for the App Check management API and backs firebase-admin createToken and verifyToken. Optional: unset, the rig uses Application Default Credentials and PYRIC_ORACLE_PROJECT_ID names the project.',
+        permission:
+          'firebaseappcheck.debugTokens.get and firebaseappcheck.debugTokens.update (debug token list, create, delete); firebaseappcheck.tokens.mint (createToken); firebaseappcheck.appCheckTokens.verify (verifyToken with consume)',
+      },
+      {
+        name: 'PYRIC_ORACLE_PROJECT_ID',
+        description:
+          'The oracle project id, read when PYRIC_ORACLE_SA_PATH is unset. The rig then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<oracle service account>`, as packages/conformance/docs/oracle-project-setup.md describes.',
         permission:
           'firebaseappcheck.debugTokens.get and firebaseappcheck.debugTokens.update (debug token list, create, delete); firebaseappcheck.tokens.mint (createToken); firebaseappcheck.appCheckTokens.verify (verifyToken with consume)',
       },
@@ -38,7 +45,7 @@ export const rig: RigManifestRecord = {
   },
   safety: {
     writes:
-      'Registers one debug token named pyric-app-check-capture-<runId> on the config web app. Mints App Check tokens and consumes one through verifyToken. Sends six small generateContent requests from the page (model quota). Writes the app-check- observation files under observations/app-check/.',
+      'Registers one debug token named pyric-app-check-capture-<runId> on the config web app. Mints App Check tokens and consumes one through verifyToken. Sends six small generateContent requests from the page (model quota); a run with --only that names only probes without AI requests sends none. Writes the app-check- observation files under observations/app-check/.',
     cleanup:
       'Before registering, deletes any debug token whose display name starts with pyric-app-check-capture- (an interrupted run). A finally block deletes the run token and lists again, failing the run if any run-scoped token remains. Minted tokens expire on their own.',
     unattendedSafe: false,

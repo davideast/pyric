@@ -6,8 +6,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
-import { emitExecutionFinished } from '../../src/functions-rtdb/events.js';
-import { executionIdFor, listExecutions } from '../../src/functions-rtdb/execution-log.js';
+import { emitExecutionFinished } from '../../src/functions/events.js';
+import { executionIdFor, listExecutions } from '../../src/functions/execution-log.js';
 
 function finish(
   sandbox: LocalSandbox,

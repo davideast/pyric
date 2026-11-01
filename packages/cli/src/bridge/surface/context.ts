@@ -1,21 +1,25 @@
 /**
- * The execution context every rendered tool hands its operation handler.
+ * The execution context every rendered tool hands its operation handler in
+ * the bridge process.
  *
- * One context per sandbox. Its dispatcher is the union of the two halves of
- * the default surface: the forwarded families through the shared
- * `buildSandboxDispatcher`, and the in-process families (the rules engine and
- * the stdlib catalogue) through their own handlers. An operation that maps
- * onto an existing tool therefore executes exactly the code path that tool
- * always did, whichever half it lives in.
+ * One context per sandbox. It widens the sandbox context (`./sandbox-context.ts`)
+ * with the project directory and the in-process tool families. Its dispatcher
+ * is the union of the two halves of the default surface: the forwarded families
+ * through the shared `buildSandboxDispatcher`, and the in-process families (the
+ * rules engine and the stdlib catalogue) through their own handlers. An
+ * operation that maps onto an existing tool therefore executes exactly the code
+ * path that tool always did, whichever half it lives in.
  */
 import type { ToolHandler } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { CheckpointBackend } from 'pyric/sandbox/checkpoints';
-import { buildSandboxDispatcher, type SandboxDispatch } from '../client/dispatch.js';
+import type { SandboxDispatch } from '../client/dispatch.js';
 import { getInProcessToolHandlers } from '../server/tool-metadata.js';
-import { accountLookupFor } from './app-session.js';
-import { SurfaceIdentity } from './identity.js';
-import type { OperationResult, SurfaceContext } from './types.js';
+import { projectDatabaseInstances } from './database-instance-project.js';
+import { createSandboxSurfaceContext } from './sandbox-context.js';
+import type { SurfaceContext, SurfaceTargetRouter } from './types.js';
+
+export { callSandboxTool, operationFailure } from './sandbox-context.js';
 
 /** The minimal tool context the in-process handlers read. */
 function handlerContext(): never {
@@ -23,8 +27,7 @@ function handlerContext(): never {
 }
 
 /** A dispatcher over both halves of the default tool surface. */
-function buildSurfaceDispatch(sandbox: LocalSandbox): SandboxDispatch {
-  const forwarded = buildSandboxDispatcher(sandbox);
+function withInProcessFamilies(forwarded: SandboxDispatch): SandboxDispatch {
   const inProcess = new Map<string, ToolHandler>(
     getInProcessToolHandlers().map((handler) => [handler.name, handler]),
   );
@@ -41,38 +44,24 @@ function buildSurfaceDispatch(sandbox: LocalSandbox): SandboxDispatch {
  * session's `.pyric/` files live under; it defaults to the process working
  * directory, which is what a caller that never leaves its own project gets.
  * `checkpoints` is where the host keeps checkpoints when it is not that
- * directory.
+ * directory. The RTDB instances are read from the project's files on each
+ * call, unless a host replaces `databaseInstances` with its own.
  */
 export function createSurfaceContext(
   sandbox: LocalSandbox,
   projectDir: string = process.cwd(),
-  targetRouter?: import('./types.js').SurfaceTargetRouter,
+  targetRouter?: SurfaceTargetRouter,
   checkpoints?: CheckpointBackend,
 ): SurfaceContext {
-  return {
-    sandbox,
-    dispatch: buildSurfaceDispatch(sandbox),
-    identity: new SurfaceIdentity(accountLookupFor(sandbox)),
+  const base = createSandboxSurfaceContext(sandbox, () =>
+    projectDatabaseInstances(context.sandbox, context.projectDir),
+  );
+  const context: SurfaceContext = {
+    ...base,
+    dispatch: withInProcessFamilies(base.dispatch),
     projectDir,
     targetRouter,
     checkpoints,
   };
-}
-
-/**
- * Call one existing sandbox tool under the held identity. Arguments are
- * objects in and objects out; nothing is JSON-encoded on the way through.
- */
-export async function callSandboxTool(
-  ctx: SurfaceContext,
-  name: string,
-  args: Record<string, unknown>,
-): Promise<OperationResult> {
-  return ctx.dispatch(name, args, ctx.identity.lens());
-}
-
-/** Report a failure in the shape every handler returns. */
-export function operationFailure(summary: string, data?: unknown): OperationResult {
-  if (data === undefined) return { ok: false, summary };
-  return { ok: false, summary, data };
+  return context;
 }

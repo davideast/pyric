@@ -53,7 +53,7 @@ import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js'
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
   absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, realmOrigin,
-  tokenClaimAccount, withoutJwtClaims,
+  tokenClaimAccount, rulesTokenFromIdToken,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -119,10 +119,10 @@ const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
  * The claims rules see on `auth.token` for a signed-in data context: the
  * minted ID token's claim set (custom claims, the account's standard claims,
  * and the `firebase` namespace with `identities`, `sign_in_provider`, and
- * `tenant` for a tenant sign-in) without the JWT registered claims.
+ * `tenant` for a tenant sign-in) with the JWT registered claims.
  */
 function rulesTokenClaims(minted: IdTokenResult): Record<string, unknown> {
-  return withoutJwtClaims(minted.claims);
+  return rulesTokenFromIdToken(minted.claims);
 }
 
 export class SandboxBackend {
@@ -2125,7 +2125,10 @@ export class SandboxBackend {
     };
     const identity = normalizeAuthState({ uid, tenant: tenantId ?? undefined, token: fullClaims });
     const tokenClaims = identity?.token ?? fullClaims;
-    const token = sandboxTokenFor(uid, withoutJwtClaims(tokenClaims), serial);
+    // The token string carries the full claim set, JWT registered claims
+    // included, so `verifyIdToken` returns the minted `auth_time`, `iat` and
+    // `exp` rather than values made up at verify time.
+    const token = sandboxTokenFor(uid, tokenClaims, serial);
     const result: IdTokenResult = {
       token,
       claims: tokenClaims,

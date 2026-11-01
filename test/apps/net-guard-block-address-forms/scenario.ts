@@ -4,6 +4,11 @@
 // the guard compared host text, checked only the TCP peer, and was missing from
 // CommonJS eval workers and workers given their own execArgv (#1442).
 //
+// A child Node process of the registered process is registered too, however
+// it is started: one that only inherits the environment, one given its own
+// execArgv, NODE_OPTIONS or env, and one started through a shell. Before #1618
+// each of those loaded the real firebase-admin.
+//
 // safety.mjs loads before the register and sends any connection the guard
 // permits to a closed local port, so no probe reaches the network either way.
 import assert from 'node:assert/strict';
@@ -68,6 +73,19 @@ export default scenario(async (app) => {
   await app.step('worker threads are guarded too', () => {
     assert.equal(output.results['CommonJS eval worker'], BLOCKED);
     assert.equal(output.results['file worker with its own execArgv'], BLOCKED);
+  });
+
+  await app.step('every child Node process loads the swap under the parent\'s guard', () => {
+    const children = Object.fromEntries(
+      Object.entries(output.results).filter(([probe]) => probe.startsWith('child: ')),
+    );
+    assert.deepEqual(children, {
+      'child: spawn(process.execPath)': 'swapped, guard block',
+      'child: fork with its own execArgv': 'swapped, guard block',
+      'child: spawnSync with its own NODE_OPTIONS': 'swapped, guard block',
+      'child: execFile with an env of only PATH': 'swapped, guard block',
+      'child: execSync through a shell': 'swapped, guard block',
+    });
   });
 
   await app.step('no connection left loopback', () => {

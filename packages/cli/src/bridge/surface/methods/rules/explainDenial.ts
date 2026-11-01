@@ -30,6 +30,7 @@ const EXPLAINED_SERVICES = ['firestore', 'database'] as const;
 export default {
   tool: 'rules',
   method: 'explainDenial',
+  runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `explainDenial(operation: ${REQUEST_METHODS.join('|')}, path, service?: ${EXPLAINED_SERVICES.join('|')}, uid?, data?, query?, rules?, source?, instance?)`,

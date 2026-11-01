@@ -421,10 +421,19 @@ automatically routes calls to a live Node host for the same project (reporting
 `--allow-production` (or `PYRIC_ALLOW_PRODUCTION=1`) enables `production`-effect
 methods.
 
-The served bridge (`pyric sandbox --bridge`, `pyric bridge`) advertises a
+Each method record declares where its handler runs. A `runsIn: 'sandbox'`
+record is given only a `SandboxSurfaceContext` (`surface/sandbox-context.ts`)
+and imports nothing Node-only, so a host can run it wherever its sandbox lives;
+`surface/methods/sandbox-registry.ts` loads just these records from the
+generated `manifest.sandbox.generated.ts`. A `runsIn: 'bridge'` record reads the
+project directory, imports a Node-only module, or dispatches an in-process tool
+family, and runs only in the bridge process.
+
+The served bridge (`pyric sandbox --bridge`) advertises a
 second, separate contract: the **bridge transport surface** a browser sandbox
 peer executes, plus the rules, conformance, identity, and capture tools that
-run in the bridge process without a peer. It is **47** tool names (`BRIDGE_TOOL_NAMES`):
+run in the bridge process without a peer. The standalone `pyric bridge` has no
+browser socket and advertises only the in-process tools. It is **47** tool names (`BRIDGE_TOOL_NAMES`):
 **29** forwarded to the sandbox (`BRIDGE_FORWARDED_TOOL_NAMES`, including
 Firestore simulator/CRUD, RTDB inspect/simulate, `sandbox_inspect`,
 `auth_create_user` through `auth_custom_token`, and `messaging_deliveries`) and
@@ -670,13 +679,15 @@ are the other workflows.
   mirrored surface, one file per API family, sandbox code under `X/sandbox/`,
   tests mirroring the source path.
 - Ratified and proposed decisions live in `docs/decisions/` (ADR-0001 to
-  ADR-0016, plus ADR-0018 and ADR-0019). Key architectural records include ADR-0009
+  ADR-0016, plus ADR-0018 to ADR-0020). Key architectural records include ADR-0009
   (Firestore engine deepening), ADR-0010 (unified Astro site), ADR-0011 (worker
   transport as public API), ADR-0014 (ten service tools carrying SDK method
   names), ADR-0015 (chunked Storage transfer), ADR-0016 (`pyric mcp` following
   the Node host), ADR-0018 (Storage object bytes by reference and HTTP byte
-  route), and ADR-0019 (native bridge clients reconnect and restore their
-  listeners).
+  route), ADR-0019 (native bridge clients reconnect and restore their
+  listeners), and ADR-0020 (`pyric mcp` serves one tool list and routes each
+  call to a live host, with SharedWorker hosts running method records over a
+  `method-call` bridge frame).
 - Preserve unrelated work in a dirty tree.
 - Use public subpaths between packages.
 - Keep browser/Node/platform-specific imports at explicit boundary modules.

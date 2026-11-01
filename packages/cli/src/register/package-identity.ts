@@ -18,7 +18,7 @@
  * node built-ins only and has no side effects.
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Package name per directory, `null` for a directory with no named manifest. */
@@ -32,15 +32,21 @@ function packageRoot(name: string): string {
   return parts.slice(0, rootLength).join('/');
 }
 
-/** The `name` of `<directory>/package.json`, or `null` when there is none. */
-function manifestName(directory: string): string | null {
+/** The `name` of `<directory>/package.json` as written, or `null` when there is none. */
+function writtenManifestName(directory: string): string | null {
   try {
     const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')) as { name?: unknown };
     const hasName = typeof manifest.name === 'string' && manifest.name !== '';
-    return hasName ? packageRoot(manifest.name as string) : null;
+    return hasName ? (manifest.name as string) : null;
   } catch {
     return null;
   }
+}
+
+/** The package `<directory>/package.json` names, or `null` when it names none. */
+function manifestName(directory: string): string | null {
+  const written = writtenManifestName(directory);
+  return written === null ? null : packageRoot(written);
 }
 
 function nameFromDirectory(directory: string): string | null {
@@ -60,6 +66,26 @@ export function packageNameOf(url: string): string | null {
   const isFileUrl = url.startsWith('file:');
   if (!isFileUrl) return null;
   return nameFromDirectory(dirname(fileURLToPath(url)));
+}
+
+/**
+ * A resolved module file's path inside the package `name`, with `/`
+ * separators (`ai/dist/index.mjs` for a `firebase/ai` file), or `null` when no
+ * directory above it has a manifest named exactly `name`. Subpath manifests
+ * (`"name": "firebase/ai"`) are passed over, so the path starts at the root.
+ */
+export function pathInPackageOf(url: string, name: string): string | null {
+  const isFileUrl = url.startsWith('file:');
+  if (!isFileUrl) return null;
+  const file = fileURLToPath(url);
+  let directory = dirname(file);
+  while (writtenManifestName(directory) !== name) {
+    const parent = dirname(directory);
+    const isFilesystemRoot = parent === directory;
+    if (isFilesystemRoot) return null;
+    directory = parent;
+  }
+  return relative(directory, file).split(sep).join('/');
 }
 
 /**

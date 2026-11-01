@@ -15,34 +15,70 @@
  *                     at most 6; one per thread on CI)
  *   --keep            keep each app's installed directory
  *   --skip-slow       leave out the apps whose scenario.ts exports `slow = true`
+ *   --quarantine      let a quarantined app's scenario failure alone pass
+ *                     (scripts/lib/quarantine); only CI passes it
  *   --only-slow       run only those apps
+ *   --shard-plan <file> --shard <n>
+ *                     run shard n of a plan from shard-plan.ts. The run
+ *                     first checks that the plan's apps are exactly the
+ *                     apps this run would select without it, then runs
+ *                     only shard n's, and writes the apps it ran to
+ *                     test-results/app-shards/shard-<n>.json for the
+ *                     completeness check in `CI / required`
  *
  * A slow app waits on real timeouts. Pull requests skip it; the "Slow app
  * scenarios" workflow runs it. An app named on the command line runs either
  * way.
  *
  * Without --packages, the runner packs the current workspace build into
- * dist/packages. Apps that install the same packages share one `npm install`
- * per run, copied into each app (shared-installs.ts). Logs land in
+ * dist/packages. Apps that install the same packages share one install per
+ * run, copied into each app (shared-installs.ts). Each set's tree comes from
+ * the dependency store (dependency-store.ts), which keeps one installed tree
+ * per third-party dependency set and installs only the run's Pyric tarballs
+ * into it, offline. A set the store does not hold is warmed from the registry
+ * first. The runner prints one `[runner] dependency set` line per set, with
+ * where its tree came from and how long it took.
+ *
+ * Environment:
+ *   PYRIC_APPS_DEPS_STORE  the store's directory (default
+ *                          ~/.cache/pyric-app-scenarios/deps, shared by
+ *                          every worktree)
+ *   PYRIC_APPS_OFFLINE=1   install nothing from the registry: a set the
+ *                          store does not hold fails at once, with its key
+ *                          and app. A scenario's own nested install
+ *                          (app.installProject, declared in
+ *                          nested-projects.ts) comes from the store too
+ *
+ * Logs land in
  * test-results/apps/<name>/. Apps start longest first, by the times the last
  * run recorded in test-results/app-durations.json (schedule.ts).
+ *
+ * Every run, including one of named apps, is heavy: it takes a machine-wide
+ * slot (scripts/lib/heavy-run-slots.ts) before it samples the machine and
+ * packs the workspace, and waits while two other heavy runs hold both slots.
  */
-import { chromium, type Browser } from '@playwright/test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import type { Browser } from '@playwright/test';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
-import { AppRun, StepFailure, type Scenario } from './driver.ts';
-import { npmInstall, packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from './install.ts';
+import { AppRun, launchScenarioBrowser, StepFailure, type Scenario } from './driver.ts';
+import { currentPlatform, DependencyStore, readPackedPackages } from './dependency-store.ts';
+import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
+import { takeHeavyRunSlot } from '../../scripts/lib/heavy-run-slots.ts';
 import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
 import { defaultJobs, longestFirst, readDurations, recordDurations } from './schedule.ts';
 import { parseArguments, selectApps, skippedSlowClause } from './selection.ts';
+import { checkPlanCoversSelection, readPlan, shardApps, takeShardOptions, writeShardReport, type ShardOption } from './shard-plan.ts';
+import { finishAppRun } from '../../scripts/lib/quarantine/apps.ts';
+import { takeQuarantineFlag } from '../../scripts/lib/quarantine/source.ts';
 
 const appsDir = import.meta.dir;
 const root = resolve(appsDir, '../..');
 const resultsDir = join(root, 'test-results/apps');
 const durationsFile = join(root, 'test-results/app-durations.json');
+const shardReportsDir = join(root, 'test-results/app-shards');
 const APP_TIMEOUT_MS = Number(process.env.PYRIC_APP_TIMEOUT_MS ?? 300_000);
 const LOG_TAIL_LINES = 200;
 
@@ -76,6 +112,9 @@ interface AppResult {
   /** The part of `seconds` spent on `npm install`, including waiting for a shared install. */
   installSeconds: number;
   step?: string;
+  /** Whether it failed while its scenario ran, not while it installed or
+   *  loaded. Only such a failure can be quarantined (scripts/lib/quarantine). */
+  inScenario: boolean;
   error?: string;
   /** What went wrong closing the app or removing its directory, after its verdict was known. */
   cleanupFailures: string[];
@@ -103,7 +142,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, run: AppRun): Promise<T
 
 async function runApp(name: string, context: {
   tarballs: Tarballs;
-  npmCache: string;
+  store: DependencyStore;
   installs: SharedInstalls;
   keep: boolean;
   browser: () => Promise<Browser>;
@@ -114,9 +153,10 @@ async function runApp(name: string, context: {
   const home = join(work, 'home');
   mkdirSync(projectDir);
   mkdirSync(join(home, '.config'), { recursive: true });
-  const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, npmCache: context.npmCache });
+  const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, store: context.store });
   const logs: AppResult['logs'] = [];
   let failure: unknown;
+  let inScenario = false;
   let installSeconds = 0;
   try {
     run.currentStep = 'npm install';
@@ -124,14 +164,16 @@ async function runApp(name: string, context: {
     const installStarted = performance.now();
     // Under the app's timeout too: a shared install or copy that never settles
     // fails this app instead of holding the run.
-    const install = await withTimeout(context.installs.install(projectDir), APP_TIMEOUT_MS, run);
+    const install = await withTimeout(context.installs.install(projectDir, name), APP_TIMEOUT_MS, run);
     installSeconds = (performance.now() - installStarted) / 1000;
     logs.push({ name: 'npm install', text: install.output });
     if (install.code !== 0) throw new StepFailure('npm install', new Error(`npm install exited with code ${install.code}`));
     run.currentStep = 'load scenario';
     const module = await loadScenario(name);
     if (typeof module.default !== 'function') throw new StepFailure('load scenario', new Error('scenario.ts has no default export from scenario()'));
+    inScenario = true;
     await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
+    inScenario = false;
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
       throw new StepFailure('every Pyric host route the page requested answered without an error', new Error(hostErrors.join('\n')));
@@ -160,6 +202,7 @@ async function runApp(name: string, context: {
     seconds: (performance.now() - started) / 1000,
     installSeconds,
     step: ok ? undefined : failure instanceof StepFailure ? failure.step : run.currentStep,
+    inScenario: !ok && inScenario,
     error: ok ? undefined : describeError(failure),
     cleanupFailures,
     logs,
@@ -191,6 +234,31 @@ function report(result: AppResult, dir: string): string {
   return lines.join('\n');
 }
 
+/** The install of an app that cannot share a set: from the registry, unless the run is offline. */
+function installAlone(npmCache: string, offline: boolean): (cwd: string) => Promise<CommandResult> {
+  if (offline) {
+    const output = '[runner] this app installs alone, outside the dependency store, and PYRIC_APPS_OFFLINE=1 installs nothing from the registry\n';
+    return async () => ({ code: 1, output });
+  }
+  return (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd }));
+}
+
+/** The dependency store for this run's tarballs, where PYRIC_APPS_DEPS_STORE points. */
+async function openStore(tarballs: Tarballs, npmCache: string, offline: boolean): Promise<DependencyStore> {
+  const dir = process.env.PYRIC_APPS_DEPS_STORE ?? join(homedir(), '.cache', 'pyric-app-scenarios', 'deps');
+  const npmVersion = await runCommand('npm', ['--version'], { cwd: root });
+  if (npmVersion.code !== 0) throw new Error(`npm --version exited with code ${npmVersion.code}:\n${npmVersion.output}`);
+  console.log(`▸ dependency store ${dir}${offline ? ' (offline: a set it does not hold fails)' : ''}`);
+  return new DependencyStore({
+    dir,
+    offline,
+    packed: readPackedPackages(tarballs),
+    platform: currentPlatform(npmVersion.output),
+    npmCache,
+    runNpm: (args, { cwd, timeoutMs }) => runTimedCommand('npm', args, { cwd, timeoutMs }),
+  });
+}
+
 async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
@@ -204,8 +272,25 @@ async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R
   return results;
 }
 
+/** The apps of one shard of a plan, after checking the plan covers exactly the apps this run selects. */
+function planShard(shard: ShardOption, selected: readonly string[]): string[] {
+  const plan = readPlan(readFileSync(shard.planFile, 'utf8'));
+  const mismatches = checkPlanCoversSelection(plan, selected);
+  if (mismatches.length > 0) {
+    console.error(`the shard plan ${shard.planFile} does not cover this run's apps:\n${mismatches.map((line) => `- ${line}`).join('\n')}`);
+    process.exit(2);
+  }
+  return shardApps(plan, shard.index);
+}
+
 async function main(): Promise<void> {
-  const options = parseArguments(process.argv.slice(2), process.env);
+  const { quarantine, rest: withoutQuarantine } = takeQuarantineFlag(process.argv.slice(2));
+  const { argv, shard } = takeShardOptions(withoutQuarantine);
+  const options = parseArguments(argv, process.env);
+  if (shard && options.names.length > 0) {
+    console.error('--shard runs the apps its plan gives it, so it takes no app names');
+    process.exit(2);
+  }
   const available = discoverApps();
   const unknown = options.names.filter((name) => !available.includes(name));
   if (unknown.length) {
@@ -218,7 +303,10 @@ async function main(): Promise<void> {
   const { skippedSlow } = selection;
   // Apps named on the command line run in the order given; a whole run starts the longest first.
   const isWholeRun = options.names.length === 0;
-  const names = isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run;
+  // A shard runs its apps in the plan's order, which is longest first by main's recorded times.
+  const wholeRunOrder = () => (isWholeRun ? longestFirst(selection.run, readDurations(durationsFile)) : selection.run);
+  const names = shard ? planShard(shard, selection.run) : wholeRunOrder();
+  await takeHeavyRunSlot();
   // Measured before packing, so the runner's own build and pack do not count as load.
   const machine = await sampleMachineLoad();
   if (names.length === 0) {
@@ -239,11 +327,16 @@ async function main(): Promise<void> {
   }
   const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
   rmSync(resultsDir, { recursive: true, force: true });
+  const offline = process.env.PYRIC_APPS_OFFLINE === '1';
+  const store = await openStore(tarballs, npmCache, offline);
   const installsDir = mkdtempSync(join(tmpdir(), 'pyric-app-installs-'));
-  const installs = new SharedInstalls(installsDir, (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd })));
+  const installs = new SharedInstalls(installsDir, installAlone(npmCache, offline), {
+    installSet: (dir, app) => store.provide(dir, app),
+    report: (line) => console.log(line),
+  });
 
   let browser: Promise<Browser> | undefined;
-  const launch = () => (browser ??= chromium.launch({ headless: true }));
+  const launch = () => (browser ??= launchScenarioBrowser());
 
   const jobs = options.jobs ?? defaultJobs(machine, process.env);
   const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;
@@ -252,7 +345,7 @@ async function main(): Promise<void> {
   let installsFailure: string | undefined;
   try {
     results = await pool(names, jobs, async (name) => {
-      const result = await runApp(name, { tarballs, npmCache, installs, keep: options.keep, browser: launch });
+      const result = await runApp(name, { tarballs, store, installs, keep: options.keep, browser: launch });
       const dir = saveLogs(result);
       // Recorded as each app finishes, so a run that stops early keeps the times it has.
       recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);
@@ -266,12 +359,21 @@ async function main(): Promise<void> {
     else installsFailure = await removeTree(installsDir);
   }
 
+  if (shard) {
+    mkdirSync(shardReportsDir, { recursive: true });
+    const apps = results.map((result) => ({ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }));
+    writeShardReport(join(shardReportsDir, `shard-${shard.index}.json`), { index: shard.index, apps });
+  }
   const total = ((performance.now() - started) / 1000).toFixed(1);
   console.log('');
   const summary = summarize(results, total, skippedSlowClause(skippedSlow));
   for (const line of summary.lines) console.log(line);
   if (installsFailure !== undefined) console.log(`warning: cleanup failed for the shared installs: ${installsFailure}`);
-  process.exit(summary.exitCode);
+  // With --quarantine, which only CI passes, a failed app with an active
+  // quarantine entry is reported but does not fail the run when it is the
+  // only kind of failure (scripts/lib/quarantine).
+  const suite = shard ? `apps-${shard.index}` : 'apps';
+  process.exit(finishAppRun(suite, { apps: results, exitCode: summary.exitCode }, quarantine));
 }
 
 await main();

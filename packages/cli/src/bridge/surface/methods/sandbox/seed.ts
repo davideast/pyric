@@ -6,14 +6,15 @@
  * path.
  */
 import { z } from 'zod';
-import { checkUserFields, storageObjectSeed, userSeed } from '../../arguments/sandbox.js';
-import { operationFailure } from '../../context.js';
+import { checkUserFields, storageObjectSeed, userSeed } from '../../arguments/seed.js';
+import { operationFailure } from '../../sandbox-context.js';
 import { applyData, applyRules, type SandboxSeed } from '../../seed-apply.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'sandbox',
   method: 'seed',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'write',
   signature:

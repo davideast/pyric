@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import { monitorFirebaseActivity, type ActivityFeed, type ActivityIncident } from 'pyric/firestore/internal';
 import type { SandboxEvent } from 'pyric/sandbox';
-import { operationFailure } from '../../context.js';
+import { operationFailure } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 
 const PATTERNS = ['repeated-read', 'duplicate-listener', 'listener-churn'] as const;
@@ -41,6 +41,7 @@ function idsAtOrAfter(events: readonly SandboxEvent[], since: string): { ids: Se
 export default {
   tool: 'sandbox',
   method: 'activity',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `activity(since?, pattern?: ${PATTERNS.join('|')})`,

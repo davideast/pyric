@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   engineConfigToWire,
   loadViteAiEnv,
+  refuseBrowserServedGeminiKey,
   resolveViteAiConfig,
   viteWorkerEpochSalt,
 } from '../../src/serve/vite-ai-config.js';
@@ -155,5 +156,46 @@ describe('Vite AI configuration', () => {
     expect(openai).not.toBe(scripted);
     expect(prod).not.toBe(scripted);
     expect(viteWorkerEpochSalt('/other-app', undefined)).not.toBe(scripted);
+  });
+});
+
+describe('a Gemini key in VITE_GEMINI_API_KEY (#1632)', () => {
+  const FAKE_KEY = 'AIzaFAKE-1632-unit';
+
+  it('refuses it, says to rename it to GEMINI_API_KEY, and never quotes it', () => {
+    let message = '';
+    try {
+      refuseBrowserServedGeminiKey({ VITE_GEMINI_API_KEY: FAKE_KEY });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('VITE_GEMINI_API_KEY is set');
+    expect(message).toContain('Rename it to GEMINI_API_KEY');
+    expect(message).not.toContain(FAKE_KEY);
+  });
+
+  it('leaves a blank value and an absent one alone', () => {
+    expect(() => refuseBrowserServedGeminiKey({ VITE_GEMINI_API_KEY: '  ' })).not.toThrow();
+    expect(() => refuseBrowserServedGeminiKey({ GEMINI_API_KEY: FAKE_KEY })).not.toThrow();
+  });
+
+  it('refuses a key that only a project .env holds', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'pyric-vite-gemini-key-'));
+    writeFileSync(path.join(root, '.env'), `VITE_GEMINI_API_KEY=${FAKE_KEY}\n`);
+    const loaded = loadViteAiEnv('development', root, undefined);
+    expect(() => refuseBrowserServedGeminiKey(loaded)).toThrow(/Rename it to GEMINI_API_KEY/);
+  });
+
+  it('does not copy it into the server environment as a credential', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'pyric-vite-gemini-key-'));
+    writeFileSync(path.join(root, '.env'), `VITE_GEMINI_API_KEY=${FAKE_KEY}\n`);
+    const before = process.env.VITE_GEMINI_API_KEY;
+    delete process.env.VITE_GEMINI_API_KEY;
+    try {
+      loadViteAiEnv('development', root, undefined);
+      expect(process.env.VITE_GEMINI_API_KEY).toBeUndefined();
+    } finally {
+      if (before !== undefined) process.env.VITE_GEMINI_API_KEY = before;
+    }
   });
 });

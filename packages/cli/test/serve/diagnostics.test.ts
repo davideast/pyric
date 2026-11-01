@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { silentServeLogger, startStaticServer } from '../../src/serve/server.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 async function withServer(run: (url: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), 'pyric-diagnostics-'));
@@ -52,6 +53,13 @@ test('diagnostics reject cross-origin and oversized input, bound retention, and 
   expect(data.clients.at(-1).events).toHaveLength(2);
 }));
 
+test('diagnostics close the connection with an early 413, and answer the next request (#1710)', () => withServer(async url => {
+  const endpoint = `${url}/__pyric/diagnostics`;
+  const oversized = await fetch(endpoint, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ padding: 'x'.repeat(1024 * 1024) }),
+  });
+  await expectClosedEarlyAnswer(oversized, 413, endpoint);
+}));
 
 test('CLI reads the same agent report without attaching a sandbox client', () => withServer(async url => {
   let output = '';

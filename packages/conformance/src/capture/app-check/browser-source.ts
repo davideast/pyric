@@ -79,6 +79,46 @@ globalThis.appCheckProbes = {
     };
   },
 
+  async initializeTwiceUnsetAutoRefresh(config) {
+    const sameInstance = (outcome, first) => (outcome.threw ? outcome : { threw: false, returnsSameInstance: outcome.value === first });
+    const secondCall = (name, firstOptions, secondOptions) => {
+      const app = initializeApp(config, name);
+      const shared = provider();
+      const first = initializeAppCheck(app, { provider: shared, ...firstOptions });
+      return settle(() => initializeAppCheck(app, { provider: shared, ...secondOptions })).then((outcome) => sameInstance(outcome, first));
+    };
+    return {
+      unsetThenFalse: await secondCall('twice-unset-false', {}, { isTokenAutoRefreshEnabled: false }),
+      falseThenUnset: await secondCall('twice-false-unset', { isTokenAutoRefreshEnabled: false }, {}),
+      unsetThenUnset: await secondCall('twice-unset-unset', {}, {}),
+    };
+  },
+
+  async concurrentGetToken(config) {
+    const app = initializeApp(config, 'concurrent');
+    const appCheck = initializeAppCheck(app, { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const listenerCalls = [];
+    const unsubscribe = onTokenChanged(appCheck, (result) => listenerCalls.push(result));
+    const settleListeners = () => new Promise((resolve) => setTimeout(resolve, 300));
+    const [firstA, firstB] = await Promise.all([getToken(appCheck), getToken(appCheck)]);
+    await settleListeners();
+    const listenerCallsAfterConcurrentFirst = listenerCalls.length;
+    const [forcedA, forcedB] = await Promise.all([getToken(appCheck, true), getToken(appCheck, true)]);
+    await settleListeners();
+    const listenerCallsAfterConcurrentForced = listenerCalls.length;
+    unsubscribe();
+    return {
+      providerCalls,
+      firstA: resultFacts(firstA),
+      firstB: resultFacts(firstB),
+      forcedA: resultFacts(forcedA),
+      forcedB: resultFacts(forcedB),
+      listenerCallsAfterConcurrentFirst,
+      listenerCallsAfterConcurrentForced,
+      listenerTokens: listenerCalls.map((result) => result.token),
+    };
+  },
+
   async beforeInitialize(config) {
     const app = initializeApp(config, 'before');
     const publicGetToken = await settle(() => getToken({ app }));

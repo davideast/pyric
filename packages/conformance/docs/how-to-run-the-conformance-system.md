@@ -101,7 +101,17 @@ or baseline rather than the generated file.
 
 CI runs these same gates in `.github/workflows/build.yml`, plus
 `compat:lint-terms` and the audit gate, and publishes the coverage table to the
-job summary.
+job summary. When a push run on main fails, `.github/workflows/main-failure.yml`
+reruns its failed jobs once, if the commit is still the head of main and no
+newer push run is pending; it checks again right before the rerun. If the
+rerun passes, it opens one `lane:velocity` issue per flaky test, titled like
+"Flaky on main: `<test>`", or comments on an open issue that already names the
+test file's repository path, such as `packages/cli/test/auth.test.ts`. So a
+second flaky test in a file that already has a flake issue is commented on that
+issue instead of getting its own. If the rerun fails, it opens or updates the
+one "Main is red: " issue. Failures it could not rerun, or whose rerun was
+cancelled, go to the one "Unconfirmed failures on main: " issue. The next green
+run on main closes both.
 
 ## The command inventory
 
@@ -796,10 +806,10 @@ Rigs: 9
 Runnable now (2): admin-app, app-registry
 Blocked (7):
   - ai-logic: missing env: PYRIC_AI_FIREBASE_CONFIG
-  - messaging-send: missing env: PYRIC_MESSAGING_SA_BASE64
-  - messaging-web: missing env: PYRIC_MESSAGING_FIREBASE_CONFIG, PYRIC_MESSAGING_VAPID_KEY, PYRIC_MESSAGING_SA_BASE64
-  - oracle-run: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH
-  - rtdb-rules: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH
+  - messaging-send: missing env: PYRIC_MESSAGING_PROJECT_ID, PYRIC_ORACLE_PROJECT_ID, PYRIC_MESSAGING_SA_BASE64
+  - messaging-web: missing env: PYRIC_MESSAGING_FIREBASE_CONFIG, PYRIC_MESSAGING_VAPID_KEY, PYRIC_MESSAGING_PROJECT_ID, PYRIC_ORACLE_PROJECT_ID, PYRIC_MESSAGING_SA_BASE64
+  - oracle-run: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH, PYRIC_ORACLE_PROJECT_ID
+  - rtdb-rules: missing env: PYRIC_ORACLE_FIREBASE_CONFIG, PYRIC_ORACLE_SA_PATH, PYRIC_ORACLE_PROJECT_ID
   - rules-firestore: missing env: GOOGLE_APPLICATION_CREDENTIALS
   - rules-storage: missing env: GOOGLE_APPLICATION_CREDENTIALS
 ```
@@ -826,22 +836,43 @@ These two are pure in-process probes of installed library code. That is why
 
 | Rig | Captures | Credential contract |
 |---|---|---|
-| `oracle-run` | 130 observations across five surfaces: `auth-` (28), `firestore-` (40), `rtdb-` (14), `rtdb-modular-` (39), `storage-` (9) | `PYRIC_ORACLE_FIREBASE_CONFIG` (web config JSON) plus `PYRIC_ORACLE_SA_PATH` (service-account file). The project needs Anonymous sign-in enabled and Firestore rules scoped to the `pyric_oracle` namespace. An RTDB instance and a Storage bucket are optional: those probes self-skip when absent. |
+| `oracle-run` | 130 observations across five surfaces: `auth-` (28), `firestore-` (40), `rtdb-` (14), `rtdb-modular-` (39), `storage-` (9) | `PYRIC_ORACLE_FIREBASE_CONFIG` (web config JSON) plus the oracle credential: `PYRIC_ORACLE_PROJECT_ID` with Application Default Credentials, or `PYRIC_ORACLE_SA_PATH` (service-account file). See [Oracle credentials](#oracle-credentials). The project needs Anonymous sign-in enabled and Firestore rules scoped to the `pyric_oracle` namespace. An RTDB instance and a Storage bucket are optional: those probes self-skip when absent. |
 | `rtdb-rules` | 8 `rules-rtdb-` observations: per-case ALLOW/DENY verdicts for the RTDB rules corpus | The same two vars as `oracle-run`. The service account must additionally hold a role granting the `firebase.database` scope, so `/.settings/rules.json` PUT and GET both succeed. |
 | `rules-firestore` | 28 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | A Rules Test API credential: see [Rules Test API credentials](#rules-test-api-credentials). CI's identity holds ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
 | `rules-storage` | 8 `rules-storage-` observations, via the same `projects.test` endpoint | The same credential and minimal scope. |
 | `ai-logic` | 14 `ai-` observations: error, SSE-framing, envelope, function-call, and countTokens facts from the production Firebase AI Logic proxy | `PYRIC_AI_FIREBASE_CONFIG`. The project needs Firebase AI Logic enabled, with the Gemini Developer API backend reachable through the `firebasevertexai.googleapis.com` proxy. |
-| `messaging-send` | 10 `messaging-send-` observations: what the production FCM v1 `messages:send` endpoint accepts, and its exact error envelopes | `PYRIC_MESSAGING_SA_BASE64`. The project needs Cloud Messaging (FCM v1) enabled. |
+| `messaging-send` | 10 `messaging-send-` observations: what the production FCM v1 `messages:send` endpoint accepts, and its exact error envelopes | The messaging credential: `PYRIC_ORACLE_PROJECT_ID` (or `PYRIC_MESSAGING_PROJECT_ID`) with the oracle Application Default Credentials login, or `PYRIC_MESSAGING_SA_BASE64` (a base64 key). See [Messaging on the oracle project](oracle-project-setup.md#messaging-on-the-oracle-project). The project needs Cloud Messaging (FCM v1) enabled. |
 
 **Human-witnessed.** Cannot run on a CI worker, by nature.
 
 | Rig | Captures | Why a human is required |
 |---|---|---|
-| `messaging-web` | 7 `messaging-web-` observations: token minting, `onMessage`, `onBackgroundMessage`, visibility routing, and `deleteToken` against live push | `PYRIC_MESSAGING_FIREBASE_CONFIG` plus `PYRIC_MESSAGING_VAPID_KEY` plus `PYRIC_MESSAGING_SA_BASE64`, AND a HEADED Chromium with a persistent profile. Incognito disables web push, so a persistent profile is mandatory; the harness re-execs under `caffeinate` on macOS. It cannot run headless. |
+| `messaging-web` | 7 `messaging-web-` observations: token minting, `onMessage`, `onBackgroundMessage`, visibility routing, and `deleteToken` against live push | `PYRIC_MESSAGING_FIREBASE_CONFIG` plus `PYRIC_MESSAGING_VAPID_KEY` plus the messaging credential (as `messaging-send`), AND a HEADED Chromium with a persistent profile. Incognito disables web push, so a persistent profile is mandatory; the harness re-execs under `caffeinate` on macOS. It cannot run headless. |
 
 There is no emulator anywhere in this fleet, and there never will be. Every
 observation is captured against real production, because an emulator's behavior
 is only ever a claim about an emulator.
+
+### Oracle credentials
+
+Every rig that reads `PYRIC_ORACLE_SA_PATH` gets its credential from
+`src/oracle-credential.ts`. With `PYRIC_ORACLE_SA_PATH` set, it uses that
+service-account key file. With it unset, it uses Application Default
+Credentials, and `PYRIC_ORACLE_PROJECT_ID` names the project. That is the
+keyless setup:
+
+```sh
+gcloud auth application-default login \
+  --impersonate-service-account=firebase-adminsdk-fbsvc@digame-mas.iam.gserviceaccount.com
+echo 'PYRIC_ORACLE_PROJECT_ID=digame-mas' >> .env
+```
+
+Under ADC, every signature (custom tokens, App Check tokens) goes through the
+IAM Credentials `signBlob` endpoint. Rigs that check the web config and the
+credential name the same project keep that check, reading the credential's
+project from `PYRIC_ORACLE_PROJECT_ID`. The one-time IAM grant, how long the
+login lasts, and the rigs that still need their own key are in
+[`oracle-project-setup.md`](oracle-project-setup.md#credentials-without-a-key-file).
 
 ### Rules Test API credentials
 
@@ -1054,6 +1085,36 @@ The lane runs two of the three tiers from
   configured credential that fails to authenticate fails the leg. `messaging-send` carries
   the highest-drift-risk records, the purely server-side `messaging-admin`
   facts, so it is the one to prioritize provisioning.
+
+A green run does not mean production was checked, so every leg ends by
+recording what it did, and a report job at the end of the run says so. Each leg
+writes one line to its job summary and uploads a status file as the artifact
+`oracle-leg-<rig>-<attempt>`. A leg ends in one of these states:
+
+| State | Meaning |
+|---|---|
+| checked, no drift | The capture ran and the observations did not change. |
+| checked, drift found | The capture ran and a captured fact changed. The leg is red. |
+| capture failed | The capture, the install, the sign-in, or the drift check itself failed before it could compare. The leg is red. |
+| not run: disabled until #n | The leg names a blocking issue. The run stays green. |
+| not run: `<variable>` not set | The credential variable is absent. A scheduled run fails the leg. A dispatch leaves it green. |
+| not run: job ended before recording | No status file arrived, for example when the job timed out. |
+
+The report job runs after every leg, even when one failed. Its run summary
+opens with a headline such as "Production checked by 0 of 4 credentialed legs.
+Not run: 4." and lists every leg, the unattended one included. Read the headline
+before trusting a green run.
+
+On a scheduled run the report job also files the result. It opens one
+`lane:reliability` issue titled with the counts of legs that need a person and
+legs that are disabled, comments the table on it each week, and closes it once
+every leg has checked production with no drift. A disabled leg keeps the issue
+open, because it checks nothing. A manual dispatch files nothing unless you
+start it with `file-issue` set to true. Only the report job can write issues.
+The script is `scripts/ci/oracle-leg-report.ts`. The report job runs its tests
+first, and the report step runs even when they fail. A re-run of failed legs
+uploads under a new attempt number, and the report reads the latest attempt of
+each leg.
 
 Three rigs are deliberately left out. `messaging-web` is human-witnessed
 (headed Chromium, persistent profile) and cannot run on a CI worker. `ai-logic`

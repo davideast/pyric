@@ -7,8 +7,13 @@
  *
  * Discovery order for the bridge URL:
  *   1. Explicit `opts.url`.
- *   2. `window.__PYRIC_BRIDGE_URL__` (set by the Vite plugin).
- *   3. `ws://${location.hostname}:5174/sandbox` (sidecar default).
+ *   2. `window.__PYRIC_BRIDGE_URL__`, when the page sets it. No pyric
+ *      integration sets it: the Vite plugin, `withPyric` and the served entry
+ *      mount their own bridge and hand its URL to their own runtime.
+ *   3. `ws://${location.hostname}:5174/sandbox`, the standalone `pyric bridge`
+ *      port. That bridge has no browser socket (#1468): it closes the page
+ *      with NO_BROWSER_PEER_CLOSE_CODE, and this client stops there with a
+ *      reason that names `pyric sandbox --bridge`.
  *
  * Reconnect strategy: simple exponential backoff up to 30s. The
  * connection is best-effort — if the bridge is down the host app
@@ -42,6 +47,7 @@ import {
   isBridgeMessage,
   MAX_BRIDGE_FRAME_BYTES,
   assertJsonSafeRelayValue,
+  NO_BROWSER_PEER_CLOSE_CODE,
   PEER_REPLACED_CLOSE_CODE,
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
@@ -58,7 +64,8 @@ const utf8 = new TextEncoder();
 export interface ConnectBridgeOptions {
   /**
    * Bridge WebSocket URL. Overrides the discovery chain.
-   * Example: `ws://localhost:5174/sandbox`.
+   * Example: `ws://localhost:3473/__pyric/sandbox`, the socket
+   * `pyric sandbox --bridge` serves.
    */
   url?: string;
   /**
@@ -367,6 +374,15 @@ export function connectBridge(
       // and re-issues it after the next hello, so live worker listeners from
       // THIS connection must go now (or the next connection double-delivers).
       teardownRelaySubs();
+      const hasNoBrowserSocket = event.code === NO_BROWSER_PEER_CLOSE_CODE;
+      if (hasNoBrowserSocket) {
+        // The standalone `pyric bridge` takes no browser peer. Reconnecting
+        // can never succeed, so stop and say what to run instead.
+        closed = true;
+        console.error(`[pyric] ${reason}`);
+        setState({ kind: 'disconnected', reason });
+        return;
+      }
       const isReplacedByPeer = event.code === PEER_REPLACED_CLOSE_CODE;
       if (isReplacedByPeer) {
         // Another tab won the peer slot. Re-helloing now would kick it right

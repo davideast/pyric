@@ -42,12 +42,21 @@ import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sand
 import type { AiEventOperation } from '../events.js';
 
 import { describeResponseBlock } from '../blocked.js';
-import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
+import { APP_CHECK_HINT, admitsAppCheckToken, appCheckRequired } from '../app-check-gate.js';
+import {
+  AiBrokerError,
+  Synthesizer,
+  badRole,
+  emptyContents,
+  functionRoleRefused,
+  missingThoughtSignature,
+} from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
 import { GeminiEngine, GEMINI_DEFAULT_BASE_URL } from './gemini-engine.js';
 import type {
   AnswerEngine,
+  AppCheckClaim,
   CountTokensRequest,
   CountTokensResponse,
   EngineConfig,
@@ -59,25 +68,22 @@ import type {
 } from './types.js';
 
 /**
- * Roles production accepts, from the captured rejection text
- * (`ai-error-bad-role`): "Please use a valid role: SYSTEM, SYSTEM_1, USER,
- * ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER." — compared
- * case-insensitively (the SDK sends lowercase `user`/`model`). `FUNCTION` is
- * additionally accepted: the captured message omits it, yet production
- * accepted the SDK's function-response turn (`ai-function-response-round`),
- * and the installed SDK threads those turns with role `function`.
+ * Roles the broker accepts, from the 2026-10 `ai-error-bad-role` text:
+ * "Please use a valid role: MODEL, USER." Compared case-insensitively (the
+ * SDK sends lowercase `user`/`model`). Function responses ride under `user`.
+ * Role `function`, which the installed SDK's `ChatSession` sends, is refused
+ * with its own captured text (`ai-error-function-role-refused`, #1410).
+ * Role `assistant` is accepted too, although that text leaves it out
+ * (`ai-contents-role-assistant`). Role `system` is refused with the
+ * unknown-role text (`ai-contents-role-system`).
  */
-const ACCEPTED_ROLES = new Set([
-  'SYSTEM',
-  'SYSTEM_1',
-  'USER',
-  'ASSISTANT',
-  'DEVELOPER',
-  'CONTEXT',
-  'USER_CONTEXT',
-  'MODEL',
-  'FUNCTION',
-]);
+const ACCEPTED_ROLES = new Set(['MODEL', 'USER', 'ASSISTANT']);
+
+/** The refusal production sends for a content role the broker does not accept. */
+function roleRefusal(role: string): AiBrokerError['envelope'] {
+  if (role.toUpperCase() === 'FUNCTION') return functionRoleRefused();
+  return badRole(role);
+}
 
 export interface AiBrokerOptions {
   /** Engine config, or a fully custom engine. Default: zero-config scripted. */
@@ -273,8 +279,23 @@ export class AiBroker {
     this.emit('request_rejected', model, { code, status, message });
   }
 
-  async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
+  /**
+   * AI Logic's App Check gate (`app-check-gate.ts`), before any engine runs:
+   * a request whose claim has no valid sandbox token is refused with
+   * production's 403 envelope. A request with no claim comes from a handle
+   * with no app, which production has no counterpart for, and passes.
+   */
+  async admitAppCheck(model: string, appCheck: AppCheckClaim | undefined): Promise<void> {
+    if (appCheck === undefined) return;
+    const admitted = await admitsAppCheckToken(appCheck.token);
+    if (admitted) return;
+    this.reject(model, appCheckRequired(), APP_CHECK_HINT);
+  }
+
+  async generateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): Promise<WireResponse> {
     const identity = this.observationIdentity(model);
+    // No claim, no gate, and no extra turn: the request reaches the engine synchronously as before.
+    if (appCheck !== undefined) await this.admitAppCheck(model, appCheck);
     this.validate(req, model);
     this.emitModelSubstitution(model);
     try {
@@ -298,12 +319,29 @@ export class AiBroker {
    * chunk only, usageMetadata every chunk). Validation runs EAGERLY — a bad
    * request throws here, before iteration, the way production answers with
    * an HTTP error instead of a stream.
+   *
+   * The App Check gate is asynchronous, so a stream with a claim checks it
+   * at the start of iteration and opens the engine only once it passes.
+   * Callers that answer an HTTP-like error before any chunk (the sandbox
+   * plane, the worker host) call {@link admitAppCheck} first.
    */
-  streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk> {
+  streamGenerateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): AsyncIterable<WireChunk> {
     const identity = this.observationIdentity(model);
-    this.validate(req, model);
+    const hasClaim = appCheck !== undefined;
+    // The App Check gate comes before validation, as in generateContent. A
+    // claim's gate is asynchronous, so its request is validated after the gate
+    // passes; a stream with no claim still throws eagerly.
+    if (!hasClaim) this.validate(req, model);
     this.emitModelSubstitution(model);
-    const inner = this.engine.streamGenerateContent(req, model);
+    const engine = this.engine;
+    const eager = hasClaim ? undefined : engine.streamGenerateContent(req, model);
+    const admit = () => this.admitAppCheck(model, appCheck);
+    const open = async (): Promise<AsyncIterable<WireChunk>> => {
+      if (eager !== undefined) return eager;
+      await admit();
+      this.validate(req, model);
+      return engine.streamGenerateContent(req, model);
+    };
     const annotate = (chunk: WireChunk) => this.annotate(chunk, identity);
     const emit = (chunkCount: number) =>
       this.emit('stream_generate_content', model, {
@@ -322,6 +360,8 @@ export class AiBroker {
     };
     return (async function* wrapped(): AsyncGenerator<WireChunk> {
       let chunkCount = 0;
+      // A refusal already landed its own request_rejected event.
+      const inner = await open();
       try {
         for await (const chunk of inner) {
           chunkCount++;
@@ -336,8 +376,10 @@ export class AiBroker {
     })();
   }
 
-  async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
+  async countTokens(req: CountTokensRequest, model: string, appCheck?: AppCheckClaim): Promise<CountTokensResponse> {
     const identity = this.observationIdentity(model);
+    // No claim, no gate, and no extra turn: the request reaches the engine synchronously as before.
+    if (appCheck !== undefined) await this.admitAppCheck(model, appCheck);
     this.validateContents(req, model);
     try {
       const response = await this.engine.countTokens(req, model);
@@ -375,17 +417,22 @@ export class AiBroker {
     for (const content of contents as GenerateContentRequest['contents']) {
       const role = content.role ?? '';
       if (!ACCEPTED_ROLES.has(role.toUpperCase())) {
-        this.reject(model, badRole(role));
+        this.reject(model, roleRefusal(role));
       }
     }
   }
 
-  /** Emit the rejection onto the event stream, then throw the wire envelope. */
-  private reject(model: string, envelope: AiBrokerError['envelope']): never {
+  /**
+   * Emit the rejection onto the event stream, then throw the wire envelope.
+   * A `hint` is pyric's guidance for the dev server terminal; the thrown
+   * envelope stays production's.
+   */
+  private reject(model: string, envelope: AiBrokerError['envelope'], hint?: string): never {
     this.emit('request_rejected', model, {
       code: envelope.error.code,
       status: envelope.error.status,
       message: envelope.error.message,
+      ...(hint !== undefined ? { hint } : {}),
     });
     throw new AiBrokerError(envelope);
   }

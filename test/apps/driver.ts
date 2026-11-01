@@ -10,10 +10,33 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
-import { npmInstall, pinPyricPackages, type Tarballs } from './install.ts';
-import { describeProcState, endGroup, watchChildExit, type LiveProcess } from './unreaped-exit.ts';
+import type { DependencyStore } from './dependency-store.ts';
+import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
+import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
+import {
+  DEFAULT_EXIT_TIMING,
+  describeProcState,
+  endGroup,
+  watchChildExit,
+  type ExitTiming,
+  type LiveProcess,
+} from './unreaped-exit.ts';
+
+/**
+ * How `installProject` installs a nested project: from the run's dependency
+ * store, with the run's tarballs. Tests pass a store over a stand-in npm, a
+ * short limit, and their own report.
+ */
+export interface NestedInstalls {
+  tarballs: Tarballs;
+  store: Pick<DependencyStore, 'provide'>;
+  /** How long one warm of the project's store entry gets; NESTED_INSTALL_ATTEMPT_MS by default. */
+  attemptMs?: number;
+  /** Where the `[runner]` lines go; the run's output by default. */
+  report?: (line: string) => void;
+}
 
 export interface LogWaitOptions {
   /** Only output after this offset (from `mark()`) counts. Default: all output. */
@@ -31,6 +54,15 @@ export interface StopGrace {
 }
 
 const DEFAULT_STOP_GRACE: StopGrace = { termMs: 5_000, killMs: 5_000 };
+
+/** The waits an `AppProcess` uses. Tests pass short ones; the runner uses the defaults. */
+export interface ProcessTiming {
+  exit: ExitTiming;
+  /** The grace `stop()` uses when it is given none. */
+  stop: StopGrace;
+}
+
+export const DEFAULT_PROCESS_TIMING: ProcessTiming = { exit: DEFAULT_EXIT_TIMING, stop: DEFAULT_STOP_GRACE };
 
 /** One child process of the app, with its interleaved stdout and stderr. */
 export class AppProcess {
@@ -60,6 +92,7 @@ export class AppProcess {
     private readonly cwd: string,
     private readonly env: NodeJS.ProcessEnv,
     private readonly spawnChild: SpawnChild = spawn,
+    private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
   ) {
     const pyricEnv = Object.entries(env).filter(([key]) => key.startsWith('PYRIC_')).map(([key, value]) => `${key}=${value} `);
     this.header = `$ ${pyricEnv.join('')}${[command, ...args].join(' ')}\n`;
@@ -101,7 +134,7 @@ export class AppProcess {
       if (exit.source !== 'close') this.exitedEarly = true;
       this.leftoverProcesses.push(...exit.leftovers);
       this.finish(exit.code);
-    });
+    }, this.timing.exit);
     return child;
   }
 
@@ -131,6 +164,11 @@ export class AppProcess {
 
   get output(): string {
     return this.text;
+  }
+
+  /** The child's pid, which also numbers its process group (it is spawned detached). */
+  get pid(): number | undefined {
+    return this.child.pid;
   }
 
   get running(): boolean {
@@ -189,7 +227,7 @@ export class AppProcess {
    * pipes a process outside the group holds open, is recorded as gone, so
    * `exited` settles and nothing waits on it past that.
    */
-  async stop(grace: StopGrace = DEFAULT_STOP_GRACE): Promise<void> {
+  async stop(grace: StopGrace = this.timing.stop): Promise<void> {
     if (this.child.pid === undefined) return;
     if (!this.running) {
       await this.stopLeftoverGroup(grace);
@@ -259,6 +297,13 @@ export interface App {
    * scenario created there, such as one `create-pyric` scaffolded.
    */
   devServer(options?: { env?: Record<string, string>; name?: string; port?: number; cwd?: string }): Promise<DevServer>;
+  /**
+   * Starts the installed `pyric sandbox` (no Vite: the import-map plane) on a
+   * free port, or on `port` when given, from the app directory, and waits
+   * until it serves the page and `/__pyric/init.json`. It serves the
+   * directory `firebase.json`'s `hosting.public` names and runs no command.
+   */
+  sandboxServer(options?: { env?: Record<string, string>; name?: string; port?: number }): Promise<DevServer>;
   /** Runs `node --import @pyric/cli/register <script> ...args` to exit. Throws on a non-zero exit. */
   serverScript(script: string, args?: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /**
@@ -289,11 +334,16 @@ export interface App {
   /**
    * Installs a project the scenario created inside the app directory, such
    * as one `create-pyric` scaffolded: its Pyric dependencies point at the
-   * packed tarballs, as the app's own do, and `npm install` runs in it.
+   * packed tarballs, as the app's own do, and its tree comes from the
+   * dependency store. `path` must be declared in test/apps/nested-projects.ts.
    * Throws on a failed install.
    */
   installProject(path: string): Promise<ScriptResult>;
-  /** The browser context for this app. Requests to hosts other than 127.0.0.1 and localhost are aborted unless a route answers them. */
+  /**
+   * The browser context for this app. Requests and page WebSockets to hosts
+   * other than 127.0.0.1 and localhost are blocked and logged unless a route
+   * (`route` or `routeWebSocket`) answers them.
+   */
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
   page(url: string): Promise<Page>;
@@ -306,7 +356,7 @@ export interface App {
    * closed port behaves under WSL mirrored networking. Held until the run ends.
    */
   blackholedPort(): Promise<number>;
-  /** Every page's console lines, page errors, and error responses so far, in order. */
+  /** Every page's console lines, page errors, error responses, and blocked external connections so far, in order. */
   readonly browserLog: readonly string[];
   /**
    * Declares that a page request to a `/__pyric/` route may answer with an
@@ -421,6 +471,57 @@ async function answers(url: string): Promise<boolean> {
 
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
+/**
+ * Chromium's resolver rules for scenario pages: every name and address but
+ * the local ones fails to resolve. The routes in `browser()` block and log;
+ * these rules stop what no route sees, such as a WebSocket a worker opens,
+ * before it leaves the machine (#1606).
+ */
+export const LOCAL_ONLY_RESOLVER_RULES = [
+  'MAP * ~NOTFOUND',
+  ...[...LOCAL_HOSTS].map((host) => `EXCLUDE ${host.replace(/^\[(.*)\]$/, '$1')}`),
+].join(', ');
+
+/**
+ * Launches the Chromium that every scenario's pages run in, headless, with
+ * the local-only resolver rules added to any `args` in `options`. A scenario
+ * that needs its own browser, such as one with the back-forward cache
+ * enabled, launches it here and guards its contexts with `guardContext`.
+ */
+export function launchScenarioBrowser(options: LaunchOptions = {}): Promise<Browser> {
+  const args = [...(options.args ?? []), `--host-resolver-rules=${LOCAL_ONLY_RESOLVER_RULES}`];
+  return chromium.launch({ headless: true, ...options, args });
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * A WebSocket URL to any host but the local ones. It is a RegExp, not a
+ * function, so Playwright connects a local socket in the page itself instead
+ * of relaying each of its frames through the driver.
+ */
+const EXTERNAL_WEBSOCKET = new RegExp(`^wss?://(?!(?:${[...LOCAL_HOSTS].map(escapeRegExp).join('|')})(?::\\d+)?/)`);
+
+/**
+ * Blocks and logs to `log` every request and page WebSocket from `context`
+ * to a host other than the local ones. Register it before a scenario's own
+ * routes: the first route registered runs last, so those answer first.
+ */
+export async function guardContext(context: BrowserContext, log: string[]): Promise<void> {
+  await context.route(() => true, async (route) => {
+    const url = new URL(route.request().url());
+    const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
+    if (isLocal) return route.continue();
+    log.push(`[blocked external request] ${route.request().method()} ${url.href}`);
+    return route.abort('blockedbyclient');
+  });
+  // `route` never sees a WebSocket. The page sees the connection close without opening.
+  await context.routeWebSocket(EXTERNAL_WEBSOCKET, async (socket) => {
+    log.push(`[blocked external WebSocket] ${socket.url()}`);
+    await socket.close({ code: 1008, reason: 'blocked by the app scenario driver' });
+  });
+}
+
 /** One run of one app: the state behind the `App` a scenario receives. */
 export class AppRun implements App {
   readonly processes: AppProcess[] = [];
@@ -440,10 +541,12 @@ export class AppRun implements App {
     readonly dir: string,
     private readonly home: string,
     private readonly launchBrowser: () => Promise<Browser>,
-    /** The packed Pyric packages and npm cache the runner installed the app with. */
-    private readonly packages?: { tarballs: Tarballs; npmCache: string },
+    /** The packed Pyric packages the runner installed the app with, and the store nested projects come from. */
+    private readonly packages?: NestedInstalls,
     /** Where `freePort()`, `blackholedPort()`, and `devServer()` get their ports. */
     private readonly ports: PortIssuer = runPorts,
+    /** The waits every process the run starts uses. */
+    private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -478,8 +581,23 @@ export class AppRun implements App {
       [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
       projectDir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
+    return this.servedHost(name, port, child);
+  }
+
+  async sandboxServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
+    const port = options.port ?? await freePort(this.ports);
+    this.serverCount += 1;
+    const name = options.name ?? (this.serverCount === 1 ? 'pyric sandbox' : `pyric sandbox ${this.serverCount}`);
+    const child = this.pyricProcess(['sandbox', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], { env: options.env });
+    return this.servedHost(name, port, child);
+  }
+
+  /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`. */
+  private async servedHost(name: string, port: number, child: AppProcess): Promise<DevServer> {
     const url = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
     for (;;) {
@@ -499,6 +617,8 @@ export class AppRun implements App {
       ['--import', '@pyric/cli/register', script, ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     return child;
@@ -512,6 +632,8 @@ export class AppRun implements App {
       [join('node_modules', '@pyric', 'cli', 'dist', 'cli', 'index.js'), ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     return child;
@@ -533,6 +655,17 @@ export class AppRun implements App {
     args: string[],
     options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number } = {},
   ): Promise<ScriptResult> {
+    const result = await this.timedCommand(command, args, options);
+    if (result.timedOut) throw new Error(`${[command, ...args].join(' ')} did not exit within ${result.timeoutMs / 1000}s:\n${result.output}`);
+    return { code: result.code, output: result.output };
+  }
+
+  /** Runs a command to exit, or stops it at `timeoutMs` and says so instead of throwing. */
+  private async timedCommand(
+    command: string,
+    args: string[],
+    options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
+  ): Promise<TimedResult & { timeoutMs: number }> {
     this.scriptCount += 1;
     const label = [command, ...args].join(' ');
     const child = new AppProcess(
@@ -541,23 +674,51 @@ export class AppRun implements App {
       args,
       join(this.dir, options.cwd ?? '.'),
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
       await child.stop();
-      throw new Error(`${label} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+      return { code: null, output: child.output, timedOut: true, timeoutMs };
     }
-    return { code: await child.exited, output: child.output };
+    return { code: await child.exited, output: child.output, timedOut: false, timeoutMs };
   }
 
+  /**
+   * The project in `path`, from the dependency store, keyed by its
+   * package.json. A warm of its entry that hangs is stopped and tried once
+   * more (#1476); the warm builds in a directory of its own, so nothing is
+   * left to reset, and its output, with the processes npm was running and
+   * the end of npm's debug log, is printed at once.
+   */
   async installProject(path: string): Promise<ScriptResult> {
+    if (nestedProject(this.name, path) === undefined) {
+      throw new Error(`${this.name} installs the nested project ${path}, which ${NESTED_PROJECTS_FILE} does not declare. Nested installs come from the dependency store, keyed before the run: add { app: '${this.name}', path: '${path}', manifest } to that list.`);
+    }
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
-    pinPyricPackages(join(this.dir, path), this.packages.tarballs);
-    const result = await npmInstall(this.packages.npmCache, (args) => this.command('npm', args, { cwd: path, timeoutMs: 240_000 }));
-    if (result.code !== 0) throw new Error(`npm install in ${path} exited with code ${result.code}:\n${result.output}`);
-    return result;
+    const { tarballs, store, attemptMs = NESTED_INSTALL_ATTEMPT_MS } = this.packages;
+    const report = this.packages.report ?? ((line: string) => console.log(line));
+    const projectDir = join(this.dir, path);
+    pinPyricPackages(projectDir, tarballs);
+    const what = `${this.name}: install of ${path} from the dependency store`;
+    let source = '';
+    const attempt = async (): Promise<TimedResult> => {
+      const result = await store.provide(projectDir, `${this.name}, nested project ${path}`, { warmAttemptMs: attemptMs });
+      source = result.source;
+      const timedOut = result.timedOut === true;
+      // Printed now: the app's logs are saved only when it fails, and its home
+      // is removed after it, so a retry that passes would lose this (#1494).
+      if (timedOut) report(`[runner] ${what} stopped after ${attemptMs / 1000} s\n${result.output.trimEnd()}`);
+      return { code: result.code, output: result.output, timedOut };
+    };
+    const result = await retryOnceOnTimeout(attempt, { what, reset: async () => {}, report });
+    report(`[runner] nested project ${path} for ${this.name}: ${source}`);
+    if (result.timedOut) throw new Error(`the install of ${path} timed out on both attempts:\n${result.output}`);
+    if (result.code !== 0) throw new Error(`the install of ${path} failed with exit ${result.code}:\n${result.output}`);
+    return { code: result.code, output: result.output };
   }
 
   async serverScript(
@@ -572,6 +733,8 @@ export class AppRun implements App {
       ['--import', '@pyric/cli/register', script, ...args],
       this.dir,
       appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
@@ -589,14 +752,7 @@ export class AppRun implements App {
     if (this.context) return this.context;
     const browser = await this.launchBrowser();
     const context = await browser.newContext();
-    // The first route registered runs last, so a scenario's own routes answer first.
-    await context.route(() => true, async (route) => {
-      const url = new URL(route.request().url());
-      const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
-      if (isLocal) return route.continue();
-      this.browserLog.push(`[blocked external request] ${route.request().method()} ${url.href}`);
-      return route.abort('blockedbyclient');
-    });
+    await guardContext(context, this.browserLog);
     this.context = context;
     return context;
   }
@@ -606,7 +762,8 @@ export class AppRun implements App {
     const page = await context.newPage();
     const index = context.pages().length;
     page.on('console', (message) => this.browserLog.push(`[page ${index} console.${message.type()}] ${message.text()}`));
-    page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack ?? error.message}`));
+    // A module that fails to resolve throws with an empty stack, so the message stands in for it.
+    page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack || `${error.name}: ${error.message}`}`));
     page.on('response', (response) => {
       if (response.status() < 400) return;
       this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);

@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { AIError, AIErrorCode } from 'pyric/ai';
 import { scripts as scriptsEngine } from 'pyric/ai/scripting';
-import { operationFailure } from '../../context.js';
+import { operationFailure } from '../../sandbox-context.js';
 import { aiFor } from '../../service-handles.js';
 import { describeMatch, describeRespond } from '../../ai-logic-matchers.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -16,6 +16,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'ai_logic',
   method: 'scripts',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'scripts()',

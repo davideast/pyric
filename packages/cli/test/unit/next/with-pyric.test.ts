@@ -1,5 +1,9 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { withPyric } from '../../../src/next/index.js';
+import { markRegisterActive } from '../../../src/register/activation.js';
+
+/** The register's activation mark (`src/register/activation.ts`). */
+const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
 
 async function resolveWith(
   config: any,
@@ -21,11 +25,13 @@ describe('withPyric Next.js configuration wrapper', () => {
   beforeEach(() => {
     process.env.NODE_ENV = 'development';
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
+    markRegisterActive();
     delete process.env.PYRIC_SANDBOX_FORCE;
     delete process.env.PYRIC_SANDBOX_PORT;
   });
 
   afterEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
     process.env.NODE_ENV = origNodeEnv;
     if (origPyricSandbox !== undefined) {
       process.env.PYRIC_SANDBOX = origPyricSandbox;
@@ -100,6 +106,25 @@ describe('withPyric Next.js configuration wrapper', () => {
   it('throws an error if PYRIC_SANDBOX is missing during the development server phase (bundler guard)', async () => {
     delete process.env.PYRIC_SANDBOX;
     await expect(resolveWith({})).rejects.toThrow(/Next\.js development server started without active Pyric sandbox/);
+  });
+
+  it('refuses when PYRIC_SANDBOX is set but the register is not active (#1625)', async () => {
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+    let message = '';
+    try {
+      await resolveWith({});
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('@pyric/cli/register is not active in this process');
+    expect(message).toContain('pyric sandbox -- next dev');
+    expect(message).toContain('NODE_OPTIONS="$NODE_OPTIONS');
+  });
+
+  it('starts without the register when { guard: false } is passed', async () => {
+    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+    const res = await resolveWith({}, { guard: false }) as Record<string, any>;
+    expect(res.serverExternalPackages).toContain('firebase');
   });
 
   it('does not run the guard in a production build phase', async () => {
@@ -361,6 +386,7 @@ describe('withPyric guard default in the Next dev server', () => {
   beforeEach(() => {
     escalations = [];
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
+    markRegisterActive();
     delete process.env.PYRIC_GUARD;
     slot[NET_GUARD] = { mode: 'warn', escalate: (reason: string) => { escalations.push(reason); return true; } };
   });
@@ -372,6 +398,7 @@ describe('withPyric guard default in the Next dev server', () => {
     };
     restore('PYRIC_GUARD', saved.guard);
     restore('PYRIC_SANDBOX', saved.sandbox);
+    delete slot[REGISTER_ACTIVE];
     if (saved.published === undefined) delete slot[NET_GUARD];
     else slot[NET_GUARD] = saved.published;
   });
@@ -400,7 +427,7 @@ describe('withPyric guard default in the Next dev server', () => {
     expect(escalations).toEqual([]);
   });
 
-  it('sets the default without a published guard, as in a process the register did not start', async () => {
+  it('sets the default without a published guard, as when the register installs none', async () => {
     delete slot[NET_GUARD];
     await resolveWith({});
     expect(process.env.PYRIC_GUARD).toBe('block');

@@ -251,6 +251,18 @@ const generateRows: CompatibilityRow[] = [
     conformanceTests: ['generate-content.test.ts'],
   }),
   row({
+    rowRef: 'contents-role-assistant',
+    featureKeys: ["generateContent"],
+    section: SEC_GENERATE,
+    api: 'generateContent(request)',
+    behavior: 'A `contents` turn under role `assistant` is accepted (200, finishReason STOP), although the unknown-role text lists only MODEL, USER',
+    automation: 'oracle-backed',
+    evidence: 'Capture ai-contents-role-assistant replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#contents-role-assistant`',
+    oracleObservations: ['ai-contents-role-assistant'],
+    conformanceTests: ['generate-content.test.ts'],
+    notes: 'The probe sent one prior answer under role assistant between two user turns, with no tools. Whether production treats an assistant turn as a model turn for thought-signature checks is not captured.',
+  }),
+  row({
     rowRef: 'generate-structured-output',
     featureKeys: ["generateContent"],
     section: SEC_GENERATE,
@@ -548,6 +560,21 @@ const fncallRows: CompatibilityRow[] = [
     notes: 'No SDK typing or reference doc states this requirement; the capture is the only evidence.',
   }),
   row({
+    rowRef: 'fncall-function-role-refused',
+    featureKeys: ["functionCall"],
+    section: SEC_FNCALL,
+    api: 'functionResponse round trip',
+    behavior: 'A function response under role `function`, the role the SDK `ChatSession` sends, is refused 400 INVALID_ARGUMENT with a message that names the role; the same round trip under role `user` is accepted',
+    automation: 'oracle-backed',
+    evidence: 'Capture ai-error-function-role-refused replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-function-role-refused`',
+    oracleObservations: ['ai-error-function-role-refused'],
+    conformanceTests: ['function-calling.test.ts'],
+    risk: ['error-code', 'specific-value'],
+    riskScore: 2,
+    riskReasons: ['asserts production error status and message text that can drift on re-capture'],
+    notes: 'Production started refusing role `function` by 2026-10 (#1410); the 2026-07 captures sent it and were accepted. @firebase/ai 2.12.0 still sends it, so a real SDK chat with tools fails in production and in the sandbox alike.',
+  }),
+  row({
     rowRef: 'fncall-signature-minted',
     featureKeys: ["functionCall"],
     section: SEC_FNCALL,
@@ -655,13 +682,26 @@ const errorRows: CompatibilityRow[] = [
     featureKeys: ["generateContent", "generateContentStream"],
     section: SEC_ERRORS,
     api: 'error envelope',
-    behavior: 'An invalid content role fails 400 INVALID_ARGUMENT and the message lists the production role vocabulary: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER',
+    behavior: 'An invalid content role fails 400 INVALID_ARGUMENT and the message lists the production role vocabulary: MODEL, USER',
     automation: 'oracle-backed',
     evidence: 'Capture ai-error-bad-role replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-bad-role`',
     oracleObservations: ['ai-error-bad-role'],
     conformanceTests: ['errors-counttokens.test.ts'],
     ...ERROR_RISK,
-    notes: 'The wire role vocabulary is wider than the SDK POSSIBLE_ROLES constant.',
+    notes: 'The 2026-07 capture listed SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER; the 2026-10 capture lists MODEL, USER (#1410). Production still accepts role `assistant` and refuses role `system` with this text (rows contents-role-assistant, contents-role-system), and the broker does the same. Role `function` gets its own refusal (row fncall-function-role-refused).',
+  }),
+  row({
+    rowRef: 'contents-role-system',
+    featureKeys: ["generateContent", "generateContentStream"],
+    section: SEC_ERRORS,
+    api: 'error envelope',
+    behavior: 'A `contents` turn under role `system` fails 400 INVALID_ARGUMENT with the unknown-role text that lists MODEL, USER, although the role `function` refusal lists SYSTEM',
+    automation: 'oracle-backed',
+    evidence: 'Capture ai-contents-role-system replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#contents-role-system`',
+    oracleObservations: ['ai-contents-role-system'],
+    conformanceTests: ['errors-counttokens.test.ts'],
+    ...ERROR_RISK,
+    notes: 'A top-level `systemInstruction` is the accepted way to send a system prompt (row generate-system-instruction).',
   }),
   row({
     rowRef: 'error-aierror-shape',
@@ -1069,13 +1109,15 @@ const serverProcessRows: CompatibilityRow[] = [
  */
 export const APP_CHECK_AI_SUITE = 'packages/cli/test/serve/ai-app-check-passthrough.test.ts';
 const APP_CHECK_AI_SCENARIO = 'test/apps/ai-production-app-check/scenario.ts';
+/** The same calls on the import-map plane: plain `pyric sandbox`, no Vite (#1290). */
+const APP_CHECK_AI_IMPORT_MAP_SCENARIO = 'test/apps/ai-production-import-map/scenario.ts';
 const appCheckAiRow = defineRows({
   surface: 'ai',
   defaults: {
     section: 'App Check on the AI path',
     status: 'conforms' as const,
     automation: 'oracle-backed' as const,
-    conformanceTests: [APP_CHECK_AI_SUITE, APP_CHECK_AI_SCENARIO],
+    conformanceTests: [APP_CHECK_AI_SUITE, APP_CHECK_AI_SCENARIO, APP_CHECK_AI_IMPORT_MAP_SCENARIO],
   },
 });
 
@@ -1107,7 +1149,7 @@ export const appCheckAiRows: CompatibilityRow[] = [
     risk: ['error-code', 'specific-value'],
     riskScore: 2,
     riskReasons: ['asserts production error status and message text that can drift on re-capture'],
-    notes: 'The sandbox answer engine does not check App Check, so sandbox AI mode answers tokenless requests; whether it should refuse them is an open decision.',
+    notes: 'Sandbox AI mode refuses the same requests with the same envelope (rows `ai#sandbox-app-check-*`, section App Check in sandbox AI mode).',
   }),
   appCheckAiRow({
     rowRef: 'app-check-initialize-after-getai',
@@ -1124,6 +1166,68 @@ export const appCheckAiRows: CompatibilityRow[] = [
     behavior: 'When the token exchange is refused, `firebase/ai` sends the SDK placeholder token (base64 of `{"error":"UNKNOWN_ERROR"}`) and AI Logic answers 403; with `useLimitedUseAppCheckTokens` it throws `AI/error` naming `appCheck/fetch-status-error` before sending any request.',
     evidence: 'capture `app-check-client-invalid-debug-token` (`aiRequest`, `aiGeneration`, `aiLimitedUseRequest`, `aiLimitedUseGeneration`).',
     oracleObservations: ['app-check-client-invalid-debug-token'],
+  }),
+];
+
+/**
+ * App Check in sandbox AI mode (#1291). From November 2, 2026 AI Logic
+ * refuses requests without a valid App Check token, and so does the sandbox
+ * broker on every plane: in process (the in-page sandbox and a registered
+ * Node process), and the worker broker behind the SharedWorker and the Node
+ * host, which the claim reaches over the worker protocol. Handles with no app
+ * (`getAI(sandbox)`, `createConfiguredSandboxAI`) are not gated: production
+ * has no such handle.
+ */
+const SANDBOX_APP_CHECK_SUITE = 'packages/pyric/test/ai/app-check-gate.test.ts';
+const SANDBOX_APP_CHECK_WORKER_SUITE = 'packages/cli/test/serve/worker/ai-ops.test.ts';
+const SANDBOX_APP_CHECK_SCENARIO = 'test/apps/sandbox-app-check/scenario.ts';
+const sandboxAppCheckRow = defineRows({
+  surface: 'ai',
+  defaults: {
+    section: 'App Check in sandbox AI mode',
+    status: 'conforms' as const,
+    automation: 'oracle-backed' as const,
+    conformanceTests: [SANDBOX_APP_CHECK_SUITE, SANDBOX_APP_CHECK_WORKER_SUITE, SANDBOX_APP_CHECK_SCENARIO],
+  },
+});
+
+export const sandboxAppCheckAiRows: CompatibilityRow[] = [
+  sandboxAppCheckRow({
+    rowRef: 'sandbox-app-check-required',
+    featureKeys: ['generateContent', 'initializeAppCheck'],
+    api: 'generateContent from getAI(app) in sandbox AI mode',
+    behavior: 'An app that never initialized App Check gets the `AIError` the SDK throws for AI Logic\'s 403: code `fetch-error`, `customErrorData.status` 403, message `[403 Forbidden] Firebase AI Logic has been deactivated in this project. ...` with the docs link. The broker refuses a missing, malformed, placeholder, tampered or expired token with production\'s envelope before any engine runs, and answers a sandbox token, including one minted under the debug provider. Pyric\'s guidance goes to the console once per app and to the dev server terminal, beside the error.',
+    evidence: 'captures `app-check-ai-gate-wire` (`noHeader`, `malformedHeader`, `sdkPlaceholderToken`, `tamperedSignature`, `validAdminMintedToken`) and `app-check-client-ai-header` (`noAppCheck`), replayed by the gate suite in process and over the worker port; the app scenario drives the in-page, SharedWorker, Node host and registered Node process planes. On main before #1291 the sandbox answered tokenless requests.',
+    oracleObservations: ['app-check-ai-gate-wire', 'app-check-client-ai-header'],
+    risk: ['error-code', 'specific-value'],
+    riskScore: 2,
+    riskReasons: ['asserts production error status and message text that can drift on re-capture'],
+    notes: 'The request URL in the error names project `sandbox`, as every sandbox-minted AI error does. The re-capture after November 2 is #1300.',
+  }),
+  sandboxAppCheckRow({
+    rowRef: 'sandbox-app-check-initialize-after-getai',
+    featureKeys: ['getAI', 'initializeAppCheck'],
+    api: 'initializeAppCheck(app) after getAI(app) in sandbox AI mode',
+    behavior: '`getAI(app)` reads App Check when it builds the handle. `initializeAppCheck` after it does not throw and `getToken` works, but that handle\'s requests carry no token and are refused with the 403.',
+    evidence: 'capture `app-check-client-get-token-before-initialize` (`initializeAfterAi`, `getTokenAfterLateInitialize`, `aiRequestAfterLateInitialize`, `aiGenerationAfterLateInitialize`).',
+    oracleObservations: ['app-check-client-get-token-before-initialize'],
+  }),
+  sandboxAppCheckRow({
+    rowRef: 'sandbox-app-check-limited-use',
+    featureKeys: ['getAI'],
+    api: 'getAI(app, { useLimitedUseAppCheckTokens: true }) in sandbox AI mode',
+    behavior: 'Each request carries a fresh limited-use token rather than the cached one, and the sandbox answers.',
+    evidence: 'capture `app-check-client-ai-header` (`limitedUseModel`).',
+    oracleObservations: ['app-check-client-ai-header'],
+  }),
+  sandboxAppCheckRow({
+    rowRef: 'sandbox-app-check-stream-and-count-tokens',
+    featureKeys: ['generateContentStream', 'countTokens'],
+    api: 'generateContentStream and countTokens without App Check in sandbox AI mode',
+    behavior: 'Streaming and `countTokens` are refused with the same 403 `AIError` as `generateContent`. In process `generateContentStream` rejects before any chunk; on the SharedWorker and Node host planes the error reaches the caller through the stream and `response`, as other request errors do there.',
+    automation: 'unit-backed',
+    evidence: 'AI Logic applies App Check to every request (https://firebase.google.com/docs/ai-logic/app-check); the captures cover only `generateContent`. Unit-backed by the gate suite and the worker protocol suite.',
+    notes: '#1300 adds captures for streaming and countTokens after November 2.',
   }),
 ];
 
@@ -1147,5 +1251,6 @@ export const aiRegistry: CompatibilitySurfaceRegistry = {
     table(SEC_OPENAI, openaiRows),
     { kind: 'table', prefix: `## Client SDKs in a registered server process\n`, rows: serverProcessRows },
     { kind: 'table', prefix: `## App Check on the AI path\n`, rows: appCheckAiRows },
+    { kind: 'table', prefix: `## App Check in sandbox AI mode\n`, rows: sandboxAppCheckAiRows },
   ],
 };

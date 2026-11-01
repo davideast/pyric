@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Server } from 'node:net';
 import { dirname, join } from 'node:path';
 import { sleep, type App } from './driver.ts';
+import { PROBE_ROUTE, runRefusals } from './nextjs-refuses-without-register.ts';
 
 export interface FirebaseImportsCase {
   name: string;
@@ -30,7 +31,7 @@ export interface FirebaseImportsCase {
   hosted: boolean;
 }
 
-const PROJECT_ID = 'demo-firebase-imports';
+export const PROJECT_ID = 'demo-firebase-imports';
 
 /**
  * Loaded with `--require`, which Node runs before the register's `--import`.
@@ -202,12 +203,16 @@ export async function GET() {
   const { createRequire } = process.getBuiltinModule('node:module');
   const { join } = process.getBuiltinModule('node:path');
   const load = createRequire(join(process.cwd(), 'package.json'));
-  load(join(process.cwd(), 'node_modules', 'firebase-admin', 'lib', 'app', 'index.js'));
+  try {
+    load(join(process.cwd(), 'node_modules', 'firebase-admin', 'lib', 'app', 'index.js'));
+  } catch (error) {
+    return Response.json({ load: error?.code ?? String(error) });
+  }
   try {
     await fetch(process.env.SCENARIO_FIRESTORE_URL);
-    return Response.json({ code: 'sent' });
+    return Response.json({ load: 'loaded', fetch: 'sent' });
   } catch (error) {
-    return Response.json({ code: error?.cause?.code ?? error?.code ?? String(error) });
+    return Response.json({ load: 'loaded', fetch: error?.cause?.code ?? error?.code ?? String(error) });
   }
 }
 `;
@@ -221,10 +226,11 @@ const APP_FILES: Record<string, string> = {
   'src/app/api/admin/route.js': ADMIN_ROUTE,
   'src/app/api/client/route.js': CLIENT_ROUTE,
   'src/app/api/real-admin/route.js': REAL_ADMIN_ROUTE,
+  'src/app/api/probe/route.js': PROBE_ROUTE,
 };
 
 /** The preload and the empty gcloud folder sit outside the project, so Next never watches them. */
-interface Safety {
+export interface Safety {
   preload: string;
   sinkPort: number;
   emptyGcloud: string;
@@ -258,13 +264,13 @@ interface SafetyRecord {
 }
 
 /** The trapped connections a case may not have. */
-function escapedConnections(records: readonly SafetyRecord[]): string[] {
+export function escapedConnections(records: readonly SafetyRecord[]): string[] {
   return records
     .filter((record) => record.kind === 'connection' && record.detail !== NEXT_VERSION_CHECK)
     .map((record) => record.detail);
 }
 
-function readSafetyLog(path: string): SafetyRecord[] {
+export function readSafetyLog(path: string): SafetyRecord[] {
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line !== '');
   return lines.map((line) => JSON.parse(line) as SafetyRecord);
@@ -280,7 +286,7 @@ async function answers(url: string): Promise<boolean> {
   }
 }
 
-async function waitForNext(url: string, running: () => boolean): Promise<void> {
+export async function waitForNext(url: string, running: () => boolean): Promise<void> {
   const deadline = Date.now() + 180_000;
   for (;;) {
     assert.ok(running(), `pyric sandbox exited before Next served ${url}`);
@@ -303,6 +309,25 @@ function slug(name: string): string {
   return name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
 }
 
+/** The env each Next process runs with: the safety preload, the sink, and no credentials. */
+export function nextEnv(app: App, safety: Safety): Record<string, string> {
+  return {
+    PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}`,
+    NODE_OPTIONS: `--require ${safety.preload}`,
+    SCENARIO_SINK_PORT: String(safety.sinkPort),
+    CLOUDSDK_CONFIG: safety.emptyGcloud,
+    NEXT_TELEMETRY_DISABLED: '1',
+    SCENARIO_FIRESTORE_URL: `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/items/from-admin`,
+  };
+}
+
+/** What the safety log recorded that a case may not have. */
+function escapes(log: string): { realFirebase: string[]; connections: string[] } {
+  const records = readSafetyLog(log);
+  const realFirebase = records.filter((record) => record.kind === 'real-firebase').map((record) => record.detail);
+  return { realFirebase, connections: escapedConnections(records) };
+}
+
 async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase): Promise<void> {
   const sandboxPort = await app.freePort();
   const nextPort = await app.freePort();
@@ -311,15 +336,7 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
   const sandboxArgs = ['sandbox', '--no-open', '--port', String(sandboxPort)];
   if (testCase.hosted) sandboxArgs.push('--hosted');
   const nextArgs = ['next', 'dev', ...testCase.nextFlags, '--port', String(nextPort), '--hostname', '127.0.0.1'];
-  const env = {
-    PATH: `${join(app.dir, 'node_modules', '.bin')}:${process.env.PATH ?? ''}`,
-    NODE_OPTIONS: `--require ${safety.preload}`,
-    SCENARIO_SINK_PORT: String(safety.sinkPort),
-    SCENARIO_SAFETY_LOG: safetyLog,
-    CLOUDSDK_CONFIG: safety.emptyGcloud,
-    NEXT_TELEMETRY_DISABLED: '1',
-    SCENARIO_FIRESTORE_URL: `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/items/from-admin`,
-  };
+  const env = { ...nextEnv(app, safety), SCENARIO_SAFETY_LOG: safetyLog };
 
   const sandbox = await app.step(`${testCase.name}: Next serves the app`, async () => {
     const child = app.pyricProcess([...sandboxArgs, '--', ...nextArgs], { env });
@@ -375,13 +392,22 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
     assert.deepEqual({ realFirebase, connections }, { realFirebase: [], connections: [] });
   });
 
-  // #1443 part 2: a load the register can't map still fails closed.
-  await app.step(`${testCase.name}: the real firebase-admin trips the guard, and Firestore is refused`, async () => {
+  // ADR 0022: a load the register can't map stops before the real firebase-admin runs.
+  await app.step(`${testCase.name}: the real firebase-admin stops at load, and nothing runs or leaves`, async () => {
     const response = await fetch(`${nextUrl}/api/real-admin`, { signal: AbortSignal.timeout(120_000) });
     const body = await jsonFrom(response);
-    const connections = escapedConnections(readSafetyLog(safetyLog));
-    assert.deepEqual({ body, connections }, { body: { code: 'PYRIC_GUARD_BLOCKED' }, connections: [] });
-    assert.match(sandbox.output, /the real firebase-admin loaded from file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
+    const records = readSafetyLog(safetyLog);
+    const realFirebase = records.filter((record) => record.kind === 'real-firebase').map((record) => record.detail);
+    const connections = escapedConnections(records);
+    assert.deepEqual(
+      { body, realFirebase, connections },
+      { body: { load: 'PYRIC_REAL_SDK_STOPPED' }, realFirebase: [], connections: [] },
+    );
+    // The stop reaches stderr through Next and the launcher, so it can land
+    // just after the response does.
+    await sandbox.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { timeoutMs: 10_000 });
+    assert.match(sandbox.output, /stopped loading the real firebase-admin/);
+    assert.match(sandbox.output, /found {2}file:\/\/\S+\/firebase-admin\/lib\/app\/index\.js/);
     await page.close();
     await sandbox.stop();
   });
@@ -394,8 +420,19 @@ async function listenSink(): Promise<Server> {
   return sink;
 }
 
-/** Writes the app, then runs each case in turn. */
-export async function runFirebaseImports(app: App, cases: readonly FirebaseImportsCase[]): Promise<void> {
+/** A case with its own steps, run after the Firestore cases on the same app and safety preload. */
+export type ExtraCase = (app: App, safety: Safety) => Promise<void>;
+
+/**
+ * Writes the app, then runs each case in turn. With `refusals`, it then runs
+ * the cases where `withPyric` has to refuse to start (#1625), and then each
+ * of `extraCases`.
+ */
+export async function runFirebaseImports(
+  app: App,
+  cases: readonly FirebaseImportsCase[],
+  options: { refusals?: boolean; extraCases?: readonly ExtraCase[] } = {},
+): Promise<void> {
   // The rewrite keeps the Next origin, which the host's origin guard refuses (#1194).
   app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
   const files = await app.step('write the Next app and the safety preload', () => writeApp(app));
@@ -403,6 +440,8 @@ export async function runFirebaseImports(app: App, cases: readonly FirebaseImpor
   try {
     const safety = { ...files, sinkPort: (sink.address() as AddressInfo).port };
     for (const testCase of cases) await runCase(app, safety, testCase);
+    if (options.refusals === true) await runRefusals(app, { env: nextEnv(app, safety), escapes });
+    for (const extraCase of options.extraCases ?? []) await extraCase(app, safety);
   } finally {
     await new Promise<void>((resolve) => sink.close(() => resolve()));
   }

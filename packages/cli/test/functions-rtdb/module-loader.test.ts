@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadFunctionsModuleExports } from '../../src/functions-rtdb/module-loader.js';
+import { loadFunctionsModuleExports } from '../../src/functions/module-loader.js';
 
 function projectAt(type: 'module' | 'commonjs' | undefined): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-functions-module-loader-'));

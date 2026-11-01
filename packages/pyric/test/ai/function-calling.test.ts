@@ -1,7 +1,9 @@
 /**
  * Red conformance suite: function-calling rows (ai#fncall-*). One test per
  * registry row id. Facts replay ai-function-call-shape,
- * ai-function-response-round, and ai-error-fncall-missing-thought-signature.
+ * ai-function-response-round, ai-error-fncall-missing-thought-signature, and
+ * ai-error-function-role-refused. Function responses ride under role `user`,
+ * the role production accepts.
  * RED BY DESIGN until the ai mirror lands (CDD map #92).
  */
 import { describe, expect, test } from 'bun:test';
@@ -10,6 +12,7 @@ import { aiSeam, observedBehavior, PROBE_MODEL, type AiSeam } from './support.ts
 const callShape = observedBehavior('ai-function-call-shape');
 const roundTrip = observedBehavior('ai-function-response-round');
 const missingSignature = observedBehavior('ai-error-fncall-missing-thought-signature');
+const functionRoleRefused = observedBehavior('ai-error-function-role-refused');
 
 let seam: AiSeam;
 
@@ -94,7 +97,7 @@ describe('ai: function calling', () => {
         { role: 'user', parts: [{ text: 'What is the weather in Paris?' }] },
         { role: 'model', parts: [part] },
         {
-          role: 'function',
+          role: 'user',
           parts: [{ functionResponse: { name: 'get_weather', response: { conditions: 'sunny' } } }],
         },
       ],
@@ -120,7 +123,7 @@ describe('ai: function calling', () => {
           { role: 'user', parts: [{ text: 'What is the weather in Paris?' }] },
           { role: 'model', parts: [stripped] },
           {
-            role: 'function',
+            role: 'user',
             parts: [{ functionResponse: { name: 'get_weather', response: { conditions: 'sunny' } } }],
           },
         ],
@@ -131,6 +134,46 @@ describe('ai: function calling', () => {
     expect(thrown).toBeDefined();
     expect(String(thrown.message)).toContain('thought_signature');
     expect(thrown.customErrorData?.status).toBe(missingSignature.httpStatus);
+  });
+
+  rowTest('ai#fncall-function-role-refused a function response under role function is refused 400 with the captured text', async () => {
+    const { part } = await scriptedFunctionCallPart();
+    const { model } = freshAi([{ respond: { text: 'It is sunny in Paris.' } }]);
+    expect(functionRoleRefused.httpStatus).toBe(400);
+    expect(functionRoleRefused.errorStatus).toBe('INVALID_ARGUMENT');
+    const turns = (role: string) => [
+      { role: 'user', parts: [{ text: 'What is the weather in Paris?' }] },
+      { role: 'model', parts: [part] },
+      { role, parts: [{ functionResponse: { name: 'get_weather', response: { conditions: 'sunny' } } }] },
+    ];
+    let thrown: any;
+    try {
+      await model.generateContent({ contents: turns('function') });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeDefined();
+    expect(String(thrown.message)).toContain(functionRoleRefused.messageText);
+    expect(thrown.customErrorData?.status).toBe(functionRoleRefused.httpStatus);
+    expect(roundTrip.httpStatus).toBe(200);
+    const accepted = await model.generateContent({ contents: turns('user') });
+    expect(accepted.response.candidates[0].finishReason).toBe(roundTrip.finishReason);
+  });
+
+  rowTest('ai#fncall-function-role-refused a ChatSession with tools fails on its function response, as in production', async () => {
+    const { model } = freshAi([
+      { match: /weather/, respond: { functionCall: { name: 'get_weather', args: { city: 'Paris' } } } },
+    ]);
+    const chat = model.startChat();
+    await chat.sendMessage('What is the weather in Paris?');
+    let thrown: any;
+    try {
+      await chat.sendMessage([{ functionResponse: { name: 'get_weather', response: { conditions: 'sunny' } } }]);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeDefined();
+    expect(String(thrown.message)).toContain(functionRoleRefused.messageText);
   });
 
   rowTest('ai#fncall-signature-minted the engine mints thoughtSignature on every synthesized functionCall part', async () => {

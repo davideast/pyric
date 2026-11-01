@@ -1,8 +1,9 @@
 /**
  * The register in worker threads.
  *
- * Built-in modules are per thread, so the network guard has to be installed
- * inside each worker as well. Node runs `--import` preloads (from the command
+ * Built-in modules and resolve hooks are per thread, so the swap, the stop
+ * and the network guard have to be installed inside each worker as well. The
+ * register installs this wrapper whatever `PYRIC_GUARD` says. Node runs `--import` preloads (from the command
  * line or `NODE_OPTIONS`) in a worker built from a file, a `data:` URL or ESM
  * source, and the register then activates there as it does on the main
  * thread. Two kinds of worker skip it:

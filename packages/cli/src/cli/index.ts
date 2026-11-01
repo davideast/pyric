@@ -40,14 +40,38 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
-import { runInit, runVendor } from './init.js';
-import { runSnapshot } from './snapshot.js';
-import { runVerify } from './verify.js';
-import { runMcpProxy } from './mcp-proxy.js';
 import { pyricVersion } from '../serve/standalone-assets.js';
 import { cliVersion } from '../pkg-version.js';
 import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
-import { dispatchServiceCommand } from './service-commands.js';
+
+// Each command's module is imported when that command runs, never at startup.
+// The service commands alone load about 500 modules, the TypeScript compiler
+// among them, which made every `pyric run` spend about 0.5 s at idle (over 3 s
+// on a loaded CI runner) before its first request (#1671).
+
+/**
+ * The commands this dispatcher runs itself that no service command starts
+ * with, so they skip loading the service command registry. `sandbox` is not
+ * here: `pyric sandbox inspect` is a service command.
+ */
+export const COMMANDS_BEFORE_SERVICES: ReadonlySet<string> = new Set([
+  'bridge',
+  'run',
+  'snapshot',
+  'verify',
+  'can-i-use',
+  'mcp',
+  'init',
+  'vendor',
+]);
+
+async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number | null> {
+  const subcommand = parsed.subcommand;
+  const skipsServices = subcommand == null || COMMANDS_BEFORE_SERVICES.has(subcommand);
+  if (skipsServices) return null;
+  const services = await import('./service-commands.js');
+  return services.dispatchServiceCommand(parsed);
+}
 
 // The standalone binary bakes the real `pyric` version onto the embedded-assets
 // global; the npm bin has no such global and falls back to '0.0.0'.
@@ -86,7 +110,9 @@ USAGE
   pyric --version
 
 COMMANDS
-  bridge                     Start the HTTP+WebSocket bridge external MCP clients point at.
+  bridge                     Start an HTTP MCP server with the rules, conformance, identity
+                             and capture tools. It has no browser socket: for an agent
+                             that drives the sandbox in a page, run \`pyric sandbox --bridge\`.
   sandbox [command...]       Run an application command or script inside the local Firebase sandbox
                              with unmodified firebase/* and firebase-admin/* imports routed to the
                              in-memory mirror. When [command...] is omitted, runs the command
@@ -94,9 +120,12 @@ COMMANDS
                              A firebase.json Functions source is discovered automatically;
                              supported RTDB onValueCreated exports run in isolated Node.
   run [--sandbox URL]        Run a command against a sandbox host that is already
-                             running (a Vite dev server with the pyric plugin, or
-                             \`pyric sandbox\`), with the environment \`pyric sandbox\`
-                             gives its child. --sandbox URL names the host; without
+                             running, with the environment \`pyric sandbox\` gives
+                             its child. The host is \`pyric sandbox --hosted\`, or a
+                             Vite dev server with \`pyric({ hosted: true })\` in
+                             vite.config.ts. A Vite server with the in-page
+                             \`pyric()\` plugin has no host, so pyric run refuses it.
+                             --sandbox URL names the host; without
                              it, PYRIC_SANDBOX=remote:<url>, then .pyric/serve.json.
                              The register module is passed by absolute file URL, so
                              the command can run outside pyric's install tree.
@@ -361,11 +390,12 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
       `  project: ${handle.bridge.project}\n` +
       `  health:  ${handle.url}/health\n` +
       `  mcp:     ${handle.url}/mcp\n` +
-      `  sandbox: ${handle.url.replace('http://', 'ws://')}/sandbox\n` +
       (handle.auditLogPath ? `  audit:   ${handle.auditLogPath}\n` : '') +
       `\nRegister with Claude Code:\n` +
       `  claude mcp add --transport http pyric ${handle.url}/mcp --scope project\n` +
-      `\nBridge will log peer connect/disconnect to stderr. Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
+      `\nThis bridge serves the tools that run in this process. A browser page cannot attach to it;\n` +
+      `for an agent that drives the sandbox in a page, run \`pyric sandbox --bridge\`.\n` +
+      `Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
       `Press Ctrl-C to stop.\n`,
   );
 
@@ -415,17 +445,22 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       const { runRun } = await import('./run.js');
       return runRun(parsed);
     case 'snapshot':
+      const { runSnapshot } = await import('./snapshot.js');
       return await runSnapshot(parsed);
     case 'verify':
+      const { runVerify } = await import('./verify.js');
       return await runVerify(parsed);
     case 'can-i-use':
       const { runCanIUse } = await import('./can-i-use.js');
       return runCanIUse(parsed);
     case 'mcp':
+      const { runMcpProxy } = await import('./mcp-proxy.js');
       return await runMcpProxy(parsed);
     case 'init':
+      const { runInit } = await import('./init.js');
       return await runInit(parsed);
     case 'vendor':
+      const { runVendor } = await import('./init.js');
       return await runVendor(parsed);
     default:
       process.stderr.write(

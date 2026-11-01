@@ -1,12 +1,13 @@
 /** Report what the sandbox holds. */
 import { z } from 'zod';
 import { getClock } from 'pyric/sandbox';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'sandbox',
   method: 'inspect',
+  runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'inspect()',

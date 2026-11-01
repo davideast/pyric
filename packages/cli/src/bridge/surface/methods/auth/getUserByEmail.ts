@@ -1,12 +1,13 @@
 /** Read one user record by its email address. */
 import { z } from 'zod';
 import { RENAMES } from '../../arguments/auth.js';
-import { callSandboxTool } from '../../context.js';
+import { callSandboxTool } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
   tool: 'auth',
   method: 'getUserByEmail',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-admin',
   effect: 'read',
   signature: 'getUserByEmail(email)',

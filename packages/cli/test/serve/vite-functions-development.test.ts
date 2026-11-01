@@ -6,7 +6,7 @@ import type { ViteDevServer } from 'vite';
 import type {
   FunctionsDevelopmentRuntime,
   FunctionsDevelopmentRuntimeOptions,
-} from '../../src/functions-rtdb/development-runtime.js';
+} from '../../src/functions/development-runtime.js';
 import type { BridgeMount } from '../../src/serve/bridge-mount.js';
 import { attachViteFunctionsDevelopment } from '../../src/serve/vite-functions-development.js';
 

@@ -71,6 +71,7 @@ function payloadFor(args: Args, ctx: SurfaceContext): Uint8Array | InvalidArgume
 export default {
   tool: 'storage',
   method: 'uploadBytes',
+  runsIn: 'bridge',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'uploadBytes(path, contentBase64? | sourcePath?, metadata?)',
