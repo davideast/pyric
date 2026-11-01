@@ -12,16 +12,42 @@ import type {
 } from '../sandbox-backend.js';
 import { targetOf, type SandboxTarget } from '../target.js';
 import type { AvatarMint } from './default-avatar.js';
-import type {
-  Auth,
-  AuthFlowResolver,
-  Unsubscribe,
-  User,
-  UserCredential,
+import {
+  TARGET_SYMBOL,
+  type Auth,
+  type AuthFlowResolver,
+  type Unsubscribe,
+  type User,
+  type UserCredential,
 } from '../types.js';
+
+/**
+ * Where a served `getAuth` attaches its {@link ServedSandboxHook}. A
+ * registered symbol, so a second copy of `pyric` on the page finds the hook
+ * the served bundle's copy attached.
+ */
+export const SERVED_SANDBOX_HOOK: unique symbol = Symbol.for('pyric.auth.servedSandbox');
+
+/** The driver calls a served handle needs, carried to wherever its Auth lives. */
+export interface ServedSandboxHook {
+  mockSignInResult(result: UserCredential): void;
+}
 
 function requireSandbox(auth: Auth): SandboxTarget {
   return targetOf(auth);
+}
+
+/** The hook attached to the handle itself; one inherited from a prototype is ignored. */
+function servedHookOf(auth: Auth): ServedSandboxHook | undefined {
+  const isAttached = Object.hasOwn(auth, SERVED_SANDBOX_HOOK);
+  if (!isAttached) return undefined;
+  return (auth as { [SERVED_SANDBOX_HOOK]?: ServedSandboxHook })[SERVED_SANDBOX_HOOK];
+}
+
+/** A handle this copy of the package made. Its own target wins over a hook,
+ *  which keeps an in-page hook from calling itself. */
+function hasOwnTarget(auth: Auth): boolean {
+  return TARGET_SYMBOL in auth;
 }
 
 export const sandbox = {
@@ -69,6 +95,12 @@ export const sandbox = {
         'invalid-argument',
         'sandbox.mockSignInResult: result.providerId is required so the next signInWithPopup / signInWithCredential call can match.',
       );
+    }
+    const hook = servedHookOf(auth);
+    const forwardsToHook = hook !== undefined && !hasOwnTarget(auth);
+    if (forwardsToHook) {
+      hook.mockSignInResult(result);
+      return;
     }
     requireSandbox(auth).backend.setMockResult(providerId, result);
   },

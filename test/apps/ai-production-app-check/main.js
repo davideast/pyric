@@ -30,6 +30,17 @@ window.runWithAppCheck = async () => {
   return { token, outcome: await ask({ app }) };
 };
 
+// The token the app attaches to its own API calls as X-Firebase-AppCheck. In
+// production AI mode it comes from Firebase; the custom provider plays
+// Firebase here and hands over the token the scenario signed.
+window.tokenForBackend = async (issued) => {
+  const app = initializeApp(config, "backend-calls");
+  const provider = new CustomProvider({ getToken: async () => ({ token: issued, expireTimeMillis: Date.now() + 3_600_000 }) });
+  const appCheck = initializeAppCheck(app, { provider, isTokenAutoRefreshEnabled: false });
+  const { token } = await getToken(appCheck);
+  return token;
+};
+
 // AI first, then App Check: the model was built before App Check existed.
 window.runAppCheckAfterAi = async () => {
   const app = initializeApp(config, "app-check-after-ai");

@@ -84,7 +84,10 @@ export function createFirestoreRulesTools(
           testCases: TestCase[];
         };
         const handler = new SimulateFirestoreRulesHandler();
-        const result = handler.simulate(source, testCases);
+        // Each case is checked as `firestore_test_rules` checks it: one the
+        // Rules Test API would read as a different request is UNSUPPORTED
+        // with the reason, and a plain map stays a map.
+        const result = handler.simulate(source, Array.isArray(testCases) ? testCases : [], { publicCases: true });
         return {
           ok: result.success,
           summary: result.success

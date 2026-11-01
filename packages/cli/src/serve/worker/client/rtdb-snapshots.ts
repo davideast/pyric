@@ -129,17 +129,39 @@ export function makeRtdbSnapshot(
   };
 }
 
+/**
+ * `value` with each `null` array element turned back into a hole. The hosted
+ * transport carries JSON, which writes a hole in `val()`'s sparse array as
+ * `null`; RTDB never stores a `null` child, so every such `null` was a hole
+ * (RT-6, #1371). A structured-clone port keeps holes, and this leaves them.
+ */
+export function restoreArrayHoles(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    const restored: unknown[] = [];
+    restored.length = value.length;
+    value.forEach((element, index) => {
+      if (element !== null) restored[index] = restoreArrayHoles(element);
+    });
+    return restored;
+  }
+  const restored: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) restored[key] = restoreArrayHoles(child);
+  return restored;
+}
+
 export function hydrateRtdbSnapshot(
   refHandle: RtdbRefHandle,
   wire: unknown,
 ): RtdbDataSnapshot {
   const payload = wire as RtdbWireSnapshot;
+  const entries = payload.entries?.map((entry) => ({ ...entry, value: restoreArrayHoles(entry.value) }));
   return makeRtdbSnapshot(
     refHandle,
-    payload.value ?? null,
+    restoreArrayHoles(payload.value ?? null),
     payload.exists,
     payload.priority ?? null,
-    payload.entries,
+    entries,
     payload.exportValue ?? payload.value ?? null,
   );
 }

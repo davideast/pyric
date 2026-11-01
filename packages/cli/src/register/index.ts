@@ -18,10 +18,19 @@
  * `module.register()` (ESM-only) with a warning that CJS require() is not
  * rewritten.
  *
+ * Swap or stop (ADR 0022, `./swap-or-stop.js`): an import that resolves into
+ * the real `firebase-admin`, or into the real client SDK where the swap table
+ * didn't choose it, throws `PYRIC_REAL_SDK_STOPPED` before the file loads.
+ *
  * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
  * refuses egress from this process to live Google/Firebase endpoints, or only
  * reports it under `PYRIC_GUARD=warn`. See that module for the policy and the
- * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs.
+ * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs. Whatever the guard mode, it
+ * wraps `worker_threads.Worker` (`./worker-guard.js`) so every worker thread
+ * loads this module as well, including those Node starts without preloads,
+ * and gets the swap and the stop. It also wraps `child_process`
+ * (`./child-process-guard.js`), so every child process starts with this
+ * module in its `NODE_OPTIONS` and in this process's sandbox.
  *
  * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
  * `POST /__pyric/beacon` when the activator carries a bridge URL, plus a
@@ -33,16 +42,25 @@ import Module from 'node:module';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { mapFirebaseSpecifier } from './mapping.js';
+import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
+import { resolvesIntoPackage } from './package-identity.js';
+import { markRegisterActive } from './activation.js';
+import { createStopReporter, stopFor } from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
+import { installWorkerGuard } from './worker-guard.js';
+import { installChildProcessGuard } from './child-process-guard.js';
 import { remoteSandbox } from '../remote/index.js';
+import { resolveAiMode } from '../serve/firebase-module-swap.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
  *  returning the lazy branded handle. `Symbol.for` so both packages agree
  *  without importing each other's types. */
 const SANDBOX_FACTORY = Symbol.for('pyric.remote.sandboxFactory');
+
+/** The seam with pyric-admin's App Check mirror: firebase-admin's verifier for tokens from Firebase (#1552). */
+const APP_CHECK_FIREBASE_VERIFIER = Symbol.for('pyric.admin.appCheck.firebaseVerifier');
 
 interface SyncResolveContext {
   parentURL?: string;
@@ -103,6 +121,70 @@ function resolveEsmOnlyForRequire(mapped: string): string | null {
   }
 }
 
+type NextSyncResolve = Parameters<SyncResolve>[2];
+
+/** Resolve a mapped pyric target from this installed CLI. */
+function resolveMapped(mapped: string, context: SyncResolveContext, nextResolve: NextSyncResolve): SyncResolveResult {
+  try {
+    return nextResolve(mapped, { ...context, parentURL: import.meta.url });
+  } catch (err) {
+    // CJS `require('firebase-admin/app')` resolves under the `require`
+    // condition, but the pyric mirrors are ESM-only. Resolve the file
+    // under import conditions ourselves — require(esm) (Node ≥ 22.12)
+    // loads it fine once given the URL.
+    const code = (err as { code?: string }).code;
+    if (code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || code === 'MODULE_NOT_FOUND') {
+      const url = resolveEsmOnlyForRequire(mapped);
+      if (url) return { url, shortCircuit: true };
+    }
+    throw err;
+  }
+}
+
+/**
+ * The sync resolve hook. A canonical Firebase specifier maps directly. A
+ * Turbopack-renamed one (`firebase-admin-<hash>/app`, #1443) resolves as
+ * given first, and maps by its canonical name only when that landed in the
+ * real package, so an unrelated package with such a name stays itself.
+ */
+const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
+  const canonical = canonicalFirebaseSpecifier(specifier);
+  if (canonical === null) {
+    const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
+    if (mapped === null) return nextResolve(specifier, context);
+    return resolveMapped(mapped, context, nextResolve);
+  }
+  const renamed = nextResolve(specifier, context);
+  const isRealFirebasePackage = resolvesIntoPackage(renamed.url, canonical);
+  if (!isRealFirebasePackage) return renamed;
+  const mapped = mapFirebaseSpecifier(canonical, context.parentURL);
+  if (mapped === null) return renamed;
+  return resolveMapped(mapped, context, nextResolve);
+};
+
+/**
+ * Swap or stop (ADR 0022): a resolve that lands in the real `firebase-admin`,
+ * or in the real client SDK where the swap table didn't choose it, throws
+ * before the file loads, and the stop is written to stderr once per file. It
+ * does not depend on the network guard, so `PYRIC_GUARD=off` keeps it.
+ */
+function withSwapOrStop(resolve: SyncResolve): SyncResolve {
+  const report = createStopReporter((line) => void process.stderr.write(line));
+  const allowedUrls = new Set<string>();
+  return (specifier, context, nextResolve) => {
+    const result = resolve(specifier, context, nextResolve);
+    const stop = stopFor({
+      specifier,
+      canonical: canonicalFirebaseSpecifier(specifier),
+      importer: context.parentURL,
+      url: result.url,
+    }, allowedUrls);
+    if (stop === null) return result;
+    report(stop);
+    throw stop;
+  };
+}
+
 function activate(): void {
   // FIRST, before any hook or global: the network guard.
   //
@@ -124,6 +206,16 @@ function activate(): void {
   // Published so code that learns a destination later, such as the Vite
   // plugin's configured AI upstream, can permit it (`permitGuardHost`).
   if (guard !== null) (globalThis as unknown as Record<symbol, unknown>)[NET_GUARD_GLOBAL] = guard;
+  // Built-ins and resolve hooks are per thread: every worker this process
+  // starts loads this module too, including the kinds Node starts without
+  // running preloads. Whatever PYRIC_GUARD says, since the worker's swap and
+  // stop come from this module; the worker installs its own network guard, or
+  // none under `off`, exactly as this thread does.
+  installWorkerGuard(import.meta.url);
+  // Child processes too (#1618): every child starts with this module in its
+  // NODE_OPTIONS and with this process's PYRIC_* variables it lacks, so a
+  // child of a registered process is registered whatever env it is given.
+  installChildProcessGuard(import.meta.url);
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,
@@ -133,24 +225,7 @@ function activate(): void {
   if (typeof moduleApi.registerHooks === 'function') {
     hooksInstalled = true;
     moduleApi.registerHooks({
-      resolve(specifier, context, nextResolve) {
-        const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
-        if (mapped === null) return nextResolve(specifier, context);
-        try {
-          return nextResolve(mapped, { ...context, parentURL: import.meta.url });
-        } catch (err) {
-          // CJS `require('firebase-admin/app')` resolves under the `require`
-          // condition, but the pyric mirrors are ESM-only. Resolve the file
-          // under import conditions ourselves — require(esm) (Node ≥ 22.12)
-          // loads it fine once given the URL.
-          const code = (err as { code?: string }).code;
-          if (code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || code === 'MODULE_NOT_FOUND') {
-            const url = resolveEsmOnlyForRequire(mapped);
-            if (url) return { url, shortCircuit: true };
-          }
-          throw err;
-        }
-      },
+      resolve: withSwapOrStop(resolveFirebase),
     });
   } else {
     process.stderr.write(
@@ -170,6 +245,8 @@ function activate(): void {
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
     remoteSandbox({ configuredUrl: opts?.url, instanceId: process.env.PYRIC_SANDBOX_INSTANCE });
 
+  installAppCheckVerifier();
+
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +
       `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
@@ -185,6 +262,23 @@ function activate(): void {
     hooks: hooksInstalled,
     sandbox: process.env.PYRIC_SANDBOX ?? '',
   });
+}
+
+/**
+ * Production AI mode only: the page's App Check tokens come from Firebase, so
+ * pyric-admin's mirror hands them to firebase-admin's own verifier (#1552).
+ * The bridge, and firebase-admin with it, loads on the first such token, so a
+ * server that never verifies one never loads firebase-admin. In sandbox AI
+ * mode nothing is installed, and the mirror refuses such a token with a
+ * message that says why.
+ */
+function installAppCheckVerifier(): void {
+  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
+  if (!isProductionAiMode) return;
+  (globalThis as Record<symbol, unknown>)[APP_CHECK_FIREBASE_VERIFIER] = async (token: string, projectId: string) => {
+    const bridge = await import('./app-bridge-admin-app-check.js');
+    return bridge.verifyFirebaseAppCheckToken(token, projectId);
+  };
 }
 
 /**
@@ -216,6 +310,7 @@ if (process.env.PYRIC_SANDBOX) {
   } else {
     activate();
     active = true;
+    markRegisterActive();
   }
 }
 // No PYRIC_SANDBOX → inert by design: importing this module rewrites nothing.

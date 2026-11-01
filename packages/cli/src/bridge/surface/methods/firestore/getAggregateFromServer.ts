@@ -25,6 +25,7 @@ function chainSpecFrom(spec: { count?: boolean; sum?: string; average?: string }
 export default {
   tool: 'firestore',
   method: 'getAggregateFromServer',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
   signature: 'getAggregateFromServer(path, spec{count?, sum?, average?}, constraints?[asc|desc])',

@@ -19,7 +19,8 @@ import './init.js';
 import * as ipAuth from 'pyric/auth';
 import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from 'pyric/auth';
 import * as wcRaw from '../worker/client.js';
-import { acceptProviderCredential, restorePortSession } from '../worker/client.js';
+import { acceptProviderCredential, restorePortSession, stageSignInResult } from '../worker/client.js';
+import { SERVED_SANDBOX_HOOK, type ServedSandboxHook } from 'pyric/auth/internal';
 import { useWorker } from './worker-runtime.js';
 import { sessionStoreForApp } from './app-session-store.js';
 import { helperCustomClaims } from './auth-helper-core.js';
@@ -108,10 +109,27 @@ function wireAppPersistence(
   });
 }
 
+/**
+ * Attach the hook `pyric/auth`'s `sandbox.mockSignInResult` uses on a handle it
+ * didn't make (#1466). Fixed once attached: not writable, not configurable.
+ */
+function attachServedSandboxHook(
+  handle: ReturnType<typeof pyricGetAuth>,
+  hook: ServedSandboxHook,
+): void {
+  const isAttached = Object.hasOwn(handle, SERVED_SANDBOX_HOOK);
+  if (isAttached) return;
+  Object.defineProperty(handle, SERVED_SANDBOX_HOOK, { value: hook, writable: false, configurable: false });
+}
+
 export const getAuth = ((app?: FirebaseApp) => {
   const resolved = app ?? getApp();
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
+    // A page whose pyric/auth is another copy stages through this bundle's own.
+    attachServedSandboxHook(handle, {
+      mockSignInResult: (result) => ipAuth.sandbox.mockSignInResult(handle, result),
+    });
     wireAppPersistence(resolved, handle);
     const releaseActiveAuth = registerActiveAuth(handle);
     registerAppCleanup(resolved, releaseActiveAuth);
@@ -123,6 +141,9 @@ export const getAuth = ((app?: FirebaseApp) => {
   const handle = Object.assign(wc.getAuth(client as never), {
     app: resolved,
   }) as unknown as ReturnType<typeof pyricGetAuth>;
+  attachServedSandboxHook(handle, {
+    mockSignInResult: (result) => stageSignInResult(handle as never, result),
+  });
   workerAuthByApp.set(resolved, handle);
   wireAppPersistence(resolved, handle);
   const releaseActiveAuth = registerActiveAuth(handle);

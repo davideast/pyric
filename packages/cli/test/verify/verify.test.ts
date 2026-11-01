@@ -37,7 +37,8 @@ import {
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments } from 'pyric/sandbox/firestore';
 import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
-import { getMetadata, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { getMetadata, getStorage, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { createAppForSandbox } from 'pyric/app/internal';
 import {
   buildVerifyFixture,
   deriveRulesTestCases,
@@ -381,6 +382,35 @@ describe('verifyFixture', () => {
     expect(result.services.firestore?.engines?.rulesTestApi?.testCases).toBe(1);
   });
 
+  it('sends a create of an existing document to the hosted engine without the existing resource (#1338)', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    db.setRules(ALICE_RULES);
+    await db.doc('notes/n1').set({ title: 'first' });
+    await db.doc('notes/n1').create({ title: 'again' }).catch(() => undefined);
+    const fixture = buildVerifyFixture({ sandbox, firestoreRules: ALICE_RULES });
+
+    const derived = deriveRulesTestCases(fixture);
+    const creates = derived.testCases.filter((tc) => tc.method === 'create');
+    expect(creates.length).toBeGreaterThan(0);
+    for (const tc of creates) expect(tc.resource).toBeUndefined();
+
+    let sentCases = 0;
+    (global as any).fetch = async (_url: string, init: { body: string }) => {
+      const cases = (JSON.parse(init.body) as { testSuite: { testCases: unknown[] } }).testSuite.testCases;
+      sentCases = cases.length;
+      return new Response(JSON.stringify({ testResults: cases.map(() => ({ state: 'SUCCESS' })) }), { status: 200 });
+    };
+    const result = await verifyFixture(fixture, {
+      engines: ['rulesTestApi'],
+      rules: { firestore: ALICE_RULES },
+      rulesTestApi: { scope: MOCK_SCOPE },
+    });
+
+    expect(sentCases).toBe(derived.testCases.length);
+    expect(result.services.firestore?.engines?.rulesTestApi?.checkedEvents).toBe(derived.testCases.length);
+  });
+
   it('reports now-denied when hosted Rules Test API fails an allowed captured request', async () => {
     const fixture = await captureFirestoreJourney();
     (global as any).fetch = async () =>
@@ -561,6 +591,24 @@ service firebase.storage {
     });
     // Round-trips through parse/validate too.
     expect(parseVerifyFixture(fixture).services.storage?.rules.source).toBe(OWNER_ONLY_RULES);
+  });
+
+  it('replays a live allow under the bucket name the rules saw (ST-H2-4)', async () => {
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/demo-app.appspot.com/o {
+    match /{p=**} { allow read, write: if true; }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    getStorageSandbox(sandbox, { dbName: uniqueDbName('bucket-name'), rules });
+    const app = createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: 'demo-app.appspot.com' }, uniqueDbName('app'));
+    const storage = getStorage(app);
+    await uploadBytes(storageRef(storage, 'x/a.txt'), new Uint8Array([1]));
+    await getMetadata(storageRef(storage, 'x/a.txt'));
+    const result = await verifyFixture(buildVerifyFixture({ sandbox, storageRules: rules }), { rules: { storage: rules } });
+    expect(result.services.storage?.checkedEvents).toBe(2);
+    expect(result.services.storage?.divergences).toEqual([]);
   });
 
   it('omits the storage block when no storage rules were deployed', () => {

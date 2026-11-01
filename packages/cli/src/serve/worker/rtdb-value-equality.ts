@@ -2,9 +2,11 @@
 export function sameRtdbValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
+    // A hole and a `null` are the same RTDB value: the hosted transport's JSON
+    // writes a sparse array's holes as `null` (RT-6, #1371).
     return Array.isArray(left) && Array.isArray(right)
       && left.length === right.length
-      && left.every((value, index) => sameRtdbValue(value, right[index]));
+      && Array.from(left, (value, index) => sameRtdbValue(value ?? null, right[index] ?? null)).every(Boolean);
   }
   if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
   const leftRecord = left as Record<string, unknown>;

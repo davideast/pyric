@@ -1,0 +1,52 @@
+{
+  "name": "ai-request-edge-roleless-contents",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#request-roleless-contents"
+  ],
+  "description": "generateContent with one contents entry that has parts and no role. Records whether production accepts it and, on success, the candidate finish reason, content role and part key sets. Generated text is never a claim and is not stored.",
+  "observedAt": "2026-10-28T02:26:34.076Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "request": {
+      "model": "gemini-flash-lite-latest",
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Reply with one word: pong"
+              }
+            ]
+          }
+        ]
+      },
+      "headerNames": [
+        "Content-Type",
+        "x-goog-api-key",
+        "X-Firebase-AppCheck"
+      ]
+    },
+    "appCheckTokenSource": "firebase-admin createToken(appId)",
+    "httpStatus": 200,
+    "isJson": true,
+    "topLevelKeySet": [
+      "candidates",
+      "modelVersion",
+      "responseId",
+      "usageMetadata"
+    ],
+    "candidateCount": 1,
+    "finishReason": "STOP",
+    "contentRole": "model",
+    "partKeySets": [
+      [
+        "text",
+        "thoughtSignature"
+      ]
+    ]
+  }
+}

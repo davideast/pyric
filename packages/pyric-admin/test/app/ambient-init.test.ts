@@ -229,10 +229,14 @@ describe('ambient init — production guard', () => {
     expect(isSandboxAdminApp(app)).toBe(true);
   });
 
-  it('cert returns an inert credential object', () => {
-    expect(cert({ projectId: 'demo' })).toEqual({
+  it('cert returns an inert credential object that keeps only the project id, hidden', () => {
+    const credential = cert({ projectId: 'demo', private_key: 'placeholder-private-key' });
+    expect(credential).toEqual({
       [Symbol.for('pyric.admin.credential')]: 'cert',
     });
+    expect(Object.keys(credential)).toEqual([]);
+    const hidden = Object.getOwnPropertyDescriptor(credential, Symbol.for('pyric.admin.credential.projectId'));
+    expect(hidden).toMatchObject({ value: 'demo', enumerable: false });
   });
 
   it('initializeApp with production options falls back to ambient sandbox initialization when PYRIC_SANDBOX is set', () => {

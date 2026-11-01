@@ -1,0 +1,772 @@
+{
+  "schema": "pyric.rules-case-wire.v1",
+  "capturedAt": "2026-10-28T03:34:34.781Z",
+  "projectId": "digame-mas",
+  "method": "Rules Test API projects.test, one ruleset per probe from PROBES in packages/conformance/src/capture-rules-case-wire.ts; every case is a create of <collection>/d1 by uid alice with expectation ALLOW, so SUCCESS is ALLOW and FAILURE is DENY.",
+  "calls": 4,
+  "probes": {
+    "create-with-resource": {
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /createResData/{id} { allow create: if resource.data.x == 1; }\n    match /createResNull/{id} { allow create: if resource == null; }\n    match /createResNotNull/{id} { allow create: if resource != null; }\n  }\n}\n",
+      "cases": [
+        {
+          "description": "create with resource: resource.data.x == 1",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/createResData/d1",
+              "resource": {
+                "data": {
+                  "x": 2
+                }
+              }
+            },
+            "resource": {
+              "data": {
+                "x": 1
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "create with resource: resource == null",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/createResNull/d1",
+              "resource": {
+                "data": {
+                  "x": 2
+                }
+              }
+            },
+            "resource": {
+              "data": {
+                "x": 1
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "create with resource: resource != null",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/createResNotNull/d1",
+              "resource": {
+                "data": {
+                  "x": 2
+                }
+              }
+            },
+            "resource": {
+              "data": {
+                "x": 1
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "create without resource: resource.data.x == 1",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/createResData/d1",
+              "resource": {
+                "data": {
+                  "x": 2
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [4], column [50]. Null value error."
+          ]
+        },
+        {
+          "description": "create without resource: resource == null",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/createResNull/d1",
+              "resource": {
+                "data": {
+                  "x": 2
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": [
+            "Error: firestore.rules line [5], column [50]. Null value error."
+          ]
+        }
+      ]
+    },
+    "tagged-map": {
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /is-timestamp/{id} { allow create: if request.resource.data.v is timestamp; }\n    match /is-latlng/{id} { allow create: if request.resource.data.v is latlng; }\n    match /is-duration/{id} { allow create: if request.resource.data.v is duration; }\n    match /is-path/{id} { allow create: if request.resource.data.v is path; }\n    match /is-bytes/{id} { allow create: if request.resource.data.v is bytes; }\n    match /is-string/{id} { allow create: if request.resource.data.v is string; }\n    match /is-map/{id} { allow create: if request.resource.data.v is map; }\n  }\n}\n",
+      "cases": [
+        {
+          "description": "{__type: timestamp} map is timestamp",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-timestamp/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "__type": "timestamp",
+                    "seconds": 1767225600,
+                    "nanos": 0
+                  }
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "{__type: timestamp} map is map",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-map/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "__type": "timestamp",
+                    "seconds": 1767225600,
+                    "nanos": 0
+                  }
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        }
+      ]
+    },
+    "wire-forms": {
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /is-timestamp/{id} { allow create: if request.resource.data.v is timestamp; }\n    match /is-latlng/{id} { allow create: if request.resource.data.v is latlng; }\n    match /is-duration/{id} { allow create: if request.resource.data.v is duration; }\n    match /is-path/{id} { allow create: if request.resource.data.v is path; }\n    match /is-bytes/{id} { allow create: if request.resource.data.v is bytes; }\n    match /is-string/{id} { allow create: if request.resource.data.v is string; }\n    match /is-map/{id} { allow create: if request.resource.data.v is map; }\n    match /ts-parts/{id} { allow create: if request.resource.data.v == timestamp.date(2026, 1, 1) + duration.value(123, 'ms'); }\n    match /latlng-parts/{id} { allow create: if request.resource.data.v.latitude() == 1.5 && request.resource.data.v.longitude() == -2; }\n    match /duration-parts/{id} { allow create: if request.resource.data.v == duration.value(-1500, 'ms'); }\n    match /path-parts/{id} { allow create: if request.resource.data.v == /databases/(default)/documents/users/alice; }\n  }\n}\n",
+      "cases": [
+        {
+          "description": "timestamp form is timestamp",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-timestamp/d1",
+              "resource": {
+                "data": {
+                  "v": "2026-01-01T00:00:00.123000000Z"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "timestamp form is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "2026-01-01T00:00:00.123000000Z"
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "timestamp form keeps the instant",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/ts-parts/d1",
+              "resource": {
+                "data": {
+                  "v": "2026-01-01T00:00:00.123000000Z"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "latlng form is latlng",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-latlng/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "latitude": 1.5,
+                    "longitude": -2
+                  }
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "latlng form is map",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-map/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "latitude": 1.5,
+                    "longitude": -2
+                  }
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "latlng form keeps the point",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/latlng-parts/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "latitude": 1.5,
+                    "longitude": -2
+                  }
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "duration form is duration",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-duration/d1",
+              "resource": {
+                "data": {
+                  "v": "-1.500000000s"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "duration form is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "-1.500000000s"
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "duration form keeps the length",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/duration-parts/d1",
+              "resource": {
+                "data": {
+                  "v": "-1.500000000s"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "reference form is path",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-path/d1",
+              "resource": {
+                "data": {
+                  "v": "/databases/(default)/documents/users/alice"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "reference form is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "/databases/(default)/documents/users/alice"
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "reference form keeps the path",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/path-parts/d1",
+              "resource": {
+                "data": {
+                  "v": "/databases/(default)/documents/users/alice"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "base64 string is bytes",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-bytes/d1",
+              "resource": {
+                "data": {
+                  "v": "aGk="
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "base64 string is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "aGk="
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        }
+      ]
+    },
+    "string-sniffing": {
+      "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /is-timestamp/{id} { allow create: if request.resource.data.v is timestamp; }\n    match /is-latlng/{id} { allow create: if request.resource.data.v is latlng; }\n    match /is-duration/{id} { allow create: if request.resource.data.v is duration; }\n    match /is-path/{id} { allow create: if request.resource.data.v is path; }\n    match /is-bytes/{id} { allow create: if request.resource.data.v is bytes; }\n    match /is-string/{id} { allow create: if request.resource.data.v is string; }\n    match /is-map/{id} { allow create: if request.resource.data.v is map; }\n  }\n}\n",
+      "cases": [
+        {
+          "description": "ISO string with offset is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "2026-01-01T00:00:00+02:00"
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "ISO string with offset is timestamp",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-timestamp/d1",
+              "resource": {
+                "data": {
+                  "v": "2026-01-01T00:00:00+02:00"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "ISO string without offset is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "2026-01-01T00:00:00"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "ISO string without offset is timestamp",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-timestamp/d1",
+              "resource": {
+                "data": {
+                  "v": "2026-01-01T00:00:00"
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "seconds string is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "5s"
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "seconds string is duration",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-duration/d1",
+              "resource": {
+                "data": {
+                  "v": "5s"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "slash string is string",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-string/d1",
+              "resource": {
+                "data": {
+                  "v": "/a/b"
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "slash string is path",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-path/d1",
+              "resource": {
+                "data": {
+                  "v": "/a/b"
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "latitude and longitude map is map",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-map/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "latitude": 1,
+                    "longitude": 2
+                  }
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        },
+        {
+          "description": "latitude and longitude map is latlng",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-latlng/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "latitude": 1,
+                    "longitude": 2
+                  }
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "latitude and longitude map with another key is map",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-map/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "latitude": 1,
+                    "longitude": 2,
+                    "x": 1
+                  }
+                }
+              }
+            }
+          },
+          "decision": "ALLOW",
+          "notes": []
+        },
+        {
+          "description": "latitude and longitude map with another key is latlng",
+          "wire": {
+            "expectation": "ALLOW",
+            "request": {
+              "auth": {
+                "uid": "alice",
+                "token": {}
+              },
+              "method": "create",
+              "path": "/databases/(default)/documents/is-latlng/d1",
+              "resource": {
+                "data": {
+                  "v": {
+                    "latitude": 1,
+                    "longitude": 2,
+                    "x": 1
+                  }
+                }
+              }
+            }
+          },
+          "decision": "DENY",
+          "notes": []
+        }
+      ]
+    }
+  }
+}

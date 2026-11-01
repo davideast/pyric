@@ -8,6 +8,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'storage',
   method: 'getDownloadURL',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
   signature: 'getDownloadURL(path)',

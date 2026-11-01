@@ -111,33 +111,16 @@ function recordProblems(file: string, value: unknown): string[] {
 }
 
 /**
- * Every strict-prefix relationship between two DIFFERENT rigs' observation
- * prefixes makes longest-prefix ownership ambiguous. A single rig owning both
- * a prefix and a longer prefix built on top of it (e.g. `oracle-run` owning
- * both 'rtdb-' and 'rtdb-modular-') is fine — the same rig owns the file
- * either way. The problem is two DIFFERENT rigs where one's prefix is a
- * strict prefix of the other's.
- */
-function crossRigPrefixProblems(manifests: RigManifest[]): string[] {
-  const problems: string[] = [];
-  const all = manifests.flatMap((m) => m.observationPrefixes.map((prefix) => ({ prefix, id: m.id })));
-  for (const a of all) {
-    for (const b of all) {
-      if (a.id === b.id || a.prefix === b.prefix) continue;
-      if (b.prefix.startsWith(a.prefix)) {
-        problems.push(
-          `observation prefix '${a.prefix}' (rig '${a.id}') is a strict prefix of '${b.prefix}' (rig '${b.id}') — ambiguous longest-prefix ownership across rigs`,
-        );
-      }
-    }
-  }
-  return problems;
-}
-
-/**
  * Loads every rig manifest in this directory. Throws with every problem found
- * (a malformed record, a duplicate prefix, an ambiguous cross-rig prefix)
- * rather than silently dropping a bad file.
+ * (a malformed record, or one prefix claimed by two rigs) rather than silently
+ * dropping a bad file.
+ *
+ * A rig may own a prefix nested under another rig's prefix (the
+ * app-check-admin-options rig's 'app-check-admin-options-' under the app-check
+ * rig's 'app-check-'): longest-prefix match gives each file to exactly one
+ * rig, the same rule surfaces use for 'rtdb-' and 'rtdb-modular-'. Only the
+ * same prefix on two rigs is ambiguous, and validate-registry.ts reports any
+ * observation whose longest match still ties across rigs.
  */
 export async function loadRigManifests(): Promise<RigManifest[]> {
   const files = readdirSync(HERE)
@@ -172,7 +155,6 @@ export async function loadRigManifests(): Promise<RigManifest[]> {
       prefixOwner.set(prefix, manifest.id);
     }
   }
-  problems.push(...crossRigPrefixProblems(manifests));
 
   if (problems.length > 0) {
     throw new Error(`Rig manifest loading failed:\n${problems.map((p) => `  - ${p}`).join('\n')}`);

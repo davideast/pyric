@@ -138,20 +138,42 @@ export function isAllowedOrigin(
 }
 
 /**
+ * The Origin check once the app's ports are known: the Origin must name one of
+ * them. Both a page this app serves and a page on another local port are
+ * loopback, so only the port tells them apart. `undefined` means the ports
+ * are not known, and only the Origin's hostname is compared.
+ */
+function isAllowedOriginOnPorts(
+  originHeader: string | undefined,
+  boundHost: string,
+  extra: string[],
+  appPorts: readonly number[] | undefined,
+): boolean {
+  const portsUnknown = appPorts === undefined;
+  if (portsUnknown) return isAllowedOrigin(originHeader, boundHost, extra);
+  return appPorts.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port));
+}
+
+/**
  * The combined guard for a WS `upgrade` request: BOTH the `Host` header
  * (DNS-rebinding) AND the `Origin` header (cross-origin hijack) must pass.
  * `upgrade` is a separate listener from the HTTP `request` event, so the
  * static server's request-time `isAllowedHost` never runs on it — every
  * upgrade mount point must call this before `wss.handleUpgrade`.
+ *
+ * Pass `appPorts` (the socket's `localPort`, plus any port `createAppPorts`
+ * learned) so a page on another local port is refused; without it only the
+ * Origin's hostname is compared.
  */
 export function isAllowedUpgrade(
   headers: { host?: string; origin?: string },
   boundHost: string,
   extra: string[] = [],
+  appPorts?: readonly number[],
 ): boolean {
   return (
     isAllowedHost(headers.host, boundHost, extra) &&
-    isAllowedOrigin(headers.origin, boundHost, extra)
+    isAllowedOriginOnPorts(headers.origin, boundHost, extra, appPorts)
   );
 }
 
@@ -208,17 +230,22 @@ export function isAllowedSessionToken(
 /**
  * Validates that an incoming HTTP request complies with both loopback Host
  * (DNS-rebinding) and Origin (cross-origin hijacking) restrictions.
+ *
+ * Pass `appPorts` (the socket's `localPort`, plus any port `createAppPorts`
+ * learned) so a page on another local port is refused; without it only the
+ * Origin's hostname is compared.
  */
 export function isAllowedLoopbackRequest(
   req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
   boundHost: string,
   extra: string[] = [],
+  appPorts?: readonly number[],
 ): boolean {
   const hostHeader = getHeader(req, 'host');
   const originHeader = getHeader(req, 'origin');
   return (
     isAllowedHost(hostHeader, boundHost, extra) &&
-    isAllowedOrigin(originHeader, boundHost, extra)
+    isAllowedOriginOnPorts(originHeader, boundHost, extra, appPorts)
   );
 }
 

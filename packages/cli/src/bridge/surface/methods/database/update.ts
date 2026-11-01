@@ -9,6 +9,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'database',
   method: 'update',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'update(path, values, instance?)',

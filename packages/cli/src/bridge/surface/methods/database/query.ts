@@ -18,6 +18,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'database',
   method: 'query',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
   signature: 'query(path, orderByChild?, equalTo?, limitToFirst?, instance?)',

@@ -51,20 +51,20 @@ function specsIn(value: unknown): string[] {
   return isObject ? Object.values(value).flatMap(specsIn) : [];
 }
 
-interface Manifest {
+export interface Manifest {
   scripts?: Record<string, string>;
   workspaces?: unknown;
   [field: string]: unknown;
 }
 
-function sortedObject(value: unknown): unknown {
+export function sortedObject(value: unknown): unknown {
   const isPlainObject = typeof value === 'object' && value !== null && !Array.isArray(value);
   if (!isPlainObject) return value;
   return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, sortedObject(entry)]));
 }
 
 /** The fields of a manifest that a shared install writes, in a stable order. */
-function installManifest(manifest: Manifest): Record<string, unknown> {
+export function installManifest(manifest: Manifest): Record<string, unknown> {
   return Object.fromEntries(INSTALL_FIELDS.filter((field) => manifest[field] !== undefined).map((field) => [field, sortedObject(manifest[field])]));
 }
 
@@ -178,6 +178,24 @@ const SET_INSTALL_ATTEMPTS = 2;
 /** Runs `npm install` in a directory. */
 export type InstallIn = (cwd: string) => Promise<CommandResult>;
 
+/** A set's tree, made in its directory, and where it came from. */
+export interface SetInstallResult extends CommandResult {
+  /** Where the tree came from, for the set's `[runner]` line, such as "from the store". */
+  source?: string;
+  /** False for a failure a second attempt cannot change, such as a store miss offline. */
+  retryable?: boolean;
+}
+
+/** Makes a set's tree in `dir`, which holds the set's package.json; `app` is the app it is made for. */
+export type InstallSet = (dir: string, app?: string) => Promise<SetInstallResult>;
+
+export interface SharedInstallsOptions {
+  /** How a set's tree is made. Without it, `installIn` runs in the set's directory. */
+  installSet?: InstallSet;
+  /** Gets one `[runner]` line per set: its key, its source and its seconds. */
+  report?: (line: string) => void;
+}
+
 interface SetInstall {
   dir: string;
   result: Promise<CommandResult>;
@@ -186,21 +204,27 @@ interface SetInstall {
 /** The installs of one run, one per dependency set, made in directories under `baseDir`. */
 export class SharedInstalls {
   private readonly sets = new Map<string, SetInstall>();
+  private readonly installSetIn: InstallSet;
+  private readonly report: (line: string) => void;
 
-  constructor(private readonly baseDir: string, private readonly installIn: InstallIn) {}
+  constructor(private readonly baseDir: string, private readonly installIn: InstallIn, options: SharedInstallsOptions = {}) {
+    this.installSetIn = options.installSet ?? ((dir) => this.installIn(dir));
+    this.report = options.report ?? (() => {});
+  }
 
   /**
    * Install the app prepared in `projectDir`: its set's install, copied in,
    * or its own when it installs alone. A set's install is tried twice, so one
-   * dropped connection does not fail the set; when both attempts fail, every
-   * app that shares it fails with that log, without installing again.
+   * dropped connection does not fail the set, unless the first attempt says
+   * a second cannot help; when every attempt fails, every app that shares it
+   * fails with that log, without installing again.
    */
-  async install(projectDir: string): Promise<CommandResult> {
+  async install(projectDir: string, app?: string): Promise<CommandResult> {
     const inputs = readInstallInputs(projectDir);
     const key = dependencySetKey(inputs);
     if (key === undefined) return this.installIn(projectDir);
     const existing = this.sets.get(key);
-    const set = existing ?? this.startSet(key, inputs);
+    const set = existing ?? this.startSet(key, inputs, app);
     const shared = await set.result;
     const made = existing === undefined ? 'made for this app' : 'made for an earlier app in this run';
     const header = `[runner] shared install ${key}, ${made}\n`;
@@ -216,26 +240,37 @@ export class SharedInstalls {
     return { code: 0, output: `${header}${shared.output}` };
   }
 
-  private async installSet(dir: string): Promise<CommandResult> {
+  private async installSet(dir: string, app: string | undefined): Promise<SetInstallResult> {
     let output = '';
     for (let attempt = 1; attempt <= SET_INSTALL_ATTEMPTS; attempt++) {
-      const result = await this.installIn(dir);
+      const result = await this.installSetIn(dir, app);
       output += result.output;
-      if (result.code === 0) return { code: 0, output };
-      const isLastAttempt = attempt === SET_INSTALL_ATTEMPTS;
-      if (isLastAttempt) return { code: result.code, output };
+      if (result.code === 0) return { ...result, output };
+      const isFinal = attempt === SET_INSTALL_ATTEMPTS || result.retryable === false;
+      if (isFinal) return { ...result, output };
       output += `\n[runner] the shared install failed (exit ${result.code}); trying it once more\n`;
     }
     return { code: 1, output };
   }
 
-  private startSet(key: string, inputs: InstallInputs): SetInstall {
+  /** The set's install, and its one `[runner]` line once it settles. */
+  private async reportedSet(key: string, dir: string, app: string | undefined): Promise<CommandResult> {
+    const started = performance.now();
+    const result = await this.installSet(dir, app);
+    const seconds = ((performance.now() - started) / 1000).toFixed(1);
+    const source = result.source ?? 'installed in place';
+    const outcome = result.code === 0 ? source : `${source}, failed with exit ${result.code}`;
+    this.report(`[runner] dependency set ${key}${app === undefined ? '' : ` for ${app}`}: ${outcome}, ${seconds} s`);
+    return result;
+  }
+
+  private startSet(key: string, inputs: InstallInputs, app: string | undefined): SetInstall {
     const dir = join(this.baseDir, key);
     mkdirSync(dir, { recursive: true });
     const manifest = { name: inputs.name, private: true, ...installManifest(JSON.parse(inputs.manifest) as Manifest) };
     writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     if (inputs.npmrc !== undefined) writeFileSync(join(dir, '.npmrc'), inputs.npmrc);
-    const set = { dir, result: this.installSet(dir) };
+    const set = { dir, result: this.reportedSet(key, dir, app) };
     this.sets.set(key, set);
     return set;
   }

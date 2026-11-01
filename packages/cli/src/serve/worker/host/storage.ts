@@ -35,6 +35,7 @@ import {
   copyObject,
   getAdminStorageSandbox,
   getStorageService,
+  nameStorageBucket,
   patchObjectMetadata,
   storageAuth,
   storageOperationProvenance,
@@ -334,6 +335,20 @@ function lensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike, 
 }
 
 /**
+ * The handle one op runs on: its lens, on the bucket it stores in, under the
+ * name the caller knows that bucket by. Rules see that name (ST-H2-4); the
+ * store keeps its own key.
+ */
+function opStorage(
+  ctx: HostCtx,
+  msg: StorageBucketWire & { actAs?: AuthLens },
+  port: PortLike,
+  bucket: string = bucketOfOp(ctx, msg),
+): FirebaseStorage {
+  return nameStorageBucket(lensStorage(ctx, msg.actAs, port, bucket), bucketNameOf(ctx, msg, bucket));
+}
+
+/**
  * {@link lensStorage} for a bucket other than the default one: the same
  * lenses, on a handle scoped to `bucket`. Each bucket's objects are its own;
  * the ruleset is shared, as one project's buckets share `storage.rules`.
@@ -472,7 +487,7 @@ export async function handleStorageOp(
       // under the op's lens (admin lens bypasses — see lensStorage).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          opStorage(ctx, msg, port),
           opProvenance(msg),
         );
         const result = await storageListAll(storageRef(storage, msg.path));
@@ -487,7 +502,7 @@ export async function handleStorageOp(
     case 'storage.getMetadata': {
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          opStorage(ctx, msg, port),
           opProvenance(msg),
         );
         // FullMetadata is plain JSON (bucket/fullPath/name/size/contentType/...).
@@ -505,7 +520,7 @@ export async function handleStorageOp(
       // object's metadata, as production keeps it, and is minted on first use.
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          opStorage(ctx, msg, port),
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
@@ -539,7 +554,7 @@ export async function handleStorageOp(
         if (!adminPlane) {
           throw new FirebaseError('storage/unauthorized', 'storage.setMetadata is the admin plane (firebase-admin File.setMetadata) and runs only on the admin lens.');
         }
-        const storage = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)), opProvenance(msg));
+        const storage = bindStorageOperationContext(opStorage(ctx, msg, port), opProvenance(msg));
         const result = await patchObjectMetadata(storageRef(storage, msg.path), msg.patch);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, namedMetadata(ctx, msg, result));
@@ -554,7 +569,7 @@ export async function handleStorageOp(
       // callers use `storage.getBytes` (base64) instead.
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          opStorage(ctx, msg, port),
           opProvenance(msg),
         );
         ok(
@@ -589,7 +604,7 @@ export async function handleStorageOp(
         }
         const bucket = bucketOfOp(ctx, msg);
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucket),
+          opStorage(ctx, msg, port, bucket),
           opProvenance(msg),
         );
         const target = storageRef(storage, msg.path);
@@ -621,7 +636,7 @@ export async function handleStorageOp(
         }
         const downloadTokens = uploadDownloadTokens(msg);
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          opStorage(ctx, msg, port),
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
@@ -706,7 +721,7 @@ export async function handleStorageOp(
           throw new FirebaseError('storage/object-not-found', `Upload '${msg.uploadId}' not found or already completed.`);
         }
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, pending!.bucket),
+          nameStorageBucket(lensStorage(ctx, msg.actAs, port, pending!.bucket), pending!.bucketName),
           opProvenance(msg),
         );
         const service = await getStorageService(storage);
@@ -752,7 +767,7 @@ export async function handleStorageOp(
       // superseding `not-found`, matching pyric/storage).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          opStorage(ctx, msg, port),
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
@@ -815,7 +830,7 @@ export async function handleStorageOp(
       // explicitly (issue #84 item 3).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)),
+          opStorage(ctx, msg, port),
           opProvenance(msg),
         );
         await storageDeleteObject(storageRef(storage, msg.path));
@@ -854,7 +869,7 @@ export async function handleStorageOp(
           throw new FirebaseError('storage/unauthorized', 'storage.copyObject is the admin plane (firebase-admin File.copy) and runs only on the admin lens.');
         }
         const provenance = opProvenance(msg);
-        const source = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port, bucketOfOp(ctx, msg)), provenance);
+        const source = bindStorageOperationContext(opStorage(ctx, msg, port), provenance);
         const destinationBucket = storeBucketOf(ctx, msg.destinationBucket);
         const destination = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port, destinationBucket), provenance);
         const result = await copyObject(storageRef(source, msg.path), storageRef(destination, msg.destinationPath), msg.patch ?? {}, provenance);

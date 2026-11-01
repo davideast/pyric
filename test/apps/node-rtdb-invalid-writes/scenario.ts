@@ -3,6 +3,8 @@
 // refuses. Production's SDK throws each one synchronously and stores nothing.
 // The hosted transport is JSON, where NaN becomes null, so before the fix
 // `set(ref, NaN)` resolved and deleted the value firebase-admin then read.
+// #1121: firebase-admin in the same process refuses the same writes with its
+// own text, and reads integer keys back as an array.
 import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
 
@@ -26,6 +28,7 @@ const EXPECTED: Record<string, { message: string; seeded: unknown; priority?: nu
     message: 'update failed: values argument  must be an object containing the children to replace.',
     seeded: { j: 1, k: 5 },
   },
+  'admin.set.nan': { message: "set failed: value argument contains NaN in property 'e.a'", seeded: { k: 5 } },
 };
 
 export default scenario(async (app) => {
@@ -43,5 +46,14 @@ export default scenario(async (app) => {
       assert.deepEqual(result.before, seed, `${name} seed:\n${output}`);
       assert.deepEqual(result.stored, result.before, `${name} changed stored data:\n${output}`);
     }
+  });
+
+  await app.step('firebase-admin reads integer keys back as an array and exports them by key', () => {
+    const match = output.match(/^admin\.integerKeys (.*)$/m);
+    assert.ok(match, `no admin.integerKeys line in:\n${output}`);
+    const ticks = JSON.parse(match[1]) as { val: unknown; isArray: boolean; exportVal: unknown };
+    assert.equal(ticks.isArray, true, `val() must be an array:\n${output}`);
+    assert.deepEqual(ticks.val, ['a', 'b', 'c']);
+    assert.deepEqual(ticks.exportVal, { 0: 'a', 1: 'b', 2: 'c' });
   });
 });

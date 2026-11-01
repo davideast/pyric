@@ -107,6 +107,19 @@ describe('ai: generateContent envelope', () => {
     expect(result.response.candidates[0].finishReason).toBe(facts.finishReason);
   });
 
+  rowTest('ai#contents-role-assistant a contents turn under role assistant is accepted', async () => {
+    const facts = observedBehavior('ai-contents-role-assistant');
+    expect(facts.httpStatus).toBe(200);
+    const result = await model.generateContent({
+      contents: [
+        { role: 'user', parts: [{ text: 'Reply with exactly the word: pyric' }] },
+        { role: 'assistant', parts: [{ text: 'pyric' }] },
+        { role: 'user', parts: [{ text: 'Reply with exactly the word: pyric' }] },
+      ],
+    });
+    expect(result.response.candidates[0].finishReason).toBe(facts.finishReason);
+  });
+
   rowTest('ai#generate-structured-output responseSchema yields a text part parsing as JSON with the schema key set', async () => {
     const facts = observedBehavior('ai-structured-output-shape');
     const result = await model.generateContent({

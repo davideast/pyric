@@ -8,6 +8,7 @@ import type { MethodRecord } from '../../method-types.js';
 export default {
   tool: 'storage',
   method: 'updateMetadata',
+  runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature:

@@ -29,6 +29,7 @@ function fakeSeams() {
       tls: { connect },
       agentPrototypes: [],
       socketPrototypes: [],
+      requestPrototypes: [],
       argv: ['/usr/bin/node', '/app/node_modules/.bin/vite'],
     },
     net,

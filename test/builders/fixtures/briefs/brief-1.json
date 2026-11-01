@@ -1,0 +1,25 @@
+{
+  "id": "fake-1",
+  "targetArea": {
+    "area": "Storage rules on the Vite plugin plane",
+    "whyWeak": "changed by many commits since alpha.30, and no app scenario writes another user's file"
+  },
+  "stressDimensions": ["combination"],
+  "appIdea": "A shared photo board: each signed-in user uploads photos to their own folder and sees everyone's.",
+  "framework": "vite",
+  "features": ["Authentication (anonymous sign-in)", "Cloud Storage for Firebase", "Storage Security Rules"],
+  "userJourney": ["Sign in anonymously", "Upload a photo to your own folder", "Try to overwrite another user's photo"],
+  "mustBeRefused": [
+    {
+      "action": "another user's write under the given rules",
+      "firebaseDoc": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "productionAnswer": "storage/unauthorized"
+    },
+    {
+      "action": "an upload larger than the rules' size limit",
+      "firebaseDoc": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "productionAnswer": "storage/unauthorized"
+    }
+  ],
+  "limits": { "wallClockMinutes": 10 }
+}
