@@ -46,12 +46,14 @@ const ECHO_MODEL = 'gemini-echo-url';
 const ECHO_KEY_MODEL = 'gemini-echo-key';
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
+/** The SDK's request URL adds `alt=sse` to a stream (#1640). */
 function refusal(op: string) {
+  const query = op === 'streamGenerateContent' ? '?alt=sse' : '';
   return {
     ok: false,
     code: 'fetch-error',
     status: 403,
-    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
+    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}${query}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
   };
 }
 

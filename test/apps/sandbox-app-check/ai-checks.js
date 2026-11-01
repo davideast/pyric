@@ -3,7 +3,7 @@
 // From November 2, 2026 AI Logic refuses requests without an App Check token.
 import { initializeApp } from "firebase/app";
 import { CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
-import { getAI, getGenerativeModel } from "firebase/ai";
+import { VertexAIBackend, getAI, getGenerativeModel } from "firebase/ai";
 
 const options = {
   apiKey: "AIzaSyDemoKeyForReproOnly000000000000",
@@ -91,6 +91,13 @@ export async function runAiChecks(tag, tokenUrl, makeProvider = recaptchaProvide
     countTokens: await outcome(() => modelFor(bare).countTokens("ping")),
   };
 
+  // The SDK's error names the request URL, which differs by backend (#1640).
+  const vertex = getAI(initializeApp(options, `${tag}-vertex-no-app-check`), { backend: new VertexAIBackend("europe-west4") });
+  const vertexNoAppCheck = {
+    generateContent: await outcome(() => modelFor(vertex).generateContent("ping")),
+    generateContentStream: await outcome(async () => (await modelFor(vertex).generateContentStream("ping")).response),
+  };
+
   const first = getAI(withAppCheck(initializeApp(options, `${tag}-app-check-first`), makeProvider));
   const appCheckFirst = {
     generateContent: await outcome(() => modelFor(first).generateContent("ping")),
@@ -113,7 +120,7 @@ export async function runAiChecks(tag, tokenUrl, makeProvider = recaptchaProvide
 
   const customProvider = await runCustomProviderChecks(tag, tokenUrl);
 
-  return { targetKind: targetKind(first), noAppCheck, appCheckFirst, getAiFirst, debugProvider, limitedUse, customProvider };
+  return { targetKind: targetKind(first), noAppCheck, vertexNoAppCheck, appCheckFirst, getAiFirst, debugProvider, limitedUse, customProvider };
 }
 
 /** `returned`, the FirebaseError code, or the thrown error's name and message. */

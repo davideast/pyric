@@ -53,19 +53,34 @@ function loggedJson(output: string, label: string): unknown {
 
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 /**
- * Apps `runAiChecks` leaves refused: one with no App Check, one that called
- * getAI before initializeAppCheck, and the two whose CustomProvider returns an
- * invalid token or rejects.
+ * Apps `runAiChecks` leaves refused: one with no App Check on each backend,
+ * one that called getAI before initializeAppCheck, and the two whose
+ * CustomProvider returns an invalid token or rejects.
  */
-const REFUSED_APPS_PER_RUN = 4;
+const REFUSED_APPS_PER_RUN = 5;
 
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
 
-function refusal(op: string) {
+const AI_ORIGIN = 'https://firebasevertexai.googleapis.com/v1beta/projects/sandbox';
+
+/**
+ * The SDK's `RequestURL` (@firebase/ai 2.12.0): Google AI's path is
+ * `models/<model>`, Vertex AI's is `locations/<location>/publishers/google/models/<model>`,
+ * and a stream adds `alt=sse` (#1640). The sandbox keeps project `sandbox`.
+ */
+function requestUrl(op: string, location?: string): string {
+  const model = location === undefined
+    ? 'models/gemini-flash-lite-latest'
+    : `locations/${location}/publishers/google/models/gemini-flash-lite-latest`;
+  const query = op === 'streamGenerateContent' ? '?alt=sse' : '';
+  return `${AI_ORIGIN}/${model}:${op}${query}`;
+}
+
+function refusal(op: string, location?: string) {
   return {
     code: 'fetch-error',
     status: 403,
-    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/gemini-flash-lite-latest:${op}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
+    message: `AI: Error fetching from ${requestUrl(op, location)}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
   };
 }
 
@@ -76,6 +91,10 @@ function expected(targetKind: string) {
       generateContent: refusal('generateContent'),
       generateContentStream: refusal('streamGenerateContent'),
       countTokens: refusal('countTokens'),
+    },
+    vertexNoAppCheck: {
+      generateContent: refusal('generateContent', 'europe-west4'),
+      generateContentStream: refusal('streamGenerateContent', 'europe-west4'),
     },
     appCheckFirst: { generateContent: 'answered', generateContentStream: 'answered', countTokens: 'answered' },
     getAiFirst: refusal('generateContent'),
@@ -90,7 +109,7 @@ function expected(targetKind: string) {
         result: {
           code: 'error',
           status: null,
-          message: 'AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/gemini-flash-lite-latest:generateContent: attestation failed (AI/error)',
+          message: `AI: Error fetching from ${requestUrl('generateContent')}: attestation failed (AI/error)`,
         },
       },
     },
@@ -167,7 +186,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the page console carries pyric\'s guidance once per refused app', () => {
-    // runAiChecks refuses four apps (see REFUSED_APPS_PER_RUN).
+    // runAiChecks refuses five apps (see REFUSED_APPS_PER_RUN).
     assert.equal(consoleHints(app), REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
   });
 
