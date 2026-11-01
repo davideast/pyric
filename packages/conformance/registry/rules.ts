@@ -418,9 +418,10 @@ export const rulesRegistry = {
           rowRef: "190",
           featureKeys: ["getAfter", "batch", "transaction"],
           behavior: "In multi-document batched writes and transactions, getAfter() deep-merges incoming updates with pre-existing sibling document state, preserving unmodified fields.",
-          status: "conforms",
-          evidence: "Captured production behavior via rules-firestore-atomic-batch-sibling-merge proves getAfter() evaluates against deep-merged sibling state during multi-document atomic updates.",
-          automation: "oracle-backed",
+          status: "unverified",
+          evidence: "UNVERIFIED, 2026-11-01 (#1322): no production capture backs this row yet. The Rules Test API cannot evaluate `getAfter()`: the committed `rules-firestore-atomic-batch-sibling-merge` observation was captured on another project, and its diagnostic records `Function not found error: Name: [getAfter]` beside the ALLOW it lists, and the weekly re-capture on the oracle project answers DENY for the same case. The real-database rig's cross-document batch probe (`crossDocumentBatch` in `rules-firestore-get-after-and-exists-after`) updates a companion document whose only field is the one the batch changes, so it does not test a field the batch leaves alone. `run-firestore-real.ts` now adds that case: it seeds a companion with `role: 'admin'` and `modified: false`, commits a batch that updates only `modified` beside a create whose rule reads both fields through `getAfter()`, and makes the same create alone as a DENY control. Its next run writes the verdict into `rules-firestore-atomic-batch-sibling-merge` under `productionDatabase` diagnostics, which also makes `run-rules.ts` leave the observation alone. Until then, `unit:sandbox/firestore/simulator/get-after-batch.test.ts` and the unit-backed assertion in `unit:rules/oracle-conformance.test.ts` pin the local behavior: a batch update keeps the companion's other fields in `getAfter()`.",
+          automation: "unit-backed",
+          conformanceDisposition: "probe-limitation",
           oracleObservations: ["rules-firestore-atomic-batch-sibling-merge"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",

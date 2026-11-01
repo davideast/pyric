@@ -68,6 +68,15 @@ const RULES_GET_AFTER_OBSERVATION_PATH = join(
   'firestore-rules',
   'rules-firestore-get-after-and-exists-after.json',
 );
+const RULES_SIBLING_MERGE_OBSERVATION_PATH = join(
+  HERE,
+  '..',
+  'observations',
+  'firestore-rules',
+  'rules-firestore-atomic-batch-sibling-merge.json',
+);
+/** The one case of corpus scenario `atomic-batch-sibling-merge`. */
+const SIBLING_MERGE_CASE = 'getAfter reflects merged pre-existing fields alongside batch updates ALLOW';
 const COLLECTION_GROUP_OBSERVATION_PATH = join(
   HERE,
   '..',
@@ -364,6 +373,7 @@ async function captureBrowserLifecycle(
   await Promise.all([
     adminDb.doc(`${rulesBase}/exists_delete`).set({ x: 'seeded' }),
     adminDb.doc(`${rulesBase}/companion`).set({ count: 0 }),
+    adminDb.doc(`${rulesBase}/sibling_merge_companion`).set({ role: 'admin', modified: false }),
   ]);
   const token = await getAdminAuth(admin).createCustomToken(`pyric-browser-${runId}`);
 const browserSource = String.raw`
@@ -471,6 +481,15 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
     const soloPrimary = await verdict(() =>
       setDoc(doc(after.db, rulesAfterBase + '/primary'), { solo: true })
     );
+    // The solo control runs first: once the batch commits, the companion's
+    // stored modified is true and a solo create would no longer be a control.
+    const siblingMergeSoloPrimary = await verdict(() =>
+      setDoc(doc(after.db, rulesAfterBase + '/sibling_merge_solo'), { action: 'update_config' })
+    );
+    const mergeBatch = writeBatch(after.db);
+    mergeBatch.update(doc(after.db, rulesAfterBase + '/sibling_merge_companion'), { modified: true });
+    mergeBatch.set(doc(after.db, rulesAfterBase + '/sibling_merge_primary'), { action: 'update_config' });
+    const siblingMergeBatch = await verdict(() => mergeBatch.commit());
 
     console.log('[lifecycle] persistence precondition');
     const precondition = await make('precondition');
@@ -611,6 +630,8 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
       },
       rulesGetAfterCrossDocumentBatch: crossDocumentBatch,
       rulesGetAfterSoloPrimary: soloPrimary,
+      rulesGetAfterSiblingMergeBatch: siblingMergeBatch,
+      rulesGetAfterSiblingMergeSoloPrimary: siblingMergeSoloPrimary,
       readAfterTerminateThrew: readAfterTerminate.threw,
       readAfterTerminateCode: readAfterTerminate.code,
       authAfterTerminateThrew: authAfterTerminate.threw,
@@ -690,6 +711,7 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId) => {
     await Promise.allSettled([
       'target_allow', 'exists_create', 'exists_delete', 'exists_unrelated',
       'wrong_exists_create', 'primary', 'companion',
+      'sibling_merge_companion', 'sibling_merge_primary', 'sibling_merge_solo',
     ].map((id) => adminDb.doc(`${rulesBase}/${id}`).delete()));
     await deleteAdminApp(admin);
   }
@@ -847,6 +869,40 @@ async function run(): Promise<void> {
       `${JSON.stringify(rulesObservation, null, 2)}\n`,
     );
     console.log(`[firestore:real] captured ${RULES_GET_AFTER_OBSERVATION_PATH}`);
+    const previousSiblingMerge = JSON.parse(
+      readFileSync(RULES_SIBLING_MERGE_OBSERVATION_PATH, 'utf8'),
+    ) as Record<string, unknown> & { diagnostics?: unknown };
+    const siblingMergeObservation = {
+      ...previousSiblingMerge,
+      description: 'An authenticated Web SDK batch against temporarily deployed production rules updates one field of a seeded companion document and creates a document whose rule reads both the updated field and an untouched pre-existing field through getAfter(). The same create alone is the DENY control. The hosted Rules Test API limitation is retained separately in diagnostics.',
+      observedAt: new Date().toISOString(),
+      fbSdkVersion,
+      projectId: sa.project_id,
+      lifecycle: {
+        originalRulesetName: snapshot.release.rulesetName,
+        probeRulesetName,
+        restoredOriginalRelease: restoreVerified,
+      },
+      deployedRulesDigest: {
+        algorithm: 'sha256',
+        value: createHash('sha256').update(content).digest('hex'),
+      },
+      behavior: { [SIBLING_MERGE_CASE]: browserBehavior.rulesGetAfterSiblingMergeBatch },
+      diagnostics: {
+        productionDatabase: {
+          siblingMergeBatch: browserBehavior.rulesGetAfterSiblingMergeBatch,
+          siblingMergeSoloPrimary: browserBehavior.rulesGetAfterSiblingMergeSoloPrimary,
+        },
+        hostedTestApiLimitation: hostedTestApiDiagnostics(
+          previousSiblingMerge.diagnostics,
+        ),
+      },
+    };
+    writeFileSync(
+      RULES_SIBLING_MERGE_OBSERVATION_PATH,
+      `${JSON.stringify(siblingMergeObservation, null, 2)}\n`,
+    );
+    console.log(`[firestore:real] captured ${RULES_SIBLING_MERGE_OBSERVATION_PATH}`);
   } finally {
     releaseLock();
   }

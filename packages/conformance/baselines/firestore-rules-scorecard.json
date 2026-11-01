@@ -721,8 +721,7 @@
         "get-after-and-exists-after"
       ],
       "verifiedByRows": [
-        "firestore-rules#164",
-        "firestore-rules#190"
+        "firestore-rules#164"
       ],
       "divergedByRows": []
     },
