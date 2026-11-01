@@ -62,6 +62,15 @@ describe('Next server externals (#1626)', () => {
     expect(externals()).toEqual(['firebase-admin', 'firebase']);
   });
 
+  it('reads each package\'s own name, so a nameless package under a project named firebase is left out', () => {
+    writeJson('package.json', { name: 'firebase', version: '1.0.0' });
+    writeJson('node_modules/nameless/package.json', { version: '1.0.0' });
+    mkdirSync(join(root, 'node_modules', 'broken'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'broken', 'package.json'), '{ not json');
+    expect(externals()).toEqual(['firebase-admin', 'firebase']);
+    expect(augment({ transpilePackages: ['nameless', 'broken'] }).transpilePackages).toEqual(['nameless', 'broken']);
+  });
+
   it('keeps every installed @firebase package external, in the project and in parent node_modules', () => {
     const project = join(root, 'apps', 'web');
     install('@firebase/firestore', '@firebase/firestore', 'apps/web');

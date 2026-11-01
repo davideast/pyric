@@ -19,10 +19,9 @@
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { NextConfigObject } from './types.js';
 import { pyricExternalPackages } from '../bundler/externals.js';
-import { packageNameOf } from '../register/package-identity.js';
+import { manifestNameAt } from '../register/package-identity.js';
 import { isFirebaseSdkName } from '../register/swap-or-stop.js';
 
 const LOG_PREFIX = '@pyric/cli/next';
@@ -66,11 +65,9 @@ function topLevelPackages(folder: string): string[] {
   });
 }
 
-/** Whether `folder/entry` is a Firebase SDK, by the name in its own `package.json`. */
+/** Whether `folder/entry` is a Firebase SDK, by the name in its own `package.json` only. */
 function isInstalledFirebaseSdk(folder: string, entry: string): boolean {
-  const manifest = join(folder, entry, 'package.json');
-  if (!existsSync(manifest)) return false;
-  return isFirebaseSdkName(packageNameOf(pathToFileURL(manifest).href));
+  return isFirebaseSdkName(manifestNameAt(join(folder, entry)));
 }
 
 /**
