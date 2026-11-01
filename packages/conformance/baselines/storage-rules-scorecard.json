@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 113,
+    "numerator": 115,
     "denominator": 140,
-    "ratio": 0.8071428571428572,
-    "percent": 80.7
+    "ratio": 0.8214285714285714,
+    "percent": 82.1
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 11
     },
     "productionEvidence": {
-      "verified": 113,
-      "diverged": 23,
+      "verified": 115,
+      "diverged": 21,
       "unverified": 4
     }
   },
   "counts": {
-    "conformant": 113,
-    "diverged": 23,
+    "conformant": 115,
+    "diverged": 21,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -2608,8 +2608,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -2638,11 +2638,10 @@
       ],
       "verifiedByRows": [
         "storage-rules#131",
-        "storage-rules#133"
-      ],
-      "divergedByRows": [
+        "storage-rules#133",
         "storage-rules#211"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.or": {
       "productionAcceptance": "accepted",
@@ -2653,8 +2652,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -2680,11 +2679,10 @@
       "verifiedByRows": [
         "storage-rules#119",
         "storage-rules#131",
-        "storage-rules#133"
-      ],
-      "divergedByRows": [
+        "storage-rules#133",
         "storage-rules#211"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.not": {
       "productionAcceptance": "accepted",

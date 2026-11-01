@@ -191,7 +191,7 @@ service firebase.storage {
     expect(res.allowed).toBe(true);
   });
 
-  it('an unsupported builtin method names the method', () => {
+  it('a method no type defines names the method', () => {
     expect(
       reasons(`rules_version = '2';
 service firebase.storage {
@@ -201,7 +201,7 @@ service firebase.storage {
     }
   }
 }`),
-    ).toMatch(/unsupported method \.entries\(\)/);
+    ).toContain('Function not found error: Name: [entries].');
   });
 
   it('an unmodeled `is` type names the type', () => {
