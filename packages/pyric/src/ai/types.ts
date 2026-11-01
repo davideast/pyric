@@ -53,6 +53,8 @@ export type AppAI = AI & { readonly app: FirebaseApp };
 /** Per-handle sandbox dispatch state. */
 export interface SandboxTarget {
   kind: 'sandbox';
+  /** The handle's backend: the SDK's request URL, which errors quote, depends on it. */
+  backend: Backend;
   sandbox: Sandbox;
   broker: AiBroker;
   /** App-backed handles assert their container is live before every operation. */
@@ -64,6 +66,8 @@ export interface SandboxTarget {
 /** Adapter-owned transport target. It deliberately has no local sandbox or broker. */
 export interface TransportTarget {
   kind: 'transport';
+  /** The handle's backend: the SDK's request URL, which errors quote, depends on it. */
+  backend: Backend;
   transport: AnswerEngine;
   /** App-backed handles assert their container is live before every operation. */
   assertAlive?: () => void;

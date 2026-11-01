@@ -110,3 +110,38 @@ describe('Storage rules lookup paths: a path value splices in its segments', () 
     expect(upload(viaPathFn, 'p/x.bin')).toBe(true);
   });
 });
+
+// A path literal built outside the lookup call, such as in a helper function,
+// keeps the same segments as the direct argument (#1403). No capture covers
+// the function-built path; a path literal is one construct wherever it
+// appears, so it follows the direct-argument capture.
+describe('Storage rules lookup paths: a path literal built in a helper function', () => {
+  const getViaHelper = `function userDoc(uid) { return /databases/(default)/documents/users/$(uid); }
+    match /lk/{file} {
+      allow create: if firestore.get(userDoc(request.resource.metadata.uid)).data.admin == true;
+    }`;
+  const existsViaHelper = `function userDoc(uid) { return /databases/(default)/documents/users/$(uid); }
+    match /lk/{file} {
+      allow create: if firestore.exists(userDoc(request.resource.metadata.uid));
+    }`;
+
+  it('get denies when the interpolated string holds a slash', () => {
+    expect(upload(getViaHelper, 'lk/a.bin', { uid: 'alice/private/x' })).toBe(false);
+  });
+
+  it('exists denies when the interpolated string holds a slash', () => {
+    expect(upload(existsViaHelper, 'lk/a.bin', { uid: 'alice/private/x' })).toBe(false);
+  });
+
+  it('a plain interpolated id still reads its document', () => {
+    expect(upload(getViaHelper, 'lk/a.bin', { uid: 'alice' })).toBe(true);
+  });
+
+  it('an interpolated path value splices in its segments', () => {
+    const viaRest = `function colDoc(rest) { return /databases/(default)/documents/col/$(rest); }
+    match /one/{rest=**} {
+      allow create: if firestore.exists(colDoc(rest));
+    }`;
+    expect(upload(viaRest, 'one/a/b/c')).toBe(true);
+  });
+});

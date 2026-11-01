@@ -1,6 +1,7 @@
 // A registered Node process in production AI mode: the same calls as the page.
 // It records every module it loads, to report whether Pyric's App Check
-// mirror is in its module graph (it must not be in production AI mode).
+// mirror is in its module graph (it must not be in production AI mode), then
+// imports the @firebase/* packages directly, as app code.
 import { registerHooks } from "node:module";
 
 const loaded = [];
@@ -37,4 +38,11 @@ const { token } = await getToken(appCheck);
 await getGenerativeModel(getAI(app), { model: "gemini-flash-lite-latest" }).generateContent("Reply with one word: pong");
 const mirrorLoaded = loaded.some((url) => /\/pyric\/(?:dist|src)\/app-check\//.test(url));
 const bridgeLoaded = loaded.some((url) => /app-bridge-app-check/.test(url));
-console.log(JSON.stringify({ token, seen, mirrorLoaded, bridgeLoaded }));
+
+// App code importing the packages firebase/ai loads, after it loaded them:
+// production AI mode sends firebase/ai to production, not these (#1635).
+const direct = {};
+for (const name of ["@firebase/app", "@firebase/app-check", "@firebase/ai", "@firebase/util"]) {
+  direct[name] = await import(name).then(() => "loaded", (error) => error.code ?? String(error));
+}
+console.log(JSON.stringify({ token, seen, mirrorLoaded, bridgeLoaded, direct }));
