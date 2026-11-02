@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeClock } from './fake-clock.ts';
 import { fakeSessions, type SessionPlan } from './fake-session.ts';
-import { readRun, readState, runPaths } from './run-dir.ts';
+import { readHeartbeat, readRun, readState, runPaths, writeJsonFile } from './run-dir.ts';
 import { PROMPTS } from './schedule.ts';
-import type { HourlyCheck } from './session.ts';
-import { HOUR_MS, runSupervisor, type SupervisorOptions } from './supervisor.ts';
+import type { HourlyCheck, RunSession } from './session.ts';
+import { HEARTBEAT_MS, HOUR_MS, KILL_GRACE_MS, runSupervisor, type SupervisorOptions } from './supervisor.ts';
 import { readTimeline, type TimelineLine } from './timeline.ts';
 import type { WorkItem } from './work-list.ts';
 
@@ -23,7 +23,7 @@ function newRunDir(): string {
 }
 
 function writeWork(runDir: string, items: WorkItem[]): void {
-  writeFileSync(runPaths(runDir).files.workList, JSON.stringify({ items }));
+  writeJsonFile(runPaths(runDir).files.workList, { items });
 }
 
 function todo(count: number): WorkItem[] {
@@ -223,5 +223,92 @@ describe('runSupervisor', () => {
 
     const gaps = sessions.calls.filter((call) => call.seat === 'builder-1').map((call) => call.start - START - MINUTE).slice(0, 5);
     expect(gaps).toEqual([0, 16_000, 47_000, 108_000, 229_000]);
+  });
+
+  test('keeps the heartbeat fresh all through a long session', async () => {
+    const runDir = newRunDir();
+    writeWork(runDir, todo(1));
+    const clock = new FakeClock(START);
+    const sessions = fakeSessions(clock, () => ({ ms: 2 * HOUR_MS }));
+    const run = runSupervisor(options(runDir, clock, sessions.runSession));
+    let stalest = 0;
+    for (let at = START + 7 * MINUTE; at < START + HOUR_MS; at += 7 * MINUTE) {
+      await clock.advanceTo(at);
+      const heartbeat = readHeartbeat(runPaths(runDir));
+      stalest = Math.max(stalest, at - Date.parse(heartbeat?.at ?? new Date(START).toISOString()));
+    }
+    await clock.runUntilSettled(run);
+    expect(stalest).toBeLessThanOrEqual(HEARTBEAT_MS);
+  });
+
+  test('ends the run after the grace period when a session ignores its signal', async () => {
+    const runDir = newRunDir();
+    writeWork(runDir, todo(1));
+    const clock = new FakeClock(START);
+    const runSession: RunSession = async (role) => {
+      if (role !== 'lead') return new Promise(() => {});
+      await clock.sleep(MINUTE);
+      return { exitCode: 0, endedBy: 'exit', logPath: '' };
+    };
+    const outcome = await clock.runUntilSettled(runSupervisor(options(runDir, clock, runSession)));
+
+    expect(outcome).toBe('deadline');
+    expect(clock.now()).toBe(START + HOUR_MS + KILL_GRACE_MS);
+    const builder = sessionLines(runDir).find((line) => line.seat === 'builder-1');
+    expect(builder).toMatchObject({ endedBy: 'deadline', exitCode: -1, error: 'the session did not end within the grace period' });
+  });
+
+  test('spaces out a seat whose sessions end within seconds, even with exit 0', async () => {
+    const runDir = newRunDir();
+    writeWork(runDir, todo(1));
+    const clock = new FakeClock(START);
+    const sessions = fakeSessions(clock, (role, sessionOptions) => {
+      if (sessionOptions.seat === 'builder-1') return { ms: 2_000 };
+      return { ms: role === 'lead' ? MINUTE : HOUR_MS };
+    });
+    await clock.runUntilSettled(runSupervisor(options(runDir, clock, sessions.runSession, { hours: 0.25 })));
+
+    const gaps = sessions.calls.filter((call) => call.seat === 'builder-1').map((call) => call.start - START - MINUTE).slice(0, 4);
+    expect(gaps).toEqual([0, 17_000, 49_000, 111_000]);
+  });
+
+  test('keeps the last work list it read while the file is unreadable, and reads it again shortly', async () => {
+    const runDir = newRunDir();
+    const clock = new FakeClock(START);
+    const logged: string[] = [];
+    const workList = runPaths(runDir).files.workList;
+    const sessions = fakeSessions(clock, (role, sessionOptions, call) => {
+      if (role === 'lead') return { ms: 5 * MINUTE, onStart: () => writeWork(runDir, todo(2)) };
+      // The first builder session leaves the list half written for a while.
+      const isTearing = call === 0 && sessionOptions.seat === 'builder-1';
+      if (!isTearing) return { ms: 20 * MINUTE };
+      return { ms: 3 * MINUTE, onStart: () => writeFileSync(workList, '{"items": [') };
+    });
+    void clock.sleep(10 * MINUTE).then(() => writeWork(runDir, todo(2)));
+    await clock.runUntilSettled(runSupervisor(options(runDir, clock, sessions.runSession, { log: (line) => logged.push(line) })));
+
+    expect(sessions.calls.filter((call) => call.role === 'lead').length).toBe(1);
+    // builder-1 goes on at 8 minutes from the last list read, with no lead session to plan.
+    expect(sessions.calls.filter((call) => call.seat === 'builder-1').map((call) => call.start).slice(0, 2)).toEqual([START + 5 * MINUTE, START + 8 * MINUTE]);
+    expect(logged.filter((line) => line.includes('is unreadable'))).toHaveLength(1);
+  });
+
+  test('records an hourly check that throws, at once or later, as failed and goes on', async () => {
+    const runDir = newRunDir();
+    writeWork(runDir, todo(1));
+    const clock = new FakeClock(START);
+    const hourlyCheck: HourlyCheck = (context) => {
+      if (context.hour === 1) throw new Error('sync failure');
+      return Promise.reject(new Error('async failure'));
+    };
+    const sessions = fakeSessions(clock, steady(runDir, 10 * MINUTE));
+    const outcome = await clock.runUntilSettled(runSupervisor(options(runDir, clock, sessions.runSession, { hours: 3, hourlyCheck })));
+
+    expect(outcome).toBe('deadline');
+    const checks = readTimeline(runPaths(runDir).timeline).filter((line) => line.type === 'check');
+    expect(checks.map((line) => line.type === 'check' && [line.hour, line.passed, line.summary])).toEqual([
+      [1, false, 'the check threw: sync failure'],
+      [2, false, 'the check threw: async failure'],
+    ]);
   });
 });

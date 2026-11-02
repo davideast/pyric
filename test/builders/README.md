@@ -506,20 +506,25 @@ triage. Each role works in short sessions. The supervisor
   findings"). The builders run continuously once the lead has run. The user
   agent, design reviewer and triage run once each after every hourly check
   and whenever a builder marks an item ready; triage waits for the other
-  two. A seat whose session fails within a minute waits before the next,
-  15 seconds and doubling, up to 10 minutes.
+  two. A seat whose session ends within a minute, whatever its exit code,
+  waits before the next, 15 seconds and doubling, up to 10 minutes, so a
+  model that says it is done at once can't loop. This wait is kept in
+  memory, so a restarted supervisor starts each seat at once.
 - **State lives in the run directory.** `run.json` holds the deadline,
   `supervisor.json` what the schedule owes, and the sessions read and write
   `work-list.json`, `progress.md` and `latest-check.json`. The app repo is
-  `app/`.
+  `app/`. Sessions write the work list through a temporary file and a
+  rename. A work list that exists but doesn't parse is not taken as empty:
+  the supervisor keeps the last list it read, logs it, and reads the file
+  again two seconds later.
 - **Rate limits pause the run.** A session that ends rate-limited stops new
   sessions until its `resetAt`, or for a backoff (1 minute, doubling, up to
   30) when it gives none, never past the deadline. Running sessions go on.
   The pause is a line in the timeline.
 - **The hourly check is a hook.** The supervisor calls it each whole hour
   after the start, writes its result to `latest-check.json` and the
-  timeline, and wakes the on-demand roles. Until the check lands it checks
-  nothing.
+  timeline, and wakes the on-demand roles. A check that throws is recorded
+  as failed. Until the check lands it checks nothing.
 
 Sessions come from `factory/session-runner.ts`, which exports `runSession`
 (and, once it exists, `hourlyCheck`); `--runner <module>` names another
@@ -565,8 +570,19 @@ both name bun by its full path. Both are transient: nothing is installed,
 and nothing survives a reboot.
 `journalctl --user -u pyric-factory` shows the supervisor's output. After
 the run, stop the timer with `systemctl --user stop pyric-factory-check.timer`.
-To stop a run early, `systemctl --user stop pyric-factory`: the supervisor
-stops its sessions and exits.
+To stop a run early, stop the timer and the supervisor together, or the
+timer finds a stale heartbeat five minutes later and tries to restart it:
+
+```
+systemctl --user stop pyric-factory-check.timer pyric-factory
+```
+
+The supervisor stops its sessions and exits.
+
+User units run only while the user's systemd manager does, which by default
+ends when the last session logs out. For a run that has to outlive a remote
+login, turn on lingering once: `loginctl enable-linger "$USER"`
+(`loginctl show-user "$USER" -p Linger` says whether it is on).
 
 ### The morning review
 
