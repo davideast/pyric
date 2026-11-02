@@ -100,7 +100,7 @@ each:
 - **A failed hourly check**: read `$RUN_DIR/checks/latest/result.json` and
   the failing gates' logs beside it. A path in the summary may not exist in
   your session; use this one. Add an item for each failure, first in the
-  list. Nothing else ships while the check is red.
+  list, unless one exists. Nothing else ships while the check is red.
 - **A blocked item**: plan around it. Add the items that don't depend on
   it, and leave it where it is. When triage records a workaround, triage
   clears the block.

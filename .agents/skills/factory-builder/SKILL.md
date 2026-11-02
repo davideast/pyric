@@ -126,7 +126,10 @@ from this example.
 
 The UI rules the hourly check applies are in `studio/checks/factory-rules/`.
 When `ast-grep` is installed in the app, also run them from `studio/`:
-`./node_modules/.bin/ast-grep scan -c checks/sgconfig.yml`.
+`./node_modules/.bin/ast-grep scan -c checks/sgconfig.yml`. Findings print
+as warnings and the exit code stays 0, so read the output: fix every finding
+on a line you changed before you mark the item ready, because the hourly
+check fails it. Findings on lines you didn't touch aren't yours.
 
 If a tool isn't installed, don't fetch it: append a note and stop.
 
@@ -181,7 +184,8 @@ EOF
   rule config and rules (`studio/checks/`), the copy check, the walk scripts, the layout and
   alignment checks, and the test runner's config. Never skip, disable or
   loosen a test, a lint rule or a type check, and never add an ignore
-  comment to get past one. When a rule seems wrong, append why to the
+  comment to get past one. The one allowed comment is
+  `ui-overlay: <what it overlays>`, on an element that really is an overlay. When a rule seems wrong, append why to the
   progress notes and build to it anyway.
 - Never mark an item `done`.
 - Don't deploy, and don't reach any network host beyond this machine.

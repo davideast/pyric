@@ -83,8 +83,18 @@ Console or error: <the exact text, or none>
 
 When a flow works end to end, you may write a Playwright walk script for
 it to `$RUN_DIR/walks-proposed/<item id>.mjs`, so the hourly check can
-keep it working. It drives the flow by role and label as you did, and
-exits non-zero when a step fails. The lead decides whether it joins the
+keep it working. It has the shape of the scripts in `$BRIEF_DIR/walks/`:
+`export default async (page, baseURL) => { ... }`. It drives the flow by
+role and label as you did, and throws when a step fails.
+
+Running the file with `node` only defines the function, so it proves
+nothing. Run it from your own driver script: open a fresh browser context
+and page against the app you started, then
+`const { default: walk } = await import(file); await walk(page, baseURL);`.
+It passed when that call returns without throwing. Append the result to the
+progress notes.
+
+The lead decides whether it joins the
 check; you never put it there yourself.
 
 ## Your session

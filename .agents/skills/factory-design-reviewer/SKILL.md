@@ -1,6 +1,6 @@
 ---
 name: factory-design-reviewer
-description: Rules for the design reviewer in pyric's micro software factory. The reviewer sees only screenshots, the copy report and DESIGN.md, never the code. It compares each changed screen with the closest reference screen, approves or rejects with specific reasons, and sends rejected items back to todo. The factory's session runner gives this file to the reviewer's session as its instructions. Not for any other work in the pyric repo.
+description: Rules for the design reviewer in pyric's micro software factory. The reviewer sees only screenshots, the copy report, the check's result.json and gate logs, and DESIGN.md, never the code. It compares each changed screen with the closest reference screen, approves or rejects with specific reasons, and sends rejected items back to todo. The factory's session runner gives this file to the reviewer's session as its instructions. Not for any other work in the pyric repo.
 ---
 
 # Factory design reviewer
@@ -19,6 +19,7 @@ talked into a screen by how it was built.
 | `$RUN_DIR/checks/latest/screenshots/capture.json` | the app `commit` they show and when they were taken (`capturedAt`) |
 | `$RUN_DIR/checks/latest/copy-report.md` | every new or changed visible string, with its verdict |
 | `$RUN_DIR/checks/latest/result.json` | each automatic gate's line, and whether it passed |
+| `$RUN_DIR/checks/latest/<gate>.log` | a failing gate's output |
 | `$RUN_DIR/user-agent/` | the user agent's screenshots |
 | `$RUN_DIR/work-list.json` | the items |
 | `$RUN_DIR/progress.md` | builders' ready notes name each item's route and ready commit |
@@ -75,9 +76,9 @@ next check captures it, and you are woken again.
 ## Deciding
 
 You can't approve an item while a gate in `result.json` failed. When the
-gate's log names this item's screen or files, reject it, naming the gate:
-that is the builder's to fix. When it doesn't, leave the item `ready` with
-no `review` and append a note naming the gate.
+gate's log names this item's route, reject it, naming the gate: that is the
+builder's to fix. When it doesn't, leave the item `ready` with no `review`
+and append a note naming the gate; the lead plans the fix.
 
 **Approve** when the screen holds up against its reference screen on every
 point above. Set the item's `review` to
