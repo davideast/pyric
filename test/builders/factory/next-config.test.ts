@@ -31,4 +31,12 @@ describe('the withPyric adaptation', () => {
     expect(() => applyEdits(adapted, WITH_PYRIC_EDITS)).toThrow(ConfigEditMissing);
     expect(() => applyEdits(STUDIO_SHAPE.replace('runtimeChip: true,', 'runtimeChip: false,'), WITH_PYRIC_EDITS)).toThrow(/called with phase and defaults/);
   });
+
+  test('stops when an edit\'s text occurs twice, and changes nothing', () => {
+    const twice = STUDIO_SHAPE.replace('    runtimeChip: true,\n  });', '    runtimeChip: true,\n  });\n  const again = withPyric({}, {\n    runtimeChip: true,\n  });');
+    expect(() => applyEdits(twice, WITH_PYRIC_EDITS)).toThrow(/found it 2 times/);
+    const edit = { name: 'one call', from: 'call();', to: 'call(1);' };
+    expect(() => applyEdits('call();\ncall();\n', [edit])).toThrow(/"one call" expects its text once and found it 2 times/);
+    expect(applyEdits('call();\nother();\n', [edit])).toBe('call(1);\nother();\n');
+  });
 });
