@@ -1,12 +1,15 @@
 /**
  * Firebase AI Logic's App Check gate, as the sandbox plays it.
  *
- * From November 2, 2026 AI Logic requires App Check on every project. A
- * request with no `X-Firebase-AppCheck` header, a malformed one, the web SDK's
- * placeholder token, or a token whose signature fails gets HTTP 403
- * `PERMISSION_DENIED` (capture `app-check-ai-gate-wire`, `noHeader.raw`), and
- * a valid token answers. The sandbox broker refuses the same requests with the
- * same envelope before any engine runs.
+ * What AI Logic answers a request without a valid App Check token depends on
+ * the project. Enforcement is required from a date each project can set, up to
+ * January 21, 2027, and an unenforced project may answer 200 until then. The
+ * sandbox always refuses, so an app finds the missing token before production
+ * does: a request with no `X-Firebase-AppCheck` header, a malformed one, the web
+ * SDK's placeholder token, or a token whose signature fails gets HTTP 403
+ * `PERMISSION_DENIED`, the envelope captured from another unenforced project
+ * (`earlier-captures/ai-logic-refusal-unenforced.json`), before any engine runs.
+ * A valid token answers. See #1300.
  *
  * The App Check claim a request carries comes from the handle: `getAI(app)`
  * reads the app's App Check activation when it builds the handle, as the SDK's
@@ -31,7 +34,7 @@ import { APP_CHECK_PLACEHOLDER_TOKEN, checkAppCheckToken } from '../sandbox/inte
 import type { AppCheckClaim, WireErrorEnvelope } from './broker/types.js';
 import { RequestHeadersFailure } from './errors.js';
 
-/** Production's message for a refused request (capture `app-check-ai-gate-wire`), verbatim. */
+/** Production's message for a refused request (`earlier-captures/ai-logic-refusal-unenforced.json`), verbatim. */
 export const APP_CHECK_REQUIRED_MESSAGE =
   'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
@@ -57,7 +60,7 @@ function appCheckHintForThisRealm(): string {
   return APP_CHECK_SERVER_HINT;
 }
 
-/** The captured refusal envelope (`app-check-ai-gate-wire`, `noHeader.raw`). */
+/** The captured refusal envelope (`earlier-captures/ai-logic-refusal-unenforced.json`). */
 export function appCheckRequired(): WireErrorEnvelope {
   return { error: { code: 403, message: APP_CHECK_REQUIRED_MESSAGE, status: 'PERMISSION_DENIED' } };
 }

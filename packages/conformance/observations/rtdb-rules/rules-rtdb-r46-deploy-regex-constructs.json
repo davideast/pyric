@@ -5,8 +5,8 @@
     "rtdb-rules#35"
   ],
   "description": "RTDB rules deploy verdicts for corpus scenario \"r46-deploy-regex-constructs\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. regex constructs outside the documented set (lookahead, backreference, \\b, lazy quantifiers, \\p{..}, mid-pattern anchors) load in pyric and are evaluated with JavaScript RegExp semantics; production may refuse them at deploy.",
-  "observedAt": "2026-10-26T21:46:49.868Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.253Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "SP-2: lookahead (?=...)": {

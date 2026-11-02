@@ -5,8 +5,8 @@
     "firestore-rules#166"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"globals-request-path-and-resource-id\" (Item 6). Sim must populate request.path, expose request.query only for list requests, and preserve production absence/error semantics for document identity.",
-  "observedAt": "2026-07-22T01:09:36.639Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:40.256Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

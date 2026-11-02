@@ -5,17 +5,17 @@
     "auth#14"
   ],
   "description": "signInWithEmailAndPassword with an email that was never registered — locks the FirebaseError code prod actually emits (older \"auth/user-not-found\" vs newer \"auth/invalid-credential\").",
-  "observedAt": "2026-05-17T23:37:06.069Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-11-02T18:22:26.102Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
-    "code": "auth/user-not-found",
+    "code": "auth/invalid-credential",
     "messageContains": {
-      "userNotFound": true,
-      "invalidCredential": false,
+      "userNotFound": false,
+      "invalidCredential": true,
       "invalidLoginCredentials": false
     },
-    "attemptedEmail": "oracle-never-registered-1779061025998-ejjnu7@oracle.test"
+    "attemptedEmail": "oracle-never-registered-1793643746003-ujx5km@oracle.test"
   }
 }

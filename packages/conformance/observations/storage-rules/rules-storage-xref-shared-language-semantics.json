@@ -5,8 +5,8 @@
     "storage-rules#219"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"xref-shared-language-semantics\" (STORAGE-XREF-SHARED-LANGUAGE). Shared-language disagreements first confirmed under cloud.firestore: does Storage production decide the same, and does the Storage evaluator share the defect?",
-  "observedAt": "2026-10-27T02:35:22.353Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:58.838Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

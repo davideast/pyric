@@ -5,8 +5,8 @@
     "storage-rules#124"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"function-scopes-and-shadowing\" (Coverage: function scopes (global, service, match), shadowing). Production accepts functions declared at global and service scope and resolves inner scopes over outer ones; the old grammar rejected both placements at parse.",
-  "observedAt": "2026-07-17T19:19:08.084Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:53.575Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
@@ -18,5 +18,81 @@
     "anonymous fails service-scope isSignedIn() → DENY": "DENY",
     "match-scope function shadows the global → ALLOW": "ALLOW",
     "unshadowed call resolves the global → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "global + service scope functions evaluate → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 18,
+              "column": 24,
+              "currentOffset": 389,
+              "endOffset": 398
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "global function denies non-png → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 18,
+              "column": 24,
+              "currentOffset": 389,
+              "endOffset": 398
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "anonymous fails service-scope isSignedIn() → DENY": {
+      "notes": [
+        "Error: storage.rules line [10], column [12]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 10,
+          "column": 12,
+          "currentOffset": 177,
+          "endOffset": 183
+        }
+      }
+    },
+    "match-scope function shadows the global → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 19,
+              "column": 22,
+              "currentOffset": 463,
+              "endOffset": 472
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "unshadowed call resolves the global → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 23,
+              "column": 22,
+              "currentOffset": 612,
+              "endOffset": 621
+            },
+            "value": true
+          }
+        ]
+      }
+    }
   }
 }

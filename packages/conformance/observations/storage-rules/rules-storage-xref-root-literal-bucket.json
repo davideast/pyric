@@ -5,8 +5,8 @@
     "storage-rules#218"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"xref-root-literal-bucket\" (STORAGE-XREF-ROOT-LITERAL). A root match that names its bucket literally grants only that bucket; a request in another bucket matches no rule and denies.",
-  "observedAt": "2026-10-27T02:39:35.735Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:58.681Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -25,6 +25,7 @@ const CLAIMS = () => ({
   sub: APP_ID,
   aud: [`projects/${PROJECT_NUMBER}`, `projects/${PROJECT_ID}`],
   provider: 'debug',
+  lu: 'fixture',
   iss: `https://firebaseappcheck.googleapis.com/${PROJECT_NUMBER}`,
   iat: nowSeconds(),
   exp: nowSeconds() + 3600,

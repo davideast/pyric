@@ -11,5 +11,5 @@
  * certified versions and to the chat template's package.json files, which are
  * static assets and cannot import this module.
  */
-export const FIREBASE_PIN = '~12.13.0';
+export const FIREBASE_PIN = '~12.19.0';
 export const FIREBASE_ADMIN_PIN = '~13.10.0';

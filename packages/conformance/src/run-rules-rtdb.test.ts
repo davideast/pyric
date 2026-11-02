@@ -21,22 +21,18 @@ import { describe, it, expect } from 'bun:test';
 import {
   assertMatchingOracleProjects,
   capturableRules,
-  captureDeployScenario,
   createRunUser,
   instanceRulesForCapture,
-  normalizeDeployError,
   observationLinkageOf,
   queryConstraintsOf,
   selectRtdbScenarios,
   verifyRunDataCleanup,
   verifyRunUserCleanup,
   verifyRulesTextRestored,
-  type RulesDeployEndpoint,
   type RunDataStore,
   type RunUserCreator,
   type RunUserStore,
 } from './run-rules-rtdb.ts';
-import type { RtdbDeployScenario } from '../rules-corpus/rtdb/index.ts';
 
 const AUDIT_KEY = 'pyric_oracle_rulesrtdb_1752000000000_ab12cd';
 
@@ -135,6 +131,27 @@ describe('run-rules-rtdb scenario selection', () => {
     expect(() => selectRtdbScenarios(['--scenario'])).toThrow(/requires an id/);
     expect(() => selectRtdbScenarios(['--scenario', 'not-a-scenario'])).toThrow(/unknown RTDB scenario/);
   });
+
+  it('selects several scenarios from a comma-separated list, in corpus order', () => {
+    const selection = selectRtdbScenarios(['--scenario', 'r29-deploy-rejections,r15-validate-ancestor-scope,r14-root-lookup']);
+    expect(selection.scenarios.map((s) => s.id)).toEqual(['r14-root-lookup', 'r15-validate-ancestor-scope']);
+    expect(selection.deployScenarios.map((s) => s.id)).toEqual(['r29-deploy-rejections']);
+  });
+
+  it('selects several scenarios from a repeated flag, in either form, once each', () => {
+    const selection = selectRtdbScenarios([
+      '--scenario', 'r15-validate-ancestor-scope',
+      '--scenario=r29-deploy-rejections,r15-validate-ancestor-scope',
+    ]);
+    expect(selection.scenarios.map((s) => s.id)).toEqual(['r15-validate-ancestor-scope']);
+    expect(selection.deployScenarios.map((s) => s.id)).toEqual(['r29-deploy-rejections']);
+  });
+
+  it('rejects an empty entry or any unknown id in a list', () => {
+    expect(() => selectRtdbScenarios(['--scenario', 'r15-validate-ancestor-scope,'])).toThrow(/requires an id/);
+    expect(() => selectRtdbScenarios(['--scenario=,r15-validate-ancestor-scope'])).toThrow(/requires an id/);
+    expect(() => selectRtdbScenarios(['--scenario', 'r15-validate-ancestor-scope,nope'])).toThrow(/unknown RTDB scenario: nope/);
+  });
 });
 
 describe('run-rules-rtdb observation metadata', () => {
@@ -161,108 +178,6 @@ describe('run-rules-rtdb observation metadata', () => {
       { projectId: 'oracle-a' },
       { project_id: 'oracle-a' },
     )).not.toThrow();
-  });
-});
-
-const MOUNT_KEY = 'pyric_oracle_rulesrtdb_1752000000000_ab12cd';
-const BEFORE_RULES = { '.read': false, '.write': false, app: { '.read': 'auth != null' } };
-
-function deployScenario(): RtdbDeployScenario {
-  return {
-    id: 'deploy-fixture',
-    fm: 'rtdb#71',
-    rationale: 'fixture',
-    provenance: 'fixture',
-    deployCases: [
-      {
-        description: 'unknown rule key',
-        construct: 'rtdb.rule-kind.unknown-key',
-        rules: JSON.stringify({ a: { '.valdiate': 'true' } }),
-        expectation: { verdict: 'REJECTED', error: 'x' },
-      },
-      {
-        description: 'valid ruleset',
-        construct: 'rtdb.rule-kind.read',
-        rules: JSON.stringify({ a: { '.read': 'true' } }),
-        expectation: { verdict: 'ACCEPTED' },
-      },
-    ],
-  };
-}
-
-/** A fake rules endpoint. Dry runs never change the live rules unless
- *  `dryRunDeploys` models an endpoint that ignored the dry-run flag. */
-function fakeEndpoint(opts: {
-  reject?: (rules: Record<string, unknown>) => string | undefined;
-  dryRunDeploys?: boolean;
-  failStatus?: number;
-}): RulesDeployEndpoint & { sent: Record<string, unknown>[] } {
-  let live: Record<string, unknown> = structuredClone(BEFORE_RULES);
-  const sent: Record<string, unknown>[] = [];
-  return {
-    sent,
-    async dryRun(rules) {
-      sent.push(rules);
-      if (opts.failStatus) return { status: opts.failStatus, body: 'internal' };
-      const error = opts.reject?.(rules);
-      if (error) return { status: 400, body: JSON.stringify({ error }) };
-      if (opts.dryRunDeploys) live = structuredClone(rules);
-      return { status: 200, body: '' };
-    },
-    async readRules() {
-      return structuredClone(live);
-    },
-  };
-}
-
-describe('run-rules-rtdb deploy scenarios', () => {
-  it('dry-runs each case merged under the mount and records the rejection text', async () => {
-    const endpoint = fakeEndpoint({
-      reject: (rules) => {
-        const mounted = (rules[MOUNT_KEY] as Record<string, any>)['deploy-fixture'];
-        return mounted.a['.valdiate'] ? `/${MOUNT_KEY}/deploy-fixture/a: Invalid key: .valdiate` : undefined;
-      },
-    });
-    const behavior = await captureDeployScenario(endpoint, {
-      beforeRules: BEFORE_RULES,
-      mountKey: MOUNT_KEY,
-      scenario: deployScenario(),
-    });
-    expect(behavior).toEqual({
-      'unknown rule key': { verdict: 'REJECTED', error: '/<mount>/deploy-fixture/a: Invalid key: .valdiate' },
-      'valid ruleset': { verdict: 'ACCEPTED' },
-    });
-    // The existing rules travel with every dry run, so an endpoint that
-    // ignored the flag would still keep them.
-    for (const rules of endpoint.sent) {
-      expect(rules.app).toEqual(BEFORE_RULES.app);
-    }
-  });
-
-  it('fails when the live rules differ from the snapshot after a dry run', async () => {
-    const endpoint = fakeEndpoint({ dryRunDeploys: true });
-    await expect(captureDeployScenario(endpoint, {
-      beforeRules: BEFORE_RULES,
-      mountKey: MOUNT_KEY,
-      scenario: deployScenario(),
-    })).rejects.toThrow(/live rules changed after the dry run/);
-  });
-
-  it('fails on a status that is neither acceptance nor a rules rejection', async () => {
-    const endpoint = fakeEndpoint({ failStatus: 500 });
-    await expect(captureDeployScenario(endpoint, {
-      beforeRules: BEFORE_RULES,
-      mountKey: MOUNT_KEY,
-      scenario: deployScenario(),
-    })).rejects.toThrow(/dry run returned 500/);
-  });
-
-  it('replaces every occurrence of the mount key in an error text', () => {
-    expect(normalizeDeployError(`/${MOUNT_KEY}/a and /${MOUNT_KEY}/b`, MOUNT_KEY)).toBe('/<mount>/a and /<mount>/b');
-  });
-
-  it('drops the line:column prefix, which points into the merged dry-run body', () => {
-    expect(normalizeDeployError("1:20775: Unknown variable 'foo'.\n", MOUNT_KEY)).toBe("Unknown variable 'foo'.");
   });
 });
 

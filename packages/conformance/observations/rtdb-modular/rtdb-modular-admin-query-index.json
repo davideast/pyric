@@ -5,9 +5,9 @@
     "rtdb-modular#144"
   ],
   "description": "The Admin SDK, which bypasses rules, against an orderByChild query at a location with no `.indexOn`: get() limited and unlimited, and once('value') limited, recording rejections, delivered keys and client log warnings.",
-  "observedAt": "2026-10-07T11:39:16.417Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T10:43:32.154Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,
     "getLimited": {

@@ -5,8 +5,8 @@
 // way, with only `cert(serviceAccount)`, finds its project in the service
 // account's project_id and verifies the page's token (#1294).
 //
-// From November 2, 2026 Firebase AI Logic refuses requests without an App
-// Check token, and so does the sandbox (#1291), on every plane: the Node host,
+// Firebase AI Logic refuses requests without an App Check token once a project
+// enforces it, and the sandbox always does (#1291), on every plane: the Node host,
 // the SharedWorker, the in-page sandbox and a registered Node process. An app
 // that never initialized App Check, or initialized it after getAI, gets
 // production's 403; one that initialized it first answers, with or without
@@ -180,6 +180,7 @@ export default scenario(async (app) => {
       segments: 3,
       cached: true,
       limitedDiffers: true,
+      limitedTtl: 300,
       sub: '1:123456789012:web:abcdef0123456789',
       aud: ['projects/123456789012', 'projects/my-real-project'],
       iss: 'https://firebaseappcheck.googleapis.com/123456789012',

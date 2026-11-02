@@ -5,8 +5,8 @@
     "storage-rules#205"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-resource-unmodeled-fields\" (STORAGE-H1-RESOURCE-FIELDS). The seven resource fields marked unprobeable are readable through a Rules Test API resource map; pyric drops them.",
-  "observedAt": "2026-10-27T02:46:23.097Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:54.768Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

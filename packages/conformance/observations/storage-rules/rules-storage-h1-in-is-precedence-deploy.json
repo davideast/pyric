@@ -5,8 +5,8 @@
     "storage-rules#208"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-in-is-precedence-deploy\" (STORAGE-H1-IN-IS-PRECEDENCE-DEPLOY). Chained or compared in/is expressions are valid under the documented precedence and rejected by pyric at parse.",
-  "observedAt": "2026-10-27T02:46:40.853Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:54.256Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

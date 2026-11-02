@@ -5,8 +5,8 @@
     "firestore-rules#201"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"service-root-match-path\" (Coverage: service root match path). The literal segments of the root match path must match the request path; a root that names one collection grants nothing in another.",
-  "observedAt": "2026-10-27T02:37:20.114Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:42.553Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

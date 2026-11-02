@@ -5,8 +5,8 @@
     "storage-rules#122"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"list-map-literals-and-slice\" (Coverage: list/map literals, slice [i:j], OOB slice errors). Slices on split() lists and on strings must evaluate, list literals must compare by value, and an out-of-bounds slice end must error → deny (production does not clamp).",
-  "observedAt": "2026-09-30T04:33:26.997Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:55.612Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

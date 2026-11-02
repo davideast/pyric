@@ -10,17 +10,17 @@ beforeAll(async () => {
 
 describe('Firebase public-surface census', () => {
   const expectedCounts = {
-    ai: { runtime: [55, 44, 0], types: [164, 115] },
+    ai: { runtime: [48, 41, 0], types: [159, 112] },
     app: { runtime: [10, 9, 13], types: [6, 4] },
     // pyric/app-check is a deferred stub: every name resolves and throws, so the
     // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
     'app-check': { runtime: [8, 8, 0], types: [11, 11] },
     auth: { runtime: [85, 71, 0], types: [64, 25] },
-    firestore: { runtime: [104, 104, 15], types: [78, 78] },
+    firestore: { runtime: [106, 104, 15], types: [78, 78] },
     database: { runtime: [44, 44, 10], types: [15, 15] },
     storage: { runtime: [18, 16, 9], types: [17, 13] },
-    messaging: { runtime: [5, 5, 0], types: [8, 8] },
-    'messaging-sw': { runtime: [4, 4, 0], types: [8, 8] },
+    messaging: { runtime: [9, 5, 0], types: [9, 8] },
+    'messaging-sw': { runtime: [6, 4, 0], types: [9, 8] },
   } as const;
 
   it('pins public runtime and type denominators for every mirrored Firebase entry point', () => {

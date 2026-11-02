@@ -7,9 +7,9 @@
     "rtdb#89"
   ],
   "description": "RTDB rules deploy verdicts for corpus scenario \"r29-deploy-rejections\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. a ruleset production refuses to deploy must be refused when Pyric loads it, so each refusal and its text is the evidence that turns a local check from a warning into an error.",
-  "observedAt": "2026-10-07T11:43:55.513Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.250Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "a valid ruleset is accepted": {
       "verdict": "ACCEPTED"

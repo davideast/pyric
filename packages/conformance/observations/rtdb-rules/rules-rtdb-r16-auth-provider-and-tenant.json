@@ -5,9 +5,9 @@
     "rtdb-rules#16"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r16-auth-provider-and-tenant\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the RTDB simulator must expose the same auth properties production does, with the same values, so a provider or tenant gate evaluates the same locally and in production.",
-  "observedAt": "2026-09-25T07:32:52.959Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.261Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "anonymous sign-in reads auth.provider as anonymous": "ALLOW",
     "anonymous sign-in does not read auth.provider as password": "DENY",

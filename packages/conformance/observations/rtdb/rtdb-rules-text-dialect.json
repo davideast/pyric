@@ -5,9 +5,9 @@
     "rtdb-rules#23"
   ],
   "description": "Sends rules file text byte for byte to PUT /.settings/rules.json?dryRun=true, the request firebase deploy makes with the rules file, and records whether production accepts it or refuses it with its text: a rule string spanning lines (LF and CRLF), a raw tab and a backslash line break inside a rule string, trailing commas in objects and in an .indexOn array, comments, and a doubled or leading comma. The probes are TEXT_PROBES in packages/conformance/src/capture-rtdb-rules-text-dialect.ts. A dry run installs nothing; the active rules read back byte-identical after the run.",
-  "observedAt": "2026-10-07T23:50:27.919Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T17:11:29.142Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "calls": 12,
     "probes": [

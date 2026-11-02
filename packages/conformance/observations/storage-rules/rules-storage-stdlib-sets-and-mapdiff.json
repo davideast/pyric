@@ -6,8 +6,8 @@
     "storage-rules#storage.stdlib.map-diff"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-sets-and-mapdiff\" (STORAGE-STDLIB-SET). List.toSet(), Set membership and algebra, Set equality, in over a Set, and Map.diff() over custom metadata with every MapDiff accessor, with a List argument to Set algebra and a List receiver as negative controls.",
-  "observedAt": "2026-09-30T03:43:30.998Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:56.823Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

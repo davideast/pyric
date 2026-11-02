@@ -6,9 +6,9 @@
     "rtdb-modular#M45"
   ],
   "description": "onChildRemoved fires when a child is deleted — seed 2 children, subscribe, remove one, observe the fire (key + the now-removed value).",
-  "observedAt": "2026-05-18T04:26:34.625Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:20.647Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

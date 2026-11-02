@@ -7,8 +7,8 @@
     "rtdb-modular#161"
   ],
   "description": "Two-client concurrent increments and transactions preserve both updates, with transaction retry evidence and independent terminal reads.",
-  "observedAt": "2026-07-22T06:23:59.500Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:43:40.972Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

@@ -6,7 +6,7 @@
 // register planes.
 //
 // Nothing leaves the machine. A Playwright route answers Google the way AI
-// Logic does (403 without a token, captured in app-check-ai-gate-wire) and
+// Logic does (403 without a token, in earlier-captures/ai-logic-refusal-unenforced.json) and
 // aborts every other external request the page makes. The sandbox process
 // runs with its HTTP proxy set to a local trap that refuses and records every
 // request, and the scenario asserts the trap saw none.

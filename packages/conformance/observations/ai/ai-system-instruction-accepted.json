@@ -5,8 +5,8 @@
     "ai#generate-system-instruction"
   ],
   "description": "A top-level systemInstruction rides the request unchanged and the response envelope shape is unaffected.",
-  "observedAt": "2026-10-28T02:04:07.209Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:53.276Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -26,7 +26,7 @@
             "parts": [
               {
                 "text": "pyric",
-                "thoughtSignature": "EmAKXgFpFH0TeehpuqXHy4a+5Ffi0BMNqKD7RxPKb7DvjfS2Upt+mLT/0Z2tHWxxfFve5/aATqIhAwUQ1yABzLEXw/Fd6QNJdQ23PMdGyJinKpsoAx2xOjmMetQbRHY09Bw="
+                "thoughtSignature": "EmAKXgFpFH0TVekc/gMOYs9BkDrOy5hchUU8vaLitzMYWkpG8QWkb+kiGu5OPbRhn0I1MvfXJG/GdRC+DdvJYqiPZ26TACzBI466wEZ4Wrpb7O4Q+nz1l8PCGzxLMqwuvPw="
               }
             ],
             "role": "model"
@@ -48,7 +48,7 @@
         "serviceTier": "standard"
       },
       "modelVersion": "gemini-3.5-flash-lite",
-      "responseId": "FVjhapmUNa-6sOIP1en0yQM"
+      "responseId": "A4bkaofxI536-8YPgsWO2AM"
     }
   }
 }

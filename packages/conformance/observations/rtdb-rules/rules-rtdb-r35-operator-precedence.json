@@ -5,9 +5,9 @@
     "rtdb-rules#9"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r35-operator-precedence\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a rule that mixes operators without parentheses must group them as production does, or the simulator grants or denies a request production decides the other way.",
-  "observedAt": "2026-10-07T23:50:55.783Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.278Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "!(true || false && false) groups && first": "DENY",
     "false && false || true groups && first": "ALLOW",

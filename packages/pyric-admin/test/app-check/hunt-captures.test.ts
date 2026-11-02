@@ -32,7 +32,7 @@ function obs(name: string): Behavior {
   return observation.behavior;
 }
 
-const CLAIM_NAMES = ['aud', 'exp', 'iat', 'iss', 'jti', 'provider', 'sub'];
+const CLAIM_NAMES = ['aud', 'exp', 'iat', 'iss', 'jti', 'lu', 'provider', 'sub'];
 /** A token pyric mints with its default one hour lifetime. */
 const PYRIC_HOUR_TOKEN = { mode: 'resolved', ttlMillis: 3_600_000, expMinusIat: 3600, claimNames: CLAIM_NAMES, jtiEqualsRequested: false };
 const RANGE_MESSAGE = 'ttlMillis must be a duration in milliseconds between 30 minutes and 7 days (inclusive).';
@@ -96,7 +96,6 @@ const PRODUCTION_KEY_ORDER = ['alreadyConsumed', 'appId', 'token'];
 const PYRIC_KEY_ORDER = ['appId', 'token', 'alreadyConsumed'];
 const consumed = (keyOrder: string[], alreadyConsumed: boolean) => ({ mode: 'resolved', keyOrder, alreadyConsumed });
 const sameJtiPins: Pin[] = [
-  { key: 'sameTokens', finding: 'AC-1', production: true, pyric: false },
   { key: 'first', finding: 'AC-12', production: consumed(PRODUCTION_KEY_ORDER, false), pyric: consumed(PYRIC_KEY_ORDER, false) },
   { key: 'secondSameJti', finding: 'AC-1, AC-12', production: consumed(PRODUCTION_KEY_ORDER, true), pyric: consumed(PYRIC_KEY_ORDER, false) },
   { key: 'firstAgain', finding: 'AC-12', production: consumed(PRODUCTION_KEY_ORDER, true), pyric: consumed(PYRIC_KEY_ORDER, true) },

@@ -6,14 +6,14 @@
     "rtdb-modular#127"
   ],
   "description": "push(parent, value) — verify (a) the value is written under the new auto-id, (b) the returned ref is usable in follow-up ops.",
-  "observedAt": "2026-05-18T03:36:42.115Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:08.486Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,
     "message": null,
-    "pushedKey": "-Ost93S8erOUhM_jxfhC",
+    "pushedKey": "-P5Cj82jbwI0w5ebKkVD",
     "pushedKeyLength": 20,
     "readBackInitial": {
       "hello": "world"

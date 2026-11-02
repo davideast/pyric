@@ -5,9 +5,9 @@
     "rtdb-modular#139"
   ],
   "description": "`off(ref, eventType)` precision — register a `value` listener and a `child_added` listener at the same ref, call `off(ref, 'value')`, verify a subsequent set fires only the child listener. Also verify `off(ref, 'value')` with no callback clears ALL value listeners at the ref.",
-  "observedAt": "2026-05-18T10:20:20.899Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:56:02.783Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "initial": {
       "v1": 1,

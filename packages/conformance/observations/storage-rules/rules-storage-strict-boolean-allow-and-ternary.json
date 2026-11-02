@@ -6,8 +6,8 @@
     "storage-rules#storage.semantic.strict-boolean-ternary-condition"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"strict-boolean-allow-and-ternary\" (STORAGE-P4-STRICT-BOOLEAN). Storage types the allow boundary and the ternary condition as bool like Firestore: a non-boolean allow condition denies, and a non-boolean ternary condition errors, which || true and !(… && false) both consume as ALLOW.",
-  "observedAt": "2026-10-27T02:03:50.107Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:57.906Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

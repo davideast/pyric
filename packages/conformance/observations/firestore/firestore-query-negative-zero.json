@@ -5,8 +5,8 @@
     "firestore#negative-zero-equality"
   ],
   "description": "Three docs with v = 0, 1 and -0, read with getDocsFromServer under == 0, == -0, in [0], != 0, not-in [0] and orderBy(v), each step bounded at 15 s. not-in [0] did not settle within the bound.",
-  "observedAt": "2026-10-27T19:30:37.312Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:07:53.971Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "log": [

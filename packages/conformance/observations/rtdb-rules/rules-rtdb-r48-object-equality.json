@@ -5,8 +5,8 @@
     "rtdb-rules#40"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r48-object-equality\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). pyric compares object values from val() by JavaScript reference, so equal objects are never == and always !=; production either fails the rule or compares by content.",
-  "observedAt": "2026-10-26T21:49:22.547Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.285Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "SP-3: an object read compared with itself (data.val() == data.val())": "DENY",

@@ -5,9 +5,9 @@
     "auth#30"
   ],
   "description": "onAuthStateChanged fires on every subsequent identity change. Subscribe, then run signIn → signOut → signIn → signOut; verify the listener receives a fire for each of the 4 transitions.",
-  "observedAt": "2026-05-18T00:12:26.552Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T12:08:27.002Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "initialFires": 1,
     "firesForT1SignIn": 1,
@@ -22,20 +22,20 @@
         "ts": 0
       },
       {
-        "uid": "XfLVHjuEJ3aodWxqd8IVSoiScal2",
-        "ts": 629
+        "uid": "CxoWAiYclYcmkHJPvfdNKTrHko72",
+        "ts": 673
       },
       {
         "uid": null,
-        "ts": 1032
+        "ts": 1080
       },
       {
-        "uid": "4T2e47tsb6M50PMARv5V7fUJ5632",
-        "ts": 1762
+        "uid": "RE1MmFYpRMWkPPsuC7aYJ3dAukW2",
+        "ts": 1893
       },
       {
         "uid": null,
-        "ts": 2165
+        "ts": 2300
       }
     ]
   }

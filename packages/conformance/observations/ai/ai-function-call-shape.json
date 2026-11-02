@@ -8,8 +8,8 @@
     "ai#helper-functioncalls"
   ],
   "description": "functionCall part shape under toolConfig mode ANY. The fact that args arrives as a parsed JSON object (not a string) is the load-bearing difference from OpenAI-shaped tool_calls.",
-  "observedAt": "2026-10-28T02:04:03.679Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:48.654Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -35,9 +35,9 @@
                   "args": {
                     "city": "Paris"
                   },
-                  "id": "call_1649563"
+                  "id": "call_326465"
                 },
-                "thoughtSignature": "EmAKXgFpFH0T14ECmR4rPTwhHKK9eBFk8z2Oe8Bj4pD08veD7Yk0mQrudfD5g5UdYRwnxTiZopV3bmcv9lSaYHafa9bjgEbz5qu5r4hhVH0eEzUaNn1LrSTQ695RMttrps8="
+                "thoughtSignature": "EmAKXgFpFH0TyCLphPckuoMIONIpQYYGQwmD/UR/hk6ThSsZbiJTkeBcINTdeMAM6qm5C6Co4cRCZJAF5dFMnnsrALK3HKYc2DzZJ5rZZ1hzICHzRcY0skjr9BDCjX6YQ9s="
               }
             ],
             "role": "model"
@@ -60,7 +60,7 @@
         "serviceTier": "standard"
       },
       "modelVersion": "gemini-3.5-flash-lite",
-      "responseId": "EljhaquLN5aosOIPwKCnsA0"
+      "responseId": "_4Xkarf_Fuj0-8YPk4C-0A8"
     }
   }
 }

@@ -5,8 +5,8 @@
     "firestore-rules#199"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"re2-pattern-semantics\" (Coverage: RE2 pattern semantics). matches(), split() and replace() use RE2: \\s is ASCII whitespace only, . matches \\r, \\pL, [[:alpha:]] and \\Q..\\E are classes and quoting, split() does not return capture groups, and (?i) applies in split() and replace().",
-  "observedAt": "2026-10-28T03:35:12.801Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:41.777Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

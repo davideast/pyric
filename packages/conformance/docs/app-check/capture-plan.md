@@ -72,21 +72,22 @@ All are captured by `packages/conformance/src/app-check-probes.ts` (rig `rigs/ap
 | `app-check-client-ai-header` | the `X-Firebase-AppCheck` header the real `firebase/ai` SDK sends on `generateContent`: present, equal to `getToken`'s token, limited-use mode (`useLimitedUseAppCheckTokens`), absent without App Check, and what it sends when App Check fails | Chromium, request intercepted with Playwright `page.route` and continued | No |
 | `app-check-ai-gate-wire` | AI Logic's gate on the wire from Node, in the `ai-probes` request shape: no header, malformed header, the SDK placeholder token, a tampered token, and a valid Admin-minted token; records the enforcement mode read at capture time | node fetch | No (see the finding below) |
 
-## Finding: AI Logic already requires App Check on this project
+## Finding: an unenforced project's answer depends on the project
 
-With `firebaseml.googleapis.com` reading `UNENFORCED`, production AI Logic still rejects every `generateContent` that lacks a valid App Check token:
-HTTP 403, `PERMISSION_DENIED`, message "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check."
-A malformed header, the web SDK placeholder token, and a tampered token get the same envelope; a valid token gets a 200.
-So the rejection envelopes the original plan expected to need enforcement (`app-check-ai-enforced-no-token`, `app-check-ai-enforced-invalid-token`) are captured without an enforcement change, in `app-check-ai-gate-wire`, `app-check-client-ai-header` (`noAppCheck`), and `app-check-client-invalid-debug-token`.
-The same 403 means the `ai-logic` rig (`ai-probes.ts`), which sends no App Check header, can no longer capture its success-path observations against this project.
+The docs require enforcement from a date each project can set, up to January 21, 2027, so an unenforced project is legitimate production behavior before its date. Two captures read `UNENFORCED` for `firebaseml.googleapis.com` and answered differently:
 
-What is still unobserved is whether `ENFORCED` mode changes the envelope (a different message or status once App Check is enforced). That is the only capture left that needs an enforcement change.
+- On 2026-10-22 one project rejected every `generateContent` without a valid App Check token: HTTP 403, `PERMISSION_DENIED`, message "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check." A malformed header, the web SDK placeholder token, and a tampered token got the same envelope, and a valid token got a 200. That evidence is kept in `earlier-captures/ai-logic-refusal-unenforced.json`, and it is what the sandbox replays.
+- On 2026-11-02 another project answered 200 to all of those requests, and to `streamGenerateContent` and `countTokens` with no header. That is what the current observations record.
+
+The sandbox refuses in both cases, and the capture's mode is recorded in `app-check-ai-gate-wire`.
+
+What is still unsettled is what `ENFORCED` mode answers (#1300).
 
 ## Other production facts seen while capturing
 
 - Admin `createToken` intermittently answers "App attestation failed." for a run of calls, then succeeds for the same app; the rig retries up to 8 times, 20 seconds apart. Seen in every run after the first, never on a lone call.
 - In debug mode the web SDK never calls `onTokenChanged` listeners registered before the first `getToken`, even across forced refreshes; a listener added after a token exists is called once, asynchronously.
-- With `useLimitedUseAppCheckTokens` and a failing attestation, `firebase/ai` throws `AI/error` before sending any request; without the option it sends the placeholder token and gets the 403.
+- With `useLimitedUseAppCheckTokens` and a failing attestation, `firebase/ai` throws `AI/error` before sending any request; without the option it sends the placeholder token, which a refusing project answers with the 403.
 
 ## Run
 

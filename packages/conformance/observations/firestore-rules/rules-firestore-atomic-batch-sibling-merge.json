@@ -4,10 +4,10 @@
   "rowIds": [
     "firestore-rules#190"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"atomic-batch-sibling-merge\" (Item 7 (Batch Sibling Merge)). Proves getAfter() evaluates against deep-merged sibling state during multi-document atomic updates.",
-  "observedAt": "2026-07-24T20:38:49.115Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "agentive-de",
+  "description": "An authenticated Web SDK batch against temporarily deployed production rules updates one field of a document and creates a sibling whose create rule reads that document through getAfter(); the merged state must carry both the pre-existing field and the batch update. A create without the batch update is the control. The hosted Rules Test API limitation is retained separately in diagnostics.",
+  "observedAt": "2026-10-30T16:20:01.482Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
     "value": "72821aa8ab3c0cb8bfedd3c46587cdb6f82f38682e17215e909bc46a7deb7fdc"
@@ -16,33 +16,47 @@
     "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": "ALLOW"
   },
   "diagnostics": {
-    "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": {
-      "notes": [
-        "Error: firestore.rules line [6], column [24]. Function not found error: Name: [getAfter]."
-      ],
-      "api": {
-        "errorPosition": {
-          "fileName": "firestore.rules",
-          "line": 6,
-          "column": 24,
-          "currentOffset": 187,
-          "endOffset": 194
-        },
-        "functionCalls": [
-          {
-            "function": "getAfter",
-            "args": [
-              "/databases/%28default%29/documents/config/state"
-            ]
+    "productionDatabase": {
+      "soloCreateWithoutBatchUpdate": "DENY"
+    },
+    "hostedTestApiLimitation": {
+      "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": {
+        "notes": [
+          "Error: firestore.rules line [6], column [24]. Function not found error: Name: [getAfter]."
+        ],
+        "api": {
+          "errorPosition": {
+            "fileName": "firestore.rules",
+            "line": 6,
+            "column": 24,
+            "currentOffset": 187,
+            "endOffset": 194
           },
-          {
-            "function": "getAfter",
-            "args": [
-              "/databases/%28default%29/documents/config/state"
-            ]
-          }
-        ]
+          "functionCalls": [
+            {
+              "function": "getAfter",
+              "args": [
+                "/databases/%28default%29/documents/config/state"
+              ]
+            },
+            {
+              "function": "getAfter",
+              "args": [
+                "/databases/%28default%29/documents/config/state"
+              ]
+            }
+          ]
+        }
       }
     }
+  },
+  "lifecycle": {
+    "originalRulesetName": "projects/digame-mas/rulesets/e6d4348c-24df-4dbd-9bb0-9b5a78a712cc",
+    "probeRulesetName": "projects/digame-mas/rulesets/6f8d22bf-c7f6-4141-b804-5cbffc2bb917",
+    "restoredOriginalRelease": true
+  },
+  "deployedRulesDigest": {
+    "algorithm": "sha256",
+    "value": "233324d863e3fb6daa63a2389996fac2ec8be6a9c86b050981bae22349c60cb2"
   }
 }

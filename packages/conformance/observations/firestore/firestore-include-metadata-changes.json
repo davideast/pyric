@@ -5,9 +5,9 @@
     "firestore#85"
   ],
   "description": "onSnapshot with includeMetadataChanges:true vs default — observes how many fires prod produces for one write.",
-  "observedAt": "2026-05-17T23:36:58.501Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:01.103Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "initialDefault": 1,
     "initialMeta": 1,

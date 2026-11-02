@@ -100,10 +100,10 @@
     ]
   },
   "score": {
-    "numerator": 91,
+    "numerator": 90,
     "denominator": 91,
-    "ratio": 1,
-    "percent": 100
+    "ratio": 0.989010989010989,
+    "percent": 98.9
   },
   "axes": {
     "productionAcceptance": {
@@ -125,14 +125,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 90,
-      "diverged": 0,
+      "verified": 89,
+      "diverged": 1,
       "unverified": 1
     }
   },
   "counts": {
-    "conformant": 91,
-    "diverged": 0,
+    "conformant": 90,
+    "diverged": 1,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -430,8 +430,8 @@
       "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "r10-snapshot-type-guards",
         "r23-validate-sibling-scope",
@@ -439,12 +439,15 @@
         "r28-stdlib-presence-timing",
         "r34-stdlib-auth-membership-quota",
         "r39-root-parent-runtime",
-        "r43-deploy-expression-and-structure-probes"
+        "r43-deploy-expression-and-structure-probes",
+        "r62-deploy-ternary-snapshot-member"
       ],
       "verifiedByRows": [
         "rtdb-rules#30"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "rtdb-rules#196"
+      ]
     },
     "rtdb.method.snapshot.hasChild": {
       "productionAcceptance": "accepted",

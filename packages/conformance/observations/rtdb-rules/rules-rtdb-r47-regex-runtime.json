@@ -5,8 +5,8 @@
     "rtdb-rules#34"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r47-regex-runtime\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). matches() evaluates with JavaScript RegExp semantics; production documents that ^ and $ anchor only as the first or last character, and its $ / . newline handling is unobserved.",
-  "observedAt": "2026-10-26T21:47:46.874Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T18:17:18.285Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "SP-2: lookahead requiring a digit, no digit": "DENY",

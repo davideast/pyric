@@ -5,8 +5,8 @@
     "firestore-rules#182"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"functions-verbs-and-recursive\" (Coverage: functions/let, granular verbs, ternary, recursive wildcard, methods on untyped receivers). Production must accept function declarations with let bindings, allow get/list/update/write verbs, the ternary operator, and a recursive {document=**} match, and must compile method calls on receivers whose type is known only at evaluation.",
-  "observedAt": "2026-09-28T00:23:15.917Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:39.842Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

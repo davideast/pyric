@@ -5,8 +5,8 @@
     "storage-rules#123"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"arithmetic-operand-types\" (Coverage: + and arithmetic operand types). String + string concatenates and int + float promotes, while list + list, string + int, int + string, list + string, map + map, and non-numeric -, *, /, % are error values that deny through != and ! and absorb through || true.",
-  "observedAt": "2026-09-27T14:10:51.121Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:52.080Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

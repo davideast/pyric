@@ -5,8 +5,8 @@
     "firestore-rules#165"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"get-missing-doc\" (RULES-B8). get() of a missing doc must deny via error (null made `== null` probes ALLOW); get() resource must expose id/__name__.",
-  "observedAt": "2026-07-21T23:43:05.196Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:40.005Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

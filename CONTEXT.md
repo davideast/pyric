@@ -1,7 +1,7 @@
 # Pyric codebase context
 
 Last checked: 2026-10-14. Workspace version `0.1.0-alpha.25`, conformance-tested
-against Firebase `12.13.0` (`packages/cli/src/version/compat-target.ts`).
+against Firebase `12.19.0` (`packages/cli/src/version/compat-target.ts`).
 
 Pyric is a Firebase-shaped development sandbox for people and coding agents.
 It runs Firestore, Auth, Realtime Database, Storage, Cloud Messaging, Firebase

@@ -5,8 +5,8 @@
     "ai#error-empty-contents"
   ],
   "description": "Error envelope when contents is an empty array.",
-  "observedAt": "2026-10-28T02:04:02.967Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:46.743Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

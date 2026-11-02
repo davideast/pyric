@@ -5,9 +5,9 @@
     "rtdb-rules#7"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r7-pathvar-binding\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). nested $sessionId bound against auth.uid — production allows the matching session and denies mismatched/anonymous access; the simulator must bind the nested variable identically.",
-  "observedAt": "2026-07-12T03:35:03.046Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.291Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "matching pathvar allows": "ALLOW",
     "matching pathvar allows write": "ALLOW",

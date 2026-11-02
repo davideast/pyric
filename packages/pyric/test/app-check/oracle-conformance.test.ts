@@ -14,6 +14,7 @@
  * completeness gate; the gate needs every row's loads, so it runs only there.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Token length is not claimed (see the rows' notes): the shape comparison drops it explicitly. */
@@ -38,17 +39,22 @@ const gate = createObservationGate({
 });
 const obs = gate.load;
 
-/** The oracle project the captures ran against, so shapes compare directly. */
-const PROJECT_ID = 'genkit-idx';
+/** The project of an app whose token shape no capture pins. */
+const PROJECT_ID = 'digame-mas';
 const PROJECT_NUMBER = '123456789012';
 const APP_ID = `1:${PROJECT_NUMBER}:web:0a1b2c3d4e5f60718293a4`;
 const OPTIONS = { apiKey: 'demo-api-key', appId: APP_ID, projectId: PROJECT_ID };
 const SECRETS: Secrets = { appId: APP_ID, apiKey: OPTIONS.apiKey, projectNumber: PROJECT_NUMBER, values: [] };
 
+/** The oracle project a capture ran against, so a token's audience compares directly. */
+function observedProject(name: string): string {
+  return (JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as { projectId: string }).projectId;
+}
+
 let appSeq = 0;
-function freshApp(label: string) {
+function freshApp(label: string, projectId = PROJECT_ID) {
   appSeq += 1;
-  return initializeApp(OPTIONS, `${label}-${appSeq}`);
+  return initializeApp({ ...OPTIONS, projectId }, `${label}-${appSeq}`);
 }
 function provider() {
   return new appCheck.CustomProvider({
@@ -283,7 +289,7 @@ const assertions: Record<string, Assertion> = {
 
   'app-check#get-token-shape': async () => {
     const o = obs('app-check-client-debug-get-token');
-    const handle = appCheck.initializeAppCheck(freshApp('shape'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const handle = appCheck.initializeAppCheck(freshApp('shape', observedProject('app-check-client-debug-get-token')), { provider: provider(), isTokenAutoRefreshEnabled: false });
     const first = await appCheck.getToken(handle);
     const forced = await appCheck.getToken(handle, true);
     const shape = (result: { token: string }) => ({ ...jwtShape(result.token, SECRETS), ...WITHOUT_LENGTH });
@@ -321,7 +327,7 @@ const assertions: Record<string, Assertion> = {
 
   'app-check#limited-use-token': async () => {
     const o = obs('app-check-client-limited-use-token');
-    const handle = appCheck.initializeAppCheck(freshApp('limited'), { provider: provider(), isTokenAutoRefreshEnabled: false });
+    const handle = appCheck.initializeAppCheck(freshApp('limited', observedProject('app-check-client-limited-use-token')), { provider: provider(), isTokenAutoRefreshEnabled: false });
     const cached = await appCheck.getToken(handle);
     const a = await appCheck.getLimitedUseToken(handle);
     const b = await appCheck.getLimitedUseToken(handle);

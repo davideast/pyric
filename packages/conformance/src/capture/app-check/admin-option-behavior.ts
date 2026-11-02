@@ -130,8 +130,12 @@ export async function sameJtiConsumeBehavior(target: OptionTarget, pair: SameJti
   }
   const first = pair.first.value.token;
   const second = pair.second.value.token;
+  const firstClaims = payloadClaims(first);
+  const secondClaims = payloadClaims(second);
   return {
     sameTokens: first === second,
+    sameIat: firstClaims.iat === secondClaims.iat,
+    sameLu: firstClaims.lu === secondClaims.lu,
     consume: {
       first: describeConsume(await consume(target, first)),
       secondSameJti: describeConsume(await consume(target, second)),

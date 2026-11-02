@@ -5,8 +5,8 @@
     "rtdb-modular#M94"
   ],
   "description": "Synchronous query-constraint validation for limits, child paths, cursor keys and index-specific endpoint values, with accepted-construction and successful online-write controls.",
-  "observedAt": "2026-07-22T10:02:29.471Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T10:43:58.581Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

@@ -6,9 +6,9 @@
     "rtdb-modular#M58"
   ],
   "description": "onValue(query(ref, orderByChild(\"pos\"), limitToFirst(2))) — does the listener fire only when the windowed result changes, or on every parent write?",
-  "observedAt": "2026-05-18T04:28:13.153Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:41.293Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

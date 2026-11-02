@@ -6,9 +6,9 @@
     "rtdb-rules#9"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r22-strict-equality-types\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). per-user rules written as `$uid === auth.uid` must allow the owner, and `===`/`!==` must compare a number with a string without converting either, so the simulator must parse both operators and evaluate them as production does.",
-  "observedAt": "2026-09-27T13:44:56.991Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.265Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "owner read allowed by ===": "ALLOW",
     "owner write allowed by ===": "ALLOW",
