@@ -32,7 +32,7 @@ function obs(name: string): Behavior {
   return observation.behavior;
 }
 
-const CLAIM_NAMES = ['aud', 'exp', 'iat', 'iss', 'jti', 'provider', 'sub'];
+const CLAIM_NAMES = ['aud', 'exp', 'iat', 'iss', 'jti', 'lu', 'provider', 'sub'];
 /** A token pyric mints with its default one hour lifetime. */
 const PYRIC_HOUR_TOKEN = { mode: 'resolved', ttlMillis: 3_600_000, expMinusIat: 3600, claimNames: CLAIM_NAMES, jtiEqualsRequested: false };
 const RANGE_MESSAGE = 'ttlMillis must be a duration in milliseconds between 30 minutes and 7 days (inclusive).';
