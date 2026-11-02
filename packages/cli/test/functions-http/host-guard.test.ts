@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { createFunctionsHttpGateway } from '../../src/functions/http/gateway.js';
+import { hostingRewrites } from '../../src/functions/http/rewrites.js';
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
 
 const opened: Array<{ stop(): Promise<void> }> = [];
@@ -40,10 +41,15 @@ async function fakeChild(onRequest: () => void): Promise<number> {
 }
 
 describe('function routes behind the pyric sandbox Host guard', () => {
-  test('a foreign Host on the emulator path gets 403 and never reaches the child', async () => {
+  test('a foreign Host on the emulator path or a rewrite gets 403 and never reaches the child', async () => {
     let reached = 0;
     const childPort = await fakeChild(() => { reached += 1; });
-    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, plane: 'pyric-sandbox' });
+    const gateway = createFunctionsHttpGateway({
+      projectId: 'demo-app',
+      initial: { kind: 'starting' },
+      plane: 'pyric-sandbox',
+      rewrites: hostingRewrites({ hosting: { rewrites: [{ source: '/api/**', function: 'api' }] } }),
+    });
     gateway.update({
       kind: 'ready',
       http: { port: childPort, token: 't', functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: null }] },
@@ -60,10 +66,14 @@ describe('function routes behind the pyric sandbox Host guard', () => {
     const rebound = await rawRequest(handle.port, '/demo-app/us-central1/api', { host: `attacker.example:${handle.port}` });
     expect(rebound.status).toBe(403);
     expect(rebound.body).toContain("refused request for Host 'attacker.example");
+    const reboundRewrite = await rawRequest(handle.port, '/api/messages', { host: 'attacker.example' });
+    expect(reboundRewrite.status).toBe(403);
     expect(reached).toBe(0);
 
     const local = await rawRequest(handle.port, '/demo-app/us-central1/api', { host: `localhost:${handle.port}` });
     expect(local).toEqual({ status: 200, body: 'ran' });
-    expect(reached).toBe(1);
+    const localRewrite = await rawRequest(handle.port, '/api/messages', { host: `localhost:${handle.port}` });
+    expect(localRewrite).toEqual({ status: 200, body: 'ran' });
+    expect(reached).toBe(2);
   });
 });

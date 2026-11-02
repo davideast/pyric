@@ -581,7 +581,7 @@ Yes, the server connects to the browser. It sounds backward until you remember t
 
 Create Alice's presence record. The Function reads her local Firestore profile through the Admin SDK mirror, writes `firstSeenAt`, and the open tabs receive that update. Admin writes bypass client Security Rules, matching the trusted role of a deployed Function.
 
-Pyric currently runs RTDB `onValueCreated` triggers locally and reports other trigger types as unsupported. That boundary keeps a working local path from turning into a broader promise.
+Pyric currently runs RTDB `onValueCreated` triggers and HTTP `onRequest` functions locally, and reports other trigger types as unsupported. That boundary keeps a working local path from turning into a broader promise. [Call your HTTP functions](./build/realtime-database.md#call-your-http-functions) covers the HTTP side.
 
 ## Deliver a notification without production Messaging
 

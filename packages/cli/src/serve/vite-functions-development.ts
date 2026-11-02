@@ -13,10 +13,12 @@ import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functi
 import {
   createPrivateInvokerWarnings,
   httpFunctionLines,
+  servedLine,
   stateAfterStart,
   UNRESPONSIVE_LINE,
   uncaughtErrorLine,
 } from '../functions/http/report.js';
+import type { HostingRewrite } from '../functions/http/rewrites.js';
 import type { BridgeMount } from './bridge-mount.js';
 
 type ConnectHandler = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
@@ -34,6 +36,10 @@ export interface ViteFunctionsDevelopmentOptions {
   middlewares: { use(handler: ConnectHandler): unknown };
   /** The plane's DNS-rebinding guard, applied before a Functions route answers. */
   isAllowedRequest(req: IncomingMessage): boolean;
+  /** firebase.json hosting rewrites, in order. */
+  rewrites?: readonly HostingRewrite[];
+  /** Whether a file the dev server serves answers this path; files win over rewrites. */
+  staticFileExists?(pathname: string): boolean;
   /** Whether the Origin is absent or the app's own page; private functions refuse any other. */
   allowsAppOrigin(req: IncomingMessage): boolean;
   watcher: ViteDevServer['watcher'];
@@ -172,6 +178,14 @@ export function attachViteFunctionsDevelopment(
   const gateway: FunctionsHttpGateway = createFunctionsHttpGateway({
     projectId: options.projectId,
     initial: { kind: 'starting' },
+    ...(options.rewrites ? { rewrites: options.rewrites } : {}),
+    ...(options.staticFileExists ? { staticFileExists: options.staticFileExists } : {}),
+    onWarning: (warning) => options.logger.warn(`  ⚠ [pyric] ${warning}`),
+    onServed: (record) => {
+      const { failed, line } = servedLine(record);
+      if (failed) options.logger.error(`  ✖ [pyric] ${line}`);
+      else options.logger.info(`  ✔ [pyric] ${line}`);
+    },
     plane: 'vite',
   });
   options.middlewares.use((req, res, next) => {

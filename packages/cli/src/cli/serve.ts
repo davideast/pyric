@@ -41,6 +41,7 @@ import {
   consoleServeLogger,
   getHeader,
   isAllowedOriginOnPorts,
+  resolveStaticFile,
   startStaticServer,
   stderrServeLogger,
   type ServeHandle,
@@ -74,10 +75,12 @@ import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functi
 import {
   createPrivateInvokerWarnings,
   httpFunctionLines,
+  servedLine,
   stateAfterStart,
   UNRESPONSIVE_LINE,
   uncaughtErrorLine,
 } from '../functions/http/report.js';
+import { hostingRewrites } from '../functions/http/rewrites.js';
 import {
   discoverFunctionsProject,
   type FunctionsProject,
@@ -1013,9 +1016,21 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
     if (functionsProjectId !== null) {
+      const served = json ? process.stderr : process.stdout;
       functionsGateway = createFunctionsHttpGateway({
         projectId: functionsProjectId,
         initial: { kind: 'starting' },
+        rewrites: hostingRewrites(
+          await readFirebaseJson(cwd).catch(() => null),
+          (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
+        ),
+        staticFileExists: (pathname) => runtime !== undefined && resolveStaticFile(runtime.publicDir, pathname) !== null,
+        onWarning: (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
+        onServed: (record) => {
+          const { failed, line } = servedLine(record);
+          if (failed) process.stderr.write(`✖ ${line}\n`);
+          else served.write(`✔ ${line}\n`);
+        },
         plane: 'pyric-sandbox',
       });
     }
