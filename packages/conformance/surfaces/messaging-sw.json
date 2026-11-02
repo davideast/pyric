@@ -13,7 +13,7 @@
       "id": "messaging-sw.registration-listeners",
       "availability": "deferred",
       "reasonCode": "implementation-deferred",
-      "summary": "The service-worker registration listeners are new in firebase 12.19.0 and are deferred with the page registration API; implementing them is tracked in #1673.",
+      "summary": "New in firebase 12.19.0, deferred with the page registration API; tracked in #1673.",
       "evidenceRefs": ["disposition:messaging.registration"],
       "symbols": [
         "onRegistered",

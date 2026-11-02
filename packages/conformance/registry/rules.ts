@@ -2172,7 +2172,7 @@ export const rulesRegistry = {
           behavior: "Production refuses `(true ? data.parent() : null).exists()` at deploy with \"Invalid property access: target is not an object.\" Pyric's load-time check accepts it",
           status: "diverged-documented",
           conformanceDisposition: "pending-fix",
-          evidence: "`oracle:rules-rtdb-r62-deploy-ternary-snapshot-member` (dry-run deploys on firebase 12.19.0 for #1676) records production REJECTING this expression and ACCEPTING the other seven expressions probed. Production deployed it on 2026-10-15. Both sides are pinned in `KNOWN_DEPLOY_DIVERGENCES`, `packages/conformance/src/rules-rtdb-replay.test.ts`. Pending fix, #1820.",
+          evidence: "`oracle:rules-rtdb-r62-deploy-ternary-snapshot-member` records the refusal. Production deployed it on 2026-10-15. `KNOWN_DEPLOY_DIVERGENCES` pins both sides. Pending fix, #1820.",
           risk: ["rules-denial"],
           riskScore: 2,
           riskReasons: ["a ruleset pyric loads can be refused by firebase deploy"],
