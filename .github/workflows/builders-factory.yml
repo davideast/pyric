@@ -1,8 +1,7 @@
 # The factory harness's unit tests (test/builders/factory): its gates, UI
 # rules and copy check, known failures, git hardening, serving and the
 # supervisor. They reach no network; bubblewrap sandboxes the fetch's
-# upload-pack. session-runner.test.ts is left out: it starts the full
-# egress-logging session sandboxes, which this job has not been set up for.
+# upload-pack, and session-runner.test.ts runs whole session sandboxes.
 #
 # Outside the required CI aggregate: the factory is a test harness, not a
 # shipped package.
@@ -36,6 +35,7 @@ concurrency:
 
 env:
   BUN_VERSION: '1.3.11'
+  NODE_VERSION: '24'
 
 jobs:
   factory-unit:
@@ -46,6 +46,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      # A session sandbox runs the harness's .ts files with node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Install bubblewrap
@@ -75,6 +79,7 @@ jobs:
           test/builders/factory/served-owner.test.ts
           test/builders/factory/serving.test.ts
           test/builders/factory/session-end.test.ts
+          test/builders/factory/session-runner.test.ts
           test/builders/factory/supervisor-process.test.ts
           test/builders/factory/supervisor.test.ts
           test/builders/factory/ui-rules.test.ts
