@@ -37,6 +37,8 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 export interface PeerRequest {
   socket?: { remoteAddress?: string };
   headers?: Record<string, string | string[] | undefined>;
+  /** Alternating names and values as the client sent them, in the client's casing. */
+  rawHeaders?: string[];
 }
 
 /** True when the socket peer is on this machine and no server in front of it marked the client as remote. */

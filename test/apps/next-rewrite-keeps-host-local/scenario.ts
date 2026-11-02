@@ -5,7 +5,8 @@
 // a non-loopback address gets the answers it would get from the host directly,
 // and sending headers of its own does not change them. A client on loopback,
 // and a page Next serves it, keep working through the same rewrite. A plain
-// proxy started under `pyric sandbox -- node`, and a Vite `server.proxy`, behave
+// proxy started under `pyric sandbox -- node`, whether it forwards the parsed or
+// the raw headers, and a Vite `server.proxy`, behave
 // the same way.
 //
 // The non-loopback client needs an address on this machine other than
@@ -21,6 +22,7 @@ const CLIENT_HEADER_SETS: Record<string, string>[] = [
   {},
   { 'x-forwarded-for': '127.0.0.1', 'x-real-ip': '127.0.0.1', forwarded: 'for=127.0.0.1' },
   { 'x-pyric-remote-peer': '0' },
+  { 'X-Pyric-Remote-Peer': 'false' },
 ];
 const MCP_INITIALIZE = JSON.stringify({
   jsonrpc: '2.0',
@@ -148,6 +150,7 @@ export default scenario(async (app) => {
   await runNextCase(app, remote, 'pyric sandbox --hosted -- next dev', true, found);
   await runNextCase(app, remote, 'pyric sandbox -- next dev', false, found);
   await runProxyCase(app, remote, 'a plain proxy', (port) => ['node', 'forwarding-proxy.mjs', String(port)], found);
+  await runProxyCase(app, remote, 'a proxy that forwards the raw headers', (port) => ['node', 'raw-forwarding-proxy.mjs', String(port)], found);
   await runProxyCase(app, remote, 'a Vite server.proxy', (port) => ['vite', '--port', String(port), '--strictPort', '--host', '0.0.0.0'], found);
   await app.step('a client on another address got the answers it gets from the host directly', () => {
     assert.deepEqual(found, []);
