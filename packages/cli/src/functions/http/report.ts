@@ -24,7 +24,7 @@ export function createPrivateInvokerWarnings(): (http: FunctionsChildHttpReady) 
     .filter((fn) => fn.privateInvoker && !warned.has(fn.exportName))
     .map((fn) => {
       warned.add(fn.exportName);
-      return `functions export ${fn.exportName} sets invoker: 'private'; production refuses unauthenticated calls with 403, and pyric serves it without authentication.`;
+      return `functions export ${fn.exportName} sets invoker: 'private'; production refuses unauthenticated calls with 403, and pyric serves it without authentication to the app's own pages and to callers that send no Origin.`;
     });
 }
 
@@ -38,10 +38,10 @@ export function stateAfterStart(
   serveUrl: string,
 ): FunctionsHttpState {
   if (result.kind === 'ready') return { kind: 'ready', http: result.ready.http ?? null };
-  if (result.kind === 'no-peer') return { kind: 'waiting-peer', serveUrl };
+  if (result.kind === 'no-peer') return { kind: 'peer-timeout', serveUrl };
   return { kind: 'failed', message: result.error.message };
 }
 
 /** What both planes print when the child stops beating. */
 export const UNRESPONSIVE_LINE =
-  'Functions child unresponsive: no heartbeat for 10 s, so a handler may be stuck in a synchronous loop. Restarting it.';
+  'Functions child unresponsive: no heartbeat for longer than its functions\' timeoutSeconds allow (10 s when it serves no HTTP function), so a handler may be stuck in a synchronous loop. Restarting it.';

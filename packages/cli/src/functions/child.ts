@@ -14,6 +14,7 @@ import {
   type FunctionsChildMessage,
 } from './child-protocol.js';
 import { startHttpChildServer, type HttpChildServer } from './http/child-server.js';
+import { CHILD_TOKEN_ENV, takeChildToken } from './http/child-token.js';
 import { httpFunctionInfo, httpOnRequestFamily, inspectOnRequest } from './http/discovery.js';
 import { loadFunctionsModuleExports } from './module-loader.js';
 import { rtdbCreatedFamily } from './rtdb/discovery.js';
@@ -65,6 +66,8 @@ async function runFunctionsChild(): Promise<void> {
     throw new Error('Functions RTDB child is missing its required environment');
   }
 
+  // Taken before the user's module loads, so function code never reads it.
+  const httpToken = takeChildToken(process.env);
   // A handler stuck in a synchronous loop stops these beats, which is how the host
   // tells a wedged child from a busy one.
   const heartbeat = setInterval(() => send({ type: 'heartbeat' }), HEARTBEAT_INTERVAL_MS);
@@ -151,8 +154,9 @@ async function runFunctionsChild(): Promise<void> {
     await host.ready;
     const httpFunctions = inspectOnRequest(exported);
     if (httpFunctions.length > 0) {
+      if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
       surviveUncaughtErrors();
-      httpServer = await startHttpChildServer(entry, httpFunctions);
+      httpServer = await startHttpChildServer(entry, httpFunctions, { token: httpToken });
     }
     send({
       type: 'ready',

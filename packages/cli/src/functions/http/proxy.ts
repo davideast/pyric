@@ -4,12 +4,15 @@
  */
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import { FUNCTION_TARGET_HEADER } from './child-server.js';
+import { CHILD_TOKEN_HEADER } from './child-token.js';
 
 /** Connection-scoped headers a proxy must not forward (RFC 9110 section 7.6.1). */
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer']);
 
 export interface ProxyTarget {
   port: number;
+  /** The spawn's token, which the child requires on every request. */
+  token: string;
   exportName: string;
   /** The path and query the function sees. */
   forwardUrl: string;
@@ -35,6 +38,7 @@ function forwardedHeaders(req: IncomingMessage, target: ProxyTarget): IncomingHt
   headers['x-forwarded-proto'] = 'http';
   delete headers['x-forwarded-host'];
   headers[FUNCTION_TARGET_HEADER] = target.exportName;
+  headers[CHILD_TOKEN_HEADER] = target.token;
   return headers;
 }
 

@@ -7,7 +7,7 @@ import type {
   FunctionsProject,
 } from '../functions/project.js';
 import type { BridgeMount } from './bridge-mount.js';
-import { isAllowedHost } from './server.js';
+import { getHeader, isAllowedHost, isAllowedOriginOnPorts } from './server.js';
 import type {
   ViteFunctionsDevelopmentAttachment,
   ViteFunctionsDevelopmentOptions,
@@ -36,6 +36,20 @@ export function resolveViteGenerationFunctions(input: {
     project,
     projectId: project ? firebaseProject.projectId ?? 'demo-project' : null,
   };
+}
+
+/**
+ * With `allowedHosts: true` Vite serves the app under any name, so the
+ * app's own page is the one whose Origin names the host it asked for.
+ */
+function isSameOrigin(origin: string | undefined, hostHeader: string | undefined): boolean {
+  const sendsNoOrigin = origin === undefined;
+  if (sendsNoOrigin) return true;
+  try {
+    return new URL(origin).host.toLowerCase() === (hostHeader ?? '').toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 export function attachViteGenerationFunctions(input: {
@@ -73,6 +87,16 @@ export function attachViteGenerationFunctions(input: {
         typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
         Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [],
       );
+    },
+    // The page Vite serves names Vite's own port, the port the request came in on.
+    allowsAppOrigin: (req) => {
+      const serverOptions = server.config.server;
+      const origin = getHeader(req, 'origin');
+      const allowsAnyHost = serverOptions.allowedHosts === true;
+      if (allowsAnyHost) return isSameOrigin(origin, req.headers.host);
+      const extraHosts = Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [];
+      const ports = req.socket.localPort === undefined ? [] : [req.socket.localPort];
+      return isAllowedOriginOnPorts(origin, host, extraHosts, ports);
     },
     watcher: server.watcher,
     logger: server.config.logger,

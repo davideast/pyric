@@ -9,11 +9,20 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FunctionsChildHttpReady } from '../child-protocol.js';
+import type { HttpFunctionInfo } from './discovery.js';
+import { refuseForeignOrigin, type AppOriginCheck } from './private-origin.js';
 import { proxyToChild } from './proxy.js';
 import { matchEmulatorPath, type FunctionRoute } from './routes.js';
+import { unavailableReason, type FunctionsPlane } from './unavailable.js';
+
+export type { AppOriginCheck } from './private-origin.js';
+export type { FunctionsPlane } from './unavailable.js';
 
 export type FunctionsHttpState =
+  /** Waiting for a sandbox peer before the first start. */
   | { kind: 'waiting-peer'; serveUrl: string }
+  /** No peer connected within the start's wait. */
+  | { kind: 'peer-timeout'; serveUrl: string }
   | { kind: 'starting' }
   | { kind: 'reloading' }
   | { kind: 'failed'; message: string }
@@ -27,42 +36,35 @@ export type FunctionsHttpState =
 export interface FunctionsHttpGatewayOptions {
   projectId: string;
   initial: FunctionsHttpState;
+  plane: FunctionsPlane;
 }
 
 export interface FunctionsHttpGateway {
-  /** Handle the request if it is for a function; false lets the plane carry on. */
-  handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+  /**
+   * Handle the request if it is for a function; false lets the plane carry on.
+   * `allowsAppOrigin` is the plane's Origin check, applied to private functions.
+   */
+  handle(req: IncomingMessage, res: ServerResponse, allowsAppOrigin: AppOriginCheck): Promise<boolean>;
   update(state: FunctionsHttpState): void;
   state(): FunctionsHttpState;
 }
 
 const PLAIN_TEXT = { 'content-type': 'text/plain; charset=utf-8' };
 
-/** Why a matched route cannot be served now; null once the child is ready. */
-function unavailableReason(state: FunctionsHttpState): string | null {
-  switch (state.kind) {
-    case 'waiting-peer':
-      return `Functions are not running yet: no browser tab is connected to pyric sandbox. Open ${state.serveUrl} to start them.`;
-    case 'starting':
-      return 'Functions are starting. Retry in a moment.';
-    case 'reloading':
-      return 'Functions are reloading after a source change. Retry in a moment.';
-    case 'failed':
-      return `Functions failed to start: ${state.message}`;
-    case 'unresponsive':
-      return 'The Functions child is unresponsive: a handler may be stuck in a synchronous loop. pyric is restarting it; retry in a moment.';
-    case 'exited':
-      return `The Functions child exited (code ${state.code}). Save a Functions source file or restart pyric to start it again.`;
-    case 'stopped':
-      return 'Functions are stopped.';
-    case 'ready':
-      return null;
-  }
-}
-
 function routeFor(rawUrl: string, projectId: string, state: FunctionsHttpState): FunctionRoute | null {
   const functions = state.kind === 'ready' ? state.http?.functions ?? [] : null;
   return matchEmulatorPath(rawUrl, { projectId, functions });
+}
+
+/** firebase-tools' 404 for an unknown trigger key (`functionsEmulator.js:1239-1243`). */
+function notFoundText(key: string, functions: readonly HttpFunctionInfo[]): string {
+  const keys = functions.flatMap((fn) => fn.regions.map((region) => `${region}-${fn.exportName}`));
+  return `Function ${key} does not exist, valid functions are: ${keys.join(', ')}`;
+}
+
+/** A GET or HEAD may be for a static file under a directory named after the project id. */
+function mayBeStaticRead(req: IncomingMessage): boolean {
+  return req.method === 'GET' || req.method === 'HEAD';
 }
 
 export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions): FunctionsHttpGateway {
@@ -72,18 +74,29 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     update(state) {
       current = state;
     },
-    async handle(req, res) {
+    async handle(req, res, allowsAppOrigin) {
       const state = current;
       const route = routeFor(req.url ?? '/', options.projectId, state);
       if (route === null) return false;
-      const reason = unavailableReason(state);
+      const reason = unavailableReason(state, options.plane);
       if (reason !== null) {
         res.writeHead(503, { ...PLAIN_TEXT, 'retry-after': '1' }).end(reason);
         return true;
       }
       const http = state.kind === 'ready' ? state.http : null;
-      if (route.kind !== 'function' || http === null) return false;
-      await proxyToChild(req, res, { port: http.port, exportName: route.fn.exportName, forwardUrl: route.forwardUrl });
+      if (http === null || route.kind === 'emulator-path') return false;
+      if (route.kind === 'unknown-function') {
+        if (mayBeStaticRead(req)) return false;
+        res.writeHead(404, PLAIN_TEXT).end(notFoundText(route.key, http.functions));
+        return true;
+      }
+      if (refuseForeignOrigin(req, res, route.fn, allowsAppOrigin)) return true;
+      await proxyToChild(req, res, {
+        port: http.port,
+        token: http.token,
+        exportName: route.fn.exportName,
+        forwardUrl: route.forwardUrl,
+      });
       return true;
     },
   };

@@ -59,6 +59,7 @@ describe('Vite Functions development adapter', () => {
       httpServer: httpServer as unknown as Server,
       middlewares: { use: () => undefined },
       isAllowedRequest: () => true,
+      allowsAppOrigin: () => true,
       watcher: watcher as unknown as ViteDevServer['watcher'],
       logger: {
         info: (message) => info.push(message),
@@ -123,6 +124,7 @@ describe('Vite Functions development adapter', () => {
       httpServer: httpServer as unknown as Server,
       middlewares: { use: () => undefined },
       isAllowedRequest: () => true,
+      allowsAppOrigin: () => true,
       watcher: watcher as unknown as ViteDevServer['watcher'],
       logger: { info() {}, warn() {}, error() {} } as unknown as ViteDevServer['config']['logger'],
       bridge: { sandboxConnected: () => false, onSandboxPeerConnected: () => () => {} } as unknown as BridgeMount,
@@ -152,6 +154,7 @@ it('retries after reconnect even during startup, without duplicate starts or lis
     httpServer: httpServer as Server,
     middlewares: { use: () => undefined },
     isAllowedRequest: () => true,
+    allowsAppOrigin: () => true,
     watcher: watcher as ViteDevServer['watcher'],
     logger: { info() {}, warn() {}, error() {} } as ViteDevServer['config']['logger'],
     bridge: {

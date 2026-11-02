@@ -11,6 +11,7 @@
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
 import { randomBytes } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
@@ -36,7 +37,14 @@ import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
-import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
+import {
+  consoleServeLogger,
+  getHeader,
+  isAllowedOriginOnPorts,
+  startStaticServer,
+  stderrServeLogger,
+  type ServeHandle,
+} from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { createAppPorts } from '../serve/app-ports.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
@@ -224,7 +232,7 @@ async function startServeRuntime(opts: {
   permissive?: boolean;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
   /** Functions HTTP routes (`pyric sandbox` passes its gateway's handler). */
-  functionsHandler?: Parameters<typeof startStaticServer>[0]['functionsHandler'];
+  functionsHandler?: FunctionsHttpGateway['handle'];
   /** A child command runs beside the server and resolves `firebase` itself. */
   hasChildCommand?: boolean;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
@@ -491,6 +499,17 @@ async function startServeRuntime(opts: {
     if (handledByBridge) return true;
     return session.handle(req, res, url);
   };
+  // A private function answers only the app's own pages: the same ports the bridge accepts.
+  const allowsAppOrigin = (req: IncomingMessage): boolean => isAllowedOriginOnPorts(
+    getHeader(req, 'origin'),
+    opts.host ?? 'localhost',
+    opts.allowedHosts ?? [],
+    appPorts.forRequest(req),
+  );
+  const gatewayHandler = opts.functionsHandler;
+  let functionsHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<boolean>) | undefined;
+  const servesFunctions = gatewayHandler !== undefined;
+  if (servesFunctions) functionsHandler = (req, res) => gatewayHandler(req, res, allowsAppOrigin);
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
   try {
     handle = await startStaticServer({
@@ -499,7 +518,7 @@ async function startServeRuntime(opts: {
       host: opts.host ?? 'localhost',
       spaRewrite: wantsSpaRewrite(hosting),
       namespaceHandler,
-      functionsHandler: opts.functionsHandler,
+      functionsHandler,
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
@@ -994,7 +1013,11 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
     if (functionsProjectId !== null) {
-      functionsGateway = createFunctionsHttpGateway({ projectId: functionsProjectId, initial: { kind: 'starting' } });
+      functionsGateway = createFunctionsHttpGateway({
+        projectId: functionsProjectId,
+        initial: { kind: 'starting' },
+        plane: 'pyric-sandbox',
+      });
     }
     runtime = await startServe({
       cwd: process.cwd(),

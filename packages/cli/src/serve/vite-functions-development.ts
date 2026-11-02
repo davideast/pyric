@@ -34,6 +34,8 @@ export interface ViteFunctionsDevelopmentOptions {
   middlewares: { use(handler: ConnectHandler): unknown };
   /** The plane's DNS-rebinding guard, applied before a Functions route answers. */
   isAllowedRequest(req: IncomingMessage): boolean;
+  /** Whether the Origin is absent or the app's own page; private functions refuse any other. */
+  allowsAppOrigin(req: IncomingMessage): boolean;
   watcher: ViteDevServer['watcher'];
   logger: ViteDevServer['config']['logger'];
   bridge: BridgeMount;
@@ -170,13 +172,14 @@ export function attachViteFunctionsDevelopment(
   const gateway: FunctionsHttpGateway = createFunctionsHttpGateway({
     projectId: options.projectId,
     initial: { kind: 'starting' },
+    plane: 'vite',
   });
   options.middlewares.use((req, res, next) => {
     if (closed || !options.isAllowedRequest(req)) {
       next();
       return;
     }
-    gateway.handle(req, res).then((handled) => {
+    gateway.handle(req, res, options.allowsAppOrigin).then((handled) => {
       if (!handled) next();
     }, next);
   });

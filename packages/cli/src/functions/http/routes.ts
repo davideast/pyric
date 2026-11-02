@@ -10,7 +10,12 @@ export type FunctionRoute =
   /** A served function, and the URL it sees. */
   | { kind: 'function'; fn: HttpFunctionInfo; forwardUrl: string }
   /** The emulator path shape under this project, before the function list is known. */
-  | { kind: 'emulator-path' };
+  | { kind: 'emulator-path' }
+  /**
+   * The emulator path shape with a name and region no served function has.
+   * `key` is firebase-tools' trigger key, `{region}-{name}`.
+   */
+  | { kind: 'unknown-function'; key: string };
 
 /** A Cloud Functions region id: `us-central1`, `europe-west1`, `northamerica-northeast1`. */
 const REGION = /^[a-z]+-[a-z]+\d+$/;
@@ -40,8 +45,7 @@ export function matchEmulatorPath(rawUrl: string, table: FunctionRouteTable): Fu
   if (!isEmulatorShape) return null;
   if (table.functions === null) return { kind: 'emulator-path' };
   const fn = table.functions.find((candidate) => candidate.exportName === name && candidate.regions.includes(region));
-  // Only a discovered key is a function route; anything else stays the plane's (a static
-  // directory may share the project id's name).
-  if (!fn) return null;
+  // The gateway decides what an unknown key gets: a static directory may share the project id's name.
+  if (!fn) return { kind: 'unknown-function', key: `${region}-${name}` };
   return { kind: 'function', fn, forwardUrl: `${rest || '/'}${search}` };
 }
