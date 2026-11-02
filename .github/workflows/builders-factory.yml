@@ -1,0 +1,71 @@
+# The factory harness's unit tests (test/builders/factory): its gates, UI
+# rules and copy check, known failures, git hardening, serving and the
+# supervisor. They reach no network. session-runner.test.ts is left out:
+# it starts real bubblewrap sandboxes, which the hosted runner can't make.
+#
+# Outside the required CI aggregate: the factory is a test harness, not a
+# shipped package.
+
+name: Builders Factory
+
+on:
+  pull_request:
+    paths:
+      - 'test/builders/**'
+      - 'test/apps/install.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/builders-factory.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'test/builders/**'
+      - 'test/apps/install.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/builders-factory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: builders-factory-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: '1.3.11'
+
+jobs:
+  factory-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install Chromium browser
+        # The layout probe's tests run it in Chromium.
+        run: bunx playwright install --with-deps chromium
+      - name: Factory unit tests
+        run: >-
+          bun test
+          test/builders/factory/agent-session.test.ts
+          test/builders/factory/check-plumbing.test.ts
+          test/builders/factory/commands.test.ts
+          test/builders/factory/copy-check.test.ts
+          test/builders/factory/gates.test.ts
+          test/builders/factory/git-hardening.test.ts
+          test/builders/factory/host-files.test.ts
+          test/builders/factory/known-failures.test.ts
+          test/builders/factory/layout-probe.test.ts
+          test/builders/factory/next-config.test.ts
+          test/builders/factory/serving.test.ts
+          test/builders/factory/session-end.test.ts
+          test/builders/factory/supervisor-process.test.ts
+          test/builders/factory/supervisor.test.ts
+          test/builders/factory/ui-rules.test.ts
+          test/builders/factory/upstream-forwarder.test.ts
