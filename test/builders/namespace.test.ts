@@ -4,9 +4,9 @@
 // so nothing here can leave the machine.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
 import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
 import { DROP_CAPABILITIES, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
@@ -184,5 +184,36 @@ describe('startEgressNamespace', () => {
     const events = readFileSync(networkLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { kind: string; host: string; port?: number });
     expect(events.filter((event) => event.kind === 'dns').map((event) => event.host)).toContain('canary-probe.invalid');
     expect(events.filter((event) => event.kind === 'connect')).toEqual([expect.objectContaining({ via: 'catch-all', address: '192.0.2.1', port: 80 })]);
+  }, SANDBOX_TEST_TIMEOUT_MS);
+
+  test('shows a run the harness’s own files and packages and none of the repo’s, even to cat through a shell', async () => {
+    const repo = resolve(import.meta.dir, '../..');
+    const source = join(repo, 'packages', 'pyric', 'src');
+    const sourceFile = join(source, readdirSync(source).find((name) => name.endsWith('.ts')) ?? 'index.ts');
+    expect(existsSync(sourceFile)).toBe(true);
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root });
+    const run = (command: string, args: string[], cwd = root) => {
+      const entered = namespace.enter(command, args, cwd);
+      return spawnSync(entered.command, entered.args, { encoding: 'utf8', timeout: 120_000 });
+    };
+    const listing = (dir: string) => run('ls', ['-A', dir]).stdout.trim().split('\n').filter((name) => name !== '');
+    try {
+      const cat = run('sh', ['-c', `cat ${sourceFile}`]);
+      expect(cat.status).not.toBe(0);
+      expect(cat.stderr.trim()).toBe(`cat: ${sourceFile}: No such file or directory`);
+      expect(listing(repo).sort()).toEqual(['node_modules', 'packages', 'test']);
+      expect(listing(join(repo, 'packages'))).toEqual(['cli']);
+      expect(listing(join(repo, 'packages', 'cli', 'src'))).toEqual(['google-endpoints.ts']);
+      expect(listing(join(repo, 'test')).sort()).toEqual(['apps', 'builders']);
+      expect(run('sh', ['-c', `find ${repo} -path '*/packages/pyric*' -print -quit`]).stdout.trim()).toBe('');
+
+      const client = run('node', ['-e', "import('@playwright/test').then((m) => console.log(typeof m.chromium.connect))"], import.meta.dir);
+      expect(client.stdout.trim()).toBe('function');
+      const zod = run('node', ['-e', "import('zod').then((m) => console.log(typeof m.z.object))"], import.meta.dir);
+      expect(zod.stdout.trim()).toBe('function');
+    } finally {
+      await namespace.stop();
+    }
   }, SANDBOX_TEST_TIMEOUT_MS);
 });
