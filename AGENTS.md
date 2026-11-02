@@ -18,3 +18,19 @@ Passing a unit test or MRE oracle is necessary but not sufficient. Before openin
 6. **Conformance Registry Per-Service Count Invariant:** Every assurance node belongs to one service: a row in `packages/conformance/registry/<service>.ts`, or a construct in `packages/conformance/rules-language/<engine>.json` (service `<engine>-rules`). Each service commits its node count in a count directory, `packages/conformance/assurance-node-counts/<service>/`: `base.json` holds `{ "nodes": N }`, every other file holds `{ "delta": n }` with `n` not zero, and the count is the sum of the files. `packages/conformance/test/src/conformance-model.test.ts` fails when a service's derived count differs from that sum, naming the service and the directory. Adding or removing a row is a deliberate edit in the same change: add one delta file to that service's directory, named for the PR number, not the issue (for example `1479.json`, matching `^[a-z0-9-]+\.json$`). Several PRs often share one issue, and git merges two branches that each add the same file with the same contents into one file, so the count would rise once for two changes. Two PRs that change one service add two files, so they merge without conflict. A new service adds its directory with a `base.json`, and a removed service deletes its directory. Run that test whenever registry rows or rules-language constructs change.
 7. **Integration Evidence Through Real Entry Points:** A test that builds the payload, injects the frame, fakes the socket, mocks the timers, or passes a file in memory is unit evidence, however much real code it runs. A fix for a bug reported from a real app adds or extends an app scenario under `test/apps/` that installs the packed packages and drives the path the report took: the dev server, a `node --import @pyric/cli/register` process, Chromium, and the `pyric` command the user ran. Write it from the report, run it against `main` first, and record that failure in the commit body. A new feature reachable from a page, a server process, or the CLI gets the same scenario. When a bug's premise depends on runtime behavior (a browser lifecycle, a socket close, a restart), observe it in that runtime before fixing it; Playwright's defaults disable some of them, such as the back-forward cache. Every PR body names its integration test, or states why the change has no runtime path. A scenario that waits on real timeouts exports `slow = true` from its `scenario.ts`: pull requests skip it, and it runs on main, nightly, and on pull requests labeled `ci-slow-scenarios`. A PR that changes what a slow scenario covers gets that label and names the run.
 
+## Issues
+
+File every issue in one of these shapes. The forms live in `.github/ISSUE_TEMPLATE/`. Agents and the builder verifier file in this shape, never paste long drafts, and keep each field to one or two lines.
+
+| Kind | Title | Label | Fields |
+|---|---|---|---|
+| Missing API | `Support <API> in <package>` | support | Missing, In production (with reference link), Workaround, Done when |
+| Divergence | `<Service>: pyric <does X>, production <does Y>` | divergence | pyric, Production (with evidence), Who notices, Done when |
+| Tooling bug | `<What breaks> when <condition>` | bug | What breaks, Expected, Repro, Done when |
+| Security | `Security: <what is exposed> <to whom>` | security | Exposure, Who can reach it, Fix, Done when |
+| Flaky or red test | `Flaky: <test>` or `Red on main: <check>` | flake | Fails how, Since, Cause, Done when |
+| Docs | `Docs: <page>: <what is wrong>` | documentation | Says, Should say, Done when |
+| Plan or epic | `Plan: <outcome>` | plan | Goal, Steps, Decisions, Done when |
+| CI or tooling | `CI: <what changes>` | lane label only | Problem, Change, Done when |
+
+Issue #1521 plans a `rules.yml` form; it is not added here.
