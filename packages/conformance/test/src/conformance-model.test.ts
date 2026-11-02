@@ -132,10 +132,10 @@ describe('multi-axis conformance model', () => {
     expect(source).not.toContain('execFileSync');
   });
 
-  it('reports getAfter as available, conformant, and assurance-eligible', () => {
+  it('reports getAfter as available and unverified while the batch sibling-merge row awaits production evidence', () => {
     const result = one('getAfter');
     expect(result).toMatchObject({
-      surface: 'firestore-rules', availability: 'available', fidelity: 'conforms', assurance: 'eligible',
+      surface: 'firestore-rules', availability: 'available', fidelity: 'unverified', assurance: 'qualified',
     });
     expect(result.claims.map(({ id }) => id)).toEqual(['firestore-rules#164', 'firestore-rules#190', 'firestore.function.getAfter']);
   });

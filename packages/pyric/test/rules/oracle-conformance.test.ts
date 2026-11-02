@@ -25,7 +25,7 @@ import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { lintFirestoreRules } from '../../src/rules/linter/linter.js';
 
 describe('unit-backed rules-firestore rows (standard behavior assertions)', () => {
-  it('firestore-rules#190: getAfter() deep-merges pre-existing sibling state in batches and transactions', () => {
+  it('firestore-rules#190: getAfter() keeps fields a batch update does not name', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
