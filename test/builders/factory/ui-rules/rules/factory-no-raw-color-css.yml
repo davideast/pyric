@@ -1,0 +1,11 @@
+id: factory-no-raw-color-css
+language: css
+severity: warning
+message: Raw color. Use a color token from DESIGN.md.
+rule:
+  any:
+    - kind: color_value
+    - kind: call_expression
+      has:
+        kind: function_name
+        regex: ^(rgb|rgba|hsl|hsla)$

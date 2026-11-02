@@ -1,0 +1,13 @@
+id: factory-no-absolute-layout-css
+language: css
+severity: warning
+message: Absolute positioning. Use grid for layout. An overlay may be absolute when its line or the line above carries a "ui-overlay:" comment.
+rule:
+  kind: declaration
+  all:
+    - has:
+        kind: property_name
+        regex: ^position$
+    - has:
+        kind: plain_value
+        regex: ^absolute$

@@ -1,0 +1,7 @@
+id: factory-no-absolute-layout
+language: tsx
+severity: warning
+message: Absolute positioning. Use grid for layout. An overlay may be absolute when its line or the line above carries a "ui-overlay:" comment naming what it overlays.
+rule:
+  matches: class-string
+  regex: (?:^|[\s:])!?absolute(?:\s|$)
