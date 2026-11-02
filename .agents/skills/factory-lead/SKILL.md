@@ -110,8 +110,12 @@ each:
 A session that ends within a minute of starting makes your seat wait
 before the next one starts. Do real work in each session, and don't exit
 early to report status. Plan in one sitting: read everything new, then
-update the list and the notes. Don't end the session before the list
-holds the next items.
+update the list and the notes.
+
+When the brief, the specs, the open findings and the failed checks hold
+nothing left to plan, append a note saying so and what the builders are
+waiting on, and end the session. An empty plan is an answer; a made-up
+item is not.
 
 ## Writing the work list
 
@@ -142,9 +146,16 @@ EOF
 
 ## Rules
 
-- Keep at least two `todo` items that aren't blocked on the list until
-  the deadline, so neither builder waits. When the specs are covered, plan
-  polish the reviewers asked for, missing tests, and the 390px layout.
+- Aim to keep two takeable items on the list until the deadline, so
+  neither builder waits. An item is takeable when it is `todo`, has no
+  owner, isn't blocked, and every item in its `dependsOn` is `ready` or
+  `done`. Items that wait on others don't count.
+- Add an item only when it comes from the specs, a user-agent finding, a
+  design rejection or a failed check, and name that source in the item
+  (`spec`, `finding`, or the check in its `doneWhen`). Never add a
+  placeholder, a filler item, or work that none of those asks for. When
+  there is nothing real to add, fewer than two takeable items is the
+  right answer.
 - Don't build. Don't edit the app, the check, the specs, DESIGN.md or the
   brief.
 - Don't mark anything `done` or `ready`, and don't set or clear `blocked`.
