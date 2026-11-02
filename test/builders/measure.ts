@@ -4,9 +4,9 @@
  * only once the verifier has judged it; until then it counts only toward the
  * builder's cost.
  *
- * A run's builder cost is what claude said it cost, or, when claude printed
- * no usage (it crashed, or was stopped at its wall-clock cap), what the
- * model forwarder metered, which errs high. No run counts as free.
+ * A run's builder cost is what the model forwarder metered, which errs
+ * high. What claude printed is in the run's `report.json`, but the builder
+ * can write that file, so the measurement doesn't take it.
  *
  * - cost per builder run: the mean builder cost of every run.
  * - cost per verifier report: the mean verification cost of judged runs.
@@ -14,7 +14,9 @@
  *   misleading docs, unclear error; not duplicates) per judged run.
  * - throw-out share: of the problems judged runs reported, the share the
  *   verifier threw out (unconfirmed, builder's own bug, invalid run).
- *   Duplicates and needs-capture are kept, not thrown out.
+ *   Duplicates and needs-capture are kept, not thrown out. The verifier
+ *   gives every reported problem one verdict, so the problems reported are
+ *   its verdicts' total.
  * - cost per confirmed new finding: builder plus verification cost of the
  *   judged runs, over their confirmed new findings.
  *
@@ -36,7 +38,6 @@ export interface ModelSummary {
   costPerConfirmedNewFinding: number | null;
   /** The 90th-percentile cost of a judged run plus its verification. */
   p90RunCost: number | null;
-  googleHostEvents: number;
 }
 
 export interface MeasureSummary {
@@ -73,15 +74,20 @@ export function thrownOut(verdicts: VerdictCounts): number {
   return verdicts.unconfirmed + verdicts.builderBug + verdicts.invalid;
 }
 
-/** What a builder run cost: claude's figure, or the forwarder's when claude gave none. */
-export const builderCost = (run: BuilderMeasurement) => run.costUsd ?? run.meteredCostUsd;
+/** Every problem the verifier judged: one verdict each. */
+export function judgedProblems(verdicts: VerdictCounts): number {
+  return confirmedNew(verdicts) + verdicts.duplicate + verdicts.needsCapture + thrownOut(verdicts);
+}
+
+/** What a builder run cost: what the forwarder metered. */
+export const builderCost = (run: BuilderMeasurement) => run.meteredCostUsd;
 
 /** Run ids repeat across rounds, so a verification joins its builder line by both. */
 const runKey = (line: { round: string; run: string }) => `${line.round}/${line.run}`;
 
 function summarizeModel(model: string, runs: readonly BuilderMeasurement[], judged: readonly JudgedRun[]): ModelSummary {
   const confirmed = sum(judged.map((run) => confirmedNew(run.verification.verdicts)));
-  const reported = sum(judged.map((run) => run.builder.problemsReported));
+  const reported = sum(judged.map((run) => judgedProblems(run.verification.verdicts)));
   const runCosts = judged.map((run) => builderCost(run.builder) + run.verification.costUsd);
   return {
     model,
@@ -94,7 +100,6 @@ function summarizeModel(model: string, runs: readonly BuilderMeasurement[], judg
     throwOutShare: ratio(sum(judged.map((run) => thrownOut(run.verification.verdicts))), reported),
     costPerConfirmedNewFinding: ratio(sum(runCosts), confirmed),
     p90RunCost: percentile(runCosts, 90),
-    googleHostEvents: sum(runs.map((run) => run.googleHostEvents)),
   };
 }
 
@@ -138,10 +143,10 @@ const decimal = (value: number | null) => (value === null ? '-' : value.toFixed(
 
 /** The summary as a table, one row per model, then the nightly choice. */
 export function formatSummary(summary: MeasureSummary): string {
-  const header = ['model', 'runs', 'judged', 'cost/run', 'cost/verify', 'new findings/app', 'thrown out', 'cost/new finding', 'p90 run', 'Google events'];
+  const header = ['model', 'runs', 'judged', 'cost/run', 'cost/verify', 'new findings/app', 'thrown out', 'cost/new finding', 'p90 run'];
   const rows = summary.models.map((model) => [
     model.model, String(model.runs), String(model.judgedRuns), dollars(model.costPerBuilderRun), dollars(model.costPerVerifierReport),
-    decimal(model.confirmedNewFindingsPerApp), share(model.throwOutShare), dollars(model.costPerConfirmedNewFinding), dollars(model.p90RunCost), String(model.googleHostEvents),
+    decimal(model.confirmedNewFindingsPerApp), share(model.throwOutShare), dollars(model.costPerConfirmedNewFinding), dollars(model.p90RunCost),
   ]);
   const widths = header.map((title, column) => Math.max(title.length, ...rows.map((row) => (row[column] ?? '').length)));
   const line = (cells: readonly string[]) => cells.map((cell, column) => cell.padEnd(widths[column] ?? 0)).join('  ').trimEnd();

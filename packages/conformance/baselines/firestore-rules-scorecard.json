@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 128,
+    "numerator": 135,
     "denominator": 140,
-    "ratio": 0.9142857142857143,
-    "percent": 91.4
+    "ratio": 0.9642857142857143,
+    "percent": 96.4
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 129,
-      "diverged": 9,
+      "verified": 136,
+      "diverged": 2,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 128,
-    "diverged": 9,
+    "conformant": 135,
+    "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -957,8 +957,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "builtins-time-and-math",
         "cross-type-operator-overloads",
@@ -968,10 +968,10 @@
         "time-math-and-casts",
         "undefined-field-access"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#198"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.duration.time": {
       "productionAcceptance": "accepted",
@@ -1111,16 +1111,16 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "int64-and-duration-range",
         "time-math-and-casts"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#198"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.cast.int": {
       "productionAcceptance": "accepted",
@@ -1131,19 +1131,18 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "int64-and-duration-range",
         "simulator-language-semantics",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
-        "firestore-rules#180"
-      ],
-      "divergedByRows": [
+        "firestore-rules#180",
         "firestore-rules#198"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.cast.float": {
       "productionAcceptance": "accepted",
@@ -2486,8 +2485,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
         "cross-type-operator-overloads",
@@ -2496,10 +2495,10 @@
         "time-math-and-casts",
         "undefined-field-access"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#198"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.operator.sub": {
       "productionAcceptance": "accepted",
@@ -2510,8 +2509,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "cross-type-operator-overloads",
         "int64-and-duration-range",
@@ -2519,11 +2518,10 @@
         "time-math-and-casts"
       ],
       "verifiedByRows": [
-        "firestore-rules#196"
-      ],
-      "divergedByRows": [
+        "firestore-rules#196",
         "firestore-rules#198"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.operator.mul": {
       "productionAcceptance": "accepted",
@@ -2553,8 +2551,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "error-absorption-and-or",
         "int-float-and-division",
@@ -2562,11 +2560,10 @@
         "time-math-and-casts"
       ],
       "verifiedByRows": [
-        "firestore-rules#167"
-      ],
-      "divergedByRows": [
+        "firestore-rules#167",
         "firestore-rules#198"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.operator.mod": {
       "productionAcceptance": "accepted",
@@ -2784,8 +2781,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "cross-type-operator-overloads",
         "duration-and-latlng",
@@ -2800,11 +2797,10 @@
         "undefined-field-access"
       ],
       "verifiedByRows": [
-        "firestore-rules#196"
-      ],
-      "divergedByRows": [
+        "firestore-rules#196",
         "firestore-rules#198"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.operator.member": {
       "productionAcceptance": "accepted",

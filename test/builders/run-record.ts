@@ -20,7 +20,7 @@
  */
 import type { Brief } from './brief.ts';
 import type { BuilderMeasurement } from './measurement.ts';
-import { meteredCostUsd, type ModelChannelEvent } from './model-channel.ts';
+import { meteredCostUsd, meteredTokens, type ModelChannelEvent } from './model-channel.ts';
 import type { PhaseResult } from './run-phase.ts';
 import type { Provenance } from './provenance.ts';
 import { isGoogleOrMetadata } from './recorder/google-hosts.ts';
@@ -59,6 +59,17 @@ export interface HarnessFields extends RunIdentity {
   meteredCostUsd: number;
   /** Files of the run that held the harness's token, which `round` redacted or withheld. Empty unless something leaked. */
   tokenFoundIn: string[];
+  /**
+   * Files of the run root the harness would read, append to or write once
+   * the sandbox stopped, but skipped, each as `<path>: <why>` relative to the
+   * run root: a link, or a path through one (`planted-links.ts`), or one it
+   * could not check, merge into, write or read even after giving the owner
+   * its permissions back (`owner-access.ts`). `network.jsonl` is also named
+   * when lines of it were not network events, or the record could not be
+   * built from it. Empty unless the sandbox left one, which makes the run
+   * invalid.
+   */
+  plantedLinks: string[];
   automaticProblems: AutomaticProblem[];
   /** Must-be-refused actions of the brief the report says nothing about. */
   missingRefusals: string[];
@@ -121,6 +132,7 @@ export interface RunOutcome {
   channel: readonly ModelChannelEvent[];
   usage: Usage | null;
   tokenFoundIn: string[];
+  plantedLinks: string[];
 }
 
 /**
@@ -153,6 +165,7 @@ export function runRecord(outcome: RunOutcome): RunRecord {
       usage: outcome.usage,
       meteredCostUsd: meteredCostUsd(outcome.channel),
       tokenFoundIn: outcome.tokenFoundIn,
+      plantedLinks: outcome.plantedLinks,
       automaticProblems: automatic,
       missingRefusals: missingRefusals(outcome.brief, builder),
       problemsReported: (builder?.problems.length ?? 0) + automatic.length,
@@ -160,23 +173,21 @@ export function runRecord(outcome: RunOutcome): RunRecord {
   };
 }
 
-/** The run's line in measurements.jsonl. */
-export function measurementLine(record: RunRecord): BuilderMeasurement {
-  const { harness } = record;
+/**
+ * The run's line in measurements.jsonl, from the harness's own state alone:
+ * the run's identity, the forwarder's record and the harness's timing of
+ * the run phase. Nothing of the run root, which the builder can write.
+ */
+export function measurementLine(identity: RunIdentity, channel: readonly ModelChannelEvent[], wallMs: number): BuilderMeasurement {
   return {
     kind: 'builder',
-    run: harness.run,
-    round: harness.round,
-    brief: harness.brief,
-    model: harness.model,
-    maxBudgetUsd: harness.maxBudgetUsd,
-    costUsd: harness.usage?.costUsd ?? null,
-    meteredCostUsd: harness.meteredCostUsd,
-    tokens: harness.usage?.tokens ?? null,
-    turns: harness.usage?.turns ?? null,
-    wallMs: harness.exit?.wallMs ?? null,
-    report: harness.report.state,
-    problemsReported: harness.problemsReported,
-    googleHostEvents: harness.network.googleEvents.length,
+    run: identity.run,
+    round: identity.round,
+    brief: identity.brief,
+    model: identity.model,
+    maxBudgetUsd: identity.maxBudgetUsd,
+    meteredCostUsd: meteredCostUsd(channel),
+    tokens: meteredTokens(channel),
+    wallMs,
   };
 }

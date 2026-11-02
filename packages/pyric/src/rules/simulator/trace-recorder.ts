@@ -1,5 +1,6 @@
 import type { Expression } from '../grammar/FirestoreAST.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
+import { toHostValue } from './host-value.js';
 
 /** One entry in a per-rule expression trace, emitted in evaluation order. */
 export interface ExprTraceEntry {
@@ -19,6 +20,8 @@ export class TraceRecorder {
   readonly entries: ExprTraceEntry[] = [];
   private parents: number[] = [];
   private frames: string[] = [];
+  /** Values already converted for this trace (`toHostValue`). */
+  private hostValues = new WeakMap<object, unknown>();
 
   capture<T>(expr: Expression, fn: () => T): T {
     const index = this.entries.length;
@@ -30,7 +33,8 @@ export class TraceRecorder {
     this.parents.push(index);
     try {
       const value = fn();
-      this.entries[index].value = value;
+      // An int is a bigint, which JSON and the worker bridge cannot carry.
+      this.entries[index].value = toHostValue(value, this.hostValues);
       return value;
     } catch (error) {
       this.entries[index].error = error instanceof Error ? error.message : String(error);
