@@ -1,6 +1,7 @@
 import { describeRulesType } from './rules-type.js';
 import { RulesValue } from './wrappers/base.js';
 import { RulesFloat } from './wrappers/float.js';
+import { inInt64, rulesInt, rulesNumberAsDouble, truncateToInt } from './rules-int.js';
 
 /**
  * The global conversion functions of the rules language: `int()`, `float()`,
@@ -25,10 +26,6 @@ interface Conversion {
   convert(value: unknown): unknown;
 }
 
-const INT64_MIN = -(2 ** 63);
-const INT64_MAX = 2 ** 63;
-const INT64_MIN_BIG = -(2n ** 63n);
-const INT64_MAX_BIG = 2n ** 63n - 1n;
 
 // A whole decimal string with an optional sign: no whitespace, fraction,
 // exponent, or radix prefix.
@@ -52,19 +49,10 @@ function unsupported(name: string, value: unknown, overloads: string): Conversio
   );
 }
 
-/** A float truncated toward zero, saturated at the int64 bounds, NaN as 0. */
-function truncateToInt(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  if (value <= INT64_MIN) return INT64_MIN;
-  if (value >= INT64_MAX) return INT64_MAX;
-  return Math.trunc(value) + 0; // + 0 turns -0 into 0
-}
-
-function parseInt64(text: string): number | ConversionFailure {
+function parseInt64(text: string): bigint | ConversionFailure {
   if (!INT_TEXT.test(text)) return conversionError(text, 'int');
   const value = BigInt(text);
-  if (value < INT64_MIN_BIG || value > INT64_MAX_BIG) return conversionError(text, 'int');
-  return Number(value);
+  return inInt64(value) ? value : conversionError(text, 'int');
 }
 
 function parseHexFloat(match: RegExpExecArray): number | undefined {
@@ -87,7 +75,8 @@ function parseFloatText(text: string): number | ConversionFailure {
 const INT: Conversion = {
   overloads: 'int(int), int(float), int(string)',
   convert(value) {
-    if (typeof value === 'number') return value;
+    const int = rulesInt(value);
+    if (int !== undefined) return int;
     if (value instanceof RulesFloat) return truncateToInt(value.value);
     if (typeof value === 'string') return parseInt64(value);
     return unsupported('int', value, this.overloads);
@@ -98,7 +87,8 @@ const FLOAT: Conversion = {
   overloads: 'float(int), float(float), float(string)',
   convert(value) {
     if (value instanceof RulesFloat) return value;
-    if (typeof value === 'number') return new RulesFloat(value);
+    const number = rulesNumberAsDouble(value);
+    if (number !== undefined) return new RulesFloat(number);
     if (typeof value === 'string') {
       const parsed = parseFloatText(value);
       return typeof parsed === 'number' ? new RulesFloat(parsed) : parsed;
@@ -111,7 +101,8 @@ const STRING: Conversion = {
   overloads: 'string(int), string(float), string(null), string(string), string(bool), string(path)',
   convert(value) {
     if (typeof value === 'string') return value;
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    // An int prints every digit; a bigint's decimal form is exact.
+    if (typeof value === 'bigint' || typeof value === 'number' || typeof value === 'boolean') return String(value);
     if (value === null) return 'null';
     if (value instanceof RulesFloat) return value.toString();
     // Both evaluators' path values print as `/seg/seg`.

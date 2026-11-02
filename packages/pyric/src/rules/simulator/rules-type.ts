@@ -25,6 +25,7 @@ export function describeRulesType(value: unknown): string {
   if (value instanceof RulesValue) return value.typeName;
   if (value instanceof FirestoreSet) return 'set';
   if (value instanceof MapDiff) return 'map_diff';
+  if (typeof value === 'bigint') return 'int';
   if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'float';
   if (typeof value === 'boolean') return 'bool';
   if (Array.isArray(value)) return 'list';
