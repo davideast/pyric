@@ -14,10 +14,11 @@ describe('packaged conformance query', () => {
   });
 
   it('preserves the three trust axes in the generated Node projection', () => {
+    // Unverified while row firestore-rules#190 awaits a production capture (#1322).
     expect(one('getAfter')).toMatchObject({
       availability: 'available',
-      fidelity: 'conforms',
-      assurance: 'eligible',
+      fidelity: 'unverified',
+      assurance: 'qualified',
     });
     expect(one('onDisconnect')).toMatchObject({
       availability: 'available',
