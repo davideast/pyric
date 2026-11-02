@@ -1,7 +1,7 @@
 import { describeRulesType } from './rules-type.js';
 import { RulesValue } from './wrappers/base.js';
-import { RulesFloat } from './wrappers/float.js';
-import { inInt64, rulesInt, rulesNumberAsDouble, truncateToInt } from './rules-int.js';
+import { formatRulesFloat, RulesFloat } from './wrappers/float.js';
+import { inInt64, rulesFloatValue, rulesInt, rulesNumberAsDouble, truncateToInt } from './rules-int.js';
 
 /**
  * The global conversion functions of the rules language: `int()`, `float()`,
@@ -77,7 +77,8 @@ const INT: Conversion = {
   convert(value) {
     const int = rulesInt(value);
     if (int !== undefined) return int;
-    if (value instanceof RulesFloat) return truncateToInt(value.value);
+    const float = rulesFloatValue(value);
+    if (float !== undefined) return truncateToInt(float);
     if (typeof value === 'string') return parseInt64(value);
     return unsupported('int', value, this.overloads);
   },
@@ -101,10 +102,12 @@ const STRING: Conversion = {
   overloads: 'string(int), string(float), string(null), string(string), string(bool), string(path)',
   convert(value) {
     if (typeof value === 'string') return value;
-    // An int prints every digit; a bigint's decimal form is exact.
+    // A float prints in its rules form, a host number past 2^53 included
+    // (`9.007199254740992E15`); an int prints every digit.
+    const float = rulesFloatValue(value);
+    if (float !== undefined) return formatRulesFloat(float);
     if (typeof value === 'bigint' || typeof value === 'number' || typeof value === 'boolean') return String(value);
     if (value === null) return 'null';
-    if (value instanceof RulesFloat) return value.toString();
     // Both evaluators' path values print as `/seg/seg`.
     if (value instanceof RulesValue && value.typeName === 'path') return value.toString();
     return unsupported('string', value, this.overloads);

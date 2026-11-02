@@ -12,8 +12,9 @@
  * Type mapping (plain JS → wire discriminator):
  *   - `null`                → `{ nullValue: null }`
  *   - `boolean`             → `{ booleanValue }`
- *   - integer `number`      → `{ integerValue: String(n) }` (matches admin SDK's int64 encoding)
- *   - non-integer `number`  → `{ doubleValue }`
+ *   - safe-integer `number` → `{ integerValue: String(n) }` (matches admin SDK's int64 encoding)
+ *   - any other `number`    → `{ doubleValue }`: a fraction, 2^53 and past, `-0`
+ *     (`isHostIntNumber`, the SDKs' own rule, #1781)
  *   - `string`              → `{ stringValue }`
  *   - `Date`                → `{ timestampValue: { seconds, nanos } }` (Item 1)
  *   - `Timestamp` wrapper   → `{ timestampValue: { seconds, nanos } }` (Item 1)
@@ -31,6 +32,7 @@
 import { Timestamp } from 'pyric/rules/internal';
 import { Reference, referenceToResourceName } from 'pyric/rules/internal';
 import { Vector } from 'pyric/rules/internal';
+import { isHostIntNumber } from 'pyric/rules/internal';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type WireValue = Record<string, any>;
@@ -52,10 +54,11 @@ export function encodeValue(v: unknown): WireValue {
     return { booleanValue: v };
   }
   if (typeof v === 'number') {
-    if (Number.isInteger(v)) {
+    if (isHostIntNumber(v)) {
       // admin SDK encodes int64 as a string in `integerValue` for safe-int
       // preservation. Mirror that contract so wire.ts's downstream parser
-      // (Number(raw)) lands on the same value.
+      // (Number(raw)) lands on the same value. A number the SDKs send as a
+      // double, 2^53 and past or `-0`, stays a `doubleValue`.
       return { integerValue: String(v) };
     }
     return { doubleValue: v };
