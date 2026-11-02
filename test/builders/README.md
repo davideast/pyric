@@ -25,6 +25,7 @@ bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-n
 bun test/builders/harness.ts factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
+bun test/builders/harness.ts factory-drafts --run-dir <dir>
 ```
 
 `canary` is the harness's integration test. Run it before every round.
@@ -37,7 +38,7 @@ bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stal
 `check-briefs` validates a round's briefs as `round` would and starts
 nothing. `reproduce` re-runs one problem of a kept run for the verifier
 (below). `measure` summarizes `measurements.jsonl`. `factory`,
-`factory-summary` and `factory-check` run the factory (below). The `run`
+`factory-summary`, `factory-check` and `factory-drafts` run the factory (below). The `run`
 command comes in a later pull request.
 
 ## The skills
@@ -520,6 +521,16 @@ triage. Each role works in short sessions. The supervisor
   after the start, writes its result to `latest-check.json` and the
   timeline, and wakes the on-demand roles. Until the check lands it checks
   nothing.
+
+Each role's instructions are a skill: `.agents/skills/factory-lead`,
+`factory-builder`, `factory-user-agent`, `factory-design-reviewer` and
+`factory-triage`. They name the brief, run and app directories as
+`$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`. Triage writes each pyric defect
+it finds as an issue draft in `issue-drafts/<slug>.md`, with its repro in
+`issue-drafts/repros/<slug>/`, and files nothing. `factory-drafts` lists
+the drafts and checks each against the issue standard in `AGENTS.md`: the
+title pattern for its label, one label, the kind's four bold fields, and
+a "Found by" line.
 
 Sessions come from `factory/session-runner.ts`, which exports `runSession`
 (and, once it exists, `hourlyCheck`); `--runner <module>` names another
