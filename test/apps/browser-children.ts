@@ -10,6 +10,10 @@
  *
  * Spawns with only the three standard streams don't do this, and are left to
  * the collector.
+ *
+ * To remove this: on a newer Bun, take out the `retainBrowserChildren` call in
+ * driver.ts and run browser-children.test.ts. If it passes there, that Bun has
+ * fixed this, and this file can go once CI's pinned Bun is at that version.
  */
 import type { spawn as nodeSpawn } from 'node:child_process';
 import { createRequire } from 'node:module';
