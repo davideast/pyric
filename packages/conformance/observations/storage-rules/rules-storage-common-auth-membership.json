@@ -5,7 +5,7 @@
     "storage-rules#125"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"common-auth-membership\" (STORAGE-COMMON-STDLIB). Exact auth/membership stdlib bodies under firebase.storage: auth null/uid, custom claims, explicit membership maps, and role equality.",
-  "observedAt": "2026-07-21T05:45:37.586Z",
+  "observedAt": "2026-10-30T19:22:01.445Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -25,5 +25,185 @@
     "isMemberOf: uid key absent from explicit map": "DENY",
     "hasRole: uid has exact map role": "ALLOW",
     "hasRole: uid has different map role": "DENY"
+  },
+  "diagnostics": {
+    "isAuthenticated: signed-in caller allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 24,
+              "currentOffset": 768,
+              "endOffset": 782
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "isAuthenticated: anonymous caller denied": {
+      "notes": [
+        "Error: storage.rules line [5], column [14]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 14,
+          "currentOffset": 118,
+          "endOffset": 124
+        }
+      }
+    },
+    "isOwner: uid matches path owner": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 24,
+              "currentOffset": 846,
+              "endOffset": 852
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "isOwner: uid differs from path owner": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 24,
+              "currentOffset": 846,
+              "endOffset": 852
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "hasClaim: non-null custom claim allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 30,
+              "column": 24,
+              "currentOffset": 922,
+              "endOffset": 929
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "hasClaim: missing custom claim denied": {
+      "notes": [
+        "Error: storage.rules line [11], column [38]. Property plan is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 11,
+          "column": 38,
+          "currentOffset": 313,
+          "endOffset": 319
+        }
+      }
+    },
+    "hasClaimRole: exact role allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 24,
+              "currentOffset": 1003,
+              "endOffset": 1014
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "hasClaimRole: different role denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 24,
+              "currentOffset": 1003,
+              "endOffset": 1014
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "isMemberOf: uid key present in explicit map": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 24,
+              "currentOffset": 1094,
+              "endOffset": 1103
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "isMemberOf: uid key absent from explicit map": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 24,
+              "currentOffset": 1094,
+              "endOffset": 1103
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "hasRole: uid has exact map role": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 39,
+              "column": 24,
+              "currentOffset": 1198,
+              "endOffset": 1204
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "hasRole: uid has different map role": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 39,
+              "column": 24,
+              "currentOffset": 1198,
+              "endOffset": 1204
+            },
+            "value": false
+          }
+        ]
+      }
+    }
   }
 }

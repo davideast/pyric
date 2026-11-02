@@ -5,7 +5,7 @@
     "storage-rules#123"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"float-modulo-unary-minus\" (Coverage: float literals, %, unary minus, negative modulo). Float multiplication/division, modulo, and unary minus must evaluate with production numeric semantics, including truncating int division and dividend-signed negative modulo.",
-  "observedAt": "2026-07-17T19:19:07.870Z",
+  "observedAt": "2026-10-30T19:22:01.861Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -19,5 +19,97 @@
     "int / int truncates (10 / 4 == 2) → ALLOW": "ALLOW",
     "-7 / 2 truncates toward zero (== -3) → ALLOW": "ALLOW",
     "-7 % 2 == -1 (dividend sign) → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "even size passes float/modulo/unary-minus chain → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 24,
+              "currentOffset": 202,
+              "endOffset": 208
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "odd size fails size % 2 == 0 → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 24,
+              "currentOffset": 202,
+              "endOffset": 208
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "oversized float product fails bound → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 24,
+              "currentOffset": 202,
+              "endOffset": 208
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "int / int truncates (10 / 4 == 2) → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 13,
+              "column": 22,
+              "currentOffset": 550,
+              "endOffset": 551
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "-7 / 2 truncates toward zero (== -3) → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 663,
+              "endOffset": 663
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "-7 % 2 == -1 (dividend sign) → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 17,
+              "column": 24,
+              "currentOffset": 765,
+              "endOffset": 765
+            },
+            "value": true
+          }
+        ]
+      }
+    }
   }
 }
