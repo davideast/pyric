@@ -134,6 +134,9 @@ export { Duration } from '../simulator/wrappers/duration.js';
 export { LatLng } from '../simulator/wrappers/latlng.js';
 export { RulesValue, NO_OP } from '../simulator/wrappers/base.js';
 
+// ─── Host numbers ────────────────────────────────────────────────────
+export { isHostIntNumber } from '../simulator/rules-int.js';
+
 // ─── Rules Test API client ───────────────────────────────────────────
 export { TestFirestoreRulesHandler } from '../test/handler.js';
 export type {

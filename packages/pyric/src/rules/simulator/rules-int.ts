@@ -6,11 +6,17 @@ import { RulesFloat } from './wrappers/float.js';
  *
  * A rules int is a signed 64-bit integer. Every int the rules compute is a
  * JavaScript `bigint`: literals, `+ - * / %` and unary minus on ints, `int()`,
- * `math.abs()` and `math.round()`. An integral JavaScript number that a host
- * value carries, such as a document field, `request.resource.size` or a
+ * `math.abs()` and `math.round()`. A safe-integer JavaScript number that a
+ * host value carries, such as a document field, `request.resource.size` or a
  * `size()` count, is an int as well: it is exact, since a JavaScript number
- * holds every integer up to 2^53. The readers here accept both, so the two
+ * holds every integer below 2^53. The readers here accept both, so the two
  * never compare unequal for the same value.
+ *
+ * A JavaScript number at or above 2^53 in magnitude is a float, even when it
+ * is integral: it no longer names one exact int, and the Firebase SDKs send
+ * it as a `doubleValue`, so production's rules read it as a float (#1781).
+ * `hostNumber` applies the SDKs' whole rule where a host value enters the
+ * rules, which also sends `-0` as a float.
  *
  * A result past the int64 range is production's "Integer value is out of the
  * range" error, except `MIN / -1`, which production returns as `MIN`.
@@ -30,22 +36,81 @@ export class IntFailure {
   constructor(readonly message: string) {}
 }
 
-/** True for a rules int: a bigint, or an integral JavaScript number from a host value. */
+/**
+ * True when the Firebase SDKs send `value` as an `integerValue`: a safe
+ * integer other than `-0`. Every other number, 2^53 and past, `-0`, a
+ * fraction, NaN and the infinities, is sent as a `doubleValue`. The web SDK's
+ * `isSafeInteger` (`@firebase/firestore` 4.14.1) and the Admin SDK's
+ * serializer (`@google-cloud/firestore` 7.11.6) both apply this rule.
+ */
+export function isHostIntNumber(value: number): boolean {
+  return Number.isSafeInteger(value) && !Object.is(value, -0);
+}
+
+/**
+ * A JavaScript number from a host value, typed as production's rules read
+ * it: the number itself when it is an int (`isHostIntNumber`), and a
+ * `RulesFloat` otherwise.
+ */
+export function hostNumber(value: number): number | RulesFloat {
+  return isHostIntNumber(value) ? value : new RulesFloat(value);
+}
+
+/**
+ * Token claims typed as rules values: an integral number inside int64
+ * becomes an int (a bigint), inside nested maps and lists too, and every
+ * other value is returned as it is. A claim reaches the rules as JSON inside
+ * an ID token, not through the SDKs' number rule, and the sign-in captures
+ * (`observations/auth/auth-request-auth-per-sign-in.json`) record `iat`,
+ * `exp` and `auth_time` as ints. A claim at 2^53 and past therefore stays an
+ * int, as it read before #1781; production's typing there needs a capture.
+ */
+export function typeClaimNumbers(value: unknown): unknown {
+  if (typeof value === 'number') return isInt64Integral(value) ? BigInt(value) : value;
+  if (Array.isArray(value)) return value.map(typeClaimNumbers);
+  if (!isPlainRecord(value)) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, typeClaimNumbers(item)]));
+}
+
+function isInt64Integral(value: number): boolean {
+  return Number.isInteger(value) && value >= -(2 ** 63) && value < 2 ** 63;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * True for a JavaScript number that reads as an int: a safe integer. A
+ * number at or above 2^53 in magnitude reads as a float. `-0` reads as the
+ * int 0 here, because the evaluator's own duration and timestamp parts can
+ * produce it; a host `-0` becomes a float through `hostNumber` first.
+ */
+function isIntNumber(value: number): boolean {
+  return Number.isSafeInteger(value);
+}
+
+/** True for a rules int: a bigint, or a safe-integer JavaScript number from a host value. */
 export function isRulesInt(value: unknown): value is bigint | number {
-  return typeof value === 'bigint' || (typeof value === 'number' && Number.isInteger(value));
+  return typeof value === 'bigint' || (typeof value === 'number' && isIntNumber(value));
 }
 
 /** A rules int as a bigint, or undefined for any other value. */
 export function rulesInt(value: unknown): bigint | undefined {
   if (typeof value === 'bigint') return value;
-  if (typeof value === 'number' && Number.isInteger(value)) return BigInt(value);
+  if (typeof value === 'number' && isIntNumber(value)) return BigInt(value);
   return undefined;
 }
 
-/** A rules float as a double: a `RulesFloat`, or a JavaScript number with a fraction from a host value. */
+/**
+ * A rules float as a double: a `RulesFloat`, or a JavaScript number from a
+ * host value that is not a safe integer, such as `1.5` or `2 ** 53`.
+ */
 export function rulesFloatValue(value: unknown): number | undefined {
   if (value instanceof RulesFloat) return value.value;
-  if (typeof value === 'number' && !Number.isInteger(value)) return value;
+  if (typeof value === 'number' && !isIntNumber(value)) return value;
   return undefined;
 }
 

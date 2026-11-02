@@ -168,11 +168,6 @@ const PIN_GROUPS: PinGroup[] = [
     labels: ['token.exp minus token.iat is 3600'],
   },
   {
-    finding: 'auth-claims CO-1: a float custom claim does not read as float in Firestore rules',
-    plane: 'firestore', kinds: ['customTokenNewUid'], pyric: 'DENY', production: 'ALLOW',
-    labels: ['token.ratio is float'],
-  },
-  {
     finding: 'auth-claims CO-3: reauthenticating a custom-token session with a password credential keeps sign_in_provider custom',
     plane: 'provider', kinds: ['customTokenReauthPassword'], pyric: 'custom', production: 'password',
     labels: ['signInProvider'],
@@ -298,9 +293,7 @@ const TEST_API = load('auth-request-auth-rules-test-api') as {
 };
 
 /** Simulator answers that differ from production's on the same token, keyed `<kind> :: <probe label>`. */
-const SIMULATE_PINS: Record<string, { pyric: string; production: string; finding: string }> = {
-  'customTokenNewUid :: token.ratio is float': { pyric: 'DENY', production: 'ALLOW', finding: 'auth-claims CO-1: a float custom claim does not read as float in Firestore rules' },
-};
+const SIMULATE_PINS: Record<string, { pyric: string; production: string; finding: string }> = {};
 
 describe('firestoreRules().simulate reads a real token claim set as production does', () => {
   for (const [kind, production] of Object.entries(TEST_API.behavior)) {
