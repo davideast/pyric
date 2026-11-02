@@ -99,6 +99,24 @@ export function isAllowedHost(
   return allowed.has(hostname);
 }
 
+/** `::ffff:127.0.0.1`, an IPv4 loopback peer on a dual-stack socket. */
+const MAPPED_IPV4_PREFIX = '::ffff:';
+const IPV4_LOOPBACK = /^127(\.\d{1,3}){3}$/;
+const IPV6_LOOPBACK = new Set(['::1', '0:0:0:0:0:0:0:1']);
+
+/**
+ * True when a socket's peer address is loopback, so the client runs on this
+ * machine. Unlike the Host header, the client cannot choose it. An unknown
+ * address (a destroyed socket, a request with no socket) is not loopback.
+ */
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (address === undefined) return false;
+  const lower = address.toLowerCase();
+  const isMapped = lower.startsWith(MAPPED_IPV4_PREFIX);
+  const ipv4 = isMapped ? lower.slice(MAPPED_IPV4_PREFIX.length) : lower;
+  return IPV6_LOOPBACK.has(lower) || IPV4_LOOPBACK.test(ipv4);
+}
+
 /**
  * Origin allowlist for WebSocket `upgrade` handshakes and local endpoint requests.
  * A browser sends an `Origin` header carrying the page's origin; a hostile page

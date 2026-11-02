@@ -28,6 +28,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path';
 
+import { isProjectSecretPath } from '../project-secret-paths.js';
 import { readBranches } from './branch-store-reading.js';
 
 import type {
@@ -41,6 +42,19 @@ export class WorkspacePathError extends Error {
   constructor(path: string) {
     super(`workspace path escapes root: '${path}'`);
     this.name = 'WorkspacePathError';
+  }
+}
+
+/**
+ * Thrown when a request path, or the real path it resolves to, is project
+ * state, an env file or a dependency (`.pyric/`, `.env*`, `node_modules`).
+ * The workspace never reads, writes, lists or removes those.
+ */
+export class WorkspaceDeniedPathError extends WorkspacePathError {
+  constructor(path: string) {
+    super(path);
+    this.message = `workspace path is not served: '${path}'`;
+    this.name = 'WorkspaceDeniedPathError';
   }
 }
 
@@ -128,12 +142,30 @@ export function resolveWorkspacePath(root: string, rel: string): string {
     throw new WorkspacePathError(rel);
   }
 
+  // Both the path asked for and the file it really is, so a symlink inside
+  // the project cannot reach `.pyric/` or `.env`.
+  const realRelative = relative(canonicalRoot, canonicalTarget);
+  const isDenied = isProjectSecretPath(normalized) || isProjectSecretPath(realRelative);
+  if (isDenied) {
+    throw new WorkspaceDeniedPathError(rel);
+  }
+
   return abs;
 }
 
 /** Convert an absolute OS path under `root` to a project-relative POSIX path. */
 function toPosixRel(root: string, abs: string): string {
   return relative(root, abs).split(sep).join('/');
+}
+
+/** A listed entry is shown only when reading it would be allowed. */
+function isServedChild(root: string, childAbs: string): boolean {
+  try {
+    resolveWorkspacePath(root, toPosixRel(root, childAbs));
+    return true;
+  } catch (error) {
+    return !(error instanceof WorkspaceDeniedPathError);
+  }
 }
 
 export function diskWorkspace(dir: string): WorkspaceStore {
@@ -170,6 +202,8 @@ export function diskWorkspace(dir: string): WorkspaceStore {
       const entries: WorkspaceEntry[] = [];
       for (const name of names) {
         const childAbs = join(abs, name);
+        const isServed = isServedChild(root, childAbs);
+        if (!isServed) continue;
         let isDir = false;
         try {
           isDir = (await stat(childAbs)).isDirectory();

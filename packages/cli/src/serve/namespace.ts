@@ -28,7 +28,7 @@ import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, type ServeLogger } from './server.js';
+import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, isLoopbackAddress, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
 import type { AppPorts } from './app-ports.js';
 import { handleActivity } from './activity-route.js';
@@ -771,7 +771,11 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     const isInitRequest = url.pathname === '/__pyric/init.json';
     if (isInitRequest) {
-      const payload = { ...opts.initPayload(), sessionToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
+      // The token unlocks project state and files. A client chooses its Host
+      // header, so only the socket's peer address decides who receives it.
+      const peerIsLoopback = isLoopbackAddress(req.socket?.remoteAddress);
+      const issuedToken = peerIsLoopback ? sessionToken : undefined;
+      const payload = { ...opts.initPayload(), sessionToken: issuedToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
       const hasActivityEndpoint = activityEndpoint !== undefined;
       if (hasActivityEndpoint) payload.activityToken = activityEndpoint.token;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
