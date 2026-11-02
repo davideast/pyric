@@ -136,4 +136,14 @@ describe('auth.mockSignInResult on the host', () => {
 
     expect(reply).toMatchObject({ ok: false, error: { code: 'invalid-argument' } });
   });
+
+  it('refuses a result whose emailVerified is not a boolean', async () => {
+    const ctx = hostCtx();
+    const port = recordingPort();
+
+    const reply = await stageOverPort(ctx, port, { ...identity('alice'), emailVerified: 'yes' });
+
+    expect(reply).toMatchObject({ ok: false, error: { code: 'invalid-argument' } });
+    expect(stagedSignInResultsFor(ctx).take(port, 'google.com')).toBeNull();
+  });
 });
