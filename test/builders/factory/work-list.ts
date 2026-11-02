@@ -11,9 +11,10 @@
  * but doesn't parse is unreadable, not empty: it may be half written, and the
  * supervisor keeps the last list it read (`work-list-reader.ts`).
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { z } from 'zod';
 import { parseJsonText, parseWith } from '../parse.ts';
+import { readRunFile } from './host-files.ts';
 
 const itemSchema = z.object({
   id: z.string().min(1),
@@ -30,8 +31,12 @@ export type WorkItem = z.infer<typeof itemSchema>;
 export type WorkListRead = { ok: true; items: WorkItem[] } | { ok: false; errors: string[] };
 
 export function readWorkList(path: string): WorkListRead {
-  if (!existsSync(path)) return { ok: true, items: [] };
-  const text = parseJsonText(readFileSync(path, 'utf8'));
+  const isMissing = lstatSync(path, { throwIfNoEntry: false }) === undefined;
+  if (isMissing) return { ok: true, items: [] };
+  // Sessions write it, so it is read never through a link (`host-files.ts`).
+  const read = readRunFile(path);
+  if (!read.ok) return { ok: false, errors: [`refusing to read it: ${read.problem}`] };
+  const text = parseJsonText(read.text);
   const parsed = text.ok ? parseWith(workListSchema, text.value) : text;
   return parsed.ok ? { ok: true, items: parsed.value.items } : parsed;
 }

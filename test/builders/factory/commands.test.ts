@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { UsageError } from '../cli-args.ts';
 import { parseCheckOptions, parseFactoryOptions } from './options.ts';
 import { pauseAfterRateLimit } from './rate-limit.ts';
+import { AGENT_NAMES } from './agents/registry.ts';
 import { createRun, runPaths, writeHeartbeat } from './run-dir.ts';
 import { formatSummary } from './summary.ts';
 import type { TimelineLine } from './timeline.ts';
@@ -18,6 +19,12 @@ describe('parseFactoryOptions', () => {
     expect(parseFactoryOptions(['--run-dir', 'night', '--hours', '8'])).toEqual({ runDir: resolve('night'), hours: 8, resume: false });
     expect(parseFactoryOptions(['--run-dir', 'night', '--resume'])).toEqual({ runDir: resolve('night'), resume: true });
     expect(parseFactoryOptions(['--run-dir', 'night', '--hours', '0.5', '--resume', '--runner', 'r.ts'])).toEqual({ runDir: resolve('night'), hours: 0.5, resume: true, runner: resolve('r.ts') });
+  });
+
+  test('takes an agent the registry knows and a brief directory, resolved', () => {
+    const agent = AGENT_NAMES[0] ?? '';
+    expect(parseFactoryOptions(['--run-dir', 'night', '--hours', '8', '--agent', agent, '--brief-dir', 'brief'])).toEqual({ runDir: resolve('night'), hours: 8, resume: false, agent, briefDir: resolve('brief') });
+    expect(() => parseFactoryOptions(['--run-dir', 'night', '--hours', '8', '--agent', 'no-such-agent'])).toThrow(UsageError);
   });
 
   test('refuses a missing run directory, neither hours nor resume, and hours out of range', () => {
@@ -57,7 +64,7 @@ describe('factory-check', () => {
       return { ok: true, detail: `restarted ${unit}` };
     };
     expect(heartbeatStatus(paths, START, 5 * MINUTE)).toBe('no-run');
-    createRun(paths, 1, START);
+    createRun(paths, { hours: 1, agent: 'fake', briefDir: '/briefs/narrations' }, START);
     expect(heartbeatStatus(paths, START + 4 * MINUTE, 5 * MINUTE)).toBe('fresh');
     writeHeartbeat(paths, START + 10 * MINUTE, 1);
     expect(checkSupervisor(paths, 'pyric-factory', 5 * MINUTE, START + 12 * MINUTE, restart).exitCode).toBe(0);

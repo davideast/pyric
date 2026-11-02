@@ -12,16 +12,9 @@
  * at 3:04 PM"), so the forwarder's record is where an exact reset comes from.
  */
 import { z } from 'zod';
-import type { Headers } from './codex-policy.ts';
+import type { Headers, RateLimit } from '../../agent.ts';
 
-export interface RateLimit {
-  /** The response was a 429: the subscription is out of usage, or Codex is sending too fast. */
-  limitReached: boolean;
-  /** When usage comes back, ISO; null when the response named no time. */
-  resetAt: string | null;
-  primaryUsedPercent: number | null;
-  secondaryUsedPercent: number | null;
-}
+const WINDOWS = ['primary', 'secondary'] as const;
 
 /** Error types the backend gives a request the subscription can't pay for. */
 const LIMIT_ERROR_TYPES = new Set(['usage_limit_reached', 'rate_limit_exceeded', 'usage_not_included']);
@@ -67,7 +60,7 @@ function errorReset(error: NonNullable<ReturnType<typeof limitError>>, now: Date
  * comes back only once every full window has reset.
  */
 function headerReset(headers: Headers): string | null {
-  const resets = ['primary', 'secondary'].flatMap((window) => {
+  const resets = WINDOWS.flatMap((window) => {
     const isFull = (numberHeader(headers, `x-codex-${window}-used-percent`) ?? 0) >= 100;
     const at = numberHeader(headers, `x-codex-${window}-reset-at`);
     return isFull && at !== null ? [at] : [];
@@ -81,10 +74,10 @@ export function rateLimitOf(status: number, headers: Headers, body: string, now:
   const limitReached = status === 429;
   const error = limitReached ? limitError(body) : undefined;
   const resetAt = (error === undefined ? null : errorReset(error, now)) ?? (limitReached ? headerReset(headers) : null);
-  return {
-    limitReached,
-    resetAt,
-    primaryUsedPercent: numberHeader(headers, 'x-codex-primary-used-percent'),
-    secondaryUsedPercent: numberHeader(headers, 'x-codex-secondary-used-percent'),
-  };
+  const usedPercent: Record<string, number> = {};
+  for (const window of WINDOWS) {
+    const used = numberHeader(headers, `x-codex-${window}-used-percent`);
+    if (used !== null) usedPercent[window] = used;
+  }
+  return { limitReached, resetAt, usedPercent };
 }

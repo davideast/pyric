@@ -8,7 +8,7 @@
  * The model provider is `pyric`: a custom provider whose base URL is the
  * model channel's bridge on the sandbox's loopback, which sends no
  * credential (`requires_openai_auth = false`, no `env_key`). The forwarder
- * outside puts the login on (`codex-forwarder.ts`). Websockets are off, so
+ * outside puts the login on (`../../upstream-forwarder.ts`, with `policy.ts`). Websockets are off, so
  * every turn is one HTTP request the forwarder can check.
  *
  * Codex's own sandbox is bypassed (`--dangerously-bypass-approvals-and-sandbox`,
@@ -18,6 +18,8 @@
  * server, the harness browser and the bridge listen.
  */
 import { join } from 'node:path';
+import type { AgentSession, Invocation } from '../../agent.ts';
+import { CODEX_BASE_PATH } from './policy.ts';
 
 /** GPT-6.1 Sol, by its slug in Codex 0.164's model list (`models_cache.json`). */
 export const FACTORY_MODEL = 'gpt-6.1-sol';
@@ -37,33 +39,14 @@ export const MAX_REASONING_EFFORT: ReasoningEffort = 'max';
 /** The custom provider's name in Codex's config. */
 export const CODEX_PROVIDER = 'pyric';
 
-export interface CodexSession {
-  /** The `codex` executable, as the sandbox sees it. */
-  codex: string;
-  /** The app directory, inside the run directory: Codex's workspace root (`-C`) and `$APP_DIR`. */
-  cwd: string;
-  /** The run directory, read-write in the sandbox: `$RUN_DIR`. */
-  runDir: string;
-  /** The brief, specs and design, read-only in the sandbox: `$BRIEF_DIR`. */
-  briefDir: string;
-  /** The session's HOME, inside the run directory. CODEX_HOME is `<home>/.codex`. */
-  home: string;
+export interface CodexSettings {
   model: string;
   reasoningEffort: ReasoningEffort;
-  /** What this session is asked to do: Codex's prompt. */
-  prompt: string;
-  /** The role's skill, which Codex gets as its developer instructions. */
-  skillFile: string;
 }
 
-export interface CodexInvocation {
-  command: string;
-  args: string[];
-  /** Holds no secret. */
-  env: Record<string, string>;
-}
+export const FACTORY_SETTINGS: CodexSettings = { model: FACTORY_MODEL, reasoningEffort: MAX_REASONING_EFFORT };
 
-export const codexHomeOf = (session: Pick<CodexSession, 'home'>) => join(session.home, '.codex');
+export const codexHomeOf = (home: string) => join(home, '.codex');
 
 /** A TOML string; JSON's escapes are TOML's basic-string escapes. */
 const tomlString = (value: string) => JSON.stringify(value);
@@ -73,22 +56,22 @@ function overrides(pairs: ReadonlyArray<readonly [string, string]>): string[] {
   return pairs.flatMap(([key, value]) => ['-c', `${key}=${value}`]);
 }
 
-/** The base URL Codex sends model requests to: the bridge, in plain HTTP on the sandbox's loopback. */
-export const bridgeBaseUrl = (bridgePort: number) => `http://127.0.0.1:${bridgePort}/backend-api/codex`;
+/** The base URL Codex sends model requests to: the bridge, under the backend's own path, so the forwarder sends the path on as it is. */
+export const providerBaseUrl = (bridgeUrl: string) => `${bridgeUrl}${CODEX_BASE_PATH}`;
 
 /**
  * The settings that point Codex at the bridge, turn off what would reach
  * past it, and give it the role's skill as developer instructions, which
  * Codex adds to its own rather than replacing them.
  */
-function settings(session: CodexSession, bridgePort: number, instructions: string): string[] {
+function settings(codex: CodexSettings, bridgeUrl: string, instructions: string): string[] {
   const provider = `model_providers.${CODEX_PROVIDER}`;
   return overrides([
     ['developer_instructions', tomlString(instructions)],
-    ['model_reasoning_effort', tomlString(session.reasoningEffort)],
+    ['model_reasoning_effort', tomlString(codex.reasoningEffort)],
     ['model_provider', tomlString(CODEX_PROVIDER)],
     [`${provider}.name`, tomlString('pyric codex channel')],
-    [`${provider}.base_url`, tomlString(bridgeBaseUrl(bridgePort))],
+    [`${provider}.base_url`, tomlString(providerBaseUrl(bridgeUrl))],
     [`${provider}.wire_api`, tomlString('responses')],
     [`${provider}.requires_openai_auth`, 'false'],
     [`${provider}.supports_websockets`, 'false'],
@@ -99,8 +82,8 @@ function settings(session: CodexSession, bridgePort: number, instructions: strin
   ]);
 }
 
-/** `codex exec` for one session, printing its events as JSON lines on stdout. `instructions` is the skill file's text. */
-export function codexArgs(session: CodexSession, bridgePort: number, instructions: string): string[] {
+/** `codex exec` for one session, printing its events as JSON lines on stdout, with the role's skill as developer instructions. */
+export function codexArgs(session: AgentSession, bridgeUrl: string, codex: CodexSettings = FACTORY_SETTINGS): string[] {
   return [
     'exec',
     '--json',
@@ -111,34 +94,18 @@ export function codexArgs(session: CodexSession, bridgePort: number, instruction
     '--dangerously-bypass-approvals-and-sandbox',
     '--disable', 'image_generation',
     '-C', session.cwd,
-    '-m', session.model,
-    ...settings(session, bridgePort, instructions),
+    '-m', codex.model,
+    ...settings(codex, bridgeUrl, session.instructions),
     '--',
     session.prompt,
   ];
 }
 
-/**
- * Codex's environment, built from nothing but `base` (PATH, LANG, TMPDIR and
- * the recorder's variables): its HOME, and the directories the role skills
- * name, `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`. The commands Codex runs
- * inherit them.
- */
-export function codexEnvironment(session: CodexSession, base: Record<string, string>): Record<string, string> {
+/** `codex exec` with the session's environment and a CODEX_HOME of its own under its HOME, holding no login. */
+export function codexInvocation(session: AgentSession, bridgeUrl: string, env: Record<string, string>, codex: CodexSettings = FACTORY_SETTINGS): Invocation {
   return {
-    ...base,
-    HOME: session.home,
-    CODEX_HOME: codexHomeOf(session),
-    BRIEF_DIR: session.briefDir,
-    RUN_DIR: session.runDir,
-    APP_DIR: session.cwd,
-  };
-}
-
-export function codexInvocation(session: CodexSession, bridgePort: number, base: Record<string, string>, instructions: string): CodexInvocation {
-  return {
-    command: session.codex,
-    args: codexArgs(session, bridgePort, instructions),
-    env: codexEnvironment(session, base),
+    command: session.command,
+    args: codexArgs(session, bridgeUrl, codex),
+    env: { ...env, CODEX_HOME: codexHomeOf(session.home) },
   };
 }

@@ -1,8 +1,8 @@
 // What the Codex forwarder passes on, and the limits it reads from a
 // response.
 import { describe, expect, test } from 'bun:test';
-import { checkBody, droppedHeaderNames, forwardedHeaders, lineRefusal } from './codex-policy.ts';
-import { rateLimitOf } from './codex-rate-limit.ts';
+import { checkBody, isForwardedHeader, lineRefusal } from './policy.ts';
+import { rateLimitOf } from './rate-limit.ts';
 
 /** The headers Codex 0.164 sent in the factory's experiment, with made-up values. */
 const CODEX_HEADERS = {
@@ -21,8 +21,6 @@ const CODEX_HEADERS = {
   'x-openai-internal-codex-responses-lite': '1',
 };
 
-const LOGIN = { accessToken: 'made-up-access', accountId: 'made-up-account' };
-
 describe('lineRefusal', () => {
   test('passes a turn and a compaction, posted with no query', () => {
     expect(lineRefusal('POST', '/backend-api/codex/responses')).toBeUndefined();
@@ -38,21 +36,11 @@ describe('lineRefusal', () => {
   });
 });
 
-describe('headers', () => {
-  test('sends on every header Codex sent, then the login, which nothing Codex sent replaces', () => {
-    const headers = forwardedHeaders({ ...CODEX_HEADERS, authorization: 'Bearer from-the-sandbox', 'chatgpt-account-id': 'from-the-sandbox', cookie: 'c' }, LOGIN, 99);
-    expect(headers.authorization).toBe('Bearer made-up-access');
-    expect(headers['chatgpt-account-id']).toBe('made-up-account');
-    expect(headers.host).toBe('chatgpt.com');
-    expect(headers['content-length']).toBe('99');
-    expect(headers.originator).toBe('codex_exec');
-    expect(headers['x-openai-internal-codex-responses-lite']).toBe('1');
-    expect(headers.cookie).toBeUndefined();
-  });
-
-  test('names what it drops, never a value', () => {
-    expect(droppedHeaderNames(CODEX_HEADERS)).toEqual([]);
-    expect(droppedHeaderNames({ ...CODEX_HEADERS, authorization: 'Bearer made-up', cookie: 'c' })).toEqual(['authorization', 'cookie']);
+describe('isForwardedHeader', () => {
+  test('passes every header Codex sent, and no credential or cookie', () => {
+    const own = new Set(['content-length', 'host']);
+    expect(Object.keys(CODEX_HEADERS).filter((name) => !own.has(name)).every(isForwardedHeader)).toBe(true);
+    for (const name of ['authorization', 'chatgpt-account-id', 'cookie', 'proxy-authorization']) expect(isForwardedHeader(name)).toBe(false);
   });
 });
 
@@ -69,6 +57,29 @@ describe('checkBody', () => {
     expect(checkBody(Buffer.from('{ not json'), 'gpt-6.1-sol')).toMatchObject({ ok: false, reason: 'body-not-json' });
     expect(checkBody(body([1]), 'gpt-6.1-sol')).toMatchObject({ ok: false, reason: 'body-not-json' });
   });
+
+  /** Codex 0.164's tools, as it sent them to a stand-in backend: namespaces of function and custom tools in an `input` item. */
+  const additionalTools = (tools: unknown[]) => ({
+    type: 'additional_tools',
+    role: 'developer',
+    tools: [{ type: 'namespace', name: 'functions', tools: [{ type: 'custom', name: 'exec' }, { type: 'function', name: 'wait' }] }, ...tools],
+  });
+
+  test('passes the tools Codex sends, and refuses any other type, at the top or nested in input, including ones it has never seen', () => {
+    expect(checkBody(body({ model: 'gpt-6.1-sol', tools: [], input: [additionalTools([{ type: 'local_shell' }])] }), 'gpt-6.1-sol')).toEqual({ ok: true, model: 'gpt-6.1-sol' });
+    const nested = { type: 'namespace', name: 'x', tools: [{ type: 'mcp', server_url: 'https://elsewhere.example' }] };
+    expect(checkBody(body({ model: 'gpt-6.1-sol', input: [additionalTools([nested, { type: 'hosted_tool_from_next_year' }])] }), 'gpt-6.1-sol')).toEqual({ ok: false, reason: 'server-tool', names: ['mcp', 'hosted_tool_from_next_year'] });
+    expect(checkBody(body({ model: 'gpt-6.1-sol', tools: [{ type: 'file_search' }, 'not a tool'] }), 'gpt-6.1-sol')).toEqual({ ok: false, reason: 'server-tool', names: ['file_search', '(not a tool)'] });
+  });
+
+  test('passes inline data in input, and refuses a URL OpenAI would fetch or a file ID', () => {
+    const message = (content: unknown[]) => ({ model: 'gpt-6.1-sol', input: [{ type: 'message', role: 'user', content }] });
+    const inline = message([{ type: 'input_text', text: 'see https://example.com' }, { type: 'input_image', image_url: 'data:image/png;base64,AAAA' }, { type: 'input_file', file_url: 'data:text/plain;base64,AAAA' }]);
+    expect(checkBody(body(inline), 'gpt-6.1-sol')).toEqual({ ok: true, model: 'gpt-6.1-sol' });
+    expect(checkBody(body(message([{ type: 'input_image', image_url: 'https://attacker.example/?d=secret' }])), 'gpt-6.1-sol')).toEqual({ ok: false, reason: 'remote-input', names: ['image_url'] });
+    expect(checkBody(body(message([{ type: 'input_file', file_url: 'https://attacker.example/f' }, { type: 'input_file', file_id: 'file-1' }])), 'gpt-6.1-sol')).toEqual({ ok: false, reason: 'remote-input', names: ['file_url', 'file_id'] });
+    expect(checkBody(body(message([{ type: 'input_image', image_url: { url: 'https://attacker.example' } }])), 'gpt-6.1-sol')).toMatchObject({ ok: false, reason: 'remote-input' });
+  });
 });
 
 describe('rateLimitOf', () => {
@@ -76,7 +87,7 @@ describe('rateLimitOf', () => {
   const WINDOWS = { 'x-codex-primary-used-percent': '98', 'x-codex-primary-reset-at': '1793790664', 'x-codex-secondary-used-percent': '0' };
 
   test('reads the windows from every response, and no limit from a 200', () => {
-    expect(rateLimitOf(200, WINDOWS, '', NOW)).toEqual({ limitReached: false, resetAt: null, primaryUsedPercent: 98, secondaryUsedPercent: 0 });
+    expect(rateLimitOf(200, WINDOWS, '', NOW)).toEqual({ limitReached: false, resetAt: null, usedPercent: { primary: 98, secondary: 0 } });
   });
 
   test('takes the reset a 429’s usage_limit_reached names', () => {

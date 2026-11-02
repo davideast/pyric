@@ -37,7 +37,7 @@ describe('harnessView', () => {
  */
 const SANDBOX_ENTRY_POINTS = [
   'recorder/holder.mjs', 'sandbox-inventory.ts', 'recorder/node-egress.mjs', 'run-phase.ts', 'docs-export.mjs',
-  'browser-server.ts', 'canary/plant-phase.ts', 'canary/browser-plants.ts', 'fixtures/fake-builder.mjs', 'factory/codex-phase.ts',
+  'browser-server.ts', 'canary/plant-phase.ts', 'canary/browser-plants.ts', 'fixtures/fake-builder.mjs', 'factory/agent-phase.ts',
 ];
 
 const isBuiltin = (specifier: string) => specifier.startsWith('node:') || specifier.startsWith('bun:');

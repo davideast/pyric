@@ -15,10 +15,14 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { readPrivateFile } from '../harness-token.ts';
+import { readPrivateFile } from '../../../harness-token.ts';
+import type { Credential, CredentialRead } from '../../agent.ts';
+
+/** The host's default CODEX_HOME, which holds the login: no sandbox bind may reach it. */
+export const CODEX_LOGIN_DIR = join(homedir(), '.codex');
 
 /** Where `codex login` keeps the login, under the default CODEX_HOME. */
-export const CODEX_LOGIN_FILE = join(homedir(), '.codex', 'auth.json');
+export const CODEX_LOGIN_FILE = join(CODEX_LOGIN_DIR, 'auth.json');
 
 const LABEL = 'the Codex login';
 
@@ -94,4 +98,18 @@ export function expiryProblem(login: CodexLogin, now: Date): string | undefined 
   const lapsed = login.expiresAt.getTime() - EXPIRY_MARGIN_MS <= now.getTime();
   if (!lapsed) return undefined;
   return `the Codex login's access token lapses at ${login.expiresAt.toISOString()}: refresh it on the host (start Codex there, or run \`codex login\`)`;
+}
+
+/** The login as the forwarder's credential: the bearer token and the account header, set on every request. */
+export function codexCredential(login: CodexLogin): Credential {
+  return {
+    headers: { authorization: `Bearer ${login.accessToken}`, 'chatgpt-account-id': login.accountId },
+    secrets: login.secrets,
+    problemAt: (now) => expiryProblem(login, now),
+  };
+}
+
+export function readCodexCredential(path: string = CODEX_LOGIN_FILE): CredentialRead {
+  const read = readCodexLogin(path);
+  return read.ok ? { ok: true, credential: codexCredential(read.login) } : read;
 }

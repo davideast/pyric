@@ -2,7 +2,7 @@
  * A made-up Codex login for the factory's tests: JWT-shaped tokens with an
  * `exp`, and no real value anywhere.
  */
-import type { CodexLogin } from './codex-login.ts';
+import type { CodexLogin } from '../login.ts';
 
 const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
 

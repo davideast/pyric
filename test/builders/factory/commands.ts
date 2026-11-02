@@ -7,7 +7,7 @@ import { runSupervisor } from './supervisor.ts';
 import { readTimeline } from './timeline.ts';
 import { checkSupervisor } from './watchdog.ts';
 
-export const FACTORY_USAGE = 'factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]';
+export const FACTORY_USAGE = 'factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]';
 export const FACTORY_SUMMARY_USAGE = 'factory-summary --run-dir <dir>';
 export const FACTORY_CHECK_USAGE = 'factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]';
 

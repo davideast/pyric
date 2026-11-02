@@ -3,7 +3,8 @@
  * never rewritten. A session's line is written when it ends. `factory-summary`
  * reads it for the morning review.
  */
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { appendFile } from './host-files.ts';
 import type { EndedBy, Role } from './session.ts';
 
 export type TimelineLine =
@@ -28,7 +29,7 @@ export type TimelineLine =
   | { type: 'end'; at: string };
 
 export function appendTimeline(path: string, line: TimelineLine): void {
-  appendFileSync(path, `${JSON.stringify(line)}\n`);
+  appendFile(path, `${JSON.stringify(line)}\n`);
 }
 
 /** The timeline's lines, skipping any a crash cut short. */

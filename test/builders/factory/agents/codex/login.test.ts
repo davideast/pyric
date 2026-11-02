@@ -5,9 +5,9 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expiryProblem, jwtExpiry, readCodexLogin } from './codex-login.ts';
-import { scannedSecrets, secretHits } from './codex-scan.ts';
-import { fakeAuth, fakeJwt, fakeLogin } from './fake-login.ts';
+import { scannedSecrets, secretHits } from '../../secret-scan.ts';
+import { fakeAuth, fakeJwt, fakeLogin } from './fixtures/fake-login.ts';
+import { codexCredential, expiryProblem, jwtExpiry, readCodexLogin } from './login.ts';
 
 const UID = process.getuid?.() ?? -1;
 
@@ -77,7 +77,7 @@ describe('expiry', () => {
 describe('the token scan, extended to the login', () => {
   test('looks for the harness’s secrets and every token of the login, without repeats', () => {
     const login = fakeLogin();
-    expect(scannedSecrets(['harness-made-up', login.accessToken], { ok: true, login })).toEqual(['harness-made-up', ...login.secrets]);
+    expect(scannedSecrets(['harness-made-up', login.accessToken], { ok: true, credential: codexCredential(login) })).toEqual(['harness-made-up', ...login.secrets]);
     expect(scannedSecrets(['harness-made-up'], { ok: false, problem: 'no login' })).toEqual(['harness-made-up']);
   });
 

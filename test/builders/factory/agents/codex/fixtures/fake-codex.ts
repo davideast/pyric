@@ -7,6 +7,7 @@
  *
  *   ok     one turn, then exit 0
  *   limit  one turn that comes back 429, then Codex's usage-limit failure, exit 1
+ *   fail   one turn that comes back 200, then a failure that is not a usage limit, exit 1
  *   hang   start, then wait until stopped
  *
  * It also prints its environment's names, its instructions, and what it
@@ -57,6 +58,10 @@ if (mode === 'hang') {
   print({ type: 'turn.started' });
   const response = await fetch(`${baseUrl}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model, input: [] }) });
   await response.text();
+  if (response.status === 200 && mode === 'fail') {
+    print({ type: 'turn.failed', error: { message: 'the model stopped' } });
+    process.exit(1);
+  }
   if (response.status === 200) {
     print({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } });
     process.exit(0);

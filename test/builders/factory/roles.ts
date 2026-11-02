@@ -1,7 +1,7 @@
 /**
- * What a role's Codex session is told. Its instructions are the role's
+ * What a role's agent session is told. Its instructions are the role's
  * skill, `.agents/skills/factory-<role>/SKILL.md` in the pyric checkout the
- * harness runs from, which Codex gets as developer instructions. The skills
+ * harness runs from, which the agent gets as its standing instructions. The skills
  * name the run's directories as `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`;
  * the session's environment sets them, and its prompt names them with the
  * seat and the deadline, then gives the supervisor's prompt.

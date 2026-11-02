@@ -40,6 +40,10 @@ export interface SupervisorOptions {
   hours?: number;
   /** Go on with the run already in `runDir`, or start one when `hours` is given and there is none. */
   resume: boolean;
+  /** The agent adapter's name. Required to start a run; a resumed run keeps its own. */
+  agent?: string;
+  /** The brief directory. Required to start a run; a resumed run keeps its own. */
+  briefDir?: string;
   runSession: RunSession;
   hourlyCheck?: HourlyCheck;
   clock?: Clock;
@@ -79,6 +83,8 @@ class Supervisor {
   private readonly state: SupervisorState;
   private readonly startedAt: number;
   private readonly deadline: number;
+  private readonly agent: string;
+  private readonly briefDir: string;
   private readonly running = new Map<string, Running>();
   private readonly cooldowns = new Map<string, Cooldown>();
   private check: Promise<void> | undefined;
@@ -95,6 +101,8 @@ class Supervisor {
     this.state = opened.state;
     this.startedAt = Date.parse(opened.info.startedAt);
     this.deadline = Date.parse(opened.info.deadline);
+    this.agent = opened.info.agent;
+    this.briefDir = opened.info.briefDir;
     this.log = options.log ?? ((line) => console.log(line));
     this.pid = options.pid ?? process.pid;
     this.workList = new WorkListReader(this.paths.files.workList, this.log);
@@ -229,6 +237,8 @@ class Supervisor {
       prompt,
       runDir: this.paths.root,
       appDir: this.paths.app,
+      agent: this.agent,
+      briefDir: this.briefDir,
       files: this.paths.files,
       deadline: iso(this.deadline),
       remainingMs: this.deadline - entry.startedAt,

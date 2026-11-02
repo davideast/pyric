@@ -22,7 +22,7 @@ bun test/builders/harness.ts reproduce <round> <run> --list
 bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
     [--expect <text>] [--register] [--packages <dir>] [--minutes <n>]
 bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
-bun test/builders/harness.ts factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]
+bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
 ```
@@ -495,7 +495,9 @@ triage. Each role works in short sessions. The supervisor
 (`factory/supervisor.ts`) keeps them going until the run's deadline.
 
 - **Only the clock ends a run.** `--hours` fixes the deadline when the run
-  starts. A session that ends for any reason, its model saying it is done
+  starts, with `--agent` (an adapter's name, below) and `--brief-dir` (the
+  directory holding `BRIEF.md`, `specs/` and `DESIGN.md`, outside the run's
+  directories), and `run.json` keeps all three. A session that ends for any reason, its model saying it is done
   included, frees its seat for the next session. Each session is told the
   time left, and at the deadline the supervisor aborts every running
   session's signal.
@@ -510,11 +512,15 @@ triage. Each role works in short sessions. The supervisor
   waits before the next, 15 seconds and doubling, up to 10 minutes, so a
   model that says it is done at once can't loop. This wait is kept in
   memory, so a restarted supervisor starts each seat at once.
-- **State lives in the run directory.** `run.json` holds the deadline,
-  `supervisor.json` what the schedule owes, and the sessions read and write
-  `work-list.json`, `progress.md` and `latest-check.json`. The app repo is
-  `app/`. Sessions write the work list through a temporary file and a
-  rename. A work list that exists but doesn't parse is not taken as empty:
+- **State lives in two directories.** The run directory is what every
+  session can write: `work-list.json`, `progress.md`, `latest-check.json`,
+  the app repo `app/`, each seat's `homes/<seat>/` and each sandbox's
+  network record in `logs/`. The run's host directory, `<run dir>.host/`
+  beside it, is the harness's alone: `run.json` (the deadline, the agent
+  and the brief directory), `supervisor.json` (what the schedule owes),
+  `heartbeat.json`, `timeline.jsonl`, and each session's log, forwarder
+  record, phase file and socket. Sessions write the work list through a
+  temporary file and a rename. A work list that exists but doesn't parse is not taken as empty:
   the supervisor keeps the last list it read, logs it, and reads the file
   again two seconds later.
 - **Rate limits pause the run.** A session that ends rate-limited stops new
@@ -536,14 +542,16 @@ Run the supervisor as a transient user unit, so systemd restarts it when it
 crashes or is killed. The same command line starts the run and resumes it:
 with both `--hours` and `--resume`, `factory` resumes the run in
 `--run-dir`, or starts one when there is none. A resumed run keeps its own
-deadline whatever `--hours` says.
+deadline, agent and brief directory, whatever `--hours`, `--agent` and
+`--brief-dir` say.
 
 ```
 RUN=~/pyric-builders/factory/$(date +%Y-%m-%d)
 systemd-run --user --unit pyric-factory \
   --property Restart=on-failure --property RestartSec=30 \
   --working-directory "$PWD" --setenv PATH="$PATH" \
-  "$(command -v bun)" test/builders/harness.ts factory --run-dir "$RUN" --hours 8 --resume
+  "$(command -v bun)" test/builders/harness.ts factory --run-dir "$RUN" --hours 8 \
+    --agent <name> --brief-dir "$BRIEF" --resume
 ```
 
 `Restart=on-failure` covers a supervisor that exits non-zero or is killed.
@@ -554,7 +562,7 @@ Outside systemd, a supervisor killed with SIGKILL leaves its sessions to
 the runner to end.
 
 A supervisor that hangs keeps its process and stops its heartbeat, which it writes to
-`heartbeat.json` every minute. A timer runs `factory-check` every five
+`heartbeat.json` (in the host directory) every minute. A timer runs `factory-check` every five
 minutes; it restarts the unit when the heartbeat is older than
 `--stale-minutes` (5 by default) and the deadline hasn't passed, and does
 nothing otherwise:
@@ -597,76 +605,74 @@ bun test/builders/harness.ts factory-summary --run-dir "$RUN"
 
 prints totals per seat, then the timeline.
 
-### Codex sessions
+### Agent sessions
 
-Every role is OpenAI's Codex CLI (`codex exec --json`) on the ChatGPT
-subscription that `codex login` signed in on the host, with GPT-6.1 Sol
-(`gpt-6.1-sol`) at reasoning effort `max`. `max` is the deepest reasoning
-the model lists short of `ultra`, which also delegates to sub-agents.
+Every role is an agent CLI behind the factory's agent interface
+(`factory/agent.ts`). An adapter, in `factory/agents/<name>/` and named in
+`factory/agents/registry.ts`, says how to find the agent on the host, the
+command, arguments and environment of a session, what it keeps under its
+HOME, where its credential lives on the host and how to read it, its
+upstream policy (the host, the request lines and headers that pass, the
+body check, and what a response says about usage limits), and how its
+output says it ran out of usage. Each adapter's folder has a README with
+its specifics. The session runner, the supervisor, the forwarder and the
+role prompts depend on the interface alone.
+
 `factory/session-runner.ts` runs each session:
 
-1. It checks the login (`~/.codex/auth.json`) the way `round` checks a
-   token file: a regular file, owned by the current user, mode 0600 or
-   stricter, holding a ChatGPT login. A problem names the file and the
-   rule, never a value.
+1. It reads the agent's credential the way `round` checks a token file: a
+   regular file, owned by the current user, mode 0600 or stricter. A
+   problem names the file and the rule, never a value.
 2. It starts the session's own sandbox, as a round's run does, with the
-   run directory as its one read-write bind, the Codex install, the role's
-   skill and the brief directory read-only, and the npm cache under an
-   overlay. The brief directory is `PYRIC_FACTORY_BRIEF_DIR` (`BRIEF.md`,
-   `specs/`, `DESIGN.md`) and must be outside the run directory; the app
-   directory must be inside it. The role's skill is
+   run directory as its one read-write bind and, read-only, the agent's
+   install, the role's skill, the brief directory and the session's
+   sandbox directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
+   file and the forwarder's socket); the npm cache is under an overlay. The
+   brief directory must be outside the run directory and the app directory
+   inside it. No bind may contain the host's home directory or reach the
+   agent's credential directory. The role's skill is
    `.agents/skills/factory-<role>/SKILL.md` in the checkout the harness
    runs from, and a session doesn't start without it.
-3. It starts the Codex forwarder (`factory/codex-forwarder.ts`) outside
-   and enters `factory/codex-phase.ts` into the sandbox, which starts the
-   bridge and Codex. Codex gets the skill's text as its developer
-   instructions, and `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the
-   skills name, in its environment and its prompt. Codex's HOME and
-   CODEX_HOME are the seat's own (`homes/<seat>/`) and hold no login.
-4. It saves Codex's events to `logs/<seat>-<stamp>.jsonl` and returns how
-   the session ended (`factory/codex-session.ts`).
+3. It starts the upstream forwarder (`factory/upstream-forwarder.ts`)
+   outside and enters `factory/agent-phase.ts` into the sandbox, which
+   makes the seat's HOME (`homes/<seat>/`, holding no credential), starts
+   the bridge on a fixed loopback port and runs the command the adapter
+   built. The agent gets the skill's text as its instructions, and
+   `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the skills name, in its
+   environment and its prompt.
+4. It saves the agent's output to `<run dir>.host/logs/<seat>-<stamp>.jsonl`
+   and returns how the session ended (`factory/agent-session.ts`).
 
-**The login never enters the sandbox.** Codex talks to a custom model
-provider, `pyric`, whose base URL is the bridge
-(`http://127.0.0.1:<port>/backend-api/codex`, `wire_api = "responses"`,
-`requires_openai_auth = false`, websockets off), so it sends its requests
-with no credential. The forwarder reads the login for each request, puts
-`Authorization: Bearer <access token>` and `chatgpt-account-id` on it, and
-sends it to `chatgpt.com:443`. It passes on only `POST
-/backend-api/codex/responses` and `.../responses/compact` with no query,
-only the headers Codex sends (`originator`, `session-id`, `thread-id`,
-`x-client-request-id`, `x-codex-*`, `x-openai-*` and the like), and only a
-JSON body for `gpt-6.1-sol` with no server-side tool (web search, image
-generation, file search, code interpreter, computer use, remote MCP).
-Codex's web search and image generation are also turned off in its
-settings. Every request is a line of `<run dir>.codex-channel/<seat>.jsonl`,
-beside the run directory, with the usage windows the response reported.
+**The credential never enters the sandbox.** The agent sends its model
+requests to the bridge with no credential. The forwarder applies the
+adapter's policy to each, reads the credential for each, sets its headers
+last and sends the request to the policy's upstream over TLS. Every
+request is a line of `<run dir>.host/channel/<seat>.jsonl` with the reason,
+the status and the usage windows the response named; names, never values.
+A header Node would refuse to send is refused with 400, not thrown, and an
+unexpected failure in the forwarder drops that request and stops the
+session as `killed`, never the supervisor.
 
-The harness never refreshes the login. Codex rotates the refresh token on
-each refresh, so a second writer would sign the host's Codex out. The
-access token lasts ten days; the forwarder reads the file per request, so
-a refresh made on the host is picked up at once, and it refuses with 401
-from five minutes before the token lapses, saying so in the record. Start
-Codex on the host (or run `codex login`) before a run that would cross
-that time.
+**Nothing on the host is written through the run directory.** Every
+sandbox of a run can write the run directory, and they run at once, so any
+of them could plant a link there to a file of the host's. The harness
+writes its own files into the host directory, opens each new file with
+`O_EXCL | O_NOFOLLOW` and appends with `O_NOFOLLOW`, replaces
+`latest-check.json` through a fresh, unguessable sibling and a rename, and
+reads `work-list.json` only when it is a regular file, not a link. The
+sandbox's `resolv.conf` and `hosts` are checked in
+(`recorder/sandbox-etc/`), so starting a sandbox writes nothing
+(`factory/host-files.ts`).
 
-**Codex's own sandbox is bypassed** (`--dangerously-bypass-approvals-and-sandbox`,
-which Codex reserves for environments that are sandboxed outside it). The
-bwrap sandbox is the boundary. Nested, Codex's sandbox would also cut the
-agent's commands off from loopback, where the dev server, the harness
-browser and the bridge listen. Every setting comes from the command line,
-with `--ignore-user-config` and `--ignore-rules`, so nothing a session
-leaves in CODEX_HOME configures the next.
-
-**How a session ends.** `exit`, when Codex exits; `rate-limit`, when it
-failed out of usage, by its own message ("You've hit your usage limit",
-or a 429 it gave up retrying) or because its last request came back 429;
-`killed`, when the supervisor stops it or a signal no one sent ends it;
-`deadline`, at `remainingMs` or when the supervisor aborts with
-`deadline`. Codex prints a reset only as local wall-clock text, so
-`resetAt` is the forwarder's: the 429's `resets_at`, or the reset of the
-full usage window. Each session runs in its own process group; inside,
-bwrap's `--die-with-parent` ends the sandbox and everything in it if the
+**How a session ends.** `exit`, when the agent exits; `rate-limit`, when it
+failed out of usage, by its own output (the adapter reads it) or because
+its last request came back 429; `killed`, when the supervisor stops it, the
+forwarder faults, or a signal no one sent ends it; `deadline`, at
+`remainingMs` or when the supervisor aborts with `deadline`. `resetAt` is
+the forwarder's: what this session's latest 429 named. Only this session's
+lines of the seat's record count. Each session runs in its own process
+group, and a stop signals the whole group; inside, bwrap's
+`--die-with-parent` ends the sandbox and everything in it if the
 supervisor is killed.
 
 ## The canary
@@ -730,8 +736,7 @@ first fetch from a server they run on 127.0.0.2; that fetch must fail without
 reaching it, or the resolver rules are not in effect and nothing is planted.
 
 Each run leaves `<root>/canary/<stamp>/` with `app/`, `home/`, `logs/` (one
-file per process), `network.jsonl`, `chromium-netlog.json`, the sandbox's
-`resolv.conf` and `hosts`, `plants.json` (what each plant saw) and
+file per process), `network.jsonl`, `chromium-netlog.json`, `plants.json` (what each plant saw) and
 `canary.json` (that and the verdict). `<root>` is `~/pyric-builders`, or
 `PYRIC_BUILDERS_DIR`. The harness never removes a run; clearing that
 directory clears them all.
@@ -766,8 +771,9 @@ nsenter -t <child pid> -U -m -n -p -i -u -C --preserve-credentials --root env -C
   cache even offline; the overlay keeps those writes in the sandbox, and the
   shared cache never changes;
 - fresh: `/dev`, `/proc` (its own pid namespace), `/tmp` and `/run`, both
-  tmpfs, and the run's own `/etc/resolv.conf` (naming 127.0.0.1) and
-  `/etc/hosts` (loopback names only).
+  tmpfs, and the sandbox's own `/etc/resolv.conf` (naming 127.0.0.1) and
+  `/etc/hosts` (loopback names only), checked in under `recorder/sandbox-etc/`
+  so the harness writes nothing into the run directory to start a sandbox.
 
 There is no `/mnt`, no `/run/WSL`, no `/run/user` and no home directory
 beyond the bound paths. The network namespace has only `lo`.
@@ -998,21 +1004,15 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   directory, which the sandbox binds read-write. The model channel's lines
   come from the forwarder's own record, outside, and the metered cost is
   read from that record alone.
-- **Anything in a factory session can spend the subscription.** As with
-  the Claude token, a process in the sandbox can send Codex requests
-  through the channel, for `gpt-6.1-sol` only, but can't read the login or
-  reach another host. There is no dollar meter: the subscription's usage
-  windows bound the spend, and each request's line records them.
-- **A Codex compaction is untested.** The forwarder passes
-  `/responses/compact` only with a JSON body naming `gpt-6.1-sol`, as a
-  turn's body does. If Codex sends it in another shape, a long session's
-  compaction fails with 400 or 403, and the record names the reason.
-- **The Codex token scan is not wired to a keep step yet.** The factory
-  keeps its run directory as it is. `factory/codex-scan.ts` looks for the
-  login's access, refresh and ID tokens with the harness's own scan, and
-  is what a later step that copies a run out runs first.
+- **Anything in a factory session can spend the agent's usage.** As with
+  the round's token, a process in the sandbox can send requests through
+  the channel, within the adapter's policy, but can't read the credential
+  or name a URL for the upstream to fetch. There is no dollar meter: the
+  usage windows the upstream reports bound the spend, and each request's
+  line records them.
+- **The factory's token scan is not wired to a keep step yet.** The
+  factory keeps its run directory as it is. `factory/secret-scan.ts` looks
+  for the credential's secrets with the harness's own scan, and is what a
+  later step that copies a run out runs first.
 - **A factory session can't install new packages.** Its sandbox has the
   npm cache under an overlay, offline, and no registry, as a round's run.
-- **Codex waits for the network forever.** When its requests can't
-  connect (the forwarder is down), Codex prints "Reconnecting... waiting
-  for network" and never exits, so the session ends at its deadline.

@@ -65,8 +65,8 @@ export type PrivateRead = { ok: true; text: string } | { ok: false; problem: str
  * Reads a file only its owner may read, or says which rule it breaks: a
  * regular file (not a link), owned by `uid`, with no group or other access.
  * `label` names the file in a problem (`the token file`), and no problem
- * says what the file holds. The Codex login (`factory/codex-login.ts`) is
- * read the same way.
+ * says what the file holds. A factory agent's credential is read the same
+ * way.
  */
 export function readPrivateFile(path: string, label: string, uid: number = process.getuid?.() ?? -1): PrivateRead {
   let fd: number;
