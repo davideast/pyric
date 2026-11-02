@@ -15,7 +15,7 @@ sure none is.
 
 | Variable or file | Holds |
 |---|---|
-| `$RUN_DIR/progress.md` | findings from the user agent, notes from builders (headings starting `pyric?`) |
+| `$RUN_DIR/progress.md` | findings from the user agent (`### finding <id>`), notes from builders (headings starting `pyric?`); append-only |
 | `$RUN_DIR/latest-check.json` | the last hourly check |
 | `$RUN_DIR/work-list.json` | the items |
 | `$RUN_DIR/issue-drafts/` | the drafts you write, one `<slug>.md` each |
@@ -24,23 +24,52 @@ sure none is.
 
 Your prompt names the run. Use the run directory's name as `<run>` below.
 
-## Sorting a finding
+## Sorting what came in
 
-For each finding, `pyric?` note and check failure since your last session:
+Each session, sort every open user-agent finding, every item a builder
+blocked with `"pyric?: ..."`, and every check failure since your last
+session:
 
 - **App bug**: the app's code contradicts Firebase's documented API or the
   spec, or the failure goes away when the app does what Firebase's docs
-  say. Add a `todo` item for it, first in the list, with the finding's
-  steps in its `doneWhen`, unless an item for it already exists.
+  say. Add a fix item first in the list, unless one exists. A blocked
+  item that turns out to be an app bug: delete its `blocked`, and add the
+  cause to its `doneWhen`.
 - **Pyric defect**: the app does what Firebase's docs say, and pyric
   answers differently from production Firebase, lacks the API, crashes,
   or gives an error that doesn't say what failed. Write a draft (below).
-- **Can't tell**: write down why in the progress notes, and treat it as a
+- **Can't tell**: append why to the progress notes, and treat it as a
   pyric defect until a repro says otherwise.
+- **Not a bug**: the finding misread the spec, or no longer shows. Close
+  it as resolved.
+
+A fix item has the lead's shape (see factory-lead): an `id` of lowercase
+words joined by hyphens, a `title`, `status` `todo`, the `spec` it comes
+from, a `doneWhen` that holds the finding's steps and expected result,
+and `"finding": "<finding id>"` when it came from a finding.
+
+### Closing findings
+
+A user-agent finding is open until you or the lead close it. Close each
+one you sort, in the same session, in one of two ways:
+
+- make an item for it (a fix item with its `finding` id, or a blocked
+  item with a draft), or
+- append `Closed finding <id>: resolved, <why>` to the progress notes.
+
+Append `Closed finding <id>: item <item id>` for the first way too, so
+anyone reading the notes sees each finding closed. The fix item now
+carries the finding, so the item the finding was raised against can be
+marked done without it.
+
+### Production evidence
 
 Production evidence is a Firebase or Google Cloud reference page, or the
 `firebase` package's own code in `$APP_DIR/node_modules/firebase`. Never
 call production Firebase to find out, and never use a real credential.
+A divergence's **Production** field and a missing API's **In
+production** field each carry a link to that evidence; `factory-drafts`
+refuses a draft without one.
 
 ## A pyric defect
 
@@ -54,12 +83,15 @@ call production Firebase to find out, and never use a real credential.
 2. Write the draft (format below) to `$RUN_DIR/issue-drafts/<slug>.md`.
    The slug is short, lowercase words joined by hyphens. When a draft for
    the same behavior exists, add to it instead.
-3. Mark the work item it blocks: set `"pyricIssue": "<slug>.md"` and, if
-   the item can't go on, `"blocked": "<slug>.md"`.
+3. Mark the work item it affects: set `"pyricIssue": "<slug>.md"`. If the
+   item can't go on, set `"blocked": "<slug>.md"`, remove its `owner` and
+   set its status to `todo`. Only you set a block to a draft.
 4. A workaround is allowed only when the draft records it under
    **Workaround** (for a missing API) or in the **Done when** of a
    divergence or bug ("Done when: ..., and the app drops its workaround in
-   <file>"). Write in the progress notes that the builder may use it.
+   <file>"). Then delete the item's `blocked`, set its `workaround` to one
+   line on what the builder may do, and append that to the progress
+   notes.
 
 Check every draft with:
 
@@ -129,10 +161,14 @@ Found by factory run <run>, item <item id>.
 
 ## Marking items done
 
-An item is `done` when all of these hold: its `review.design` is
-`approved`, the user agent wrote that it works end to end and has no open
-finding against it, and the latest check passed. Set its `status` to
-`done`. Leave every other item's status as it is.
+An item is `done` when all of these hold:
+
+- it is `ready` and its `review.design` is `approved`;
+- the user agent appended `<item id>: works end to end` after its ready
+  note, and every finding against it is closed;
+- the latest check passed.
+
+Set its `status` to `done`. Leave every other item's status as it is.
 
 ## Your session
 
@@ -154,11 +190,24 @@ unreadable. Instead:
 3. Rename it over the original:
    `mv $RUN_DIR/work-list.json.triage.tmp $RUN_DIR/work-list.json`.
 
+## Writing the progress notes
+
+The progress notes are append-only. Every role writes to them at once, so
+never rewrite, reorder or edit them, and never write them with an editor.
+Add a note only by appending:
+
+```
+cat >> "$RUN_DIR/progress.md" <<'EOF'
+
+## 23:40 triage
+<your note>
+EOF
+```
+
 ## Rules
 
 - File nothing. Never run `gh`, and never write to GitHub or any other
   remote. The coordinator reviews the drafts in the morning.
 - Never edit the app, the check or the specs, and never fix pyric.
-- Write a short note in the progress notes each session under a heading
-  with the time and `triage`: each finding, its verdict, and the item or
-  draft it became.
+- Append a short note to the progress notes each session: each finding
+  and block, its verdict, and the item or draft it became.

@@ -18,36 +18,52 @@ work at once, each in its own seat; your prompt names yours
 | `$BRIEF_DIR/specs/` | the spec each item names |
 | `$BRIEF_DIR/DESIGN.md` | the design language you follow |
 | `$RUN_DIR/work-list.json` | the items |
-| `$RUN_DIR/progress.md` | notes every role reads and adds to |
+| `$RUN_DIR/progress.md` | notes every role reads and appends to |
 | `$RUN_DIR/latest-check.json` | the last hourly check |
 | `$RUN_DIR/issue-drafts/` | pyric defects triage has written up |
 
 ## Taking an item
 
-1. Read `work-list.json`. If an item has your seat as `owner` and is
-   `todo` or `in-progress`, go on with it: a reviewer may have sent it
-   back with a `reason`. Read the reason first.
-2. Otherwise take the first `todo` item with no `owner` and no `blocked`
-   field. Set `owner` to your seat and `status` to `in-progress`, and
-   write the file back at once, keeping every other item and field as it
-   was. Take one item only.
-3. If there is nothing to take, write that in the progress notes and stop.
+1. Read `work-list.json`. If an item has your seat as `owner`, is `todo`
+   or `in-progress`, and has no `blocked`, go on with it: a reviewer may
+   have sent it back with a `reason`. Read the reason first.
+2. Otherwise take the first item that is `todo`, has no `owner`, has no
+   `blocked`, and whose `dependsOn` items are all `ready` or `done`. Set
+   `owner` to your seat and `status` to `in-progress`, and write the list
+   at once. Take one item only.
+3. If there is nothing to take, append that to the progress notes and
+   stop.
 
 ## Building it
 
 - Read the item's spec and `doneWhen`, and the parts of DESIGN.md it
-  touches, before writing code.
+  touches, before writing code. If the item has a `workaround`, triage
+  allowed it: use it as written, and only it.
 - Work in `$APP_DIR` on its `main` branch. Commit small: one commit per
   step that builds and passes its tests, with a message that says what
   changed and why, such as `feat(search): store an index entry per
   narration`. Never amend, reset or rewrite a commit already there.
-- The other builder works in the same repo at the same time. Stage only
-  the files you changed (`git add <path>`, never `git add -A` or
-  `git add .`), and never revert, reformat or stash files you didn't
-  touch. If a commit fails because the other builder is committing, wait
-  a few seconds and try again.
 - Write a test for each behavior the `doneWhen` names, in the app's test
   setup.
+
+## Sharing the repo
+
+The other builder works in the same repo, the same working tree and the
+same git index, at the same time.
+
+- Commit only your own paths, and always name them in the commit:
+  `git add <new file>` for each file you created, then
+  `git commit -m "<message>" -- <path> <path>`. Never run a bare
+  `git commit`, `git commit -a`, `git add -A` or `git add .`: they would
+  commit the other builder's work under your message.
+- Never edit, revert, reformat or stash a file you didn't change for this
+  item.
+- If a commit fails because the other builder is committing, wait a few
+  seconds and try again.
+- If the typecheck, a test or a UI rule fails only in files the other
+  builder is changing, it is their unfinished work. Append a note naming
+  the files and the error, leave them alone, go on with your own work, and
+  run the checks again later. Don't mark your item ready until they pass.
 
 ## Design
 
@@ -69,18 +85,42 @@ DESIGN.md is the standard the reviewer holds you to. In particular:
   and success lines.
 - Check the screen at 1440px and 390px wide.
 
+## Pyric problems
+
+The app runs on pyric, a local stand-in for Firebase. When something
+fails because pyric behaves differently from production Firebase, lacks
+an API, or crashes, don't work around it quietly:
+
+1. Append a note whose heading starts with `pyric?`: what you did, what
+   Firebase's docs led you to expect (with the page), and what happened,
+   with the exact error.
+2. Commit what you have that works.
+3. Set the item's `blocked` to `"pyric?: <one line on what fails>"`,
+   remove its `owner`, and set its `status` to `todo`. Triage decides
+   whether it is pyric's and clears the block or writes a draft.
+4. Take the next item.
+
+An item with an unresolved `pyric?` part is never `ready`. When triage
+blocks an item you own, do the same from step 2.
+
 ## Before marking it ready
 
-Run, from `$APP_DIR`:
+Run, from `$APP_DIR`, with the app's own scripts and tools:
 
-1. the typecheck (`npx tsc --noEmit`, or the app's `typecheck` script);
+1. the typecheck (the app's `typecheck` script, or `tsc --noEmit` from
+   `node_modules/.bin`);
 2. the tests for what you changed;
-3. the UI rules (`npx ast-grep scan`, with the app's own rule config).
+3. the UI rules (`ast-grep scan` from `node_modules/.bin`, with the app's
+   own rule config).
+
+If a tool isn't installed, don't fetch it: append a note and stop.
 
 All three pass, and your work is committed. Then set the item's `status`
-to `ready`, and add a note to the progress notes under a heading with the
-time and your seat: the item, the commits, the screen's route, and
-anything a reviewer should look at.
+to `ready`, delete its `review` if it has one, and append a note headed
+with the time and your seat: the item, the commits, the screen's route,
+the line `Ready commit: <sha of your last commit>`, and anything a
+reviewer should look at. The reviewer checks that the screenshots it
+judges include that commit.
 
 ## Your session
 
@@ -104,23 +144,30 @@ unreadable. Instead:
 3. Rename it over the original:
    `mv $RUN_DIR/work-list.json.builder-1.tmp $RUN_DIR/work-list.json`.
 
+Change only the item you take or own.
+
+## Writing the progress notes
+
+The progress notes are append-only. Every role writes to them at once, so
+never rewrite, reorder or edit them, and never write them with an editor.
+Add a note only by appending:
+
+```
+cat >> "$RUN_DIR/progress.md" <<'EOF'
+
+## 23:40 builder-1
+<your note>
+EOF
+```
+
 ## Rules
 
 - Never edit, move or delete the check's files or rules: the ast-grep
   rule config and rules, the copy check, the walk scripts, the layout and
   alignment checks, and the test runner's config. Never skip, disable or
   loosen a test, a lint rule or a type check, and never add an ignore
-  comment to get past one. When a rule seems wrong, write why in the
+  comment to get past one. When a rule seems wrong, append why to the
   progress notes and build to it anyway.
-- Never mark an item `done`, and never change an item you don't own,
-  except to take it.
-- When something fails because pyric (the local Firebase the app runs on)
-  behaves differently from production Firebase, or crashes, don't work
-  around it quietly. Write in the progress notes what you did, what you
-  expected from Firebase's docs, and what happened, with the exact error,
-  under a heading that starts with `pyric?`. Then stop work on that part
-  and go on with the rest of the item. Triage decides whether it is
-  pyric's; a workaround is allowed only once triage records it in an
-  issue draft.
+- Never mark an item `done`.
 - Don't deploy, and don't reach any network host beyond this machine.
 - Work only in `$APP_DIR` and the run's state files.
