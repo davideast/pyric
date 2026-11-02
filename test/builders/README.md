@@ -25,6 +25,7 @@ bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-n
 bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
+bun test/builders/harness.ts factory-drafts --run-dir <dir>
 bun test/builders/harness.ts factory-setup --run-dir <dir> --app-source <repo> [--commit <sha>]
     [--brief-dir <dir>] [--packages <dir> | --build]
 bun test/builders/harness.ts factory-hour --run-dir <dir> --hour <n>
@@ -40,8 +41,8 @@ bun test/builders/harness.ts factory-hour --run-dir <dir> --hour <n>
 `check-briefs` validates a round's briefs as `round` would and starts
 nothing. `reproduce` re-runs one problem of a kept run for the verifier
 (below). `measure` summarizes `measurements.jsonl`. `factory`,
-`factory-summary`, `factory-check`, `factory-setup` and `factory-hour` run
-the factory (below). The `run`
+`factory-summary`, `factory-check`, `factory-drafts`, `factory-setup` and
+`factory-hour` run the factory (below). The `run`
 command comes in a later pull request.
 
 ## The skills
@@ -508,8 +509,7 @@ triage. Each role works in short sessions. The supervisor
 - **At most four sessions at once.** The schedule is the `SEATS` table in
   `factory/schedule.ts`. The lead runs first, again after each round of
   reviews, and whenever a builder would start with nothing on the work list
-  (then with "plan the next items from the specs and the user agent's
-  findings"). The builders run continuously once the lead has run. The user
+  (then with "plan the next items, if any, and write them"). The builders run continuously once the lead has run. The user
   agent, design reviewer and triage run once each after every hourly check
   and whenever a builder marks an item ready; triage waits for the other
   two. A seat whose session ends within a minute, whatever its exit code,
@@ -535,6 +535,16 @@ triage. Each role works in short sessions. The supervisor
   after the start, writes its result to `latest-check.json` and the
   timeline, and wakes the on-demand roles. A check that throws is recorded
   as failed. A runner module without one checks nothing.
+
+Each role's instructions are a skill: `.agents/skills/factory-lead`,
+`factory-builder`, `factory-user-agent`, `factory-design-reviewer` and
+`factory-triage`. They name the brief, run and app directories as
+`$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`. Triage writes each pyric defect
+it finds as an issue draft in `issue-drafts/<slug>.md`, with its repro in
+`issue-drafts/repros/<slug>/`, and files nothing. `factory-drafts` lists
+the drafts and checks each against the issue standard in `AGENTS.md`: the
+title pattern for its label, one label, the kind's four bold fields, and
+a "Found by" line.
 
 Sessions come from `factory/session-runner.ts`, which exports `runSession`,
 the hourly check (`hourlyCheck`, below) and `runEnd`, which the supervisor
