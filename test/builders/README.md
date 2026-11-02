@@ -25,6 +25,9 @@ bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-n
 bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
+bun test/builders/harness.ts factory-setup --run-dir <dir> --app-source <repo> [--commit <sha>]
+    [--brief-dir <dir>] [--packages <dir> | --build]
+bun test/builders/harness.ts factory-hour --run-dir <dir> --hour <n>
 ```
 
 `canary` is the harness's integration test. Run it before every round.
@@ -37,7 +40,8 @@ bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stal
 `check-briefs` validates a round's briefs as `round` would and starts
 nothing. `reproduce` re-runs one problem of a kept run for the verifier
 (below). `measure` summarizes `measurements.jsonl`. `factory`,
-`factory-summary` and `factory-check` run the factory (below). The `run`
+`factory-summary`, `factory-check`, `factory-setup` and `factory-hour` run
+the factory (below). The `run`
 command comes in a later pull request.
 
 ## The skills
@@ -591,6 +595,43 @@ User units run only while the user's systemd manager does, which by default
 ends when the last session logs out. For a run that has to outlive a remote
 login, turn on lingering once: `loginctl enable-linger "$USER"`
 (`loginctl show-user "$USER" -p Linger` says whether it is on).
+
+### The app and the hourly check
+
+`factory-setup` prepares a run's app before `factory --hours` starts it
+(`factory/app-setup.ts`): mdmedia cloned from a local repo at a pinned
+commit with no remote, Studio installed on the packed Pyric packages inside
+the sandbox, `studio/.env.local` written with a demo project and a fake key,
+and the Functions source built, since `pyric sandbox` refuses a declared
+source with no entry. Its one commit on the `factory` branch (the Pyric pins
+and the UI rules registered in Studio's ast-grep config) is the start
+commit, recorded in `app.json`. The UI rules are copied into
+`studio/checks/factory-rules/` and kept out of git, so roles can run them.
+
+`factory-hour` runs one hourly check by hand; the supervisor runs the same
+check (`factory/hourly-check.ts`) each hour. It checks out the roles'
+current commit in `check/app` and passes only when every gate passes:
+
+- `typecheck`, `tests`, `studio-checks`: Studio's own, in the sandbox. A
+  failure the start commit already had does not count (`known-failures.ts`).
+- `app-start`, `walks`: Studio starts with one command in the sandbox
+  (`app-start.ts`) and the brief's `walks/*.mjs` pass in Chromium.
+- `ui-rules`, `copy`: the factory's ast-grep rules (`factory/ui-rules/`) and
+  the copy rules (`copy-rules.ts`) on lines changed since the start commit.
+  `<run-dir>/approved-components.txt` lists new `components/ui` files the
+  lead approved; `<run-dir>/copy-overrides.json` adds verbs and labels.
+- `layout`: no overlap, clipped text, horizontal scroll or misaligned
+  column at 1440px or 390px that the start commit didn't have.
+
+Each check writes `checks/hour-<n>/`: `result.json`, a log per failing gate,
+`screenshots/`, `copy-report.md`, `capture.json` and `gallery.html` (the
+start commit beside this hour). `checks/latest` points at the newest. The
+start commit's captures are in `checks/baseline/`, and DESIGN.md's
+reference screens in `checks/reference/`.
+
+A passing commit becomes the last good one (`last-good.json`) and is served
+from `served/app` on port 4120 (Pyric on 4121), on the private network when
+Tailscale is available. It restarts only when a newer commit passes.
 
 ### The morning review
 
