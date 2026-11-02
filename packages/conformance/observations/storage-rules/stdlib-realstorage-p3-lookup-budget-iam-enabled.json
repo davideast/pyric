@@ -1,10 +1,12 @@
 {
   "name": "stdlib-realstorage-p3-lookup-budget-iam-enabled",
   "matrixRow": "",
-  "rowIds": ["storage-rules#131"],
-  "description": "Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents. The rig restores the exact prior Storage release and verifies all run-scoped data is absent before writing this file.",
-  "observedAt": "2026-07-21T13:36:22.347Z",
-  "fbSdkVersion": "12.13.0",
+  "rowIds": [
+    "storage-rules#131"
+  ],
+  "description": "Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents.",
+  "observedAt": "2026-11-02T18:41:55.234Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "bucket": "digame-mas.appspot.com",
   "behavior": {
@@ -21,20 +23,21 @@
     "one": {},
     "two": {},
     "three": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrup5p8j/three/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     },
     "repeat": {},
     "get-exists": {},
     "short": {},
     "missing-exists": {},
     "missing-get": {
-      "code": "storage/unauthorized",
-      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrup5p8j/missing-get/payload.bin'. (storage/unauthorized)"
+      "code": "403",
+      "message": "Permission denied."
     }
   },
   "cleanup": {
     "releaseRestored": true,
+    "firestoreReleaseRestored": true,
     "objectsRemoved": true,
     "documentsRemoved": true,
     "iamRestored": true
@@ -44,5 +47,35 @@
     "externallyEnabledIam": false,
     "iamChanged": true
   },
+  "requestBudget": {
+    "counts": {
+      "storage": 9,
+      "firestoreWrite": 3,
+      "rules": 5,
+      "iam": 3
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 25,
+      "rules": 20,
+      "iam": 12
+    }
+  },
+  "cleanupRequestBudget": {
+    "counts": {
+      "storage": 11,
+      "firestoreWrite": 6,
+      "rules": 2,
+      "iam": 0
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 24,
+      "rules": 8,
+      "iam": 6
+    }
+  },
+  "probeBlockSha256": "08abfad53b97b77b44562189354cc1ae7979066778916efb20b8a3764c49b671",
+  "deployedRulesFileSha256": "bd966c646176fc96a5e73e3d033d82bdf28141e3b24bd9cbd8a7addda4e4aee4",
   "probeRulesetCreated": true
 }
