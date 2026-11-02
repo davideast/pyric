@@ -75,8 +75,8 @@ const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
 /**
  * Copies what the harness keeps of the run into the data root, with the
  * token's value replaced wherever it turns up. The app is packed without
- * node_modules, and withheld when any file of it held the token. Nothing in
- * `skip` is copied.
+ * node_modules, and withheld when any file of it held the token or is in
+ * `skip`. Nothing else in `skip` is copied.
  */
 export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: Secrets, skip?: Skipped): Promise<void> {
   mkdirSync(dataDir, { recursive: true });
@@ -84,7 +84,9 @@ export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: str
   copyRedacted(dirs.briefJson, join(dataDir, 'brief.json'), token, skip);
   copyRedacted(dirs.networkLog, join(dataDir, 'network.jsonl'), token, skip);
   copyRedacted(dirs.logs, join(dataDir, 'logs'), token, skip);
-  if (record.harness.tokenFoundIn.some(isInApp)) return;
+  // tar reads the app whole: a file of it the scan skipped would be packed unscanned.
+  const skipsInApp = [...(skip ?? [])].some((path) => isInApp(relative(dirs.root, path)));
+  if (record.harness.tokenFoundIn.some(isInApp) || skipsInApp) return;
   const tar = await runCommand('tar', ['-czf', join(dataDir, 'app.tgz'), '--exclude=node_modules', '-C', dirs.root, 'app'], { cwd: dirs.root });
   if (tar.code !== 0) throw new Error(`packing the app failed (exit ${tar.code}):\n${tar.output}`);
 }

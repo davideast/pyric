@@ -13,6 +13,7 @@ import { finishRun, KEPT_PHASE_OUTPUT, RUN_PHASE_LOG, type FinishInput, type Run
 import { BUILDER_LOG } from './run-phase.ts';
 import * as ownerAccessModule from './owner-access.ts';
 import * as runRecordModule from './run-record.ts';
+import * as tokenScanModule from './token-scan.ts';
 import type { RunRecord } from './run-record.ts';
 import { createRunDirs } from './scratch.ts';
 import { filesContaining } from './token-scan.ts';
@@ -177,6 +178,23 @@ describe('finishRun on a network record the builder wrote', () => {
       expect(readFileSync(join(end.dataDir, 'network.jsonl'), 'utf8')).toContain(`\n${line}\n`);
     });
   }
+
+  test('withholds the app when the token scan skipped a file of it, as tar would pack it unscanned', async () => {
+    const { dirs, end } = plainRun();
+    const big = join(dirs.app, 'big.bin');
+    mkdirSync(dirs.app, { recursive: true });
+    writeFileSync(big, 'tar can read this; the scan could not\n');
+    const real = tokenScanModule.filesContaining;
+    const spy = spyOn(tokenScanModule, 'filesContaining').mockImplementation((path, secret, skip, onUnreadable) => {
+      if (path !== big) return real(path, secret, skip, onUnreadable);
+      onUnreadable?.(path, 'the read failed: File size is greater than 2 GiB');
+      return [];
+    });
+    const record = await finishRun(input(), end).finally(() => spy.mockRestore());
+    expect(record.harness.plantedLinks).toEqual(['app/big.bin: the read failed: File size is greater than 2 GiB']);
+    expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
+    expect(existsSync(join(end.dataDir, 'app.tgz'))).toBe(false);
+  });
 
   test('appends the measurement line, and still keeps the run, when building its record throws', async () => {
     const { end } = plainRun();
