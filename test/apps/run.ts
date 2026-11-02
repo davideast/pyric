@@ -185,6 +185,7 @@ async function runApp(name: string, context: {
   } catch (error) {
     failure = error;
   }
+  console.log(`[diag] ${name}: scenario settled at step "${run.currentStep}", ${failure === undefined ? 'passed' : 'failed'}`);
   // The tree is removed off the event loop, which every running app's steps
   // share. An rmSync of one app's installed tree held it for over 4 s on CI,
   // and the apps still running timed that stall as their own.

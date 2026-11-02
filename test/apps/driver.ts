@@ -811,8 +811,11 @@ export class AppRun implements App {
   }
 
   async close(): Promise<void> {
+    console.log(`[diag] ${this.name}: closing the browser context, step "${this.currentStep}"`);
     await this.context?.close().catch(() => {});
+    console.log(`[diag] ${this.name}: browser context closed, stopping ${this.processes.length} processes`);
     await Promise.all(this.processes.map((child) => child.stop()));
+    console.log(`[diag] ${this.name}: processes stopped`);
     for (const hole of this.blackholes) hole.close();
   }
 }

@@ -639,6 +639,7 @@ jobs:
         # other caller of the runners, publish included, keeps its exit code.
         env:
           PYRIC_QUARANTINE_BASE_ENTRIES: ${{ needs.plan.outputs.quarantine-base }}
+          DEBUG: 'pw:browser*'
         run: bun test/apps/run.ts --packages dist/packages --skip-slow --shard-plan test-results/app-plan.json --shard ${{ matrix.shard.index }} --quarantine
       - name: Upload the quarantine report
         # Each quarantined test's result in this run, which the release check
