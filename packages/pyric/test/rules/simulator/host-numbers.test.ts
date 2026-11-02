@@ -120,6 +120,17 @@ describe('Firestore: an integral token claim inside int64 stays an int', () => {
     });
   }
 
+  test('a nested integral claim is an int too', () => {
+    const token = { nested: { n: 2 ** 53 } };
+    expect(firestore('request.auth.token.nested.n is int', 0, { token })).toBe('ALLOW');
+    expect(firestore('request.auth.token.nested.n is float', 0, { token })).toBe('DENY');
+  });
+
+  test('a claim of exactly 2^63 is past int64, so it is a float', () => {
+    const token = { n: 2 ** 63 };
+    expect(firestore('request.auth.token.n is float && !(request.auth.token.n is int)', 0, { token })).toBe('ALLOW');
+  });
+
   test('a claim with a fraction is a bare float that combines with a float literal', () => {
     const token = { f: 1.5 };
     expect(firestore('request.auth.token.f is float && !(request.auth.token.f is int)', 0, { token })).toBe('ALLOW');
