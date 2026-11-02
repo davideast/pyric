@@ -5,10 +5,11 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type Plugin, type ViteDevServer } from 'vite';
-import { viteRealPathDeny } from '../../src/serve/vite-real-path-deny.js';
+import { createServer, type InlineConfig, type Plugin, type ViteDevServer } from 'vite';
+import { attachViteRealPathDeny } from '../../src/serve/vite-real-path-deny.js';
 
 const servers: ViteDevServer[] = [];
 afterEach(async () => {
@@ -31,8 +32,9 @@ function project(): string {
   return root;
 }
 
-async function serve(root: string, plugins: Plugin[]): Promise<string> {
+async function serve(root: string, plugins: Plugin[], config: InlineConfig = {}): Promise<string> {
   const server = await createServer({
+    ...config,
     root,
     configFile: false,
     logLevel: 'silent',
@@ -47,13 +49,28 @@ async function serve(root: string, plugins: Plugin[]): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-function guardPlugin(root: string): Plugin {
+function guardPlugin(projectDir: string): Plugin {
   return {
     name: 'test:real-path-deny',
     configureServer(server) {
-      server.middlewares.use(viteRealPathDeny(() => [server.config.root, root]));
+      attachViteRealPathDeny(server, projectDir);
     },
   };
+}
+
+/** A raw request target, which `fetch` would normalize. */
+function rawGet(base: string, target: string): Promise<{ status: number; body: string }> {
+  const { hostname, port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    const req = request({ hostname, port, path: target }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 const deniedUrls = [
@@ -113,6 +130,64 @@ describe('Vite real-path guard', () => {
     writeFileSync(join(root, 'main.js'), 'export const ok = 1;');
     const base = await serve(root, [guardPlugin(root)]);
     expect((await fetch(`${base}/main.js`)).status).toBe(200);
+  });
+
+  it('refuses a path that does not decode', async () => {
+    const root = project();
+    const base = await serve(root, [guardPlugin(root)]);
+    for (const target of ['/nope%ZZ/../env-link', '/%E0%A4%A', '/%']) {
+      const answer = await rawGet(base, target);
+      expect(answer.status).toBe(403);
+      expect(answer.body).not.toContain('API_KEY');
+    }
+  });
+
+  it('checks the path below a configured base', async () => {
+    const root = project();
+    const base = await serve(root, [guardPlugin(root)], { base: '/app/' });
+    const targets = [
+      '/app/env-link',
+      '/app/env-link?raw',
+      '/app/state-link/hosted/state.sqlite',
+      `/app/@fs${join(root, 'env-link')}?raw`,
+      `/app/@fs${join(root, 'state-link', 'hosted', 'state.sqlite')}`,
+    ];
+    for (const target of targets) {
+      const answer = await rawGet(base, target);
+      expect(answer.status).toBe(403);
+      expect(answer.body).not.toContain('API_KEY');
+      expect(answer.body).not.toContain('users and data');
+    }
+    expect((await rawGet(base, '/app/src/main.js')).status).toBe(200);
+  });
+
+  it('checks the public directory, which is a root of its own', async () => {
+    const root = project();
+    const publicDir = mkdtempSync(join(tmpdir(), 'pyric-vite-real-path-public-'));
+    symlinkSync(join(root, '.env'), join(publicDir, 'pub-env'));
+    const base = await serve(root, [guardPlugin(root)], { publicDir });
+    const res = await fetch(`${base}/pub-env`);
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain('API_KEY');
+  });
+
+  it('does not count the project directory\'s own path against a file inside it', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'pyric-vite-real-path-parent-'));
+    const projectDir = join(parent, '.pyric', 'project');
+    const root = join(projectDir, 'web');
+    mkdirSync(join(projectDir, 'shared'), { recursive: true });
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(projectDir, 'shared', 'a.js'), 'export const shared = 1;');
+    symlinkSync(join(projectDir, 'shared', 'a.js'), join(root, 'a.js'));
+    const base = await serve(root, [guardPlugin(projectDir)]);
+    expect((await fetch(`${base}/a.js`)).status).toBe(200);
+  });
+
+  it('serves a source file whose name only starts like an env file', async () => {
+    const root = project();
+    writeFileSync(join(root, 'src', '.environment.js'), 'export const environment = 1;');
+    const base = await serve(root, [guardPlugin(root)]);
+    expect((await fetch(`${base}/src/.environment.js`)).status).toBe(200);
   });
 
   it('still serves ordinary files', async () => {

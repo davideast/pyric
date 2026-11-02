@@ -117,6 +117,11 @@ export function isLoopbackAddress(address: string | undefined): boolean {
   return IPV6_LOOPBACK.has(lower) || IPV4_LOOPBACK.test(ipv4);
 }
 
+/** True when the request's socket peer is on this machine. */
+export function isLocalPeer(req: { socket?: { remoteAddress?: string } }): boolean {
+  return isLoopbackAddress(req.socket?.remoteAddress);
+}
+
 /**
  * Origin allowlist for WebSocket `upgrade` handshakes and local endpoint requests.
  * A browser sends an `Origin` header carrying the page's origin; a hostile page

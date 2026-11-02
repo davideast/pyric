@@ -28,7 +28,7 @@ import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, isLoopbackAddress, type ServeLogger } from './server.js';
+import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, isLocalPeer, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
 import type { AppPorts } from './app-ports.js';
 import { handleActivity } from './activity-route.js';
@@ -584,7 +584,32 @@ function isAppOrigin(req: IncomingMessage, originHeader: string, opts: GuardOpti
 
 type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPorts'>;
 
+/**
+ * What a client on another machine reads from init.json: no project data, no
+ * capability, and the fields a page needs to say why it has no sandbox.
+ * An allowlist, so a field added to the payload stays local until it is named here.
+ */
+function remotePeerInitPayload(payload: InitPayload): InitPayload {
+  return {
+    instanceId: payload.instanceId,
+    hosted: payload.hosted,
+    remotePeer: true,
+    rules: null,
+    rulesHash: null,
+    storageRules: null,
+    storageRulesHash: null,
+    bridgeUrl: null,
+    seed: null,
+  };
+}
+
 function guardLoopback(req: IncomingMessage, res: ServerResponse, opts: GuardOptions): boolean {
+  // First, and whatever the headers say: a client chooses its own headers.
+  const isRemotePeer = !isLocalPeer(req);
+  if (isRemotePeer) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: this route answers clients on this machine only');
+    return false;
+  }
   const hostHeader = getHeader(req, 'host');
   const originHeader = getHeader(req, 'origin');
   if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
@@ -771,11 +796,13 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     const isInitRequest = url.pathname === '/__pyric/init.json';
     if (isInitRequest) {
-      // The token unlocks project state and files. A client chooses its Host
-      // header, so only the socket's peer address decides who receives it.
-      const peerIsLoopback = isLoopbackAddress(req.socket?.remoteAddress);
-      const issuedToken = peerIsLoopback ? sessionToken : undefined;
-      const payload = { ...opts.initPayload(), sessionToken: issuedToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
+      const isRemotePeer = !isLocalPeer(req);
+      if (isRemotePeer) {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(JSON.stringify(remotePeerInitPayload(opts.initPayload())));
+        return true;
+      }
+      const payload = { ...opts.initPayload(), sessionToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
       const hasActivityEndpoint = activityEndpoint !== undefined;
       if (hasActivityEndpoint) payload.activityToken = activityEndpoint.token;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });

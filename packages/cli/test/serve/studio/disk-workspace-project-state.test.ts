@@ -29,6 +29,8 @@ beforeEach(() => {
   writeFileSync(join(root, 'firestore.rules'), 'rules');
   symlinkSync(join(root, '.pyric', 'state'), join(root, 'src', 'state-link'));
   symlinkSync(join(root, '.env'), join(root, 'src', 'env-link'));
+  // The name is denied, the file behind it is not.
+  symlinkSync(join(root, 'src', 'app.js'), join(root, '.env.link'));
 });
 
 const deniedPaths = [
@@ -42,6 +44,7 @@ const deniedPaths = [
   'node_modules/pkg/index.js',
   'src/state-link/hosted/state.sqlite',
   'src/env-link',
+  '.env.link',
 ];
 
 describe('diskWorkspace refuses project state', () => {
@@ -77,6 +80,8 @@ describe('diskWorkspace refuses project state', () => {
 
   it('still reads and writes ordinary project files', async () => {
     const ws = diskWorkspace(root);
+    writeFileSync(join(root, 'src', '.environment.js'), 'source');
+    expect(await ws.read('src/.environment.js')).toBe('source');
     expect(await ws.read('src/app.js')).toBe('app');
     await ws.write('src/new.js', 'new');
     expect(await ws.read('src/new.js')).toBe('new');

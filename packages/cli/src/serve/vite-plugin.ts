@@ -63,7 +63,7 @@ import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
 import { pyricFsDeny } from './vite-state-deny.js';
-import { viteRealPathDeny } from './vite-real-path-deny.js';
+import { attachViteRealPathDeny } from './vite-real-path-deny.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
 interface EnvironmentHooks {
@@ -246,13 +246,6 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
   return defaultRoot;
 }
 
-/** The directories Vite serves request paths from, plus the Firebase project directory. */
-function viteServedRoots(config: { root: string; publicDir?: string }, projectDir: string): string[] {
-  const publicDir = config.publicDir;
-  const hasPublicDir = typeof publicDir === 'string' && publicDir.length > 0;
-  return hasPublicDir ? [config.root, publicDir, projectDir] : [config.root, projectDir];
-}
-
 /**
  * The dev-only Vite plugin. Add to `vite.config`:
  *
@@ -370,7 +363,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
       async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
       // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
-      server.middlewares.use(viteRealPathDeny(() => viteServedRoots(server.config, projectDir)));
+      attachViteRealPathDeny(server, projectDir);
       const stateScope = generationStateScope(options);
       const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;

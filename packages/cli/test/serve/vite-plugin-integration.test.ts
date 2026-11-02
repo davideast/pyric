@@ -189,6 +189,7 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
       url: '/__pyric/events',
       originalUrl: '/__pyric/events',
       headers: { host: 'localhost' },
+      socket: { remoteAddress: '127.0.0.1' },
     });
     const response = new MockRes();
     handler(request, response, () => {});

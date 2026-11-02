@@ -50,6 +50,9 @@ afterEach(() => {
   for (const root of projects.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+/** What a real request's socket reports; the guarded routes answer only this machine. */
+const LOCAL_PEER = { socket: { remoteAddress: '127.0.0.1' } };
+
 describe('sandbox session', () => {
   it('stages a bare seed and shared defaults in the live payload', async () => {
     const root = project();
@@ -578,7 +581,7 @@ service firebase.storage {
     });
     const stream = new ResponseRecorder();
     await session.handle(
-      new EventEmitter() as IncomingMessage,
+      Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage,
       stream as unknown as ServerResponse,
       new URL('http://localhost/__pyric/events'),
     );
@@ -641,7 +644,7 @@ service firebase.storage {
     bridgeUrl = 'ws://localhost:5173/__pyric/sandbox';
     const response = new ResponseRecorder();
     const handled = await session.handle(
-      { headers: { host: 'localhost' } } as IncomingMessage,
+      { headers: { host: 'localhost' }, socket: { remoteAddress: '127.0.0.1' } } as unknown as IncomingMessage,
       response as unknown as ServerResponse,
       new URL('http://localhost/__pyric/init.json'),
     );
@@ -664,7 +667,7 @@ service firebase.storage {
       firebaseConfig: null,
       sdk: { dir: join(root, 'sdk') },
     });
-    const request = new EventEmitter() as IncomingMessage;
+    const request = Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage;
     const response = new ResponseRecorder();
 
     expect(await session.handle(
@@ -745,7 +748,7 @@ service firebase.storage {
 
     const response = new ResponseRecorder();
     const handled = await session.handle(
-      { method: 'GET' } as IncomingMessage,
+      { method: 'GET', ...LOCAL_PEER } as unknown as IncomingMessage,
       response as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1'),
     );
@@ -757,7 +760,7 @@ service firebase.storage {
     // Same uid, same bytes on a second fetch (the manifest cache).
     const again = new ResponseRecorder();
     await session.handle(
-      { method: 'GET' } as IncomingMessage,
+      { method: 'GET', ...LOCAL_PEER } as unknown as IncomingMessage,
       again as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1'),
     );
@@ -779,7 +782,7 @@ service firebase.storage {
 
     const response = new ResponseRecorder();
     const handled = await session.handle(
-      new EventEmitter() as IncomingMessage,
+      Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage,
       response as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1'),
     );
@@ -799,7 +802,7 @@ service firebase.storage {
     expect(session.payload().avatars).toBe(false);
     const response = new ResponseRecorder();
     expect(await session.handle(
-      new EventEmitter() as IncomingMessage,
+      Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage,
       response as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1'),
     )).toBe(false);
@@ -829,7 +832,7 @@ service firebase.storage {
     // The minted URL, fetched back against the same session's namespace.
     const response = new ResponseRecorder();
     const handled = await session.handle(
-      { method: 'GET' } as IncomingMessage,
+      { method: 'GET', ...LOCAL_PEER } as unknown as IncomingMessage,
       response as unknown as ServerResponse,
       new URL(minted!, 'http://localhost'),
     );
@@ -858,7 +861,7 @@ service firebase.storage {
 
     const response = new ResponseRecorder();
     const handled = await session.handle(
-      { method: 'GET' } as IncomingMessage,
+      { method: 'GET', ...LOCAL_PEER } as unknown as IncomingMessage,
       response as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1'),
     );
@@ -926,14 +929,14 @@ service firebase.storage {
     // A page listening on the SSE hub, exactly as entries/avatar-upgrade.ts does.
     const stream = new ResponseRecorder();
     await session.handle(
-      new EventEmitter() as IncomingMessage,
+      Object.assign(new EventEmitter(), LOCAL_PEER) as unknown as IncomingMessage,
       stream as unknown as ServerResponse,
       new URL('http://localhost/__pyric/events'),
     );
 
     const first = new ResponseRecorder();
     await session.handle(
-      { method: 'GET' } as IncomingMessage,
+      { method: 'GET', ...LOCAL_PEER } as unknown as IncomingMessage,
       first as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1'),
     );
@@ -947,7 +950,7 @@ service firebase.storage {
     // What the page's reload then fetches: the materialised image.
     const second = new ResponseRecorder();
     await session.handle(
-      { method: 'GET' } as IncomingMessage,
+      { method: 'GET', ...LOCAL_PEER } as unknown as IncomingMessage,
       second as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1?pyric-upgrade=1'),
     );

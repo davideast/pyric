@@ -64,7 +64,7 @@ const { pyric } = await import(pathToFileURL(createRequire(new URL("../tools/pac
 | Flag | Meaning |
 |---|---|
 | `--port <number>` | Set the first port to try. The default is `3473`. Pyric scans forward if it is taken. |
-| `--host <host>` | Set the bind host. The default is `localhost`. Only clients on this machine receive the session token, so a page opened from another machine cannot use state persistence, Studio, or Storage byte transfers. |
+| `--host <host>` | Set the bind host. The default is `localhost`. A client on another machine gets the static site only: every sandbox, Studio, and MCP route answers clients on this machine. |
 | `--bridge` | Mount MCP at `/__pyric/mcp`. |
 | `--ui` | Open Studio instead of the served application. Studio is served by default. |
 | `--no-ui` | Do not serve Studio, docs, workspace, or project routes. |

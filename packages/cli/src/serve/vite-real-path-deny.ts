@@ -6,17 +6,29 @@
  * So a symlink inside the root that points at `.pyric/state` or at `.env`
  * would hand those bytes out. This middleware runs before Vite's own: it
  * resolves the file a request names (under the root, the public directory, or
- * an `/@fs/` absolute path) to its real path, and answers 403 when that real
- * path is inside `.pyric/` or is a `.env*` file.
+ * an `/@fs/` absolute path, each with or without the configured `base`) to its
+ * real path, and answers 403 when that real path is inside `.pyric/` or is an
+ * env file. A path it cannot decode is refused, because a later layer may
+ * still normalize its way to a file this check never saw.
  */
 import { realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isAbsolute, join, relative } from 'node:path';
+import type { ViteDevServer } from 'vite';
 import { isPyricStateOrEnvPath } from './project-secret-paths.js';
 
 const FS_PREFIX = '/@fs/';
 
 type Next = (error?: unknown) => void;
+
+export interface ViteDenyScope {
+  /** The Vite root and public directory: where a request path can open a file. */
+  servedRoots: readonly string[];
+  /** The Firebase project directory: its own path does not count against a file inside it. */
+  containingRoots: readonly string[];
+  /** Vite's `base`. */
+  base: string;
+}
 
 /** The decoded pathname of a request URL, without its query or hash; null when it does not decode. */
 function decodedPathname(rawUrl: string | undefined): string | null {
@@ -28,7 +40,20 @@ function decodedPathname(rawUrl: string | undefined): string | null {
   }
 }
 
-/** The files a request could open: an `/@fs/` path names one, any other path is tried under each root. */
+/** A `base` as a path with a trailing slash; a full URL contributes its pathname. */
+function basePath(base: string): string {
+  const pathname = new URL(base, 'http://base.invalid').pathname;
+  return pathname.endsWith('/') ? pathname : `${pathname}/`;
+}
+
+/** The path as named, and the path below `base` when it starts there. */
+function withAndWithoutBase(pathname: string, base: string): string[] {
+  const prefix = basePath(base);
+  const isUnderBase = prefix !== '/' && pathname.startsWith(prefix);
+  return isUnderBase ? [pathname, `/${pathname.slice(prefix.length)}`] : [pathname];
+}
+
+/** The files a path could open: an `/@fs/` path names one, any other is tried under each root. */
 function candidateFiles(pathname: string, roots: readonly string[]): string[] {
   const isFsPath = pathname.startsWith(FS_PREFIX);
   if (isFsPath) return [pathname.slice(FS_PREFIX.length - 1)];
@@ -60,29 +85,46 @@ function isDeniedRealPath(realPath: string, realRoots: readonly string[]): boole
   return containing.some((root) => isPyricStateOrEnvPath(relative(root, realPath)));
 }
 
-/**
- * Connect middleware for Vite's dev server. `roots` gives the Vite root, its
- * public directory and the Firebase project directory, read on each request
- * so a restarted server's config is used.
- */
-export function viteRealPathDeny(roots: () => readonly string[]) {
+function refuse(res: ServerResponse, message: string): void {
+  res.statusCode = 403;
+  res.setHeader('content-type', 'text/plain; charset=utf-8');
+  res.end(message);
+}
+
+/** Connect middleware; `scope` is read per request so a restarted server's config is used. */
+export function viteRealPathDeny(scope: () => ViteDenyScope) {
   return (req: IncomingMessage, res: ServerResponse, next: Next): void => {
     const pathname = decodedPathname(req.url);
     const undecodable = pathname === null;
     if (undecodable) {
-      next();
+      refuse(res, 'pyric: this request path does not decode.');
       return;
     }
-    const rootList = roots();
-    const realRoots = rootList.map((root) => realPathOf(root) ?? root);
-    const realFiles = candidateFiles(pathname, rootList).map(realPathOf);
+    const { servedRoots, containingRoots, base } = scope();
+    const realRoots = [...servedRoots, ...containingRoots].map((root) => realPathOf(root) ?? root);
+    const paths = withAndWithoutBase(pathname, base);
+    const realFiles = paths.flatMap((path) => candidateFiles(path, servedRoots)).map(realPathOf);
     const isDenied = realFiles.some((file) => file !== null && isDeniedRealPath(file, realRoots));
     if (isDenied) {
-      res.statusCode = 403;
-      res.setHeader('content-type', 'text/plain; charset=utf-8');
-      res.end('pyric: this path is project state or an env file, which the dev server does not serve.');
+      refuse(res, 'pyric: this path is project state or an env file, which the dev server does not serve.');
       return;
     }
     next();
   };
+}
+
+/** The scope one dev server's guard checks: its served directories and the Firebase project around them. */
+export function viteDenyScope(config: { root: string; publicDir?: string; base?: string }, projectDir: string): ViteDenyScope {
+  const publicDir = config.publicDir;
+  const hasPublicDir = typeof publicDir === 'string' && publicDir.length > 0;
+  return {
+    servedRoots: hasPublicDir ? [config.root, publicDir] : [config.root],
+    containingRoots: [projectDir],
+    base: config.base ?? '/',
+  };
+}
+
+/** Installs the guard ahead of Vite's own middleware. */
+export function attachViteRealPathDeny(server: Pick<ViteDevServer, 'config' | 'middlewares'>, projectDir: string): void {
+  server.middlewares.use(viteRealPathDeny(() => viteDenyScope(server.config, projectDir)));
 }

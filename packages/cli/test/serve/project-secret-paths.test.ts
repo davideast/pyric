@@ -32,7 +32,7 @@ describe('isProjectSecretPath', () => {
     'web/Node_Modules/x.js',
     'a\\.pyric\\state',
   ];
-  const plain = ['', '.', 'src/app.tsx', 'firestore.rules', 'environment.ts', 'env/.keep', 'pyric/state', 'my.pyric/x', 'modules/node_modules.md'];
+  const plain = ['', '.', 'src/app.tsx', 'firestore.rules', 'environment.ts', 'env/.keep', 'pyric/state', 'my.pyric/x', 'modules/node_modules.md', 'src/.environment.js', '.envoy.yaml'];
 
   for (const path of secret) {
     it(`refuses ${path}`, () => expect(isProjectSecretPath(path)).toBe(true));
@@ -49,5 +49,6 @@ describe('isPyricStateOrEnvPath', () => {
     expect(isPyricStateOrEnvPath('.envrc')).toBe(true);
     expect(isPyricStateOrEnvPath('node_modules/.vite/deps/firebase.js')).toBe(false);
     expect(isPyricStateOrEnvPath('src/main.js')).toBe(false);
+    expect(isPyricStateOrEnvPath('src/.environment.js')).toBe(false);
   });
 });

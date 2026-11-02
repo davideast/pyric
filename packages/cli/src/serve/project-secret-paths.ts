@@ -1,8 +1,8 @@
 /**
  * Project paths pyric's dev routes never serve.
  *
- * `.pyric/` holds project state (users, documents, session files), `.env*`
- * files hold credentials, and `node_modules` is installed code nobody edits
+ * `.pyric/` holds project state (users, documents, session files), env files (`.env`, `.env.*`, `.envrc`)
+ * hold credentials, and `node_modules` is installed code nobody edits
  * through Studio. The workspace routes refuse all three. Vite serves
  * dependencies from `node_modules`, so its real-path guard refuses only the
  * first two.
@@ -15,8 +15,8 @@
  */
 
 const PYRIC_DIRECTORY = '.pyric';
-/** The literal pattern `.env*`: `.env`, `.env.local`, `.envrc`. */
-const ENV_PREFIX = '.env';
+const ENV_FILES = new Set(['.env', '.envrc']);
+const ENV_VARIANT_PREFIX = '.env.';
 const DEPENDENCY_DIRECTORY = 'node_modules';
 
 /** A segment as the disk may open it: lower case, without a trailing period or space. */
@@ -26,7 +26,7 @@ function diskName(segment: string): string {
 
 function isPyricOrEnvSegment(segment: string): boolean {
   const name = diskName(segment);
-  return name === PYRIC_DIRECTORY || name.startsWith(ENV_PREFIX);
+  return name === PYRIC_DIRECTORY || ENV_FILES.has(name) || name.startsWith(ENV_VARIANT_PREFIX);
 }
 
 function isDependencySegment(segment: string): boolean {
@@ -37,7 +37,7 @@ function segmentsOf(relativePath: string): string[] {
   return relativePath.split(/[/\\]/).filter((segment) => segment !== '' && segment !== '.');
 }
 
-/** True when a path is in `.pyric/` or passes through a `.env*` name. Both planes share this set. */
+/** True when a path is in `.pyric/` or passes through an env file's name (`.env`, `.env.*`, `.envrc`). Both planes share this set. */
 export function isPyricStateOrEnvPath(relativePath: string): boolean {
   return segmentsOf(relativePath).some(isPyricOrEnvSegment);
 }
