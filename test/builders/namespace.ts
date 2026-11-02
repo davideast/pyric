@@ -69,7 +69,8 @@ export interface EgressNamespace {
   pid: number;
   /** `command args` as run inside the sandbox, in `cwd`. */
   enter(command: string, args: readonly string[], cwd: string): { command: string; args: string[] };
-  stop(): Promise<void>;
+  /** Stops the sandbox; `still-running` when bwrap outlived its stop and SIGKILL, which makes the run invalid. */
+  stop(): Promise<SandboxStop>;
 }
 
 export interface SandboxOptions {
@@ -292,8 +293,11 @@ export function ownDirs(runRoot: string, env: NodeJS.ProcessEnv = process.env): 
   return [...new Set([runRoot, '/tmp', ...freshTmpdir])];
 }
 
+/** How a sandbox's stop ended. */
+export type SandboxStop = 'exited' | 'still-running';
+
 /** A process's start time in clock ticks since boot, from /proc; null once it is gone. */
-function startTimeOf(pid: number): string | null {
+export function startTimeOf(pid: number): string | null {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] ?? null;
@@ -306,15 +310,16 @@ function startTimeOf(pid: number): string | null {
  * Waits for bwrap to exit: its `close` event, or /proc showing it exited
  * when no event said so. Under load Bun can miss a child's exit (#1274),
  * leaving it an unreaped zombie or reaping it without a `close`; a run
- * that waited on the event alone never ended (#1767). Past `exitMs` it
- * kills bwrap, which takes the sandbox down with it, and past `killMs`
- * more it stops waiting and says so, so the run's data is still kept.
+ * that waited on the event alone never ended (#1767). `started` is bwrap's
+ * start time, read right after it was spawned; a null one (it was gone by
+ * then) counts as exited. Past `exitMs` it kills bwrap, which takes the
+ * sandbox down with it, and past `killMs` more it stops waiting and
+ * resolves `still-running`.
  */
-export async function awaitSandboxExit(child: ChildProcess, exited: Promise<void>, timing: StopTiming = STOP_TIMING): Promise<void> {
+export async function awaitSandboxExit(child: ChildProcess, exited: Promise<void>, started: string | null, timing: StopTiming = STOP_TIMING): Promise<SandboxStop> {
   const pid = child.pid;
-  const started = pid === undefined ? null : startTimeOf(pid);
   // Gone, or its pid reused by another process; or a zombie nobody reaps.
-  const exitedUnseen = () => pid !== undefined && (startTimeOf(pid) !== started || unreapedExit(pid) !== undefined);
+  const exitedUnseen = () => pid === undefined || started === null || startTimeOf(pid) !== started || unreapedExit(pid) !== undefined;
   const exitWithin = (ms: number) => new Promise<boolean>((resolve) => {
     const settle = (hasExited: boolean) => {
       clearInterval(poll);
@@ -325,10 +330,11 @@ export async function awaitSandboxExit(child: ChildProcess, exited: Promise<void
     const limit = setTimeout(() => settle(false), ms);
     void exited.then(() => settle(true));
   });
-  if (await exitWithin(timing.exitMs)) return;
+  if (await exitWithin(timing.exitMs)) return 'exited';
   if (!exitedUnseen()) child.kill('SIGKILL');
-  if (await exitWithin(timing.killMs)) return;
-  console.error(`▸ the sandbox (bwrap pid ${pid}) did not exit within ${(timing.exitMs + timing.killMs) / 1000}s of its stop, even after SIGKILL; the harness goes on without it`);
+  if (await exitWithin(timing.killMs)) return 'exited';
+  console.error(`▸ the sandbox (bwrap pid ${pid}) did not exit within ${(timing.exitMs + timing.killMs) / 1000}s of its stop, even after SIGKILL; the run is invalid`);
+  return 'still-running';
 }
 
 /**
@@ -357,6 +363,8 @@ export async function startEgressNamespace(options: SandboxOptions): Promise<Egr
     env: { PATH: process.env.PATH, PYRIC_BUILDER_NETWORK_LOG: options.networkLog },
     stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
   });
+  // Read now, while bwrap surely runs, so a pid reused after its exit never reads as bwrap.
+  const started = child.pid === undefined ? null : startTimeOf(child.pid);
   const exited = new Promise<void>((resolve) => {
     child.once('close', () => resolve());
     child.once('error', () => resolve());
@@ -371,12 +379,12 @@ export async function startEgressNamespace(options: SandboxOptions): Promise<Egr
       enter: (command, args, cwd) => enterArgs(pid, command, args, cwd),
       async stop() {
         child.stdin?.end();
-        await awaitSandboxExit(child, exited, options.stopTiming);
+        return awaitSandboxExit(child, exited, started, options.stopTiming);
       },
     };
   } catch (error) {
     child.kill('SIGKILL');
-    await awaitSandboxExit(child, exited, options.stopTiming);
+    await awaitSandboxExit(child, exited, started, options.stopTiming);
     throw error;
   }
 }

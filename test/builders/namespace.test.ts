@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
 import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
-import { awaitSandboxExit, DROP_CAPABILITIES, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
+import { awaitSandboxExit, DROP_CAPABILITIES, startTimeOf, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
 
 /** A DNS query for `name`, type A, recursion desired. */
 function query(name: string, id = 0x1234): Buffer {
@@ -216,26 +216,37 @@ const isRunning = (pid: number) => {
 
 describe('awaitSandboxExit', () => {
   const timing = { exitMs: 1000, killMs: 1000, pollMs: 20 };
+  const startOf = (child: ChildProcess) => (child.pid === undefined ? null : startTimeOf(child.pid));
 
   test('ends a stop whose exit the runtime never reports, from /proc', async () => {
+    const child = losingExit(spawn('sleep', ['0.2'], { stdio: 'ignore' }));
+    const started = startOf(child);
+    expect(started).not.toBeNull();
+    const begun = performance.now();
+    expect(await awaitSandboxExit(child, exitedPromise(child), started, timing)).toBe('exited');
+    expect(performance.now() - begun).toBeLessThan(timing.exitMs);
+  });
+
+  test('counts a sandbox gone before its start time was read as exited', async () => {
     const child = losingExit(spawn('true', [], { stdio: 'ignore' }));
-    const started = performance.now();
-    expect(await within(awaitSandboxExit(child, exitedPromise(child), timing), 5000)).toBe('settled');
-    expect(performance.now() - started).toBeLessThan(timing.exitMs);
+    const begun = performance.now();
+    expect(await awaitSandboxExit(child, exitedPromise(child), null, timing)).toBe('exited');
+    expect(performance.now() - begun).toBeLessThan(timing.exitMs);
   });
 
   test('kills a sandbox that outlives its stop, and goes on once it is gone', async () => {
     const child = losingExit(spawn('sleep', ['30'], { stdio: 'ignore' }));
     const pid = child.pid ?? 0;
-    expect(await within(awaitSandboxExit(child, exitedPromise(child), timing), 5000)).toBe('settled');
+    expect(await awaitSandboxExit(child, exitedPromise(child), startOf(child), timing)).toBe('exited');
     expect(isRunning(pid)).toBe(false);
   });
 
-  test('stops waiting on a sandbox SIGKILL does not end', async () => {
+  test('says the sandbox is still running when SIGKILL does not end it', async () => {
     const signals: string[] = [];
     const undying = { pid: process.pid, kill: (signal: string) => signals.push(signal) } as unknown as ChildProcess;
-    expect(await within(awaitSandboxExit(undying, new Promise(() => {}), timing), 5000)).toBe('settled');
-    expect(signals).toEqual(['SIGKILL']);
+    expect(await within(awaitSandboxExit(undying, new Promise(() => {}), startTimeOf(process.pid), timing), 5000)).toBe('settled');
+    expect(await awaitSandboxExit(undying, new Promise(() => {}), startTimeOf(process.pid), timing)).toBe('still-running');
+    expect(signals).toEqual(['SIGKILL', 'SIGKILL']);
   });
 });
 
@@ -246,5 +257,6 @@ describe('startEgressNamespace stop', () => {
     const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root, spawnChild, stopTiming: { exitMs: 10_000, killMs: 2000, pollMs: 50 } });
     // Within the wait before SIGKILL: /proc shows bwrap gone, so the stop needs no kill.
     expect(await within(namespace.stop(), 5000)).toBe('settled');
+    expect(await namespace.stop()).toBe('exited');
   }, SANDBOX_TEST_TIMEOUT_MS);
 });
