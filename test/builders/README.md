@@ -610,13 +610,19 @@ the model lists short of `ultra`, which also delegates to sub-agents.
    stricter, holding a ChatGPT login. A problem names the file and the
    rule, never a value.
 2. It starts the session's own sandbox, as a round's run does, with the
-   run directory as its one read-write bind, the Codex install and the
-   role's skill (`.agents/skills/factory-<role>/SKILL.md`, when there is
-   one) read-only, and the npm cache under an overlay.
+   run directory as its one read-write bind, the Codex install, the role's
+   skill and the brief directory read-only, and the npm cache under an
+   overlay. The brief directory is `PYRIC_FACTORY_BRIEF_DIR` (`BRIEF.md`,
+   `specs/`, `DESIGN.md`) and must be outside the run directory; the app
+   directory must be inside it. The role's skill is
+   `.agents/skills/factory-<role>/SKILL.md` in the checkout the harness
+   runs from, and a session doesn't start without it.
 3. It starts the Codex forwarder (`factory/codex-forwarder.ts`) outside
    and enters `factory/codex-phase.ts` into the sandbox, which starts the
-   bridge and Codex. Codex's HOME and CODEX_HOME are the seat's own
-   (`homes/<seat>/`) and hold no login.
+   bridge and Codex. Codex gets the skill's text as its developer
+   instructions, and `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the
+   skills name, in its environment and its prompt. Codex's HOME and
+   CODEX_HOME are the seat's own (`homes/<seat>/`) and hold no login.
 4. It saves Codex's events to `logs/<seat>-<stamp>.jsonl` and returns how
    the session ended (`factory/codex-session.ts`).
 

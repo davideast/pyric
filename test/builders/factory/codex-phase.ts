@@ -4,15 +4,16 @@
  *
  *   nsenter -t <pid> ... env -C <cwd> bun test/builders/factory/codex-phase.ts <phase file>
  *
- * It checks it is inside the run's sandbox, then starts the model channel's bridge on the sandbox's loopback, then
- * `codex exec` (`codex-command.ts`) pointed at it. Codex's stdout, its JSON
+ * It checks it is inside the run's sandbox, reads the role's skill, starts
+ * the model channel's bridge on the sandbox's loopback, then `codex exec`
+ * (`codex-command.ts`) pointed at it. Codex's stdout, its JSON
  * events, is this process's stdout and nothing else is; the phase's own
  * lines go to stderr. A SIGTERM or SIGINT is passed on to Codex, and the
  * phase exits as Codex did.
  */
 import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
-import { openSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { startBridge } from '../model-channel.ts';
 import { assertInsideSandbox, inventoryLine } from '../sandbox-check.ts';
@@ -22,11 +23,13 @@ export const codexPhaseSchema = z.object({
   session: z.object({
     codex: z.string().min(1),
     cwd: z.string().min(1),
+    runDir: z.string().min(1),
+    briefDir: z.string().min(1),
     home: z.string().min(1),
     model: z.string().min(1),
     reasoningEffort: z.enum(REASONING_EFFORTS),
     prompt: z.string().min(1),
-    skillFile: z.string().min(1).optional(),
+    skillFile: z.string().min(1),
   }).strict(),
   /** The run directory, whose sandbox the phase checks it is in before it starts anything. */
   runRoot: z.string().min(1),
@@ -45,10 +48,11 @@ export function signalExitCode(signal: NodeJS.Signals): number {
 
 /** Runs the session; resolves Codex's exit code. The entry point checks the sandbox first; the tests call this on the host. */
 export async function runCodexPhase(phase: CodexPhase): Promise<number> {
+  // Read inside the sandbox, from its read-only bind, so Codex gets the skill the sandbox shows.
+  const instructions = readFileSync(phase.session.skillFile, 'utf8');
   const bridge = await startBridge(phase.socketPath);
-  const invocation = codexInvocation(phase.session, bridge.port, phase.base);
-  const stdin = invocation.stdinFile === null ? 'ignore' : openSync(invocation.stdinFile, 'r');
-  const child = spawn(invocation.command, invocation.args, { cwd: phase.session.cwd, env: invocation.env, stdio: [stdin, 'inherit', 'inherit'] });
+  const invocation = codexInvocation(phase.session, bridge.port, phase.base, instructions);
+  const child = spawn(invocation.command, invocation.args, { cwd: phase.session.cwd, env: invocation.env, stdio: ['ignore', 'inherit', 'inherit'] });
   const passOn = (signal: NodeJS.Signals) => child.kill(signal);
   process.on('SIGTERM', passOn);
   process.on('SIGINT', passOn);

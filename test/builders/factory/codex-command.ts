@@ -40,16 +40,20 @@ export const CODEX_PROVIDER = 'pyric';
 export interface CodexSession {
   /** The `codex` executable, as the sandbox sees it. */
   codex: string;
-  /** The session's working directory: Codex's workspace root (`-C`). */
+  /** The app directory, inside the run directory: Codex's workspace root (`-C`) and `$APP_DIR`. */
   cwd: string;
+  /** The run directory, read-write in the sandbox: `$RUN_DIR`. */
+  runDir: string;
+  /** The brief, specs and design, read-only in the sandbox: `$BRIEF_DIR`. */
+  briefDir: string;
   /** The session's HOME, inside the run directory. CODEX_HOME is `<home>/.codex`. */
   home: string;
   model: string;
   reasoningEffort: ReasoningEffort;
-  /** The session's instructions. */
+  /** What this session is asked to do: Codex's prompt. */
   prompt: string;
-  /** A skill file, sent on stdin, which Codex appends to the prompt as a `<stdin>` block. */
-  skillFile?: string;
+  /** The role's skill, which Codex gets as its developer instructions. */
+  skillFile: string;
 }
 
 export interface CodexInvocation {
@@ -57,8 +61,6 @@ export interface CodexInvocation {
   args: string[];
   /** Holds no secret. */
   env: Record<string, string>;
-  /** What Codex reads on stdin: the skill file, or nothing. */
-  stdinFile: string | null;
 }
 
 export const codexHomeOf = (session: Pick<CodexSession, 'home'>) => join(session.home, '.codex');
@@ -74,10 +76,15 @@ function overrides(pairs: ReadonlyArray<readonly [string, string]>): string[] {
 /** The base URL Codex sends model requests to: the bridge, in plain HTTP on the sandbox's loopback. */
 export const bridgeBaseUrl = (bridgePort: number) => `http://127.0.0.1:${bridgePort}/backend-api/codex`;
 
-/** The settings that point Codex at the bridge and turn off what would reach past it. */
-function settings(session: CodexSession, bridgePort: number): string[] {
+/**
+ * The settings that point Codex at the bridge, turn off what would reach
+ * past it, and give it the role's skill as developer instructions, which
+ * Codex adds to its own rather than replacing them.
+ */
+function settings(session: CodexSession, bridgePort: number, instructions: string): string[] {
   const provider = `model_providers.${CODEX_PROVIDER}`;
   return overrides([
+    ['developer_instructions', tomlString(instructions)],
     ['model_reasoning_effort', tomlString(session.reasoningEffort)],
     ['model_provider', tomlString(CODEX_PROVIDER)],
     [`${provider}.name`, tomlString('pyric codex channel')],
@@ -92,8 +99,8 @@ function settings(session: CodexSession, bridgePort: number): string[] {
   ]);
 }
 
-/** `codex exec` for one session, printing its events as JSON lines on stdout. */
-export function codexArgs(session: CodexSession, bridgePort: number): string[] {
+/** `codex exec` for one session, printing its events as JSON lines on stdout. `instructions` is the skill file's text. */
+export function codexArgs(session: CodexSession, bridgePort: number, instructions: string): string[] {
   return [
     'exec',
     '--json',
@@ -105,22 +112,33 @@ export function codexArgs(session: CodexSession, bridgePort: number): string[] {
     '--disable', 'image_generation',
     '-C', session.cwd,
     '-m', session.model,
-    ...settings(session, bridgePort),
+    ...settings(session, bridgePort, instructions),
     '--',
     session.prompt,
   ];
 }
 
-/** Codex's environment, built from nothing but `base` (PATH, LANG, TMPDIR and the recorder's variables). */
+/**
+ * Codex's environment, built from nothing but `base` (PATH, LANG, TMPDIR and
+ * the recorder's variables): its HOME, and the directories the role skills
+ * name, `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`. The commands Codex runs
+ * inherit them.
+ */
 export function codexEnvironment(session: CodexSession, base: Record<string, string>): Record<string, string> {
-  return { ...base, HOME: session.home, CODEX_HOME: codexHomeOf(session) };
+  return {
+    ...base,
+    HOME: session.home,
+    CODEX_HOME: codexHomeOf(session),
+    BRIEF_DIR: session.briefDir,
+    RUN_DIR: session.runDir,
+    APP_DIR: session.cwd,
+  };
 }
 
-export function codexInvocation(session: CodexSession, bridgePort: number, base: Record<string, string>): CodexInvocation {
+export function codexInvocation(session: CodexSession, bridgePort: number, base: Record<string, string>, instructions: string): CodexInvocation {
   return {
     command: session.codex,
-    args: codexArgs(session, bridgePort),
+    args: codexArgs(session, bridgePort, instructions),
     env: codexEnvironment(session, base),
-    stdinFile: session.skillFile ?? null,
   };
 }

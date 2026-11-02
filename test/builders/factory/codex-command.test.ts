@@ -6,11 +6,16 @@ import { codexArgs, codexInvocation, FACTORY_MODEL, MAX_REASONING_EFFORT, REASON
 const SESSION: CodexSession = {
   codex: '/opt/codex/bin/codex.js',
   cwd: '/run/app',
+  runDir: '/run',
+  briefDir: '/briefs/narrations',
   home: '/run/homes/builder-1',
   model: FACTORY_MODEL,
   reasoningEffort: MAX_REASONING_EFFORT,
   prompt: '-starts with a dash; build the next item',
+  skillFile: '/repo/.agents/skills/factory-builder/SKILL.md',
 };
+
+const SKILL = '# Factory builder\n\nYou build "one item" at a time.';
 
 /** The `-c` settings, as a map. */
 function settingsOf(args: readonly string[]): Map<string, string> {
@@ -25,7 +30,7 @@ function settingsOf(args: readonly string[]): Map<string, string> {
 
 describe('codexArgs', () => {
   test('runs codex exec printing JSON events, with no user config, rules or approvals, and its own sandbox bypassed', () => {
-    const args = codexArgs(SESSION, 4321);
+    const args = codexArgs(SESSION, 4321, SKILL);
     expect(args.slice(0, 7)).toEqual(['exec', '--json', '--strict-config', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox']);
     expect(args).toContain('--disable');
     expect(args[args.indexOf('-C') + 1]).toBe('/run/app');
@@ -34,12 +39,12 @@ describe('codexArgs', () => {
   });
 
   test('ends with the prompt after --, so a prompt that starts with a dash is not a flag', () => {
-    const args = codexArgs(SESSION, 4321);
+    const args = codexArgs(SESSION, 4321, SKILL);
     expect(args.slice(-2)).toEqual(['--', SESSION.prompt]);
   });
 
   test('points a custom provider at the bridge, sending no credential, and turns off what would reach past it', () => {
-    const settings = settingsOf(codexArgs(SESSION, 4321));
+    const settings = settingsOf(codexArgs(SESSION, 4321, SKILL));
     expect(settings.get('model_provider')).toBe('"pyric"');
     expect(settings.get('model_providers.pyric.base_url')).toBe('"http://127.0.0.1:4321/backend-api/codex"');
     expect(settings.get('model_providers.pyric.wire_api')).toBe('"responses"');
@@ -56,15 +61,21 @@ describe('codexArgs', () => {
 });
 
 describe('codexInvocation', () => {
-  test('gives Codex the seat’s HOME and a CODEX_HOME under it, on top of the base, and nothing else', () => {
-    const invocation = codexInvocation(SESSION, 4321, { PATH: '/usr/bin' });
+  test('gives Codex the seat’s HOME, a CODEX_HOME under it and the three directories the skills name, on top of the base, and nothing else', () => {
+    const invocation = codexInvocation(SESSION, 4321, { PATH: '/usr/bin' }, SKILL);
     expect(invocation.command).toBe(SESSION.codex);
-    expect(invocation.env).toEqual({ PATH: '/usr/bin', HOME: '/run/homes/builder-1', CODEX_HOME: '/run/homes/builder-1/.codex' });
-    expect(invocation.stdinFile).toBeNull();
+    expect(invocation.env).toEqual({
+      PATH: '/usr/bin',
+      HOME: '/run/homes/builder-1',
+      CODEX_HOME: '/run/homes/builder-1/.codex',
+      BRIEF_DIR: '/briefs/narrations',
+      RUN_DIR: '/run',
+      APP_DIR: '/run/app',
+    });
   });
 
-  test('sends a skill file on stdin', () => {
-    const invocation = codexInvocation({ ...SESSION, skillFile: '/skills/factory-builder/SKILL.md' }, 1, {});
-    expect(invocation.stdinFile).toBe('/skills/factory-builder/SKILL.md');
+  test('gives Codex the skill’s text as its developer instructions, as one TOML string', () => {
+    const settings = settingsOf(codexInvocation(SESSION, 1, {}, SKILL).args);
+    expect(JSON.parse(settings.get('developer_instructions') ?? '""')).toBe(SKILL);
   });
 });

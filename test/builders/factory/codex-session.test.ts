@@ -26,7 +26,14 @@ async function setup(mode: string, overrides: Partial<CodexSessionOptions> = {})
   const runRoot = mkdtempSync(join(tmpdir(), 'factory-session-'));
   const backend = await startFakeChatgpt();
   backends.push(backend);
-  const session: CodexSession = { codex: FAKE_CODEX, cwd: join(runRoot, 'app'), home: join(runRoot, 'homes', 'builder-1'), model: 'gpt-6.1-sol', reasoningEffort: 'max', prompt: 'build' };
+  const briefDir = mkdtempSync(join(tmpdir(), 'factory-brief-'));
+  writeFileSync(join(briefDir, 'BRIEF.md'), 'the brief');
+  const skillFile = join(briefDir, 'SKILL.md');
+  writeFileSync(skillFile, 'the role’s skill');
+  const session: CodexSession = {
+    codex: FAKE_CODEX, cwd: join(runRoot, 'app'), runDir: runRoot, briefDir, home: join(runRoot, 'homes', 'builder-1'),
+    model: 'gpt-6.1-sol', reasoningEffort: 'max', prompt: 'build', skillFile,
+  };
   mkdirSync(session.cwd, { recursive: true });
   mkdirSync(join(session.home, '.codex'), { recursive: true });
   const login = fakeLogin();
@@ -55,22 +62,21 @@ describe('runCodexSession', () => {
     const { options, backend, login } = await setup('ok');
     const result = await runCodexSession(options);
     expect(result).toEqual({ exitCode: 0, endedBy: 'exit', logPath: options.logPath });
-    expect(eventsOf(options.logPath).map((event) => event.type)).toEqual(['thread.started', 'fake.env', 'fake.stdin', 'turn.started', 'turn.completed']);
+    expect(eventsOf(options.logPath).map((event) => event.type)).toEqual(['thread.started', 'fake.env', 'fake.instructions', 'fake.dirs', 'turn.started', 'turn.completed']);
     expect(backend.received[0]?.headers.authorization).toBe(`Bearer ${login.accessToken}`);
     const log = readFileSync(options.logPath, 'utf8');
     for (const secret of login.secrets) expect(log).not.toContain(secret);
     expect(readFileSync(options.phaseFile, 'utf8')).not.toContain(login.accessToken);
   });
 
-  test('Codex gets HOME, CODEX_HOME and the base, and the skill file on stdin', async () => {
+  test('Codex gets HOME, CODEX_HOME, the three directories and the base, and the skill as its instructions', async () => {
     const { options } = await setup('ok');
-    const skill = join(options.runRoot, 'SKILL.md');
-    writeFileSync(skill, 'the role’s skill');
-    await runCodexSession({ ...options, session: { ...options.session, skillFile: skill } });
+    await runCodexSession(options);
     const events = eventsOf(options.logPath);
     const names = events.find((event) => event.type === 'fake.env')?.names;
-    expect(names).toEqual(['CODEX_HOME', 'FAKE_CODEX_MODE', 'HOME', 'PATH']);
-    expect(events.find((event) => event.type === 'fake.stdin')?.text).toBe('the role’s skill');
+    expect(names).toEqual(['APP_DIR', 'BRIEF_DIR', 'CODEX_HOME', 'FAKE_CODEX_MODE', 'HOME', 'PATH', 'RUN_DIR']);
+    expect(events.find((event) => event.type === 'fake.instructions')?.text).toBe('the role’s skill');
+    expect(events.find((event) => event.type === 'fake.dirs')).toMatchObject({ brief: options.session.briefDir, run: options.runRoot, app: options.session.cwd, readBrief: 'ok', writeRun: 'ok' });
   });
 
   test('out of usage, it ends by the rate limit with the reset the backend named', async () => {
