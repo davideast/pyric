@@ -1,0 +1,26 @@
+name: "Docs"
+description: "Report a docs page that is wrong or missing something."
+title: "Docs: <page>: <what is wrong>"
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: says
+    attributes:
+      label: "Says"
+      description: "What the page says now."
+    validations:
+      required: true
+  - type: textarea
+    id: should-say
+    attributes:
+      label: "Should say"
+      description: "What it should say."
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The change that shows it is fixed."
+    validations:
+      required: true
