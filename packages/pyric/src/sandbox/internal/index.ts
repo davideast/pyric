@@ -188,6 +188,7 @@ export {
   accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
   type TokenClaimAccount, type TokenClaimRecord,
 } from './auth-token-claims.js';
+export { providerVerifiesEmail } from './provider-email-verification.js';
 export { absolutePhotoUrl, realmOrigin } from './photo-url.js';
 // Realtime Database instance identity: the instance name production and
 // firebase.json use, and the per-instance registry sandbox and served hosts share.

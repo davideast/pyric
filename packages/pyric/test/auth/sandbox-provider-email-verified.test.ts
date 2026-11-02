@@ -62,7 +62,6 @@ describe('Google picker sign-in marks the email verified', () => {
     expect(storedEmailVerified(auth, credential.user.uid)).toBe(true);
     const token = await credential.user.getIdTokenResult();
     expect(token.claims.email_verified).toBe(true);
-    expect(token.signInProvider).toBe('google.com');
   });
 
   it('a picked identity created unverified becomes verified', async () => {
@@ -92,6 +91,9 @@ describe('Google picker sign-in marks the email verified', () => {
     const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
     expect(user.emailVerified).toBe(true);
     expect(auth.currentUser?.emailVerified).toBe(true);
+    const token = await user.getIdTokenResult();
+    expect(token.claims.email_verified).toBe(true);
+    expect(token.signInProvider).toBe('google.com');
     const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
     getAdminFirestore(sandbox.withAuth(null)).setRules(FIRESTORE_RULES);
     const snapshot = await getDoc(doc(getFirestore(sandbox), 'allowlist', EMAIL));

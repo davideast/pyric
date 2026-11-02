@@ -53,7 +53,7 @@ import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js'
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
   absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, realmOrigin,
-  tokenClaimAccount, rulesTokenFromIdToken,
+  providerVerifiesEmail, tokenClaimAccount, rulesTokenFromIdToken,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -1587,7 +1587,9 @@ export class SandboxBackend {
    *     and NO password (provider identities can't sign in via
    *     `signInWithEmailAndPassword`).
    *
-   * In both shapes the provider is linked into `providerUserInfo`. A
+   * In both shapes the provider is linked into `providerUserInfo`, and a
+   * provider that vouches for the email (`google.com`, see
+   * {@link providerVerifiesEmail}) marks it verified. A
    * `spec.photoUrl` is stored on a fresh record and refreshes a reused
    * same-email one; a spec without a photo never clears a stored one (see
    * {@link refreshStoredPhoto}).
@@ -1637,6 +1639,7 @@ export class SandboxBackend {
       stored.providerUserInfo.push({ providerId });
       this.notifyUsersChanged();
     }
+    if (markProviderVerifiedEmail(stored, providerId)) this.notifyUsersChanged();
     return {
       user: this.buildUserFromStored(stored),
       providerId,
@@ -2654,6 +2657,18 @@ function refreshStoredPhoto(stored: StoredUser, photoUrl: string | null): boolea
   if (photoUrl === null) return false;
   if (stored.photoUrl === photoUrl) return false;
   stored.photoUrl = photoUrl;
+  return true;
+}
+
+/**
+ * Mark the stored email verified when `providerId` vouches for it (see
+ * {@link providerVerifiesEmail}). Returns whether the record changed.
+ */
+function markProviderVerifiedEmail(stored: StoredUser, providerId: string): boolean {
+  const hasEmail = stored.email !== null;
+  const needsMark = hasEmail && !stored.emailVerified && providerVerifiesEmail(providerId);
+  if (!needsMark) return false;
+  stored.emailVerified = true;
   return true;
 }
 

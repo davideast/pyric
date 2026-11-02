@@ -158,6 +158,9 @@ export function resolveOAuthCredentialUser(
       customClaims: credential.customClaims,
       providerUserInfo: [{ providerId: credential.providerId }],
     });
+    // The provider sign-in, not the admin create, decides what the provider
+    // vouches for, such as a Google account's verified email.
+    authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
   }
   return { uid: targetUid, isNewUser: !existing };
 }
