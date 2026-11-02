@@ -56,6 +56,8 @@ export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allo
     FIREBASE_PROJECT_ID: projectId,
     FIREBASE_STORAGE_BUCKET: config.storageBucket ?? '',
     PORT: String(APP_PORT),
+    // The brief's fake media provider, inert until the app has it. Without it, the walks can't reach a generated item.
+    MDMEDIA_FAKE_MEDIA: '1',
   };
   if (options.allowedHost !== undefined) env.MDMEDIA_ALLOWED_DEV_ORIGINS = options.allowedHost;
   if (options.publicBridgePort !== undefined) env.NEXT_PUBLIC_PYRIC_BRIDGE_PORT = String(options.publicBridgePort);

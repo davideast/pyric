@@ -664,7 +664,8 @@ fresh tree, which its sandbox unpacks, and runs there, in order:
 - The install: the repo root with bun and Studio with npm, offline, with no
   install scripts. A `bun.lock` entry from a source other than the npm
   registry fails it, named.
-- `app-start`, `walks`: Studio starts with one command (`app-start.ts`).
+- `app-start`, `walks`: Studio starts with one command (`app-start.ts`),
+  with the brief's fake media switch on, which is inert until the app has it.
   The brief's `walks/*.mjs`, bound read-only from the brief directory, run
   in Chromium from a second sandbox, the walk sandbox, which reaches Studio
   only through Unix sockets the host relays (`relay.ts`). The screenshots

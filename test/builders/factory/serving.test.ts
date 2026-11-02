@@ -8,6 +8,8 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startTimeOf } from '../namespace.ts';
+import { studioEnvironment } from './app-start.ts';
+import { checkoutAt } from './app-paths.ts';
 import { isServedProcess, SERVED_PROCESS, servedPort, ServedPortInvalid } from './served.ts';
 import type { ServedState } from './served-process.ts';
 import { ensureServed, removeServed, tailnetHost, type Tailscale, type TailscaleResult } from './tailnet.ts';
@@ -28,6 +30,12 @@ async function lookalike(runDir: string): Promise<ServedState> {
   for (let tries = 0; tries < 100 && !hasExeced(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 20));
   return { pid, startTime: startTimeOf(pid) ?? '', runDir, commit: 'c', port: 4120, status: 'ready', startedAt: new Date().toISOString() };
 }
+
+describe('studioEnvironment', () => {
+  test('turns on the brief’s fake media provider, so the walks can reach a generated item', () => {
+    expect(studioEnvironment({ checkout: checkoutAt('/f/tree') }).MDMEDIA_FAKE_MEDIA).toBe('1');
+  });
+});
 
 describe('isServedProcess', () => {
   test('accepts this run\'s served process with its recorded start time', async () => {
