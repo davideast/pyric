@@ -2,7 +2,8 @@
 import { parseCheckOptions, parseFactoryOptions, parseSummaryOptions } from './options.ts';
 import { RunDirError, runPaths } from './run-dir.ts';
 import { loadRunner } from './runner-module.ts';
-import { formatSummary } from './summary.ts';
+import { workDirOf } from './app-paths.ts';
+import { formatSummary, workSizeLine } from './summary.ts';
 import { runSupervisor } from './supervisor.ts';
 import { readTimeline } from './timeline.ts';
 import { checkSupervisor } from './watchdog.ts';
@@ -35,6 +36,7 @@ export async function factoryCommand(args: readonly string[]): Promise<number> {
 export async function factorySummaryCommand(args: readonly string[]): Promise<number> {
   const { runDir } = parseSummaryOptions(args);
   console.log(formatSummary(readTimeline(runPaths(runDir).timeline)));
+  console.log(workSizeLine(workDirOf(runDir)));
   return 0;
 }
 

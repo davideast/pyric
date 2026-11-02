@@ -1,7 +1,10 @@
 /**
  * `factory-summary`: the timeline as the morning review reads it. Totals per
- * seat first, then every line in order.
+ * seat first, then every line in order, then the size of the run's work
+ * trees (`<run>.work/`).
  */
+import { lstatSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { TimelineLine } from './timeline.ts';
 
 type SessionLine = Extract<TimelineLine, { type: 'session' }>;
@@ -57,4 +60,18 @@ export function formatSummary(lines: readonly TimelineLine[]): string {
     '',
     ...lines.map(describeLine),
   ].join('\n');
+}
+
+/** The bytes of every file under `path`, links not followed; 0 when there is nothing there. */
+export function treeBytes(path: string): number {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (stat === undefined) return 0;
+  if (!stat.isDirectory()) return stat.size;
+  return readdirSync(path).reduce((total, name) => total + treeBytes(join(path, name)), 0);
+}
+
+/** One line on the size of the run's work trees, which the harness keeps. */
+export function workSizeLine(workDir: string): string {
+  const gigabytes = treeBytes(workDir) / 1024 ** 3;
+  return `work trees: ${gigabytes.toFixed(1)} GB in ${workDir}; remove them by hand when no check is running`;
 }
