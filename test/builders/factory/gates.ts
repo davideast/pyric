@@ -14,6 +14,8 @@ export interface GateResult {
   summary: string;
   /** The failing output, written to `<gate>.log` in the check's folder. */
   output?: string;
+  /** How the gate's last command ended: a null code without a timeout is a signal. */
+  exit?: { code: number | null; timedOut: boolean };
 }
 
 export interface Composed {
