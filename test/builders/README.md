@@ -635,7 +635,10 @@ Where things live, by who can write them:
 check (`factory/hourly-check.ts`) each hour. The host's git runs only in the
 bare repo, with no system or global config and every setting that runs a
 program forced off, so nothing a session plants in its clone's `.git` runs
-on the host (`factory/git.ts`). The check exports the roles' current commit
+on the host (`factory/git.ts`). The fetch refuses a clone whose `.git`
+holds a link or special file anywhere, or a `commondir` or `gitdir` file,
+and its `upload-pack` runs in a bwrap sandbox that sees only that `.git`,
+so the clone can't point the fetch at another repository. The check exports the roles' current commit
 with `git archive` into a fresh tree, which its sandbox unpacks, and runs
 there, in order:
 
@@ -680,7 +683,11 @@ machine, so a page opened from another device can't reach the sandbox
 panel. The URL is reported only once the served process says it is ready,
 and the harness signals that process only after checking its pid's command
 line and start time in /proc. When the run ends, the served copy stops and
-the entries this run added are removed.
+the entries this run added are removed. The served copy also stops on its
+own, and removes those entries, when the process that started it is gone
+(checked by pid and start time) or the run's deadline passes, so a
+supervisor that crashes leaves nothing serving. A `factory-hour` run by
+hand is that process, so its served copy stops shortly after it exits.
 
 ### The morning review
 
