@@ -1,5 +1,5 @@
 /**
- * AI Logic enforces App Check for every project from November 2, 2026, so the
+ * Each project's AI Logic enforcement date is configurable, so the
  * rig records behavior with enforcement off or on. Any run that sends a
  * generateContent request reads the enforcement mode first, and refuses to
  * capture on a mode it cannot name, so an observation always says which mode

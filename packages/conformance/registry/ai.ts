@@ -1143,8 +1143,8 @@ export const appCheckAiRows: CompatibilityRow[] = [
     rowRef: 'app-check-required',
     featureKeys: ['generateContent'],
     api: 'generateContent without App Check in production AI mode',
-    behavior: 'On an app that never initialized App Check, `firebase/ai` sends no `X-Firebase-AppCheck` header, and AI Logic rejects the request: HTTP 403, `PERMISSION_DENIED`, message `Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check.` with a docs link. A malformed header, the SDK placeholder token, and a tampered token get the same envelope; a valid token answers 200. Seen with App Check enforcement for AI Logic reading UNENFORCED.',
-    evidence: 'captures `app-check-ai-gate-wire` (all five cases on the wire) and `app-check-client-ai-header` (`noAppCheck`).',
+    behavior: 'On an app that never initialized App Check, `firebase/ai` sends no `X-Firebase-AppCheck` header, and what AI Logic answers depends on the project. One project rejected the request: HTTP 403, `PERMISSION_DENIED`, message `Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check.` with a docs link, the same for a malformed header, the SDK placeholder token and a tampered token, and 200 for a valid token. Another answers 200 to all of them. Both captures read UNENFORCED: one project refused, and another answers 200. Enforcement is required from a date each project can set, up to January 21, 2027. What ENFORCED answers is #1300.',
+    evidence: 'captures `app-check-ai-gate-wire` (all five cases on the wire, and stream and countTokens with no header) and `app-check-client-ai-header` (`noAppCheck`) record the project that answers 200. `earlier-captures/ai-logic-refusal-unenforced.json` records the 403, which the pass-through suite replays.',
     oracleObservations: ['app-check-ai-gate-wire', 'app-check-client-ai-header'],
     risk: ['error-code', 'specific-value'],
     riskScore: 2,
@@ -1155,24 +1155,25 @@ export const appCheckAiRows: CompatibilityRow[] = [
     rowRef: 'app-check-initialize-after-getai',
     featureKeys: ['getAI', 'initializeAppCheck'],
     api: 'initializeAppCheck(app) after getAI(app)',
-    behavior: 'Calling `initializeAppCheck` after `getAI(app)` built a model does not throw and `getToken` works, but that model sends no `X-Firebase-AppCheck` header and AI Logic answers 403. App Check must be initialized before `getAI`.',
-    evidence: 'capture `app-check-client-get-token-before-initialize` (`initializeAfterAi`, `getTokenAfterLateInitialize`, `aiRequestAfterLateInitialize`, `aiGenerationAfterLateInitialize`).',
+    behavior: 'Calling `initializeAppCheck` after `getAI(app)` built a model does not throw and `getToken` works, but that model sends no `X-Firebase-AppCheck` header, so AI Logic treats it as a request with no token (row `ai#app-check-required`). App Check must be initialized before `getAI`.',
+    evidence: 'capture `app-check-client-get-token-before-initialize` (`initializeAfterAi`, `getTokenAfterLateInitialize`, `aiRequestAfterLateInitialize`), and `earlier-captures/ai-logic-refusal-unenforced.json` for the refused generation.',
     oracleObservations: ['app-check-client-get-token-before-initialize'],
   }),
   appCheckAiRow({
     rowRef: 'app-check-attestation-failure',
     featureKeys: ['generateContent'],
     api: 'generateContent when App Check attestation fails',
-    behavior: 'When the token exchange is refused, `firebase/ai` sends the SDK placeholder token (base64 of `{"error":"UNKNOWN_ERROR"}`) and AI Logic answers 403; with `useLimitedUseAppCheckTokens` it throws `AI/error` naming `appCheck/fetch-status-error` before sending any request.',
-    evidence: 'capture `app-check-client-invalid-debug-token` (`aiRequest`, `aiGeneration`, `aiLimitedUseRequest`, `aiLimitedUseGeneration`).',
+    behavior: 'When the token exchange is refused, `firebase/ai` sends the SDK placeholder token (base64 of `{"error":"UNKNOWN_ERROR"}`), which AI Logic treats as an invalid token (row `ai#app-check-required`); with `useLimitedUseAppCheckTokens` it throws `AI/error` naming `appCheck/fetch-status-error` before sending any request.',
+    evidence: 'capture `app-check-client-invalid-debug-token` records a project that answers the placeholder token with 200. `earlier-captures/ai-logic-refusal-unenforced.json` records the 403, which the pass-through suite replays.',
     oracleObservations: ['app-check-client-invalid-debug-token'],
   }),
 ];
 
 /**
- * App Check in sandbox AI mode (#1291). From November 2, 2026 AI Logic
- * refuses requests without a valid App Check token, and so does the sandbox
- * broker on every plane: in process (the in-page sandbox and a registered
+ * App Check in sandbox AI mode (#1291). AI Logic enforcement is required from
+ * a date each project can set, up to January 21, 2027. The sandbox broker
+ * refuses requests without a valid App Check token on every plane, whatever a
+ * given unenforced project answers: in process (the in-page sandbox and a registered
  * Node process), and the worker broker behind the SharedWorker and the Node
  * host, which the claim reaches over the worker protocol. Handles with no app
  * (`getAI(sandbox)`, `createConfiguredSandboxAI`) are not gated: production
@@ -1196,27 +1197,27 @@ export const sandboxAppCheckAiRows: CompatibilityRow[] = [
     rowRef: 'sandbox-app-check-required',
     featureKeys: ['generateContent', 'initializeAppCheck'],
     api: 'generateContent from getAI(app) in sandbox AI mode',
-    behavior: 'An app that never initialized App Check gets the `AIError` the SDK throws for AI Logic\'s 403: code `fetch-error`, `customErrorData.status` 403, message `[403 Forbidden] Firebase AI Logic has been deactivated in this project. ...` with the docs link. The broker refuses a missing, malformed, placeholder, tampered or expired token with production\'s envelope before any engine runs, and answers a sandbox token, including one minted under the debug provider. Pyric\'s guidance goes to the console once per app and to the dev server terminal, beside the error.',
-    evidence: 'captures `app-check-ai-gate-wire` (`noHeader`, `malformedHeader`, `sdkPlaceholderToken`, `tamperedSignature`, `validAdminMintedToken`) and `app-check-client-ai-header` (`noAppCheck`), replayed by the gate suite in process and over the worker port; the app scenario drives the in-page, SharedWorker, Node host and registered Node process planes. On main before #1291 the sandbox answered tokenless requests.',
+    behavior: 'An app that never initialized App Check gets the `AIError` the SDK throws for AI Logic\'s 403: code `fetch-error`, `customErrorData.status` 403, message `[403 Forbidden] Firebase AI Logic has been deactivated in this project. ...` with the docs link. The broker refuses a missing, malformed, placeholder, tampered or expired token with production\'s envelope before any engine runs, and answers a sandbox token, including one minted under the debug provider. Pyric\'s guidance goes to the console once per app and to the dev server terminal, beside the error. The sandbox refuses even though an unenforced project can answer 200. Both captures read UNENFORCED: one project refused, and another answers 200. Enforcement is required from a date each project can set, up to January 21, 2027. What ENFORCED answers is #1300.',
+    evidence: '`earlier-captures/ai-logic-refusal-unenforced.json` (`noHeader`, `malformedHeader`, `sdkPlaceholderToken`, `tamperedSignature`, `validAdminMintedToken`, `noAppCheck`), replayed by the gate suite in process and over the worker port; the app scenario drives the in-page, SharedWorker, Node host and registered Node process planes. The current captures `app-check-ai-gate-wire` and `app-check-client-ai-header` record the project that answers 200, pinned beside the refusal in the gate suite. On main before #1291 the sandbox answered tokenless requests.',
     oracleObservations: ['app-check-ai-gate-wire', 'app-check-client-ai-header'],
     risk: ['error-code', 'specific-value'],
     riskScore: 2,
     riskReasons: ['asserts production error status and message text that can drift on re-capture'],
-    notes: 'The request URL in the error names project `sandbox`, as every sandbox-minted AI error does. The re-capture after November 2 is #1300.',
+    notes: 'The request URL in the error names project `sandbox`, as every sandbox-minted AI error does. The capture of ENFORCED mode is #1300.',
   }),
   sandboxAppCheckRow({
     rowRef: 'sandbox-app-check-initialize-after-getai',
     featureKeys: ['getAI', 'initializeAppCheck'],
     api: 'initializeAppCheck(app) after getAI(app) in sandbox AI mode',
     behavior: '`getAI(app)` reads App Check when it builds the handle. `initializeAppCheck` after it does not throw and `getToken` works, but that handle\'s requests carry no token and are refused with the 403.',
-    evidence: 'capture `app-check-client-get-token-before-initialize` (`initializeAfterAi`, `getTokenAfterLateInitialize`, `aiRequestAfterLateInitialize`, `aiGenerationAfterLateInitialize`).',
+    evidence: 'capture `app-check-client-get-token-before-initialize` (`initializeAfterAi`, `getTokenAfterLateInitialize`, `aiRequestAfterLateInitialize`), and `earlier-captures/ai-logic-refusal-unenforced.json` for the refused generation.',
     oracleObservations: ['app-check-client-get-token-before-initialize'],
   }),
   sandboxAppCheckRow({
     rowRef: 'sandbox-app-check-limited-use',
     featureKeys: ['getAI'],
     api: 'getAI(app, { useLimitedUseAppCheckTokens: true }) in sandbox AI mode',
-    behavior: 'Each request carries a fresh limited-use token rather than the cached one, and the sandbox answers.',
+    behavior: 'Each request carries a fresh limited-use token rather than the cached one, with a 300 second TTL, and the sandbox answers.',
     evidence: 'capture `app-check-client-ai-header` (`limitedUseModel`).',
     oracleObservations: ['app-check-client-ai-header'],
   }),
@@ -1226,8 +1227,8 @@ export const sandboxAppCheckAiRows: CompatibilityRow[] = [
     api: 'generateContentStream and countTokens without App Check in sandbox AI mode',
     behavior: 'Streaming and `countTokens` are refused with the same 403 `AIError` as `generateContent`. In process `generateContentStream` rejects before any chunk; on the SharedWorker and Node host planes the error reaches the caller through the stream and `response`, as other request errors do there.',
     automation: 'unit-backed',
-    evidence: 'AI Logic applies App Check to every request (https://firebase.google.com/docs/ai-logic/app-check); the captures cover only `generateContent`. Unit-backed by the gate suite and the worker protocol suite.',
-    notes: '#1300 adds captures for streaming and countTokens after November 2.',
+    evidence: 'AI Logic applies App Check to every request (https://firebase.google.com/docs/ai-logic/app-check). Capture `app-check-ai-gate-wire` records an unenforced project answering 200 to both with no header, and no capture records a refusal of them. Unit-backed by the gate suite and the worker protocol suite.',
+    notes: 'The capture of ENFORCED mode is #1300.',
   }),
 ];
 

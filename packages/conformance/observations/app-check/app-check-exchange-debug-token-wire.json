@@ -5,7 +5,7 @@
     "app-check#exchange-debug-token-wire"
   ],
   "description": "Raw REST envelope of projects.apps.exchangeDebugToken (the call the web SDK makes in debug mode, API key in the key query parameter): the success key set, ttl, and token shape for a registered debug token, and the error envelope for an unregistered one.",
-  "observedAt": "2026-11-02T18:29:22.761Z",
+  "observedAt": "2026-11-02T19:34:21.009Z",
   "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
@@ -18,7 +18,7 @@
       ],
       "ttl": "3600s",
       "token": {
-        "length": 932,
+        "length": 1006,
         "segmentCount": 3,
         "isJwt": true,
         "headerKeySet": [
@@ -35,6 +35,7 @@
           "iat",
           "iss",
           "jti",
+          "lu",
           "provider",
           "sub"
         ],
