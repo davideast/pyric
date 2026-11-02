@@ -149,6 +149,11 @@ function usrEntryArgs(entry: string): string[] {
   return isLink ? ['--symlink', readlinkSync(path), path] : ['--ro-bind', path, path];
 }
 
+/** bwrap's binds for the host's /usr and its top-level links into it, read-only. */
+export function systemBinds(): string[] {
+  return ['--ro-bind', '/usr', '/usr', ...USR_LINKS.flatMap(usrEntryArgs)];
+}
+
 export interface SandboxLayout {
   runRoot: string;
   readOnly: readonly string[];
@@ -174,8 +179,7 @@ export function sandboxArgs(layout: SandboxLayout): string[] {
     '--uid', '0', '--gid', '0',
     '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_NET_BIND_SERVICE',
     '--die-with-parent', '--new-session',
-    '--ro-bind', '/usr', '/usr',
-    ...USR_LINKS.flatMap(usrEntryArgs),
+    ...systemBinds(),
     '--dir', '/etc',
     ...layout.etc.flatMap((entry) => ['--ro-bind', `/etc/${entry}`, `/etc/${entry}`]),
     '--ro-bind', layout.resolvConf, '/etc/resolv.conf',

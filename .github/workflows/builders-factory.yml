@@ -1,7 +1,8 @@
 # The factory harness's unit tests (test/builders/factory): its gates, UI
 # rules and copy check, known failures, git hardening, serving and the
-# supervisor. They reach no network. session-runner.test.ts is left out:
-# it starts real bubblewrap sandboxes, which the hosted runner can't make.
+# supervisor. They reach no network; bubblewrap sandboxes the fetch's
+# upload-pack. session-runner.test.ts is left out: it starts the full
+# egress-logging session sandboxes, which this job has not been set up for.
 #
 # Outside the required CI aggregate: the factory is a test harness, not a
 # shipped package.
@@ -47,6 +48,14 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Install bubblewrap
+        # The hourly check's fetch runs git upload-pack in a bwrap sandbox,
+        # and git-hardening.test.ts drives it. Ubuntu's AppArmor setting
+        # blocks the unprivileged user namespace bwrap needs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Install Chromium browser
         # The layout probe's tests run it in Chromium.
         run: bunx playwright install --with-deps chromium

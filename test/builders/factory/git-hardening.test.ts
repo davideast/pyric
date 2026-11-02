@@ -4,11 +4,11 @@
 // marker file; the fetch, the archive, the show and the diff must leave none.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { changedLines } from './diff-lines.ts';
-import { archiveCommit, fetchHead, initBareRepo, showFile, sourceProblem } from './git.ts';
+import { archiveCommit, fetchHead, fetchSandboxed, GitError, initBareRepo, showFile, sourceProblem } from './git.ts';
 
 function sh(cwd: string, command: string, args: string[]): string {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
@@ -83,5 +83,113 @@ describe('the host\'s git and a session\'s planted config', () => {
     mkdirSync(join(clone.source, '.git', 'objects', 'info'), { recursive: true });
     writeFileSync(join(clone.source, '.git', 'objects', 'info', 'alternates'), '/elsewhere/objects\n');
     expect(sourceProblem(clone.source)).toContain('alternates');
+  });
+});
+
+/** A repo the host user can read and no session should reach, with a file only it has. */
+function otherRepo(): { dotGit: string; head: string } {
+  const dir = join(mkdtempSync(join(tmpdir(), 'factory-other-')), 'other');
+  mkdirSync(dir);
+  sh(dir, 'git', ['init', '--quiet', '--initial-branch=main']);
+  writeFileSync(join(dir, 'secret.txt'), 'only the other repo has this\n');
+  sh(dir, 'git', ['add', '.']);
+  sh(dir, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'other']);
+  return { dotGit: join(dir, '.git'), head: sh(dir, 'git', ['rev-parse', 'HEAD']).trim() };
+}
+
+/** A clone whose HEAD is `main`, ready for a redirect. */
+function plainClone(): string {
+  const source = join(mkdtempSync(join(tmpdir(), 'factory-clone-')), 'app');
+  mkdirSync(source);
+  sh(source, 'git', ['init', '--quiet', '--initial-branch=main']);
+  writeFileSync(join(source, 'page.tsx'), 'export const a = 1;\n');
+  sh(source, 'git', ['add', '.']);
+  sh(source, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'mine']);
+  return source;
+}
+
+/** What a session can do inside its own `.git` to point git at the other repo. */
+const REDIRECTS: Record<string, { offending: string; apply: (dotGit: string, other: { dotGit: string; head: string }) => void }> = {
+  'objects linked to the other repo\'s': {
+    offending: 'objects is a symbolic link',
+    apply: (dotGit, other) => {
+      renameSync(join(dotGit, 'objects'), join(dotGit, 'objects-mine'));
+      symlinkSync(join(other.dotGit, 'objects'), join(dotGit, 'objects'));
+      writeFileSync(join(dotGit, 'refs', 'heads', 'main'), `${other.head}\n`);
+    },
+  },
+  'a ref linked to the other repo\'s': {
+    offending: 'main is a symbolic link',
+    apply: (dotGit, other) => {
+      // The other repo's objects are copied in first, so the ref alone is what redirects; a session couldn't copy them, which only makes the ref variant weaker.
+      sh(dotGit, 'git', ['--git-dir', dotGit, 'fetch', '--quiet', other.dotGit, 'main:refs/borrowed']);
+      sh(dotGit, 'git', ['--git-dir', dotGit, 'update-ref', '-d', 'refs/borrowed']);
+      renameSync(join(dotGit, 'refs', 'heads', 'main'), join(dotGit, 'main-mine'));
+      symlinkSync(join(other.dotGit, 'refs', 'heads', 'main'), join(dotGit, 'refs', 'heads', 'main'));
+    },
+  },
+  'commondir naming the other repo': {
+    offending: 'commondir points the repo at another directory',
+    apply: (dotGit, other) => writeFileSync(join(dotGit, 'commondir'), `${other.dotGit}\n`),
+  },
+};
+
+function secretIn(gitDir: string, commit: string): boolean {
+  try {
+    return showFile(gitDir, commit, 'secret.txt').length > 0;
+  } catch {
+    return false;
+  }
+}
+
+describe('a clone whose .git sends git to another repository', () => {
+  for (const [name, redirect] of Object.entries(REDIRECTS)) {
+    describe(name, () => {
+      const other = otherRepo();
+      const source = plainClone();
+      const dotGit = join(source, '.git');
+      redirect.apply(dotGit, other);
+
+      test('the plant works: an unsandboxed fetch gets the other repo\'s commit', () => {
+        const gitDir = join(mkdtempSync(join(tmpdir(), 'factory-bare-')), 'git');
+        initBareRepo(gitDir);
+        sh('/', 'git', ['--git-dir', gitDir, 'fetch', '--quiet', source, '+HEAD:refs/plain']);
+        const fetched = sh('/', 'git', ['--git-dir', gitDir, 'rev-parse', 'refs/plain']).trim();
+        expect(fetched).toBe(other.head);
+        expect(secretIn(gitDir, fetched)).toBe(true);
+      });
+
+      test('the fetch refuses it and names the path', () => {
+        const gitDir = join(mkdtempSync(join(tmpdir(), 'factory-bare-')), 'git');
+        initBareRepo(gitDir);
+        expect(sourceProblem(source)).toContain(redirect.offending);
+        expect(() => fetchHead(gitDir, source)).toThrow(redirect.offending);
+      });
+
+      test('the sandboxed upload-pack, unchecked, never brings the other repo\'s tree into a check tree', () => {
+        const gitDir = join(mkdtempSync(join(tmpdir(), 'factory-bare-')), 'git');
+        initBareRepo(gitDir);
+        let fetched: string | undefined;
+        try {
+          fetched = fetchSandboxed(gitDir, source);
+        } catch (error) {
+          expect(error).toBeInstanceOf(GitError);
+        }
+        if (fetched === undefined) return;
+        expect(fetched).not.toBe(other.head);
+        expect(secretIn(gitDir, fetched)).toBe(false);
+        const tar = join(mkdtempSync(join(tmpdir(), 'factory-tar-')), 'tree.tar');
+        archiveCommit(gitDir, fetched, tar);
+        expect(sh('/', 'tar', ['-tf', tar])).not.toContain('secret.txt');
+      });
+    });
+  }
+
+  test('an ordinary clone still fetches through the sandboxed upload-pack', () => {
+    const source = plainClone();
+    const gitDir = join(mkdtempSync(join(tmpdir(), 'factory-bare-')), 'git');
+    initBareRepo(gitDir);
+    expect(sourceProblem(source)).toBeUndefined();
+    expect(fetchHead(gitDir, source)).toBe(sh(source, 'git', ['rev-parse', 'HEAD']).trim());
   });
 });
