@@ -114,6 +114,21 @@ describe('Storage: int and float arithmetic is unchanged', () => {
   }
 });
 
+describe('Storage: an int orders against a float as a double', () => {
+  for (const condition of [
+    '!(9007199254740993 > 9007199254740992.0)',
+    '9007199254740993 >= 9007199254740992.0 && 9007199254740993 <= 9007199254740992.0',
+    '!(9007199254740992.0 < 9007199254740993)',
+    '9007199254740993 == 9007199254740992.0',
+    '9007199254740993 > 9007199254740992',
+    '1 < 1.5 && 1.5 < 2',
+  ]) {
+    test(`${condition} allows`, () => {
+      expect(storage(condition)).toBe(true);
+    });
+  }
+});
+
 describe('Storage: an int literal past int64 does not compile', () => {
   test('one past the max is an invalid number literal', () => {
     expect(() => parseStorageRules(source('9223372036854775808 > 0'))).toThrow('Invalid number literal 9223372036854775808');
@@ -121,5 +136,9 @@ describe('Storage: an int literal past int64 does not compile', () => {
 
   test('the negated min compiles', () => {
     expect(() => parseStorageRules(source('-9223372036854775808 < 0'))).not.toThrow();
+  });
+
+  test('the negated min in parentheses compiles and is min', () => {
+    expect(storage(`-(9223372036854775808) == ${MIN}`)).toBe(true);
   });
 });

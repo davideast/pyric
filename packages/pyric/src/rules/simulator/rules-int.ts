@@ -42,15 +42,6 @@ export function rulesInt(value: unknown): bigint | undefined {
   return undefined;
 }
 
-/**
- * A rules int as a JavaScript number, for an argument whose range the caller
- * checks, such as a list index or a timestamp's milliseconds.
- */
-export function intAsNumber(value: unknown): number | undefined {
-  const int = rulesInt(value);
-  return int === undefined ? undefined : Number(int);
-}
-
 /** A rules float as a double: a `RulesFloat`, or a JavaScript number with a fraction from a host value. */
 export function rulesFloatValue(value: unknown): number | undefined {
   if (value instanceof RulesFloat) return value.value;
@@ -73,6 +64,40 @@ export function inInt64(value: bigint): boolean {
 
 function inRange(value: bigint): bigint | IntFailure {
   return inInt64(value) ? value : new IntFailure(INT_RANGE_MESSAGE);
+}
+
+/** The ordering operators. */
+export type OrderingOperator = '<' | '>' | '<=' | '>=';
+
+/**
+ * `left op right` on two rules numbers, or undefined when either is not a
+ * number. Two ints order exactly, above 2^53 too. When either side is a
+ * float, the int converts to a double, as arithmetic and equality convert
+ * it, so `9007199254740993 > 9007199254740992.0` is false and the two are
+ * equal. Firestore and Storage both order numbers here.
+ */
+export function orderNumbers(op: OrderingOperator, left: unknown, right: unknown): boolean | undefined {
+  const l = rulesInt(left);
+  const r = rulesInt(right);
+  if (l !== undefined && r !== undefined) return orders(op, l, r);
+  const ld = rulesNumberAsDouble(left);
+  const rd = rulesNumberAsDouble(right);
+  if (ld === undefined || rd === undefined) return undefined;
+  return orders(op, ld, rd);
+}
+
+function orders<T extends bigint | number>(op: OrderingOperator, left: T, right: T): boolean {
+  switch (op) {
+    case '<': return left < right;
+    case '>': return left > right;
+    case '<=': return left <= right;
+    case '>=': return left >= right;
+  }
+}
+
+/** True for `<`, `>`, `<=` and `>=`. */
+export function isOrderingOperator(op: string): op is OrderingOperator {
+  return op === '<' || op === '>' || op === '<=' || op === '>=';
 }
 
 /** The int arithmetic operators. */
@@ -138,12 +163,13 @@ export function invalidNumberLiteralMessage(digits: string): string {
  * int, read from its source text so every bit survives; a literal that
  * names 2^63 is only valid under unary minus, which the compile check
  * enforces. A literal a proof synthesized from a number reads as that
- * number: an int when integral, else a float.
+ * number: an int when it is a safe integer, else a float, since a number
+ * past 2^53 such as `1e+21` no longer names one exact int.
  */
 export function numericLiteralValue(value: number, raw: string): bigint | RulesFloat {
   if (raw.includes('.')) return new RulesFloat(value);
   if (/^\d+$/.test(raw)) return BigInt(raw);
-  return Number.isInteger(value) ? BigInt(value) : new RulesFloat(value);
+  return Number.isSafeInteger(value) ? BigInt(value) : new RulesFloat(value);
 }
 
 /**

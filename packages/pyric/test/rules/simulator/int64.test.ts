@@ -138,6 +138,25 @@ describe('Firestore: int and float arithmetic is unchanged', () => {
   });
 });
 
+describe('Firestore: an int orders against a float as a double', () => {
+  for (const condition of [
+    '!(9007199254740993 > 9007199254740992.0)',
+    '9007199254740993 >= 9007199254740992.0 && 9007199254740993 <= 9007199254740992.0',
+    '!(9007199254740992.0 < 9007199254740993)',
+    '9007199254740993 == 9007199254740992.0',
+    '9007199254740993 > 9007199254740992',
+  ]) {
+    test(`${condition} allows`, () => {
+      expect(firestore(condition).decision).toBe('ALLOW');
+    });
+  }
+
+  test('an int orders against a fractional document field as a double', () => {
+    expect(firestore('4503599627370496 > resource.data.f', { f: 4503599627370495.5 }).decision).toBe('ALLOW');
+    expect(firestore('1 < resource.data.f && resource.data.f < 2', { f: 1.5 }).decision).toBe('ALLOW');
+  });
+});
+
 describe('Firestore: time values take ints', () => {
   for (const condition of [
     'timestamp.value(1000).toMillis() == 1000',
@@ -176,13 +195,22 @@ describe('Firestore: an int literal past int64 is refused at compile', () => {
   test('the negated min compiles', () => {
     expect(compileError('-9223372036854775808 < 0')).toBeUndefined();
   });
+
+  test('the negated min in parentheses compiles and is min', () => {
+    expect(firestore(`-(9223372036854775808) == ${MIN}`).decision).toBe('ALLOW');
+  });
 });
 
 describe('Firestore: a result carrying an int above 2^53 serializes', () => {
-  test('the trace holds JSON values', () => {
+  test('the trace holds each int as its exact digits, in a list too', () => {
     const res = simulate('[9007199254740993, 1] != [] && 9007199254740993 > 1');
-    expect(res.success).toBe(true);
-    const text = JSON.stringify(res);
-    expect(text).toContain('"9007199254740993"');
+    if (!res.success) throw new Error(res.error.message);
+    const entries = res.data.results[0]!.trace[0]!.expressionTrace ?? [];
+    const valueOf = (source: string, kind: string) =>
+      entries.find((entry) => entry.source === source && entry.kind === kind)?.value;
+    expect(valueOf('9007199254740993', 'literal')).toBe('9007199254740993');
+    expect(valueOf('[9007199254740993, 1]', 'listLiteral')).toEqual(['9007199254740993', 1]);
+    expect(valueOf('1', 'literal')).toBe(1);
+    expect(JSON.parse(JSON.stringify(entries))).toEqual(entries);
   });
 });

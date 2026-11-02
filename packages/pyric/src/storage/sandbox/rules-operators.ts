@@ -8,6 +8,8 @@ import {
   type IntOperator,
   intArithmetic,
   isRulesInt,
+  type OrderingOperator as RulesOrderingOperator,
+  orderNumbers,
   rulesFloatValue,
   rulesInt,
   rulesNumberAsDouble,
@@ -87,6 +89,15 @@ function dispatchValueOperator(op: string, left: unknown, right: unknown): unkno
 }
 
 /** Production's error value for an operand pair an operator does not accept. */
+function orderStrings(op: OrderingOperator, left: string, right: string): boolean {
+  switch (op) {
+    case '<': return left < right;
+    case '>': return left > right;
+    case '<=': return left <= right;
+    case '>=': return left >= right;
+  }
+}
+
 function unsupportedOperation(op: string, left: unknown, right: unknown): RuleError {
   return new RuleError(
     `Unsupported operation error. Received: ${describeType(left)} ${op} ${describeType(right)}.`,
@@ -132,7 +143,7 @@ function floatArithmetic(op: ArithmeticOperator, l: number, r: number): number {
 }
 
 /** The ordering operators `evalOrdering` answers. */
-export type OrderingOperator = '<' | '>' | '<=' | '>=';
+export type OrderingOperator = RulesOrderingOperator;
 
 /**
  * `<`, `>`, `<=`, and `>=` over operands that are not Timestamp, Duration, or
@@ -143,26 +154,9 @@ export type OrderingOperator = '<' | '>' | '<=' | '>=';
  * `&&` and `||` absorb.
  */
 export function evalOrdering(op: OrderingOperator, left: unknown, right: unknown): boolean | RuleError {
-  const l = orderingNumber(left);
-  const r = orderingNumber(right);
-  if (l !== undefined && r !== undefined) return orders(op, l, r);
-  if (typeof left === 'string' && typeof right === 'string') return orders(op, left, right);
+  const ordered = orderNumbers(op, left, right);
+  if (ordered !== undefined) return ordered;
+  if (typeof left === 'string' && typeof right === 'string') return orderStrings(op, left, right);
   return unsupportedOperation(op, left, right);
 }
 
-/**
- * A number as ordering reads it: an int exactly, as a bigint, and a float as
- * its double. JavaScript orders a bigint and a number by exact value.
- */
-function orderingNumber(value: unknown): bigint | number | undefined {
-  return rulesInt(value) ?? rulesFloatValue(value);
-}
-
-function orders<T extends bigint | number | string>(op: OrderingOperator, left: T, right: T): boolean {
-  switch (op) {
-    case '<': return left < right;
-    case '>': return left > right;
-    case '<=': return left <= right;
-    case '>=': return left >= right;
-  }
-}

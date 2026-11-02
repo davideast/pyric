@@ -29,9 +29,11 @@ import {
   IntFailure,
   type IntOperator,
   intArithmetic,
+  isOrderingOperator,
   isRulesInt,
   negateInt,
   numericLiteralValue,
+  orderNumbers,
   rulesFloatValue,
   rulesInt,
 } from './rules-int.js';
@@ -499,6 +501,12 @@ function evaluateBinaryOp(
   // rulesValuesEqual above, which already calls the wrapper's
   // `equals()`. Splitting "value equality" from "operator dispatch"
   // keeps each wrapper's contract clean.
+  // Two numbers order through `orderNumbers` (`rules-int.ts`), shared with
+  // Storage: two ints exactly, an int and a float as doubles.
+  if (isOrderingOperator(op)) {
+    const ordered = orderNumbers(op, lv, rv);
+    if (ordered !== undefined) return ordered;
+  }
   if (op !== '==' && op !== '!=') {
     if (lv instanceof RulesValue) {
       const r = lv.binaryOp(op, rv);
@@ -540,8 +548,8 @@ function evaluateBinaryOp(
   // SAME comparable type. CEL has no cross-type ordering overload, so `'a' < 1`
   // is an error, not the JS-coerced `false` the bare `as number` casts produced.
   // (Comparable wrappers — Bytes, Timestamp, Duration — were already dispatched
-  // via binaryOp above; anything reaching here is an int, a bare number or a
-  // string. JavaScript orders a bigint and a number by exact value.)
+  // via binaryOp above, and two numbers through `orderNumbers`; a pair of
+  // strings is the one ordered pair that reaches the switch below.)
   if (op === '<' || op === '>' || op === '<=' || op === '>=') {
     const sameComparable =
       (isNumeric(lv) && isNumeric(rv)) ||
