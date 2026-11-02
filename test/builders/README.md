@@ -638,9 +638,12 @@ program forced off, so nothing a session plants in its clone's `.git` runs
 on the host (`factory/git.ts`). The fetch refuses a clone whose `.git`
 holds a link or special file anywhere, or a `commondir` or `gitdir` file,
 and its `upload-pack` runs in a bwrap sandbox that sees only that `.git`,
-so the clone can't point the fetch at another repository. The check exports the roles' current commit
-with `git archive` into a fresh tree, which its sandbox unpacks, and runs
-there, in order:
+so the clone can't point the fetch at another repository. The harness
+opens `.git` once, with `O_NOFOLLOW`, checks it through that descriptor
+and has bwrap bind the same descriptor (`--ro-bind-fd`, bubblewrap 0.9.0
+or later), so a `.git` swapped after the check is never the one fetched.
+The check exports the roles' current commit with `git archive` into a
+fresh tree, which its sandbox unpacks, and runs there, in order:
 
 - `ui-rules`, `copy`: the factory's ast-grep rules (`factory/ui-rules/`) and
   the copy rules (`copy-rules.ts`) on lines changed since the start commit,
@@ -687,7 +690,8 @@ the entries this run added are removed. The served copy also stops on its
 own, and removes those entries, when the process that started it is gone
 (checked by pid and start time) or the run's deadline passes, so a
 supervisor that crashes leaves nothing serving. A `factory-hour` run by
-hand is that process, so its served copy stops shortly after it exits.
+hand is that process, so its served copy stops about 5 seconds after the
+command exits; run the hour from the supervisor to keep a copy served.
 
 ### The morning review
 
