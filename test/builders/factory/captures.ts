@@ -22,7 +22,7 @@ export type { CaptureRecord } from './state-files.ts';
 
 const WALK_RUNNER = fileURLToPath(new URL('./walk-runner.ts', import.meta.url));
 /** Playwright's client where the harness view binds it: the repo's node_modules, not bun's store behind it. */
-const PLAYWRIGHT_CLIENT = fileURLToPath(new URL('../../../node_modules/@playwright/test/index.mjs', import.meta.url));
+export const PLAYWRIGHT_CLIENT = fileURLToPath(new URL('../../../node_modules/@playwright/test/index.mjs', import.meta.url));
 export const WIDTHS = [1440, 390];
 /** DESIGN.md section 6's reference screens. A narration needs one to exist, which a fresh sandbox has not. */
 export const REFERENCE_ROUTES = ['/settings', '/library', '/studio/image', '/downloads'];

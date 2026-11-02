@@ -10,13 +10,15 @@
  *   crash       no request: exit 1 at once
  *   hang        start, then wait until stopped
  *   grandchild  start a process of its own that outlives it unless its group is signalled, print its pid, then wait
+ *   browser     run `session-browser-probe.mjs`, a user agent's use of Chromium, under Node, then one request, exit 0
  *
  * It also prints its environment's names, its instructions, and what it
  * could do with the three directories the role skills name.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args[args.indexOf(name) + 1] ?? '';
@@ -60,6 +62,7 @@ if (mode === 'crash') {
   print({ type: 'grandchild', pid: child.pid });
   hang();
 } else {
+  if (mode === 'browser') spawnSync('node', [fileURLToPath(new URL('./session-browser-probe.mjs', import.meta.url))], { stdio: 'inherit' });
   const response = await fetch(`${flag('--base-url')}/v1/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'fake-model' }) });
   await response.text();
   if (response.status === 200 && mode !== 'fail') {

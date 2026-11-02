@@ -73,4 +73,10 @@ describe('new components/ui files', () => {
     const found = newComponentViolations(added, new Set(['alert.tsx']));
     expect(found.map((violation) => violation.file)).toEqual(['studio/src/components/ui/checkbox.tsx']);
   });
+
+  test('tell a session to use an existing component, since it can’t write the approved list', () => {
+    const [violation] = newComponentViolations(['studio/src/components/ui/checkbox.tsx'], new Set());
+    expect(violation?.message).toBe('A new file in components/ui. A run can\'t add one: the approved list is the harness\'s, and no session can write it. Use an existing component.');
+    expect(violation?.message).not.toContain('run directory');
+  });
 });

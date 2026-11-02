@@ -4,11 +4,15 @@
 // reaches the network.
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { basename, join, relative } from 'node:path';
+import { npmCacheDir } from '../app-install.ts';
+import { playwrightBrowsersPath, PLAYWRIGHT_CLIENT_ENV } from '../browser-server.ts';
+import { toolchainDirs } from '../namespace.ts';
 import { fakeAgent } from './fixtures/fake-agent.ts';
 import { startFakeUpstream, type FakeUpstream } from './fixtures/fake-upstream.ts';
 import { hostDirOf } from './host-files.ts';
+import { ONLINE_INIT_ENV } from './online-init.ts';
 import { roleSkill, rolePrompt } from './roles.ts';
 import { bindProblems, layoutProblems, runConfiguredSession, runnerConfig, sessionPaths, type RunnerConfig } from './session-runner.ts';
 import type { SessionOptions } from './session.ts';
@@ -127,6 +131,18 @@ describe('layoutProblems', () => {
     const unreadable = { ...config, credential: () => ({ ok: false as const, problem: 'the credential /x does not exist' }) };
     expect(layoutProblems({ ...options, briefDir: missing }, unreadable, paths)).toEqual(['the credential /x does not exist', `the brief directory ${missing} does not exist`]);
   });
+
+  test('refuses Playwright’s browsers when they are missing, contain the home directory or reach the agent’s credential', async () => {
+    const { options, config } = await layout();
+    const paths = sessionPaths(options.runDir, 'lead', 'stamp');
+    const missing = join(tmpdir(), 'no-such-browsers');
+    expect(layoutProblems(options, { ...config, browsers: missing }, paths)).toEqual([`Playwright's browsers are not at ${missing}, so the session could not start Chromium`]);
+    const home = mkdtempSync(join(tmpdir(), 'factory-home-'));
+    expect(layoutProblems(options, { ...config, browsers: home, home }, paths)).toEqual([`the bind ${home} contains the home directory ${home}`]);
+    const secret = mkdtempSync(join(tmpdir(), 'factory-credential-'));
+    const agent = fakeAgent({ credentialDirs: [secret] });
+    expect(layoutProblems(options, { ...config, agent, browsers: secret }, paths)).toEqual([`the bind ${secret} reaches the agent's credential directory`]);
+  });
 });
 
 describe('a session in its sandbox', () => {
@@ -149,5 +165,45 @@ describe('a session in its sandbox', () => {
     expect(existsSync(join(options.briefDir, 'from-session.txt'))).toBe(false);
     expect(upstream.received).toHaveLength(1);
     expect(readFileSync(decoy, 'utf8')).toBe('the host’s own file');
+  }, SANDBOX_TEST_TIMEOUT_MS);
+
+  test('starts a server on its own loopback and opens it in headless Chromium, with the browsers read-only and no more of the host’s HOME than its binds', async () => {
+    const { options, config } = await layout();
+    const plain = fakeAgent();
+    const agent = fakeAgent({
+      invocation: (session, bridgeUrl, env) => {
+        const invocation = plain.invocation(session, bridgeUrl, env);
+        return { ...invocation, env: { ...invocation.env, FAKE_AGENT_MODE: 'browser', PROBE_HOST_HOME: homedir() } };
+      },
+    });
+    const result = await runConfiguredSession('user-agent', options, { ...config, agent });
+    const stderr = readFileSync(`${result.logPath}.stderr`, 'utf8');
+    expect(result, stderr).toMatchObject({ exitCode: 0, endedBy: 'exit' });
+    const lines = readFileSync(result.logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    const browser = lines.find((line) => line.type === 'browser');
+    expect(browser).toMatchObject({
+      title: 'served inside the session',
+      heading: 'served inside the session',
+      // Chromium says it is offline with only loopback; the shared script is what lets sign-in work.
+      bareOnLine: false,
+      onLine: true,
+      signInEnabled: true,
+      browsersPath: playwrightBrowsersPath(),
+      writeBrowsers: 'EROFS',
+      writeTmp: 'ok',
+      writeShm: 'ok',
+    });
+    expect(browser?.error).toBeUndefined();
+    const names = lines.find((line) => line.type === 'env')?.names;
+    expect(names).toEqual(expect.arrayContaining(['PLAYWRIGHT_BROWSERS_PATH', PLAYWRIGHT_CLIENT_ENV, ONLINE_INIT_ENV]));
+    // `next dev` can't take a second space-separated `--import` beside `pyric sandbox`'s.
+    expect(names).not.toContain('NODE_OPTIONS');
+    // The browsers' directory is bound alone: beside it, only the npm cache when that lives there too.
+    const nameOf = (path: string) => basename(path);
+    expect((browser?.besideBrowsers as string[]).filter((entry) => ![nameOf(playwrightBrowsersPath()), nameOf(npmCacheDir())].includes(entry))).toEqual([]);
+    // Of the host's HOME, only what the sandbox binds on purpose: the browsers, the npm cache, the toolchain and the harness's repo.
+    const topUnderHome = (path: string) => relative(homedir(), path).split('/')[0];
+    const bound = new Set([playwrightBrowsersPath(), npmCacheDir(), ...toolchainDirs(), import.meta.dir].map(topUnderHome));
+    expect((browser?.hostHomeEntries as string[]).filter((entry) => !bound.has(entry))).toEqual([]);
   }, SANDBOX_TEST_TIMEOUT_MS);
 });

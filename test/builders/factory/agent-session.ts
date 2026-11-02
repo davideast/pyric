@@ -54,7 +54,7 @@ export interface AgentSessionOptions {
   deadlineMs: number;
   /** How a command runs in the sandbox: the sandbox's `enter`. */
   enter: (command: string, args: readonly string[], cwd: string) => { command: string; args: string[] };
-  /** The environment besides HOME and the three directories: PATH, LANG, TMPDIR, the recorder's variables. No secret. */
+  /** The environment besides HOME and the three directories: PATH, LANG, TMPDIR, where Playwright is. No secret. */
   base: Record<string, string>;
   /** Stops the session; it then ends `killed`, or `deadline` when aborted with that reason. */
   signal?: AbortSignal;

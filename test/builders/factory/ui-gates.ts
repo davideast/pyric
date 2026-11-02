@@ -63,7 +63,7 @@ export function newComponentViolations(added: readonly string[], approved: Reado
       rule: 'factory-no-new-ui-component',
       file,
       line: 1,
-      message: 'A new file in components/ui. Use an existing component, or add the file to approved-components.txt in the run directory once it is approved.',
+      message: 'A new file in components/ui. A run can\'t add one: the approved list is the harness\'s, and no session can write it. Use an existing component.',
       text: file,
     }));
 }
