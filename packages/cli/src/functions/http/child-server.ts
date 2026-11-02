@@ -73,6 +73,16 @@ function saveRawBody(req: IncomingMessage, _res: ServerResponse, body: Buffer): 
   (req as IncomingMessage & { rawBody?: Buffer }).rawBody = body;
 }
 
+/** Removes a header from both views express gives a function, `headers` and `rawHeaders`. */
+function dropHeader(req: IncomingMessage, name: string): void {
+  delete req.headers[name];
+  const raw = req.rawHeaders;
+  for (let at = raw.length - 2; at >= 0; at -= 2) {
+    const isNamed = raw[at].toLowerCase() === name;
+    if (isNamed) raw.splice(at, 2);
+  }
+}
+
 /**
  * Refuses any caller but the host's proxy, before body parsing or dispatch,
  * and strips the token so the function never sees it.
@@ -80,7 +90,7 @@ function saveRawBody(req: IncomingMessage, _res: ServerResponse, body: Buffer): 
 function requireToken(token: string): Middleware {
   return (req, res, next) => {
     const presented = req.headers[CHILD_TOKEN_HEADER];
-    delete req.headers[CHILD_TOKEN_HEADER];
+    dropHeader(req, CHILD_TOKEN_HEADER);
     const isFromProxy = typeof presented === 'string' && timingSafeTokenMatch(presented, token);
     if (!isFromProxy) {
       res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
@@ -94,7 +104,7 @@ function requireToken(token: string): Middleware {
 function dispatch(functions: ReadonlyMap<string, DiscoveredOnRequest>): Middleware {
   return (req, res) => {
     const target = req.headers[FUNCTION_TARGET_HEADER];
-    delete req.headers[FUNCTION_TARGET_HEADER];
+    dropHeader(req, FUNCTION_TARGET_HEADER);
     const fn = typeof target === 'string' ? functions.get(target) : undefined;
     if (!fn) {
       res.statusCode = 404;

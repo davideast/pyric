@@ -125,6 +125,18 @@ describe('functions HTTP gateway', () => {
     expect((await post('admin')).status).toBe(200);
     expect((await post('api', 'https://attacker.example')).status).toBe(200);
     expect(seen).toEqual(['admin', 'admin', 'api']);
+
+    // A browser leaves the Origin off a cross-site GET, but Sec-Fetch-Site still names another page.
+    const getWith = (name: string, site: string) => fetch(`${base}/demo-app/us-central1/${name}`, { headers: { 'sec-fetch-site': site } });
+    for (const site of ['cross-site', 'same-site']) {
+      const refused = await getWith('admin', site);
+      expect(refused.status).toBe(403);
+      expect(await refused.text()).toContain(`a ${site} page`);
+    }
+    expect((await getWith('admin', 'same-origin')).status).toBe(200);
+    expect((await getWith('admin', 'none')).status).toBe(200);
+    expect((await getWith('api', 'cross-site')).status).toBe(200);
+    expect(seen).toEqual(['admin', 'admin', 'api', 'admin', 'admin', 'api']);
   });
 
   test('forwards a served function to the child with its body and streams the answer back', async () => {
