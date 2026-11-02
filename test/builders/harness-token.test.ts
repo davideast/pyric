@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseBrief } from './brief.ts';
-import { keep, tokenFoundIn } from './builder-run.ts';
+import { keep, tokenFoundIn } from './run-finish.ts';
 import { OAUTH_TOKEN_ENV } from './builder-command.ts';
 import { harnessToken, readTokenFile, tokenFromText } from './harness-token.ts';
 import { builderRunDirsAt } from './round-paths.ts';
@@ -144,6 +144,7 @@ describe('keep, with a token read from a file', () => {
       channel: [],
       usage: null,
       tokenFoundIn: found,
+      plantedLinks: [],
     });
     const dataDir = join(root, 'data');
     await keep(record, dirs, dataDir, read.scanned);
