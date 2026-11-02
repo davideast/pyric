@@ -3,6 +3,7 @@
  */
 import type { NextConfig, NextConfigFunction, NextConfigObject, PyricNextOptions } from './types.js';
 import { enforceSandboxGuard, isProductionPassthrough } from './guard.js';
+import { installRemotePeerMark } from '../register/remote-peer-mark.js';
 import { augmentServerExternalPackages, projectDirWarning } from './server-external-packages.js';
 import { augmentWebpackConfig } from './webpack-config.js';
 import { augmentTurbopackConfig } from './turbopack-config.js';
@@ -93,6 +94,8 @@ export function withPyric(config: NextConfig = {}, options?: PyricNextOptions): 
     }
 
     enforceSandboxGuard(options);
+    // The rewrite below forwards to the host, also when the guard is turned off and the preload is absent.
+    installRemotePeerMark();
     blockByDefaultInDevServer(phase);
     warnAboutEdgeRuntime();
     warnAboutProjectDir();
