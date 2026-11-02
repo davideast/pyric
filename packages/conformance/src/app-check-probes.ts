@@ -23,7 +23,7 @@
  * (STANDALONE_BROWSER_PROBES) and skips the admin, wire, and main-flow
  * probes. A selection that names an AI probe (AI_REQUEST_BROWSER_PROBES)
  * reads AI Logic enforcement first, as a full run does, and refuses to run
- * on a mode it cannot name; a selection that names none sends no generateContent request.
+ * on a mode it cannot name or on ENFORCED; a selection that names none sends no generateContent request.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
@@ -35,6 +35,7 @@ import { runAdminProbes } from './capture/app-check/admin-probes.ts';
 import { runBrowserProbes, STANDALONE_BROWSER_PROBES } from './capture/app-check/browser-probes.ts';
 import { runAiWireProbes } from './capture/app-check/ai-wire-probes.ts';
 import { runProbes } from './capture/app-check/enforcement-guard.ts';
+import type { ObservationContext } from './capture/app-check/observation-writer.ts';
 import type { Secrets } from './capture/app-check/redact.ts';
 
 interface WebConfig {
@@ -94,7 +95,7 @@ try {
   await runProbes({
     only,
     readEnforcement: readAiLogicEnforcement,
-    runSelected: (names) => runBrowserProbes({ context, firebaseConfig: web, debugToken: debugToken.value, unregisteredDebugToken, only: [...names] }, failures),
+    runSelected: (names, mode) => runBrowserProbes({ context: contextFor(mode), firebaseConfig: web, debugToken: debugToken.value, unregisteredDebugToken, only: [...names] }, failures),
     runAll: runAllProbes,
   });
 } catch (error) {
@@ -115,7 +116,12 @@ async function runAllProbes(enforcementMode: string): Promise<void> {
     failures,
   );
   await runAiWireProbes({ context, appCheck: getAppCheck(adminApp), appId: web.appId, apiKey: web.apiKey, validToken, enforcementMode }, failures);
-  await runBrowserProbes({ context, firebaseConfig: web, debugToken: debugToken.value, unregisteredDebugToken }, failures);
+  await runBrowserProbes({ context: contextFor(enforcementMode), firebaseConfig: web, debugToken: debugToken.value, unregisteredDebugToken }, failures);
+}
+
+/** The observation context for a run that read this enforcement mode, or none. */
+function contextFor(enforcementMode: string | null): ObservationContext {
+  return enforcementMode ? { ...context, aiEnforcementMode: enforcementMode } : context;
 }
 
 console.log(failures.length > 0 ? `\n${failures.length} probe(s) failed: ${failures.join(', ')}` : '\nall probes captured');

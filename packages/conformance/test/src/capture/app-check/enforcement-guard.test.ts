@@ -8,20 +8,22 @@ const NON_AI_PROBES = ['app-check-client-initialize-twice-unset-auto-refresh', '
 /** Records each step the dispatch takes, in order. */
 function recordedRun(only: string[] | undefined, enforcementMode: string) {
   const steps: string[] = [];
+  const modes: (string | null)[] = [];
   const run = runProbes({
     only,
     readEnforcement: async () => {
       steps.push('read-enforcement');
       return enforcementMode;
     },
-    runSelected: async (names) => {
+    runSelected: async (names, mode) => {
       steps.push(`selected:${names.join(',')}`);
+      modes.push(mode);
     },
     runAll: async (mode) => {
       steps.push(`all:${mode}`);
     },
   });
-  return { run, steps };
+  return { run, steps, modes };
 }
 
 describe('App Check rig enforcement guard', () => {
@@ -32,15 +34,16 @@ describe('App Check rig enforcement guard', () => {
   });
 
   it('reads enforcement before a selection that names an AI probe', async () => {
-    const { run, steps } = recordedRun([...NON_AI_PROBES, AI_PROBE], 'UNENFORCED');
+    const { run, steps, modes } = recordedRun([...NON_AI_PROBES, AI_PROBE], 'UNENFORCED');
     await run;
     expect(steps).toEqual(['read-enforcement', `selected:${[...NON_AI_PROBES, AI_PROBE].join(',')}`]);
+    expect(modes).toEqual(['UNENFORCED']);
   });
 
-  it('runs a selection that names an AI probe while enforcement is on', async () => {
+  it('refuses a selection that names an AI probe while enforcement is on, before any probe runs', async () => {
     const { run, steps } = recordedRun([AI_PROBE], 'ENFORCED');
-    await run;
-    expect(steps).toEqual(['read-enforcement', `selected:${AI_PROBE}`]);
+    await expect(run).rejects.toThrow('enforcementMode is ENFORCED');
+    expect(steps).toEqual(['read-enforcement']);
   });
 
   it('passes ENFORCED to a full run', async () => {
