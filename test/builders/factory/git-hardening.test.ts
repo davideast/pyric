@@ -4,7 +4,7 @@
 // marker file; the fetch, the archive, the show and the diff must leave none.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { changedLines } from './diff-lines.ts';
@@ -128,6 +128,13 @@ const REDIRECTS: Record<string, { offending: string; apply: (dotGit: string, oth
       symlinkSync(join(other.dotGit, 'refs', 'heads', 'main'), join(dotGit, 'refs', 'heads', 'main'));
     },
   },
+  '.git itself linked to the other repo\'s': {
+    offending: '.git is not a directory',
+    apply: (dotGit, other) => {
+      renameSync(dotGit, `${dotGit}-mine`);
+      symlinkSync(other.dotGit, dotGit);
+    },
+  },
   'commondir naming the other repo': {
     offending: 'commondir points the repo at another directory',
     apply: (dotGit, other) => writeFileSync(join(dotGit, 'commondir'), `${other.dotGit}\n`),
@@ -182,6 +189,29 @@ describe('a clone whose .git sends git to another repository', () => {
         archiveCommit(gitDir, fetched, tar);
         expect(sh('/', 'tar', ['-tf', tar])).not.toContain('secret.txt');
       });
+    });
+  }
+
+  const swaps: Record<string, (dotGit: string, other: { dotGit: string }) => void> = {
+    'a link to the other repo': (dotGit, other) => symlinkSync(other.dotGit, dotGit),
+    'a copy of the other repo': (dotGit, other) => cpSync(other.dotGit, dotGit, { recursive: true }),
+  };
+  for (const [name, swapIn] of Object.entries(swaps)) {
+    test(`a .git swapped for ${name} after the check is never the one fetched`, () => {
+      const other = otherRepo();
+      const source = plainClone();
+      const mine = sh(source, 'git', ['rev-parse', 'HEAD']).trim();
+      const dotGit = join(source, '.git');
+      const gitDir = join(mkdtempSync(join(tmpdir(), 'factory-bare-')), 'git');
+      initBareRepo(gitDir);
+      const swap = () => {
+        renameSync(dotGit, join(source, 'checked.git'));
+        swapIn(dotGit, other);
+      };
+      const fetched = fetchHead(gitDir, source, swap);
+      expect(sh(source, 'git', ['--git-dir', dotGit, 'rev-parse', 'HEAD']).trim()).toBe(other.head);
+      expect(fetched).toBe(mine);
+      expect(secretIn(gitDir, fetched)).toBe(false);
     });
   }
 

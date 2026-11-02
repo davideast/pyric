@@ -16,7 +16,7 @@
  * upload-pack runs in a sandbox that sees only that `.git`.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
+import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { systemBinds } from '../namespace.ts';
 
@@ -53,8 +53,11 @@ export function safeGitEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS
   };
 }
 
-function run(args: readonly string[], cwd: string): string {
-  const result = spawnSync('git', [...SAFE_CONFIG, ...IDENTITY, ...args], { cwd, env: safeGitEnvironment(), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+/** Runs git; `passFd`, when given, becomes the child's fd 3, which its children inherit. */
+function run(args: readonly string[], cwd: string, passFd?: number): string {
+  const stdio: Array<'pipe' | number> = ['pipe', 'pipe', 'pipe'];
+  if (passFd !== undefined) stdio.push(passFd);
+  const result = spawnSync('git', [...SAFE_CONFIG, ...IDENTITY, ...args], { cwd, env: safeGitEnvironment(), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio });
   if (result.status !== 0) throw new GitError(`git ${args.join(' ')} in ${cwd} failed:\n${result.stderr}`);
   return result.stdout;
 }
@@ -88,13 +91,13 @@ export function initBareRepo(gitDir: string): void {
 /** Files at the top of a `.git` that make git read its objects and refs from another directory. */
 const REDIRECT_FILES = ['commondir', 'gitdir'];
 
-/** The first entry under `dir` that is a link, or neither a regular file nor a directory. */
-function linkUnder(dir: string): string | undefined {
+/** The first entry under `dir` that is a link, or neither a regular file nor a directory; named under `shown`. */
+function linkUnder(dir: string, shown: string): string | undefined {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
+    const path = join(shown, entry.name);
     if (entry.isSymbolicLink()) return `${path} is a symbolic link`;
     if (entry.isDirectory()) {
-      const inner = linkUnder(path);
+      const inner = linkUnder(join(dir, entry.name), path);
       if (inner !== undefined) return inner;
     } else if (!entry.isFile()) return `${path} is not a regular file or directory`;
   }
@@ -102,19 +105,46 @@ function linkUnder(dir: string): string | undefined {
 }
 
 /**
- * Why the harness won't fetch from `source`: a `.git` that is not a plain
- * directory, one that sends git elsewhere (a link or special file anywhere
- * in it, `commondir`, `gitdir`), or objects borrowed from another repo.
+ * The source's `.git`, opened once with O_DIRECTORY and O_NOFOLLOW. The
+ * check reads that directory through the descriptor and the sandbox binds
+ * the same descriptor, so a `.git` swapped after the check is never the one
+ * mounted. Undefined when `.git` is not a plain directory.
  */
+export function openSource(source: string): number | undefined {
+  try {
+    return openSync(join(source, '.git'), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The opened directory, read through /proc so it is the descriptor's directory and not the path's. */
+const descriptorPath = (fd: number): string => `/proc/self/fd/${fd}`;
+
+/**
+ * Why the harness won't fetch from the `.git` open at `fd`: one that sends
+ * git elsewhere (a link or special file anywhere in it, `commondir`,
+ * `gitdir`), or objects borrowed from another repo. `dotGit` names it.
+ */
+function descriptorProblem(fd: number, dotGit: string): string | undefined {
+  const dir = descriptorPath(fd);
+  const redirect = REDIRECT_FILES.find((name) => lstatSync(join(dir, name), { throwIfNoEntry: false }) !== undefined);
+  if (redirect !== undefined) return `${join(dotGit, redirect)} points the repo at another directory`;
+  const borrowsObjects = existsSync(join(dir, 'objects', 'info', 'alternates'));
+  if (borrowsObjects) return `${dotGit} borrows objects from another repo (objects/info/alternates)`;
+  return linkUnder(dir, dotGit);
+}
+
+/** Why the harness won't fetch from `source`: a `.git` that is not a plain directory, or one `descriptorProblem` refuses. */
 export function sourceProblem(source: string): string | undefined {
   const dotGit = join(source, '.git');
-  const stat = lstatSync(dotGit, { throwIfNoEntry: false });
-  if (stat === undefined || !stat.isDirectory()) return `${dotGit} is not a directory`;
-  const redirect = REDIRECT_FILES.map((name) => join(dotGit, name)).find((path) => lstatSync(path, { throwIfNoEntry: false }) !== undefined);
-  if (redirect !== undefined) return `${redirect} points the repo at another directory`;
-  const borrowsObjects = existsSync(join(dotGit, 'objects', 'info', 'alternates'));
-  if (borrowsObjects) return `${dotGit} borrows objects from another repo (objects/info/alternates)`;
-  return linkUnder(dotGit);
+  const fd = openSource(source);
+  if (fd === undefined) return `${dotGit} is not a directory`;
+  try {
+    return descriptorProblem(fd, dotGit);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Where the source's `.git` sits inside the upload-pack sandbox. */
@@ -125,36 +155,65 @@ const shellQuote = (word: string): string => `'${word.replaceAll("'", `'\\''`)}'
 /**
  * The upload-pack the fetch starts: git upload-pack in a bwrap sandbox that
  * sees the host's /usr and the source's `.git`, read-only, and nothing else,
- * so no link or path in that `.git` can name another repository. Git runs it
- * as `<command> "$@"` with the source path; the function ignores that path
- * for the one bound here.
+ * so no link or path in that `.git` can name another repository. The `.git`
+ * is the directory open at fd 3, bound with `--ro-bind-fd` (bwrap 0.9.0), not
+ * looked up again by path. Git runs the command as `<command> "$@"` with the
+ * source path; the function ignores that path.
  */
-export function uploadPackCommand(dotGit: string): string {
+export function uploadPackCommand(): string {
   const bwrap = [
     'bwrap', '--unshare-all', '--die-with-parent', '--new-session',
     ...systemBinds(),
     '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
-    '--ro-bind', dotGit, SOURCE_IN_SANDBOX,
+    '--ro-bind-fd', String(SOURCE_FD), SOURCE_IN_SANDBOX,
     '--chdir', '/',
     'git', 'upload-pack', '--strict', SOURCE_IN_SANDBOX,
   ];
   return `sandboxed() { exec ${bwrap.map(shellQuote).join(' ')}; }; sandboxed`;
 }
 
+/** The fd the source's `.git` has in git and in the upload-pack command it starts. */
+const SOURCE_FD = 3;
+
 const HEAD_REF = 'refs/factory/head';
 
-/** Fetches `source`'s HEAD into the harness's repo through the sandboxed upload-pack, with no check of the source first. */
-export function fetchSandboxed(gitDir: string, source: string): string {
-  const uploadPack = uploadPackCommand(join(source, '.git'));
-  bareGit(gitDir, ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--force', `--upload-pack=${uploadPack}`, source, `+HEAD:${HEAD_REF}`]);
+/** Fetches HEAD from the `.git` open at `fd` into the harness's repo, through the sandboxed upload-pack. */
+function fetchFrom(gitDir: string, source: string, fd: number): string {
+  const args = ['--git-dir', gitDir, 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--force', `--upload-pack=${uploadPackCommand()}`, source, `+HEAD:${HEAD_REF}`];
+  run(args, '/', fd);
   return bareGit(gitDir, ['rev-parse', '--verify', `${HEAD_REF}^{commit}`]).trim();
 }
 
-/** Fetches `source`'s HEAD into the harness's repo and returns its commit. */
-export function fetchHead(gitDir: string, source: string): string {
-  const problem = sourceProblem(source);
-  if (problem !== undefined) throw new GitError(`refusing to fetch from ${source}: ${problem}`);
-  return fetchSandboxed(gitDir, source);
+function openOrRefuse(source: string): number {
+  const fd = openSource(source);
+  if (fd === undefined) throw new GitError(`refusing to fetch from ${source}: ${join(source, '.git')} is not a directory`);
+  return fd;
+}
+
+/** Fetches `source`'s HEAD through the sandboxed upload-pack with no check of the source first; for the tests. */
+export function fetchSandboxed(gitDir: string, source: string): string {
+  const fd = openOrRefuse(source);
+  try {
+    return fetchFrom(gitDir, source, fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Fetches `source`'s HEAD into the harness's repo and returns its commit.
+ * `beforeFetch` runs between the check and the fetch; the tests swap `.git` there.
+ */
+export function fetchHead(gitDir: string, source: string, beforeFetch: () => void = () => {}): string {
+  const fd = openOrRefuse(source);
+  try {
+    const problem = descriptorProblem(fd, join(source, '.git'));
+    if (problem !== undefined) throw new GitError(`refusing to fetch from ${source}: ${problem}`);
+    beforeFetch();
+    return fetchFrom(gitDir, source, fd);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Writes `commit`'s tree as a tar file, with no `.git`. */
