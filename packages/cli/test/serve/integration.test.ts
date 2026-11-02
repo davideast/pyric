@@ -150,13 +150,37 @@ describe('pyric dev end-to-end (HTTP)', () => {
 
     const bare = mkdtempSync(join(tmpdir(), 'pyric-serve-bare-'));
     writeFileSync(join(bare, 'index.html'), '<!doctype html><html><head></head><body>bare</body></html>');
-    const runtime = await startServe({ cwd: bare, port: 0, cacheRoot: join(bare, '.cache'), logger: silentServeLogger() });
+    const cap = capturingLogger();
+    const runtime = await startServe({ cwd: bare, port: 0, cacheRoot: join(bare, '.cache'), logger: cap.logger });
     stops.push(runtime);
-    const html = await (await fetch(runtime.handle.url + '/')).text();
-    expect(html).toContain('bare');
-    expect(html).toContain('importmap'); // injection works without config too
+    // No firebase.json means no Hosting site, as in production (#1779).
+    expect(runtime.publicDir).toBeNull();
+    expect(cap.info.join('\n')).toContain('hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.');
+    const root = await fetch(runtime.handle.url + '/', { redirect: 'manual' });
+    expect(root.status).toBe(302);
+    expect(root.headers.get('location')).toBe('/__pyric/ui/studio');
+    expect((await fetch(runtime.handle.url + '/index.html')).status).toBe(404);
     const payload = (await (await fetch(runtime.handle.url + '/__pyric/init.json')).json()) as { rules: null };
     expect(payload.rules).toBeNull();
+  }, 30_000);
+
+  it('serves hosting only when firebase.json declares a hosting block (#1779)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-hosting-block-'));
+    writeFileSync(join(cwd, 'index.html'), '<!doctype html><html><head></head><body>bare</body></html>');
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ firestore: {} }));
+    const off = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    stops.push(off);
+    expect((await fetch(off.handle.url + '/index.html')).status).toBe(404);
+    await off.handle.stop();
+    stops.pop();
+
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ hosting: { public: '.' } }));
+    const on = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    stops.push(on);
+    const html = await (await fetch(on.handle.url + '/')).text();
+    expect(html).toContain('bare');
+    expect(html).toContain('importmap');
+    expect((await fetch(on.handle.url + '/firebase.json')).status).toBe(404);
   }, 30_000);
 
   it('always warns that the sandbox is browser-resident (keep the tab open)', async () => {

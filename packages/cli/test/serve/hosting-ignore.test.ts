@@ -3,11 +3,11 @@
  *  root `firebase.json` (#1779). Pure path decisions first, then the real
  *  static server over raw HTTP request targets, which `fetch` would normalize. */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isHostingIgnoredDecodedPath, isHostingIgnoredPathname } from '../../src/serve/hosting-ignore.js';
+import { isHostingIgnoredDecodedPath, isHostingIgnoredPathname, isHostingIgnoredRealFile } from '../../src/serve/hosting-ignore.js';
 import { resolveHostingFile, silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
 
 describe('isHostingIgnoredPathname', () => {
@@ -48,6 +48,17 @@ describe('isHostingIgnoredPathname', () => {
     '/%E0%A4%A',
     '/%',
     '/index.html%00.js',
+    // Names Windows opens as another entry: a trailing period or space, an
+    // alternate data stream, and an 8.3 short name.
+    '/node_modules./x.js',
+    '/firebase.json.',
+    '/firebase.json%20',
+    '/assets./app.js',
+    '/firebase.json::$DATA',
+    '/index.html:stream',
+    '/PYRIC~1/state/hosted/state.sqlite',
+    '/NODE_M~1/x.js',
+    '/assets/FIREBA~1.JSO',
   ];
   for (const pathname of ignored) {
     it(`ignores ${pathname}`, () => {
@@ -67,6 +78,8 @@ describe('isHostingIgnoredPathname', () => {
     '/my.node_modules/x.js',
     '/%252epyric/state',
     '/files/report%20final.pdf',
+    '/assets/app~x/x.js',
+    '/assets/longername~1/x.js',
   ];
   for (const pathname of served) {
     it(`serves ${pathname}`, () => {
@@ -108,6 +121,35 @@ describe('resolveHostingFile', () => {
     expect(resolveHostingFile(root, '/node_modules/pkg/index.js')).toBeNull();
     expect(resolveHostingFile(root, '/firebase.json')).toBeNull();
     expect(resolveHostingFile(root, '/.env')).toBeNull();
+  });
+
+  it('refuses a symlink in the public directory that resolves to an ignored path', () => {
+    const root = projectRoot();
+    symlinkSync(join(root, '.pyric', 'state'), join(root, 'data'));
+    symlinkSync(join(root, '.env'), join(root, 'env.txt'));
+    symlinkSync(join(root, 'node_modules', 'pkg', 'index.js'), join(root, 'assets', 'pkg.js'));
+    expect(resolveHostingFile(root, '/data/hosted/state.sqlite')).toBeNull();
+    expect(resolveHostingFile(root, '/env.txt')).toBeNull();
+    expect(resolveHostingFile(root, '/assets/pkg.js')).toBeNull();
+  });
+
+  it('refuses a symlink that leaves the public directory, and keeps one that stays inside', () => {
+    const root = projectRoot();
+    const outside = mkdtempSync(join(tmpdir(), 'pyric-hosting-outside-'));
+    writeFileSync(join(outside, 'secret.txt'), 'outside');
+    symlinkSync(join(outside, 'secret.txt'), join(root, 'secret.txt'));
+    symlinkSync(join(root, 'assets'), join(root, 'static'));
+    expect(resolveHostingFile(root, '/secret.txt')).toBeNull();
+    expect(resolveHostingFile(root, '/static/app.js')).toContain('app.js');
+  });
+
+  it('checks real paths against a public directory reached through a symlink', () => {
+    const root = projectRoot();
+    const linkedRoot = join(mkdtempSync(join(tmpdir(), 'pyric-hosting-link-')), 'site');
+    symlinkSync(root, linkedRoot);
+    expect(resolveHostingFile(linkedRoot, '/assets/app.js')).toContain('app.js');
+    expect(isHostingIgnoredRealFile(linkedRoot, join(linkedRoot, '.pyric', 'state', 'hosted', 'state.sqlite'))).toBe(true);
+    expect(isHostingIgnoredRealFile(linkedRoot, join(linkedRoot, 'missing.js'))).toBe(true);
   });
 });
 
@@ -154,6 +196,23 @@ describe('static server over a project root', () => {
       expect(response.body).not.toContain('users and data');
     });
   }
+
+  it('answers 404 for state reached through a symlink in the public directory', async () => {
+    const root = projectRoot();
+    symlinkSync(join(root, '.pyric', 'state'), join(root, 'data'));
+    const h = await startStaticServer({ publicDir: root, port: 0, host: '127.0.0.1', logger: silentServeLogger() });
+    handles.push(h);
+    const response = await rawGet(h.port, '/data/hosted/state.sqlite');
+    expect(response.status).toBe(404);
+    expect(response.body).not.toContain('users and data');
+  });
+
+  it('serves no static file at all with no public directory', async () => {
+    const h = await startStaticServer({ publicDir: null, port: 0, host: '127.0.0.1', logger: silentServeLogger() });
+    handles.push(h);
+    expect((await rawGet(h.port, '/index.html')).status).toBe(404);
+    expect((await rawGet(h.port, '/.pyric/state/hosted/state.sqlite')).status).toBe(404);
+  });
 
   it('still serves the project files production would deploy', async () => {
     const h = await startStaticServer({ publicDir: projectRoot(), port: 0, host: '127.0.0.1', logger: silentServeLogger() });

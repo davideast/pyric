@@ -16,7 +16,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
-import { isHostingIgnoredPathname } from './hosting-ignore.js';
+import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
 
 export interface ServeLogger {
   /** User-facing lines (banner, URLs) → stdout. */
@@ -46,8 +46,9 @@ export function stderrServeLogger(): ServeLogger {
 }
 
 export interface StaticServerOptions {
-  /** Directory to serve. Caller resolves it from firebase.json (or cwd). */
-  publicDir: string;
+  /** Directory to serve: firebase.json's `hosting.public`. `null` serves no
+   *  static site, as production has no Hosting site without a `hosting` block. */
+  publicDir: string | null;
   port?: number;
   host?: string;
   /** SPA fallback: unmatched extension-less GETs serve /index.html. */
@@ -324,7 +325,11 @@ export function resolveStaticFile(publicDir: string, pathname: string): string |
  *  Hosting's default `ignore` leaves out of a deploy (#1779). */
 export function resolveHostingFile(publicDir: string, pathname: string): string | null {
   if (isHostingIgnoredPathname(pathname)) return null;
-  return resolveStaticFile(publicDir, pathname);
+  const file = resolveStaticFile(publicDir, pathname);
+  if (file === null) return null;
+  // The request path passed; the file it opens must too, after links resolve.
+  if (isHostingIgnoredRealFile(publicDir, file)) return null;
+  return file;
 }
 
 /**
@@ -396,9 +401,11 @@ async function handleRequest(
     return;
   }
 
-  let file = resolveHostingFile(opts.publicDir, url.pathname);
-  if (!file && opts.spaRewrite && !extname(url.pathname)) {
-    file = resolveHostingFile(opts.publicDir, '/index.html');
+  const publicDir = opts.publicDir;
+  const servesSite = publicDir !== null;
+  let file = servesSite ? resolveHostingFile(publicDir, url.pathname) : null;
+  if (servesSite && !file && opts.spaRewrite && !extname(url.pathname)) {
+    file = resolveHostingFile(publicDir, '/index.html');
   }
   if (!file && url.pathname === '/favicon.ico') {
     // The browser requests /favicon.ico on every load; without this an app
