@@ -205,4 +205,19 @@ describe.skipIf(UID === 0)('finishRun on a file the harness still can’t read',
     expect(record.harness.usage).toBeNull();
     expect(readMeasurements(end.measurements).lines).toHaveLength(1);
   });
+
+  test('skips and names a file only the token scan reads, and still writes report.json', async () => {
+    const { dirs, end } = plainRun();
+    const extra = join(dirs.logs, 'extra.log');
+    writeFileSync(extra, 'written by the builder\n');
+    chmodSync(extra, 0o000);
+    const spy = spyOn(ownerAccessModule, 'restoreOwnerAccess').mockImplementation(() => {});
+    const record = await finishRun(input(), end).finally(() => {
+      spy.mockRestore();
+      chmodSync(extra, 0o600);
+    });
+    expect(record.harness.plantedLinks).toEqual([expect.stringMatching(/^logs\/extra\.log: the read failed: EACCES/)]);
+    expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
+    expect(existsSync(join(end.dataDir, 'logs', 'extra.log'))).toBe(false);
+  });
 });
