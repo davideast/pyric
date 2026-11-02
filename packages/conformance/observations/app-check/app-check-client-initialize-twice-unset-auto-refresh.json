@@ -5,7 +5,7 @@
     "app-check#initialize-twice-unset-auto-refresh"
   ],
   "description": "initializeAppCheck called a second time on the same app with the same provider instance, where one of the two calls omits isTokenAutoRefreshEnabled: omitted then false, false then omitted, and omitted both times.",
-  "observedAt": "2026-10-30T11:52:13.271Z",
+  "observedAt": "2026-11-02T18:29:27.776Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
