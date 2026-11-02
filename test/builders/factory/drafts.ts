@@ -2,7 +2,8 @@
  * Issue drafts that triage writes to `<run>/issue-drafts/<slug>.md`, and
  * their check against pyric's issue standard (AGENTS.md, "Issues"): a title
  * in the kind's pattern, exactly one label, the kind's four bold fields,
- * each with text, and a "Found by" line.
+ * each with text, a link in the field AGENTS.md asks evidence of, and a
+ * "Found by" line.
  *
  *   Title: Firestore: pyric allows X, production refuses it
  *   Label: divergence
@@ -25,11 +26,13 @@ export interface IssueKind {
   title: RegExp;
   titlePattern: string;
   fields: readonly string[];
+  /** The field that must carry a link to its evidence, where AGENTS.md asks for one. */
+  linkField?: string;
 }
 
 export const ISSUE_KINDS: readonly IssueKind[] = [
-  { label: 'support', title: /^Support \S.* in \S.*$/, titlePattern: 'Support <API> in <package>', fields: ['Missing', 'In production', 'Workaround', 'Done when'] },
-  { label: 'divergence', title: /^[^:]+: pyric .+, production .+$/, titlePattern: '<Service>: pyric <does X>, production <does Y>', fields: ['pyric', 'Production', 'Who notices', 'Done when'] },
+  { label: 'support', title: /^Support \S.* in \S.*$/, titlePattern: 'Support <API> in <package>', fields: ['Missing', 'In production', 'Workaround', 'Done when'], linkField: 'In production' },
+  { label: 'divergence', title: /^[^:]+: pyric .+, production .+$/, titlePattern: '<Service>: pyric <does X>, production <does Y>', fields: ['pyric', 'Production', 'Who notices', 'Done when'], linkField: 'Production' },
   { label: 'bug', title: /^\S.* when \S.*$/, titlePattern: '<What breaks> when <condition>', fields: ['What breaks', 'Expected', 'Repro', 'Done when'] },
   { label: 'security', title: /^Security: \S.*$/, titlePattern: 'Security: <what is exposed> <to whom>', fields: ['Exposure', 'Who can reach it', 'Fix', 'Done when'] },
   { label: 'flake', title: /^(Flaky|Red on main): \S.*$/, titlePattern: 'Flaky: <test> or Red on main: <check>', fields: ['Fails how', 'Since', 'Cause', 'Done when'] },
@@ -99,6 +102,15 @@ function fieldErrors(kind: IssueKind, fields: ReadonlyMap<string, string>): stri
   });
 }
 
+const LINK = /https?:\/\/\S+/;
+
+function linkErrors(kind: IssueKind, fields: ReadonlyMap<string, string>): string[] {
+  if (kind.linkField === undefined) return [];
+  const text = fields.get(kind.linkField);
+  const lacksLink = text !== undefined && text.length > 0 && !LINK.test(text);
+  return lacksLink ? [`the **${kind.linkField}:** field has no link to its evidence`] : [];
+}
+
 function labelErrors(labels: readonly string[]): string[] {
   if (labels.length === 0) return ['missing the "Label:" line'];
   if (labels.length > 1) return [`takes one label, found ${labels.length}: ${labels.join(', ')}`];
@@ -118,7 +130,7 @@ export function validateDraft(text: string): string[] {
   const errors = labelErrors(draft.labels);
   const kind = errors.length === 0 ? kindForLabel(draft.labels[0] ?? '') : undefined;
   errors.push(...titleErrors(kind, draft.title));
-  if (kind !== undefined) errors.push(...fieldErrors(kind, draft.fields));
+  if (kind !== undefined) errors.push(...fieldErrors(kind, draft.fields), ...linkErrors(kind, draft.fields));
   if (draft.foundBy === undefined) errors.push('missing the "Found by" line');
   return errors;
 }
