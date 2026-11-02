@@ -184,6 +184,34 @@ describe('namespace over the real server', () => {
     expect(init.sessionToken.length).toBeGreaterThan(10);
   });
 
+  it('hands the session token to loopback peers only, whatever Host they send', async () => {
+    const { sdk } = fixture();
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+    });
+    const initFrom = async (remoteAddress: string | undefined): Promise<Record<string, unknown>> => {
+      let body = '';
+      let status = 0;
+      const req = { method: 'GET', headers: { host: 'localhost:5000' }, socket: { remoteAddress, localPort: 5000 } };
+      const res = {
+        writeHead(code: number) { status = code; return res; },
+        end(chunk?: string) { body = chunk ?? ''; return res; },
+      };
+      await ns(req as never, res as never, new URL('http://localhost:5000/__pyric/init.json'));
+      expect(status).toBe(200);
+      return JSON.parse(body) as Record<string, unknown>;
+    };
+    for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+      expect(typeof (await initFrom(peer)).sessionToken).toBe('string');
+    }
+    for (const peer of ['10.0.0.5', '192.168.1.20', '::ffff:10.0.0.5', undefined]) {
+      const init = await initFrom(peer);
+      expect(init.sessionToken).toBeUndefined();
+      expect(init.rules).toBeNull();
+    }
+  });
+
   it('enforces host and origin guards on /__pyric/events', async () => {
     const { site, sdk } = fixture();
     const events = createEventHub();
