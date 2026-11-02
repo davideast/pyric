@@ -22,6 +22,9 @@ bun test/builders/harness.ts reproduce <round> <run> --list
 bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
     [--expect <text>] [--register] [--packages <dir>] [--minutes <n>]
 bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
+bun test/builders/harness.ts factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]
+bun test/builders/harness.ts factory-summary --run-dir <dir>
+bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
 ```
 
 `canary` is the harness's integration test. Run it before every round.
@@ -33,8 +36,9 @@ bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-n
 `round` runs every brief of a round once per model (below).
 `check-briefs` validates a round's briefs as `round` would and starts
 nothing. `reproduce` re-runs one problem of a kept run for the verifier
-(below). `measure` summarizes `measurements.jsonl`. The `run` command comes
-in a later pull request.
+(below). `measure` summarizes `measurements.jsonl`. `factory`,
+`factory-summary` and `factory-check` run the factory (below). The `run`
+command comes in a later pull request.
 
 ## The skills
 
@@ -482,6 +486,100 @@ new finding, and the 90th-percentile cost of a run plus its verification.
 The nightly model is the one with the lower cost per confirmed new finding;
 with `--runs-per-night <n>` it also prints the nightly cap, `n` times that
 model's 90th-percentile cost.
+
+## The factory
+
+The factory runs several roles against one app for a fixed wall-clock
+time, overnight: a lead, two builders, a user agent, a design reviewer and
+triage. Each role works in short sessions. The supervisor
+(`factory/supervisor.ts`) keeps them going until the run's deadline.
+
+- **Only the clock ends a run.** `--hours` fixes the deadline when the run
+  starts. A session that ends for any reason, its model saying it is done
+  included, frees its seat for the next session. Each session is told the
+  time left, and at the deadline the supervisor aborts every running
+  session's signal.
+- **At most four sessions at once.** The schedule is the `SEATS` table in
+  `factory/schedule.ts`. The lead runs first, again after each round of
+  reviews, and whenever a builder would start with nothing on the work list
+  (then with "plan the next items from the specs and the user agent's
+  findings"). The builders run continuously once the lead has run. The user
+  agent, design reviewer and triage run once each after every hourly check
+  and whenever a builder marks an item ready; triage waits for the other
+  two. A seat whose session fails within a minute waits before the next,
+  15 seconds and doubling, up to 10 minutes.
+- **State lives in the run directory.** `run.json` holds the deadline,
+  `supervisor.json` what the schedule owes, and the sessions read and write
+  `work-list.json`, `progress.md` and `latest-check.json`. The app repo is
+  `app/`.
+- **Rate limits pause the run.** A session that ends rate-limited stops new
+  sessions until its `resetAt`, or for a backoff (1 minute, doubling, up to
+  30) when it gives none, never past the deadline. Running sessions go on.
+  The pause is a line in the timeline.
+- **The hourly check is a hook.** The supervisor calls it each whole hour
+  after the start, writes its result to `latest-check.json` and the
+  timeline, and wakes the on-demand roles. Until the check lands it checks
+  nothing.
+
+Sessions come from `factory/session-runner.ts`, which exports `runSession`
+(and, once it exists, `hourlyCheck`); `--runner <module>` names another
+module with the same exports.
+
+### Running it overnight
+
+Run the supervisor as a transient user unit, so systemd restarts it when it
+crashes or is killed. The same command line starts the run and resumes it:
+with both `--hours` and `--resume`, `factory` resumes the run in
+`--run-dir`, or starts one when there is none. A resumed run keeps its own
+deadline whatever `--hours` says.
+
+```
+RUN=~/pyric-builders/factory/$(date +%Y-%m-%d)
+systemd-run --user --unit pyric-factory \
+  --property Restart=on-failure --property RestartSec=30 \
+  --working-directory "$PWD" --setenv PATH="$PATH" \
+  "$(command -v bun)" test/builders/harness.ts factory --run-dir "$RUN" --hours 8 --resume
+```
+
+`Restart=on-failure` covers a supervisor that exits non-zero or is killed.
+Before it restarts the unit, systemd stops every process in the unit's
+control group, so a session the dead supervisor started does not run on
+beside the new one's; the restarted supervisor starts those seats again.
+Outside systemd, a supervisor killed with SIGKILL leaves its sessions to
+the runner to end.
+
+A supervisor that hangs keeps its process and stops its heartbeat, which it writes to
+`heartbeat.json` every minute. A timer runs `factory-check` every five
+minutes; it restarts the unit when the heartbeat is older than
+`--stale-minutes` (5 by default) and the deadline hasn't passed, and does
+nothing otherwise:
+
+```
+systemd-run --user --unit pyric-factory-check --on-calendar '*:0/5' \
+  --working-directory "$PWD" --setenv PATH="$PATH" \
+  "$(command -v bun)" test/builders/harness.ts factory-check --run-dir "$RUN" --unit pyric-factory
+```
+
+`systemd-run` looks the command up in its own `PATH`, not the unit's, so
+both name bun by its full path. Both are transient: nothing is installed,
+and nothing survives a reboot.
+`journalctl --user -u pyric-factory` shows the supervisor's output. After
+the run, stop the timer with `systemctl --user stop pyric-factory-check.timer`.
+To stop a run early, `systemctl --user stop pyric-factory`: the supervisor
+stops its sessions and exits.
+
+### The morning review
+
+`timeline.jsonl` has one line per session (seat, role, start, end,
+`endedBy`, exit code, log path), per pause, per restart and per hourly
+check. A session's line is written when it ends, so a session cut off by a
+crash has none; the `restart` line after it gives the last heartbeat.
+
+```
+bun test/builders/harness.ts factory-summary --run-dir "$RUN"
+```
+
+prints totals per seat, then the timeline.
 
 ## The canary
 
