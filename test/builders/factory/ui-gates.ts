@@ -18,6 +18,7 @@ export const OVERLAY_MARKER = /ui-overlay:\s*\S/;
 const ABSOLUTE_RULES = new Set(['factory-no-absolute-layout', 'factory-no-absolute-layout-css']);
 const UI_FILES = /\.(tsx?|css)$/;
 const COMPONENTS_UI = /(^|\/)components\/ui\/.+$/;
+const DIRECT_CHILD_OF_COMPONENTS_UI = /(^|\/)components\/ui\/[^/]+$/;
 
 export interface Violation {
   rule: string;
@@ -56,7 +57,9 @@ export function readApproved(path: string): Set<string> {
 }
 
 export function newComponentViolations(added: readonly string[], approved: ReadonlySet<string>): Violation[] {
-  const isApproved = (file: string) => approved.has(file) || approved.has(file.split('/').at(-1) ?? '');
+  // A bare name approves only the direct child: a nested file must be listed by its path.
+  const isApprovedByName = (file: string) => DIRECT_CHILD_OF_COMPONENTS_UI.test(file) && approved.has(file.split('/').at(-1) ?? '');
+  const isApproved = (file: string) => approved.has(file) || isApprovedByName(file);
   return added
     .filter((file) => COMPONENTS_UI.test(file) && !isApproved(file))
     .map((file) => ({

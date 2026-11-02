@@ -81,6 +81,15 @@ describe('new components/ui files', () => {
     expect(found.map((violation) => violation.file)).toEqual(['studio/src/components/ui/nested/fancy-card.tsx']);
   });
 
+  test('take a bare name for a direct child of components/ui only', () => {
+    const direct = 'studio/src/components/ui/checkbox.tsx';
+    const nested = 'studio/src/components/ui/nested/checkbox.tsx';
+    const deep = 'studio/src/components/ui/a/b/checkbox.tsx';
+    const found = newComponentViolations([direct, nested, deep], new Set(['checkbox.tsx']));
+    expect(found.map((violation) => violation.file)).toEqual([nested, deep]);
+    expect(newComponentViolations([nested], new Set([nested]))).toEqual([]);
+  });
+
   test('pass when the list setup seeded from the brief names them, and fail otherwise', () => {
     const brief = mkdtempSync(join(tmpdir(), 'factory-brief-'));
     writeFileSync(join(brief, APPROVED_COMPONENTS), '# from the design\ncheckbox.tsx\nalert.tsx\n');
