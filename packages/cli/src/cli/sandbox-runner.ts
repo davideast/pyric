@@ -264,7 +264,7 @@ export function formatStartupEnvExport(opts: ChildActivation): string {
     body +
     `  ${divider}\n` +
     '  PYRIC_SANDBOX=remote finds this host through .pyric/serve.json from this project directory.\n' +
-    `  From another directory or machine, set PYRIC_SANDBOX=remote:${opts.serveUrl} instead.\n` +
+    `  From another directory on this machine, set PYRIC_SANDBOX=remote:${opts.serveUrl} instead.\n` +
     '  Automatic interception confirmation requires launching the command through pyric.\n'
   );
 }

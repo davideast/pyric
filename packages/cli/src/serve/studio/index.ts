@@ -3,7 +3,7 @@
  * impls + the `/__pyric/workspace` and `/__pyric/projects` serve routes that
  * `@pyric/studio`'s `local` mode talks to. See the design rationale.
  */
-export { diskWorkspace, resolveWorkspacePath, WorkspacePathError } from './disk-workspace.js';
+export { diskWorkspace, resolveWorkspacePath, WorkspaceDeniedPathError, WorkspacePathError } from './disk-workspace.js';
 export {
   diskProjectStore,
   slugifyProjectId,
