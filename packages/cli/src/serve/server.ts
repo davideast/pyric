@@ -57,6 +57,9 @@ export interface StaticServerOptions {
   /** Handles reserved routes (the `/__pyric/` namespace). Return true when
    *  the request was handled. */
   namespaceHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => boolean | Promise<boolean>;
+  /** Handles Functions HTTP routes after the namespace and before static
+   *  files and the GET/HEAD-only 405. Return true when the request was handled. */
+  functionsHandler?: (req: IncomingMessage, res: ServerResponse) => boolean | Promise<boolean>;
   /** Applied to every served `.html` body (import-map/init injection). */
   transformHtml?: (html: string) => string;
   logger?: ServeLogger;
@@ -143,7 +146,7 @@ export function isAllowedOrigin(
  * loopback, so only the port tells them apart. `undefined` means the ports
  * are not known, and only the Origin's hostname is compared.
  */
-function isAllowedOriginOnPorts(
+export function isAllowedOriginOnPorts(
   originHeader: string | undefined,
   boundHost: string,
   extra: string[],
@@ -372,6 +375,11 @@ async function handleRequest(
 
   if (opts.namespaceHandler && url.pathname.startsWith('/__pyric/')) {
     const handled = await opts.namespaceHandler(req, res, url);
+    if (handled) return;
+  }
+
+  if (opts.functionsHandler && !url.pathname.startsWith('/__pyric/')) {
+    const handled = await opts.functionsHandler(req, res);
     if (handled) return;
   }
 

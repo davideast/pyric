@@ -13,6 +13,11 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts'
 
 type EvidenceKind = 'observed' | 'upstream' | 'pyric';
 
+/** Set only when the row's assertion set passes unweakened. */
+type Flip =
+  | { status: 'conforms'; tests: string[] }
+  | { status: 'unsupported'; reason: string; tests: string[] };
+
 interface RowSeed {
   ref: number;
   api: string;
@@ -20,7 +25,11 @@ interface RowSeed {
   evidence: string;
   kind: EvidenceKind;
   observations?: string[];
+  flip?: Flip;
 }
+
+const SUITE = 'packages/cli/test/functions-http/oracle-conformance.test.ts';
+const VITE_PLANE = 'packages/cli/test/functions-http/vite-plane.test.ts';
 
 const RISK_BY_KIND: Record<EvidenceKind, { risk: string; riskScore: number; reason: string }> = {
   observed: {
@@ -48,7 +57,18 @@ const buildRow = defineRows({
   defaults: { section: '`firebase-functions/v2/https.onRequest`', featureKeys: ['onRequest'] },
 });
 
+function flipped(seed: RowSeed, flip: Flip): CompatibilityRow {
+  const { ref, kind: _kind, observations = [], flip: _flip, ...rest } = seed;
+  const evidence = `${seed.evidence} Local assertion: \`${SUITE}\` assertion set \`functions-http#${ref}\`.`;
+  const shared = { ...rest, evidence, rowRef: String(ref), oracleObservations: observations, conformanceTests: flip.tests };
+  if (flip.status === 'unsupported') {
+    return buildRow({ ...shared, status: 'unsupported', automation: 'unsupported', exceptionReason: flip.reason });
+  }
+  return buildRow({ ...shared, status: 'conforms', automation: 'unit-backed' });
+}
+
 function row(seed: RowSeed): CompatibilityRow {
+  if (seed.flip) return flipped(seed, seed.flip);
   const { ref, kind, observations = [], ...rest } = seed;
   const observed = observations.length > 0;
   const risk = RISK_BY_KIND[kind];
@@ -72,7 +92,11 @@ export const functionsHttpRows: CompatibilityRow[] = [
     behavior:
       'A discovered v2 onRequest export is served at /{projectId}/{region}/{name} on the sandbox server and the Vite dev server; the region comes from the options, then setGlobalOptions, then us-central1.',
     evidence:
-      'upstream: the emulator routes /{projectId}/:region/:trigger_name (firebase-tools `lib/emulator/functionsEmulator.js:151-153`) and the SDK sets `__endpoint.httpsTrigger` and `region` (`lib/v2/providers/https.js:44-108`).',
+      'upstream: the emulator routes /{projectId}/:region/:trigger_name (firebase-tools `lib/emulator/functionsEmulator.js:151-153`) and the SDK sets `__endpoint.httpsTrigger` and `region` (`lib/v2/providers/https.js:44-108`). Region resolution: `packages/cli/test/functions-http/discovery.test.ts`; the Vite plane: `packages/cli/test/functions-http/vite-plane.test.ts`.',
+    flip: {
+      status: 'conforms',
+      tests: [SUITE, 'packages/cli/test/functions-http/discovery.test.ts', 'packages/cli/test/functions-http/routes.test.ts', VITE_PLANE],
+    },
   }),
   row({
     ref: 2,
@@ -190,7 +214,7 @@ export const functionsHttpRows: CompatibilityRow[] = [
     kind: 'observed',
     api: "onRequest({ invoker: 'private' }, handler)",
     behavior:
-      "Production refuses an unauthenticated call to an invoker: 'private' function with 403. Pyric serves it, warns once per function, and records the difference as a by-design divergence.",
+      "Production refuses an unauthenticated call to an invoker: 'private' function with 403. Pyric serves it without authentication to the app's own pages and to callers that are not browser pages, refuses another page (a foreign Origin, or Sec-Fetch-Site cross-site or same-site with no Origin) with 403, warns once per function, and records the difference as a by-design divergence.",
     evidence:
       'upstream: the emulator never enforces `invoker` (no reference in `lib/emulator`). Owner decision: serve and warn. Production behavior needs `functions-http-onrequest-invoker-private`.',
   }),
@@ -207,7 +231,7 @@ export const functionsHttpRows: CompatibilityRow[] = [
     kind: 'observed',
     api: 'firebase.json hosting.rewrites[].function',
     behavior:
-      'A hosting rewrite to a function routes the full original path and query, honors { functionId, region } (us-central1 by default), and forwards only the __session cookie.',
+      "A hosting rewrite to a function routes the full original path and query, honors { functionId, region }, takes the region from the function's source when the rewrite names none (us-central1 only when the source names none either), cuts the request at Hosting's 60 s, and forwards only the __session cookie.",
     evidence:
       'upstream: firebase-tools appends the original req.url and sets X-Forwarded-Host and X-Original-Url (`lib/hosting/functionsProxy.js:20-31`, `lib/hosting/proxy.js:29-50`). The `__session`-only cookie rule comes from the Hosting docs (https://firebase.google.com/docs/hosting/manage-cache#using_cookies); the emulator forwards every cookie, because `proxy.js` copies the full Cookie header after setting `__session`. Production behavior needs `functions-http-hosting-rewrite`.',
   }),
@@ -218,7 +242,8 @@ export const functionsHttpRows: CompatibilityRow[] = [
     behavior:
       'A firebase-admin write the handler awaits is visible to a client of the same sandbox before the HTTP response arrives.',
     evidence:
-      'The child runs with PYRIC_SANDBOX=remote:<serveUrl> and pre-initializes the ambient firebase-admin app; a bare initializeApp() returns it (`pyric-admin/src/app/index.ts:131-139`).',
+      'The child runs with PYRIC_SANDBOX=remote:<serveUrl> and pre-initializes the ambient firebase-admin app; a bare initializeApp() returns it (`pyric-admin/src/app/index.ts:131-139`). Both planes: the suite and `packages/cli/test/functions-http/vite-plane.test.ts` read the document from the peer sandbox as soon as the response arrives.',
+    flip: { status: 'conforms', tests: [SUITE, VITE_PLANE] },
   }),
   row({
     ref: 19,
@@ -228,6 +253,12 @@ export const functionsHttpRows: CompatibilityRow[] = [
       'Requests to one function run concurrently. maxInstances, minInstances, concurrency, memory, and cpu are deploy-time scaling options that pyric reads and does not apply: it has no instance model.',
     evidence:
       'upstream: these options only shape the deployed Cloud Run service (`__endpoint` fields read by firebase-tools at deploy).',
+    flip: {
+      status: 'unsupported',
+      reason:
+        'maxInstances, minInstances, concurrency, memory, and cpu size the deployed Cloud Run service; pyric runs one child per session with no instance model, so it serves every request concurrently and applies none of them. The assertion set pins concurrent serving, including for a maxInstances: 1 function.',
+      tests: [SUITE],
+    },
   }),
   row({
     ref: 20,
@@ -235,7 +266,9 @@ export const functionsHttpRows: CompatibilityRow[] = [
     api: 'onRequest routing',
     behavior:
       'A request to a discovered function while the child is starting, reloading, or waiting for a sandbox peer answers 503 with a message naming the cause, never a static 404.',
-    evidence: 'Pyric-owned lifecycle (`packages/cli/src/functions/development-runtime.ts`).',
+    evidence:
+      'Pyric-owned lifecycle (`packages/cli/src/functions/development-runtime.ts`, `functions/http/gateway.ts`). Each cause (waiting for a peer, starting, reloading, failed) is pinned in `packages/cli/test/functions-http/gateway.test.ts`; both planes answer 503 on the emulator path and a hosting rewrite before a peer connects.',
+    flip: { status: 'conforms', tests: [SUITE, 'packages/cli/test/functions-http/gateway.test.ts', VITE_PLANE] },
   }),
   row({
     ref: 21,
@@ -244,7 +277,8 @@ export const functionsHttpRows: CompatibilityRow[] = [
     behavior:
       'Each request a function serves lands one execution record with an http cause (method, path, status); in browser mode the first slice records it as a log line.',
     evidence:
-      'Pyric-owned: `execution_finished` on the sandbox event stream (`packages/cli/src/functions/events.ts`). Owner decision: log lines only in browser mode for the first slice.',
+      'Pyric-owned. Owner decision: log lines only, in browser mode, for the first slice; no `execution_finished` event on the sandbox stream yet. The line names the export, method, path, status, and duration (`packages/cli/src/functions/http/report.ts`); both planes print one per request.',
+    flip: { status: 'conforms', tests: [SUITE, 'packages/cli/test/functions-http/gateway.test.ts', VITE_PLANE] },
   }),
 ];
 
