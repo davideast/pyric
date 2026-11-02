@@ -43,6 +43,7 @@ import {
   connectFunctionsWorkerPeer,
   createFunctionsWorkerHostCtx,
 } from '../functions-rtdb/worker-peer.js';
+import { functionsChildrenOf, isAlive } from './children.js';
 
 const climbDescribe = process.env.PYRIC_CLIMB === '1' ? describe : describe.skip;
 
@@ -276,11 +277,20 @@ const ROWS: Record<string, RowAssertion> = {
     observation: 'functions-http-onrequest-uncaught-async',
     slow: true,
     async run() {
-      await replayed('functions-http-onrequest-uncaught-async', undefined, slow);
+      // Pyric's side first, so it is checked whether or not the observation is captured.
       const { url, output } = await servingSession();
-      const after = await sendProbeRequest(`${url}${functionPath('pyricHttpEcho')}`, { id: 'row-12', function: 'pyricHttpEcho', via: 'cloudfunctions' });
+      const whoami = async (mode?: string) => sendProbeRequest(
+        `${url}${functionPath('pyricHttpUncaught')}${mode ? `?mode=${mode}` : ''}`,
+        { id: 'row-12', function: 'pyricHttpUncaught', via: 'cloudfunctions' },
+      );
+      const before = await whoami();
+      expect((await whoami('after-response')).status).toBe(200);
+      await Bun.sleep(300);
+      const after = await whoami();
       expect(after.status).toBe(200);
+      expect(echoOf(after).instanceId).toBe(echoOf(before).instanceId);
       expect(output()).not.toMatch(/functions child exited|unexpected-exit/i);
+      await replayed('functions-http-onrequest-uncaught-async', undefined, slow);
     },
   },
   'functions-http#13': { observation: 'functions-http-onrequest-cors-unset', run: () => replayed('functions-http-onrequest-cors-unset') },
@@ -323,6 +333,10 @@ const ROWS: Record<string, RowAssertion> = {
       expect(Date.now() - startedAt).toBeLessThan(450);
       expect([first.status, second.status]).toEqual([200, 200]);
       expect([first.body, second.body]).toEqual(['chunk-1\nchunk-2\nchunk-3\n', 'chunk-1\nchunk-2\nchunk-3\n']);
+      // maxInstances: 1 is read and not applied: two overlapping requests are both served.
+      const whoami = () => sendProbeRequest(`${url}${functionPath('pyricHttpUncaught')}`, { id: 'row-19-max', function: 'pyricHttpUncaught', via: 'cloudfunctions' });
+      const capped = await Promise.all([whoami(), whoami()]);
+      expect(capped.map((response) => response.status)).toEqual([200, 200]);
     },
   },
   'functions-http#20': {
@@ -360,7 +374,11 @@ const NOT_APPLICABLE: Record<string, string> = {};
 afterAll(async () => {
   if (closePeer) await closePeer().catch(() => undefined);
   const started = await session?.catch(() => undefined);
+  const cliPid = started?.command.pid;
+  // Collect the children before the CLI dies: afterwards they are re-parented and unfindable by ppid.
+  const children = cliPid === undefined ? [] : functionsChildrenOf(cliPid);
   if (started?.command.exitCode === null) started.command.kill('SIGKILL');
+  for (const pid of children) if (isAlive(pid)) process.kill(pid, 'SIGKILL');
 });
 
 for (const row of functionsHttpRows) {

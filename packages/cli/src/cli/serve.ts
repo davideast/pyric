@@ -11,6 +11,7 @@
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
 import { randomBytes } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
@@ -36,7 +37,14 @@ import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
-import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
+import {
+  consoleServeLogger,
+  getHeader,
+  isAllowedOriginOnPorts,
+  startStaticServer,
+  stderrServeLogger,
+  type ServeHandle,
+} from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { createAppPorts } from '../serve/app-ports.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
@@ -62,6 +70,14 @@ import {
   type FunctionsDevelopmentEvent,
   type FunctionsDevelopmentRuntime,
 } from '../functions/development-runtime.js';
+import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functions/http/gateway.js';
+import {
+  createPrivateInvokerWarnings,
+  httpFunctionLines,
+  stateAfterStart,
+  UNRESPONSIVE_LINE,
+  uncaughtErrorLine,
+} from '../functions/http/report.js';
 import {
   discoverFunctionsProject,
   type FunctionsProject,
@@ -215,6 +231,8 @@ async function startServeRuntime(opts: {
   /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
   permissive?: boolean;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
+  /** Functions HTTP routes (`pyric sandbox` passes its gateway's handler). */
+  functionsHandler?: FunctionsHttpGateway['handle'];
   /** A child command runs beside the server and resolves `firebase` itself. */
   hasChildCommand?: boolean;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
@@ -481,6 +499,17 @@ async function startServeRuntime(opts: {
     if (handledByBridge) return true;
     return session.handle(req, res, url);
   };
+  // A private function answers only the app's own pages: the same ports the bridge accepts.
+  const allowsAppOrigin = (req: IncomingMessage): boolean => isAllowedOriginOnPorts(
+    getHeader(req, 'origin'),
+    opts.host ?? 'localhost',
+    opts.allowedHosts ?? [],
+    appPorts.forRequest(req),
+  );
+  const gatewayHandler = opts.functionsHandler;
+  let functionsHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<boolean>) | undefined;
+  const servesFunctions = gatewayHandler !== undefined;
+  if (servesFunctions) functionsHandler = (req, res) => gatewayHandler(req, res, allowsAppOrigin);
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
   try {
     handle = await startStaticServer({
@@ -489,6 +518,7 @@ async function startServeRuntime(opts: {
       host: opts.host ?? 'localhost',
       spaRewrite: wantsSpaRewrite(hosting),
       namespaceHandler,
+      functionsHandler,
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
@@ -953,6 +983,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   }
   const functionsProject = discoveredFunctionsProject;
   const functionsProjectId = functionsProject === null ? null : firebaseProject.projectId ?? 'demo-project';
+  // Created before the server starts so its routes exist from the first request.
+  let functionsGateway: FunctionsHttpGateway | null = null;
 
   const explicitCommand = resolveExplicitCommand(parsed);
 
@@ -980,6 +1012,13 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     }
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
+    if (functionsProjectId !== null) {
+      functionsGateway = createFunctionsHttpGateway({
+        projectId: functionsProjectId,
+        initial: { kind: 'starting' },
+        plane: 'pyric-sandbox',
+      });
+    }
     runtime = await startServe({
       cwd: process.cwd(),
       port,
@@ -1001,6 +1040,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       allowedHosts,
       project: firebaseProject.projectId,
       firebaseProject,
+      functionsHandler: functionsGateway?.handle,
       hasChildCommand: plan !== null,
     });
   } catch (e) {
@@ -1080,7 +1120,14 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   if (canStartFunctions) {
     const info = json ? process.stderr : process.stdout;
     info.write('• functions waiting for the browser tab to connect the sandbox…\n');
+    const serveUrl = runtime.handle.url;
+    functionsGateway?.update(usesHostedSandbox ? { kind: 'starting' } : { kind: 'waiting-peer', serveUrl });
+    const warnPrivateInvokers = createPrivateInvokerWarnings();
     const reportFunctionsEvent = (event: FunctionsDevelopmentEvent): void => {
+      if (event.type === 'starting') {
+        functionsGateway?.update({ kind: event.mode === 'reload' ? 'reloading' : 'starting' });
+        return;
+      }
       const isOutput = event.type === 'output';
       if (isOutput) {
         const isStdout = event.stream === 'stdout';
@@ -1090,10 +1137,27 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       }
       const isUnexpectedExit = event.type === 'unexpected-exit';
       if (isUnexpectedExit) {
+        functionsGateway?.update({ kind: 'exited', code: event.code });
         resolveFunctionsExit(event.code);
         return;
       }
+      if (event.type === 'unresponsive') {
+        functionsGateway?.update({ kind: 'unresponsive' });
+        process.stderr.write(`✖ ${UNRESPONSIVE_LINE}\n`);
+        return;
+      }
+      if (event.type === 'restarted') {
+        functionsGateway?.update(stateAfterStart(event.result, serveUrl));
+        const restarted = event.result.kind === 'ready';
+        if (restarted) info.write('↻ functions restarted\n');
+        else process.stderr.write(`✖ functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})\n`);
+        return;
+      }
       const childEvent = event.event;
+      if (childEvent.type === 'uncaught-error') {
+        process.stderr.write(`✖ ${uncaughtErrorLine(childEvent.error)}\n`);
+        return;
+      }
       const isExecution = childEvent.type === 'execution';
       if (isExecution) {
         const params = Object.entries(childEvent.params)
@@ -1133,6 +1197,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     const interruptedStartup = 'signal' in startOutcome;
     if (interruptedStartup) return stopAfterSignal();
     const result = startOutcome.value;
+    functionsGateway?.update(stateAfterStart(result, serveUrl));
     const isMissingPeer = result.kind === 'no-peer';
     const failedStartup = result.kind === 'failed';
     if (isMissingPeer) {
@@ -1150,10 +1215,18 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       const ready = result.ready;
       const hasSingleTrigger = ready.triggerCount === 1;
       const triggerSuffix = hasSingleTrigger ? '' : 's';
-      info.write(
-        `✔ functions ${ready.triggerCount} onValueCreated trigger${triggerSuffix} ` +
-          `from ${relative(cwd, functionsProject.entry)}\n`,
-      );
+      const reportsTriggers = ready.triggerCount > 0 || ready.http === undefined;
+      if (reportsTriggers) {
+        info.write(
+          `✔ functions ${ready.triggerCount} onValueCreated trigger${triggerSuffix} ` +
+            `from ${relative(cwd, functionsProject.entry)}\n`,
+        );
+      }
+      if (ready.http) {
+        const [heading, ...urls] = httpFunctionLines(ready.http, serveUrl, functionsProjectId ?? 'demo-project');
+        info.write(`✔ ${heading}\n${urls.map((line) => `${line}\n`).join('')}`);
+        for (const warning of warnPrivateInvokers(ready.http)) process.stderr.write(`  ⚠ ${warning}\n`);
+      }
       for (const unsupported of ready.unsupportedTriggers) {
         process.stderr.write(
           `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
