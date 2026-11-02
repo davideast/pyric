@@ -72,6 +72,7 @@ jobs:
           test/builders/factory/known-failures.test.ts
           test/builders/factory/layout-probe.test.ts
           test/builders/factory/next-config.test.ts
+          test/builders/factory/served-owner.test.ts
           test/builders/factory/serving.test.ts
           test/builders/factory/session-end.test.ts
           test/builders/factory/supervisor-process.test.ts

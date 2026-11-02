@@ -12,13 +12,15 @@
  * for this run, and its start time the one recorded, so a reused pid is never
  * signalled. A URL is reported only once that process says it is ready.
  * When the run ends, `stopRunServing` stops the process and removes the
- * private-network entries this run added.
+ * private-network entries this run added. The served process also stops
+ * itself, and removes those entries, when the process that started it is
+ * gone or the run's deadline passes (`served-owner.ts`), so a supervisor
+ * that dies before its run end doesn't leave it serving.
  */
 import { spawn } from 'node:child_process';
 import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { z } from 'zod';
 import { npmCacheDir } from '../app-install.ts';
 import { playwrightBrowsersPath } from '../browser-server.ts';
 import { startTimeOf } from '../namespace.ts';
@@ -29,9 +31,12 @@ import { readLastGood, serveAction, writeLastGood, type ServeAction } from './la
 import { optional } from './optional.ts';
 import type { SandboxOpener } from './sandbox.ts';
 import { DEFAULT_SERVED_PORT, servedStateFile, servedStateSchema, type ServedState } from './served-process.ts';
-import { readJson, writeJson } from './state-files.ts';
+import { hasRun, readRun, runPaths } from './run-dir.ts';
+import { recordEntries, removeRecordedEntries } from './served-entries.ts';
+import { ownerArgs, type Owner } from './served-owner.ts';
+import { readJson } from './state-files.ts';
 import { bunCacheDir } from './studio-install.ts';
-import { ensureServed, removeServed, tailnetHost, tailnetUrl, tailscaleFrom } from './tailnet.ts';
+import { ensureServed, tailnetHost, tailnetUrl, tailscaleFrom } from './tailnet.ts';
 import { exportTree } from './tree.ts';
 
 export const SERVED_PROCESS = fileURLToPath(new URL('./served-process.ts', import.meta.url));
@@ -117,10 +122,18 @@ function servedEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.Process
   };
 }
 
+/** This process, which the served copy outlives only until the run's deadline. */
+function currentOwner(runDir: string): Owner {
+  const owner: Owner = { pid: process.pid, startTime: startTimeOf(process.pid) ?? '' };
+  const run = runPaths(runDir);
+  if (hasRun(run)) owner.deadline = Date.parse(readRun(run).deadline);
+  return owner;
+}
+
 async function startServed(paths: AppPaths, commit: string, port: number, signal?: AbortSignal): Promise<ServedState | undefined> {
   const tree = exportTree(paths, commit, 'served');
   const log = openSync(join(paths.host, 'served-process.log'), 'a');
-  const args = [SERVED_PROCESS, '--run-dir', paths.runDir, '--commit', commit, '--root', tree.root, '--port', String(port)];
+  const args = [SERVED_PROCESS, '--run-dir', paths.runDir, '--commit', commit, '--root', tree.root, '--port', String(port), ...ownerArgs(currentOwner(paths.runDir))];
   const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], env: servedEnvironment() });
   closeSync(log);
   child.unref();
@@ -154,18 +167,6 @@ export interface ServeInput {
   signal?: AbortSignal;
   openSandbox?: SandboxOpener;
   say: (line: string) => void;
-}
-
-const ENTRIES_SCHEMA = z.object({ ports: z.array(z.number().int()) }).strict();
-
-function entriesFile(paths: AppPaths): string {
-  return join(paths.host, 'private-network-entries.json');
-}
-
-function recordEntries(paths: AppPaths, added: readonly number[]): void {
-  if (added.length === 0) return;
-  const earlier = readJson(entriesFile(paths), ENTRIES_SCHEMA)?.ports ?? [];
-  writeJson(entriesFile(paths), { ports: [...new Set([...earlier, ...added])] });
 }
 
 /** The addresses of a ready served copy. */
@@ -204,8 +205,6 @@ export async function stopRunServing(runDir: string, log: (line: string) => void
   const isSetUp = existsSync(paths.record);
   if (!isSetUp) return;
   await stopServed(paths);
-  const ports = readJson(entriesFile(paths), ENTRIES_SCHEMA)?.ports ?? [];
-  for (const line of removeServed(ports, tailscaleFrom())) log(line);
-  if (ports.length > 0) writeJson(entriesFile(paths), { ports: [] });
+  for (const line of removeRecordedEntries(paths)) log(line);
   appendFile(join(paths.host, 'served-process.log'), `${new Date().toISOString()} the run ended; the served copy is stopped\n`);
 }
