@@ -134,6 +134,26 @@ An item is `done` when all of these hold: its `review.design` is
 finding against it, and the latest check passed. Set its `status` to
 `done`. Leave every other item's status as it is.
 
+## Your session
+
+A session that ends within a minute of starting makes your seat wait
+before the next one starts. Do real work in each session, and don't exit
+early to report status. Sort every new finding, and write and run each
+repro, before you stop.
+
+## Writing the work list
+
+Never write `work-list.json` in place, with an editor or with `>`. The
+supervisor reads it at any moment and treats a half-written file as
+unreadable. Instead:
+
+1. Read `$RUN_DIR/work-list.json` again just before you write, so you keep
+   what another role changed since you last read it.
+2. Write the whole list, as valid JSON, to a temporary file in the same
+   directory: `$RUN_DIR/work-list.json.triage.tmp`.
+3. Rename it over the original:
+   `mv $RUN_DIR/work-list.json.triage.tmp $RUN_DIR/work-list.json`.
+
 ## Rules
 
 - File nothing. Never run `gh`, and never write to GitHub or any other

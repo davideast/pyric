@@ -74,6 +74,25 @@ Not "looks off" or "could be cleaner". Then set the item's `status` to
 `reason` to your reasons, joined in one string. Write the same reasons in
 the progress notes under a heading with the time and `design-reviewer`.
 
+## Your session
+
+A session that ends within a minute of starting makes your seat wait
+before the next one starts. Do real work in each session, and don't exit
+early to report status. Review every ready item before you stop.
+
+## Writing the work list
+
+Never write `work-list.json` in place, with an editor or with `>`. The
+supervisor reads it at any moment and treats a half-written file as
+unreadable. Instead:
+
+1. Read `$RUN_DIR/work-list.json` again just before you write, so you keep
+   what another role changed since you last read it.
+2. Write the whole list, as valid JSON, to a temporary file in the same
+   directory: `$RUN_DIR/work-list.json.design-reviewer.tmp`.
+3. Rename it over the original:
+   `mv $RUN_DIR/work-list.json.design-reviewer.tmp $RUN_DIR/work-list.json`.
+
 ## Rules
 
 - Change only the `status`, `review` and `reason` of items you reviewed.

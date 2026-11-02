@@ -78,6 +78,13 @@ keep it working. It drives the flow by role and label as you did, and
 exits non-zero when a step fails. The lead decides whether it joins the
 check; you never put it there yourself.
 
+## Your session
+
+A session that ends within a minute of starting makes your seat wait
+before the next one starts. Do real work in each session, and don't exit
+early to report status. Try every ready item and every failed flow
+before you stop.
+
 ## Rules
 
 - Never edit the app, the specs, the check or its walks.

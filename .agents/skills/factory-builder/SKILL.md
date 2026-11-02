@@ -82,6 +82,28 @@ to `ready`, and add a note to the progress notes under a heading with the
 time and your seat: the item, the commits, the screen's route, and
 anything a reviewer should look at.
 
+## Your session
+
+A session that ends within a minute of starting makes your seat wait
+before the next one starts. Do real work in each session, and don't exit
+early to report status. Go on with your item until it is ready or the
+session is nearly out of time, and commit as you go so the next session
+can pick it up.
+
+## Writing the work list
+
+Never write `work-list.json` in place, with an editor or with `>`. The
+supervisor reads it at any moment and treats a half-written file as
+unreadable. Instead:
+
+1. Read `$RUN_DIR/work-list.json` again just before you write, so you keep
+   what another role changed since you last read it.
+2. Write the whole list, as valid JSON, to a temporary file in the same
+   directory, named for your seat: `$RUN_DIR/work-list.json.builder-1.tmp`
+   for `builder-1`.
+3. Rename it over the original:
+   `mv $RUN_DIR/work-list.json.builder-1.tmp $RUN_DIR/work-list.json`.
+
 ## Rules
 
 - Never edit, move or delete the check's files or rules: the ast-grep

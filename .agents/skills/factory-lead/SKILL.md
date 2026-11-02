@@ -48,7 +48,7 @@ Your prompt tells you the deadline and the time left.
   Triage marks reviewed items `done`. You never set `done`, and you never
   set `ready`.
 - Keep any field another role wrote (`owner`, `reason`, `review`,
-  `pyricIssue`). Rewrite the file whole, as valid JSON, in one write.
+  `pyricIssue`). Write the list as "Writing the work list" below says.
 - The list's order is the order builders take items in. Put the next item
   first.
 
@@ -100,6 +100,27 @@ each:
 - **A proposed walk** in `walks-proposed/`: if the flow it walks is in the
   specs and the walk passed for the user agent, note in the progress notes
   that it should join the check. Moving it is the coordinator's job.
+
+## Your session
+
+A session that ends within a minute of starting makes your seat wait
+before the next one starts. Do real work in each session, and don't exit
+early to report status. Plan in one sitting: read everything new, then
+update the list and the notes. Don't end the session before the list
+holds the next items.
+
+## Writing the work list
+
+Never write `work-list.json` in place, with an editor or with `>`. The
+supervisor reads it at any moment and treats a half-written file as
+unreadable. Instead:
+
+1. Read `$RUN_DIR/work-list.json` again just before you write, so you keep
+   what another role changed since you last read it.
+2. Write the whole list, as valid JSON, to a temporary file in the same
+   directory: `$RUN_DIR/work-list.json.lead.tmp`.
+3. Rename it over the original:
+   `mv $RUN_DIR/work-list.json.lead.tmp $RUN_DIR/work-list.json`.
 
 ## Rules
 
