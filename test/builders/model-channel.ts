@@ -128,8 +128,8 @@ export function listen(start: (server: net.Server) => void, onConnection: (socke
 }
 
 /** Starts the bridge on a free loopback port, piping each connection to `socketPath`. */
-export async function startBridge(socketPath: string): Promise<Listening & { port: number }> {
-  const listening = await listen((server) => server.listen(0, '127.0.0.1'), (client) => {
+export async function startBridge(socketPath: string, port = 0): Promise<Listening & { port: number }> {
+  const listening = await listen((server) => server.listen(port, '127.0.0.1'), (client) => {
     const forwarder = net.connect(socketPath);
     forwarder.on('error', () => client.destroy());
     client.on('error', () => forwarder.destroy());

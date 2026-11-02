@@ -4,7 +4,7 @@
 // so nothing here can leave the machine.
 import { describe, expect, test } from 'bun:test';
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
@@ -158,6 +158,10 @@ describe('startEgressNamespace', () => {
   test('runs a command with only loopback and the allowlisted files, and records its lookups and connections', async () => {
     const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
     const networkLog = join(root, 'network.jsonl');
+    // Links a sandbox could have planted: the harness writes nothing through them.
+    const decoy = join(mkdtempSync(join(tmpdir(), 'builders-decoy-')), 'host-file');
+    writeFileSync(decoy, 'the host’s own file');
+    for (const name of ['hosts', 'resolv.conf']) symlinkSync(decoy, join(root, name));
     const namespace = await startEgressNamespace({ networkLog, runRoot: root });
     const run = (command: string, args: string[]) => {
       const entered = namespace.enter(command, args, root);
@@ -175,6 +179,8 @@ describe('startEgressNamespace', () => {
       expect(JSON.parse(inventory.stdout).problems).toEqual([]);
 
       expect(run('getent', ['hosts', 'canary-probe.invalid']).status).not.toBe(0);
+      expect(run('cat', ['/etc/resolv.conf']).stdout).toContain('nameserver 127.0.0.1');
+      expect(readFileSync(decoy, 'utf8')).toBe('the host’s own file');
 
       const connect = run('node', ['-e', "require('node:net').connect(80, '192.0.2.1').on('error', (e) => console.log(e.code)).on('close', () => console.log('closed'))"]);
       expect(connect.stdout.trim().split('\n')[0]).toBe('ECONNRESET');

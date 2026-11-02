@@ -1,22 +1,33 @@
 /**
- * A factory run's directory. Everything the run needs to go on lives here,
- * not in the supervisor's memory, so a restarted supervisor resumes where the
- * last one stopped:
+ * A factory run's directories. Everything the run needs to go on lives in
+ * them, not in the supervisor's memory, so a restarted supervisor resumes
+ * where the last one stopped.
  *
- *   run.json            the start and the deadline, fixed when the run starts
- *   supervisor.json     the schedule's state: reviews owed, the lead owed, a pause
- *   heartbeat.json      the supervisor's last sign of life, every minute
- *   timeline.jsonl      one line per session, pause, restart and hourly check
+ * The run directory is what every session's sandbox can write:
+ *
  *   work-list.json      the items the lead plans and the builders take
  *   progress.md         notes every session reads and adds to
  *   latest-check.json   the last hourly check's result
  *   app/                the app repo every role works in
- *   logs/               the sessions' logs
+ *   homes/              each seat's HOME
+ *   logs/               each sandbox's network record
+ *
+ * The run's host directory, `<run dir>.host/` beside it, is the harness's
+ * alone; no sandbox binds it writable (`host-files.ts`):
+ *
+ *   run.json            the start, the deadline, the agent and the brief, fixed when the run starts
+ *   supervisor.json     the schedule's state: reviews owed, the lead owed, a pause
+ *   heartbeat.json      the supervisor's last sign of life, every minute
+ *   timeline.jsonl      one line per session, pause, restart and hourly check
+ *   logs/               each session's agent output
+ *   channel/            each seat's forwarder record
+ *   s/                  each session's phase file and forwarder socket
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { parseJsonText, parseWith } from '../parse.ts';
+import { hostDirOf, isInside, makeHostDir, replaceFile } from './host-files.ts';
 
 export interface StateFiles {
   workList: string;
@@ -26,6 +37,8 @@ export interface StateFiles {
 
 export interface RunPaths {
   root: string;
+  /** The run's host directory. */
+  host: string;
   run: string;
   supervisor: string;
   heartbeat: string;
@@ -36,12 +49,14 @@ export interface RunPaths {
 }
 
 export function runPaths(root: string): RunPaths {
+  const host = hostDirOf(root);
   return {
     root,
-    run: join(root, 'run.json'),
-    supervisor: join(root, 'supervisor.json'),
-    heartbeat: join(root, 'heartbeat.json'),
-    timeline: join(root, 'timeline.jsonl'),
+    host,
+    run: join(host, 'run.json'),
+    supervisor: join(host, 'supervisor.json'),
+    heartbeat: join(host, 'heartbeat.json'),
+    timeline: join(host, 'timeline.jsonl'),
     app: join(root, 'app'),
     logs: join(root, 'logs'),
     files: {
@@ -58,6 +73,10 @@ const runSchema = z.object({
   startedAt: isoTime,
   deadline: isoTime,
   hours: z.number().positive(),
+  /** The agent adapter every session uses, by name. */
+  agent: z.string().min(1),
+  /** The brief directory every session reads. */
+  briefDir: z.string().min(1),
 }).strict();
 
 export type RunInfo = z.infer<typeof runSchema>;
@@ -68,11 +87,9 @@ export type Heartbeat = z.infer<typeof heartbeatSchema>;
 
 export class RunDirError extends Error {}
 
-/** Writes through a sibling file and a rename, so a crash never leaves half a file. */
+/** Writes through a fresh sibling file and a rename, so a crash never leaves half a file and a planted link is replaced, never followed. */
 export function writeJsonFile(path: string, value: unknown): void {
-  const partial = `${path}.partial`;
-  writeFileSync(partial, `${JSON.stringify(value, null, 2)}\n`);
-  renameSync(partial, path);
+  replaceFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function readJsonFile<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): T {
@@ -82,15 +99,27 @@ function readJsonFile<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknow
   return parsed.value;
 }
 
-/** Fixes the run's deadline, `hours` from `now`, and lays out the directory. */
-export function createRun(paths: RunPaths, hours: number, now: number): RunInfo {
+/** What a new run is started with. */
+export interface RunStart {
+  hours: number;
+  agent: string;
+  briefDir: string;
+}
+
+/** Fixes the run's deadline, `hours` from `now`, with its agent and brief, and lays out both directories. */
+export function createRun(paths: RunPaths, start: RunStart, now: number): RunInfo {
   if (existsSync(paths.run)) throw new RunDirError(`${paths.root} already holds a run; pass --resume to go on with it`);
+  const briefIsInside = isInside(start.briefDir, paths.root) || isInside(start.briefDir, paths.host);
+  if (briefIsInside) throw new RunDirError(`the brief directory ${start.briefDir} is inside the run's directories; put it outside them, where no session can write it`);
   const info: RunInfo = {
     startedAt: new Date(now).toISOString(),
-    deadline: new Date(now + hours * 3_600_000).toISOString(),
-    hours,
+    deadline: new Date(now + start.hours * 3_600_000).toISOString(),
+    hours: start.hours,
+    agent: start.agent,
+    briefDir: start.briefDir,
   };
   for (const dir of [paths.root, paths.app, paths.logs]) mkdirSync(dir, { recursive: true });
+  makeHostDir(paths.host, paths.host, paths.root);
   writeJsonFile(paths.run, info);
   return info;
 }
