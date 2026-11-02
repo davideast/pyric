@@ -63,6 +63,7 @@ import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
 import { pyricFsDeny } from './vite-state-deny.js';
+import { attachViteRealPathDeny } from './vite-real-path-deny.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
 interface EnvironmentHooks {
@@ -361,6 +362,8 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
 
       async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+      // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
+      attachViteRealPathDeny(server, projectDir);
       const stateScope = generationStateScope(options);
       const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;

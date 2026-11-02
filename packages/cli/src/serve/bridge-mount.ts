@@ -31,7 +31,7 @@ import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../brid
 import { pointerHeldByAnotherHost } from './discovery.js';
 import { boundedFetch } from '../bounded-request.js';
 import { pyricVersion } from './standalone-assets.js';
-import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
+import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade, isLocalPeer } from './server.js';
 import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
@@ -341,7 +341,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       // The repro route takes the same guards as a direct command.
       const isHostedMethod = url.pathname === HOSTED_METHOD_PATH || isHostedRepro;
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
-      const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes);
+      const isMountRoute = isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes;
+      // These run admin commands or hand out data, and a client chooses its own
+      // headers, so `allowedHosts` does not open them to another machine.
+      const refusesPeer = isMountRoute && !isLocalPeer(req);
+      if (refusesPeer) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: this route answers clients on this machine only' }));
+        return true;
+      }
+      const rejectsClosedRequest = closed && isMountRoute;
       if (rejectsClosedRequest) {
         answerMountClosed(res);
         return true;
@@ -551,6 +560,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
         const isUnrelatedPath = (req.url ?? '') !== WS_PATH;
         if (isUnrelatedPath) return;
+        // The socket carries admin operations, so it is local whatever the
+        // guard below is configured to allow.
+        const refusesPeer = !isLocalPeer(req);
+        if (refusesPeer) {
+          socket.destroy();
+          return;
+        }
         // DNS-rebinding + cross-origin hijack guard. The static/dev server runs
         // isAllowedHost on the `request` event only; `upgrade` is a separate
         // listener that bypasses it, so re-check both Host and Origin here

@@ -658,13 +658,16 @@ fresh tree, which its sandbox unpacks, and runs there, in order:
 - `ui-rules`, `copy`: the factory's ast-grep rules (`factory/ui-rules/`) and
   the copy rules (`copy-rules.ts`) on lines changed since the start commit,
   before anything of the commit's has run.
-  `<run-dir>.host/approved-components.txt` lists new `components/ui` files
-  the lead approved; `<run-dir>.host/copy-overrides.json` adds verbs and
+  `<run-dir>.host/approved-components.txt` lists the new `components/ui`
+  files a run may add, which `factory-setup` copies from the brief's
+  `approved-components.txt`, when it has one. Edit the list before setup:
+  later edits don't reach the run; `<run-dir>.host/copy-overrides.json` adds verbs and
   labels.
 - The install: the repo root with bun and Studio with npm, offline, with no
   install scripts. A `bun.lock` entry from a source other than the npm
   registry fails it, named.
-- `app-start`, `walks`: Studio starts with one command (`app-start.ts`).
+- `app-start`, `walks`: Studio starts with one command (`app-start.ts`),
+  with the brief's fake media switch on, which is inert until the app has it.
   The brief's `walks/*.mjs`, bound read-only from the brief directory, run
   in Chromium from a second sandbox, the walk sandbox, which reaches Studio
   only through Unix sockets the host relays (`relay.ts`). The screenshots
@@ -737,8 +740,8 @@ role prompts depend on the interface alone.
    problem names the file and the rule, never a value.
 2. It starts the session's own sandbox, as a round's run does, with the
    run directory as its one read-write bind and, read-only, the agent's
-   install, the role's skill, the brief directory and the session's
-   sandbox directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
+   install, the role's skill, the brief directory, Playwright's browsers and
+   the session's sandbox directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
    file and the forwarder's socket); the npm cache is under an overlay. The
    brief directory must be outside the run directory and the app directory
    inside it. No bind may contain the host's home directory or reach the
@@ -751,7 +754,15 @@ role prompts depend on the interface alone.
    the bridge on a fixed loopback port and runs the command the adapter
    built. The agent gets the skill's text as its instructions, and
    `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the skills name, in its
-   environment and its prompt.
+   environment and its prompt. Its environment also has
+   the check's `MDMEDIA_FAKE_MEDIA=1`, `PLAYWRIGHT_BROWSERS_PATH`,
+   `PYRIC_BUILDER_PLAYWRIGHT` (the harness's
+   client, since the app has none) and `PYRIC_BUILDER_ONLINE_SCRIPT`, an init
+   script that makes pages report `navigator.onLine` as true, which the walk
+   runner uses too. It has no `NODE_OPTIONS`: `pyric sandbox` adds its
+   `--import` to what it inherits, and `next dev` joins two space-separated
+   ones into one path and exits (#1470). So a session has no Node recorder, like the
+   check's Studio; the sandbox's resolver and catch-all listener still record.
 4. It saves the agent's output to `<run dir>.host/logs/<seat>-<stamp>.jsonl`
    and returns how the session ended (`factory/agent-session.ts`).
 

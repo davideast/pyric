@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Browser, BrowserContext, BrowserContextOptions, Page } from '@playwright/test';
 import { probeLayout, type LayoutFinding } from './layout-probe.ts';
+import { ONLINE_INIT_SCRIPT } from './online-init.ts';
 
 export interface WalkJob {
   /** The Playwright client's ES module entry. */
@@ -106,9 +107,7 @@ async function captureAll(context: BrowserContext, job: WalkJob, paths: readonly
  */
 async function onlineContext(browser: Browser, options: BrowserContextOptions = {}): Promise<BrowserContext> {
   const context = await browser.newContext(options);
-  await context.addInitScript(() => {
-    Object.defineProperty(Navigator.prototype, 'onLine', { configurable: true, get: () => true });
-  });
+  await context.addInitScript({ path: ONLINE_INIT_SCRIPT });
   return context;
 }
 

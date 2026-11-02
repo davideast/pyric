@@ -36,6 +36,8 @@ async function requestInitPayload(): Promise<InitPayload> {
     const hasFailedResponse = !response.ok;
     if (hasFailedResponse) throw new Error(`/__pyric/init.json → ${response.status}`);
     const payload: InitPayload = await response.json();
+    const isRefusedRemotePage = declaresNodeHost && payload.remotePeer === true;
+    if (isRefusedRemotePage) throw new InitIdentityError('This Node host serves project data only to clients on its own machine, and this page was opened from another one.');
     // A Node process names the off-host case itself, as a refusal (worker-runtime.ts).
     const isDifferentHost = declaresNodeHost && payload.hosted !== true;
     if (isDifferentHost) throw new InitIdentityError('/__pyric/init.json does not select the requested Node host.');

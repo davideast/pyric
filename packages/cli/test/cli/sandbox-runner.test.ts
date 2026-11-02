@@ -353,7 +353,7 @@ describe('formatStartupEnvExport', () => {
     expect(output).not.toContain('export PYRIC_SANDBOX="remote:');
     expect(output).toContain('.pyric/serve.json');
     expect(output).toContain(
-      'From another directory or machine, set PYRIC_SANDBOX=remote:http://localhost:3473 instead.',
+      'From another directory on this machine, set PYRIC_SANDBOX=remote:http://localhost:3473 instead.',
     );
     expect(output).not.toContain('launch-secret');
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
