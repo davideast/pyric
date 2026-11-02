@@ -9,7 +9,8 @@
  *
  * It fails closed. A gate is never excused when it timed out or was killed,
  * when it named no failure, or when its output has a failure the parse can't
- * name: bun's unhandled errors, a total of failed tests or errors that
+ * name: bun's unhandled errors, a run with no closing "Ran N tests" line
+ * after its totals (bun's own totals are the last ones printed), a total of failed tests or errors that
  * differs from the lines read, a type error with no file, an ast-grep error
  * total that differs from the findings read.
  */
@@ -28,6 +29,7 @@ const TEST_FAILURE = /^\(fail\) (.+?)(?: \[[\d.]+m?s\])?$/;
 const TEST_RECAP = /^\s*\d+ tests? failed:\s*$/;
 const TEST_FAIL_TOTAL = /^\s*(\d+) fail\s*$/;
 const TEST_ERROR_TOTAL = /^\s*(\d+) errors?\s*$/;
+const TEST_RAN = /^Ran \d+ tests? across \d+ files?\./;
 const UNHANDLED = /^# Unhandled error/;
 const TS_ERROR = /^(\S.*?)\(\d+,\d+\): error (TS\d+): (.*)$/;
 const ANY_TS_ERROR = /\berror TS\d+:/;
@@ -41,9 +43,18 @@ function countOf(signatures: readonly string[]): Map<string, number> {
   return counts;
 }
 
+/** The last line matching `pattern`: a test can print a total of its own before bun prints the real one. */
+function lastIndexOf(lines: readonly string[], pattern: RegExp): number {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (pattern.test(lines[index] ?? '')) return index;
+  }
+  return -1;
+}
+
 function totalOf(lines: readonly string[], pattern: RegExp): number | undefined {
-  const match = lines.map((line) => pattern.exec(line)).find((found) => found !== null);
-  return match === undefined || match === null ? undefined : Number(match[1]);
+  const index = lastIndexOf(lines, pattern);
+  if (index === -1) return undefined;
+  return Number(pattern.exec(lines[index] ?? '')?.[1]);
 }
 
 /** bun prints each failing test where it ran and again in a closing recap; only the first counts. */
@@ -59,6 +70,8 @@ function testReport(lines: readonly string[]): FailureReport {
   const errors = totalOf(lines, TEST_ERROR_TOTAL);
   if (errors !== undefined && errors > 0) problems.push(`bun counted ${errors} errors outside tests`);
   const failed = totalOf(lines, TEST_FAIL_TOTAL);
+  const closesRun = lastIndexOf(lines, TEST_RAN) > lastIndexOf(lines, TEST_FAIL_TOTAL);
+  if (!closesRun) problems.push('bun printed no closing "Ran N tests" line after its totals');
   if (failed === undefined) problems.push('bun printed no fail total');
   else if (failed !== names.length) problems.push(`bun counted ${failed} failed tests and ${names.length} were named`);
   return { counts: countOf(names), problems };

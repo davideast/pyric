@@ -42,6 +42,27 @@ describe('excuseKnown', () => {
     expect(excuseKnown({ ...failing('tests', testOutput(['a'])), exit: { code: null, timedOut: false } }, known).passed).toBe(false);
   });
 
+  test('a timed-out run is not excused even when its output is complete and exits with a code', () => {
+    const known = knownFailuresOf([failing('tests', testOutput(['a']))]);
+    expect(excuseKnown(failing('tests', testOutput(['a']), { code: 1, timedOut: true }), known).summary).toContain('not excused: it timed out');
+  });
+
+  test('a run with no fail total is not excused', () => {
+    const known = knownFailuresOf([failing('tests', testOutput(['a']))]);
+    const noTotal = testOutput(['a']).replace(' 1 fail\n', '');
+    expect(excuseKnown(failing('tests', noTotal), known).summary).toContain('not excused: bun printed no fail total');
+  });
+
+  test('a test that prints its own fail total before the run ends is not excused', () => {
+    const known = knownFailuresOf([failing('tests', testOutput(['a']))]);
+    const spoofed = ['(fail) a [60.79ms]', ' 1 fail', 'error: script exited with code 1'].join('\n');
+    expect(excuseKnown(failing('tests', spoofed), known).summary).toContain('no closing "Ran N tests" line');
+    // bun's own total, the last one, counts a second failure the printed one hides.
+    const early = testOutput(['a']).replace('(fail) a [60.79ms]', '(fail) a [60.79ms]\n 1 fail').replace(/ 1 fail\nRan/, ' 2 fail\nRan');
+    expect(failureReport('tests', early).problems).toEqual(['bun counted 2 failed tests and 1 were named']);
+    expect(excuseKnown(failing('tests', early), known).passed).toBe(false);
+  });
+
   test('a known test failure beside an unhandled error is not excused', () => {
     const known = knownFailuresOf([failing('tests', testOutput(['a']))]);
     expect(excuseKnown(failing('tests', testOutput(['a'], '# Unhandled error between tests\nerror: Cannot find module "x"')), known).passed).toBe(false);
