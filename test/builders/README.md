@@ -597,6 +597,72 @@ bun test/builders/harness.ts factory-summary --run-dir "$RUN"
 
 prints totals per seat, then the timeline.
 
+### Codex sessions
+
+Every role is OpenAI's Codex CLI (`codex exec --json`) on the ChatGPT
+subscription that `codex login` signed in on the host, with GPT-6.1 Sol
+(`gpt-6.1-sol`) at reasoning effort `max`. `max` is the deepest reasoning
+the model lists short of `ultra`, which also delegates to sub-agents.
+`factory/session-runner.ts` runs each session:
+
+1. It checks the login (`~/.codex/auth.json`) the way `round` checks a
+   token file: a regular file, owned by the current user, mode 0600 or
+   stricter, holding a ChatGPT login. A problem names the file and the
+   rule, never a value.
+2. It starts the session's own sandbox, as a round's run does, with the
+   run directory as its one read-write bind, the Codex install and the
+   role's skill (`.agents/skills/factory-<role>/SKILL.md`, when there is
+   one) read-only, and the npm cache under an overlay.
+3. It starts the Codex forwarder (`factory/codex-forwarder.ts`) outside
+   and enters `factory/codex-phase.ts` into the sandbox, which starts the
+   bridge and Codex. Codex's HOME and CODEX_HOME are the seat's own
+   (`homes/<seat>/`) and hold no login.
+4. It saves Codex's events to `logs/<seat>-<stamp>.jsonl` and returns how
+   the session ended (`factory/codex-session.ts`).
+
+**The login never enters the sandbox.** Codex talks to a custom model
+provider, `pyric`, whose base URL is the bridge
+(`http://127.0.0.1:<port>/backend-api/codex`, `wire_api = "responses"`,
+`requires_openai_auth = false`, websockets off), so it sends its requests
+with no credential. The forwarder reads the login for each request, puts
+`Authorization: Bearer <access token>` and `chatgpt-account-id` on it, and
+sends it to `chatgpt.com:443`. It passes on only `POST
+/backend-api/codex/responses` and `.../responses/compact` with no query,
+only the headers Codex sends (`originator`, `session-id`, `thread-id`,
+`x-client-request-id`, `x-codex-*`, `x-openai-*` and the like), and only a
+JSON body for `gpt-6.1-sol` with no server-side tool (web search, image
+generation, file search, code interpreter, computer use, remote MCP).
+Codex's web search and image generation are also turned off in its
+settings. Every request is a line of `<run dir>.codex-channel/<seat>.jsonl`,
+beside the run directory, with the usage windows the response reported.
+
+The harness never refreshes the login. Codex rotates the refresh token on
+each refresh, so a second writer would sign the host's Codex out. The
+access token lasts ten days; the forwarder reads the file per request, so
+a refresh made on the host is picked up at once, and it refuses with 401
+from five minutes before the token lapses, saying so in the record. Start
+Codex on the host (or run `codex login`) before a run that would cross
+that time.
+
+**Codex's own sandbox is bypassed** (`--dangerously-bypass-approvals-and-sandbox`,
+which Codex reserves for environments that are sandboxed outside it). The
+bwrap sandbox is the boundary. Nested, Codex's sandbox would also cut the
+agent's commands off from loopback, where the dev server, the harness
+browser and the bridge listen. Every setting comes from the command line,
+with `--ignore-user-config` and `--ignore-rules`, so nothing a session
+leaves in CODEX_HOME configures the next.
+
+**How a session ends.** `exit`, when Codex exits; `rate-limit`, when it
+failed out of usage, by its own message ("You've hit your usage limit",
+or a 429 it gave up retrying) or because its last request came back 429;
+`killed`, when the supervisor stops it or a signal no one sent ends it;
+`deadline`, at `remainingMs` or when the supervisor aborts with
+`deadline`. Codex prints a reset only as local wall-clock text, so
+`resetAt` is the forwarder's: the 429's `resets_at`, or the reset of the
+full usage window. Each session runs in its own process group; inside,
+bwrap's `--die-with-parent` ends the sandbox and everything in it if the
+supervisor is killed.
+
 ## The canary
 
 A scripted builder with no model. In order, it:
@@ -926,3 +992,21 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   directory, which the sandbox binds read-write. The model channel's lines
   come from the forwarder's own record, outside, and the metered cost is
   read from that record alone.
+- **Anything in a factory session can spend the subscription.** As with
+  the Claude token, a process in the sandbox can send Codex requests
+  through the channel, for `gpt-6.1-sol` only, but can't read the login or
+  reach another host. There is no dollar meter: the subscription's usage
+  windows bound the spend, and each request's line records them.
+- **A Codex compaction is untested.** The forwarder passes
+  `/responses/compact` only with a JSON body naming `gpt-6.1-sol`, as a
+  turn's body does. If Codex sends it in another shape, a long session's
+  compaction fails with 400 or 403, and the record names the reason.
+- **The Codex token scan is not wired to a keep step yet.** The factory
+  keeps its run directory as it is. `factory/codex-scan.ts` looks for the
+  login's access, refresh and ID tokens with the harness's own scan, and
+  is what a later step that copies a run out runs first.
+- **A factory session can't install new packages.** Its sandbox has the
+  npm cache under an overlay, offline, and no registry, as a round's run.
+- **Codex waits for the network forever.** When its requests can't
+  connect (the forwarder is down), Codex prints "Reconnecting... waiting
+  for network" and never exits, so the session ends at its deadline.
