@@ -35,6 +35,7 @@ export const HARNESS_FILES: readonly string[] = [
   'test/apps/install.ts',
   'test/apps/nested-projects.ts',
   'test/apps/unreaped-exit.ts',
+  'test/apps/output-sockets.ts',
   'packages/cli/test/blackholed-port.ts',
   'packages/cli/src/google-endpoints.ts',
   'packages/cli/package.json',
