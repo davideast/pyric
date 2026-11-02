@@ -22,10 +22,13 @@ bun test/builders/harness.ts reproduce <round> <run> --list
 bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
     [--expect <text>] [--register] [--packages <dir>] [--minutes <n>]
 bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
-bun test/builders/harness.ts factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]
+bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
 bun test/builders/harness.ts factory-drafts --run-dir <dir>
+bun test/builders/harness.ts factory-setup --run-dir <dir> --app-source <repo> [--commit <sha>]
+    [--brief-dir <dir>] [--packages <dir> | --build]
+bun test/builders/harness.ts factory-hour --run-dir <dir> --hour <n>
 ```
 
 `canary` is the harness's integration test. Run it before every round.
@@ -38,7 +41,8 @@ bun test/builders/harness.ts factory-drafts --run-dir <dir>
 `check-briefs` validates a round's briefs as `round` would and starts
 nothing. `reproduce` re-runs one problem of a kept run for the verifier
 (below). `measure` summarizes `measurements.jsonl`. `factory`,
-`factory-summary`, `factory-check` and `factory-drafts` run the factory (below). The `run`
+`factory-summary`, `factory-check`, `factory-drafts`, `factory-setup` and
+`factory-hour` run the factory (below). The `run`
 command comes in a later pull request.
 
 ## The skills
@@ -496,26 +500,31 @@ triage. Each role works in short sessions. The supervisor
 (`factory/supervisor.ts`) keeps them going until the run's deadline.
 
 - **Only the clock ends a run.** `--hours` fixes the deadline when the run
-  starts. A session that ends for any reason, its model saying it is done
+  starts, with `--agent` (an adapter's name, below) and `--brief-dir` (the
+  directory holding `BRIEF.md`, `specs/` and `DESIGN.md`, outside the run's
+  directories), and `run.json` keeps all three. A session that ends for any reason, its model saying it is done
   included, frees its seat for the next session. Each session is told the
   time left, and at the deadline the supervisor aborts every running
   session's signal.
 - **At most four sessions at once.** The schedule is the `SEATS` table in
   `factory/schedule.ts`. The lead runs first, again after each round of
   reviews, and whenever a builder would start with nothing on the work list
-  (then with "plan the next items from the specs and the user agent's
-  findings"). The builders run continuously once the lead has run. The user
+  (then with "plan the next items, if any, and write them"). The builders run continuously once the lead has run. The user
   agent, design reviewer and triage run once each after every hourly check
   and whenever a builder marks an item ready; triage waits for the other
   two. A seat whose session ends within a minute, whatever its exit code,
   waits before the next, 15 seconds and doubling, up to 10 minutes, so a
   model that says it is done at once can't loop. This wait is kept in
   memory, so a restarted supervisor starts each seat at once.
-- **State lives in the run directory.** `run.json` holds the deadline,
-  `supervisor.json` what the schedule owes, and the sessions read and write
-  `work-list.json`, `progress.md` and `latest-check.json`. The app repo is
-  `app/`. Sessions write the work list through a temporary file and a
-  rename. A work list that exists but doesn't parse is not taken as empty:
+- **State lives in two directories.** The run directory is what every
+  session can write: `work-list.json`, `progress.md`, `latest-check.json`,
+  the app repo `app/`, each seat's `homes/<seat>/` and each sandbox's
+  network record in `logs/`. The run's host directory, `<run dir>.host/`
+  beside it, is the harness's alone: `run.json` (the deadline, the agent
+  and the brief directory), `supervisor.json` (what the schedule owes),
+  `heartbeat.json`, `timeline.jsonl`, and each session's log, forwarder
+  record, phase file and socket. Sessions write the work list through a
+  temporary file and a rename. A work list that exists but doesn't parse is not taken as empty:
   the supervisor keeps the last list it read, logs it, and reads the file
   again two seconds later.
 - **Rate limits pause the run.** A session that ends rate-limited stops new
@@ -525,7 +534,7 @@ triage. Each role works in short sessions. The supervisor
 - **The hourly check is a hook.** The supervisor calls it each whole hour
   after the start, writes its result to `latest-check.json` and the
   timeline, and wakes the on-demand roles. A check that throws is recorded
-  as failed. Until the check lands it checks nothing.
+  as failed. A runner module without one checks nothing.
 
 Each role's instructions are a skill: `.agents/skills/factory-lead`,
 `factory-builder`, `factory-user-agent`, `factory-design-reviewer` and
@@ -537,9 +546,10 @@ the drafts and checks each against the issue standard in `AGENTS.md`: the
 title pattern for its label, one label, the kind's four bold fields, and
 a "Found by" line.
 
-Sessions come from `factory/session-runner.ts`, which exports `runSession`
-(and, once it exists, `hourlyCheck`); `--runner <module>` names another
-module with the same exports.
+Sessions come from `factory/session-runner.ts`, which exports `runSession`,
+the hourly check (`hourlyCheck`, below) and `runEnd`, which the supervisor
+calls once the run ends to stop the served copy; `--runner <module>` names
+another module with the same exports.
 
 ### Running it overnight
 
@@ -547,14 +557,16 @@ Run the supervisor as a transient user unit, so systemd restarts it when it
 crashes or is killed. The same command line starts the run and resumes it:
 with both `--hours` and `--resume`, `factory` resumes the run in
 `--run-dir`, or starts one when there is none. A resumed run keeps its own
-deadline whatever `--hours` says.
+deadline, agent and brief directory, whatever `--hours`, `--agent` and
+`--brief-dir` say.
 
 ```
 RUN=~/pyric-builders/factory/$(date +%Y-%m-%d)
 systemd-run --user --unit pyric-factory \
   --property Restart=on-failure --property RestartSec=30 \
   --working-directory "$PWD" --setenv PATH="$PATH" \
-  "$(command -v bun)" test/builders/harness.ts factory --run-dir "$RUN" --hours 8 --resume
+  "$(command -v bun)" test/builders/harness.ts factory --run-dir "$RUN" --hours 8 \
+    --agent <name> --brief-dir "$BRIEF" --resume
 ```
 
 `Restart=on-failure` covers a supervisor that exits non-zero or is killed.
@@ -565,7 +577,7 @@ Outside systemd, a supervisor killed with SIGKILL leaves its sessions to
 the runner to end.
 
 A supervisor that hangs keeps its process and stops its heartbeat, which it writes to
-`heartbeat.json` every minute. A timer runs `factory-check` every five
+`heartbeat.json` (in the host directory) every minute. A timer runs `factory-check` every five
 minutes; it restarts the unit when the heartbeat is older than
 `--stale-minutes` (5 by default) and the deadline hasn't passed, and does
 nothing otherwise:
@@ -595,6 +607,102 @@ ends when the last session logs out. For a run that has to outlive a remote
 login, turn on lingering once: `loginctl enable-linger "$USER"`
 (`loginctl show-user "$USER" -p Linger` says whether it is on).
 
+### The app and the hourly check
+
+`factory-setup` prepares a run's app before `factory --hours` starts it
+(`factory/app-setup.ts`): mdmedia cloned from a local repo at a pinned
+commit with no remote, Studio installed on the packed Pyric packages inside
+the sandbox, `studio/.env.local` written with a demo project and a fake key,
+and the Functions source built, since `pyric sandbox` refuses a declared
+source with no entry. Its one commit on the `factory` branch is the start
+commit, recorded in `app.json`. It holds the Pyric pins, the UI rules
+registered in Studio's ast-grep config, and Studio's `next.config.ts`
+adapted to call the config function `withPyric` returns
+(`factory/next-config.ts`). When the config no longer has the text an edit
+expects, setup stops and names that edit. The UI rules are copied into
+`studio/checks/factory-rules/` and kept out of git, so roles can run them.
+Setup's install is the one that may fall back to the host on a cold npm
+cache; every later install runs offline in a sandbox and fails, naming the
+package, when the cache lacks one.
+
+Where things live, by who can write them:
+
+- `<run-dir>/` is every session's: the roles' clone in `app/`. Sessions see
+  the check results read-only at `<run-dir>/checks`, bound from the host
+  directory, and the packed packages read-only.
+- `<run-dir>.host/` is the harness's alone: `app.json`, the packed
+  packages, `tools/` (the harness's ast-grep and the source checkout's
+  ffmpeg, each checked against the sha256 in `app.json` before use), `git/`
+  (a bare repo the check fetches each commit into), `checks/`,
+  `last-good.json`, `served.json`, `approved-components.txt` and
+  `copy-overrides.json`. Every JSON file is read back through a schema.
+- `<run-dir>.work/` holds the trees the check builds, one fresh directory
+  per check, never bound into a session. They are kept, one Studio install
+  each; `factory-summary` prints their total size. Remove them by hand when
+  no check is running: `rm -rf <run-dir>.work`.
+
+`factory-hour` runs one hourly check by hand; the supervisor runs the same
+check (`factory/hourly-check.ts`) each hour. The host's git runs only in the
+bare repo, with no system or global config and every setting that runs a
+program forced off, so nothing a session plants in its clone's `.git` runs
+on the host (`factory/git.ts`). The fetch refuses a clone whose `.git`
+holds a link or special file anywhere, or a `commondir` or `gitdir` file,
+and its `upload-pack` runs in a bwrap sandbox that sees only that `.git`,
+so the clone can't point the fetch at another repository. The harness
+opens `.git` once, with `O_NOFOLLOW`, checks it through that descriptor
+and has bwrap bind the same descriptor (`--ro-bind-fd`, bubblewrap 0.9.0
+or later), so a `.git` swapped after the check is never the one fetched.
+The check exports the roles' current commit with `git archive` into a
+fresh tree, which its sandbox unpacks, and runs there, in order:
+
+- `ui-rules`, `copy`: the factory's ast-grep rules (`factory/ui-rules/`) and
+  the copy rules (`copy-rules.ts`) on lines changed since the start commit,
+  before anything of the commit's has run.
+  `<run-dir>.host/approved-components.txt` lists new `components/ui` files
+  the lead approved; `<run-dir>.host/copy-overrides.json` adds verbs and
+  labels.
+- The install: the repo root with bun and Studio with npm, offline, with no
+  install scripts. A `bun.lock` entry from a source other than the npm
+  registry fails it, named.
+- `app-start`, `walks`: Studio starts with one command (`app-start.ts`).
+  The brief's `walks/*.mjs`, bound read-only from the brief directory, run
+  in Chromium from a second sandbox, the walk sandbox, which reaches Studio
+  only through Unix sockets the host relays (`relay.ts`). The screenshots
+  and results are read from the walk sandbox, which Studio can't write.
+- `layout`: no overlap, clipped text, horizontal scroll or misaligned
+  column at 1440px or 390px that the start commit didn't have.
+- `typecheck`, `tests`, `studio-checks`: Studio's own, last, so the tests
+  can't change what the walks saw. A failing gate passes only when each
+  failure it names, counted, already showed at the start commit in that
+  gate. A timeout, a kill, an unhandled error, or a total that differs from
+  the failures named is never excused (`known-failures.ts`).
+
+The check stops at the supervisor's signal or after 50 minutes
+(`PYRIC_FACTORY_CHECK_MINUTES`), killing what it started. Each run of it
+writes a fresh `<run-dir>.host/checks/hour-<n>.<stamp>/`: `result.json`, a
+log per failing gate, `screenshots/`, `copy-report.md`, `capture.json` and
+`gallery.html` (the start commit beside this hour). `hour-<n>` and
+`latest` link to the newest, also when the check threw. The start commit's
+captures are in `checks/baseline/`, taken by the same path, and DESIGN.md's
+reference screens in `checks/reference/`.
+
+A passing commit becomes the last good one (`last-good.json`) and is served
+from a fresh tree in its own sandbox: `next dev` on 127.0.0.1:4120, and
+Pyric's WebSocket on 4121. It restarts only when a newer commit passes.
+With `PYRIC_FACTORY_TAILSCALE` naming the Tailscale CLI, port 4120 alone is
+published on the private network with `tailscale serve`, which exposes
+Studio's dev server to every device on that network; 4121 stays on this
+machine, so a page opened from another device can't reach the sandbox
+panel. The URL is reported only once the served process says it is ready,
+and the harness signals that process only after checking its pid's command
+line and start time in /proc. When the run ends, the served copy stops and
+the entries this run added are removed. The served copy also stops on its
+own, and removes those entries, when the process that started it is gone
+(checked by pid and start time) or the run's deadline passes, so a
+supervisor that crashes leaves nothing serving. A `factory-hour` run by
+hand is that process, so its served copy stops about 5 seconds after the
+command exits; run the hour from the supervisor to keep a copy served.
+
 ### The morning review
 
 `timeline.jsonl` has one line per session (seat, role, start, end,
@@ -606,7 +714,78 @@ crash has none; the `restart` line after it gives the last heartbeat.
 bun test/builders/harness.ts factory-summary --run-dir "$RUN"
 ```
 
-prints totals per seat, then the timeline.
+prints totals per seat, then the timeline, then the size of the run's
+`.work` trees.
+
+### Agent sessions
+
+Every role is an agent CLI behind the factory's agent interface
+(`factory/agent.ts`). An adapter, in `factory/agents/<name>/` and named in
+`factory/agents/registry.ts`, says how to find the agent on the host, the
+command, arguments and environment of a session, what it keeps under its
+HOME, where its credential lives on the host and how to read it, its
+upstream policy (the host, the request lines and headers that pass, the
+body check, and what a response says about the upstream rate limit), and
+how its output says it hit that limit. Each adapter's folder has a README with
+its specifics. The session runner, the supervisor, the forwarder and the
+role prompts depend on the interface alone.
+
+`factory/session-runner.ts` runs each session:
+
+1. It reads the agent's credential the way `round` checks a token file: a
+   regular file, owned by the current user, mode 0600 or stricter. A
+   problem names the file and the rule, never a value.
+2. It starts the session's own sandbox, as a round's run does, with the
+   run directory as its one read-write bind and, read-only, the agent's
+   install, the role's skill, the brief directory and the session's
+   sandbox directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
+   file and the forwarder's socket); the npm cache is under an overlay. The
+   brief directory must be outside the run directory and the app directory
+   inside it. No bind may contain the host's home directory or reach the
+   agent's credential directory. The role's skill is
+   `.agents/skills/factory-<role>/SKILL.md` in the checkout the harness
+   runs from, and a session doesn't start without it.
+3. It starts the upstream forwarder (`factory/upstream-forwarder.ts`)
+   outside and enters `factory/agent-phase.ts` into the sandbox, which
+   makes the seat's HOME (`homes/<seat>/`, holding no credential), starts
+   the bridge on a fixed loopback port and runs the command the adapter
+   built. The agent gets the skill's text as its instructions, and
+   `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the skills name, in its
+   environment and its prompt.
+4. It saves the agent's output to `<run dir>.host/logs/<seat>-<stamp>.jsonl`
+   and returns how the session ended (`factory/agent-session.ts`).
+
+**The credential never enters the sandbox.** The agent sends its model
+requests to the bridge with no credential. The forwarder applies the
+adapter's policy to each, reads the credential for each, sets its headers
+last and sends the request to the policy's upstream over TLS. Every
+request is a line of `<run dir>.host/channel/<seat>.jsonl` with the reason,
+the status and the rate-limit windows the response named; names, never values.
+A header Node would refuse to send is refused with 400, not thrown, and an
+unexpected failure in the forwarder drops that request and stops the
+session as `killed`, never the supervisor.
+
+**Nothing on the host is written through the run directory.** Every
+sandbox of a run can write the run directory, and they run at once, so any
+of them could plant a link there to a file of the host's. The harness
+writes its own files into the host directory, opens each new file with
+`O_EXCL | O_NOFOLLOW` and appends with `O_NOFOLLOW`, replaces
+`latest-check.json` through a fresh, unguessable sibling and a rename, and
+reads `work-list.json` only when it is a regular file, not a link. The
+sandbox's `resolv.conf` and `hosts` are checked in
+(`recorder/sandbox-etc/`), so starting a sandbox writes nothing
+(`factory/host-files.ts`).
+
+**How a session ends.** `exit`, when the agent exits; `rate-limit`, when it
+failed at the upstream rate limit, by its own output (the adapter reads it) or because
+its last request came back 429; `killed`, when the supervisor stops it, the
+forwarder faults, or a signal no one sent ends it; `deadline`, at
+`remainingMs` or when the supervisor aborts with `deadline`. `resetAt` is
+the forwarder's: what this session's latest 429 named. Only this session's
+lines of the seat's record count. Each session runs in its own process
+group, and a stop signals the whole group; inside, bwrap's
+`--die-with-parent` ends the sandbox and everything in it if the
+supervisor is killed.
 
 ## The canary
 
@@ -669,8 +848,7 @@ first fetch from a server they run on 127.0.0.2; that fetch must fail without
 reaching it, or the resolver rules are not in effect and nothing is planted.
 
 Each run leaves `<root>/canary/<stamp>/` with `app/`, `home/`, `logs/` (one
-file per process), `network.jsonl`, `chromium-netlog.json`, the sandbox's
-`resolv.conf` and `hosts`, `plants.json` (what each plant saw) and
+file per process), `network.jsonl`, `chromium-netlog.json`, `plants.json` (what each plant saw) and
 `canary.json` (that and the verdict). `<root>` is `~/pyric-builders`, or
 `PYRIC_BUILDERS_DIR`. The harness never removes a run; clearing that
 directory clears them all.
@@ -705,8 +883,9 @@ nsenter -t <child pid> -U -m -n -p -i -u -C --preserve-credentials --root env -C
   cache even offline; the overlay keeps those writes in the sandbox, and the
   shared cache never changes;
 - fresh: `/dev`, `/proc` (its own pid namespace), `/tmp` and `/run`, both
-  tmpfs, and the run's own `/etc/resolv.conf` (naming 127.0.0.1) and
-  `/etc/hosts` (loopback names only).
+  tmpfs, and the sandbox's own `/etc/resolv.conf` (naming 127.0.0.1) and
+  `/etc/hosts` (loopback names only), checked in under `recorder/sandbox-etc/`
+  so the harness writes nothing into the run directory to start a sandbox.
 
 There is no `/mnt`, no `/run/WSL`, no `/run/user` and no home directory
 beyond the bound paths. The network namespace has only `lo`.
@@ -937,3 +1116,15 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   directory, which the sandbox binds read-write. The model channel's lines
   come from the forwarder's own record, outside, and the metered cost is
   read from that record alone.
+- **Anything in a factory session can spend against the upstream rate limit.** As with
+  the round's token, a process in the sandbox can send requests through
+  the channel, within the adapter's policy, but can't read the credential
+  or name a URL for the upstream to fetch. There is no dollar meter: the
+  rate-limit windows the upstream reports bound the spend, and each request's
+  line records them.
+- **The factory's token scan is not wired to a keep step yet.** The
+  factory keeps its run directory as it is. `factory/secret-scan.ts` looks
+  for the credential's secrets with the harness's own scan, and is what a
+  later step that copies a run out runs first.
+- **A factory session can't install new packages.** Its sandbox has the
+  npm cache under an overlay, offline, and no registry, as a round's run.

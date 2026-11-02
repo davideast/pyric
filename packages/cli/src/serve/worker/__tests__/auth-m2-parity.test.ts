@@ -716,6 +716,48 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(oauthExistRes.value.additionalUserInfo).toBeDefined();
     expect(oauthExistRes.value.additionalUserInfo.isNewUser).toBe(false);
   });
+
+  // A staged result keeps the caller's flag on the wire, as the in-page mock
+  // does: a Google provider never overrides what the test staged.
+  for (const emailVerified of [false, true]) {
+    it(`14. a staged Google result with emailVerified: ${emailVerified} keeps it on the user and the token`, async () => {
+      const { clientAuth } = await createTestHarness();
+      stageSignInResult(clientAuth, {
+        user: { uid: `staged-google-${emailVerified}`, email: 'staged@example.com', emailVerified },
+        providerId: 'google.com',
+      });
+      const cred = await signInWithCredential(clientAuth, { providerId: 'google.com', idToken: 'staged-id-token' });
+      expect(cred.user.emailVerified).toBe(emailVerified);
+      const token = await cred.user.getIdTokenResult(true);
+      expect(token.claims.email_verified).toBe(emailVerified);
+    });
+  }
+
+  it('15. a staged emailVerified: false sign-in onto an existing Google-only unverified account never marks it verified', async () => {
+    const { clientAuth, sandbox } = await createTestHarness();
+    const auth = getAuth(sandbox);
+    authSandboxOps.createUser(auth, {
+      uid: 'google-only', email: 'only@example.com', providerUserInfo: [{ providerId: 'google.com' }],
+    });
+    const seen: boolean[] = [];
+    const unsubscribe = authSandboxOps.subscribeUsers(auth, () => {
+      const record = authSandboxOps.listUsers(auth).find((user) => user.uid === 'google-only');
+      if (record) seen.push(record.emailVerified);
+    });
+    try {
+      stageSignInResult(clientAuth, {
+        user: { uid: 'google-only', email: 'only@example.com', emailVerified: false },
+        providerId: 'google.com',
+      });
+      const cred = await signInWithCredential(clientAuth, { providerId: 'google.com', idToken: 'staged-id-token' });
+      expect(cred.user.emailVerified).toBe(false);
+      expect((await cred.user.getIdTokenResult(true)).claims.email_verified).toBe(false);
+    } finally {
+      unsubscribe();
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((verified) => verified === false)).toBe(true);
+  });
 });
 
 

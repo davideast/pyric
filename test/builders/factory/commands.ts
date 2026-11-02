@@ -3,12 +3,13 @@ import { checkDrafts, draftsDir, formatDrafts } from './drafts.ts';
 import { parseCheckOptions, parseFactoryOptions, parseSummaryOptions } from './options.ts';
 import { RunDirError, runPaths } from './run-dir.ts';
 import { loadRunner } from './runner-module.ts';
-import { formatSummary } from './summary.ts';
+import { workDirOf } from './app-paths.ts';
+import { formatSummary, workSizeLine } from './summary.ts';
 import { runSupervisor } from './supervisor.ts';
 import { readTimeline } from './timeline.ts';
 import { checkSupervisor } from './watchdog.ts';
 
-export const FACTORY_USAGE = 'factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]';
+export const FACTORY_USAGE = 'factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]';
 export const FACTORY_SUMMARY_USAGE = 'factory-summary --run-dir <dir>';
 export const FACTORY_DRAFTS_USAGE = 'factory-drafts --run-dir <dir>';
 export const FACTORY_CHECK_USAGE = 'factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]';
@@ -37,6 +38,7 @@ export async function factoryCommand(args: readonly string[]): Promise<number> {
 export async function factorySummaryCommand(args: readonly string[]): Promise<number> {
   const { runDir } = parseSummaryOptions(args);
   console.log(formatSummary(readTimeline(runPaths(runDir).timeline)));
+  console.log(workSizeLine(workDirOf(runDir)));
   return 0;
 }
 

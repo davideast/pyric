@@ -34,8 +34,10 @@ function sessionLines(runDir: string): SessionLine[] {
   return readTimeline(runPaths(runDir).timeline).filter((line): line is SessionLine => line.type === 'session');
 }
 
+const BRIEF_DIR = mkdtempSync(join(tmpdir(), 'factory-brief-'));
+
 function options(runDir: string, clock: FakeClock, runSession: SupervisorOptions['runSession'], extra: Partial<SupervisorOptions> = {}): SupervisorOptions {
-  return { runDir, hours: 1, resume: false, runSession, clock, pid: 1, log: () => {}, ...extra };
+  return { runDir, hours: 1, agent: 'fake', briefDir: BRIEF_DIR, resume: false, runSession, clock, pid: 1, log: () => {}, ...extra };
 }
 
 /** Every session lasts `ms`; the lead keeps the work list stocked. */
@@ -129,8 +131,11 @@ describe('runSupervisor', () => {
     const restartAt = clock.now() + 20 * MINUTE;
     await clock.advanceTo(restartAt);
     const second = fakeSessions(clock, steady(runDir, 10 * MINUTE));
-    const secondRun = runSupervisor(options(runDir, clock, second.runSession, { hours: 1, resume: true, pid: 2 }));
+    // A restart's command line names no agent or brief: the run's own come from run.json.
+    const secondRun = runSupervisor(options(runDir, clock, second.runSession, { hours: 1, agent: undefined, briefDir: undefined, resume: true, pid: 2 }));
     expect(await clock.runUntilSettled(secondRun)).toBe('deadline');
+    expect(readRun(runPaths(runDir))).toMatchObject({ agent: 'fake', briefDir: BRIEF_DIR });
+    expect(second.calls.every((call) => call.agent === 'fake' && call.briefDir === BRIEF_DIR)).toBe(true);
 
     const deadline = START + 8 * HOUR_MS;
     expect(readRun(runPaths(runDir)).deadline).toBe(new Date(deadline).toISOString());
@@ -152,6 +157,14 @@ describe('runSupervisor', () => {
     const count = sessions.calls.length;
     expect(await clock.runUntilSettled(runSupervisor(options(runDir, clock, sessions.runSession, { resume: true })))).toBe('already-over');
     expect(sessions.calls.length).toBe(count);
+  });
+
+  test('refuses a new run without an agent or a brief, or with a brief inside its directories', async () => {
+    const runDir = newRunDir();
+    const clock = new FakeClock(START);
+    const sessions = fakeSessions(clock, steady(runDir, 10 * MINUTE));
+    await expect(runSupervisor(options(runDir, clock, sessions.runSession, { agent: undefined }))).rejects.toThrow('a new run needs --agent and --brief-dir');
+    await expect(runSupervisor(options(runDir, clock, sessions.runSession, { briefDir: join(runDir, 'brief') }))).rejects.toThrow('is inside the run\'s directories');
   });
 
   test('refuses a run directory that holds a run without resume, and resume with nothing to resume and no hours', async () => {

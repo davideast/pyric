@@ -10,6 +10,7 @@ import { MapDiff } from './mapdiff.js';
 import { matchesRegexNode, type RegexNode } from './regex-nfa.js';
 import { MAX_REGEX_POSITIONS, MAX_REGEX_STATES, sizeProblem } from '../rtdb/grammar/regex-limits.js';
 import { RulesValue } from './wrappers/base.js';
+import { isRulesInt } from './rules-int.js';
 
 /** A Rules map is a plain key/value record, never a boxed scalar/wrapper. */
 export function isRulesMap(value: unknown): value is Record<string, unknown> {
@@ -26,7 +27,7 @@ export function describeRulesType(value: unknown): string {
   if (value instanceof FirestoreSet) return 'set';
   if (value instanceof MapDiff) return 'map_diff';
   if (typeof value === 'bigint') return 'int';
-  if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'float';
+  if (typeof value === 'number') return isRulesInt(value) ? 'int' : 'float';
   if (typeof value === 'boolean') return 'bool';
   if (Array.isArray(value)) return 'list';
   if (isRulesMap(value)) return 'map';

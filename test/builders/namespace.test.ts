@@ -4,7 +4,7 @@
 // so nothing here can leave the machine.
 import { describe, expect, test } from 'bun:test';
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
@@ -158,6 +158,10 @@ describe('startEgressNamespace', () => {
   test('runs a command with only loopback and the allowlisted files, and records its lookups and connections', async () => {
     const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
     const networkLog = join(root, 'network.jsonl');
+    // Links a sandbox could have planted: the harness writes nothing through them.
+    const decoy = join(mkdtempSync(join(tmpdir(), 'builders-decoy-')), 'host-file');
+    writeFileSync(decoy, 'the host’s own file');
+    for (const name of ['hosts', 'resolv.conf']) symlinkSync(decoy, join(root, name));
     const namespace = await startEgressNamespace({ networkLog, runRoot: root });
     const run = (command: string, args: string[]) => {
       const entered = namespace.enter(command, args, root);
@@ -175,6 +179,8 @@ describe('startEgressNamespace', () => {
       expect(JSON.parse(inventory.stdout).problems).toEqual([]);
 
       expect(run('getent', ['hosts', 'canary-probe.invalid']).status).not.toBe(0);
+      expect(run('cat', ['/etc/resolv.conf']).stdout).toContain('nameserver 127.0.0.1');
+      expect(readFileSync(decoy, 'utf8')).toBe('the host’s own file');
 
       const connect = run('node', ['-e', "require('node:net').connect(80, '192.0.2.1').on('error', (e) => console.log(e.code)).on('close', () => console.log('closed'))"]);
       expect(connect.stdout.trim().split('\n')[0]).toBe('ECONNRESET');
@@ -289,5 +295,26 @@ describe('startEgressNamespace stop', () => {
     // Within the wait before SIGKILL: /proc shows bwrap gone, so the stop needs no kill.
     expect(await within(namespace.stop(), 5000)).toBe('settled');
     expect(await namespace.stop()).toBe('exited');
+  }, SANDBOX_TEST_TIMEOUT_MS);
+
+  test('binds an inner view read-only over a path in the run root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const results = mkdtempSync(join(tmpdir(), 'builders-results-'));
+    writeFileSync(join(results, 'result.json'), '{"passed":true}\n');
+    const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root, innerViews: [{ source: results, dest: join(root, 'checks') }] });
+    const run = (script: string) => {
+      const entered = namespace.enter('sh', ['-c', script], root);
+      return spawnSync(entered.command, entered.args, { encoding: 'utf8', timeout: 120_000 });
+    };
+    try {
+      expect(run('cat checks/result.json').stdout).toBe('{"passed":true}\n');
+      expect(run('echo forged > checks/result.json').status).not.toBe(0);
+      expect(run('touch checks/new').status).not.toBe(0);
+      expect(run('mv checks gone').status).not.toBe(0);
+      expect(run('echo ok > own.txt').status).toBe(0);
+      expect(readFileSync(join(results, 'result.json'), 'utf8')).toBe('{"passed":true}\n');
+    } finally {
+      await namespace.stop();
+    }
   }, SANDBOX_TEST_TIMEOUT_MS);
 });

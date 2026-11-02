@@ -7,9 +7,14 @@
 import { ownDirs } from './namespace.ts';
 import { sandboxInventory } from './sandbox-inventory.ts';
 
-/** Throws, naming every problem, unless this process is inside the sandbox of the run at `root`. Returns how many directories the walk listed. */
-export function assertInsideSandbox(root: string, refusing: string): number {
-  const { problems, walked } = sandboxInventory(ownDirs(root));
+/**
+ * Throws, naming every problem, unless this process is inside the sandbox of
+ * the run at `root`. `alsoOwn` names more directories whose sockets are the
+ * run's own, such as an agent session's read-only sandbox directory with
+ * its forwarder's socket. Returns how many directories the walk listed.
+ */
+export function assertInsideSandbox(root: string, refusing: string, alsoOwn: readonly string[] = []): number {
+  const { problems, walked } = sandboxInventory([...ownDirs(root), ...alsoOwn]);
   if (problems.length > 0) throw new Error(`refusing to ${refusing}: this process is not inside a run's sandbox:\n- ${problems.join('\n- ')}`);
   return walked;
 }

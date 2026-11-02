@@ -41,7 +41,7 @@ import {
   consoleServeLogger,
   getHeader,
   isAllowedOriginOnPorts,
-  resolveStaticFile,
+  resolveHostingFile,
   startStaticServer,
   stderrServeLogger,
   type ServeHandle,
@@ -109,6 +109,21 @@ export function extractHosting(config: FirebaseJson | null): HostingConfig | nul
   return h as HostingConfig;
 }
 
+/** The directory `hosting.public` names, or `null` when there is no `hosting`
+ *  block: production has no Hosting site then, so pyric serves no static
+ *  files (#1779). A block without `public` uses production's default,
+ *  `public`. */
+export function hostingPublicDir(cwd: string, hosting: HostingConfig | null): string | null {
+  if (hosting === null) return null;
+  return resolve(cwd, hosting.public ?? 'public');
+}
+
+/** The startup line for a project that serves no static site. */
+export function hostingOffLine(hasFirebaseJson: boolean): string {
+  if (!hasFirebaseJson) return '• hosting  Off: no firebase.json. Add one with hosting.public to serve a site.';
+  return '• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
+}
+
 /** firebase.json's SPA idiom: a `**` rewrite to /index.html. */
 export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
   return (hosting?.rewrites ?? []).some(
@@ -119,7 +134,8 @@ export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
 
 export interface ServeRuntime {
   handle: ServeHandle;
-  publicDir: string;
+  /** `hosting.public`, resolved; `null` when firebase.json has no `hosting` block. */
+  publicDir: string | null;
   payload: () => InitPayload;
   /** HTTP MCP endpoint when `--bridge` is on; null otherwise. */
   mcpUrl: string | null;
@@ -255,16 +271,18 @@ async function startServeRuntime(opts: {
     );
   }
 
-  // firebase.json is optional for serving (firebase-serve parity: warn, then
-  // serve the directory anyway).
+  // firebase.json is optional. Without one, or without a `hosting` block in
+  // it, production has no Hosting site, so pyric serves no static files.
   let config: FirebaseJson | null = null;
+  let hasFirebaseJson = true;
   try {
     config = await readFirebaseJson(opts.cwd);
   } catch (e) {
     const isMissingConfig = e instanceof Error && e.message.includes('no firebase.json');
     const shouldFailStartup = !isMissingConfig;
     if (shouldFailStartup) throw e;
-    logger.note('  ⚠ no firebase.json found — serving the current directory without hosting config');
+    hasFirebaseJson = false;
+    logger.note('  ⚠ no firebase.json found');
   }
 
   const pyricConfig = await readPyricConfig(opts.cwd);
@@ -304,8 +322,8 @@ async function startServeRuntime(opts: {
   if (hasMultipleHostingSites) {
     logger.note('  ⚠ multiple hosting sites configured. pyric sandbox serves the first entry only');
   }
-  const publicDir = resolve(opts.cwd, hosting?.public ?? '.');
-  const isPublicDirectoryMissing = !existsSync(publicDir);
+  const publicDir = hostingPublicDir(opts.cwd, hosting);
+  const isPublicDirectoryMissing = publicDir !== null && !existsSync(publicDir);
   if (isPublicDirectoryMissing) {
     const hint = missingPublicDirHint(publicDir, { cwd: opts.cwd, hosted: opts.hosted === true });
     throw new Error(`pyric sandbox: hosting.public directory does not exist: ${publicDir}${hint}`);
@@ -319,7 +337,7 @@ async function startServeRuntime(opts: {
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
   // is trusted and the scan is skipped (marker present, no real SDK to find).
-  const needsSdkScan = !hasSandboxBuildMarker(publicDir);
+  const needsSdkScan = publicDir !== null && !hasSandboxBuildMarker(publicDir);
   if (needsSdkScan) {
     const inlined = scanForInlinedFirebase(publicDir);
     const hasInlinedSdk = inlined.length > 0;
@@ -722,7 +740,11 @@ async function startServeRuntime(opts: {
 
   logger.info(`=== Serving from '${opts.cwd}'...`);
   logger.info('');
-  logger.info(`✔ hosting  Serving files from: ${hosting?.public ?? '.'}`);
+  if (publicDir === null) {
+    logger.info(hostingOffLine(hasFirebaseJson));
+  } else {
+    logger.info(`✔ hosting  Serving files from: ${hosting?.public ?? 'public'}`);
+  }
   logger.info(`✔ hosting  Local server: ${handle.url}`);
   const usedCachedBundle = bundle.cached;
   if (usesEmbeddedAssets) {
@@ -1024,7 +1046,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
           await readFirebaseJson(cwd).catch(() => null),
           (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         ),
-        staticFileExists: (pathname) => runtime !== undefined && resolveStaticFile(runtime.publicDir, pathname) !== null,
+        staticFileExists: (pathname) => runtime !== undefined && runtime.publicDir !== null && resolveHostingFile(runtime.publicDir, pathname) !== null,
         onWarning: (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         onServed: (record) => {
           const { failed, line } = servedLine(record);

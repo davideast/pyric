@@ -15,7 +15,7 @@ import { pauseAfterRateLimit } from './rate-limit.ts';
 import { openRun, type OpenedRun } from './run-open.ts';
 import { writeHeartbeat, writeJsonFile, writeState, type RunPaths, type SupervisorState } from './run-dir.ts';
 import { MAX_SESSIONS, REVIEW_ROLES, wanted, type Start } from './schedule.ts';
-import type { HourlyCheck, RunSession, SessionResult } from './session.ts';
+import type { HourlyCheck, RunEnd, RunSession, SessionResult } from './session.ts';
 import { noHourlyCheck } from './session.ts';
 import { appendTimeline } from './timeline.ts';
 import { WorkListReader } from './work-list-reader.ts';
@@ -40,8 +40,14 @@ export interface SupervisorOptions {
   hours?: number;
   /** Go on with the run already in `runDir`, or start one when `hours` is given and there is none. */
   resume: boolean;
+  /** The agent adapter's name. Required to start a run; a resumed run keeps its own. */
+  agent?: string;
+  /** The brief directory. Required to start a run; a resumed run keeps its own. */
+  briefDir?: string;
   runSession: RunSession;
   hourlyCheck?: HourlyCheck;
+  /** Runs once the run ends and every session has stopped. */
+  runEnd?: RunEnd;
   clock?: Clock;
   maxSessions?: number;
   /** Stops the run early: a signal to the supervisor, not the deadline. */
@@ -79,6 +85,8 @@ class Supervisor {
   private readonly state: SupervisorState;
   private readonly startedAt: number;
   private readonly deadline: number;
+  private readonly agent: string;
+  private readonly briefDir: string;
   private readonly running = new Map<string, Running>();
   private readonly cooldowns = new Map<string, Cooldown>();
   private check: Promise<void> | undefined;
@@ -95,6 +103,8 @@ class Supervisor {
     this.state = opened.state;
     this.startedAt = Date.parse(opened.info.startedAt);
     this.deadline = Date.parse(opened.info.deadline);
+    this.agent = opened.info.agent;
+    this.briefDir = opened.info.briefDir;
     this.log = options.log ?? ((line) => console.log(line));
     this.pid = options.pid ?? process.pid;
     this.workList = new WorkListReader(this.paths.files.workList, this.log);
@@ -109,10 +119,17 @@ class Supervisor {
     }
     const outcome: SupervisorOutcome = this.isStopped() ? 'stopped' : 'deadline';
     await this.stopAll(outcome);
+    await this.endRun();
     if (outcome === 'deadline') appendTimeline(this.paths.timeline, { type: 'end', at: iso(this.clock.now()) });
     this.heartbeat(true);
     this.log(`factory run ${outcome === 'deadline' ? 'reached its deadline' : 'stopped'}`);
     return outcome;
+  }
+
+  /** The runner's end hook, after the last session and check; a failure is logged, never thrown. */
+  private async endRun(): Promise<void> {
+    if (this.options.runEnd === undefined) return;
+    await this.options.runEnd(this.paths.root).catch((error: unknown) => this.log(`the run's end hook failed: ${firstLine(error)}`));
   }
 
   private isBeforeDeadline(): boolean {
@@ -229,6 +246,8 @@ class Supervisor {
       prompt,
       runDir: this.paths.root,
       appDir: this.paths.app,
+      agent: this.agent,
+      briefDir: this.briefDir,
       files: this.paths.files,
       deadline: iso(this.deadline),
       remainingMs: this.deadline - entry.startedAt,

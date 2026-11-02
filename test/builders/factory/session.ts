@@ -26,6 +26,10 @@ export interface SessionOptions {
   runDir: string;
   /** The app repo every role works in. */
   appDir: string;
+  /** The agent adapter the run uses, by name (`agents/registry.ts`). */
+  agent: string;
+  /** The brief, specs and design every role reads: outside the run directory, read-only in the sandbox. */
+  briefDir: string;
   /** The work list, progress notes and latest check every session reads. */
   files: StateFiles;
   /** The run's end, as an ISO time. */
@@ -38,7 +42,7 @@ export interface SessionOptions {
 
 export type RunSession = (role: Role, options: SessionOptions) => Promise<SessionResult>;
 
-/** What an hourly check reports. The check itself comes in a later pull request. */
+/** What an hourly check reports (`hourly-check.ts`). */
 export interface CheckResult {
   passed: boolean;
   summary: string;
@@ -53,6 +57,9 @@ export interface CheckContext {
 }
 
 export type HourlyCheck = (context: CheckContext) => Promise<CheckResult>;
+
+/** Runs once when the run ends, after every session has stopped: the served copy's teardown. */
+export type RunEnd = (runDir: string) => Promise<void>;
 
 /** The hook until the hourly check lands: it checks nothing, and still wakes the on-demand roles. */
 export const noHourlyCheck: HourlyCheck = async () => ({ passed: true, summary: 'no hourly check is wired yet' });

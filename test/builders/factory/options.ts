@@ -1,16 +1,20 @@
 /**
  * The factory commands' options.
  *
- *   factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]
+ *   factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
  *   factory-summary --run-dir <dir>
  *   factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
  *
- * `--hours` starts a run; `--resume` goes on with the one in `--run-dir`.
+ * `--hours` starts a run, with `--agent` (an adapter's name) and
+ * `--brief-dir` (the directory holding BRIEF.md, specs/ and DESIGN.md,
+ * outside the run directory); the run records all three in its `run.json`.
+ * `--resume` goes on with the run in `--run-dir`, with what it recorded.
  * Given both, the command resumes the run there or starts one when there is
  * none, so the same command line serves a first start and every restart.
  */
 import { resolve } from 'node:path';
 import { flagValue, positionals, rejectUnknownFlags, UsageError } from '../cli-args.ts';
+import { AGENT_NAMES } from './agents/registry.ts';
 
 export const MAX_HOURS = 24;
 const DEFAULT_STALE_MINUTES = 5;
@@ -19,6 +23,9 @@ export interface FactoryOptions {
   runDir: string;
   hours?: number;
   resume: boolean;
+  /** The agent adapter's name. */
+  agent?: string;
+  briefDir?: string;
   /** A module exporting `runSession`, and `hourlyCheck` if it has one; the session runner when not given. */
   runner?: string;
 }
@@ -48,17 +55,23 @@ export function parseHours(raw: string): number {
 }
 
 export function parseFactoryOptions(args: readonly string[]): FactoryOptions {
-  const valueFlags = ['--run-dir', '--hours', '--runner'];
+  const valueFlags = ['--run-dir', '--hours', '--runner', '--agent', '--brief-dir'];
   rejectUnknownFlags(args, [...valueFlags, '--resume']);
   rejectPositionals(args, valueFlags);
   const hours = flagValue(args, '--hours');
   const resume = args.includes('--resume');
   if (hours === undefined && !resume) throw new UsageError('factory takes --hours to start a run, or --resume to go on with one');
   const runner = flagValue(args, '--runner');
+  const agent = flagValue(args, '--agent');
+  const isKnownAgent = agent === undefined || AGENT_NAMES.includes(agent);
+  if (!isKnownAgent) throw new UsageError(`--agent takes one of ${AGENT_NAMES.join(', ')}, received "${agent}"`);
+  const briefDir = flagValue(args, '--brief-dir');
   return {
     runDir: requiredRunDir(args),
     ...(hours === undefined ? {} : { hours: parseHours(hours) }),
     resume,
+    ...(agent === undefined ? {} : { agent }),
+    ...(briefDir === undefined ? {} : { briefDir: resolve(briefDir) }),
     ...(runner === undefined ? {} : { runner: resolve(runner) }),
   };
 }

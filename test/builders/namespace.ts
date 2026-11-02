@@ -11,7 +11,7 @@
  * code and packages, not the repo's sources, tests or git history),
  * toolchain and caches read-only,
  * the run directory read-write, a fresh /dev, /proc, /tmp and /run, and its own
- * resolv.conf and hosts. There is no /mnt, no /run/WSL and no /run/user. A
+ * resolv.conf and hosts (`recorder/sandbox-etc/`). There is no /mnt, no /run/WSL and no /run/user. A
  * cache the run must write to (npm's) gets an overlay whose writes stay in
  * the sandbox's /tmp, so the host's copy never changes.
  *
@@ -31,7 +31,7 @@
  * running without the sandbox.
  */
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { accessSync, constants, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unreapedExit } from '../apps/unreaped-exit.ts';
@@ -60,8 +60,14 @@ export const ETC_ENTRIES: readonly string[] = [
 /** The holder's script: route every address to loopback, then start the loggers. */
 const HOLDER_SCRIPT = 'ip route add local 0.0.0.0/0 dev lo table local && ip -6 route add local ::/0 dev lo table local && exec node "$1"';
 
-const SANDBOX_HOSTS = '127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n';
-const SANDBOX_RESOLV_CONF = 'nameserver 127.0.0.1\noptions attempts:1 timeout:1\n';
+/**
+ * The sandbox's /etc/resolv.conf (127.0.0.1 alone) and /etc/hosts, checked
+ * in and bound read-only. The harness writes neither into the run directory:
+ * a write there, while another sandbox of the same run is up, would follow a
+ * link that sandbox planted to any file of the host's.
+ */
+export const SANDBOX_RESOLV_CONF = fileURLToPath(new URL('./recorder/sandbox-etc/resolv.conf', import.meta.url));
+export const SANDBOX_HOSTS = fileURLToPath(new URL('./recorder/sandbox-etc/hosts', import.meta.url));
 
 /** Why the harness will not run: no sandbox, so no kernel-level block. */
 export class NamespaceUnavailable extends Error {}
@@ -78,7 +84,7 @@ export interface EgressNamespace {
 export interface SandboxOptions {
   /** Where the resolver and the catch-all listener record. */
   networkLog: string;
-  /** The run directory: bound read-write, and where the sandbox's resolv.conf and hosts are written. */
+  /** The run directory: bound read-write. The harness writes nothing into it. */
   runRoot: string;
   /** Directories the run reads but never writes: a tarball directory, Playwright's browsers. The harness's view of its repo and the toolchain are added. */
   readOnly?: readonly string[];
@@ -89,6 +95,12 @@ export interface SandboxOptions {
    * this keeps the shared cache unchanged.
    */
   overlaid?: readonly string[];
+  /**
+   * Host directories bound read-only over a path inside the run root, after
+   * it: a session sees the harness's check results at `<run>/checks` and
+   * can't change them.
+   */
+  innerViews?: readonly View[];
   /** Starts bwrap; tests pass one that loses its exit, as Bun can (#1274). */
   spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
   /** How `stop` waits for bwrap; tests pass short waits. */
@@ -137,6 +149,11 @@ function usrEntryArgs(entry: string): string[] {
   return isLink ? ['--symlink', readlinkSync(path), path] : ['--ro-bind', path, path];
 }
 
+/** bwrap's binds for the host's /usr and its top-level links into it, read-only. */
+export function systemBinds(): string[] {
+  return ['--ro-bind', '/usr', '/usr', ...USR_LINKS.flatMap(usrEntryArgs)];
+}
+
 export interface SandboxLayout {
   runRoot: string;
   readOnly: readonly string[];
@@ -149,6 +166,8 @@ export interface SandboxLayout {
   etc: readonly string[];
   /** Extra empty directories, such as a TMPDIR outside /tmp. */
   dirs?: readonly string[];
+  /** Read-only binds over paths inside the run root, made after it. */
+  innerViews?: readonly View[];
 }
 
 /** bwrap's arguments for a run, before the command. Parents bind before children. */
@@ -160,8 +179,7 @@ export function sandboxArgs(layout: SandboxLayout): string[] {
     '--uid', '0', '--gid', '0',
     '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_NET_BIND_SERVICE',
     '--die-with-parent', '--new-session',
-    '--ro-bind', '/usr', '/usr',
-    ...USR_LINKS.flatMap(usrEntryArgs),
+    ...systemBinds(),
     '--dir', '/etc',
     ...layout.etc.flatMap((entry) => ['--ro-bind', `/etc/${entry}`, `/etc/${entry}`]),
     '--ro-bind', layout.resolvConf, '/etc/resolv.conf',
@@ -173,6 +191,7 @@ export function sandboxArgs(layout: SandboxLayout): string[] {
     ...(layout.dirs ?? []).flatMap((dir) => ['--dir', dir]),
     ...readOnly.flatMap(({ source, dest }) => ['--ro-bind', source, dest]),
     '--bind', layout.runRoot, layout.runRoot,
+    ...(layout.innerViews ?? []).flatMap(({ source, dest }) => ['--ro-bind', source, dest]),
   ];
 }
 
@@ -359,20 +378,17 @@ function harnessViewOrRefuse(): ReturnType<typeof harnessView> {
 export async function startEgressNamespace(options: SandboxOptions): Promise<EgressNamespace> {
   const missing = REQUIRED_TOOLS.filter((tool) => whichTool(tool) === undefined);
   if (missing.length > 0) throw new NamespaceUnavailable(`missing ${missing.join(', ')}: the harness runs builders only inside a sandbox`);
-  const resolvConf = join(options.runRoot, 'resolv.conf');
-  const hosts = join(options.runRoot, 'hosts');
-  writeFileSync(resolvConf, SANDBOX_RESOLV_CONF);
-  writeFileSync(hosts, SANDBOX_HOSTS);
   const tmpdir = process.env.TMPDIR;
   const harness = harnessViewOrRefuse();
   const layout: SandboxLayout = {
     runRoot: options.runRoot,
     readOnly: [...harness.readOnly, ...toolchainDirs(), ...(options.readOnly ?? []), ...(options.overlaid ?? [])],
     views: harness.views,
-    resolvConf,
-    hosts,
+    resolvConf: SANDBOX_RESOLV_CONF,
+    hosts: SANDBOX_HOSTS,
     etc: ETC_ENTRIES.filter((entry) => existsSync(`/etc/${entry}`)),
     dirs: tmpdir ? [tmpdir] : [],
+    innerViews: options.innerViews ?? [],
   };
   const spawnChild = options.spawnChild ?? spawn;
   const child = spawnChild('bwrap', [...sandboxArgs(layout), '--info-fd', '3', 'sh', '-c', HOLDER_SCRIPT, 'sh', HOLDER], {

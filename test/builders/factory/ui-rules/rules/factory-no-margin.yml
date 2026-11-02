@@ -1,0 +1,7 @@
+id: factory-no-margin
+language: tsx
+severity: warning
+message: Margin utility. Spacing comes from gap and padding; m-*, space-* and mx-auto are out.
+rule:
+  matches: class-string
+  regex: (?:^|[\s:])!?-?(?:m[xytrblse]?-\S+|space-[xy]-\S+)

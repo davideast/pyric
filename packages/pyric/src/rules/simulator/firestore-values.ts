@@ -2,6 +2,7 @@ import type { TestCase } from '../test/spec.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Duration } from './wrappers/duration.js';
 import { RulesFloat } from './wrappers/float.js';
+import { hostNumber } from './rules-int.js';
 import { LatLng } from './wrappers/latlng.js';
 import { Path } from './wrappers/path.js';
 import { Reference } from './wrappers/reference.js';
@@ -78,9 +79,13 @@ function resolveServerTimestampValue(value: unknown, serverTime: Timestamp): unk
   return value;
 }
 
-/** Restore the Firestore numeric and wrapper tags erased by JSON serialization. */
+/**
+ * Restore the Firestore numeric and wrapper tags erased by JSON
+ * serialization. A number is typed as the Firebase SDKs send it
+ * (`hostNumber`): 2^53 and past, `-0` and a fraction are floats.
+ */
 export function reviveFirestoreNumbers(value: unknown): unknown {
-  if (typeof value === 'number' && !Number.isInteger(value)) return new RulesFloat(value);
+  if (typeof value === 'number') return hostNumber(value);
   if (Array.isArray(value)) return value.map(reviveFirestoreNumbers);
   if (isPlainObject(value)) {
     if (typeof value.__type === 'string') {
@@ -162,10 +167,11 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
  * (`timestamp()`, `latlng()`, ...) is already a typed value and stays one; a
  * plain map stays the map it is, even one with a `__type` key, because the
  * Rules Test API and a real document read it as a map (FS2-CON-5). Only a
- * fractional number becomes a float, as JSON erases nothing else here.
+ * number the SDKs send as a double becomes a float (`hostNumber`): a
+ * fraction, 2^53 and past, and `-0`. JSON erases nothing else here.
  */
 export function reviveCaseLiterals(value: unknown): unknown {
-  if (typeof value === 'number' && !Number.isInteger(value)) return new RulesFloat(value);
+  if (typeof value === 'number') return hostNumber(value);
   if (Array.isArray(value)) return value.map(reviveCaseLiterals);
   if (!isPlainObject(value)) return value;
   return Object.fromEntries(

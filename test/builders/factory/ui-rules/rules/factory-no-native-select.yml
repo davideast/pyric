@@ -1,0 +1,14 @@
+id: factory-no-native-select
+language: tsx
+severity: warning
+message: Native <select>. Use Select from components/ui.
+rule:
+  any:
+    - kind: jsx_opening_element
+      has:
+        field: name
+        regex: ^select$
+    - kind: jsx_self_closing_element
+      has:
+        field: name
+        regex: ^select$

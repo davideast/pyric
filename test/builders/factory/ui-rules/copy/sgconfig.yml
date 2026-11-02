@@ -1,0 +1,7 @@
+# The copy check's extractors: each rule finds one kind of visible string in
+# TSX. They report strings, not violations; copy-check.ts judges them.
+ruleDirs:
+  - rules
+languageGlobs:
+  tsx:
+    - "*.tsx"

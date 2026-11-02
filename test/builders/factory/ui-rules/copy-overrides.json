@@ -1,0 +1,8 @@
+{
+  "verbs": [],
+  "buttonLabels": ["Continue search"],
+  "properNouns": [
+    "Studio", "Library", "Drafts", "Activity", "Storyboards", "Productions", "Playlists", "Trees", "Downloads", "Settings",
+    "Gemini", "ElevenLabs", "Kore", "Lyria", "Google", "Firebase", "Markdown", "I"
+  ]
+}
