@@ -15,6 +15,7 @@ work at once, each in its own seat; your prompt names yours
 | Variable or file | Holds |
 |---|---|
 | `$APP_DIR` | the app repo: a Next.js 16 app on Firebase, run with pyric |
+| `$BRIEF_DIR/BRIEF.md` | the run's brief: the rules, and the checks to run per step |
 | `$BRIEF_DIR/specs/` | the spec each item names |
 | `$BRIEF_DIR/DESIGN.md` | the design language you follow |
 | `$RUN_DIR/work-list.json` | the items |
@@ -36,6 +37,10 @@ work at once, each in its own seat; your prompt names yours
 
 ## Building it
 
+- Before your first change in a session, read `$BRIEF_DIR/BRIEF.md` and
+  the guides the brief names in the app: for mdmedia, `studio/AGENTS.md`
+  and `studio/PYRIC.md`. `studio/PYRIC.md` lists the pyric defects already
+  known; when you hit one, name it in your `pyric?` note.
 - Read the item's spec and `doneWhen`, and the parts of DESIGN.md it
   touches, before writing code. If the item has a `workaround`, triage
   allowed it: use it as written, and only it.
@@ -105,17 +110,17 @@ blocks an item you own, do the same from step 2.
 
 ## Before marking it ready
 
-Run, from `$APP_DIR`, with the app's own scripts and tools:
-
-1. the typecheck (the app's `typecheck` script, or `tsc --noEmit` from
-   `node_modules/.bin`);
-2. the tests for what you changed;
-3. the UI rules (`ast-grep scan` from `node_modules/.bin`, with the app's
-   own rule config).
+Run exactly the checks `$BRIEF_DIR/BRIEF.md` lists under "Checks to run
+per step", from the directories it names, in `$APP_DIR`. For mdmedia that
+is, for example, `./node_modules/.bin/tsc --noEmit -p studio/tsconfig.json`
+and `bun test` for the files you touched from the repo root, then
+`npm run lint`, `npm run check:cqrs` and, after a rules change,
+`npm run rules:build` from `studio/`. Take the list from the brief, not
+from this example.
 
 If a tool isn't installed, don't fetch it: append a note and stop.
 
-All three pass, and your work is committed. Then set the item's `status`
+Every check passes, and your work is committed. Then set the item's `status`
 to `ready`, delete its `review` if it has one, and append a note headed
 with the time and your seat: the item, the commits, the screen's route,
 the line `Ready commit: <sha of your last commit>`, and anything a

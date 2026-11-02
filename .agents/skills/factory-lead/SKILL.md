@@ -48,7 +48,8 @@ Your prompt tells you the deadline and the time left.
   `reason`. Triage marks reviewed items `done`. You never set `done` or
   `ready`.
 - `dependsOn` lists the ids an item needs first. Builders don't take an
-  item until every item it depends on is `ready` or `done`.
+  item until every item it depends on is `ready` or `done`, and until
+  then it doesn't count as work for them. Name only ids on the list.
 - `blocked` means no builder can go on with the item. Builders and triage
   set and clear it; you never do. A blocked item is not work for a
   builder, so when every open item is blocked you are woken to plan more.
