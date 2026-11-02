@@ -3,8 +3,10 @@
 // browser tab is ever opened: the functions start and answer on their own, as
 // a deployed function does. The function writes Firestore through
 // firebase-admin, and a registered Node process finds each document in the
-// host's store.
+// host's store. A page on another site, or one that rebinds its hostname to
+// 127.0.0.1, reaches neither function.
 import assert from 'node:assert/strict';
+import { request } from 'node:http';
 import { scenario } from '../driver.ts';
 
 interface Added {
@@ -25,6 +27,21 @@ async function post(target: string, text: string): Promise<Added> {
   return JSON.parse(body) as Added;
 }
 
+/** A raw POST, so the step can send any Host header, as a rebinding page's browser would. */
+function rawPost(target: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+  const { hostname, port, pathname } = new URL(target);
+  return new Promise((resolvePost, rejectPost) => {
+    const outgoing = request({ host: hostname, port, path: pathname, method: 'POST', headers }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => { body += chunk; });
+      response.on('end', () => resolvePost({ status: response.statusCode ?? 0, body }));
+    });
+    outgoing.on('error', rejectPost);
+    outgoing.end(JSON.stringify({ text: 'forged' }));
+  });
+}
+
 export default scenario(async (app) => {
   const port = await app.freePort();
   const url = `http://127.0.0.1:${port}`;
@@ -32,7 +49,7 @@ export default scenario(async (app) => {
     const child = app.pyricProcess(['sandbox', '--hosted', '--no-open', '--no-run', '--no-capture', '--host', '127.0.0.1', '--port', String(port)], {
       env: { PYRIC_NO_UPDATE_CHECK: '1' },
     });
-    await child.waitForLog(/functions 1 onRequest function:/, { timeoutMs: 60_000 });
+    await child.waitForLog(/functions 2 onRequest functions:/, { timeoutMs: 60_000 });
     return child;
   });
 
@@ -46,6 +63,29 @@ export default scenario(async (app) => {
     const added = await post(`${url}/${PROJECT}/us-central1/api/api/messages`, 'through the emulator path');
     assert.equal(added.path, '/api/messages');
     return added;
+  });
+
+  await app.step('a foreign Host gets 403 on the emulator path and on the rewrite', async () => {
+    const headers = { host: 'attacker.example', 'content-type': 'application/json' };
+    for (const target of [`${url}/${PROJECT}/us-central1/api/api/messages`, `${url}/api/messages`]) {
+      const refused = await rawPost(target, headers);
+      assert.equal(refused.status, 403, `${target}: ${refused.body}`);
+    }
+  });
+
+  await app.step("the private function refuses another site's Origin and answers a caller with none", async () => {
+    const target = `${url}/${PROJECT}/us-central1/reset`;
+    const foreign = await fetch(target, { method: 'POST', headers: { origin: 'https://attacker.example', 'content-type': 'text/plain' }, body: 'x' });
+    assert.equal(foreign.status, 403, await foreign.text());
+    const server = await fetch(target, { method: 'POST' });
+    assert.equal(server.status, 200, await server.text());
+  });
+
+  await app.step('a POST to an unknown function name gets 404 naming the functions that exist', async () => {
+    const typo = await fetch(`${url}/${PROJECT}/us-central1/apii`, { method: 'POST' });
+    const body = await typo.text();
+    assert.equal(typo.status, 404, body);
+    assert.equal(body, 'Function us-central1-apii does not exist, valid functions are: us-central1-api, us-central1-reset');
   });
 
   await app.step("a registered Node process reads both documents from the host's store", async () => {

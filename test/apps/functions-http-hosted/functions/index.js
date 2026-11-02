@@ -14,3 +14,9 @@ exports.api = onRequest(async (req, res) => {
   }
   res.status(404).json({ error: `no route for ${req.method} ${req.path}` });
 });
+
+// An admin job production lets only IAM callers run: pyric serves it to the
+// app's own pages and to callers that send no Origin, never to another site.
+exports.reset = onRequest({ invoker: 'private' }, (req, res) => {
+  res.status(200).json({ reset: true });
+});
