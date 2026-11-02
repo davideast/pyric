@@ -9,6 +9,7 @@
   "coverage": true,
   "scopeNote": "integration contract: unchanged firebase-functions onRequest source (v2, and v1 https.onRequest) served by the isolated Functions child. First slice: one codebase, requests through the emulator path /{project}/{region}/{name} and firebase.json hosting rewrites on pyric sandbox and the Vite plugin, request and response fidelity, CORS, timeouts, and failures. onCall and the pyric/functions client, other trigger families, deploy-time scaling options, IAM beyond the invoker row, rerouting Node fetches to cloudfunctions.net, and a dedicated 5001 port are deferred.",
   "captureRigs": [],
+  "conformanceSuite": "packages/cli/test/functions-http/oracle-conformance.test.ts",
   "climb": true,
   "registry": "functions-http"
 }
