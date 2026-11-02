@@ -1,6 +1,7 @@
-// What Codex's output says about how a session ended, from event streams
-// in Codex 0.164's shape: the success recorded in the factory's experiment,
-// and the usage-limit and retry failures in the messages Codex prints.
+// What the agent's output says about how a session ended, from event
+// streams in the agent's shape: the success recorded in the factory's
+// experiment, and the rate-limit and retry failures in the messages the
+// agent prints.
 import { describe, expect, test } from 'bun:test';
 import { codexAgent } from './adapter.ts';
 import { parseEvents, reportsUsageLimit } from './events.ts';
@@ -13,7 +14,7 @@ const SUCCESS = [
   '{"type":"turn.completed","usage":{"input_tokens":10849,"cached_input_tokens":9088,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}',
 ].join('\n');
 
-const LIMIT_MESSAGE = 'You\'ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 4th, 2026 3:11 AM.';
+const LIMIT_MESSAGE = 'You\'ve hit your usage limit. Try again at Nov 4th, 2026 3:11 AM.';
 
 const USAGE_LIMIT = [
   '{"type":"thread.started","thread_id":"t"}',
@@ -40,7 +41,7 @@ describe('parseEvents', () => {
 });
 
 describe('reportsUsageLimit', () => {
-  test('sees the usage-limit message and a 429 Codex gave up on, not a success or a network wait', () => {
+  test('sees the rate-limit message and a 429 the agent gave up on, not a success or a network wait', () => {
     expect(reportsUsageLimit(parseEvents(USAGE_LIMIT))).toBe(true);
     expect(reportsUsageLimit(parseEvents(RETRIES_EXHAUSTED))).toBe(true);
     expect(reportsUsageLimit(parseEvents(SUCCESS))).toBe(false);
@@ -49,7 +50,7 @@ describe('reportsUsageLimit', () => {
 });
 
 describe('the adapter', () => {
-  test('reads a usage limit from Codex’s output as it was saved', () => {
+  test('reads a rate limit from the agent’s output as it was saved', () => {
     expect(codexAgent.reportsRateLimit(`${USAGE_LIMIT}\n`)).toBe(true);
     expect(codexAgent.reportsRateLimit(NETWORK_DOWN)).toBe(false);
   });

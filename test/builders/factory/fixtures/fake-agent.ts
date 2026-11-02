@@ -70,7 +70,7 @@ export function fakeAgent(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
       args: ['--base-url', bridgeUrl, '--instructions', session.instructions, '--', session.prompt],
       env: { ...env, FAKE_AGENT_HOME: join(session.home, '.fake-agent') },
     }),
-    reportsRateLimit: (output) => output.includes('"type":"usage-limit"'),
+    reportsRateLimit: (output) => output.includes('"type":"rate-limit"'),
     ...overrides,
   };
 }

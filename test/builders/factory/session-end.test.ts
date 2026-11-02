@@ -24,7 +24,7 @@ describe('sessionEnd', () => {
     expect(sessionEnd(facts({ code: 1 }))).toEqual({ endedBy: 'exit' });
   });
 
-  test('out of usage, it ends by the rate limit, with the reset the forwarder recorded', () => {
+  test('at the upstream rate limit, it ends by the rate limit, with the reset the forwarder recorded', () => {
     expect(sessionEnd(facts({ code: 1, reportsRateLimit: true, channel: [OK, LIMITED] }))).toEqual({ endedBy: 'rate-limit', resetAt: '2026-11-04T11:11:04.000Z' });
   });
 

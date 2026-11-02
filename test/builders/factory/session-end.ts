@@ -1,7 +1,7 @@
 /**
  * How an agent session ended, from what the harness saw: whether it stopped
  * the session itself, how the process exited, whether the agent's output
- * says it ran out of usage (`AgentAdapter.reportsRateLimit`), and this
+ * says it hit the upstream rate limit (`AgentAdapter.reportsRateLimit`), and this
  * session's lines of the forwarder's channel record. Agents print a reset,
  * when at all, only as local wall-clock text; the forwarder read the 429
  * itself (`UpstreamPolicy.rateLimitOf`), so the reset comes from the record.
@@ -29,7 +29,7 @@ export interface SessionFacts {
   /** The exit code, null when a signal ended the process. */
   code: number | null;
   signal: NodeJS.Signals | null;
-  /** Whether the agent's output says it ran out of usage. */
+  /** Whether the agent's output says it hit the upstream rate limit. */
   reportsRateLimit: boolean;
   channel: readonly UpstreamEvent[];
 }
@@ -40,7 +40,7 @@ export interface SessionEnd {
 }
 
 /**
- * How the session ended. The harness's own stop wins; then a usage limit,
+ * How the session ended. The harness's own stop wins; then a rate limit,
  * when the session failed and the agent said so or its last request came
  * back 429; then a signal no one in the harness sent; otherwise its exit.
  */

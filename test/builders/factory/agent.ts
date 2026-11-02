@@ -11,8 +11,8 @@
  * - its credential on the host, read per request, and where that lives, so
  *   no bind can reach it;
  * - its upstream policy: the host, the request lines and headers that pass,
- *   the body check, and what a response says about usage limits;
- * - how its output says it ran out of usage.
+ *   the body check, and what a response says about the upstream rate limit;
+ * - how its output says it hit that limit.
  *
  * The session runner, the supervisor, the forwarder and the role prompts
  * depend on this file alone. Adapters live in `agents/<name>/`, and
@@ -35,13 +35,13 @@ export interface Credential {
 
 export type CredentialRead = { ok: true; credential: Credential } | { ok: false; problem: string };
 
-/** What a response says about usage limits. */
+/** What a response says about the upstream rate limit. */
 export interface RateLimit {
   /** The response was a 429. */
   limitReached: boolean;
-  /** When usage comes back, ISO; null when the response named no time. */
+  /** When requests pass again, ISO; null when the response named no time. */
   resetAt: string | null;
-  /** How full each usage window the response named is, in percent. */
+  /** How full each rate-limit window the response named is, in percent. */
   usedPercent: Record<string, number>;
 }
 
@@ -57,7 +57,7 @@ export interface UpstreamPolicy {
   isForwardedHeader(name: string): boolean;
   /** Checks a whole request body. */
   checkBody(body: Buffer): BodyCheck;
-  /** What a response says about usage limits. `body` is the start of an error response's body, empty otherwise. */
+  /** What a response says about the upstream rate limit. `body` is the start of an error response's body, empty otherwise. */
   rateLimitOf(status: number, headers: Headers, body: string, now: Date): RateLimit;
   /** How long one forwarded request may take, sending to the response's end. */
   timeoutMs: number;
@@ -114,7 +114,7 @@ export interface AgentAdapter {
    * environment (`sessionEnvironment`), which the adapter may add to.
    */
   invocation(session: AgentSession, bridgeUrl: string, env: Record<string, string>): Invocation;
-  /** Whether the agent's output (its stdout) says it ran out of usage. */
+  /** Whether the agent's output (its stdout) says it hit the upstream rate limit. */
   reportsRateLimit(output: string): boolean;
 }
 

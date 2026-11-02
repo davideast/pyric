@@ -1,22 +1,20 @@
 /**
- * What the ChatGPT backend says about the subscription's usage limits, read
- * by the forwarder from each response. Every response carries the window
- * headers (seen in the factory's experiment):
- *
- *   x-codex-primary-used-percent, x-codex-primary-reset-at (Unix seconds),
- *   x-codex-secondary-used-percent, x-codex-secondary-reset-at
- *
- * and a request over the limit gets `429` with a body Codex reads as
- * `{ "error": { "type": "usage_limit_reached", "resets_at": <Unix seconds>, ... } }`.
- * Codex itself only prints the reset as local wall-clock text ("try again
- * at 3:04 PM"), so the forwarder's record is where an exact reset comes from.
+ * What the upstream says about its rate limit, read by the forwarder from
+ * each response. Every response carries a used-percent and a reset-at
+ * (Unix seconds) header for each of two windows, primary and secondary
+ * (seen in the factory's experiment; the names are built in `headerReset`
+ * and `rateLimitOf` below), and a request over the limit gets `429` with a
+ * JSON error body whose `type` is one of `LIMIT_ERROR_TYPES` and whose
+ * `resets_at` names the reset in Unix seconds. The agent itself only prints
+ * the reset as local wall-clock text, so the forwarder's record is where an
+ * exact reset comes from.
  */
 import { z } from 'zod';
 import type { Headers, RateLimit } from '../../agent.ts';
 
 const WINDOWS = ['primary', 'secondary'] as const;
 
-/** Error types the backend gives a request the subscription can't pay for. */
+/** Error types the upstream gives a request over its rate limit. */
 const LIMIT_ERROR_TYPES = new Set(['usage_limit_reached', 'rate_limit_exceeded', 'usage_not_included']);
 
 const errorSchema = z.object({
@@ -56,8 +54,8 @@ function errorReset(error: NonNullable<ReturnType<typeof limitError>>, now: Date
 }
 
 /**
- * The latest reset among the windows that are full: past the limit, usage
- * comes back only once every full window has reset.
+ * The latest reset among the windows that are full: past the limit,
+ * requests pass again only once every full window has reset.
  */
 function headerReset(headers: Headers): string | null {
   const resets = WINDOWS.flatMap((window) => {

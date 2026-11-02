@@ -1,6 +1,6 @@
-// The upstream forwarder with the Codex policy, over real sockets, all on this machine: the
-// "backend" is a plain-HTTP server on loopback and the login is made up.
-// No request leaves the machine, and the record never holds a token.
+// The upstream forwarder with this adapter's policy, over real sockets, all
+// on loopback: the upstream is a plain-HTTP stand-in and the credential is
+// made up. No request leaves loopback, and the record never holds a token.
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import http from 'node:http';
@@ -61,8 +61,8 @@ function expectNoToken(record: string, login = fakeLogin()): void {
   expect(text).not.toContain('made-up-signature');
 }
 
-describe('the forwarder with the Codex policy', () => {
-  test('puts the login on a turn, replacing whatever the sandbox sent, and streams the answer back', async () => {
+describe('the forwarder with this adapter’s policy', () => {
+  test('puts the credential on a turn, replacing whatever the sandbox sent, and streams the answer back', async () => {
     const login = fakeLogin();
     const { socketPath, record, backend } = await setup(signedIn(login));
     const answer = await post(socketPath, '/backend-api/codex/responses', { model: MODEL, input: [] }, { authorization: 'Bearer from-the-sandbox', cookie: 'c' });
@@ -71,7 +71,7 @@ describe('the forwarder with the Codex policy', () => {
     const received = backend.received[0];
     expect(received?.path).toBe('/backend-api/codex/responses');
     expect(received?.headers.authorization).toBe(`Bearer ${login.accessToken}`);
-    expect(received?.headers['chatgpt-account-id']).toBe('made-up-account-id');
+    expect(received?.headers['chatgpt-account-id']).toBe('made-up-id');
     expect(received?.headers.host).toBe('chatgpt.com');
     expect(received?.headers.originator).toBe('codex_exec');
     expect(received?.headers.cookie).toBeUndefined();
@@ -81,7 +81,7 @@ describe('the forwarder with the Codex policy', () => {
     expectNoToken(record, login);
   });
 
-  test('passes a usage-limit 429 back to Codex and records its reset', async () => {
+  test('passes a rate-limit 429 back to the agent and records its reset', async () => {
     const { socketPath, record, backend } = await setup();
     backend.limitedUntil = 1793790664;
     const answer = await post(socketPath, '/backend-api/codex/responses', { model: MODEL });
@@ -106,8 +106,8 @@ describe('the forwarder with the Codex policy', () => {
     expect(lines(record)[3]?.refusedNames).toEqual(['web_search']);
   });
 
-  test('refuses with 401 when the login can’t be read or is about to lapse, naming no token', async () => {
-    const missing = await setup(() => ({ ok: false, problem: 'the Codex login /x/auth.json does not exist' }));
+  test('refuses with 401 when the credential can’t be read or is about to lapse, naming no token', async () => {
+    const missing = await setup(() => ({ ok: false, problem: 'the credential file /x/auth.json does not exist' }));
     const answer = await post(missing.socketPath, '/backend-api/codex/responses', { model: MODEL });
     expect(answer.status).toBe(401);
     expect(answer.body).toContain('does not exist');

@@ -1,7 +1,7 @@
 /**
- * The Codex adapter: OpenAI's Codex CLI (`codex exec --json`) on the ChatGPT
- * subscription that `codex login` signed in on the host, behind the
- * factory's agent interface (`../../agent.ts`). See `README.md` here.
+ * This adapter: the agent's non-interactive mode, printing JSON events,
+ * with the credential the adapter config names, behind the factory's agent
+ * interface (`../../agent.ts`). See `README.md` here.
  */
 import type { AgentAdapter } from '../../agent.ts';
 import { codexHomeOf, codexInvocation, FACTORY_MODEL } from './command.ts';

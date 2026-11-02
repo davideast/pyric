@@ -1,8 +1,8 @@
 /**
- * A stand-in for chatgpt.com's Codex backend, in plain HTTP on loopback, for
- * the factory's tests. It records what it received and answers with a
- * streamed turn, or with a 429 in the backend's usage-limit shape once
- * `limited` is set. No test reaches the real backend.
+ * A stand-in for the upstream, in plain HTTP on loopback, for the factory's
+ * tests. It records what it received and answers with a streamed turn, or
+ * with a 429 in the upstream's rate-limit shape once `limited` is set. No
+ * test reaches the real upstream.
  */
 import http from 'node:http';
 
@@ -15,7 +15,7 @@ export interface Received {
 export interface FakeChatgpt {
   port: number;
   received: Received[];
-  /** Answer every request with a usage-limit 429 that resets at this Unix second. */
+  /** Answer every request with a rate-limit 429 that resets at this Unix second. */
   limitedUntil: number | null;
   close(): Promise<void>;
 }
@@ -34,7 +34,7 @@ export async function startFakeChatgpt(): Promise<FakeChatgpt> {
       fake.received.push({ path: request.url ?? '', headers: request.headers, body: Buffer.concat(chunks).toString('utf8') });
       if (fake.limitedUntil !== null) {
         response.writeHead(429, { 'content-type': 'application/json', 'x-codex-primary-used-percent': '100', 'x-codex-primary-reset-at': String(fake.limitedUntil) });
-        response.end(JSON.stringify({ error: { type: 'usage_limit_reached', message: 'The usage limit has been reached', plan_type: 'pro', resets_at: fake.limitedUntil } }));
+        response.end(JSON.stringify({ error: { type: 'usage_limit_reached', message: 'Rate limit reached', resets_at: fake.limitedUntil } }));
         return;
       }
       response.writeHead(200, { 'content-type': 'text/event-stream', 'x-codex-primary-used-percent': '42', 'x-codex-primary-reset-at': '1793790664' });

@@ -5,8 +5,8 @@
  * FAKE_AGENT_MODE:
  *
  *   ok          one request, then exit 0
- *   limit       one request that comes back 429, then a usage-limit line, exit 1
- *   fail        one request that comes back 200, then a failure that is not a usage limit, exit 1
+ *   limit       one request that comes back 429, then a rate-limit line, exit 1
+ *   fail        one request that comes back 200, then a failure that is not a rate limit, exit 1
  *   crash       no request: exit 1 at once
  *   hang        start, then wait until stopped
  *   grandchild  start a process of its own that outlives it unless its group is signalled, print its pid, then wait
@@ -66,6 +66,6 @@ if (mode === 'crash') {
     print({ type: 'done' });
     process.exit(0);
   }
-  print(response.status === 429 ? { type: 'usage-limit' } : { type: 'failed' });
+  print(response.status === 429 ? { type: 'rate-limit' } : { type: 'failed' });
   process.exit(1);
 }

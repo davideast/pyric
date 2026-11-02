@@ -1,16 +1,16 @@
 /**
- * The Codex login the factory's forwarder puts on each model request: the
- * ChatGPT tokens `codex login` keeps in `~/.codex/auth.json`. Only the
+ * The credential the factory's forwarder puts on each model request: the
+ * tokens in the credential file, which the adapter config names. Only the
  * harness process reads it, outside every sandbox, and it reads it again
- * for each request, so a refresh made by the host's own Codex is picked up.
- * The harness never refreshes it and never writes it: Codex rotates the
- * refresh token on each refresh, so a second writer would log the host's
- * Codex out. Nothing here says a token's value; a problem names the file
+ * for each request, so a refresh made on the host is picked up. The
+ * harness never refreshes it and never writes it: the refresh token
+ * rotates on each refresh, so a second writer would invalidate the host's
+ * credential. Nothing here says a token's value; a problem names the file
  * and the rule it broke.
  *
  * The file is refused unless it is a regular file (not a link), owned by
- * the current user, with no group or other access, holding a ChatGPT login
- * (`auth_mode: chatgpt` and its tokens).
+ * the current user, with no group or other access, holding a token
+ * credential (the expected `auth_mode` and its tokens).
  */
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -18,13 +18,13 @@ import { z } from 'zod';
 import { readPrivateFile } from '../../../harness-token.ts';
 import type { Credential, CredentialRead } from '../../agent.ts';
 
-/** The host's default CODEX_HOME, which holds the login: no sandbox bind may reach it. */
+/** The directory that holds the credential file: no sandbox bind may reach it. */
 export const CODEX_LOGIN_DIR = join(homedir(), '.codex');
 
-/** Where `codex login` keeps the login, under the default CODEX_HOME. */
+/** The credential file, which the adapter config names. */
 export const CODEX_LOGIN_FILE = join(CODEX_LOGIN_DIR, 'auth.json');
 
-const LABEL = 'the Codex login';
+const LABEL = 'the credential file';
 
 const authSchema = z.object({
   auth_mode: z.literal('chatgpt'),
@@ -39,7 +39,7 @@ const authSchema = z.object({
 export interface CodexLogin {
   accessToken: string;
   accountId: string;
-  /** Every token the login holds. The token scan looks for each; none may leave the harness. */
+  /** Every token the credential holds. The token scan looks for each; none may leave the harness. */
   secrets: string[];
   /** When the access token stops working, from its own `exp`; null when it names none. */
   expiresAt: Date | null;
@@ -60,7 +60,7 @@ export function jwtExpiry(token: string): Date | null {
   }
 }
 
-/** The login from the file's text, or why it is not a ChatGPT login; the reason never holds a value. */
+/** The credential from the file's text, or why it holds none; the reason never holds a value. */
 export function loginFromText(path: string, text: string): LoginRead {
   let json: unknown;
   try {
@@ -69,7 +69,7 @@ export function loginFromText(path: string, text: string): LoginRead {
     return { ok: false, problem: `${LABEL} ${path} is not JSON` };
   }
   const parsed = authSchema.safeParse(json);
-  if (!parsed.success) return { ok: false, problem: `${LABEL} ${path} holds no ChatGPT login: run \`codex login\` on the host` };
+  if (!parsed.success) return { ok: false, problem: `${LABEL} ${path} holds no token credential` };
   const tokens = parsed.data.tokens;
   return {
     ok: true,
@@ -82,7 +82,7 @@ export function loginFromText(path: string, text: string): LoginRead {
   };
 }
 
-/** Reads the login, or says which rule it breaks. `uid` is the current user's by default. */
+/** Reads the credential, or says which rule it breaks. `uid` is the current user's by default. */
 export function readCodexLogin(path: string = CODEX_LOGIN_FILE, uid: number = process.getuid?.() ?? -1): LoginRead {
   const read = readPrivateFile(path, LABEL, uid);
   if (!read.ok) return read;
@@ -92,15 +92,15 @@ export function readCodexLogin(path: string = CODEX_LOGIN_FILE, uid: number = pr
 /** How long before the access token lapses the forwarder stops using it, so no request goes out on a token about to lapse. */
 export const EXPIRY_MARGIN_MS = 5 * 60_000;
 
-/** Why the login can't be used at `now`, or undefined when it can. */
+/** Why the credential can't be used at `now`, or undefined when it can. */
 export function expiryProblem(login: CodexLogin, now: Date): string | undefined {
   if (login.expiresAt === null) return undefined;
   const lapsed = login.expiresAt.getTime() - EXPIRY_MARGIN_MS <= now.getTime();
   if (!lapsed) return undefined;
-  return `the Codex login's access token lapses at ${login.expiresAt.toISOString()}: refresh it on the host (start Codex there, or run \`codex login\`)`;
+  return `the credential's access token lapses at ${login.expiresAt.toISOString()}: refresh the credential on the host`;
 }
 
-/** The login as the forwarder's credential: the bearer token and the account header, set on every request. */
+/** The forwarder's credential: the bearer token and the identity header, set on every request. */
 export function codexCredential(login: CodexLogin): Credential {
   return {
     headers: { authorization: `Bearer ${login.accessToken}`, 'chatgpt-account-id': login.accountId },

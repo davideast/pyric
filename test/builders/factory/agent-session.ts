@@ -13,7 +13,7 @@
  * opened with `O_EXCL | O_NOFOLLOW`.
  *
  * A session ends one of four ways (`session-end.ts`): the agent exits
- * (`exit`), runs out of usage (`rate-limit`, with `resetAt` when the
+ * (`exit`), hits the upstream rate limit (`rate-limit`, with `resetAt` when the
  * upstream named one), is stopped by the caller's signal, a fault in the
  * forwarder or a signal no one in the harness sent (`killed`), or is stopped
  * at its deadline (`deadline`).

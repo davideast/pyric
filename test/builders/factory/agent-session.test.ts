@@ -1,4 +1,4 @@
-// runAgentSession end to end on this machine with the made-up agent
+// runAgentSession end to end on loopback with the made-up agent
 // (`fixtures/fake-agent.ts`): the real forwarder, phase and bridge, and a
 // stand-in upstream on loopback. The sandbox is left out (`enter` runs the
 // command on the host, and the phase skips its check), so these tests run
@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(upstreams.splice(0).map((upstream) => upstream.close()));
 });
 
-/** A port free on this machine, for the bridge of a phase run on the host. */
+/** A port free on loopback, for the bridge of a phase run on the host. */
 function freePort(): Promise<number> {
   return new Promise((resolve) => {
     const server = createServer().listen(0, '127.0.0.1', () => {
@@ -117,7 +117,7 @@ describe('runAgentSession', () => {
     expect(existsSync(join(options.session.home, '.fake-agent'))).toBe(true);
   });
 
-  test('out of usage, it ends by the rate limit with the reset the upstream named', async () => {
+  test('at the upstream rate limit, it ends by the rate limit with the reset the upstream named', async () => {
     const run = await newRun();
     run.upstream.limitedUntil = 1793790664;
     const result = await runAgentSession(await sessionIn(run, 'limit'));

@@ -613,8 +613,8 @@ Every role is an agent CLI behind the factory's agent interface
 command, arguments and environment of a session, what it keeps under its
 HOME, where its credential lives on the host and how to read it, its
 upstream policy (the host, the request lines and headers that pass, the
-body check, and what a response says about usage limits), and how its
-output says it ran out of usage. Each adapter's folder has a README with
+body check, and what a response says about the upstream rate limit), and
+how its output says it hit that limit. Each adapter's folder has a README with
 its specifics. The session runner, the supervisor, the forwarder and the
 role prompts depend on the interface alone.
 
@@ -648,7 +648,7 @@ requests to the bridge with no credential. The forwarder applies the
 adapter's policy to each, reads the credential for each, sets its headers
 last and sends the request to the policy's upstream over TLS. Every
 request is a line of `<run dir>.host/channel/<seat>.jsonl` with the reason,
-the status and the usage windows the response named; names, never values.
+the status and the rate-limit windows the response named; names, never values.
 A header Node would refuse to send is refused with 400, not thrown, and an
 unexpected failure in the forwarder drops that request and stops the
 session as `killed`, never the supervisor.
@@ -665,7 +665,7 @@ sandbox's `resolv.conf` and `hosts` are checked in
 (`factory/host-files.ts`).
 
 **How a session ends.** `exit`, when the agent exits; `rate-limit`, when it
-failed out of usage, by its own output (the adapter reads it) or because
+failed at the upstream rate limit, by its own output (the adapter reads it) or because
 its last request came back 429; `killed`, when the supervisor stops it, the
 forwarder faults, or a signal no one sent ends it; `deadline`, at
 `remainingMs` or when the supervisor aborts with `deadline`. `resetAt` is
@@ -1004,11 +1004,11 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   directory, which the sandbox binds read-write. The model channel's lines
   come from the forwarder's own record, outside, and the metered cost is
   read from that record alone.
-- **Anything in a factory session can spend the agent's usage.** As with
+- **Anything in a factory session can spend against the upstream rate limit.** As with
   the round's token, a process in the sandbox can send requests through
   the channel, within the adapter's policy, but can't read the credential
   or name a URL for the upstream to fetch. There is no dollar meter: the
-  usage windows the upstream reports bound the spend, and each request's
+  rate-limit windows the upstream reports bound the spend, and each request's
   line records them.
 - **The factory's token scan is not wired to a keep step yet.** The
   factory keeps its run directory as it is. `factory/secret-scan.ts` looks

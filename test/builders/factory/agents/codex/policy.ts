@@ -1,32 +1,32 @@
 /**
- * What the Codex forwarder passes on, and what it puts on a request it
- * passes. Codex, inside the sandbox, talks to a custom model provider whose
+ * What the forwarder passes on for this adapter, and what it puts on a
+ * request it passes. The agent, inside the sandbox, talks to a custom model provider whose
  * base URL is the channel's bridge, so it sends its Responses API requests
  * there with no credential at all. The forwarder sends on only:
  *
- * - `POST /backend-api/codex/responses`, a turn, and
- *   `POST /backend-api/codex/responses/compact`, Codex's compaction of a
+ * - `POST <base path>/responses`, a turn, and
+ *   `POST <base path>/responses/compact`, the agent's compaction of a
  *   long session, each with no query;
- * - an allowlist of the request's headers, the ones Codex 0.164 sends to
- *   the ChatGPT backend (seen in the factory's experiment: `originator`,
- *   `session-id`, `thread-id`, `x-client-request-id`, the `x-codex-*` and
- *   `x-openai-*` headers); the forwarder sets `Authorization: Bearer
- *   <access token>` and `chatgpt-account-id` from the login (`login.ts`);
+ * - an allowlist of the request's headers, the ones the agent sends to the
+ *   upstream (seen in the factory's experiment; listed in
+ *   `FORWARDED_EXACT` and `FORWARDED_PREFIXES`); the forwarder sets
+ *   `Authorization: Bearer <access token>` and the identity header from the
+ *   credential (`login.ts`);
  * - a body that is a JSON object for the session's model whose tools are
- *   all ones Codex runs itself, and whose input names no URL other than an
- *   inline `data:` one and no file ID: a tool OpenAI runs (web search, a
- *   remote MCP server, any added later) or a URL it fetches would reach
- *   beyond the sandbox from OpenAI's side.
+ *   all ones the agent runs itself, and whose input names no URL other than
+ *   an inline `data:` one and no file ID: a tool the upstream runs (web
+ *   search, a remote MCP server, any added later) or a URL it fetches would
+ *   reach beyond the sandbox from the upstream's side.
  *
  * Everything else is refused, and its line in the record says why.
  */
 import { z } from 'zod';
 import type { BodyCheck } from '../../agent.ts';
 
-/** Where the ChatGPT login's requests go: Codex's own `chatgpt_base_url` host. */
+/** The upstream host the credential's requests go to. */
 export const CHATGPT_HOST = 'chatgpt.com';
 
-/** The base URL path Codex's built-in OpenAI provider uses with a ChatGPT login. */
+/** The base URL path the agent's built-in provider uses with this credential. */
 export const CODEX_BASE_PATH = '/backend-api/codex';
 
 export const CODEX_PATHS: readonly string[] = [`${CODEX_BASE_PATH}/responses`, `${CODEX_BASE_PATH}/responses/compact`];
@@ -52,19 +52,19 @@ function splitTarget(target: string): [string, string | undefined] {
 const FORWARDED_EXACT = new Set(['accept', 'content-type', 'originator', 'session-id', 'thread-id', 'user-agent', 'version', 'openai-beta', 'x-client-request-id']);
 const FORWARDED_PREFIXES = ['x-codex-', 'x-openai-'];
 
-/** Whether a request header, by its lowercase name, is sent on. The login's own headers are set by the forwarder alone. */
+/** Whether a request header, by its lowercase name, is sent on. The credential's own headers are set by the forwarder alone. */
 export const isForwardedHeader = (name: string) => FORWARDED_EXACT.has(name) || FORWARDED_PREFIXES.some((prefix) => name.startsWith(prefix));
 
 /**
- * The tool types Codex runs itself, on its side of the bridge. Codex 0.164
+ * The tool types the agent runs itself, on its side of the bridge. The agent
  * sends `function` and `custom` tools grouped in `namespace`s, in an
  * `additional_tools` item of `input` (seen offline, with the real binary
  * and a stand-in backend), and may send `local_shell`. Any other type is a
- * tool OpenAI would run, so it is refused, including ones added later.
+ * tool the upstream would run, so it is refused, including ones added later.
  */
 const CLIENT_TOOL_TYPES = new Set(['function', 'custom', 'local_shell', 'namespace']);
 
-/** Input keys that name a file or a fetchable place: OpenAI's side would fetch a URL, and a file ID reaches the account's files. */
+/** Input keys that name a file or a fetchable place: the upstream would fetch a URL, and a file ID reaches files stored upstream. */
 const isReferenceKey = (key: string) => key.endsWith('_url') || key === 'file_id';
 const isInlineData = (value: unknown) => typeof value === 'string' && value.startsWith('data:');
 
@@ -85,7 +85,7 @@ function toolTypes(tools: readonly unknown[]): string[] {
   });
 }
 
-/** Every tool list a body carries: its `tools`, and the `tools` of each item of `input` (Codex's `additional_tools`). */
+/** Every tool list a body carries: its `tools`, and the `tools` of each item of `input` (the agent's `additional_tools`). */
 function toolLists(body: z.infer<typeof bodySchema>): unknown[][] {
   const items = Array.isArray(body.input) ? body.input : [];
   const fromInput = items.map((item) => toolSchema.partial().safeParse(item)).flatMap((item) => (item.success && item.data.tools !== undefined ? [item.data.tools] : []));
@@ -102,7 +102,7 @@ function references(value: unknown): string[] {
   });
 }
 
-/** Checks a whole request body: the session's model, only tools Codex runs, and nothing in `input` OpenAI would fetch. */
+/** Checks a whole request body: the session's model, only tools the agent runs, and nothing in `input` the upstream would fetch. */
 export function checkBody(body: Buffer, model: string): BodyCheck {
   let json: unknown;
   try {

@@ -1,6 +1,6 @@
-// The Codex adapter end to end on this machine, through the generic
-// session: the real forwarder, phase and bridge, a scripted Codex
-// (`fixtures/fake-codex.ts`), a made-up login and a stand-in backend on
+// This adapter end to end on loopback, through the generic session: the
+// real forwarder, phase and bridge, a scripted agent
+// (`fixtures/fake-codex.ts`), a made-up credential and a stand-in upstream on
 // loopback. The sandbox is left out (`enter` runs the command on the host,
 // and the phase skips its check), so these tests run offline, under
 // `unshare -rn`, with no bwrap.
@@ -26,7 +26,7 @@ afterEach(async () => {
   await Promise.all(backends.splice(0).map((backend) => backend.close()));
 });
 
-/** A port free on this machine, for the bridge of a phase run on the host. */
+/** A port free on loopback, for the bridge of a phase run on the host. */
 function freePort(): Promise<number> {
   return new Promise((resolve) => {
     const server = createServer().listen(0, '127.0.0.1', () => {
@@ -37,8 +37,8 @@ function freePort(): Promise<number> {
 }
 
 async function setup(mode: string) {
-  const runRoot = mkdtempSync(join(tmpdir(), 'factory-codex-'));
-  const host = mkdtempSync(join(tmpdir(), 'factory-codex-host-'));
+  const runRoot = mkdtempSync(join(tmpdir(), 'factory-agent-'));
+  const host = mkdtempSync(join(tmpdir(), 'factory-agent-host-'));
   const backend = await startFakeChatgpt();
   backends.push(backend);
   const briefDir = mkdtempSync(join(tmpdir(), 'factory-brief-'));
@@ -71,8 +71,8 @@ async function setup(mode: string) {
 
 const eventsOf = (path: string) => parseEvents(readFileSync(path, 'utf8'));
 
-describe('the Codex adapter in a session', () => {
-  test('runs through the bridge and the forwarder, which puts the login on, and no token reaches the log or the phase file', async () => {
+describe('this adapter in a session', () => {
+  test('runs through the bridge and the forwarder, which puts the credential on, and no token reaches the log or the phase file', async () => {
     const { options, backend, login } = await setup('ok');
     const result = await runAgentSession(options);
     expect(result).toEqual({ exitCode: 0, endedBy: 'exit', logPath: options.logPath });
@@ -82,7 +82,7 @@ describe('the Codex adapter in a session', () => {
     for (const secret of login.secrets) expect(written).not.toContain(secret);
   });
 
-  test('Codex gets HOME, CODEX_HOME, the three directories and the base, and the skill as its developer instructions', async () => {
+  test('the agent gets HOME, its config home, the three directories and the base, and the skill as its developer instructions', async () => {
     const { options } = await setup('ok');
     await runAgentSession(options);
     const events = eventsOf(options.logPath);
@@ -91,7 +91,7 @@ describe('the Codex adapter in a session', () => {
     expect(events.find((event) => event.type === 'fake.dirs')).toMatchObject({ brief: options.session.briefDir, run: options.runRoot, app: options.session.cwd, readBrief: 'ok', writeRun: 'ok' });
   });
 
-  test('out of usage, it ends by the rate limit with the reset the backend named', async () => {
+  test('at the upstream rate limit, it ends by the rate limit with the reset the upstream named', async () => {
     const { options, backend } = await setup('limit');
     backend.limitedUntil = 1793790664;
     const result = await runAgentSession(options);

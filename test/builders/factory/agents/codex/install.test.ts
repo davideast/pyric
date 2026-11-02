@@ -1,11 +1,11 @@
-// Finding Codex on the host: only an npm install of @openai/codex is bound.
+// Finding the agent on the host: only an npm install of its own package is bound.
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { codexInstall } from './install.ts';
 
-/** A prefix with `bin/codex` linked to `<package>/bin/codex.js`, whose package.json names `name`. */
+/** A prefix with the launcher in `bin/` linked into `<package>/bin/`, whose package.json names `name`. */
 function installed(name: string | null): { pathDir: string; packageDir: string; launcher: string } {
   const prefix = mkdtempSync(join(tmpdir(), 'factory-install-'));
   const packageDir = join(prefix, 'node_modules', '@openai', 'codex');
@@ -21,14 +21,14 @@ function installed(name: string | null): { pathDir: string; packageDir: string; 
 }
 
 describe('codexInstall', () => {
-  test('finds codex on PATH and binds its npm package', () => {
+  test('finds the agent on PATH and binds its npm package', () => {
     const { pathDir, packageDir, launcher } = installed('@openai/codex');
     expect(codexInstall({ PATH: `/nonexistent:${pathDir}` })).toEqual({ command: launcher, binds: [packageDir] });
   });
 
-  test('refuses a codex outside an npm install of @openai/codex, and no codex at all', () => {
-    expect(() => codexInstall({ PATH: installed('something-else').pathDir })).toThrow('is not in an npm install of @openai/codex');
-    expect(() => codexInstall({ PATH: installed(null).pathDir })).toThrow('is not in an npm install of @openai/codex');
-    expect(() => codexInstall({ PATH: '/nonexistent' })).toThrow('no codex on PATH');
+  test('refuses a launcher outside an npm install of the agent’s package, and no launcher at all', () => {
+    expect(() => codexInstall({ PATH: installed('something-else').pathDir })).toThrow('is not in an npm install of its package');
+    expect(() => codexInstall({ PATH: installed(null).pathDir })).toThrow('is not in an npm install of its package');
+    expect(() => codexInstall({ PATH: '/nonexistent' })).toThrow('the agent is not on PATH');
   });
 });

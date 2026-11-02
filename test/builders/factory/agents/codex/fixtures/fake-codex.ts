@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 /**
- * A scripted `codex exec --json` for the session runner's tests: no model.
- * It reads the base URL, model and developer instructions from its
- * arguments as Codex would, sends one turn through the bridge, and prints
- * events in Codex's shape. Its mode comes from FAKE_CODEX_MODE:
+ * A scripted agent for the session runner's tests: no model. It reads the
+ * base URL, model and developer instructions from its arguments as the
+ * agent would, sends one turn through the bridge, and prints events in the
+ * agent's shape. Its mode comes from FAKE_CODEX_MODE:
  *
  *   ok     one turn, then exit 0
- *   limit  one turn that comes back 429, then Codex's usage-limit failure, exit 1
- *   fail   one turn that comes back 200, then a failure that is not a usage limit, exit 1
+ *   limit  one turn that comes back 429, then the agent's rate-limit failure, exit 1
+ *   fail   one turn that comes back 200, then a failure that is not a rate limit, exit 1
  *   hang   start, then wait until stopped
  *
  * It also prints its environment's names, its instructions, and what it
@@ -23,7 +23,7 @@ const setting = (key: string) => args.find((arg, index) => args[index - 1] === '
 const baseUrl = JSON.parse(setting('model_providers.pyric.base_url') ?? '""') as string;
 const model = args[args.indexOf('-m') + 1];
 const print = (event: unknown) => process.stdout.write(`${JSON.stringify(event)}\n`);
-const LIMIT = 'You\'ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at 11:11 AM.';
+const LIMIT = 'You\'ve hit your usage limit. Try again at 11:11 AM.';
 
 /** What happened when it tried: `ok`, or the error's code. */
 function attempt(action: () => unknown): string {

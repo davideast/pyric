@@ -1,10 +1,10 @@
-// What the Codex forwarder passes on, and the limits it reads from a
+// What the forwarder passes on for this adapter, and the limits it reads from a
 // response.
 import { describe, expect, test } from 'bun:test';
 import { checkBody, isForwardedHeader, lineRefusal } from './policy.ts';
 import { rateLimitOf } from './rate-limit.ts';
 
-/** The headers Codex 0.164 sent in the factory's experiment, with made-up values. */
+/** The headers the agent sent in the factory's experiment, with made-up values. */
 const CODEX_HEADERS = {
   accept: 'text/event-stream',
   'content-type': 'application/json',
@@ -31,13 +31,13 @@ describe('lineRefusal', () => {
     expect(lineRefusal('GET', '/backend-api/codex/responses')).toBe('method');
     expect(lineRefusal('POST', '/backend-api/codex/models')).toBe('path');
     expect(lineRefusal('POST', '/backend-api/wham/usage')).toBe('path');
-    expect(lineRefusal('POST', 'https://chatgpt.com/backend-api/codex/responses')).toBe('path');
+    expect(lineRefusal('POST', 'https://upstream.example/backend-api/codex/responses')).toBe('path');
     expect(lineRefusal('POST', '/backend-api/codex/responses?x=1')).toBe('query');
   });
 });
 
 describe('isForwardedHeader', () => {
-  test('passes every header Codex sent, and no credential or cookie', () => {
+  test('passes every header the agent sent, and no credential or cookie', () => {
     const own = new Set(['content-length', 'host']);
     expect(Object.keys(CODEX_HEADERS).filter((name) => !own.has(name)).every(isForwardedHeader)).toBe(true);
     for (const name of ['authorization', 'chatgpt-account-id', 'cookie', 'proxy-authorization']) expect(isForwardedHeader(name)).toBe(false);
@@ -58,21 +58,21 @@ describe('checkBody', () => {
     expect(checkBody(body([1]), 'gpt-6.1-sol')).toMatchObject({ ok: false, reason: 'body-not-json' });
   });
 
-  /** Codex 0.164's tools, as it sent them to a stand-in backend: namespaces of function and custom tools in an `input` item. */
+  /** The agent's tools, as it sent them to a stand-in upstream: namespaces of function and custom tools in an `input` item. */
   const additionalTools = (tools: unknown[]) => ({
     type: 'additional_tools',
     role: 'developer',
     tools: [{ type: 'namespace', name: 'functions', tools: [{ type: 'custom', name: 'exec' }, { type: 'function', name: 'wait' }] }, ...tools],
   });
 
-  test('passes the tools Codex sends, and refuses any other type, at the top or nested in input, including ones it has never seen', () => {
+  test('passes the tools the agent sends, and refuses any other type, at the top or nested in input, including ones it has never seen', () => {
     expect(checkBody(body({ model: 'gpt-6.1-sol', tools: [], input: [additionalTools([{ type: 'local_shell' }])] }), 'gpt-6.1-sol')).toEqual({ ok: true, model: 'gpt-6.1-sol' });
     const nested = { type: 'namespace', name: 'x', tools: [{ type: 'mcp', server_url: 'https://elsewhere.example' }] };
     expect(checkBody(body({ model: 'gpt-6.1-sol', input: [additionalTools([nested, { type: 'hosted_tool_from_next_year' }])] }), 'gpt-6.1-sol')).toEqual({ ok: false, reason: 'server-tool', names: ['mcp', 'hosted_tool_from_next_year'] });
     expect(checkBody(body({ model: 'gpt-6.1-sol', tools: [{ type: 'file_search' }, 'not a tool'] }), 'gpt-6.1-sol')).toEqual({ ok: false, reason: 'server-tool', names: ['file_search', '(not a tool)'] });
   });
 
-  test('passes inline data in input, and refuses a URL OpenAI would fetch or a file ID', () => {
+  test('passes inline data in input, and refuses a URL the upstream would fetch or a file ID', () => {
     const message = (content: unknown[]) => ({ model: 'gpt-6.1-sol', input: [{ type: 'message', role: 'user', content }] });
     const inline = message([{ type: 'input_text', text: 'see https://example.com' }, { type: 'input_image', image_url: 'data:image/png;base64,AAAA' }, { type: 'input_file', file_url: 'data:text/plain;base64,AAAA' }]);
     expect(checkBody(body(inline), 'gpt-6.1-sol')).toEqual({ ok: true, model: 'gpt-6.1-sol' });
@@ -91,7 +91,7 @@ describe('rateLimitOf', () => {
   });
 
   test('takes the reset a 429’s usage_limit_reached names', () => {
-    const error = JSON.stringify({ error: { type: 'usage_limit_reached', message: 'The usage limit has been reached', plan_type: 'pro', resets_at: 1793790664 } });
+    const error = JSON.stringify({ error: { type: 'usage_limit_reached', message: 'Rate limit reached', resets_at: 1793790664 } });
     expect(rateLimitOf(429, WINDOWS, error, NOW)).toMatchObject({ limitReached: true, resetAt: '2026-11-04T11:11:04.000Z' });
   });
 
