@@ -5,8 +5,8 @@ import { parseBrief, type Brief } from './brief.ts';
 import { builderMeasurementSchema } from './measurement.ts';
 import { channelEvent, type ModelChannelEvent } from './model-channel.ts';
 import type { NetworkEvent } from './recorder/network-record.ts';
-import { parseBuilderReport, type BuilderReport } from './report.ts';
-import { googleEventsIn, googleHostProblems, measurementLine, missingRefusals, runRecord, type RunOutcome } from './run-record.ts';
+import { parseBuilderReport, type BuilderReport, type Refusal } from './report.ts';
+import { googleEventsIn, googleHostProblems, matchRefusals, measurementLine, missingRefusals, runRecord, type RunOutcome } from './run-record.ts';
 
 const FIXTURES = join(import.meta.dir, 'fixtures');
 
@@ -78,8 +78,8 @@ describe('missingRefusals', () => {
   // Round 1's builders reported every refusal, in their own words (#1767).
   const STORAGE_RULES = 'https://firebase.google.com/docs/storage/security/rules-conditions';
   const OTHER_PAGE = 'https://firebase.google.com/docs/storage/web/handle-errors';
-  const entry = (action: string, firebaseDoc = STORAGE_RULES) => ({ action, firebaseDoc, productionAnswer: 'storage/unauthorized', pyricAnswer: 'storage/unauthorized', result: 'refused' as const });
-  const reporting = (...refusals: ReturnType<typeof entry>[]): BuilderReport => ({ ...report(), refusals });
+  const entry = (action: string, firebaseDoc = STORAGE_RULES): Refusal => ({ action, firebaseDoc, productionAnswer: 'storage/unauthorized', pyricAnswer: 'storage/unauthorized', result: 'refused' });
+  const reporting = (...refusals: Refusal[]): BuilderReport => ({ ...report(), refusals });
 
   test('counts an entry in the builder’s words when it cites the action’s Firebase page', () => {
     expect(missingRefusals(brief(), reporting(entry("upload to another user's folder"), entry('a 300 MiB upload over the 256 MiB limit')))).toEqual([]);
@@ -100,8 +100,31 @@ describe('missingRefusals', () => {
 
   test('compares pages without a trailing slash, a fragment or a query, and in any case', () => {
     const variants = [`${STORAGE_RULES}/`, `${STORAGE_RULES}#size`, `${STORAGE_RULES.replace('firebase.google.com', 'Firebase.Google.com')}?hl=en`];
-    expect(missingRefusals(brief(), reporting(entry('one', variants[0]), entry('two', variants[1])))).toEqual([]);
-    expect(missingRefusals(brief(), reporting(entry('one', variants[2]), entry('two', variants[2])))).toEqual([]);
+    expect(missingRefusals(brief(), reporting(entry("another user's folder", variants[0]), entry('a big upload', variants[1])))).toEqual([]);
+    expect(missingRefusals(brief(), reporting(entry("another user's folder", variants[2]), entry('a big upload', variants[2])))).toEqual([]);
+  });
+
+  test('keeps an action missing when the builder reported another action on its page twice', () => {
+    const twice = reporting(entry("another user's write under the given rules"), entry("a write to another user's file"));
+    expect(missingRefusals(brief(), twice)).toEqual(["an upload larger than the rules' size limit"]);
+  });
+
+  test('does not count a not-attempted entry in the builder\'s words', () => {
+    const skipped = { ...entry('a 300 MiB upload'), result: 'not-attempted' as const };
+    expect(missingRefusals(brief(), reporting(entry("another user's write under the given rules"), skipped))).toEqual(["an upload larger than the rules' size limit"]);
+    const named = { ...entry("an upload larger than the rules' size limit"), result: 'not-attempted' as const };
+    expect(missingRefusals(brief(), reporting(entry("another user's write under the given rules"), named))).toEqual([]);
+  });
+
+  test('names the actions only the page accounts for, for the verifier to check', () => {
+    expect(matchRefusals(brief(), reporting(entry("another user's write under the given rules"), entry('a 300 MiB upload')))).toEqual({
+      missing: [],
+      matchedByPage: ["an upload larger than the rules' size limit"],
+    });
+    expect(runRecord(outcome({ report: { state: 'valid', report: reporting(entry('a write to another user\'s file'), entry('a 300 MiB upload')), errors: [] } })).harness.refusalsMatchedByPage).toEqual([
+      "another user's write under the given rules",
+      "an upload larger than the rules' size limit",
+    ]);
   });
 });
 
