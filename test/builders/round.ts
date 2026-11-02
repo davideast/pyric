@@ -149,13 +149,14 @@ function summaryLine(result: RunResult): string {
   const { harness } = result.record;
   const mark = isCleanRecord(result.record) ? '✓' : '✗';
   const planted = harness.plantedLinks.length > 0 ? `, planted links at ${harness.plantedLinks.join(', ')}` : '';
-  return `${mark} ${result.run}: report ${harness.report.state}${planted}, ${harness.problemsReported} problems, ${harness.network.googleEvents.length} Google-host events, ${costLine(result.record)}`;
+  const leftRunning = harness.sandboxLeftRunning ? ', sandbox left running' : '';
+  return `${mark} ${result.run}: report ${harness.report.state}${planted}${leftRunning}, ${harness.problemsReported} problems, ${harness.network.googleEvents.length} Google-host events, ${costLine(result.record)}`;
 }
 
-/** A run whose report holds the shape, and whose sandbox planted no link. */
-function isCleanRecord(record: RunRecord): boolean {
+/** A run whose report holds the shape, and whose sandbox planted no link and stopped. */
+export function isCleanRecord(record: RunRecord): boolean {
   const { harness } = record;
-  return harness.report.state === 'valid' && harness.plantedLinks.length === 0;
+  return harness.report.state === 'valid' && harness.plantedLinks.length === 0 && !harness.sandboxLeftRunning;
 }
 
 const isCleanRun = (result: RunResult) => 'record' in result && isCleanRecord(result.record);

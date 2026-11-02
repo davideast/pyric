@@ -20,7 +20,7 @@ import type { Builder } from './builder-command.ts';
 import { readChannelRecord, type Listening } from './model-channel.ts';
 import { startModelForwarder } from './model-forwarder.ts';
 import type { RunMeter } from './model-meter.ts';
-import { startEgressNamespace, type EgressNamespace } from './namespace.ts';
+import { startEgressNamespace, type EgressNamespace, type SandboxStop } from './namespace.ts';
 import type { Provenance } from './provenance.ts';
 import { builderRunDirsAt, builderRunRoot, channelRecordFile, measurementsFile, runDataDir, type BuilderRunDirs } from './round-paths.ts';
 import { finishRun } from './run-finish.ts';
@@ -128,8 +128,13 @@ async function runPhase(namespace: EgressNamespace, input: BuilderRunInput, dirs
 }
 
 /** Runs the builder in a sandbox that has started, with the forwarder outside it; stops both. */
-async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<PhaseRun> {
+async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, dirs: BuilderRunDirs, channelRecord: string): Promise<PhaseRun & { sandbox: SandboxStop }> {
   let forwarder: Listening | undefined;
+  const stopBoth = async () => {
+    await forwarder?.close();
+    return namespace.stop();
+  };
+  let phase: PhaseRun;
   try {
     writeFileSync(dirs.started, `${new Date().toISOString()}\n`);
     layOut(input, dirs);
@@ -138,11 +143,12 @@ async function runInSandbox(namespace: EgressNamespace, input: BuilderRunInput, 
     forwarder = await startModelForwarder({ socketPath: dirs.modelSocket, record: channelRecord, credential, meter: input.meter });
     await installApp(namespace, dirs, input.identity.run, input.say);
     await exportConformanceDocs(namespace, dirs);
-    return await runPhase(namespace, input, dirs);
-  } finally {
-    await forwarder?.close();
-    await namespace.stop();
+    phase = await runPhase(namespace, input, dirs);
+  } catch (error) {
+    await stopBoth();
+    throw error;
   }
+  return { ...phase, sandbox: await stopBoth() };
 }
 
 /**
@@ -161,6 +167,6 @@ export async function runBuilder(input: BuilderRunInput): Promise<RunRecord> {
   const readOnly = [playwrightBrowsersPath(), input.packagesDir, ...input.builder.readOnly];
   const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
   const phase = await runInSandbox(namespace, input, dirs, channelRecord);
-  const end = { dirs, channel: readChannelRecord(channelRecord), phaseOutput: phase.output, startedAt, wallMs: phase.wallMs, dataDir: runDataDir(identity.round, identity.run), measurements: measurementsFile() };
+  const end = { dirs, channel: readChannelRecord(channelRecord), phaseOutput: phase.output, startedAt, wallMs: phase.wallMs, sandbox: phase.sandbox, dataDir: runDataDir(identity.round, identity.run), measurements: measurementsFile() };
   return finishRun(input, end);
 }

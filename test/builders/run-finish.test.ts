@@ -14,6 +14,7 @@ import { BUILDER_LOG } from './run-phase.ts';
 import * as ownerAccessModule from './owner-access.ts';
 import * as runRecordModule from './run-record.ts';
 import * as tokenScanModule from './token-scan.ts';
+import { isCleanRecord } from './round.ts';
 import type { RunRecord } from './run-record.ts';
 import { createRunDirs } from './scratch.ts';
 import { filesContaining } from './token-scan.ts';
@@ -46,7 +47,7 @@ function plainRun(): { dirs: BuilderRunDirs; outside: string; end: RunEnd } {
   writeFileSync(dirs.briefJson, '{}\n');
   const outcome = { action: 'forwarded', reason: null, status: 200, usage: undefined, costUsd: 0.25, reservedUsd: 0.25, chargedUsd: 0.25 } as const;
   const channel = [channelEvent('api.anthropic.com', 'POST /v1/messages HTTP/1.1', undefined, outcome)];
-  const end: RunEnd = { dirs, channel, phaseOutput: 'phase output\n', startedAt: new Date(), wallMs: 4321, dataDir: join(base, 'data', 'run'), measurements: join(base, 'data', 'measurements.jsonl') };
+  const end: RunEnd = { dirs, channel, phaseOutput: 'phase output\n', startedAt: new Date(), wallMs: 4321, sandbox: 'exited', dataDir: join(base, 'data', 'run'), measurements: join(base, 'data', 'measurements.jsonl') };
   return { dirs, outside, end };
 }
 
@@ -194,6 +195,18 @@ describe('finishRun on a network record the builder wrote', () => {
     expect(record.harness.plantedLinks).toEqual(['app/big.bin: the read failed: File size is greater than 2 GiB']);
     expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
     expect(existsSync(join(end.dataDir, 'app.tgz'))).toBe(false);
+  });
+
+  test('marks the run invalid when its sandbox was still running after SIGKILL', async () => {
+    const { end } = plainRun();
+    const said: string[] = [];
+    const record = await finishRun({ ...input(), say: (line) => said.push(line) }, { ...end, sandbox: 'still-running' });
+    expect(record.harness.sandboxLeftRunning).toBe(true);
+    expect(isCleanRecord(record)).toBe(false);
+    expect(said.some((line) => line.includes('still running after SIGKILL'))).toBe(true);
+    expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
+    const stopped = await finishRun(input(), plainRun().end);
+    expect(stopped.harness.sandboxLeftRunning).toBe(false);
   });
 
   test('appends the measurement line, and still keeps the run, when building its record throws', async () => {

@@ -145,6 +145,7 @@ describe('keep, with a token read from a file', () => {
       usage: null,
       tokenFoundIn: found,
       plantedLinks: [],
+      sandboxLeftRunning: false,
     });
     const dataDir = join(root, 'data');
     await keep(record, dirs, dataDir, read.scanned);

@@ -16,7 +16,7 @@ import { createRunDirs } from './scratch.ts';
 const passthrough: EgressNamespace = {
   pid: 0,
   enter: (command, args) => ({ command, args: [...args] }),
-  stop: async () => {},
+  stop: async () => 'exited',
 };
 
 const savedCache = process.env.PYRIC_APPS_NPM_CACHE;
