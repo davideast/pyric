@@ -79,6 +79,9 @@ export default scenario(async (app) => {
     assert.equal(foreign.status, 403, await foreign.text());
     const server = await fetch(target, { method: 'POST' });
     assert.equal(server.status, 200, await server.text());
+    // A cross-site GET carries no Origin; Sec-Fetch-Site still names another site.
+    const linked = await fetch(target, { headers: { 'sec-fetch-site': 'cross-site' } });
+    assert.equal(linked.status, 403, await linked.text());
   });
 
   await app.step('a POST to an unknown function name gets 404 naming the functions that exist', async () => {
