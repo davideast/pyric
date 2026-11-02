@@ -7,14 +7,16 @@
  * Each session gets its own bwrap sandbox (`../namespace.ts`) whose one
  * read-write bind is the run directory, where the app and the shared files
  * are. Read-only, it binds the agent's install, the role's skill, the brief
- * directory (`options.briefDir`, outside the run directory) and the
- * session's sandbox directory in the run's host directory, which holds the
- * phase file and the forwarder's socket; the npm cache is under an overlay.
- * No bind may contain the host's HOME or reach the agent's credential.
+ * directory (`options.briefDir`, outside the run directory), Playwright's
+ * browsers and the session's sandbox directory in the run's host directory,
+ * which holds the phase file and the forwarder's socket; the npm cache is
+ * under an overlay. No bind may contain the host's HOME or reach the agent's
+ * credential.
  *
  * The agent runs with a HOME of the seat's own that holds no credential
- * (`homes/<seat>/`), and gets `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`. The
- * forwarder, outside, alone reads the credential (`agent-session.ts`). Its
+ * (`homes/<seat>/`), and gets `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, and
+ * where the browsers and Playwright's client are, since that HOME has neither
+ * and the app has no Playwright of its own. The forwarder, outside, alone reads the credential (`agent-session.ts`). Its
  * output goes to `<run dir>.host/logs/<seat>-<stamp>.jsonl` and the
  * forwarder's record to `<run dir>.host/channel/<seat>.jsonl`, where nothing
  * in a sandbox can write; the sandbox's own network record is
@@ -28,17 +30,21 @@
  * which the supervisor runs each hour, and `runEnd`, which stops the served
  * copy when the run ends (`served.ts`).
  */
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
+import { PLAYWRIGHT_CLIENT_ENV, playwrightBrowsersPath } from '../browser-server.ts';
 import type { Upstream } from '../model-forwarder.ts';
 import { startEgressNamespace } from '../namespace.ts';
-import { recorderEnvironment, runStamp } from '../scratch.ts';
+import { runStamp } from '../scratch.ts';
 import type { AgentAdapter, AgentInstall, AgentSession, CredentialRead } from './agent.ts';
 import { runAgentSession, socketOf } from './agent-session.ts';
 import { agentNamed } from './agents/registry.ts';
+import { FAKE_MEDIA } from './app-start.ts';
+import { PLAYWRIGHT_CLIENT } from './captures.ts';
 import { hostDirOf, isInside, makeHostDir } from './host-files.ts';
+import { ONLINE_INIT_ENV, ONLINE_INIT_SCRIPT } from './online-init.ts';
 import { roleSkill, rolePrompt } from './roles.ts';
 import { appPaths } from './app-paths.ts';
 import type { View } from '../harness-view.ts';
@@ -97,6 +103,8 @@ export interface RunnerConfig {
   upstream?: Upstream;
   /** Test seam: the host's HOME, which no bind may contain. */
   home?: string;
+  /** Test seam: where Playwright's browsers are; `playwrightBrowsersPath()` by default. */
+  browsers?: string;
 }
 
 export function runnerConfig(role: Role, options: Pick<SessionOptions, 'agent'>, env: NodeJS.ProcessEnv = process.env): RunnerConfig {
@@ -104,20 +112,30 @@ export function runnerConfig(role: Role, options: Pick<SessionOptions, 'agent'>,
   return { agent, install: agent.install(env), skillFile: roleSkill(role), credential: () => agent.readCredential() };
 }
 
+/** Where a path really is, since bwrap follows links when it binds; a path that doesn't exist stays as written. */
+function resolved(path: string): string {
+  return existsSync(path) ? realpathSync(path) : path;
+}
+
 /** Why a read-only bind is refused: it would show the sandbox the host's HOME or the agent's credential. */
 export function bindProblems(binds: readonly string[], config: Pick<RunnerConfig, 'agent' | 'home'>): string[] {
   const home = config.home ?? homedir();
+  const realHome = resolved(home);
+  const credentialDirs = config.agent.credentialDirs.map(resolved);
   return binds.flatMap((bind) => {
     const problems: string[] = [];
-    if (isInside(home, bind)) problems.push(`the bind ${bind} contains the home directory ${home}`);
-    const reachesCredential = config.agent.credentialDirs.some((dir) => isInside(dir, bind) || isInside(bind, dir));
+    const realBind = resolved(bind);
+    if (isInside(realHome, realBind)) problems.push(`the bind ${bind} contains the home directory ${home}`);
+    const reachesCredential = credentialDirs.some((dir) => isInside(dir, realBind) || isInside(realBind, dir));
     if (reachesCredential) problems.push(`the bind ${bind} reaches the agent's credential directory`);
     return problems;
   });
 }
 
+const browsersOf = (config: Pick<RunnerConfig, 'browsers'>) => config.browsers ?? playwrightBrowsersPath();
+
 /** What the sandbox binds read-only for a session. */
-const readOnlyBinds = (options: Pick<SessionOptions, 'briefDir'>, config: RunnerConfig) => [...config.install.binds, config.skillFile, options.briefDir];
+const readOnlyBinds = (options: Pick<SessionOptions, 'briefDir'>, config: RunnerConfig) => [...config.install.binds, config.skillFile, options.briefDir, browsersOf(config)];
 
 /**
  * What keeps the session from running as laid out, each named, never a
@@ -133,6 +151,7 @@ export function layoutProblems(options: Pick<SessionOptions, 'runDir' | 'appDir'
   if (!briefIsDirectory) problems.push(`the brief directory ${options.briefDir} does not exist`);
   if (isInside(options.briefDir, options.runDir)) problems.push(`the brief directory ${options.briefDir} is inside the run directory, which sessions can write`);
   if (!isInside(options.appDir, options.runDir)) problems.push(`the app directory ${options.appDir} is outside the run directory, so sessions could not write it`);
+  if (!existsSync(browsersOf(config))) problems.push(`Playwright's browsers are not at ${browsersOf(config)}, so the session could not start Chromium`);
   problems.push(...bindProblems(readOnlyBinds(options, config), config));
   const socket = socketOf(paths.sandboxDir);
   if (Buffer.byteLength(socket) > MAX_SOCKET_PATH_BYTES) problems.push(`the run directory's path is too long for the forwarder's socket ${socket}`);
@@ -151,9 +170,21 @@ function makeDirs(runDir: string, paths: SessionPaths): void {
   }
 }
 
-/** The environment besides HOME and the three directories. No secret. */
-function baseEnvironment(networkLog: string): Record<string, string> {
-  const base: Record<string, string> = { PATH: process.env.PATH ?? '', ...recorderEnvironment(networkLog) };
+/**
+ * The environment besides HOME and the three directories. No secret. No
+ * `NODE_OPTIONS`, so not the Node recorder: a session starts the app, `pyric
+ * sandbox` adds its own `--import` to what it inherits, and `next dev` joins
+ * two space-separated `--import`s into one module path and exits. The sandbox's
+ * resolver and catch-all listener still record, as for the check's Studio.
+ */
+function baseEnvironment(browsers: string): Record<string, string> {
+  const base: Record<string, string> = {
+    PATH: process.env.PATH ?? '',
+    PLAYWRIGHT_BROWSERS_PATH: browsers,
+    [PLAYWRIGHT_CLIENT_ENV]: PLAYWRIGHT_CLIENT,
+    [ONLINE_INIT_ENV]: ONLINE_INIT_SCRIPT,
+    ...FAKE_MEDIA,
+  };
   for (const name of ['LANG', 'TMPDIR']) {
     const value = process.env[name];
     if (value !== undefined) base[name] = value;
@@ -196,7 +227,7 @@ export async function runConfiguredSession(role: Role, options: SessionOptions, 
       channelRecord: paths.channelRecord,
       deadlineMs: options.remainingMs,
       enter: namespace.enter,
-      base: baseEnvironment(paths.networkLog),
+      base: baseEnvironment(browsersOf(config)),
       signal: options.signal,
       credential: config.credential,
       upstream: config.upstream,

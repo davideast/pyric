@@ -2,14 +2,16 @@
 // breaks exactly the rules its marker names, and good.tsx and good.css break
 // none once the overlay marker is honored. Runs the harness's own ast-grep.
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { APPROVED_COMPONENTS, seedApprovedComponents } from './app-setup.ts';
 import { scan } from './ast-grep.ts';
 import type { ChangedLines } from './diff-lines.ts';
 import { hostRunner } from './exec.ts';
 import { harnessAstGrep } from './tools.ts';
-import { hasOverlayMarker, newComponentViolations, ruleViolations, UI_RULES_CONFIG } from './ui-gates.ts';
+import { hasOverlayMarker, newComponentViolations, readApproved, ruleViolations, UI_RULES_CONFIG } from './ui-gates.ts';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/ui-rules', import.meta.url));
 const AST_GREP = harnessAstGrep();
@@ -72,5 +74,48 @@ describe('new components/ui files', () => {
     const added = ['studio/src/components/ui/checkbox.tsx', 'studio/src/components/ui/alert.tsx', 'studio/src/components/media/row.tsx'];
     const found = newComponentViolations(added, new Set(['alert.tsx']));
     expect(found.map((violation) => violation.file)).toEqual(['studio/src/components/ui/checkbox.tsx']);
+  });
+
+  test('include files nested under components/ui', () => {
+    const found = newComponentViolations(['studio/src/components/ui/nested/fancy-card.tsx'], new Set(['checkbox.tsx']));
+    expect(found.map((violation) => violation.file)).toEqual(['studio/src/components/ui/nested/fancy-card.tsx']);
+  });
+
+  test('take a bare name for a direct child of components/ui only', () => {
+    const direct = 'studio/src/components/ui/checkbox.tsx';
+    const nested = 'studio/src/components/ui/nested/checkbox.tsx';
+    const deep = 'studio/src/components/ui/a/b/checkbox.tsx';
+    const found = newComponentViolations([direct, nested, deep], new Set(['checkbox.tsx']));
+    expect(found.map((violation) => violation.file)).toEqual([nested, deep]);
+    expect(newComponentViolations([nested], new Set([nested]))).toEqual([]);
+  });
+
+  test('pass when the list setup seeded from the brief names them, and fail otherwise', () => {
+    const brief = mkdtempSync(join(tmpdir(), 'factory-brief-'));
+    writeFileSync(join(brief, APPROVED_COMPONENTS), '# from the design\ncheckbox.tsx\nalert.tsx\n');
+    const approvedComponents = join(mkdtempSync(join(tmpdir(), 'factory-host-')), APPROVED_COMPONENTS);
+    expect(seedApprovedComponents(brief, { approvedComponents })).toBe(true);
+    const listed = 'studio/src/components/ui/checkbox.tsx';
+    const unlisted = 'studio/src/components/ui/fancy-card.tsx';
+    const found = newComponentViolations([listed, unlisted], readApproved(approvedComponents));
+    expect(found.map((violation) => violation.file)).toEqual([unlisted]);
+  });
+
+  test('approve nothing when the brief has no list, and refuse a list that is a link', () => {
+    const brief = mkdtempSync(join(tmpdir(), 'factory-brief-'));
+    const approvedComponents = join(mkdtempSync(join(tmpdir(), 'factory-host-')), APPROVED_COMPONENTS);
+    expect(seedApprovedComponents(brief, { approvedComponents })).toBe(false);
+    expect(newComponentViolations(['studio/src/components/ui/checkbox.tsx'], readApproved(approvedComponents))).toHaveLength(1);
+    symlinkSync('/etc/hostname', join(brief, APPROVED_COMPONENTS));
+    expect(() => seedApprovedComponents(brief, { approvedComponents })).toThrow('it is a link');
+    const dirBrief = mkdtempSync(join(tmpdir(), 'factory-brief-'));
+    mkdirSync(join(dirBrief, APPROVED_COMPONENTS));
+    expect(() => seedApprovedComponents(dirBrief, { approvedComponents })).toThrow('it is not a regular file');
+  });
+
+  test('tell a session to use an existing component, since it can’t write the approved list', () => {
+    const [violation] = newComponentViolations(['studio/src/components/ui/checkbox.tsx'], new Set());
+    expect(violation?.message).toBe('A new file in components/ui that the brief\'s approved list does not name. Use an existing component.');
+    expect(violation?.message).not.toContain('run directory');
   });
 });

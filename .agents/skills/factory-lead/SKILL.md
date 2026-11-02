@@ -160,8 +160,10 @@ EOF
   placeholder, a filler item, or work that none of those asks for. When
   there is nothing real to add, fewer than two takeable items is the
   right answer.
-- Don't plan a new file in `components/ui`. The hourly check fails one
-  unless it is on an approved list only the harness can write.
+- Plan a new file in `components/ui` only if
+  `$BRIEF_DIR/approved-components.txt` names it. The hourly check fails any
+  other, and no session can change the list. Otherwise plan on an existing
+  component.
 - Don't build. Don't edit the app, the check, the specs, DESIGN.md or the
   brief.
 - Don't mark anything `done` or `ready`, and don't set or clear `blocked`.

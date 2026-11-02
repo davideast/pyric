@@ -120,7 +120,7 @@ export interface AgentAdapter {
 
 /**
  * A session's environment, from nothing but `base` (PATH, LANG, TMPDIR and
- * the recorder's variables): its HOME, and the directories the role skills
+ * where Playwright is): its HOME, and the directories the role skills
  * name, `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`. The agent's commands
  * inherit them.
  */

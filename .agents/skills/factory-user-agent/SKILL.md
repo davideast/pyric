@@ -29,12 +29,32 @@ any URL in `latest-check.json`, can't be reached from it. Start the app
 yourself in your session, the way BRIEF.md says, and stop it when you are
 done.
 
+Your copy of the app starts with an empty allowlist, and the check's entry
+is in the check's own copy. Once your app is up, run the allowlist command
+in `$BRIEF_DIR/walks/README.md` to add the walk account. It is setup, and
+the one write to the app's data you may make outside the browser. Open
+the app at the `localhost` address its dev command prints: at `127.0.0.1`
+its pages load but never hydrate. `MDMEDIA_FAKE_MEDIA=1` is already in your
+environment, so the brief's fake media provider is on once the app has it.
+
 Drive it through Playwright and Chromium from a script run with `node`.
+The app has no Playwright of its own, so import the harness's, and give
+each context the script that makes pages report they are online: Chromium
+in the sandbox sees only loopback and says it is offline, which disables
+sign-in.
+
+```
+const { chromium } = await import(process.env.PYRIC_BUILDER_PLAYWRIGHT);
+const browser = await chromium.launch({ headless: true });
+const context = await browser.newContext();
+await context.addInitScript({ path: process.env.PYRIC_BUILDER_ONLINE_SCRIPT });
+```
+
 Don't install a browser. If Playwright can't start one, append a note with
 the exact error, headed `user-agent blocked`, and stop. Click, type and
 wait the way a person would: find controls by their role and visible
 label, not by CSS class or test id, and never call the app's code or
-write to its data directly. A control you can't find by its label is a
+write to its data directly, the allowlist command aside. A control you can't find by its label is a
 finding.
 
 Try each width: 1440px and 390px.

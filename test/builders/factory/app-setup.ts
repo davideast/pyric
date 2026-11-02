@@ -37,7 +37,7 @@ import { dataRoot } from '../round-paths.ts';
 import { appPaths, type AppPaths } from './app-paths.ts';
 import { hostRunner, mustRun, type Runner } from './exec.ts';
 import { cloneWithoutRemote, fetchHead, git, headCommit, initBareRepo } from './git.ts';
-import { makeHostDir } from './host-files.ts';
+import { makeHostDir, readRunFile, writeNewFile } from './host-files.ts';
 import { adaptNextConfig, NEXT_CONFIG } from './next-config.ts';
 import { installUiRules, registerUiRules } from './rules-install.ts';
 import { openSandbox as realSandbox, type SandboxOpener, type SandboxSpec } from './sandbox.ts';
@@ -46,6 +46,8 @@ import { installStudio } from './studio-install.ts';
 import { AST_GREP, FFMPEG, harnessAstGrep, placeTool, sourceFfmpeg, type ToolHashes } from './tools.ts';
 
 export const ENGINE_TARBALL = 'mdmedia-0.1.0.tgz';
+/** The brief's list of new `components/ui` files a run may add. */
+export const APPROVED_COMPONENTS = 'approved-components.txt';
 const BRANCH = 'factory';
 const ENGINE_TIMEOUT_MS = 10 * 60_000;
 const ROOT_INSTALL_TIMEOUT_MS = 10 * 60_000;
@@ -107,6 +109,21 @@ async function packEngine(runner: Runner, paths: AppPaths): Promise<string> {
   const args = ['pack', '--ignore-scripts', '--pack-destination', staging];
   await mustRun(runner, { command: 'npm', args, cwd: repo, timeoutMs: ENGINE_TIMEOUT_MS }, 'packing the mdmedia engine');
   return join(staging, ENGINE_TARBALL);
+}
+
+/**
+ * Copies the brief's list of approved new `components/ui` files into the host
+ * directory, which is what the check reads and no session can write. A brief
+ * without one approves nothing. The brief is the harness's input, but a link
+ * there is refused rather than followed.
+ */
+export function seedApprovedComponents(briefDir: string, paths: Pick<AppPaths, 'approvedComponents'>): boolean {
+  const source = join(briefDir, APPROVED_COMPONENTS);
+  if (lstatSync(source, { throwIfNoEntry: false }) === undefined) return false;
+  const list = readRunFile(source);
+  if (!list.ok) throw new Error(`can't read ${source}: ${list.problem}`);
+  writeNewFile(paths.approvedComponents, list.text);
+  return true;
 }
 
 /** Copies the packed engine into `packages/`: a regular file, written by the source commit's own build. */
@@ -176,6 +193,9 @@ export async function setupApp(options: SetupOptions): Promise<AppRecord> {
   say(`cloning ${options.source} at ${sourceCommit} into ${paths.app.repo}`);
   cloneWithoutRemote(options.source, paths.app.repo);
   git(paths.app.repo, ['checkout', '--quiet', '-B', BRANCH, sourceCommit]);
+  // After the clone, which `hasClone` refuses to redo: a bad source can be retried, and the list is written once.
+  const seeded = seedApprovedComponents(options.briefDir ?? defaultBriefDir(), paths);
+  say(seeded ? `approved components from the brief's ${APPROVED_COMPONENTS}` : `the brief has no ${APPROVED_COMPONENTS}: a run may add no components/ui file`);
   const tools = placeTools(paths, options.source, say);
   const tarballs = copyTarballs(paths, options.tarballs);
   say('bun install at the repo root, on the host, at the source commit');
