@@ -148,10 +148,11 @@ const assertions: Record<string, () => Promise<void> | void> = {
     // routes NO delivery to either client handler. The full loop is DRIVEN
     // in-process (mint → delete → dead-token send → rejection + silence); the
     // observation's recorded values are the expected side. The admin re-wrap
-    // the capture also records (`adminThrowCode`,
-    // `messaging/registration-token-not-registered`) is driven by the blocking
+    // (`messaging/registration-token-not-registered`) is driven by the blocking
     // pyric-admin suite (test/messaging/send.test.ts, minted-then-deleted
-    // token), not restated here off the JSON. The capture's TIMING nuance
+    // token), not read from the JSON: `adminThrowCode` depends on whether the
+    // admin send beat propagation, and the 12.19.0 capture's send did, so it
+    // records null. The capture's TIMING nuance
     // ("eventually") is pinned as environment-dependent and NOT contractual;
     // the broker is deterministic — dead is dead immediately.
     const o = obs('messaging-web-deletetoken-unregistered');
