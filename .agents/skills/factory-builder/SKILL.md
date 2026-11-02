@@ -92,9 +92,10 @@ DESIGN.md is the standard the reviewer holds you to. In particular:
 - No layout shift on state change: reserve the space for loading, error
   and success lines.
 - Check the screen at 1440px and 390px wide.
-- Don't add a file to `components/ui`. The hourly check fails a new one
-  unless it is on an approved list only the harness can write. Use an
-  existing component.
+- Add a new file to `components/ui` only if
+  `$BRIEF_DIR/approved-components.txt` names it, and then only once. The
+  hourly check fails any other, and you can't change the list. Otherwise
+  use an existing component.
 
 ## Pyric problems
 

@@ -18,7 +18,7 @@
  *   checks/                  each check's result, the baseline, the reference screens, `latest`
  *   last-good.json           the last commit that passed
  *   served.json              the served copy's process, checked against /proc before any signal
- *   approved-components.txt  new components/ui files the lead approved
+ *   approved-components.txt  new components/ui files the brief approved
  *   copy-overrides.json      verbs and labels the copy check accepts
  *
  * The run's work directory, `<run dir>.work/`, holds the trees the check

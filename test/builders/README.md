@@ -658,8 +658,9 @@ fresh tree, which its sandbox unpacks, and runs there, in order:
 - `ui-rules`, `copy`: the factory's ast-grep rules (`factory/ui-rules/`) and
   the copy rules (`copy-rules.ts`) on lines changed since the start commit,
   before anything of the commit's has run.
-  `<run-dir>.host/approved-components.txt` lists new `components/ui` files
-  the lead approved; `<run-dir>.host/copy-overrides.json` adds verbs and
+  `<run-dir>.host/approved-components.txt` lists the new `components/ui`
+  files a run may add, which `factory-setup` copies from the brief's
+  `approved-components.txt`, when it has one; `<run-dir>.host/copy-overrides.json` adds verbs and
   labels.
 - The install: the repo root with bun and Studio with npm, offline, with no
   install scripts. A `bun.lock` entry from a source other than the npm
