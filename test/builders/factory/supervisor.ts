@@ -15,7 +15,7 @@ import { pauseAfterRateLimit } from './rate-limit.ts';
 import { openRun, type OpenedRun } from './run-open.ts';
 import { writeHeartbeat, writeJsonFile, writeState, type RunPaths, type SupervisorState } from './run-dir.ts';
 import { MAX_SESSIONS, REVIEW_ROLES, wanted, type Start } from './schedule.ts';
-import type { HourlyCheck, RunSession, SessionResult } from './session.ts';
+import type { HourlyCheck, RunEnd, RunSession, SessionResult } from './session.ts';
 import { noHourlyCheck } from './session.ts';
 import { appendTimeline } from './timeline.ts';
 import { WorkListReader } from './work-list-reader.ts';
@@ -46,6 +46,8 @@ export interface SupervisorOptions {
   briefDir?: string;
   runSession: RunSession;
   hourlyCheck?: HourlyCheck;
+  /** Runs once the run ends and every session has stopped. */
+  runEnd?: RunEnd;
   clock?: Clock;
   maxSessions?: number;
   /** Stops the run early: a signal to the supervisor, not the deadline. */
@@ -117,10 +119,17 @@ class Supervisor {
     }
     const outcome: SupervisorOutcome = this.isStopped() ? 'stopped' : 'deadline';
     await this.stopAll(outcome);
+    await this.endRun();
     if (outcome === 'deadline') appendTimeline(this.paths.timeline, { type: 'end', at: iso(this.clock.now()) });
     this.heartbeat(true);
     this.log(`factory run ${outcome === 'deadline' ? 'reached its deadline' : 'stopped'}`);
     return outcome;
+  }
+
+  /** The runner's end hook, after the last session and check; a failure is logged, never thrown. */
+  private async endRun(): Promise<void> {
+    if (this.options.runEnd === undefined) return;
+    await this.options.runEnd(this.paths.root).catch((error: unknown) => this.log(`the run's end hook failed: ${firstLine(error)}`));
   }
 
   private isBeforeDeadline(): boolean {

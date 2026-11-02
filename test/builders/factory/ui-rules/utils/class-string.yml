@@ -1,0 +1,16 @@
+# A string that holds Tailwind classes: a className value, or an argument of cn, cva, clsx or twMerge.
+id: class-string
+language: tsx
+rule:
+  kind: string_fragment
+  inside:
+    stopBy: end
+    any:
+      - kind: jsx_attribute
+        has:
+          kind: property_identifier
+          regex: ^className$
+      - kind: call_expression
+        has:
+          field: function
+          regex: ^(cn|cva|clsx|twMerge)$
