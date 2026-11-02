@@ -395,7 +395,7 @@ export const authRegistry = {
           riskReasons: ["asserts 1 specific value(s)","asserts Firebase error code(s): `auth/user-not-found`"],
           automation: "oracle-backed",
           oracleObservations: ["auth-user-not-found-error-code"],
-          conformanceTests: ["packages/pyric/test/auth/sandbox-email-password.test.ts"],
+          conformanceTests: ["packages/pyric/test/auth/oracle-conformance.test.ts","packages/pyric/test/auth/sandbox-email-password.test.ts"],
         }),
         row4({
           rowRef: "15",
@@ -407,7 +407,7 @@ export const authRegistry = {
           riskReasons: ["asserts 1 specific value(s)","asserts Firebase error code(s): `auth/wrong-password`","asserts a specific field/property value"],
           automation: "oracle-backed",
           oracleObservations: ["auth-wrong-password-error-code"],
-          conformanceTests: ["packages/pyric/test/auth/sandbox-email-password.test.ts"],
+          conformanceTests: ["packages/pyric/test/auth/oracle-conformance.test.ts","packages/pyric/test/auth/sandbox-email-password.test.ts"],
           exceptionReason: "playground / preview behavior — no firebase-js-sdk counterpart to observe",
         }),
         row4({
