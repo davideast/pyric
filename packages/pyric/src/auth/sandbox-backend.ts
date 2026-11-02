@@ -1552,6 +1552,8 @@ export class SandboxBackend {
         displayName: user.displayName,
         photoUrl: identityPhotoUrl,
         isAnonymous: user.isAnonymous,
+        // A staged or resolver-supplied user keeps the caller's flag.
+        emailVerified: user.emailVerified === true,
       }, providerId);
       this.usersByUid.set(user.uid, stored);
       if (user.email) this.usersByEmail.set(user.email.toLowerCase(), stored);
@@ -1589,7 +1591,8 @@ export class SandboxBackend {
    *
    * In both shapes the provider is linked into `providerUserInfo`, and a
    * provider that vouches for the email (`google.com`, see
-   * {@link providerVerifiesEmail}) marks it verified. A
+   * {@link providerVerifiesEmail}) marks it verified when the record has no
+   * password and no other linked provider. A
    * `spec.photoUrl` is stored on a fresh record and refreshes a reused
    * same-email one; a spec without a photo never clears a stored one (see
    * {@link refreshStoredPhoto}).
@@ -2662,11 +2665,18 @@ function refreshStoredPhoto(stored: StoredUser, photoUrl: string | null): boolea
 
 /**
  * Mark the stored email verified when `providerId` vouches for it (see
- * {@link providerVerifiesEmail}). Returns whether the record changed.
+ * {@link providerVerifiesEmail}) and the record is that provider's identity
+ * alone: no password and no other linked provider. An existing password or
+ * other-provider account keeps its own flag, so a Google sign-in never turns
+ * an unverified password into a verified token. Returns whether the record
+ * changed.
  */
 function markProviderVerifiedEmail(stored: StoredUser, providerId: string): boolean {
   const hasEmail = stored.email !== null;
-  const needsMark = hasEmail && !stored.emailVerified && providerVerifiesEmail(providerId);
+  const hasPassword = stored.password !== null;
+  const hasOtherProvider = stored.providerUserInfo.some((entry) => entry.providerId !== providerId);
+  const isProviderIdentityAlone = !hasPassword && !hasOtherProvider;
+  const needsMark = hasEmail && !stored.emailVerified && isProviderIdentityAlone && providerVerifiesEmail(providerId);
   if (!needsMark) return false;
   stored.emailVerified = true;
   return true;

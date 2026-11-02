@@ -38,6 +38,7 @@ function requireResolvedIdentity(identity: unknown): void {
     requireShape(isNullableString, `identity.${field}`);
   }
   requireOptionalRecord(identity.customClaims, 'identity.customClaims');
+  requireOptionalBoolean(identity.emailVerified, 'identity.emailVerified');
 }
 
 function assertSharedAuthFields(message: Record<string, unknown>): void {

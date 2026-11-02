@@ -23,6 +23,12 @@ export interface OAuthCredentialPayload {
   readonly photoURL?: string | null;
   readonly uid?: string | null;
   readonly customClaims?: Record<string, unknown>;
+  /**
+   * The caller's flag for a staged result: it decides a new account's
+   * `emailVerified`, and an existing account keeps its own. Absent for a
+   * dialog identity, whose provider decides (see `createSignInCredential`).
+   */
+  readonly emailVerified?: boolean;
 }
 
 /** Serialized UserCredential reply shape for a minted session. */
@@ -137,6 +143,7 @@ export function resolveOAuthCredentialUser(
   }
 
   const existing = existingUsers.find((u) => u.uid === targetUid);
+  const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing) {
     authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
     authSandboxOps.updateUser(auth, targetUid, {
@@ -149,6 +156,7 @@ export function resolveOAuthCredentialUser(
         displayName: credential.displayName ?? existing.displayName,
       });
     }
+    if (callerDecidesVerification) keepEmailVerified(auth, targetUid, existing.emailVerified);
   } else {
     authSandboxOps.createUser(auth, {
       uid: targetUid,
@@ -157,10 +165,21 @@ export function resolveOAuthCredentialUser(
       photoUrl: credential.photoURL ?? undefined,
       customClaims: credential.customClaims,
       providerUserInfo: [{ providerId: credential.providerId }],
+      emailVerified: credential.emailVerified,
     });
-    // The provider sign-in, not the admin create, decides what the provider
-    // vouches for, such as a Google account's verified email.
-    authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
+    // Without a caller's flag, the provider sign-in, not the admin create,
+    // decides what the provider vouches for, such as a new Google identity's
+    // verified email.
+    if (!callerDecidesVerification) {
+      authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
+    }
   }
   return { uid: targetUid, isNewUser: !existing };
+}
+
+/** Put back an account's `emailVerified` when the provider link changed it. */
+function keepEmailVerified(auth: Auth, uid: string, emailVerified: boolean): void {
+  const current = authSandboxOps.listUsers(auth).find((user) => user.uid === uid);
+  const changed = current !== undefined && current.emailVerified !== emailVerified;
+  if (changed) authSandboxOps.updateUser(auth, uid, { emailVerified });
 }

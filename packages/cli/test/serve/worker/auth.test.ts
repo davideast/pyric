@@ -537,6 +537,53 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     expect(account?.emailVerified).toBe(true);
   });
 
+  // An existing password or other-provider account keeps its own flag:
+  // production trusts Google for linking only on @gmail.com, and there it
+  // removes the unverified password, which the sandbox does not do.
+  it('an unverified password account stays unverified after a Google sign-in, and its password still works', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await enableProvider(ctx, port, 'google.com');
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser', email: 'victim@gmail.com', password: 'password123',
+    });
+    const uid = (await currentUser(ctx, port))!.uid;
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity',
+      identity: { uid, email: 'victim@gmail.com', displayName: null, photoURL: null, customClaims: {}, providerId: 'google.com' },
+    }));
+    expect(cred.user.emailVerified).toBe(false);
+    expect(cred.user.providerData.map((entry) => entry.providerId)).toEqual(['password', 'google.com']);
+    const signedIn = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.signInEmail', email: 'victim@gmail.com', password: 'password123',
+    }));
+    expect(signedIn.user.uid).toBe(uid);
+    expect(signedIn.user.emailVerified).toBe(false);
+    const tok = okValue<SerializedIdTokenResult>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdTokenResult' }),
+    );
+    expect(tok.claims.email_verified).toBe(false);
+  });
+
+  it('a GitHub identity followed by a Google sign-in for the same address stays unverified', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await enableProvider(ctx, port, 'github.com');
+    await enableProvider(ctx, port, 'google.com');
+    const base = { uid: 'provider-ada', email: 'ada@example.com', displayName: null, photoURL: null, customClaims: {} };
+    okValue(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity', identity: { ...base, providerId: 'github.com' },
+    }));
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity', identity: { ...base, providerId: 'google.com' },
+    }));
+    expect(cred.user.emailVerified).toBe(false);
+    const tok = okValue<SerializedIdTokenResult>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdTokenResult' }),
+    );
+    expect(tok.claims.email_verified).toBe(false);
+  });
+
   it('a non-Google identity keeps an unverified email', async () => {
     const ctx = await makeCtx();
     const port = fakePort();

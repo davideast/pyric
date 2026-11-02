@@ -716,6 +716,22 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(oauthExistRes.value.additionalUserInfo).toBeDefined();
     expect(oauthExistRes.value.additionalUserInfo.isNewUser).toBe(false);
   });
+
+  // A staged result keeps the caller's flag on the wire, as the in-page mock
+  // does: a Google provider never overrides what the test staged.
+  for (const emailVerified of [false, true]) {
+    it(`14. a staged Google result with emailVerified: ${emailVerified} keeps it on the user and the token`, async () => {
+      const { clientAuth } = await createTestHarness();
+      stageSignInResult(clientAuth, {
+        user: { uid: `staged-google-${emailVerified}`, email: 'staged@example.com', emailVerified },
+        providerId: 'google.com',
+      });
+      const cred = await signInWithCredential(clientAuth, { providerId: 'google.com', idToken: 'staged-id-token' });
+      expect(cred.user.emailVerified).toBe(emailVerified);
+      const token = await cred.user.getIdTokenResult(true);
+      expect(token.claims.email_verified).toBe(emailVerified);
+    });
+  }
 });
 
 

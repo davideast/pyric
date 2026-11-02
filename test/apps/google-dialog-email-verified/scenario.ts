@@ -1,11 +1,12 @@
 // An app that gates on email_verified signs in through the sandbox's Google
-// dialog. In production a Google sign-in gives `emailVerified: true` on the
+// dialog. In production a new Google identity gets `emailVerified: true` on the
 // user and `email_verified: true` in the ID token, with
 // `firebase.sign_in_provider: 'google.com'`. The app's rule reads
 // `/allowlist/{email}` only when `request.auth.token.email_verified == true`,
 // so a user typed into the dialog, and the same user picked from the account
 // list on a second sign-in, must both read their entry. The SharedWorker page
-// and a page on the Node host must agree.
+// and a page on the Node host must agree. The in-page sandbox has no step: its
+// dialog does not open on a page's own Auth handle (#1802).
 import assert from 'node:assert/strict';
 import type { Page } from '@playwright/test';
 import { scenario, type App } from '../driver.ts';
@@ -20,7 +21,7 @@ interface SignInReport {
 declare function signIn(): Promise<SignInReport>;
 declare function signOutUser(): Promise<void>;
 
-type Runtime = 'shared-worker' | 'in-page' | 'hosted';
+type Runtime = 'shared-worker' | 'hosted';
 
 const BANNER = '[pyric sandbox] firebase/* on this page is served by the Pyric sandbox';
 const EMAIL = 'ada@example.com';
@@ -37,15 +38,11 @@ async function openPage(app: App, url: string, runtime: Runtime): Promise<Page> 
   const log = app.browserLog as string[];
   page.on('console', (message) => log.push(`[${runtime} page console.${message.type()}] ${message.text()}`));
   page.on('pageerror', (error) => log.push(`[${runtime} page error] ${error.stack ?? error.message}`));
-  if (runtime === 'in-page') {
-    await page.addInitScript(() => { (globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__ = true; });
-  }
   const banner = page.waitForEvent('console', { predicate: (message) => message.text().startsWith(BANNER), timeout: 30_000 });
   await page.goto(url);
   const text = (await banner).text();
   if (runtime === 'shared-worker') assert.match(text, /in a SharedWorker/, text);
   if (runtime === 'hosted') assert.match(text, /on the dev server/, text);
-  if (runtime === 'in-page') assert.doesNotMatch(text, /SharedWorker|on the dev server/, text);
   await page.waitForFunction(() => 'signIn' in window);
   return page;
 }
