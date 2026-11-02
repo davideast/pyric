@@ -22,7 +22,9 @@ afterEach(async () => {
 describe('headers', () => {
   test('sends on the allowlisted headers, then the hop’s own, then the credential’s, which nothing the agent sent replaces', () => {
     const headers = forwardedHeaders({ 'content-type': 'application/json', 'x-fake-turn': '1', authorization: 'Bearer from-the-sandbox', cookie: 'c' }, policy, fakeCredential.headers, 12);
-    expect(headers).toEqual({ 'content-type': 'application/json', 'x-fake-turn': '1', host: 'upstream.invalid', 'content-length': '12', authorization: fakeCredential.headers.authorization });
+    const authorization = fakeCredential.headers.authorization;
+    if (authorization === undefined) throw new Error('the made-up credential sets no authorization header');
+    expect(headers).toEqual({ 'content-type': 'application/json', 'x-fake-turn': '1', host: 'upstream.invalid', 'content-length': '12', authorization });
   });
 
   test('names what it drops, never a value, and not the hop’s own headers', () => {
