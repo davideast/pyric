@@ -21,7 +21,7 @@ import type { ReproTarget } from './repro-target.ts';
 export const PROBLEM_SHOWS_EXIT = 1;
 export const BEHAVES_EXIT = 0;
 
-export type TryOutcome = 'reproduced' | 'not-reproduced' | 'inconclusive';
+export type TryOutcome = 'reproduced' | 'not-reproduced' | 'inconclusive' | 'invalid';
 
 export interface TryEvidence {
   /** How the script ended; null when the phase never said. */
@@ -58,19 +58,21 @@ export function judgeTry(target: ReproTarget, evidence: TryEvidence, expected?: 
   return target.kind === 'google-host' ? judgeHost(target.host, evidence) : judgeExit(evidence, expected);
 }
 
-export type ReproResult = 'reproduced' | 'unconfirmed' | 'inconclusive';
+export type ReproResult = 'reproduced' | 'unconfirmed' | 'inconclusive' | 'invalid';
 
 /**
- * A reproduction's result: reproduced when any try did; unconfirmed when a
+ * A reproduction's result: invalid when any try planted a link, whatever
+ * the others found; otherwise reproduced when any try did; unconfirmed when a
  * try found pyric behaving as production does; inconclusive when no try could
  * tell either way (each crashed, timed out, or failed to install), which says
  * nothing about pyric.
  */
 export function reproResult(outcomes: readonly TryOutcome[]): ReproResult {
+  if (outcomes.includes('invalid')) return 'invalid';
   if (outcomes.includes('reproduced')) return 'reproduced';
   if (outcomes.includes('not-reproduced')) return 'unconfirmed';
   return 'inconclusive';
 }
 
 /** The command's exit code for each result; 2 stays a refusal before anything ran. */
-export const RESULT_EXIT: Record<ReproResult, number> = { reproduced: 0, unconfirmed: 1, inconclusive: 3 };
+export const RESULT_EXIT: Record<ReproResult, number> = { reproduced: 0, unconfirmed: 1, inconclusive: 3, invalid: 4 };

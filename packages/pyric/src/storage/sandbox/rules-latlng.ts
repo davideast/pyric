@@ -1,6 +1,7 @@
 import { RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
+import { rulesNumberAsDouble } from '../../rules/simulator/rules-int.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {
@@ -12,13 +13,6 @@ import {
   type ReceiverMethods,
 } from './rules-method-calls.js';
 import { RuleError, isRuleError as isErr } from './rules-values.js';
-
-/** A rules number (an int, or a float wrapper) as a double, or undefined for any other value. */
-function asDouble(value: unknown): number | undefined {
-  if (typeof value === 'number') return value;
-  if (value instanceof RulesFloat) return value.value;
-  return undefined;
-}
 
 function haversineMeters(latA: number, lngA: number, latB: number, lngB: number): number {
   const R = 6371000;
@@ -55,7 +49,7 @@ export function evalLatLngNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
   const args = evalNamespaceArguments(expr, ctx);
   if (isErr(args)) return args;
   if (expr.method !== 'value') return new RuleError(`unsupported latlng.${expr.method}()`);
-  const [latitude, longitude] = args.map(asDouble);
+  const [latitude, longitude] = args.map(rulesNumberAsDouble);
   if (
     args.length !== 2 ||
     latitude === undefined ||

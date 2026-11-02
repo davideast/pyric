@@ -31,7 +31,7 @@ directory, as `test/builders/round-paths.ts` resolves it. A run holds:
   report (null when it wrote none that holds the shape). `harness` is what
   the builder couldn't edit: the brief, the commit and tarball hashes, how
   the run ended, `automaticProblems` (allowed refusals, Google hosts),
-  `missingRefusals`, `refusalsMatchedByPage`, `tokenFoundIn`, usage.
+  `missingRefusals`, `refusalsMatchedByPage`, `tokenFoundIn`, `plantedLinks`, usage.
 - `brief.json`, `network.jsonl`, `logs/`, and `app.tgz` (the app without
   `node_modules`).
 
@@ -45,14 +45,50 @@ builder rule (`.agents/skills/app-builder/SKILL.md`):
 - the report or the logs cite pyric source: repo paths such as
   `packages/<name>/src/`, or code inside `node_modules/@pyric/*` or
   `node_modules/pyric*` beyond their READMEs;
+- it read the published source a real install holds: `node_modules/pyric*/src`
+  or `node_modules/@pyric/*/src`. The sandbox leaves it readable, so only
+  this rule keeps it out of a run that counts. Treat it like a planted link:
+  the run is invalid. Look for any read of such a path:
+  - a Bash read: `cat node_modules/pyric/src/firestore/aggregates.ts`,
+    `sed -n 1,80p node_modules/@pyric/cli/src/serve/ai-proxy.ts`,
+    `grep -rn persistence node_modules/pyric/src`, `head node_modules/pyric/src/...`,
+    or a `find`/`ls` that lists `src/` and is followed by one of these;
+  - a Read tool call on such a path, or a Grep or Glob tool call whose path
+    or pattern reaches into it;
+  - quoted source lines or `src/` file names in the report, `logs/` or the
+    app's code that a README or a docs page doesn't hold.
+
+  The harness doesn't record a builder's tool calls: `logs/builder.log`
+  holds only claude's final result line (`--output-format json`). Search
+  `logs/`, the report and the app. If the run's scratch directory is still
+  there, also search Claude Code's session transcripts under its HOME
+  (`<builders root>/<round>/<run>/home/.claude/projects/`), when there are
+  any. Name what you found and where in `invalidReason`.
 - it used a credential other than the fake config, or
   `harness.tokenFoundIn` is not empty;
+- `harness.plantedLinks` is not empty (each entry is `<file>: <why>`):
+  something in the sandbox left a link where the harness reads or appends
+  once the sandbox stops, aimed at the host's files, or left a file there
+  the harness could not check, merge into, write or read; or wrote lines
+  in `network.jsonl` that are not network events, or a network record the
+  harness could not build its record from. The harness skipped those files
+  or lines, so the record may lack the builder's report, usage or network
+  lines;
+- `harness.sandboxLeftRunning` is true: its sandbox outlived its stop and
+  SIGKILL, so it may have written the run root after the harness read it;
 - it launched a browser of its own instead of the harness browser (below).
 
 **A browser of its own.** The harness browser records every request it
 makes, loopback ones included, as `"layer":"browser"` lines in
-`network.jsonl`; a browser the builder launched writes none there. Treat
-the run as having used its own browser when either holds:
+`network.jsonl`; a browser the builder launched writes none there.
+
+Check `harness.network.browserIncomplete` first. When it is true, the
+harness browser was killed before it finished its NetLog, so its
+`"layer":"browser"` lines may be missing: their absence is unknown, not
+evidence. Judge such a run by the app's code alone (the second signal
+below), and say in `verdict.json` that the network signal could not be read.
+
+Otherwise, treat the run as having used its own browser when either holds:
 
 - the report's steps drive pages (sign-in, clicks, uploads), but
   `network.jsonl` has no `"layer":"browser"` request to the app's local URL;
@@ -126,7 +162,15 @@ and exits with its result:
 | 0 | `reproduced` | a try reproduced it | go on to classify |
 | 1 | `unconfirmed` | a try found pyric behaving as production does, and none reproduced | `unconfirmed`, not staged |
 | 3 | `inconclusive` | no try could tell: each crashed, timed out, or could not install | fix the script and run it again; still inconclusive, it is `unconfirmed` and the verdict says why |
+| 4 | `invalid` | a try's sandbox planted a link where the harness reads or appends | the run is invalid (step 1), unless your script planted it (below) |
 | 2 | | refused before anything ran | fix what it names |
+
+A planted link is never an inconclusive try. Something in the builder's
+app, or in your script, reached for the host's files from inside the
+sandbox. When your script did not do it, the builder's app did: mark the
+run invalid, with the try's `reason` from `repro.json` as `invalidReason`,
+and count every problem of it as `invalid`. When your script did it, the
+script is wrong: fix it and run it again, and say so in the verdict.
 
 Read `repro.json` for each try's outcome and reason. A try whose app needs
 a package the shared npm cache lacks is inconclusive: `reproduce` never

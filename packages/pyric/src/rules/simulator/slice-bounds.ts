@@ -11,10 +11,13 @@
  */
 import { indexOutOfBoundMessage } from './index-access.js';
 
-/** Production's error text for a slice of a value of `size`, or null when the bounds are valid. */
-export function sliceBoundsError(start: number, end: number, size: number): string | null {
-  for (const index of [start, end - 1]) {
-    if (index < 0 || index >= size) return indexOutOfBoundMessage(index, size);
+/**
+ * Production's error text for a slice of a value of `size`, or null when the
+ * bounds are valid. The bounds are ints (`rules-int.ts`), compared exactly.
+ */
+export function sliceBoundsError(start: bigint | number, end: bigint | number, size: number): string | null {
+  for (const index of [BigInt(start), BigInt(end) - 1n]) {
+    if (index < 0n || index >= size) return indexOutOfBoundMessage(index, size);
   }
   if (start > end) return `Illegal range error. From index: [${start}] , To index: [${end}].`;
   return null;

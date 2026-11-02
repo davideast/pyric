@@ -1,0 +1,31 @@
+name: "Security"
+description: "Report something exposed that should not be. Do not paste secrets."
+title: "Security: <what is exposed> <to whom>"
+labels: ["security"]
+body:
+  - type: textarea
+    id: exposure
+    attributes:
+      label: "Exposure"
+      description: "What is exposed, in one or two lines. Do not paste secrets."
+    validations:
+      required: true
+  - type: textarea
+    id: who-can-reach-it
+    attributes:
+      label: "Who can reach it"
+      description: "Who or what can reach it, and how."
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: "Fix"
+      description: "The change that closes it."
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The check that shows it is closed."
+    validations:
+      required: true

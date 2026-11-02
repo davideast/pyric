@@ -11,7 +11,7 @@
  *
  * Everything it makes stays under `<builders root>/canary/<stamp>/`.
  */
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { takeHeavyRunSlot } from '../../../scripts/lib/heavy-run-slots.ts';
@@ -54,6 +54,15 @@ async function packages(options: CanaryOptions): Promise<Tarballs> {
   }
   step(`packing the workspace${options.build ? ' (with a build)' : ' (current build)'}`);
   return packWorkspace(REPO_ROOT, options.build);
+}
+
+/**
+ * Where the canary's tarballs are: `--packages`, or the pack script's output
+ * directory. The sandbox binds the harness's files, not the repo, so this
+ * directory is bound on its own.
+ */
+export function canaryPackagesDir(repoRoot: string, options: CanaryOptions): string {
+  return options.packages === undefined ? join(repoRoot, 'dist', 'packages') : resolve(options.packages);
 }
 
 /** Runs the plant phase inside the run's sandbox and reads what it wrote. */
@@ -124,7 +133,10 @@ export async function runCanary(options: CanaryOptions): Promise<boolean> {
     step(`run directory ${dirs.root}`);
     // Started first, so a machine without the sandbox refuses before any work.
     step('starting the sandbox: allowlisted files, loopback only, a recording resolver and catch-all listener');
-    const readOnly = [playwrightBrowsersPath(), ...(options.packages === undefined ? [] : [resolve(options.packages)])];
+    // Made before the sandbox starts, so its bind sees the tarballs packed after.
+    const packagesDir = canaryPackagesDir(REPO_ROOT, options);
+    mkdirSync(packagesDir, { recursive: true });
+    const readOnly = [playwrightBrowsersPath(), packagesDir];
     const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
     let output: PlantOutput;
     try {

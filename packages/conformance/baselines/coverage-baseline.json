@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T20:10:47.494Z",
+  "generatedAt": "2026-11-01T23:14:56.564Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -1041,7 +1041,9 @@
     "app-check#initialize-twice-different-options": "conforms",
     "app-check#initialize-twice-unset-auto-refresh": "conforms",
     "app-check#providers-construct": "conforms",
+    "app-check#custom-provider-without-debug-token": "unverified",
     "app-check#recaptcha-providers-construct": "unverified",
+    "app-check#recaptcha-providers-without-document": "unverified",
     "app-check#get-token-before-initialize": "conforms",
     "app-check#get-token-shape": "conforms",
     "app-check#get-token-caching": "conforms",
@@ -1114,7 +1116,7 @@
     "firestore-rules#187": "conforms",
     "firestore-rules#188": "conforms",
     "firestore-rules#189": "conforms",
-    "firestore-rules#190": "conforms",
+    "firestore-rules#190": "unverified",
     "firestore-rules#191": "conforms",
     "firestore-rules#192": "conforms",
     "firestore-rules#196": "conforms",
@@ -1173,7 +1175,7 @@
     "storage-rules#208": "diverged-documented",
     "storage-rules#209": "conforms",
     "storage-rules#210": "diverged-documented",
-    "storage-rules#211": "diverged-documented",
+    "storage-rules#211": "conforms",
     "storage-rules#212": "conforms",
     "storage-rules#213": "conforms",
     "storage-rules#214": "diverged-documented",

@@ -1,0 +1,25 @@
+name: "CI or tooling"
+description: "Propose a change to CI or developer tooling."
+title: "CI: <what changes>"
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem"
+      description: "What is slow, flaky, or missing, in one or two lines."
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: "Change"
+      description: "What to change."
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The check that shows it worked."
+    validations:
+      required: true

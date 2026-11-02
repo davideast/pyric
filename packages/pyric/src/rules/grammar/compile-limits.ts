@@ -50,6 +50,7 @@ import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './Fire
 import { parenthesizedGroups } from './paren-groups.js';
 import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
 import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
+import { invalidNumberLiteralMessage, outOfRangeLiteral } from '../simulator/rules-int.js';
 
 /** Most functions one call stack may hold; 22 is rejected. */
 export const CALL_DEPTH_LIMIT = 21;
@@ -80,7 +81,7 @@ export function duplicateFunctionMessage(name: string): string {
 
 export type CompileLimitCode =
   | 'CALL_DEPTH' | 'LET_LIMIT' | 'NESTING_DEPTH' | 'FUNCTION_REDEFINED' | 'SLASH_STARTS_PATH' | 'GLOB_MATCH_COUNT'
-  | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_REGEX_PATTERN';
+  | 'UNSUPPORTED_RULES_VERSION' | 'UNRESOLVED_MODULES' | 'INVALID_REGEX_PATTERN' | 'INVALID_NUMBER_LITERAL';
 
 /** One compile rejection, carrying production's message verbatim. */
 export interface CompileLimitViolation {
@@ -240,6 +241,15 @@ function pushExpressionViolations(
       ...(functionName === undefined ? {} : { functionName }),
     });
   }
+  const literal = invalidNumberLiteral(expr);
+  if (literal !== undefined) {
+    out.push({
+      code: 'INVALID_NUMBER_LITERAL',
+      message: invalidNumberLiteralMessage(literal),
+      ...(line === undefined ? {} : { line }),
+      ...(functionName === undefined ? {} : { functionName }),
+    });
+  }
   if (isFirestore && expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
     const arg = expr.args[0];
     const problem = arg?.type === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
@@ -252,7 +262,31 @@ function pushExpressionViolations(
       });
     }
   }
+  // A negated literal was checked with its sign above.
+  if (isNegatedLiteral(expr)) return;
   for (const child of children(expr)) pushExpressionViolations(out, child, line, isFirestore, functionName);
+}
+
+// ── Int literals past int64 ─────────────────────────────────────────────
+
+type LiteralExpression = Extract<Expression, { type: 'literal' }>;
+
+/** True for unary minus applied directly to a literal, such as `-9223372036854775808`. */
+function isNegatedLiteral(expr: Expression): expr is Extract<Expression, { type: 'unaryOp' }> & { operand: LiteralExpression } {
+  return expr.type === 'unaryOp' && expr.op === '-' && expr.operand.type === 'literal';
+}
+
+/**
+ * The digits of an int literal production refuses with "Invalid number
+ * literal", or undefined. A literal past 9223372036854775807 is refused,
+ * except 9223372036854775808 under unary minus: production compiles
+ * `-9223372036854775808` and evaluates it to the int64 minimum (the
+ * `conversion-functions` and `time-math-and-casts` captures).
+ */
+function invalidNumberLiteral(expr: Expression): string | undefined {
+  if (isNegatedLiteral(expr)) return outOfRangeLiteral(expr.operand.value, expr.operand.raw, true);
+  if (expr.type === 'literal') return outOfRangeLiteral(expr.value, expr.raw, false);
+  return undefined;
 }
 
 // ── Nesting ─────────────────────────────────────────────────────────────

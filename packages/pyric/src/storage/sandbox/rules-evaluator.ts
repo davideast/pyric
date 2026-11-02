@@ -1,5 +1,6 @@
 import { Duration } from '../../rules/simulator/wrappers/duration.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { IntFailure, negateInt, rulesFloatValue, rulesInt } from '../../rules/simulator/rules-int.js';
 import {
   expandVerb,
   type EvaluationInput,
@@ -447,10 +448,14 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       }
       if (isErr(a)) return a;
       if (expr.op === '-') {
-        if (a instanceof RulesFloat) return new RulesFloat(-a.value);
+        const float = rulesFloatValue(a);
+        if (float !== undefined) return new RulesFloat(-float);
         if (a instanceof Duration) return a.negated();
-        if (typeof a !== 'number') return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
-        return -a;
+        const int = rulesInt(a);
+        if (int === undefined) return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
+        // `-MIN` is past int64: production's range error value.
+        const negated = negateInt(int);
+        return negated instanceof IntFailure ? new RuleError(negated.message) : negated;
       }
       return undefined;
     }
@@ -506,8 +511,10 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
     case 'slice': {
       const operands = evalOperands([expr.target, expr.start, expr.end], ctx);
       if (isErr(operands)) return operands;
-      const [t, start, end] = operands;
-      if (typeof start !== 'number' || typeof end !== 'number' || !Number.isInteger(start) || !Number.isInteger(end)) {
+      const [t, startValue, endValue] = operands;
+      const start = rulesInt(startValue);
+      const end = rulesInt(endValue);
+      if (start === undefined || end === undefined) {
         return new RuleError(`Slice bounds must be integers.`);
       }
       // Production slices lists and strings, and an out-of-range bound is an
@@ -516,7 +523,7 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       if (Array.isArray(t) || typeof t === 'string') {
         const boundsError = sliceBoundsError(start, end, t.length);
         if (boundsError) return new RuleError(boundsError);
-        return t.slice(start, end);
+        return t.slice(Number(start), Number(end));
       }
       return new RuleError(`Slice applied to ${describeType(t)} (expected a list or string).`);
     }

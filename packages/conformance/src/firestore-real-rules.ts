@@ -95,6 +95,16 @@ export function injectFirestoreProbeRules(source: string, runId: string): string
         && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_get_after/companion).data.count
           == get(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_get_after/companion).data.count + 1;
       allow create, update: if request.auth != null && caseId == 'companion';
+      allow create: if request.auth != null
+        && (caseId == 'sibling_merge_primary' || caseId == 'sibling_merge_solo')
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_get_after/sibling_merge_companion).data.role == 'admin'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_get_after/sibling_merge_companion).data.modified == true;
+      allow create: if request.auth != null
+        && caseId == 'sibling_merge_full_primary'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_get_after/sibling_merge_full_companion).data.role == 'admin'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/${runId}/rules_get_after/sibling_merge_full_companion).data.modified == true;
+      allow update: if request.auth != null
+        && (caseId == 'sibling_merge_companion' || caseId == 'sibling_merge_full_companion');
     }
 `;
   return `${source.slice(0, insertAt)}${block}${source.slice(insertAt)}`;

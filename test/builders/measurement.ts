@@ -3,6 +3,13 @@
  * the run ends, and one line per verification, appended by the verifier
  * when it has judged that run. `measure` joins them by round and run id. The file is
  * append-only; nothing rewrites a line.
+ *
+ * A builder line holds only what the harness owns: the run's identity, what
+ * the model forwarder metered, and the harness's own timing of the run
+ * phase. Nothing in it is read from the run root, which the builder can
+ * write, so `round` appends it before it reads anything there. What claude
+ * printed, the report and the network record are in the run's
+ * `report.json`.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -21,18 +28,12 @@ export const builderMeasurementSchema = z.object({
   model: z.string().min(1),
   /** The run's cap, `--max-budget-usd`. */
   maxBudgetUsd: cost,
-  /** What claude said the run cost. Null when it printed no usage: it crashed or was stopped at its wall-clock cap. */
-  costUsd: cost.nullable(),
   /** What the model forwarder metered from the responses it passed back, an estimate that errs high. */
   meteredCostUsd: cost,
+  /** The tokens the forwarder metered; null when it metered no response. */
   tokens: tokens.nullable(),
-  turns: count.nullable(),
-  /** Null when the run phase never said how the builder ended. */
+  /** How long the run phase took, by the harness's own clock; null only in a round 1 line whose run phase never said. */
   wallMs: count.nullable(),
-  report: z.enum(['valid', 'missing', 'invalid']),
-  /** The builder's own problems plus the ones the harness adds: an allowed must-be-refused action, a Google-host event. */
-  problemsReported: count,
-  googleHostEvents: count,
 }).strict();
 
 /** How the verifier judged each reported problem of one run. */
@@ -66,6 +67,18 @@ export type VerificationMeasurement = z.infer<typeof verificationMeasurementSche
 export type Measurement = z.infer<typeof measurementSchema>;
 export type VerdictCounts = z.infer<typeof verdictCountsSchema>;
 
+/**
+ * Fields round 1's builder lines carried, read from the run root, which the
+ * builder can write. A read drops them, since the file is never rewritten.
+ */
+const LEGACY_BUILDER_FIELDS = ['costUsd', 'turns', 'report', 'problemsReported', 'googleHostEvents'];
+
+function withoutLegacyFields(value: unknown): unknown {
+  const isBuilderLine = typeof value === 'object' && value !== null && (value as { kind?: unknown }).kind === 'builder';
+  if (!isBuilderLine) return value;
+  return Object.fromEntries(Object.entries(value).filter(([field]) => !LEGACY_BUILDER_FIELDS.includes(field)));
+}
+
 export function appendMeasurement(path: string, line: Measurement): void {
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, `${JSON.stringify(measurementSchema.parse(line))}\n`);
@@ -79,7 +92,7 @@ export function readMeasurements(path: string): { lines: Measurement[]; errors: 
   readFileSync(path, 'utf8').split('\n').forEach((text, index) => {
     if (text.trim() === '') return;
     const json = parseJsonText(text);
-    const parsed = json.ok ? parseWith(measurementSchema, json.value) : json;
+    const parsed = json.ok ? parseWith(measurementSchema, withoutLegacyFields(json.value)) : json;
     if (parsed.ok) lines.push(parsed.value);
     else errors.push(...parsed.errors.map((error) => `line ${index + 1}: ${error}`));
   });
