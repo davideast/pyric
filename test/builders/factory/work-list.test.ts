@@ -16,6 +16,20 @@ describe('hasWorkFor', () => {
     expect(hasWorkFor([{ ...open, blocked: 'where-index.md' }, { ...open, id: 'player' }], 'builder-1')).toBe(true);
   });
 
+  test('an item waits until every item it depends on is ready or done', () => {
+    const screen: WorkItem = { ...open, id: 'search-screen', dependsOn: ['search-query'] };
+    const withQuery = (status: WorkItem['status']): WorkItem[] => [{ ...open, status, owner: 'builder-2' }, screen];
+    expect(hasWorkFor(withQuery('in-progress'), 'builder-1')).toBe(false);
+    expect(hasWorkFor(withQuery('todo'), 'builder-1')).toBe(false);
+    expect(hasWorkFor(withQuery('ready'), 'builder-1')).toBe(true);
+    expect(hasWorkFor(withQuery('done'), 'builder-1')).toBe(true);
+  });
+
+  test('a dependency missing from the list keeps the item waiting', () => {
+    expect(hasWorkFor([{ ...open, dependsOn: ['not-planned'] }], 'builder-1')).toBe(false);
+    expect(hasWorkFor([{ ...open, dependsOn: [] }], 'builder-1')).toBe(true);
+  });
+
   test('a cleared block is not a block', () => {
     for (const blocked of [false, '', null]) expect(hasWorkFor([{ ...open, blocked }], 'builder-1')).toBe(true);
   });
