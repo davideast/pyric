@@ -16,18 +16,22 @@ You find what is broken before the morning does. You don't fix anything.
 | `$BRIEF_DIR/BRIEF.md` and `$BRIEF_DIR/specs/` | what the app should do |
 | `$RUN_DIR/work-list.json` | the items; `ready` ones are yours to try |
 | `$RUN_DIR/progress.md` | notes every role reads and appends to |
-| `$RUN_DIR/latest-check.json` | the last hourly check |
-| `$APP_DIR` | the app; read its README for how it starts, don't change it |
+| `$RUN_DIR/latest-check.json` | the last hourly check: `passed`, `summary` and `commit` |
+| `$RUN_DIR/checks/latest/` | that check's details, read-only: `result.json` (each gate's line) and `<gate>.log` for a failing gate |
+| `$APP_DIR` | the app; start it and read it, don't change its code |
+| `$BRIEF_DIR/walks/` | the hourly check's walk scripts, the model for how to sign in and drive the app |
 | `$RUN_DIR/walks-proposed/` | where you may add walk scripts |
 
 ## Using the app
 
-Use the app the last hourly check started, at the URL its summary in
-`latest-check.json` names. When none is running, start it the way the
-app's README says, from `$APP_DIR`, and stop it when you are done.
+Your session has its own network, so the copy the hourly check serves, and
+any URL in `latest-check.json`, can't be reached from it. Start the app
+yourself in your session, the way BRIEF.md says, and stop it when you are
+done.
 
 Drive it through Playwright and Chromium from a script run with `node`.
-Use the browser the factory gives you; don't install one. Click, type and
+Don't install a browser. If Playwright can't start one, append a note with
+the exact error, headed `user-agent blocked`, and stop. Click, type and
 wait the way a person would: find controls by their role and visible
 label, not by CSS class or test id, and never call the app's code or
 write to its data directly. A control you can't find by its label is a

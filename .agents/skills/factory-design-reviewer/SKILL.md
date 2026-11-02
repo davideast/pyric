@@ -14,12 +14,12 @@ talked into a screen by how it was built.
 | Variable or file | Holds |
 |---|---|
 | `$BRIEF_DIR/DESIGN.md` | the standard: tokens, layout, copy, the screen each new screen starts from |
-| `$RUN_DIR/checks/reference/` | the reference screens: the routes in DESIGN.md section 6, captured at the run's start at 1440px and 390px |
-| `$RUN_DIR/checks/latest/screenshots/` | the latest check's screenshots, per route, at 1440px and 390px |
-| `$RUN_DIR/checks/latest/capture.json` | when the latest check captured them, and at which app commit |
-| `$RUN_DIR/checks/latest/copy-report.md` | every string on those screens, with the copy check's results |
+| `$RUN_DIR/checks/reference/` | the reference screens at the run's start commit, 1440px and 390px; `walk-result.json` lists them, and `capture.json`'s `notes` name any it couldn't capture |
+| `$RUN_DIR/checks/latest/screenshots/` | the latest check's screenshots; `walk-result.json` lists each page's `path`, `width` and `screenshot` |
+| `$RUN_DIR/checks/latest/screenshots/capture.json` | the app `commit` they show and when they were taken (`capturedAt`) |
+| `$RUN_DIR/checks/latest/copy-report.md` | every new or changed visible string, with its verdict |
+| `$RUN_DIR/checks/latest/result.json` | each automatic gate's line, and whether it passed |
 | `$RUN_DIR/user-agent/` | the user agent's screenshots |
-| `$RUN_DIR/latest-check.json` | whether the latest check passed, and what failed |
 | `$RUN_DIR/work-list.json` | the items |
 | `$RUN_DIR/progress.md` | builders' ready notes name each item's route and ready commit |
 
@@ -35,17 +35,16 @@ Before you judge an item, make sure you are looking at it:
 
 1. Find the builder's latest ready note for it in the progress notes. It
    names the route and the ready commit.
-2. Check that the latest capture includes that commit. When
-   `capture.json` names a commit, run
-   `git -C "$APP_DIR" merge-base --is-ancestor <ready commit> <captured commit>`:
-   exit 0 means it does. When `capture.json` is missing, compare the
-   screenshot files' times (`ls -l --time-style=full-iso`) with the ready
-   commit's time (`git -C "$APP_DIR" log -1 --format=%cI <ready commit>`).
-3. Check that the capture holds the item's route at both widths, and that
-   `$RUN_DIR/checks/reference/` holds the reference screen you need.
+2. Check that the latest capture includes that commit: with the `commit`
+   in `screenshots/capture.json`, run
+   `git -C "$APP_DIR" merge-base --is-ancestor <ready commit> <captured commit>`.
+   Exit 0 means it does.
+3. Check that `screenshots/walk-result.json` lists the item's route at both
+   widths, and that `$RUN_DIR/checks/reference/` holds a reference screen.
 
-When any of these fails (the capture is older than the item, the route
-wasn't captured, or the reference screen is missing), you can't judge the
+When any of these fails (`capture.json` is missing, the capture is older
+than the item, the route wasn't captured, or no reference screen is
+there), you can't judge the
 item. Leave it `ready` with no `review`, append a note saying which, and
 go on. That is not the builder's fault, so it is never a rejection. The
 next check captures it, and you are woken again.
@@ -54,7 +53,9 @@ next check captures it, and you are woken again.
 
 1. Find the closest reference screen: the "Start from" table in DESIGN.md
    section 5 names the screen a new screen starts from; the reference
-   screens in section 6 are captured in `$RUN_DIR/checks/reference/`.
+   screens in section 6 are captured in `$RUN_DIR/checks/reference/`, except
+   those `capture.json`'s `notes` name. When the closest one wasn't
+   captured, use the next closest that was, and say so in your note.
    Compare the item's screenshots against it at both widths.
 2. Check, in this order:
    - **Structure.** Header, toolbar, list rows, composer or empty state
@@ -73,9 +74,10 @@ next check captures it, and you are woken again.
 
 ## Deciding
 
-You can't approve an item whose screens failed an automatic check in
-`latest-check.json`. Reject it, naming the failed check: that is the
-builder's to fix.
+You can't approve an item while a gate in `result.json` failed. When the
+gate's log names this item's screen or files, reject it, naming the gate:
+that is the builder's to fix. When it doesn't, leave the item `ready` with
+no `review` and append a note naming the gate.
 
 **Approve** when the screen holds up against its reference screen on every
 point above. Set the item's `review` to

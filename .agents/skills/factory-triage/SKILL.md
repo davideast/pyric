@@ -16,13 +16,14 @@ sure none is.
 | Variable or file | Holds |
 |---|---|
 | `$RUN_DIR/progress.md` | findings from the user agent (`### finding <id>`), notes from builders (headings starting `pyric?`); append-only |
-| `$RUN_DIR/latest-check.json` | the last hourly check |
+| `$RUN_DIR/latest-check.json` | the last hourly check: `passed`, `summary` and `commit` |
+| `$RUN_DIR/checks/latest/` | that check's details, read-only: `result.json` (each gate's line) and `<gate>.log` for a failing gate |
 | `$RUN_DIR/work-list.json` | the items |
 | `$RUN_DIR/issue-drafts/` | the drafts you write, one `<slug>.md` each |
 | `$RUN_DIR/issue-drafts/repros/<slug>/` | each draft's repro |
 | `$APP_DIR` | the app; read it, don't change it |
 
-Your prompt names the run. Use the run directory's name as `<run>` below.
+Use the last part of `$RUN_DIR` as `<run>` below.
 
 ## Sorting what came in
 
@@ -152,13 +153,11 @@ field of a bug or the "Found by" line of the other kinds, then an
 `Output:` block after the "Found by" line with the lines of `output.txt`
 that show the failure, each indented by four spaces.
 
-Check every draft with:
-
-```
-bun test/builders/harness.ts factory-drafts --run-dir $RUN_DIR
-```
-
-from a pyric checkout when there is one. Fix each draft it marks invalid.
+Every draft is checked outside your session, with `factory-drafts`, which
+refuses a draft with a title outside its kind's pattern, more than one
+label, a missing or empty field, a missing evidence link, or no "Found by"
+line. You can't run it from your session, so check each draft against the
+templates below yourself.
 
 ## The draft
 

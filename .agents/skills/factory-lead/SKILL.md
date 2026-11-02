@@ -21,7 +21,8 @@ deadline, and to change the plan when the evidence says so.
 | `$APP_DIR` | the app repo (read it; don't change it) |
 | `$RUN_DIR/work-list.json` | the work list you own |
 | `$RUN_DIR/progress.md` | notes every role reads and appends to |
-| `$RUN_DIR/latest-check.json` | the last hourly check: `{ "passed": true, "summary": "..." }` |
+| `$RUN_DIR/latest-check.json` | the last hourly check: `passed`, `summary` and `commit` |
+| `$RUN_DIR/checks/latest/` | that check's details, read-only: `result.json` (each gate's line) and `<gate>.log` for a failing gate |
 | `$RUN_DIR/issue-drafts/` | pyric defects triage has written up |
 | `$RUN_DIR/walks-proposed/` | walk scripts the user agent proposes for the check |
 
@@ -96,8 +97,10 @@ each:
 - **A design rejection**: the reviewer already sent the item back to
   `todo` with a reason. Read it. If the reason shows the item was too big
   or the spec unclear, split the item or clarify `doneWhen`.
-- **A failed hourly check**: add an item for each failure the summary
-  names, first in the list. Nothing else ships while the check is red.
+- **A failed hourly check**: read `$RUN_DIR/checks/latest/result.json` and
+  the failing gates' logs beside it. A path in the summary may not exist in
+  your session; use this one. Add an item for each failure, first in the
+  list. Nothing else ships while the check is red.
 - **A blocked item**: plan around it. Add the items that don't depend on
   it, and leave it where it is. When triage records a workaround, triage
   clears the block.
@@ -112,8 +115,8 @@ before the next one starts. Do real work in each session, and don't exit
 early to report status. Plan in one sitting: read everything new, then
 update the list and the notes.
 
-When the brief, the specs, the open findings and the failed checks hold
-nothing left to plan, append a note saying so and what the builders are
+When the brief, the specs, the user-agent findings, the design rejections
+and the failed checks hold nothing left to plan, append a note saying so and what the builders are
 waiting on, and end the session. An empty plan is an answer; a made-up
 item is not.
 
@@ -150,12 +153,15 @@ EOF
   neither builder waits. An item is takeable when it is `todo`, has no
   owner, isn't blocked, and every item in its `dependsOn` is `ready` or
   `done`. Items that wait on others don't count.
-- Add an item only when it comes from the specs, a user-agent finding, a
-  design rejection or a failed check, and name that source in the item
-  (`spec`, `finding`, or the check in its `doneWhen`). Never add a
+- Add an item only when it comes from the brief, the specs, the user-agent
+  findings, the design rejections or the failed checks, and name that
+  source in the item (`spec`, `finding`, or the rejection or check in its
+  `doneWhen`). Never add a
   placeholder, a filler item, or work that none of those asks for. When
   there is nothing real to add, fewer than two takeable items is the
   right answer.
+- Don't plan a new file in `components/ui`. The hourly check fails one
+  unless it is on an approved list only the harness can write.
 - Don't build. Don't edit the app, the check, the specs, DESIGN.md or the
   brief.
 - Don't mark anything `done` or `ready`, and don't set or clear `blocked`.

@@ -20,7 +20,8 @@ work at once, each in its own seat; your prompt names yours
 | `$BRIEF_DIR/DESIGN.md` | the design language you follow |
 | `$RUN_DIR/work-list.json` | the items |
 | `$RUN_DIR/progress.md` | notes every role reads and appends to |
-| `$RUN_DIR/latest-check.json` | the last hourly check |
+| `$RUN_DIR/latest-check.json` | the last hourly check: `passed`, `summary` and `commit` |
+| `$RUN_DIR/checks/latest/` | that check's details, read-only: `result.json` (each gate's line) and `<gate>.log` for a failing gate |
 | `$RUN_DIR/issue-drafts/` | pyric defects triage has written up |
 
 ## Taking an item
@@ -44,7 +45,9 @@ work at once, each in its own seat; your prompt names yours
 - Read the item's spec and `doneWhen`, and the parts of DESIGN.md it
   touches, before writing code. If the item has a `workaround`, triage
   allowed it: use it as written, and only it.
-- Work in `$APP_DIR` on its `main` branch. Commit small: one commit per
+- Work in `$APP_DIR` on the branch it has checked out, and never switch
+  branches: the hourly check checks the clone's current commit. Commit
+  small: one commit per
   step that builds and passes its tests, with a message that says what
   changed and why, such as `feat(search): store an index entry per
   narration`. Never amend, reset or rewrite a commit already there.
@@ -89,6 +92,9 @@ DESIGN.md is the standard the reviewer holds you to. In particular:
 - No layout shift on state change: reserve the space for loading, error
   and success lines.
 - Check the screen at 1440px and 390px wide.
+- Don't add a file to `components/ui`. The hourly check fails a new one
+  unless it is on an approved list only the harness can write. Use an
+  existing component.
 
 ## Pyric problems
 
@@ -117,6 +123,10 @@ and `bun test` for the files you touched from the repo root, then
 `npm run lint`, `npm run check:cqrs` and, after a rules change,
 `npm run rules:build` from `studio/`. Take the list from the brief, not
 from this example.
+
+The UI rules the hourly check applies are in `studio/checks/factory-rules/`.
+When `ast-grep` is installed in the app, also run them from `studio/`:
+`./node_modules/.bin/ast-grep scan -c checks/sgconfig.yml`.
 
 If a tool isn't installed, don't fetch it: append a note and stop.
 
@@ -168,7 +178,7 @@ EOF
 ## Rules
 
 - Never edit, move or delete the check's files or rules: the ast-grep
-  rule config and rules, the copy check, the walk scripts, the layout and
+  rule config and rules (`studio/checks/`), the copy check, the walk scripts, the layout and
   alignment checks, and the test runner's config. Never skip, disable or
   loosen a test, a lint rule or a type check, and never add an ignore
   comment to get past one. When a rule seems wrong, append why to the
