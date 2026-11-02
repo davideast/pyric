@@ -23,6 +23,12 @@ export interface OAuthCredentialPayload {
   readonly photoURL?: string | null;
   readonly uid?: string | null;
   readonly customClaims?: Record<string, unknown>;
+  /**
+   * The caller's flag for a staged result: it decides a new account's
+   * `emailVerified`, and an existing account keeps its own. Absent for a
+   * dialog identity, whose provider decides (see `createSignInCredential`).
+   */
+  readonly emailVerified?: boolean;
 }
 
 /** Serialized UserCredential reply shape for a minted session. */
@@ -137,8 +143,12 @@ export function resolveOAuthCredentialUser(
   }
 
   const existing = existingUsers.find((u) => u.uid === targetUid);
+  const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing) {
-    authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
+    // A caller's flag leaves an existing account's flag as stored.
+    authSandboxOps.createSignInCredential(auth, {
+      providerId: credential.providerId, uid: targetUid, verifyEmail: !callerDecidesVerification,
+    });
     authSandboxOps.updateUser(auth, targetUid, {
       displayName: credential.displayName ?? existing.displayName,
       email: credential.email ?? existing.email ?? undefined,
@@ -157,7 +167,14 @@ export function resolveOAuthCredentialUser(
       photoUrl: credential.photoURL ?? undefined,
       customClaims: credential.customClaims,
       providerUserInfo: [{ providerId: credential.providerId }],
+      emailVerified: credential.emailVerified,
     });
+    // Without a caller's flag, the provider sign-in, not the admin create,
+    // decides what the provider vouches for, such as a new Google identity's
+    // verified email.
+    if (!callerDecidesVerification) {
+      authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
+    }
   }
   return { uid: targetUid, isNewUser: !existing };
 }

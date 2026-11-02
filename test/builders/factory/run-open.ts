@@ -1,7 +1,8 @@
 /**
- * Starting a run or resuming one. A new run fixes its deadline now; a resumed
- * run keeps the deadline in its `run.json`, whatever `--hours` says, and its
- * timeline records the restart.
+ * Starting a run or resuming one. A new run fixes its deadline, its agent
+ * and its brief directory now; a resumed run keeps the ones in its
+ * `run.json`, whatever `--hours`, `--agent` or `--brief-dir` say, so a
+ * restart can't lose or change them, and its timeline records the restart.
  */
 import { appendTimeline } from './timeline.ts';
 import {
@@ -18,6 +19,10 @@ export interface OpenedRun {
 export interface OpenOptions {
   runDir: string;
   hours?: number;
+  /** The agent adapter's name. Required to start a run; a resumed run keeps its own. */
+  agent?: string;
+  /** The brief directory. Required to start a run; a resumed run keeps its own. */
+  briefDir?: string;
   resume: boolean;
   pid?: number;
   log?: (line: string) => void;
@@ -32,6 +37,10 @@ function resumeRun(paths: RunPaths, options: OpenOptions, now: number): OpenedRu
   }
   const hoursDiffer = options.hours !== undefined && options.hours !== info.hours;
   if (hoursDiffer) log(`resuming with the run's own deadline, ${info.deadline}; --hours ${options.hours} applies only to a new run`);
+  const agentDiffers = options.agent !== undefined && options.agent !== info.agent;
+  if (agentDiffers) log(`resuming with the run's own agent, ${info.agent}; --agent ${options.agent} applies only to a new run`);
+  const briefDiffers = options.briefDir !== undefined && options.briefDir !== info.briefDir;
+  if (briefDiffers) log(`resuming with the run's own brief directory, ${info.briefDir}; --brief-dir ${options.briefDir} applies only to a new run`);
   const lastHeartbeat = readHeartbeat(paths)?.at;
   appendTimeline(paths.timeline, {
     type: 'restart',
@@ -44,8 +53,10 @@ function resumeRun(paths: RunPaths, options: OpenOptions, now: number): OpenedRu
 }
 
 function startRun(paths: RunPaths, options: OpenOptions, now: number): OpenedRun {
-  if (options.hours === undefined) throw new RunDirError(`${paths.root} holds no run to resume; pass --hours to start one`);
-  const info = createRun(paths, options.hours, now);
+  const { hours, agent, briefDir } = options;
+  if (hours === undefined) throw new RunDirError(`${paths.root} holds no run to resume; pass --hours to start one`);
+  if (agent === undefined || briefDir === undefined) throw new RunDirError('a new run needs --agent and --brief-dir');
+  const info = createRun(paths, { hours, agent, briefDir }, now);
   appendTimeline(paths.timeline, { type: 'start', at: info.startedAt, deadline: info.deadline, pid: options.pid ?? process.pid });
   return { paths, info, state: readState(paths) };
 }

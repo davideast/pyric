@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DependencyStore } from './dependency-store.ts';
-import { AppProcess, AppRun, freePort, portIssuer, probePort, type PortIssuer, type SpawnChild } from './driver.ts';
+import { AppProcess, AppRun, freePort, portIssuer, probePort, type PortIssuer, type ProcessTiming, type SpawnChild } from './driver.ts';
 import { runTimedCommand } from './install.ts';
 
 /** A child that never gets a pid, so the driver sends it no signal. */
@@ -308,4 +308,81 @@ describe('installProject when npm hangs (#1476)', () => {
       done();
     }
   }, 20_000);
+});
+
+/** The inode of the socket process `pid` writes descriptor `fd` to. */
+function socketOf(pid: number | undefined, fd: number): number {
+  const match = /^socket:\[(\d+)\]$/.exec(readlinkSync(`/proc/${pid}/fd/${fd}`));
+  if (!match) throw new Error(`fd ${fd} of pid ${pid} is not a socket`);
+  return Number(match[1]);
+}
+
+/**
+ * The socket whose peer is `inode`, from the Peer column of `ss -xan`: the
+ * kernel's own record of the other end, read while both ends are open.
+ */
+function peerOf(inode: number): number {
+  const rows = execFileSync('ss', ['-xan'], { encoding: 'utf8' }).split('\n').map((line) => line.trim().split(/\s+/));
+  const row = rows.find((fields) => Number(fields[7]) === inode);
+  if (row === undefined) throw new Error(`ss lists no socket whose peer is ${inode}`);
+  return Number(row[5]);
+}
+
+/** The runner's ends of the sockets `pid` writes stdout and stderr to, from the kernel. */
+const runnerEndsOf = (pid: number | undefined) => [peerOf(socketOf(pid, 1)), peerOf(socketOf(pid, 2))];
+
+/**
+ * A spawner whose children never report `close`, as when the runner loses
+ * it (#1274). After each spawn, before the driver looks for the child's
+ * sockets, it starts a neighbor with output sockets of its own: sockets the
+ * runner opened after the spawn. It notes the runner's end of each socket
+ * from the kernel's peer record, not from the driver's numbering rule.
+ */
+function losingCloseWithNeighbor(): { spawnChild: SpawnChild; childEnds: number[]; neighborEnds: number[]; neighborOutput: Promise<string> } {
+  const childEnds: number[] = [];
+  const neighborEnds: number[] = [];
+  let neighborText = '';
+  let neighborDone: (text: string) => void = () => {};
+  const neighborOutput = new Promise<string>((resolve) => { neighborDone = resolve; });
+  const spawnChild: SpawnChild = (command, args, options) => {
+    const child = spawn(command, args, options);
+    const neighbor = spawn('sh', ['-c', 'sleep 0.3; echo neighbor-output'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    childEnds.push(...runnerEndsOf(child.pid));
+    neighborEnds.push(...runnerEndsOf(neighbor.pid));
+    neighbor.stdout?.on('data', (chunk) => { neighborText += String(chunk); });
+    neighbor.on('close', () => neighborDone(neighborText));
+    const emit = child.emit.bind(child);
+    child.emit = ((event: string | symbol, ...rest: unknown[]) => (event === 'close' ? false : emit(event, ...rest))) as ChildProcess['emit'];
+    return child;
+  };
+  return { spawnChild, childEnds, neighborEnds, neighborOutput };
+}
+
+const LOST_CLOSE_TIMING: ProcessTiming = {
+  exit: { outputCloseGraceMs: 200, zombie: { intervalMs: 50, graceMs: 5_000 } },
+  stop: { termMs: 200, killMs: 200 },
+};
+
+describe('where the output went when the runner lost close (#1797)', () => {
+  test.if(process.platform === 'linux')('an exit recorded without `close` logs what the kernel still queues for the child\'s sockets, and only the child\'s', async () => {
+    const { spawnChild, childEnds, neighborEnds, neighborOutput } = losingCloseWithNeighbor();
+    const script = 'sleep 0.3; echo started; echo refused >&2; exit 1';
+    const child = new AppProcess('refuser', 'sh', ['-c', script], '.', { PATH: process.env.PATH }, spawnChild, LOST_CLOSE_TIMING);
+    expect(await child.exited).toBe(1);
+    expect(child.output).toContain('the runner lost `close`; the driver records the exit (#1274)');
+    const [stdoutEnd, stderrEnd] = childEnds;
+    expect(child.output).toMatch(new RegExp(`\\[driver\\] refuser's output sockets: stdout [^(]+ \\(socket ${stdoutEnd}, taken as the runner's end\\), stderr [^(]+ \\(socket ${stderrEnd}, taken as the runner's end\\); .+ \\(#1797\\)`));
+    for (const end of neighborEnds) expect(child.output).not.toContain(`socket ${end}`);
+    // The neighbor's sockets were left alone: its output arrives whole, through its own reader.
+    expect(await neighborOutput).toBe('neighbor-output\n');
+  });
+
+  test.if(process.platform === 'linux')('a command whose exit is recorded without `close` logs the same line', async () => {
+    const { spawnChild, childEnds } = losingCloseWithNeighbor();
+    const result = await runTimedCommand('sh', ['-c', 'sleep 0.3; echo installed; exit 3'], { cwd: '.', spawnChild, timeoutMs: 5_000, timing: { exit: LOST_CLOSE_TIMING.exit, leftoverTermMs: 200 } });
+    expect(result.code).toBe(3);
+    expect(result.output).toContain('the runner lost `close`');
+    expect(result.output).toContain(`[driver] sh's output sockets: stdout`);
+    expect(result.output).toContain(`(socket ${childEnds[0]}, taken as the runner's end)`);
+  });
 });

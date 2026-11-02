@@ -26,6 +26,10 @@ export interface SessionOptions {
   runDir: string;
   /** The app repo every role works in. */
   appDir: string;
+  /** The agent adapter the run uses, by name (`agents/registry.ts`). */
+  agent: string;
+  /** The brief, specs and design every role reads: outside the run directory, read-only in the sandbox. */
+  briefDir: string;
   /** The work list, progress notes and latest check every session reads. */
   files: StateFiles;
   /** The run's end, as an ISO time. */

@@ -34,7 +34,7 @@
  *       Per model: cost per run and per verification, confirmed new findings
  *       per app, the share thrown out, cost per confirmed new finding, and
  *       the nightly model and cap.
- *   factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]
+ *   factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
  *       Keeps the factory's roles working against one app until the run's
  *       deadline, fixed at the start from --hours. --resume goes on with the
  *       run in --run-dir, with its own deadline.

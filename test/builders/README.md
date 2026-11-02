@@ -22,7 +22,7 @@ bun test/builders/harness.ts reproduce <round> <run> --list
 bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
     [--expect <text>] [--register] [--packages <dir>] [--minutes <n>]
 bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
-bun test/builders/harness.ts factory --run-dir <dir> [--hours <n>] [--resume] [--runner <module>]
+bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
 ```
@@ -495,7 +495,9 @@ triage. Each role works in short sessions. The supervisor
 (`factory/supervisor.ts`) keeps them going until the run's deadline.
 
 - **Only the clock ends a run.** `--hours` fixes the deadline when the run
-  starts. A session that ends for any reason, its model saying it is done
+  starts, with `--agent` (an adapter's name, below) and `--brief-dir` (the
+  directory holding `BRIEF.md`, `specs/` and `DESIGN.md`, outside the run's
+  directories), and `run.json` keeps all three. A session that ends for any reason, its model saying it is done
   included, frees its seat for the next session. Each session is told the
   time left, and at the deadline the supervisor aborts every running
   session's signal.
@@ -510,11 +512,15 @@ triage. Each role works in short sessions. The supervisor
   waits before the next, 15 seconds and doubling, up to 10 minutes, so a
   model that says it is done at once can't loop. This wait is kept in
   memory, so a restarted supervisor starts each seat at once.
-- **State lives in the run directory.** `run.json` holds the deadline,
-  `supervisor.json` what the schedule owes, and the sessions read and write
-  `work-list.json`, `progress.md` and `latest-check.json`. The app repo is
-  `app/`. Sessions write the work list through a temporary file and a
-  rename. A work list that exists but doesn't parse is not taken as empty:
+- **State lives in two directories.** The run directory is what every
+  session can write: `work-list.json`, `progress.md`, `latest-check.json`,
+  the app repo `app/`, each seat's `homes/<seat>/` and each sandbox's
+  network record in `logs/`. The run's host directory, `<run dir>.host/`
+  beside it, is the harness's alone: `run.json` (the deadline, the agent
+  and the brief directory), `supervisor.json` (what the schedule owes),
+  `heartbeat.json`, `timeline.jsonl`, and each session's log, forwarder
+  record, phase file and socket. Sessions write the work list through a
+  temporary file and a rename. A work list that exists but doesn't parse is not taken as empty:
   the supervisor keeps the last list it read, logs it, and reads the file
   again two seconds later.
 - **Rate limits pause the run.** A session that ends rate-limited stops new
@@ -536,14 +542,16 @@ Run the supervisor as a transient user unit, so systemd restarts it when it
 crashes or is killed. The same command line starts the run and resumes it:
 with both `--hours` and `--resume`, `factory` resumes the run in
 `--run-dir`, or starts one when there is none. A resumed run keeps its own
-deadline whatever `--hours` says.
+deadline, agent and brief directory, whatever `--hours`, `--agent` and
+`--brief-dir` say.
 
 ```
 RUN=~/pyric-builders/factory/$(date +%Y-%m-%d)
 systemd-run --user --unit pyric-factory \
   --property Restart=on-failure --property RestartSec=30 \
   --working-directory "$PWD" --setenv PATH="$PATH" \
-  "$(command -v bun)" test/builders/harness.ts factory --run-dir "$RUN" --hours 8 --resume
+  "$(command -v bun)" test/builders/harness.ts factory --run-dir "$RUN" --hours 8 \
+    --agent <name> --brief-dir "$BRIEF" --resume
 ```
 
 `Restart=on-failure` covers a supervisor that exits non-zero or is killed.
@@ -554,7 +562,7 @@ Outside systemd, a supervisor killed with SIGKILL leaves its sessions to
 the runner to end.
 
 A supervisor that hangs keeps its process and stops its heartbeat, which it writes to
-`heartbeat.json` every minute. A timer runs `factory-check` every five
+`heartbeat.json` (in the host directory) every minute. A timer runs `factory-check` every five
 minutes; it restarts the unit when the heartbeat is older than
 `--stale-minutes` (5 by default) and the deadline hasn't passed, and does
 nothing otherwise:
@@ -596,6 +604,76 @@ bun test/builders/harness.ts factory-summary --run-dir "$RUN"
 ```
 
 prints totals per seat, then the timeline.
+
+### Agent sessions
+
+Every role is an agent CLI behind the factory's agent interface
+(`factory/agent.ts`). An adapter, in `factory/agents/<name>/` and named in
+`factory/agents/registry.ts`, says how to find the agent on the host, the
+command, arguments and environment of a session, what it keeps under its
+HOME, where its credential lives on the host and how to read it, its
+upstream policy (the host, the request lines and headers that pass, the
+body check, and what a response says about the upstream rate limit), and
+how its output says it hit that limit. Each adapter's folder has a README with
+its specifics. The session runner, the supervisor, the forwarder and the
+role prompts depend on the interface alone.
+
+`factory/session-runner.ts` runs each session:
+
+1. It reads the agent's credential the way `round` checks a token file: a
+   regular file, owned by the current user, mode 0600 or stricter. A
+   problem names the file and the rule, never a value.
+2. It starts the session's own sandbox, as a round's run does, with the
+   run directory as its one read-write bind and, read-only, the agent's
+   install, the role's skill, the brief directory and the session's
+   sandbox directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
+   file and the forwarder's socket); the npm cache is under an overlay. The
+   brief directory must be outside the run directory and the app directory
+   inside it. No bind may contain the host's home directory or reach the
+   agent's credential directory. The role's skill is
+   `.agents/skills/factory-<role>/SKILL.md` in the checkout the harness
+   runs from, and a session doesn't start without it.
+3. It starts the upstream forwarder (`factory/upstream-forwarder.ts`)
+   outside and enters `factory/agent-phase.ts` into the sandbox, which
+   makes the seat's HOME (`homes/<seat>/`, holding no credential), starts
+   the bridge on a fixed loopback port and runs the command the adapter
+   built. The agent gets the skill's text as its instructions, and
+   `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the skills name, in its
+   environment and its prompt.
+4. It saves the agent's output to `<run dir>.host/logs/<seat>-<stamp>.jsonl`
+   and returns how the session ended (`factory/agent-session.ts`).
+
+**The credential never enters the sandbox.** The agent sends its model
+requests to the bridge with no credential. The forwarder applies the
+adapter's policy to each, reads the credential for each, sets its headers
+last and sends the request to the policy's upstream over TLS. Every
+request is a line of `<run dir>.host/channel/<seat>.jsonl` with the reason,
+the status and the rate-limit windows the response named; names, never values.
+A header Node would refuse to send is refused with 400, not thrown, and an
+unexpected failure in the forwarder drops that request and stops the
+session as `killed`, never the supervisor.
+
+**Nothing on the host is written through the run directory.** Every
+sandbox of a run can write the run directory, and they run at once, so any
+of them could plant a link there to a file of the host's. The harness
+writes its own files into the host directory, opens each new file with
+`O_EXCL | O_NOFOLLOW` and appends with `O_NOFOLLOW`, replaces
+`latest-check.json` through a fresh, unguessable sibling and a rename, and
+reads `work-list.json` only when it is a regular file, not a link. The
+sandbox's `resolv.conf` and `hosts` are checked in
+(`recorder/sandbox-etc/`), so starting a sandbox writes nothing
+(`factory/host-files.ts`).
+
+**How a session ends.** `exit`, when the agent exits; `rate-limit`, when it
+failed at the upstream rate limit, by its own output (the adapter reads it) or because
+its last request came back 429; `killed`, when the supervisor stops it, the
+forwarder faults, or a signal no one sent ends it; `deadline`, at
+`remainingMs` or when the supervisor aborts with `deadline`. `resetAt` is
+the forwarder's: what this session's latest 429 named. Only this session's
+lines of the seat's record count. Each session runs in its own process
+group, and a stop signals the whole group; inside, bwrap's
+`--die-with-parent` ends the sandbox and everything in it if the
+supervisor is killed.
 
 ## The canary
 
@@ -658,8 +736,7 @@ first fetch from a server they run on 127.0.0.2; that fetch must fail without
 reaching it, or the resolver rules are not in effect and nothing is planted.
 
 Each run leaves `<root>/canary/<stamp>/` with `app/`, `home/`, `logs/` (one
-file per process), `network.jsonl`, `chromium-netlog.json`, the sandbox's
-`resolv.conf` and `hosts`, `plants.json` (what each plant saw) and
+file per process), `network.jsonl`, `chromium-netlog.json`, `plants.json` (what each plant saw) and
 `canary.json` (that and the verdict). `<root>` is `~/pyric-builders`, or
 `PYRIC_BUILDERS_DIR`. The harness never removes a run; clearing that
 directory clears them all.
@@ -694,8 +771,9 @@ nsenter -t <child pid> -U -m -n -p -i -u -C --preserve-credentials --root env -C
   cache even offline; the overlay keeps those writes in the sandbox, and the
   shared cache never changes;
 - fresh: `/dev`, `/proc` (its own pid namespace), `/tmp` and `/run`, both
-  tmpfs, and the run's own `/etc/resolv.conf` (naming 127.0.0.1) and
-  `/etc/hosts` (loopback names only).
+  tmpfs, and the sandbox's own `/etc/resolv.conf` (naming 127.0.0.1) and
+  `/etc/hosts` (loopback names only), checked in under `recorder/sandbox-etc/`
+  so the harness writes nothing into the run directory to start a sandbox.
 
 There is no `/mnt`, no `/run/WSL`, no `/run/user` and no home directory
 beyond the bound paths. The network namespace has only `lo`.
@@ -926,3 +1004,15 @@ first (`lookupGoogleEndpoint`, in the catalog's one spelling from
   directory, which the sandbox binds read-write. The model channel's lines
   come from the forwarder's own record, outside, and the metered cost is
   read from that record alone.
+- **Anything in a factory session can spend against the upstream rate limit.** As with
+  the round's token, a process in the sandbox can send requests through
+  the channel, within the adapter's policy, but can't read the credential
+  or name a URL for the upstream to fetch. There is no dollar meter: the
+  rate-limit windows the upstream reports bound the spend, and each request's
+  line records them.
+- **The factory's token scan is not wired to a keep step yet.** The
+  factory keeps its run directory as it is. `factory/secret-scan.ts` looks
+  for the credential's secrets with the harness's own scan, and is what a
+  later step that copies a run out runs first.
+- **A factory session can't install new packages.** Its sandbox has the
+  npm cache under an overlay, offline, and no registry, as a round's run.

@@ -19,6 +19,8 @@ export interface SessionCall {
   prompt: string;
   start: number;
   remainingMs: number;
+  agent: string;
+  briefDir: string;
   /** Set when the session ends. */
   end?: number;
   aborted?: boolean;
@@ -37,7 +39,7 @@ export function fakeSessions(clock: FakeClock, plan: SessionPlan): FakeSessions 
   let active = 0;
   let most = 0;
   const runSession: RunSession = async (role, options) => {
-    const call: SessionCall = { role, seat: options.seat, prompt: options.prompt, start: clock.now(), remainingMs: options.remainingMs };
+    const call: SessionCall = { role, seat: options.seat, prompt: options.prompt, start: clock.now(), remainingMs: options.remainingMs, agent: options.agent, briefDir: options.briefDir };
     const planned = plan(role, options, calls.filter((earlier) => earlier.seat === options.seat).length);
     calls.push(call);
     active += 1;

@@ -53,7 +53,7 @@ import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js'
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
   absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, realmOrigin,
-  tokenClaimAccount, rulesTokenFromIdToken,
+  providerVerifiesEmail, tokenClaimAccount, rulesTokenFromIdToken,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -1552,6 +1552,8 @@ export class SandboxBackend {
         displayName: user.displayName,
         photoUrl: identityPhotoUrl,
         isAnonymous: user.isAnonymous,
+        // A staged or resolver-supplied user keeps the caller's flag.
+        emailVerified: user.emailVerified === true,
       }, providerId);
       this.usersByUid.set(user.uid, stored);
       if (user.email) this.usersByEmail.set(user.email.toLowerCase(), stored);
@@ -1587,7 +1589,12 @@ export class SandboxBackend {
    *     and NO password (provider identities can't sign in via
    *     `signInWithEmailAndPassword`).
    *
-   * In both shapes the provider is linked into `providerUserInfo`. A
+   * In both shapes the provider is linked into `providerUserInfo`, and a
+   * provider that vouches for the email (`google.com`, see
+   * {@link providerVerifiesEmail}) marks it verified when the record has no
+   * password and no other linked provider. `verifyEmail: false` on the
+   * `{providerId, uid}` shape links without marking, for a caller (a staged
+   * sign-in result) that decides the flag itself. A
    * `spec.photoUrl` is stored on a fresh record and refreshes a reused
    * same-email one; a spec without a photo never clears a stored one (see
    * {@link refreshStoredPhoto}).
@@ -1597,7 +1604,7 @@ export class SandboxBackend {
    */
   createSignInCredential(
     req:
-      | { providerId: string; uid: string }
+      | { providerId: string; uid: string; verifyEmail?: boolean }
       | { providerId: string; spec: SignInIdentitySpec },
   ): UserCredential {
     const { providerId } = req;
@@ -1637,6 +1644,8 @@ export class SandboxBackend {
       stored.providerUserInfo.push({ providerId });
       this.notifyUsersChanged();
     }
+    const callerKeepsFlag = 'uid' in req && req.verifyEmail === false;
+    if (!callerKeepsFlag && markProviderVerifiedEmail(stored, providerId)) this.notifyUsersChanged();
     return {
       user: this.buildUserFromStored(stored),
       providerId,
@@ -2654,6 +2663,25 @@ function refreshStoredPhoto(stored: StoredUser, photoUrl: string | null): boolea
   if (photoUrl === null) return false;
   if (stored.photoUrl === photoUrl) return false;
   stored.photoUrl = photoUrl;
+  return true;
+}
+
+/**
+ * Mark the stored email verified when `providerId` vouches for it (see
+ * {@link providerVerifiesEmail}) and the record is that provider's identity
+ * alone: no password and no other linked provider. An existing password or
+ * other-provider account keeps its own flag, so a Google sign-in never turns
+ * an unverified password into a verified token. Returns whether the record
+ * changed.
+ */
+function markProviderVerifiedEmail(stored: StoredUser, providerId: string): boolean {
+  const hasEmail = stored.email !== null;
+  const hasPassword = stored.password !== null;
+  const hasOtherProvider = stored.providerUserInfo.some((entry) => entry.providerId !== providerId);
+  const isProviderIdentityAlone = !hasPassword && !hasOtherProvider;
+  const needsMark = hasEmail && !stored.emailVerified && isProviderIdentityAlone && providerVerifiesEmail(providerId);
+  if (!needsMark) return false;
+  stored.emailVerified = true;
   return true;
 }
 

@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { AGENT_NAMES } from './agents/registry.ts';
 import { readRun, runPaths } from './run-dir.ts';
 import { readTimeline, type TimelineLine } from './timeline.ts';
 
@@ -16,6 +17,8 @@ const HOURS = '0.002';
 const POLL_MS = 50;
 
 type SessionLine = Extract<TimelineLine, { type: 'session' }>;
+
+const BRIEF_DIR = mkdtempSync(join(tmpdir(), 'factory-brief-'));
 
 function factoryArgs(runDir: string, extra: readonly string[]): string[] {
   return ['test/builders/harness.ts', 'factory', '--run-dir', runDir, '--runner', RUNNER, ...extra];
@@ -36,7 +39,7 @@ async function waitFor(condition: () => boolean, timeoutMs: number): Promise<voi
 describe('factory, as a process', () => {
   test('a supervisor killed with SIGKILL resumes with --resume and the same deadline', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'factory-process-'));
-    const first = spawn(process.execPath, factoryArgs(runDir, ['--hours', HOURS]), { cwd: REPO_ROOT, stdio: 'ignore' });
+    const first = spawn(process.execPath, factoryArgs(runDir, ['--hours', HOURS, '--agent', AGENT_NAMES[0] ?? '', '--brief-dir', BRIEF_DIR]), { cwd: REPO_ROOT, stdio: 'ignore' });
     await waitFor(() => sessionLines(runDir).length >= 3, 5_000);
     const exited = new Promise((done) => first.once('exit', done));
     first.kill('SIGKILL');
@@ -47,7 +50,7 @@ describe('factory, as a process', () => {
     const second = spawnSync(process.execPath, factoryArgs(runDir, ['--resume']), { cwd: REPO_ROOT, encoding: 'utf8', timeout: 30_000 });
     expect(second.status).toBe(0);
     expect(second.stdout).toContain(`factory run until ${deadline}`);
-    expect(readRun(runPaths(runDir)).deadline).toBe(deadline);
+    expect(readRun(runPaths(runDir))).toMatchObject({ deadline, agent: AGENT_NAMES[0], briefDir: BRIEF_DIR });
 
     const timeline = readTimeline(runPaths(runDir).timeline);
     const restart = timeline.find((line) => line.type === 'restart');

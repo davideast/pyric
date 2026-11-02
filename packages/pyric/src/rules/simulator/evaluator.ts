@@ -222,13 +222,14 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
       switch (expr.typeName) {
         case 'string': return typeof value === 'string';
         // RULES-B5: int and float are DISTINCT types. A bigint or a bare
-        // integral JS number is an int (`rules-int.ts`); a RulesFloat wrapper
-        // is a float. `number` matches either.
+        // safe-integer JS number is an int (`rules-int.ts`); a RulesFloat
+        // wrapper, or a bare number at or above 2^53, is a float (#1781).
+        // `number` matches either.
         // `1.5 is int` → false, `1 is float` → false, `1.0 is float` → true.
         case 'int':
           return isRulesInt(value);
         case 'float':
-          return value instanceof RulesFloat;
+          return rulesFloatValue(value) !== undefined;
         case 'number':
           // Reject wrappers that coerce to NaN (LatLng/Path) — they're
           // not numbers even though valueOf() returns a Number. A RulesFloat
@@ -517,7 +518,7 @@ function evaluateBinaryOp(
     // genuinely ordered numeric op for `-`/`/`/`%` and the comparisons). Route
     // it through `RulesFloat(lv).binaryOp(op, rv)` so the result re-tags as a
     // float and `5 / 2.0` does float division (2.5), not int truncation.
-    if (isRulesInt(lv) && rv instanceof RulesFloat) {
+    if (isNumeric(lv) && rv instanceof RulesFloat) {
       const r = new RulesFloat(Number(lv)).binaryOp(op, rv);
       if (r !== NO_OP) return r;
     }

@@ -164,12 +164,15 @@ describe('the driver sees a child that exited unreaped', () => {
     expect(performance.now() - started).toBeGreaterThanOrEqual(FAST_EXIT.zombie.graceMs);
     expect(child.running).toBe(false);
     expect(child.output).toContain('exited with code 3, and the runner never reaped it');
+    // A zombie has no descriptors left, so its sockets can't be identified, and the log says so (#1797).
+    expect(child.output).toContain("[driver] never reaped: the driver could not identify the runner's ends of its output sockets, so it can't say where its output went (#1797)");
   }, 15_000);
 
   test.if(onLinux)('a command the runner never sees exit resolves with its exit code', async () => {
     const pid = await zombie(0);
     const result = await settled(runCommand('npm', ['install'], { cwd: '.', spawnChild: () => silentHandle(pid), timing: FAST_COMMAND }));
     expect(result).toEqual({ code: 0, output: expect.stringContaining('the runner never reaped it') });
+    expect(result).toEqual({ code: 0, output: expect.stringContaining("[driver] npm: the driver could not identify the runner's ends of its output sockets") });
   }, 15_000);
 });
 

@@ -10,7 +10,7 @@ import { StoragePath, interpolationSegments, isPathValue, pathValueSegments } fr
 import { describeRulesType as describeType } from '../../rules/simulator/rules-type.js';
 import { RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
-import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { hostNumber } from '../../rules/simulator/rules-int.js';
 import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
 import { Path } from '../../rules/simulator/wrappers/path.js';
 import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
@@ -23,16 +23,14 @@ type MethodCall = Extract<Expr, { kind: 'methodcall' }>;
 
 /**
  * Wrap raw Firestore document data values into Storage rules values
- * (preserving RulesValue instances, wrapping floats in RulesFloat, and
+ * (preserving RulesValue instances, typing numbers with `hostNumber`, and
  * wrapping GeoPoint/DocumentReference sentinels as StorageLatLng/StoragePath
  * without clobbering plain user maps that happen to carry `path` or
  * `latitude`/`longitude` alongside other fields).
  */
 function wrapFirestoreValue(val: unknown): unknown {
   if (val === null || val === undefined) return val;
-  if (typeof val === 'number') {
-    return Number.isInteger(val) ? val : new RulesFloat(val);
-  }
+  if (typeof val === 'number') return hostNumber(val);
   if (val instanceof Date) {
     return Timestamp.fromMillis(val.getTime());
   }
