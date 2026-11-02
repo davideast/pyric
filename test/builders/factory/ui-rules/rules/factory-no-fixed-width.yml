@@ -1,0 +1,7 @@
+id: factory-no-fixed-width
+language: tsx
+severity: warning
+message: Fixed pixel width. Let the grid size it, or use a token width.
+rule:
+  matches: class-string
+  regex: (?:^|[\s:])!?(?:min-|max-)?w-\[\d*\.?\d+px\]

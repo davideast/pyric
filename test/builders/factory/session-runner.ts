@@ -19,6 +19,14 @@
  * forwarder's record to `<run dir>.host/channel/<seat>.jsonl`, where nothing
  * in a sandbox can write; the sandbox's own network record is
  * `logs/<seat>-<stamp>.network.jsonl` in the run directory.
+ *
+ * Once the app is set up, a session also sees the run's packed packages
+ * (`<run dir>.host/packages`, which Studio's manifest names) and the hourly
+ * check's results, bound read-only over `<run dir>/checks`.
+ *
+ * The module also exports the factory's hourly check (`hourly-check.ts`),
+ * which the supervisor runs each hour, and `runEnd`, which stops the served
+ * copy when the run ends (`served.ts`).
  */
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -32,7 +40,25 @@ import { runAgentSession, socketOf } from './agent-session.ts';
 import { agentNamed } from './agents/registry.ts';
 import { hostDirOf, isInside, makeHostDir } from './host-files.ts';
 import { roleSkill, rolePrompt } from './roles.ts';
+import { appPaths } from './app-paths.ts';
+import type { View } from '../harness-view.ts';
+import { stopRunServing } from './served.ts';
 import type { Role, SessionOptions, SessionResult } from './session.ts';
+
+export { hourlyCheck } from './hourly-check.ts';
+
+/** Stops the served copy and removes its private-network entries when the run ends. */
+export function runEnd(runDir: string): Promise<void> {
+  return stopRunServing(runDir);
+}
+
+/** What a session sees of the app's harness state: the packages read-only, and the checks read-only over `<run>/checks`. */
+export function appViews(runDir: string): { readOnly: string[]; innerViews: View[] } {
+  const paths = appPaths(runDir);
+  const readOnly = existsSync(paths.packages) ? [paths.packages] : [];
+  const innerViews = existsSync(paths.checks) ? [{ source: paths.checks, dest: paths.roleChecks }] : [];
+  return { readOnly, innerViews };
+}
 
 /** The longest Unix socket path the kernel takes (`sun_path` is 108 bytes, with its terminator). */
 const MAX_SOCKET_PATH_BYTES = 107;
@@ -152,11 +178,13 @@ export async function runConfiguredSession(role: Role, options: SessionOptions, 
     instructions: readFileSync(config.skillFile, 'utf8'),
   };
   const cache = npmCacheDir();
+  const app = appViews(options.runDir);
   const namespace = await startEgressNamespace({
     networkLog: paths.networkLog,
     runRoot: options.runDir,
-    readOnly: [...readOnlyBinds(options, config), paths.sandboxDir],
+    readOnly: [...readOnlyBinds(options, config), paths.sandboxDir, ...app.readOnly],
     overlaid: existsSync(cache) ? [cache] : [],
+    innerViews: app.innerViews,
   });
   try {
     return await runAgentSession({

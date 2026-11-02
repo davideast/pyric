@@ -42,6 +42,10 @@
  *       Prints a factory run's timeline for the morning review.
  *   factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
  *       Restarts the supervisor's systemd unit when its heartbeat is stale.
+ *   factory-setup --run-dir <dir> --app-source <repo> [--commit <sha>] [--brief-dir <dir>] [--packages <dir> | --build]
+ *       Clones and installs the factory's app before a run starts.
+ *   factory-hour --run-dir <dir> --hour <n>
+ *       Runs the hourly check once, as the supervisor does each hour.
  *
  * Every command that runs a builder refuses to run (exit 2) where the
  * sandbox is unavailable; there is no fallback without it.
@@ -52,6 +56,7 @@ import { flagValue, positionals, rejectUnknownFlags, UsageError } from './cli-ar
 import {
   FACTORY_CHECK_USAGE, FACTORY_SUMMARY_USAGE, FACTORY_USAGE, factoryCheckCommand, factoryCommand, factorySummaryCommand,
 } from './factory/commands.ts';
+import { FACTORY_HOUR_USAGE, FACTORY_SETUP_USAGE, factoryHourCommand, factorySetupCommand } from './factory/app-commands.ts';
 import { formatSummary, summarize } from './measure.ts';
 import { readMeasurements } from './measurement.ts';
 import { NamespaceUnavailable } from './namespace.ts';
@@ -131,6 +136,8 @@ const COMMANDS: Record<string, Command> = {
   factory: { usage: FACTORY_USAGE, run: factoryCommand },
   'factory-summary': { usage: FACTORY_SUMMARY_USAGE, run: factorySummaryCommand },
   'factory-check': { usage: FACTORY_CHECK_USAGE, run: factoryCheckCommand },
+  'factory-setup': { usage: FACTORY_SETUP_USAGE, run: factorySetupCommand },
+  'factory-hour': { usage: FACTORY_HOUR_USAGE, run: factoryHourCommand },
 };
 
 function usage(): string {

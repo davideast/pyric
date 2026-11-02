@@ -62,6 +62,7 @@ import { installViteNetGuard } from './vite-net-guard.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
+import { pyricFsDeny } from './vite-state-deny.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
 interface EnvironmentHooks {
@@ -302,17 +303,20 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
       const moduleConfig = moduleSwap.config({ devServer: isDevServer });
       const pageConfig = pageRuntime.config(config, env);
-      const serverWatchConfig: UserConfig = {
+      const serverConfig: UserConfig = {
         server: {
           watch: {
             ignored: ['**/.pyric/**'],
+          },
+          fs: {
+            deny: pyricFsDeny(config),
           },
         },
       };
       const finalizedConfig: UserConfig = {
         ...moduleConfig,
         ...pageConfig,
-        ...serverWatchConfig,
+        ...serverConfig,
       };
       return finalizedConfig;
     },

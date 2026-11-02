@@ -1,0 +1,11 @@
+# The factory's UI rules, as the hourly check runs them. App setup copies
+# rules/ and utils/ into the app's studio/checks/ so builders run the same
+# rules; the gate always runs this copy, never the app's.
+ruleDirs:
+  - rules
+utilDirs:
+  - utils
+languageGlobs:
+  tsx:
+    - "*.ts"
+    - "*.tsx"

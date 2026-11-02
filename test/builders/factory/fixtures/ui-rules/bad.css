@@ -1,0 +1,6 @@
+/* Every marked line breaks one factory UI rule. */
+.player {
+  color: #222722; /* expect: factory-no-raw-color-css */
+  background: rgb(0 0 0 / 50%); /* expect: factory-no-raw-color-css */
+  position: absolute; /* expect: factory-no-absolute-layout-css */
+}

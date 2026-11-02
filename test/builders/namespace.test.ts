@@ -296,4 +296,25 @@ describe('startEgressNamespace stop', () => {
     expect(await within(namespace.stop(), 5000)).toBe('settled');
     expect(await namespace.stop()).toBe('exited');
   }, SANDBOX_TEST_TIMEOUT_MS);
+
+  test('binds an inner view read-only over a path in the run root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const results = mkdtempSync(join(tmpdir(), 'builders-results-'));
+    writeFileSync(join(results, 'result.json'), '{"passed":true}\n');
+    const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root, innerViews: [{ source: results, dest: join(root, 'checks') }] });
+    const run = (script: string) => {
+      const entered = namespace.enter('sh', ['-c', script], root);
+      return spawnSync(entered.command, entered.args, { encoding: 'utf8', timeout: 120_000 });
+    };
+    try {
+      expect(run('cat checks/result.json').stdout).toBe('{"passed":true}\n');
+      expect(run('echo forged > checks/result.json').status).not.toBe(0);
+      expect(run('touch checks/new').status).not.toBe(0);
+      expect(run('mv checks gone').status).not.toBe(0);
+      expect(run('echo ok > own.txt').status).toBe(0);
+      expect(readFileSync(join(results, 'result.json'), 'utf8')).toBe('{"passed":true}\n');
+    } finally {
+      await namespace.stop();
+    }
+  }, SANDBOX_TEST_TIMEOUT_MS);
 });
