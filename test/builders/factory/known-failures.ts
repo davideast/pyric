@@ -64,7 +64,7 @@ export function knownFailuresOf(results: readonly GateResult[]): KnownFailures {
 /** Passes a failing gate whose every failure the start commit already had. */
 export function excuseKnown(result: GateResult, known: KnownFailures): GateResult {
   if (result.passed) return result;
-  const current = failureSignatures(result.gate, result.output ?? '');
+  const current = [...new Set(failureSignatures(result.gate, result.output ?? ''))];
   const before = new Set(known[result.gate] ?? []);
   const isKnown = current.length > 0 && current.every((signature) => before.has(signature));
   if (!isKnown) return result;
