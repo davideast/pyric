@@ -125,7 +125,7 @@ No application imports change. Continue using `firebase/app`, `firebase/auth`, `
 npm install --save-dev @pyric/cli
 npx pyric sandbox
 ```
-It can serve static files or start an existing development command. Put Pyric flags before the child command and use `--` to mark the boundary when needed:
+It can serve static files or start an existing development command. It serves the directory `hosting.public` names in `firebase.json`, and with no `hosting` block it serves no static files. Put Pyric flags before the child command and use `--` to mark the boundary when needed:
 
 ```bash
 npx pyric sandbox --bridge -- npm run dev
