@@ -37,15 +37,27 @@ describe('App Check rig enforcement guard', () => {
     expect(steps).toEqual(['read-enforcement', `selected:${[...NON_AI_PROBES, AI_PROBE].join(',')}`]);
   });
 
-  it('refuses a selection that names an AI probe while enforcement is on', async () => {
+  it('runs a selection that names an AI probe while enforcement is on', async () => {
     const { run, steps } = recordedRun([AI_PROBE], 'ENFORCED');
-    await expect(run).rejects.toThrow('enforcementMode is ENFORCED');
+    await run;
+    expect(steps).toEqual(['read-enforcement', `selected:${AI_PROBE}`]);
+  });
+
+  it('passes ENFORCED to a full run', async () => {
+    const { run, steps } = recordedRun(undefined, 'ENFORCED');
+    await run;
+    expect(steps).toEqual(['read-enforcement', 'all:ENFORCED']);
+  });
+
+  it('refuses a selection that names an AI probe on a mode it cannot name', async () => {
+    const { run, steps } = recordedRun([AI_PROBE], 'UNSET');
+    await expect(run).rejects.toThrow('enforcementMode is UNSET');
     expect(steps).toEqual(['read-enforcement']);
   });
 
-  it('refuses a full run while enforcement is on', async () => {
-    const { run, steps } = recordedRun(undefined, 'ENFORCED');
-    await expect(run).rejects.toThrow('enforcementMode is ENFORCED');
+  it('refuses a full run on a mode it cannot name', async () => {
+    const { run, steps } = recordedRun(undefined, 'UNSET');
+    await expect(run).rejects.toThrow('enforcementMode is UNSET');
     expect(steps).toEqual(['read-enforcement']);
   });
 

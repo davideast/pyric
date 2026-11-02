@@ -5,12 +5,12 @@ import type { RigManifestRecord } from './types.ts';
  * Captures firebase-admin createToken/verifyToken, the raw exchangeDebugToken
  * REST envelope, and the real web SDK in headless Chromium in debug mode,
  * including the X-Firebase-AppCheck header firebase/ai attaches. Runs with
- * enforcement off; the enforcement captures in
+ * whichever enforcement mode the project reads; the enforcement captures in
  * packages/conformance/docs/app-check/capture-plan.md are not part of this run.
  */
 export const rig: RigManifestRecord = {
   description:
-    'Captures production App Check with enforcement off: firebase-admin createToken and verifyToken (including consume), the raw exchangeDebugToken envelope, and firebase/app-check plus firebase/ai in headless Chromium with a run-scoped registered debug token, as app-check- observations with every token reduced to its shape.',
+    'Captures production App Check in the enforcement mode the project reads: firebase-admin createToken and verifyToken (including consume), the raw exchangeDebugToken envelope, and firebase/app-check plus firebase/ai in headless Chromium with a run-scoped registered debug token, as app-check- observations with every token reduced to its shape.',
   script: 'packages/conformance/src/app-check-probes.ts',
   observationPrefixes: ['app-check-'],
   automation: 'credentialed',
@@ -39,7 +39,7 @@ export const rig: RigManifestRecord = {
     ],
     projectFeatures: [
       'Firebase App Check API enabled on the project; the web app need not have a reCAPTCHA registration because the browser captures attest through a debug token.',
-      'Firebase AI Logic enabled with the Gemini Developer API backend, as for the ai-logic rig, and App Check enforcement for firebaseml.googleapis.com left UNENFORCED.',
+      'Firebase AI Logic enabled with the Gemini Developer API backend, as for the ai-logic rig. App Check enforcement for firebaseml.googleapis.com may read UNENFORCED, OFF or ENFORCED, and the capture records which.',
     ],
     local: ['Playwright Chromium is installed.'],
   },

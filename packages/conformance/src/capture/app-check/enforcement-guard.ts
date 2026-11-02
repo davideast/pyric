@@ -1,9 +1,12 @@
 /**
- * The App Check rig records AI Logic behavior with enforcement off. Any run
- * that sends a generateContent request reads the enforcement mode first and
- * refuses to capture when it is on, so an enforced-mode response never
- * overwrites an observation that describes the unenforced one.
+ * AI Logic enforces App Check for every project from November 2, 2026, so the
+ * rig records behavior with enforcement off or on. Any run that sends a
+ * generateContent request reads the enforcement mode first, and refuses to
+ * capture on a mode it cannot name, so an observation always says which mode
+ * it describes.
  */
+
+const CAPTURABLE_MODES: readonly string[] = ['UNENFORCED', 'OFF', 'ENFORCED'];
 
 /** Standalone browser probes that send a real generateContent request. */
 export const AI_REQUEST_BROWSER_PROBES: readonly string[] = ['app-check-client-get-token-before-initialize'];
@@ -14,15 +17,14 @@ function sendsAiRequest(only: readonly string[] | undefined): boolean {
   return only.some((name) => AI_REQUEST_BROWSER_PROBES.includes(name));
 }
 
-/** Throws unless AI Logic enforcement reads off. */
-function assertEnforcementOff(enforcementMode: string): void {
-  const off = enforcementMode === 'UNENFORCED' || enforcementMode === 'OFF';
-  if (off) return;
-  throw new Error(`firebaseml.googleapis.com enforcementMode is ${enforcementMode}; this run expects enforcement off`);
+/** Throws unless AI Logic enforcement reads a mode the capture can record. */
+function assertCapturableMode(enforcementMode: string): void {
+  if (CAPTURABLE_MODES.includes(enforcementMode)) return;
+  throw new Error(`firebaseml.googleapis.com enforcementMode is ${enforcementMode}; this run expects ${CAPTURABLE_MODES.join(', ')}`);
 }
 
 /**
- * Reads enforcement and asserts it is off when the run sends an AI request.
+ * Reads enforcement and asserts it is a known mode when the run sends an AI request.
  * Returns the mode it read, or null when the run sends none and nothing was read.
  */
 async function guardAiEnforcement(
@@ -31,7 +33,7 @@ async function guardAiEnforcement(
 ): Promise<string | null> {
   if (!sendsAiRequest(only)) return null;
   const enforcementMode = await readEnforcement();
-  assertEnforcementOff(enforcementMode);
+  assertCapturableMode(enforcementMode);
   return enforcementMode;
 }
 

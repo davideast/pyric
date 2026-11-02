@@ -2,7 +2,7 @@
  * Firebase App Check probes: the first `app-check-` observations.
  *
  * Captures what production App Check does on three planes, with enforcement
- * off: firebase-admin createToken/verifyToken, the raw exchangeDebugToken REST
+ * off or on: firebase-admin createToken/verifyToken, the raw exchangeDebugToken REST
  * envelope, and the real web SDK in headless Chromium in debug mode, including
  * the X-Firebase-AppCheck header the real firebase/ai SDK attaches. The plan,
  * including the enforcement captures this script does not run, is
@@ -23,7 +23,7 @@
  * (STANDALONE_BROWSER_PROBES) and skips the admin, wire, and main-flow
  * probes. A selection that names an AI probe (AI_REQUEST_BROWSER_PROBES)
  * reads AI Logic enforcement first, as a full run does, and refuses to run
- * when it is on; a selection that names none sends no generateContent request.
+ * on a mode it cannot name; a selection that names none sends no generateContent request.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
