@@ -1,16 +1,18 @@
 // `pyric sandbox --hosted` serves no project state over HTTP (#1779). A
-// project whose firebase.json has no `hosting` block is served from its own
+// project whose firebase.json had no `hosting` block was served from its own
 // directory, which holds `.pyric/state/hosted/state.sqlite` (users and data),
 // `.env`, `.firebaserc` and `node_modules`. Anyone who could reach the port
-// downloaded the database. Production Hosting never serves those paths: the
-// `ignore` list `firebase init` writes leaves out `firebase.json`, every
-// dot file, and `node_modules`. The host answers 404 for each of them,
-// including percent-encoded, doubled-slash and dot-segment spellings, with no
-// `hosting` block and with `"public": "."`, and still serves the page. The
-// Vite plugin's hosted dev server, which serves its root the way Vite does,
-// refuses `.pyric/` by path and through `/@fs`.
+// downloaded the database. Production has no Hosting site without a
+// `hosting` block, so pyric now serves no static files then, and says so at
+// startup. With `"public": "."`, production Hosting still never serves those
+// paths: the `ignore` list `firebase init` writes leaves out `firebase.json`,
+// every dot file, and `node_modules`. The host answers 404 for each of them,
+// including percent-encoded, doubled-slash and dot-segment spellings and a
+// symlink that points into `.pyric/`, and still serves the page. The Vite
+// plugin's hosted dev server, which serves its root the way Vite does,
+// refuses `.pyric/` by path, by query suffix, through `/@fs` and `/@id`.
 import assert from 'node:assert/strict';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, symlinkSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
@@ -95,11 +97,18 @@ export default scenario(async (app) => {
 
   const bare = await app.step('pyric sandbox --hosted starts on a project with no hosting block', () => startHosted(app));
 
+  await app.step('it says hosting is off and serves no static files', async () => {
+    await bare.host.waitForLog(/hosting {2}Off: firebase\.json has no hosting block\. Add hosting\.public to serve a site\./);
+    assert.equal((await rawGet(bare.port, '/index.html')).status, 404);
+  });
+
   await app.step('it answers 404 for .pyric state, dot files, firebase.json and node_modules', () =>
     assertRefusesProjectState(bare.port));
 
   await app.step('pyric sandbox stops', () => bare.host.stop());
 
+  // A link a project might keep in its public directory, pointing into state.
+  symlinkSync(join(app.dir, '.pyric', 'state'), join(app.dir, 'data'));
   app.writeFile('firebase.json', JSON.stringify({
     firestore: { rules: 'firestore.rules' },
     hosting: { public: '.', ignore: ['firebase.json', '**/.*', '**/node_modules/**'] },
@@ -108,6 +117,12 @@ export default scenario(async (app) => {
   const rooted = await app.step('pyric sandbox --hosted starts with "public": "."', () => startHosted(app));
 
   await app.step('it still answers 404 for every ignored path', () => assertRefusesProjectState(rooted.port));
+
+  await app.step('it answers 404 for state reached through a symlink in the public directory', async () => {
+    const answer = await rawGet(rooted.port, '/data/hosted/state.sqlite');
+    assert.equal(answer.status, 404);
+    assert.ok(!answer.body.includes('SQLite format 3'), 'the symlink served the state database');
+  });
 
   await app.step('it serves the page the project deploys', async () => {
     const page = await rawGet(rooted.port, '/index.html');
@@ -119,21 +134,33 @@ export default scenario(async (app) => {
 
   const vite = await app.step('the Vite plugin\'s hosted dev server serves the project', () => app.devServer());
 
-  await app.step('the Vite dev server refuses .pyric state, by path and through /@fs', async () => {
+  await app.step('the Vite dev server refuses .pyric state, by path, by query suffix, through /@fs and /@id', async () => {
     const projectDir = realpathSync(app.dir);
+    const serveJson = app.readFile('.pyric/serve.json').trim();
     const targets = [
       `/${STATE_FILE}`,
       `/%2epyric/state/hosted/state.sqlite`,
       `/${STATE_FILE}?raw`,
-      `/@fs${projectDir}/${STATE_FILE}`,
+      `/${STATE_FILE}?import`,
+      `/${STATE_FILE}?url`,
+      `/${STATE_FILE}?inline`,
       '/.pyric/serve.json',
+      '/.pyric/serve.json?import',
+      '/.pyric/serve.json?url',
+      '/.pyric/serve.json?inline',
+      `/@fs${projectDir}/${STATE_FILE}`,
+      `/@fs${projectDir}/.pyric/serve.json?import`,
+      `/@id/${projectDir}/.pyric/serve.json`,
+      `/@id/${projectDir}/${STATE_FILE}`,
     ];
     const served: string[] = [];
     for (const target of targets) {
       const answer = await rawGet(vite.port, target);
-      const refused = answer.status === 403 || answer.status === 404;
-      const leaked = answer.body.includes('SQLite format 3') || answer.body.includes('instanceId');
-      if (!refused || leaked) served.push(`${answer.status} ${target}`);
+      // Vite answers a path it does not resolve with the app's index.html.
+      const isPageFallback = answer.status === 200 && answer.body.includes('The page this project deploys');
+      const refused = answer.status === 403 || answer.status === 404 || isPageFallback;
+      const leaked = answer.body.includes('SQLite format 3') || answer.body.includes(serveJson);
+      if (!refused || leaked) served.push(`${answer.status} ${target}: ${JSON.stringify(answer.body.slice(0, 160))}`);
     }
     assert.deepEqual(served, [], `the Vite dev server served .pyric state:\n${served.join('\n')}`);
   });
