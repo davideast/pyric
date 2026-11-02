@@ -7,9 +7,9 @@
     "messaging#9"
   ],
   "description": "A notification+data message sent to a token while the page is FOCUSED is delivered to onMessage (not the SW). Payload structural facts; prod noise (ids, token) reduced to shape. Cited by messaging#4, messaging#8, messaging#9 (surface climbing under CDD; cited, not yet replayed).",
-  "observedAt": "2026-07-09T05:16:38.754Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-11-02T18:56:15.308Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "deliveredTo": "onMessage",
     "topLevelKeys": [

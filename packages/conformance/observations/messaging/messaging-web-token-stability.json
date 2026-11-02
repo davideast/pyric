@@ -5,7 +5,7 @@
     "messaging#2"
   ],
   "description": "getToken(messaging, { vapidKey, serviceWorkerRegistration }) called a second time on the SAME service-worker registration returns the SAME token — no per-call rotation. Token value is prod noise; only the equality/shape facts are kept. Cited by messaging#2 (surface climbing under CDD; cited, not yet replayed).",
-  "observedAt": "2026-10-30T14:46:31.779Z",
+  "observedAt": "2026-11-02T18:56:15.308Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
