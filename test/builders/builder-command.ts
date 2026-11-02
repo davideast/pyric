@@ -122,12 +122,12 @@ export function claudeBuilder(options: ClaudeBuilderOptions): Builder {
   };
 }
 
-/** A scripted builder, run with `node`: no model, no spend. */
+/** A scripted builder, run with `node`: no model, no spend. Its script is bound read-only, wherever it is. */
 export function scriptBuilder(script: string): Builder {
   return {
     label: `script ${script}`,
     usesModel: false,
-    readOnly: [],
+    readOnly: [script],
     invocation: (run) => ({ command: 'node', args: [script], env: builderEnvironment(run) }),
   };
 }

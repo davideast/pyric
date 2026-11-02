@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { packedPackageDirs, preflightProblems } from './canary/canary.ts';
+import { canaryPackagesDir, packedPackageDirs, preflightProblems } from './canary/canary.ts';
 
 const PACKED = ['packages/pyric', 'packages/cli'];
 
@@ -49,5 +49,18 @@ describe('preflightProblems', () => {
 
   test('names a --packages directory that does not exist', () => {
     expect(preflightProblems(checkout(), { build: false, packages: '/nonexistent-1613' })).toEqual(['--packages /nonexistent-1613 does not exist']);
+  });
+});
+
+describe('canaryPackagesDir', () => {
+  // The sandbox binds the harness's files, not the repo, so the tarballs'
+  // directory must be bound on its own, packed or passed.
+  test('is the pack script\'s output directory when the canary packs the workspace', () => {
+    expect(canaryPackagesDir('/repo', { build: true })).toBe('/repo/dist/packages');
+    expect(canaryPackagesDir('/repo', { build: false })).toBe('/repo/dist/packages');
+  });
+
+  test('is the --packages directory, resolved, when one is passed', () => {
+    expect(canaryPackagesDir('/repo', { build: false, packages: '/tarballs/' })).toBe('/tarballs');
   });
 });
