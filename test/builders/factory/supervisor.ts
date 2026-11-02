@@ -9,23 +9,27 @@
  * deadline and the timeline are in the run directory (`run-dir.ts`), so a
  * supervisor started again with `resume` goes on with the same deadline.
  */
-import { writeFileSync } from 'node:fs';
 import { firstLine } from '../parse.ts';
 import { systemClock, type Clock } from './clock.ts';
 import { pauseAfterRateLimit } from './rate-limit.ts';
 import { openRun, type OpenedRun } from './run-open.ts';
-import { writeHeartbeat, writeState, type RunPaths, type SupervisorState } from './run-dir.ts';
+import { writeHeartbeat, writeJsonFile, writeState, type RunPaths, type SupervisorState } from './run-dir.ts';
 import { MAX_SESSIONS, REVIEW_ROLES, wanted, type Start } from './schedule.ts';
 import type { HourlyCheck, RunSession, SessionResult } from './session.ts';
 import { noHourlyCheck } from './session.ts';
 import { appendTimeline } from './timeline.ts';
-import { readWorkList, readyIds } from './work-list.ts';
+import { WorkListReader } from './work-list-reader.ts';
+import { readyIds } from './work-list.ts';
 
 export const HEARTBEAT_MS = 60_000;
 export const HOUR_MS = 3_600_000;
 /** How long a stopped session gets to end before the supervisor stops waiting for it. */
 export const KILL_GRACE_MS = 60_000;
-/** A session that fails or is killed sooner than this makes its seat wait before the next, doubling each time. */
+/**
+ * A session that ends sooner than this, however it exits, makes its seat wait
+ * before the next, doubling each time: a model that says it is done at once
+ * must not start again in a tight loop. Rate limits and the deadline aside.
+ */
 const SHORT_SESSION_MS = 60_000;
 const FIRST_COOLDOWN_MS = 15_000;
 const MAX_COOLDOWN_MS = 10 * 60_000;
@@ -84,6 +88,7 @@ class Supervisor {
   private lastHeartbeat = Number.NEGATIVE_INFINITY;
   private readonly log: (line: string) => void;
   private readonly pid: number;
+  private readonly workList: WorkListReader;
 
   constructor(private readonly options: SupervisorOptions, private readonly clock: Clock, opened: OpenedRun) {
     this.paths = opened.paths;
@@ -92,6 +97,7 @@ class Supervisor {
     this.deadline = Date.parse(opened.info.deadline);
     this.log = options.log ?? ((line) => console.log(line));
     this.pid = options.pid ?? process.pid;
+    this.workList = new WorkListReader(this.paths.files.workList, this.log);
     options.stop?.addEventListener('abort', () => this.wake(), { once: true });
   }
 
@@ -147,7 +153,7 @@ class Supervisor {
   }
 
   private oweReviewsForNewReadyWork(): void {
-    const fresh = readyIds(readWorkList(this.paths.files.workList)).filter((id) => !this.state.readySeen.includes(id));
+    const fresh = readyIds(this.workList.read(this.clock.now())).filter((id) => !this.state.readySeen.includes(id));
     if (fresh.length === 0) return;
     this.state.readySeen.push(...fresh);
     this.oweReviews();
@@ -181,9 +187,10 @@ class Supervisor {
   private async runCheck(hour: number): Promise<void> {
     const hook = this.options.hourlyCheck ?? noHourlyCheck;
     const context = { runDir: this.paths.root, appDir: this.paths.app, hour, signal: this.halt.signal };
-    const result = await hook(context).catch((error: unknown) => ({ passed: false, summary: `the check threw: ${firstLine(error)}` }));
+    // `then` turns a synchronous throw into a rejection, so either is a failed check.
+    const result = await Promise.resolve().then(() => hook(context)).catch((error: unknown) => ({ passed: false, summary: `the check threw: ${firstLine(error)}` }));
     const at = iso(this.clock.now());
-    writeFileSync(this.paths.files.latestCheck, `${JSON.stringify({ at, hour, ...result }, null, 2)}\n`);
+    writeJsonFile(this.paths.files.latestCheck, { at, hour, ...result });
     appendTimeline(this.paths.timeline, { type: 'check', at, hour, passed: result.passed, summary: result.summary });
     this.oweReviews();
     this.saveState();
@@ -198,7 +205,7 @@ class Supervisor {
 
   private startSessions(): void {
     const maxSessions = this.options.maxSessions ?? MAX_SESSIONS;
-    const view = { state: this.state, items: readWorkList(this.paths.files.workList), running: new Set(this.running.keys()) };
+    const view = { state: this.state, items: this.workList.read(this.clock.now()), running: new Set(this.running.keys()) };
     const starts = wanted(view).filter((start) => !this.isCooling(start.seat.seat));
     for (const start of starts.slice(0, Math.max(0, maxSessions - this.running.size))) this.startSession(start);
   }
@@ -261,10 +268,12 @@ class Supervisor {
   /** What a session's end owes the schedule: the work it did, a pause, or a wait for its seat. */
   private settleSchedule(entry: Running, result: SessionResult): void {
     const { role, seat } = entry.start.seat;
-    const didWork = result.endedBy === 'exit';
-    if (didWork) this.state.rateLimitStreak = 0;
-    if (didWork && role === 'lead') this.finishLead();
-    if (didWork && role !== 'lead' && role !== 'builder') this.finishReview(role);
+    // A session that ran to its own end counts as the turn its seat was owed,
+    // whatever its exit code, so a failing lead or reviewer isn't retried forever.
+    const ranToItsEnd = result.endedBy === 'exit';
+    if (ranToItsEnd) this.state.rateLimitStreak = 0;
+    if (ranToItsEnd && role === 'lead') this.finishLead();
+    if (ranToItsEnd && role !== 'lead' && role !== 'builder') this.finishReview(role);
     if (result.endedBy === 'rate-limit') this.pause(seat, result.resetAt);
     this.coolDown(seat, result, this.clock.now() - entry.startedAt);
   }
@@ -294,9 +303,9 @@ class Supervisor {
   }
 
   private coolDown(seat: string, result: SessionResult, durationMs: number): void {
-    const isFailure = result.endedBy === 'killed' || (result.endedBy === 'exit' && result.exitCode !== 0);
-    const isQuickFailure = isFailure && durationMs < SHORT_SESSION_MS;
-    if (!isQuickFailure) {
+    const isPausedOrStopped = result.endedBy === 'rate-limit' || result.endedBy === 'deadline';
+    const isQuickEnd = !isPausedOrStopped && durationMs < SHORT_SESSION_MS;
+    if (!isQuickEnd) {
       this.cooldowns.delete(seat);
       return;
     }
@@ -317,6 +326,8 @@ class Supervisor {
     const times = [this.deadline, this.lastHeartbeat + HEARTBEAT_MS, nextCheck];
     if (this.state.pausedUntil !== undefined) times.push(Date.parse(this.state.pausedUntil));
     for (const cooldown of this.cooldowns.values()) times.push(cooldown.until);
+    const retryAt = this.workList.retryAt(now);
+    if (retryAt !== undefined) times.push(retryAt);
     return Math.min(...times.filter((time) => time > now));
   }
 

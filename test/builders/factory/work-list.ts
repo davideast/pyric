@@ -6,8 +6,10 @@
  *   { "items": [{ "id": "login-form", "title": "...", "status": "todo" }] }
  *
  * A builder sets `owner` to its seat when it takes an item and `ready` when
- * the item is built. A missing or unreadable list counts as empty, so the
- * lead plans one.
+ * the item is built. Sessions write it through a temporary file and a
+ * rename. A missing list is empty, so the lead plans one. A list that exists
+ * but doesn't parse is unreadable, not empty: it may be half written, and the
+ * supervisor keeps the last list it read (`work-list-reader.ts`).
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -25,11 +27,13 @@ const workListSchema = z.object({ items: z.array(itemSchema) }).passthrough();
 
 export type WorkItem = z.infer<typeof itemSchema>;
 
-export function readWorkList(path: string): WorkItem[] {
-  if (!existsSync(path)) return [];
+export type WorkListRead = { ok: true; items: WorkItem[] } | { ok: false; errors: string[] };
+
+export function readWorkList(path: string): WorkListRead {
+  if (!existsSync(path)) return { ok: true, items: [] };
   const text = parseJsonText(readFileSync(path, 'utf8'));
   const parsed = text.ok ? parseWith(workListSchema, text.value) : text;
-  return parsed.ok ? parsed.value.items : [];
+  return parsed.ok ? { ok: true, items: parsed.value.items } : parsed;
 }
 
 /** A todo item anyone may take, or an item this seat already took. */
