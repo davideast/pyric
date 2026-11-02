@@ -16,6 +16,15 @@ import { issueTime } from './send-order.js';
 
 const HOLD_DEADLINE_MS = 10_000;
 const HOLD_EXPIRED = 'The hosted sandbox connection was not restored within 10 seconds. The request was not sent.';
+const REMOTE_PAGE_NOTE = ' The host answers clients on its own machine only, so a page opened from another machine cannot connect.';
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** The hold error; a page not addressed as this machine also hears the likely reason. */
+function holdExpiredMessage(): string {
+  const hostname = globalThis.location?.hostname;
+  const isPageOnThisMachine = hostname === undefined || LOCAL_HOSTNAMES.has(hostname);
+  return isPageOnThisMachine ? HOLD_EXPIRED : `${HOLD_EXPIRED}${REMOTE_PAGE_NOTE}`;
+}
 
 let holdDeadlineMs = HOLD_DEADLINE_MS;
 
@@ -35,7 +44,7 @@ export function setHoldDeadlineForTesting(ms: number | undefined): void {
 export function withinHoldDeadline(settled: Promise<void>): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new FirebaseError('unavailable', HOLD_EXPIRED)), holdDeadlineMs);
+    timer = setTimeout(() => reject(new FirebaseError('unavailable', holdExpiredMessage())), holdDeadlineMs);
   });
   return Promise.race([settled, expired]).finally(() => clearTimeout(timer));
 }
@@ -94,7 +103,7 @@ export function createHeldMessages(port: ClientPort): HeldMessages {
     const wasSent = index < 0;
     if (wasSent) return;
     held.splice(index, 1);
-    rejectPendingRequests(port, new FirebaseError('unavailable', HOLD_EXPIRED), pendingId => pendingId === id);
+    rejectPendingRequests(port, new FirebaseError('unavailable', holdExpiredMessage()), pendingId => pendingId === id);
   }
 
   function take(): HeldMessage[] {

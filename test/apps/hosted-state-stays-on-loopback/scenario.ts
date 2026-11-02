@@ -18,6 +18,7 @@ import { request } from 'node:http';
 import { connect } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
+import { chromium } from '@playwright/test';
 import { scenario, sleep, type AppProcess } from '../driver.ts';
 
 interface Answer {
@@ -162,6 +163,20 @@ export default scenario(async (app) => {
       const method = await post({ ...from, path: '/__pyric/hosted/method', body: '{}' });
       assert.equal(method.status, 403, `the service command route answered ${method.status}`);
       assert.equal(await upgrades({ ...from, path: '/__pyric/sandbox' }), false, 'the bridge socket opened');
+    }
+  });
+
+  await app.step('a page opened from another address loads, and its Firestore call says why it has no data', async () => {
+    // The driver's browser resolves only loopback names, so this one adds this machine's other address.
+    const browser = await chromium.launch({ headless: true, args: [`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ${remote}`] });
+    try {
+      const page = await browser.newPage();
+      await page.goto(`http://${remote}:${port}/remote-page.html`);
+      await page.waitForFunction(() => 'outcome' in window, undefined, { timeout: 30_000 });
+      const outcome = await page.evaluate(() => (window as unknown as { outcome: string }).outcome);
+      assert.match(outcome, /^refused: .*own machine/, outcome);
+    } finally {
+      await browser.close();
     }
   });
 
