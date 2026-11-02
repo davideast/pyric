@@ -6,8 +6,8 @@
     "rtdb-modular#served-transaction-then-set"
   ],
   "description": "A client that holds a listener on a seeded path calls runTransaction and then set(100) at once. Records the update function arguments, the outcome and the final value. Captured on the dedicated RTDB oracle instance.",
-  "observedAt": "2026-10-27T20:02:49.714Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-11-02T18:22:56.521Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "firstListenerValue": 1,
