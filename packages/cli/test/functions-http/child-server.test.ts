@@ -88,15 +88,24 @@ describe('the child HTTP server', () => {
     }
   });
 
-  test('the function never sees the token header', async () => {
+  test('the function never sees the token or target header, in headers or rawHeaders', async () => {
+    type Seen = { headers: Record<string, unknown>; rawHeaders: string[] };
     const server = await startHttpChildServer(ENTRY, [
-      fn('headers', (req, res) => { res.end(JSON.stringify((req as { headers: Record<string, unknown> }).headers)); }),
+      fn('headers', (req, res) => {
+        const { headers, rawHeaders } = req as Seen;
+        res.end(JSON.stringify({ headers, rawHeaders }));
+      }),
     ], { token: TOKEN });
     try {
       const response = await call(server.port, 'headers');
-      const headers = (await response.json()) as Record<string, unknown>;
+      const { headers, rawHeaders } = (await response.json()) as Seen;
       expect(headers[CHILD_TOKEN_HEADER]).toBeUndefined();
       expect(headers['x-pyric-function-target']).toBeUndefined();
+      const rawNames = rawHeaders.filter((_, at) => at % 2 === 0).map((name) => name.toLowerCase());
+      expect(rawNames).not.toContain(CHILD_TOKEN_HEADER);
+      expect(rawNames).not.toContain('x-pyric-function-target');
+      expect(rawHeaders).not.toContain(TOKEN);
+      expect(rawNames).toContain('host');
     } finally {
       await server.close();
     }

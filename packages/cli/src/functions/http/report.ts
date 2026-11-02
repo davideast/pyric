@@ -24,7 +24,7 @@ export function createPrivateInvokerWarnings(): (http: FunctionsChildHttpReady) 
     .filter((fn) => fn.privateInvoker && !warned.has(fn.exportName))
     .map((fn) => {
       warned.add(fn.exportName);
-      return `functions export ${fn.exportName} sets invoker: 'private'; production refuses unauthenticated calls with 403, and pyric serves it without authentication to the app's own pages and to callers that send no Origin.`;
+      return `functions export ${fn.exportName} sets invoker: 'private'; production refuses unauthenticated calls with 403, and pyric serves it without authentication to the app's own pages and to callers that are not browser pages, such as curl or server code.`;
     });
 }
 
