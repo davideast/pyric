@@ -3,7 +3,7 @@
  * judge only these lines, so Studio's existing violations never fail a
  * check, and a violation a role adds always does.
  */
-import { git } from './git.ts';
+import { bareGit } from './git.ts';
 
 /** The added or changed lines of each file, by its path in the repo, numbered from 1. */
 export type ChangedLines = Map<string, Set<number>>;
@@ -31,15 +31,17 @@ export function parseChangedLines(diff: string): ChangedLines {
   return changed;
 }
 
-/** The lines added or changed under `pathspec` between two commits. Deleted files drop out. */
-export function changedLines(repo: string, from: string, to: string, pathspec: string): ChangedLines {
-  const diff = git(repo, ['diff', '-U0', '--no-color', '--no-ext-diff', '--diff-filter=AMR', `${from}..${to}`, '--', pathspec]);
+const DIFF = ['diff', '--no-color', '--no-ext-diff', '--no-textconv'];
+
+/** The lines added or changed under `pathspec` between two commits of the harness's repo. Deleted files drop out. */
+export function changedLines(gitDir: string, from: string, to: string, pathspec: string): ChangedLines {
+  const diff = bareGit(gitDir, [...DIFF, '-U0', '--diff-filter=AMR', `${from}..${to}`, '--', pathspec]);
   return parseChangedLines(diff);
 }
 
 /** Files added under `pathspec` between two commits. */
-export function addedFiles(repo: string, from: string, to: string, pathspec: string): string[] {
-  const names = git(repo, ['diff', '--name-only', '--no-renames', '--diff-filter=A', `${from}..${to}`, '--', pathspec]);
+export function addedFiles(gitDir: string, from: string, to: string, pathspec: string): string[] {
+  const names = bareGit(gitDir, [...DIFF, '--name-only', '--no-renames', '--diff-filter=A', `${from}..${to}`, '--', pathspec]);
   return names.split('\n').filter((name) => name !== '');
 }
 

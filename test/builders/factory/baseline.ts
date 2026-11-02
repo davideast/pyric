@@ -1,34 +1,29 @@
 /**
  * The start commit's captures, taken once per run and again only when the
- * walks change: every walked page at each width in `checks/baseline/`, the
- * "before" of each hour's gallery and what the layout gate compares with,
- * and DESIGN.md's reference screens in `checks/reference/`. It also runs
- * Studio's static gates there and records what already fails
- * (`known-failures.ts`).
+ * walks change, by the same path as every hour's check (`check-run.ts`):
+ * every walked page at each width in `checks/baseline/`, the "before" of
+ * each hour's gallery and what the layout gate compares with, and
+ * DESIGN.md's reference screens in `checks/reference/`. It also records what
+ * Studio's static gates already fail on there (`known-failures.ts`).
+ *
+ * All of it is in the run's host directory; `baseline.json` is read back
+ * through its schema.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppPaths } from './app-paths.ts';
-import { prepareCheckout, type AppRecord } from './app-setup.ts';
-import { startAndWalk, staticGates } from './app-gates.ts';
-import { astGrepBinary } from './ast-grep.ts';
-import { writeGateLogs } from './check-output.ts';
-import { knownFailuresOf, type KnownFailures } from './known-failures.ts';
-import { copyWalks, REFERENCE_ROUTES, WIDTHS, writeCaptureRecord } from './captures.ts';
-import { writeJsonFile } from './run-dir.ts';
+import type { AppRecord } from './app-setup.ts';
+import { REFERENCE_ROUTES, WIDTHS, writeCaptureRecord } from './captures.ts';
+import { runTreeCheck } from './check-run.ts';
+import { freshCheckDir, pointLink, writeGateLogs } from './check-output.ts';
+import { knownFailuresOf } from './known-failures.ts';
 import type { SandboxOpener } from './sandbox.ts';
-import type { PageCapture, WalkResult } from './walk-runner.ts';
+import { baselineStateSchema, readJson, walkResultSchema, writeJson } from './state-files.ts';
+import type { PageCapture } from './walk-runner.ts';
+import type { z } from 'zod';
 
-export interface BaselineState {
-  startCommit: string;
-  walksHash: string;
-  capturedAt: string;
-  /** What Studio's static gates already failed on at the start commit. */
-  knownFailures: KnownFailures;
-  /** Why the start commit couldn't be walked, when it couldn't. */
-  error?: string;
-}
+export type BaselineState = z.infer<typeof baselineStateSchema>;
 
 function hashTree(dir: string, hash = createHash('sha256')): ReturnType<typeof createHash> {
   if (!existsSync(dir)) return hash;
@@ -52,56 +47,53 @@ export function baselineScreenshots(paths: AppPaths): string {
   return join(paths.baseline, 'screenshots');
 }
 
-export function referenceDir(paths: AppPaths): string {
-  return join(paths.checks, 'reference');
-}
-
-function readState(paths: AppPaths): BaselineState | undefined {
-  const file = stateFile(paths);
-  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as BaselineState) : undefined;
-}
-
 /** The start commit's page captures, or none when it has not been walked. */
 export function baselinePages(paths: AppPaths): PageCapture[] {
-  const file = join(baselineScreenshots(paths), 'walk-result.json');
-  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as WalkResult).pages : [];
+  return readJson(join(baselineScreenshots(paths), 'walk-result.json'), walkResultSchema)?.pages ?? [];
 }
 
 export interface BaselineInput {
   paths: AppPaths;
   record: AppRecord;
   walks: readonly string[];
-  openSandbox: SandboxOpener;
+  signal?: AbortSignal;
+  openSandbox?: SandboxOpener;
   say: (line: string) => void;
+}
+
+function isCurrent(state: BaselineState | undefined, record: AppRecord, hash: string): state is BaselineState {
+  return state !== undefined && state.startCommit === record.startCommit && state.walksHash === hash;
 }
 
 /** Takes the start commit's captures unless this run already has them for these walks. */
 export async function ensureBaseline(input: BaselineInput): Promise<BaselineState> {
   const { paths, record } = input;
   const hash = walksHash(record.briefDir);
-  const current = readState(paths);
-  const isCurrent = current?.startCommit === record.startCommit && current.walksHash === hash && current.knownFailures !== undefined;
-  if (current !== undefined && isCurrent) return current;
+  const current = readJson(stateFile(paths), baselineStateSchema);
+  if (isCurrent(current, record, hash)) return current;
   input.say(`capturing the start commit ${record.startCommit.slice(0, 12)}`);
-  mkdirSync(paths.baseline, { recursive: true });
-  await prepareCheckout(paths, paths.check, record.startCommit, { openSandbox: input.openSandbox, withRoot: true, say: input.say });
-  const walksDir = copyWalks(record.briefDir, join(paths.check.root, 'baseline-walks'));
-  const needsReference = !existsSync(join(referenceDir(paths), 'capture.json'));
+  const dir = freshCheckDir(paths, 'baseline');
+  const needsReference = !existsSync(join(paths.reference, 'capture.json'));
+  const referenceDir = needsReference ? freshCheckDir(paths, 'reference') : undefined;
   const capturedAt = new Date().toISOString();
-  const astGrep = astGrepBinary(paths.check.studio);
-  const { walked, statics } = await input.openSandbox(paths.check.root, paths, async (runner, namespace) => {
-    const statics = await staticGates(runner, paths.check, astGrep);
-    const base = { runner, namespace, checkout: paths.check, logDir: paths.baseline, walksDir };
-    const walked = await startAndWalk({ ...base, walks: input.walks, outDir: baselineScreenshots(paths) });
-    if (needsReference) await startAndWalk({ ...base, walks: [], routes: REFERENCE_ROUTES, outDir: referenceDir(paths) });
-    return { walked, statics };
+  const jobs = [
+    { label: 'baseline', walks: input.walks, routes: [], outDir: join(dir, 'screenshots') },
+    ...(referenceDir === undefined ? [] : [{ label: 'reference', walks: [], routes: REFERENCE_ROUTES, outDir: referenceDir }]),
+  ];
+  const checked = await runTreeCheck({
+    paths, record, commit: record.startCommit, label: 'baseline', logDir: dir, jobs, say: input.say,
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    ...(input.openSandbox === undefined ? {} : { openSandbox: input.openSandbox }),
   });
-  writeGateLogs(paths.baseline, statics);
-  writeCaptureRecord(baselineScreenshots(paths), { commit: record.startCommit, capturedAt, widths: WIDTHS });
-  if (needsReference) writeCaptureRecord(referenceDir(paths), { commit: record.startCommit, capturedAt, widths: WIDTHS, notes: ['/narration/{id}: a fresh sandbox has no narration to open'] });
-  const error = walked.appStart.passed ? undefined : walked.appStart.summary;
-  const knownFailures = knownFailuresOf(statics);
-  const state: BaselineState = { startCommit: record.startCommit, walksHash: hash, capturedAt, knownFailures, ...(error === undefined ? {} : { error }) };
-  writeJsonFile(stateFile(paths), state);
+  writeGateLogs(dir, checked.statics);
+  writeCaptureRecord(join(dir, 'screenshots'), { commit: record.startCommit, capturedAt, widths: WIDTHS });
+  if (referenceDir !== undefined) {
+    writeCaptureRecord(referenceDir, { commit: record.startCommit, capturedAt, widths: WIDTHS, notes: ['/narration/{id}: a fresh sandbox has no narration to open'] });
+    pointLink(paths.reference, referenceDir);
+  }
+  const error = checked.walked.appStart.passed ? undefined : checked.walked.appStart.summary;
+  const state: BaselineState = { startCommit: record.startCommit, walksHash: hash, capturedAt, knownFailures: knownFailuresOf(checked.statics), ...(error === undefined ? {} : { error }) };
+  writeJson(join(dir, 'baseline.json'), state);
+  pointLink(paths.baseline, dir);
   return state;
 }

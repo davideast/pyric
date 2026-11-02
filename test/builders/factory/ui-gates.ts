@@ -4,7 +4,6 @@
  * judges only added or changed lines (`diff-lines.ts`).
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scan, type Finding } from './ast-grep.ts';
 import { copyProblems, type CopyKind, type CopyOverrides } from './copy-rules.ts';
@@ -114,11 +113,14 @@ export function copyReport(strings: readonly CopyString[]): string {
 export interface UiGateInput {
   runner: Runner;
   astGrep: string;
+  /** Where the scans run: the tree's repo, inside its sandbox. */
   repo: string;
   changed: ChangedLines;
   added: readonly string[];
   approved: ReadonlySet<string>;
   overrides: CopyOverrides;
+  /** A file's text at the checked commit, by its repo path: from the harness's repo, never the tree. */
+  readSource: (file: string) => string;
 }
 
 export interface UiGateResult {
@@ -133,9 +135,8 @@ export async function runUiGates(input: UiGateInput): Promise<UiGateResult> {
   const base = { runner: input.runner, binary: input.astGrep, cwd: input.repo };
   const ruleFindings = await scan({ ...base, config: UI_RULES_CONFIG, files });
   const copyFindings = await scan({ ...base, config: COPY_RULES_CONFIG, files: tsxFiles });
-  const readSource = (file: string) => readFileSync(join(input.repo, file), 'utf8');
   return {
-    violations: [...ruleViolations(ruleFindings, input.changed, readSource), ...newComponentViolations(input.added, input.approved)],
+    violations: [...ruleViolations(ruleFindings, input.changed, input.readSource), ...newComponentViolations(input.added, input.approved)],
     copy: copyStrings(copyFindings, input.changed, input.overrides),
   };
 }

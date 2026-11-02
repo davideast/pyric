@@ -1,30 +1,39 @@
 /**
- * Where a factory run keeps its app. Three checkouts of one repo, each with
- * its own install, so no role's work and no check trip over another's:
+ * Where a factory run keeps its app, by who can write what.
  *
- *   app/              the clone every role works in (the supervisor's `app/`)
- *   app.json          what app setup recorded: the source, its commit, the start commit
- *   packages/         the packed Pyric tarballs and the app's own engine tarball
- *   tools/            binaries an install script would have downloaded (ffmpeg)
- *   check/app/        the checkout the hourly check builds and starts
- *   served/app/       the checkout of the last good commit, served on the tailnet
- *   checks/hour-<n>/  each check's result, output, screenshots and copy report
- *   checks/latest     the most recent check's folder
- *   checks/baseline/  the start commit's screenshots and layout findings
- *   last-good.json    the last commit that passed, and what serves it
+ * The run directory is every session's (`run-dir.ts`). Of the app's files
+ * only the roles' clone lives there:
  *
- * `check/` and `served/` are each a sandbox's run root: the sandbox writes
- * its resolv.conf, hosts and network record there, beside the checkout.
+ *   app/                the clone every role works in
+ *   checks/             the harness's results, bound read-only over this path in each session
+ *
+ * The run's host directory, `<run dir>.host/`, is the harness's alone. Every
+ * file the hourly check trusts is there, written through `host-files.ts`
+ * and read back through a schema:
+ *
+ *   app.json                 what setup recorded: the source, the start commit, the tools' hashes
+ *   packages/                the packed Pyric tarballs and the app's engine tarball
+ *   tools/                   ffmpeg and ast-grep, each checked by hash before use
+ *   git/                     a bare repo: each hour's commit is fetched into it, never checked out on the host
+ *   checks/                  each check's result, the baseline, the reference screens, `latest`
+ *   last-good.json           the last commit that passed
+ *   served.json              the served copy's process, checked against /proc before any signal
+ *   approved-components.txt  new components/ui files the lead approved
+ *   copy-overrides.json      verbs and labels the copy check accepts
+ *
+ * The run's work directory, `<run dir>.work/`, holds the trees the check
+ * builds and runs in: a fresh sandbox root per tree, exported from the
+ * harness's repo, never bound into a session. They are kept;
+ * `factory-summary` reports their size.
  */
 import { join } from 'node:path';
+import { hostDirOf } from './host-files.ts';
 
-/** One checkout and its sandbox's files. */
+/** One sandbox's tree: its root, the exported repo in it, and its HOME, logs and network record. */
 export interface Checkout {
-  /** The sandbox's run root. */
+  /** The sandbox's run root, its one writable directory. */
   root: string;
-  /** The repo. */
   repo: string;
-  /** Studio, inside the repo. */
   studio: string;
   home: string;
   logs: string;
@@ -33,51 +42,57 @@ export interface Checkout {
 
 export interface AppPaths {
   runDir: string;
+  host: string;
+  work: string;
   record: string;
   packages: string;
   tools: string;
-  app: Checkout;
-  check: Checkout;
-  served: Checkout;
+  gitDir: string;
   checks: string;
   latest: string;
   baseline: string;
+  reference: string;
   lastGood: string;
+  served: string;
   approvedComponents: string;
   copyOverrides: string;
+  /** Where roles see `checks`: the same directory, bound read-only in their sandbox. */
+  roleChecks: string;
+  /** The roles' clone, which setup installs in a sandbox rooted at the run directory. */
+  app: Checkout;
 }
 
-function checkoutAt(root: string, repo: string): Checkout {
-  return {
-    root,
-    repo,
-    studio: join(repo, 'studio'),
-    home: join(root, 'home'),
-    logs: join(root, 'logs'),
-    networkLog: join(root, 'network.jsonl'),
-  };
+export function checkoutAt(root: string): Checkout {
+  const repo = join(root, 'repo');
+  return { root, repo, studio: join(repo, 'studio'), home: join(root, 'home'), logs: join(root, 'logs'), networkLog: join(root, 'network.jsonl') };
+}
+
+export function workDirOf(runDir: string): string {
+  return `${runDir}.work`;
 }
 
 export function appPaths(runDir: string): AppPaths {
-  const checks = join(runDir, 'checks');
+  const host = hostDirOf(runDir);
+  const checks = join(host, 'checks');
+  const setup = join(runDir, 'setup');
   return {
     runDir,
-    record: join(runDir, 'app.json'),
-    packages: join(runDir, 'packages'),
-    tools: join(runDir, 'tools'),
-    // The supervisor fixes the roles' clone at `app/`, so its sandbox's root is the run directory and its files go in `setup/`.
-    app: { ...checkoutAt(join(runDir, 'setup'), join(runDir, 'app')), root: runDir, networkLog: join(runDir, 'setup', 'network.jsonl') },
-    check: checkoutAt(join(runDir, 'check'), join(runDir, 'check', 'app')),
-    served: checkoutAt(join(runDir, 'served'), join(runDir, 'served', 'app')),
+    host,
+    work: workDirOf(runDir),
+    record: join(host, 'app.json'),
+    packages: join(host, 'packages'),
+    tools: join(host, 'tools'),
+    gitDir: join(host, 'git'),
     checks,
     latest: join(checks, 'latest'),
     baseline: join(checks, 'baseline'),
-    lastGood: join(runDir, 'last-good.json'),
-    approvedComponents: join(runDir, 'approved-components.txt'),
-    copyOverrides: join(runDir, 'copy-overrides.json'),
+    reference: join(checks, 'reference'),
+    lastGood: join(host, 'last-good.json'),
+    served: join(host, 'served.json'),
+    approvedComponents: join(host, 'approved-components.txt'),
+    copyOverrides: join(host, 'copy-overrides.json'),
+    roleChecks: join(runDir, 'checks'),
+    // Setup installs the roles' clone before any session exists, in a sandbox rooted at the run directory.
+    app: { root: runDir, repo: join(runDir, 'app'), studio: join(runDir, 'app', 'studio'), home: join(setup, 'home'), logs: join(setup, 'logs'), networkLog: join(setup, 'network.jsonl') },
   };
-}
-
-export function hourDir(paths: AppPaths, hour: number): string {
-  return join(paths.checks, `hour-${hour}`);
 }

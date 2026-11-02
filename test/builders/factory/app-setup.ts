@@ -6,45 +6,49 @@
  * 1. Clones the source into `<runDir>/app` with no remote left, at the commit
  *    (the source's HEAD unless one is named). A clone has only committed files:
  *    no `.env*`, no `.pyric-local`, no build output.
- * 2. Copies the Pyric tarballs into `<runDir>/packages/`.
- * 3. Installs the repo root (`bun install --frozen-lockfile --ignore-scripts`,
- *    on the host, the only step that reaches the registry besides a cold npm
- *    cache) and, inside the sandbox, builds the `mdmedia` engine and packs it
- *    there too. Studio depends on it as `file:../mdmedia-0.1.0.tgz`, which no
- *    clone has.
+ * 2. Lays out the run's host directory: the Pyric tarballs in `packages/`,
+ *    the harness's ast-grep and the source checkout's ffmpeg in `tools/`
+ *    with their hashes, and a bare repo in `git/`.
+ * 3. Installs the repo root on the host (`bun install --frozen-lockfile
+ *    --ignore-scripts`: the source commit, before any session exists, and the
+ *    only install that reaches the registry) and, inside the sandbox, builds
+ *    the `mdmedia` engine and packs it. Studio depends on it as
+ *    `file:../mdmedia-0.1.0.tgz`, which no clone has.
  * 4. Commits one change on a `factory` branch: Studio's Pyric and engine
  *    dependencies pinned to those tarballs, Studio's `next.config.ts`
  *    adapted to that Pyric's `withPyric` (`next-config.ts`), and the
  *    factory's UI rules registered in Studio's ast-grep config. `app.json`
- *    lists the adaptations. That commit is the run's start
- *    commit; the UI gates judge every change after it.
- * 5. Installs the UI rules themselves into `studio/checks/`, kept out of git
- *    by `.git/info/exclude`, then installs Studio inside the sandbox
- *    (`app-install.ts`), and runs Studio's own postinstall patch, since the
- *    install runs no scripts.
- * 6. Prepares the check's checkout the same way, and writes `app.json`.
+ *    lists the adaptations. That commit is the run's start commit; the UI
+ *    gates judge every change after it. It is fetched into the bare repo.
+ * 5. Installs the UI rules into `studio/checks/`, kept out of git by
+ *    `.git/info/exclude`, then installs Studio inside the sandbox, which
+ *    warms the shared npm cache every later install reads.
+ * 6. Writes `app.json` in the host directory.
  *
  * `run.json` is the supervisor's, written when `factory --hours` starts the
  * run, and that command refuses a directory that already has one; so the
- * commits are recorded in `app.json` beside it.
+ * commits are recorded in `app.json`.
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { z } from 'zod';
 import type { Tarballs } from '../../apps/install.ts';
 import { dataRoot } from '../round-paths.ts';
-import { appPaths, type AppPaths, type Checkout } from './app-paths.ts';
-import { mustRun, type Runner } from './exec.ts';
-import { checkoutCommit, cloneWithoutRemote, git, headCommit } from './git.ts';
-import { fetchFfmpeg } from './ffmpeg.ts';
+import { appPaths, type AppPaths } from './app-paths.ts';
+import { hostRunner, mustRun, type Runner } from './exec.ts';
+import { cloneWithoutRemote, fetchHead, git, headCommit, initBareRepo } from './git.ts';
+import { makeHostDir } from './host-files.ts';
 import { adaptNextConfig, NEXT_CONFIG } from './next-config.ts';
-import { installRoot, installStudio, type SandboxOpener } from './studio-install.ts';
 import { installUiRules, registerUiRules } from './rules-install.ts';
-import { writeJsonFile } from './run-dir.ts';
+import { openSandbox as realSandbox, type SandboxOpener, type SandboxSpec } from './sandbox.ts';
+import { readJson, writeJson } from './state-files.ts';
+import { installStudio } from './studio-install.ts';
+import { AST_GREP, FFMPEG, harnessAstGrep, placeTool, sourceFfmpeg, type ToolHashes } from './tools.ts';
 
 export const ENGINE_TARBALL = 'mdmedia-0.1.0.tgz';
 const BRANCH = 'factory';
 const ENGINE_TIMEOUT_MS = 10 * 60_000;
+const ROOT_INSTALL_TIMEOUT_MS = 10 * 60_000;
 
 export function defaultBriefDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(dataRoot(env), 'briefs', 'factory', 'mdmedia');
@@ -57,14 +61,17 @@ const recordSchema = z.object({
   setupAt: z.string().datetime(),
   briefDir: z.string(),
   /** What setup changed in Studio's code to run on the pinned Pyric. */
-  adaptations: z.array(z.string()).optional(),
+  adaptations: z.array(z.string()),
+  /** Each tool in `tools/` by its sha256. */
+  tools: z.record(z.string().regex(/^[0-9a-f]{64}$/)),
 }).strict();
 
 export type AppRecord = z.infer<typeof recordSchema>;
 
 export function readAppRecord(paths: AppPaths): AppRecord {
-  if (!existsSync(paths.record)) throw new Error(`${paths.record} is missing: run factory-setup first`);
-  return recordSchema.parse(JSON.parse(readFileSync(paths.record, 'utf8')));
+  const record = readJson(paths.record, recordSchema);
+  if (record === undefined) throw new Error(`${paths.record} is missing: run factory-setup first`);
+  return record;
 }
 
 export interface SetupOptions {
@@ -73,12 +80,11 @@ export interface SetupOptions {
   commit?: string;
   briefDir?: string;
   tarballs: Tarballs;
-  openSandbox: SandboxOpener;
+  openSandbox?: SandboxOpener;
   say: (line: string) => void;
 }
 
 function copyTarballs(paths: AppPaths, tarballs: Tarballs): Tarballs {
-  mkdirSync(paths.packages, { recursive: true });
   const copied: Tarballs = new Map();
   for (const [name, file] of tarballs) {
     const target = join(paths.packages, basename(file));
@@ -88,12 +94,28 @@ function copyTarballs(paths: AppPaths, tarballs: Tarballs): Tarballs {
   return copied;
 }
 
+/** A setup sandbox: rooted at the run directory, before any session exists, with a network record per step. */
+function setupSpec(paths: AppPaths, step: string): SandboxSpec {
+  const { app } = paths;
+  return { root: app.root, networkLog: join(app.logs, `${step}.network.jsonl`), home: app.home, readOnly: [] };
+}
+
 async function packEngine(runner: Runner, paths: AppPaths): Promise<string> {
   const { repo } = paths.app;
+  const staging = join(paths.app.logs, '..');
   await mustRun(runner, { command: 'bun', args: ['run', 'build'], cwd: repo, timeoutMs: ENGINE_TIMEOUT_MS }, 'building the mdmedia engine');
-  const args = ['pack', '--ignore-scripts', '--pack-destination', paths.packages];
+  const args = ['pack', '--ignore-scripts', '--pack-destination', staging];
   await mustRun(runner, { command: 'npm', args, cwd: repo, timeoutMs: ENGINE_TIMEOUT_MS }, 'packing the mdmedia engine');
-  return join(paths.packages, ENGINE_TARBALL);
+  return join(staging, ENGINE_TARBALL);
+}
+
+/** Copies the packed engine into `packages/`: a regular file, written by the source commit's own build. */
+function keepEngine(paths: AppPaths, packed: string): string {
+  const isRegularFile = lstatSync(packed).isFile();
+  if (!isRegularFile) throw new Error(`${packed} is not a regular file`);
+  const target = join(paths.packages, ENGINE_TARBALL);
+  copyFileSync(packed, target);
+  return target;
 }
 
 /** Points Studio's Pyric packages and engine at the run's tarballs; `overrides` pin Pyric's own dependencies on each other too. */
@@ -121,42 +143,59 @@ function commitStart(paths: AppPaths): string {
   return headCommit(repo);
 }
 
-/** Makes or updates a checkout of `commit` from the roles' clone, with its UI rules and installs. */
-export async function prepareCheckout(paths: AppPaths, checkout: Checkout, commit: string, options: { openSandbox: SandboxOpener; withRoot: boolean; say: (line: string) => void }): Promise<void> {
-  mkdirSync(checkout.root, { recursive: true });
-  if (!existsSync(join(checkout.repo, '.git'))) cloneWithoutRemote(paths.app.repo, checkout.repo);
-  checkoutCommit(checkout.repo, paths.app.repo, commit);
-  installUiRules(checkout.repo);
-  await installStudio(paths, checkout, { ...options });
+function placeTools(paths: AppPaths, source: string, say: (line: string) => void): ToolHashes {
+  const tools: ToolHashes = { [AST_GREP]: placeTool(paths.tools, AST_GREP, harnessAstGrep()) };
+  const ffmpeg = sourceFfmpeg(source);
+  if (ffmpeg === undefined) say('the source checkout has no ffmpeg; Studio\'s media tests will fail');
+  else tools[FFMPEG] = placeTool(paths.tools, FFMPEG, ffmpeg);
+  return tools;
+}
+
+function makeLayout(paths: AppPaths): void {
+  makeHostDir(paths.host, paths.host, paths.runDir);
+  for (const dir of [paths.packages, paths.tools, paths.checks]) makeHostDir(dir, paths.host, paths.runDir);
+  initBareRepo(paths.gitDir);
+}
+
+/** Installs the source commit's repo root on the host, before any session exists. */
+async function installSourceRoot(paths: AppPaths): Promise<void> {
+  const args = ['install', '--frozen-lockfile', '--ignore-scripts'];
+  await mustRun(hostRunner(paths.app.home), { command: 'bun', args, cwd: paths.app.repo, timeoutMs: ROOT_INSTALL_TIMEOUT_MS }, 'bun install at the repo root');
 }
 
 export async function setupApp(options: SetupOptions): Promise<AppRecord> {
   const paths = appPaths(options.runDir);
   const { say } = options;
+  const opener = options.openSandbox ?? realSandbox;
   if (existsSync(paths.record)) throw new Error(`${paths.record} exists: this run's app is already set up`);
   const hasClone = existsSync(paths.app.repo) && readdirSync(paths.app.repo).length > 0;
   if (hasClone) throw new Error(`${paths.app.repo} is not empty; set up a new run directory`);
+  makeLayout(paths);
+  for (const dir of [paths.app.home, paths.app.logs]) mkdirSync(dir, { recursive: true });
   const sourceCommit = options.commit ?? headCommit(options.source);
   say(`cloning ${options.source} at ${sourceCommit} into ${paths.app.repo}`);
   cloneWithoutRemote(options.source, paths.app.repo);
   git(paths.app.repo, ['checkout', '--quiet', '-B', BRANCH, sourceCommit]);
-  const hasFfmpeg = fetchFfmpeg(paths, options.source);
-  say(hasFfmpeg ? 'copied the source checkout\'s ffmpeg into tools/' : 'the source checkout has no ffmpeg; Studio\'s media tests will fail');
+  const tools = placeTools(paths, options.source, say);
   const tarballs = copyTarballs(paths, options.tarballs);
-  say('bun install at the repo root, on the host');
-  await installRoot(paths.app);
+  say('bun install at the repo root, on the host, at the source commit');
+  await installSourceRoot(paths);
   say('building and packing the mdmedia engine inside the sandbox');
-  const engine = await options.openSandbox(paths.app.root, paths, (runner) => packEngine(runner, paths));
+  const packed = await opener(setupSpec(paths, 'engine'), paths, (runner) => packEngine(runner, paths));
+  const engine = keepEngine(paths, packed);
   pinStudio(paths.app.studio, tarballs, engine);
   const adaptations = adaptNextConfig(paths.app.studio);
   for (const line of adaptations) say(`adapted ${line}`);
   registerUiRules(paths.app.studio);
   const startCommit = commitStart(paths);
+  const fetched = fetchHead(paths.gitDir, paths.app.repo);
+  if (fetched !== startCommit) throw new Error(`the harness's repo fetched ${fetched}, not the start commit ${startCommit}`);
   say(`start commit ${startCommit}`);
   installUiRules(paths.app.repo);
-  await installStudio(paths, paths.app, { openSandbox: options.openSandbox, withRoot: false, say });
-  say('preparing the check\'s checkout');
-  await prepareCheckout(paths, paths.check, startCommit, { openSandbox: options.openSandbox, withRoot: true, say });
+  say('installing Studio in the roles\' clone, inside the sandbox');
+  // The one install that may fall back to the host on a cold cache: the start commit's, which warms it.
+  const install = { checkout: paths.app, withRoot: false, outsideInstall: 'allowed' as const, say };
+  await opener(setupSpec(paths, 'install'), paths, (runner, namespace) => installStudio({ ...install, runner, namespace }));
   const record: AppRecord = {
     source: options.source,
     sourceCommit,
@@ -164,7 +203,8 @@ export async function setupApp(options: SetupOptions): Promise<AppRecord> {
     setupAt: new Date().toISOString(),
     briefDir: options.briefDir ?? defaultBriefDir(),
     adaptations,
+    tools,
   };
-  writeJsonFile(paths.record, record);
+  writeJson(paths.record, record);
   return record;
 }

@@ -1,64 +1,49 @@
 /**
- * Installs Studio in a checkout: npm inside the sandbox from the warm shared
- * cache, as a round's apps install (`app-install.ts`), falling back to the
- * host under the recorder when the cache is cold; then Studio's own
- * postinstall patch, which `--ignore-scripts` skipped. `ffmpeg-static`'s
- * download is skipped with it; `ffmpeg.ts` puts the binary in place. With
- * `withRoot`, the repo root's packages too, for Studio's tests.
+ * Installs Studio in a tree, every step inside the tree's sandbox, where no
+ * network but loopback exists:
  *
- * `pyric sandbox` refuses to start when firebase.json declares a Functions
- * source whose entry is missing, and Studio's (`../functions`, auth blocking
- * triggers) is build output no clone has; so the functions package is
- * installed and built the same way.
+ * - With `withRoot`, the repo root's packages for Studio's tests: `bun
+ *   install --frozen-lockfile --ignore-scripts` from the host's bun cache,
+ *   bound under an overlay so the install can't change it. A lockfile entry
+ *   that names a source other than the npm registry fails first, named.
+ * - Studio's packages: npm from the warm shared cache (`app-install.ts`),
+ *   never on the host. A cold cache fails and names the package it lacks;
+ *   setup's install warms the cache.
+ * - Studio's own postinstall patch, which `--ignore-scripts` skipped.
+ * - The functions package, built: `pyric sandbox` refuses to start when
+ *   firebase.json declares a Functions source whose entry is missing, and
+ *   Studio's (`../functions`) is build output no commit has.
+ * - The factory's UI rules, copied into `studio/checks/`, where Studio's
+ *   ast-grep config names them since the start commit.
+ * - `studio/.env.local` with the placeholder web config `app-start.ts`
+ *   passes, so a role that runs `npm run dev` itself gets the same values.
  *
- * Writes `studio/.env.local` with the placeholder web config `app-start.ts`
- * passes, so a role that runs `npm run dev` itself gets the same values.
- *
- * Skips everything when the manifests match the last install's.
+ * Each file the install writes is written by a command inside the sandbox:
+ * the host never writes into a tree after the commit's files are in it.
  */
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { installApp } from '../app-install.ts';
+import { fileURLToPath } from 'node:url';
+import { ColdCacheRefused, installApp, type OutsideInstall } from '../app-install.ts';
+import type { EgressNamespace } from '../namespace.ts';
 import type { RunDirs } from '../scratch.ts';
-import type { AppPaths, Checkout } from './app-paths.ts';
+import type { Checkout } from './app-paths.ts';
 import { studioEnvironment } from './app-start.ts';
-import { hostRunner, mustRun, type Runner } from './exec.ts';
-import { placeFfmpeg } from './ffmpeg.ts';
-import type { SandboxOpener } from './sandbox.ts';
+import { mustRun, type Runner } from './exec.ts';
+import { readRunFile } from './host-files.ts';
+import { lockfileProblems } from './lockfile.ts';
 
-export type { SandboxOpener } from './sandbox.ts';
-
-const PATCH_TIMEOUT_MS = 60_000;
+const STEP_TIMEOUT_MS = 2 * 60_000;
 const ROOT_INSTALL_TIMEOUT_MS = 10 * 60_000;
 const ENV_KEYS = /^(NEXT_PUBLIC_FIREBASE_|FIREBASE_)/;
+const UI_RULES = fileURLToPath(new URL('./ui-rules', import.meta.url));
+const MISSING_PACKAGE = /(?:request to \S*?registry\.npmjs\.org\/(\S+?) failed|ENOTCACHED[^\n]*?\/([@\w./-]+))/;
 
-export interface InstallOptions {
-  openSandbox: SandboxOpener;
-  withRoot: boolean;
-  say: (line: string) => void;
-}
+export class InstallFailed extends Error {}
 
-function manifestFiles(checkout: Checkout, withRoot: boolean): string[] {
-  const studio = [join(checkout.studio, 'package.json'), join(functionsDir(checkout), 'package.json')];
-  const root = [join(checkout.repo, 'package.json'), join(checkout.repo, 'bun.lock')];
-  return withRoot ? [...studio, ...root] : studio;
-}
-
-function manifestHash(files: readonly string[]): string {
-  const hash = createHash('sha256');
-  for (const file of files) hash.update(file).update(existsSync(file) ? readFileSync(file) : '');
-  return hash.digest('hex');
-}
-
-function markerPath(checkout: Checkout): string {
-  return join(checkout.logs, 'installed.json');
-}
-
-function isInstalled(checkout: Checkout, hash: string): boolean {
-  const marker = markerPath(checkout);
-  return existsSync(marker) && (JSON.parse(readFileSync(marker, 'utf8')) as { hash?: string }).hash === hash;
+/** The host's bun cache, which a sandboxed root install reads under an overlay. */
+export function bunCacheDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.BUN_INSTALL_CACHE_DIR ?? join(homedir(), '.bun', 'install', 'cache');
 }
 
 /** `.env.local` lines: the fake web config only, no provider key. */
@@ -68,47 +53,70 @@ export function envLocal(checkout: Checkout): string {
   return `# Written by the pyric factory: a demo- project and a fake key. No provider keys.\n${lines.join('\n')}\n`;
 }
 
-function functionsDir(checkout: Checkout): string {
-  return join(checkout.repo, 'functions');
-}
-
 function runDirsOf(checkout: Checkout, app: string): RunDirs {
   return { root: checkout.root, app, home: checkout.home, logs: checkout.logs, networkLog: checkout.networkLog, netLog: join(checkout.logs, 'chromium-netlog.json') };
 }
 
-/** The host's bun cache, so the root install reads what earlier installs fetched. */
-function bunEnvironment(): Record<string, string> {
-  return { BUN_INSTALL_CACHE_DIR: process.env.BUN_INSTALL_CACHE_DIR ?? join(homedir(), '.bun', 'install', 'cache') };
+/** The package a cold-cache install lacked, from npm's log. */
+export function missingPackage(log: string): string | undefined {
+  const match = MISSING_PACKAGE.exec(log);
+  return match?.[1] ?? match?.[2];
 }
 
-/** Installs the repo root's dependencies on the host: the registry is outside the sandbox. */
-export async function installRoot(checkout: Checkout, runner: Runner = hostRunner(checkout.home)): Promise<void> {
-  mkdirSync(checkout.home, { recursive: true });
-  const args = ['install', '--frozen-lockfile', '--ignore-scripts'];
-  await mustRun(runner, { command: 'bun', args, cwd: checkout.repo, timeoutMs: ROOT_INSTALL_TIMEOUT_MS, env: bunEnvironment() }, 'bun install at the repo root');
+async function installNpm(input: InstallInput, app: string, label: string): Promise<void> {
+  const { namespace, checkout, say } = input;
+  try {
+    await installApp(namespace, runDirsOf(checkout, app), label, say, input.outsideInstall ?? 'forbidden');
+  } catch (error) {
+    if (!(error instanceof ColdCacheRefused)) throw error;
+    const log = readRunFile(join(checkout.logs, '00-npm-install-sandbox.log'));
+    const name = log.ok ? missingPackage(log.text) : undefined;
+    throw new InstallFailed(`${label}: the shared npm cache lacks ${name ?? 'a package'}; run factory-setup's install to warm it`);
+  }
 }
 
-export async function installStudio(paths: AppPaths, checkout: Checkout, options: InstallOptions): Promise<void> {
-  mkdirSync(checkout.logs, { recursive: true });
-  writeFileSync(join(checkout.studio, '.env.local'), envLocal(checkout));
-  const hash = manifestHash(manifestFiles(checkout, options.withRoot));
-  if (isInstalled(checkout, hash)) {
-    placeFfmpeg(paths, checkout);
-    return;
-  }
-  if (options.withRoot) {
-    await installRoot(checkout);
-    placeFfmpeg(paths, checkout);
-  }
-  await options.openSandbox(checkout.root, paths, async (runner, namespace) => {
-    await installApp(namespace, runDirsOf(checkout, checkout.studio), 'studio', options.say);
-    const patch = { command: 'node', args: ['scripts/patch-pyric-bridge-port.js'], cwd: checkout.studio, timeoutMs: PATCH_TIMEOUT_MS };
-    await mustRun(runner, patch, 'Studio\'s postinstall patch');
-    const functions = functionsDir(checkout);
-    if (!existsSync(join(functions, 'package.json'))) return;
-    await installApp(namespace, runDirsOf(checkout, functions), 'functions', options.say);
-    const build = { command: 'node', args: ['node_modules/typescript/bin/tsc'], cwd: functions, timeoutMs: PATCH_TIMEOUT_MS };
-    await mustRun(runner, build, 'building the functions source');
-  });
-  writeFileSync(markerPath(checkout), `${JSON.stringify({ hash, at: new Date().toISOString() })}\n`);
+/** Writes `text` to `file` from inside the sandbox. */
+async function writeInside(runner: Runner, file: string, text: string, cwd: string): Promise<void> {
+  const script = `require('node:fs').writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(text)})`;
+  await mustRun(runner, { command: 'node', args: ['-e', script], cwd, timeoutMs: STEP_TIMEOUT_MS }, `writing ${file}`);
+}
+
+/** Copies the factory's UI rules and their util into Studio's checks, inside the sandbox. */
+async function copyRules(runner: Runner, checkout: Checkout): Promise<void> {
+  const script = 'mkdir -p checks/factory-rules checks/factory-utils && cp "$1"/rules/*.yml checks/factory-rules/ && cp "$1"/utils/*.yml checks/factory-utils/';
+  await mustRun(runner, { command: '/bin/sh', args: ['-c', script, 'sh', UI_RULES], cwd: checkout.studio, timeoutMs: STEP_TIMEOUT_MS }, 'copying the UI rules');
+}
+
+async function installRoot(runner: Runner, checkout: Checkout): Promise<void> {
+  const lock = readRunFile(join(checkout.repo, 'bun.lock'));
+  if (!lock.ok) throw new InstallFailed(`the repo's bun.lock can't be read: ${lock.problem}`);
+  const problems = lockfileProblems(lock.text);
+  if (problems.length > 0) throw new InstallFailed(`bun.lock names sources other than the npm registry:\n- ${problems.join('\n- ')}`);
+  const args = ['install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile'];
+  const env = { BUN_INSTALL_CACHE_DIR: bunCacheDir() };
+  await mustRun(runner, { command: 'bun', args, cwd: checkout.repo, timeoutMs: ROOT_INSTALL_TIMEOUT_MS, env }, 'bun install at the repo root, inside the sandbox');
+}
+
+export interface InstallInput {
+  runner: Runner;
+  namespace: EgressNamespace;
+  checkout: Checkout;
+  withRoot: boolean;
+  /** Only setup's install of the start commit may fall back to the host on a cold cache. */
+  outsideInstall?: OutsideInstall;
+  say: (line: string) => void;
+}
+
+export async function installStudio(input: InstallInput): Promise<void> {
+  const { runner, checkout } = input;
+  await writeInside(runner, '.env.local', envLocal(checkout), checkout.studio);
+  await copyRules(runner, checkout);
+  if (input.withRoot) await installRoot(runner, checkout);
+  await installNpm(input, checkout.studio, 'studio');
+  await mustRun(runner, { command: 'node', args: ['scripts/patch-pyric-bridge-port.js'], cwd: checkout.studio, timeoutMs: STEP_TIMEOUT_MS }, 'Studio\'s postinstall patch');
+  const functions = join(checkout.repo, 'functions');
+  const hasFunctions = readRunFile(join(functions, 'package.json')).ok;
+  if (!hasFunctions) return;
+  await installNpm(input, functions, 'functions');
+  await mustRun(runner, { command: 'node', args: ['node_modules/typescript/bin/tsc'], cwd: functions, timeoutMs: STEP_TIMEOUT_MS }, 'building the functions source');
 }

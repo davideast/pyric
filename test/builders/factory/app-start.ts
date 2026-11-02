@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import type { EgressNamespace } from '../namespace.ts';
 import { demoProjectId, fakeFirebaseConfig } from '../scratch.ts';
 import type { Checkout } from './app-paths.ts';
-import { baseEnvironment, sandboxRunner } from './exec.ts';
+import { Aborted, baseEnvironment, sandboxRunner, trackGroup } from './exec.ts';
 
 export const APP_PORT = 3000;
 export const PYRIC_PORT = 3473;
@@ -31,6 +31,8 @@ export interface StartOptions {
   allowedHost?: string;
   /** The port a remote page dials for Pyric's WebSocket, when it isn't 3473. */
   publicBridgePort?: number;
+  /** Stops Studio when it aborts. */
+  signal?: AbortSignal;
 }
 
 export interface StartedApp {
@@ -94,22 +96,32 @@ async function stopGroup(child: ChildProcess): Promise<void> {
 
 export class AppDidNotStart extends Error {}
 
+type StartOutcome = 'ready' | 'silent' | 'exited';
+
+function notStartedReason(outcome: StartOutcome): string {
+  if (outcome === 'exited') return 'exited before it answered';
+  return `did not answer within ${READY_TIMEOUT_MS / 60_000} minutes`;
+}
+
 export async function startApp(options: StartOptions): Promise<StartedApp> {
   const { checkout, namespace } = options;
   mkdirSync(checkout.home, { recursive: true });
   const entered = namespace.enter('node', studioArgs(options.allowedHost), checkout.studio);
   const log = openSync(options.logFile, 'a');
+  // Its own process group, which an abort or this process's exit ends (`exec.ts`).
   const child = spawn(entered.command, entered.args, { cwd: '/', env: studioEnvironment(options), stdio: ['ignore', log, log], detached: true });
+  trackGroup(child, options.signal);
   closeSync(log);
   const url = `http://127.0.0.1:${APP_PORT}/`;
-  const run = sandboxRunner(namespace, checkout.home);
+  const run = sandboxRunner(namespace, checkout.home, options.signal);
   const waited = run({ command: 'node', args: ['-e', waitScript(url, READY_TIMEOUT_MS)], cwd: '/', timeoutMs: READY_TIMEOUT_MS + 60_000 });
-  const outcome = await Promise.race([waited.then((result) => (result.code === 0 ? 'ready' : 'silent')), exitOf(child).then(() => 'exited' as const)]);
+  const answered = waited.then((result): StartOutcome => (result.code === 0 ? 'ready' : 'silent'), (): StartOutcome => 'silent');
+  const outcome = await Promise.race([answered, exitOf(child).then((): StartOutcome => 'exited')]);
   const app: StartedApp = { url, stop: () => stopGroup(child) };
   if (outcome === 'ready') return app;
   await app.stop();
-  const why = outcome === 'exited' ? 'exited before it answered' : `did not answer within ${READY_TIMEOUT_MS / 60_000} minutes`;
-  throw new AppDidNotStart(`Studio ${why}; see ${options.logFile}`);
+  if (options.signal?.aborted === true) throw new Aborted('the check was stopped while Studio started');
+  throw new AppDidNotStart(`Studio ${notStartedReason(outcome)}; see ${options.logFile}`);
 }
 
 /** Where a start's log goes in a check folder. */

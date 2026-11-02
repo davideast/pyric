@@ -1,12 +1,11 @@
 /**
  * The last good commit: the newest one an hourly check passed, which the
- * tailnet address serves. A failing hour changes nothing. A passing hour
+ * private-network address serves. A failing hour changes nothing. A passing hour
  * records its commit, and restarts the served copy only when the commit is
  * new, or starts it when nothing serves (after a reboot, say).
  */
-import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { writeJsonFile } from './run-dir.ts';
+import { readJson, writeJson } from './state-files.ts';
 
 const lastGoodSchema = z.object({
   commit: z.string(),
@@ -17,12 +16,11 @@ const lastGoodSchema = z.object({
 export type LastGood = z.infer<typeof lastGoodSchema>;
 
 export function readLastGood(path: string): LastGood | undefined {
-  if (!existsSync(path)) return undefined;
-  return lastGoodSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+  return readJson(path, lastGoodSchema);
 }
 
 export function writeLastGood(path: string, value: LastGood): void {
-  writeJsonFile(path, value);
+  writeJson(path, value);
 }
 
 export type ServeAction = 'restart' | 'start' | 'leave';

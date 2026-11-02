@@ -1,25 +1,57 @@
 /**
- * Putting a local port on a private network: WSL's mirrored networking
- * lets the Windows Tailscale reach 127.0.0.1 here, and
+ * Putting the served copy's port on a private network with Tailscale:
  * `tailscale serve --bg --https=<port>` gives `https://<host>:<port>`, where
- * the host is this machine's name on that network (`tailscale status`,
- * or `PYRIC_FACTORY_TAILNET_HOST`). An entry the machine already has is
- * left as it is.
+ * the host is this machine's name on that network. The Tailscale CLI is the
+ * one `PYRIC_FACTORY_TAILSCALE` names; without it nothing is published and
+ * the served copy stays on 127.0.0.1. `PYRIC_FACTORY_TAILNET_HOST` names the
+ * host when `tailscale status` can't.
+ *
+ * Only the entries this run added are recorded, and only those are removed
+ * when the run ends; an entry the machine already had is left as it is.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { z } from 'zod';
 
-export const TAILSCALE = process.env.PYRIC_FACTORY_TAILSCALE ?? '/mnt/c/Program Files/Tailscale/tailscale.exe';
+const TIMEOUT_MS = 30_000;
 
-/** The machine's name on the private network, without the trailing dot; undefined when Tailscale can't say. */
-export function tailnetHost(): string | undefined {
-  const configured = process.env.PYRIC_FACTORY_TAILNET_HOST;
+export interface TailscaleResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+export type Tailscale = (args: readonly string[]) => TailscaleResult;
+
+/** The Tailscale CLI `PYRIC_FACTORY_TAILSCALE` names, when it names one. */
+export function tailscaleFrom(env: NodeJS.ProcessEnv = process.env): Tailscale | undefined {
+  const binary = env.PYRIC_FACTORY_TAILSCALE;
+  if (binary === undefined || binary === '') return undefined;
+  return (args) => {
+    const result = spawnSync(binary, [...args], { encoding: 'utf8', timeout: TIMEOUT_MS });
+    return { ok: result.status === 0, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  };
+}
+
+const statusSchema = z.object({
+  BackendState: z.string(),
+  Self: z.object({ DNSName: z.string() }).passthrough().optional(),
+}).passthrough();
+
+/** The machine's name on the private network, without the trailing dot; undefined unless Tailscale is running and says. */
+export function tailnetHost(env: NodeJS.ProcessEnv = process.env, tailscale: Tailscale | undefined = tailscaleFrom(env)): string | undefined {
+  const configured = env.PYRIC_FACTORY_TAILNET_HOST;
   if (configured !== undefined && configured !== '') return configured;
-  if (!existsSync(TAILSCALE)) return undefined;
+  if (tailscale === undefined) return undefined;
   const status = tailscale(['status', '--json']);
   if (!status.ok) return undefined;
-  const parsed = JSON.parse(status.output) as { Self?: { DNSName?: string } };
-  const name = parsed.Self?.DNSName?.replace(/\.$/, '');
+  let parsed: z.infer<typeof statusSchema>;
+  try {
+    parsed = statusSchema.parse(JSON.parse(status.stdout));
+  } catch {
+    return undefined;
+  }
+  if (parsed.BackendState !== 'Running') return undefined;
+  const name = parsed.Self?.DNSName.replace(/\.$/, '') ?? '';
   return name === '' ? undefined : name;
 }
 
@@ -27,23 +59,45 @@ export function tailnetUrl(port: number, host: string): string {
   return `https://${host}:${port}/`;
 }
 
-function tailscale(args: readonly string[]): { ok: boolean; output: string } {
-  const result = spawnSync(TAILSCALE, [...args], { encoding: 'utf8', timeout: 30_000 });
-  return { ok: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
-}
-
 /** Whether `tailscale serve status` lists an entry for `port`. */
 export function hasServeEntry(status: string, port: number): boolean {
   return new RegExp(`https://\\S+:${port}\\b`).test(status);
 }
 
-/** Serves each port on the tailnet unless it already is. Returns one line per port saying what happened. */
-export function ensureServed(ports: readonly number[]): string[] {
-  if (!existsSync(TAILSCALE)) return [`no tailscale at ${TAILSCALE}; the served copy is on 127.0.0.1 only`];
-  const status = tailscale(['serve', 'status']).output;
+export interface Published {
+  lines: string[];
+  /** The ports this call added an entry for. */
+  added: number[];
+}
+
+/** Serves each port on the private network unless it already is. */
+export function ensureServed(ports: readonly number[], tailscale: Tailscale | undefined): Published {
+  if (tailscale === undefined) return { lines: ['PYRIC_FACTORY_TAILSCALE is not set; the served copy is on 127.0.0.1 only'], added: [] };
+  const status = tailscale(['serve', 'status']).stdout;
+  const lines: string[] = [];
+  const added: number[] = [];
+  for (const port of ports) {
+    if (hasServeEntry(status, port)) {
+      lines.push(`${port}: already served on the private network`);
+      continue;
+    }
+    const result = tailscale(['serve', '--bg', `--https=${port}`, `http://127.0.0.1:${port}`]);
+    if (!result.ok) {
+      lines.push(`${port}: tailscale serve failed: ${result.stderr.trim()}`);
+      continue;
+    }
+    added.push(port);
+    lines.push(`${port}: now served on the private network`);
+  }
+  return { lines, added };
+}
+
+/** Removes the entries for `ports`. */
+export function removeServed(ports: readonly number[], tailscale: Tailscale | undefined): string[] {
+  if (tailscale === undefined) return ports.map((port) => `${port}: PYRIC_FACTORY_TAILSCALE is not set; the entry is left`);
   return ports.map((port) => {
-    if (hasServeEntry(status, port)) return `${port}: already served on the private network`;
-    const added = tailscale(['serve', '--bg', `--https=${port}`, `http://127.0.0.1:${port}`]);
-    return added.ok ? `${port}: now served on the private network` : `${port}: tailscale serve failed: ${added.output.trim()}`;
+    const result = tailscale(['serve', `--https=${port}`, 'off']);
+    if (!result.ok) return `${port}: tailscale serve off failed: ${result.stderr.trim()}`;
+    return `${port}: removed from the private network`;
   });
 }

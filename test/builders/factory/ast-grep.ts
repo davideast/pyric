@@ -1,25 +1,10 @@
 /**
- * ast-grep as the factory runs it: the binary Studio installs (no install
- * script runs, so the platform package's binary, not the npm wrapper), and
- * its JSON stream read into findings.
+ * ast-grep scans as the factory runs them: the harness's own binary
+ * (`tools.ts`), inside a sandbox during a run, and its JSON stream read into
+ * findings. A line of that stream that isn't a match fails the scan.
  */
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { z } from 'zod';
 import type { Runner } from './exec.ts';
-
-const PLATFORM_PACKAGES = ['cli-linux-x64-gnu', 'cli-linux-x64-musl', 'cli-linux-arm64-gnu'];
-
-export class AstGrepMissing extends Error {}
-
-/** The ast-grep binary under `studio/node_modules`; `PYRIC_FACTORY_AST_GREP` overrides it. */
-export function astGrepBinary(studio: string, env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.PYRIC_FACTORY_AST_GREP;
-  if (override !== undefined) return override;
-  const found = PLATFORM_PACKAGES.map((name) => join(studio, 'node_modules', '@ast-grep', name, 'ast-grep')).find((path) => existsSync(path));
-  if (found === undefined) throw new AstGrepMissing(`no ast-grep binary under ${join(studio, 'node_modules', '@ast-grep')}; is Studio installed?`);
-  return found;
-}
 
 export interface Finding {
   ruleId: string;
@@ -40,24 +25,24 @@ const matchSchema = z.object({
   range: z.object({ start: z.object({ line: z.number() }), end: z.object({ line: z.number() }) }),
 });
 
-/** One finding per line of `ast-grep scan --json=stream` output; lines that aren't a match are skipped. */
-export function parseFindings(stream: string): Finding[] {
-  const findings: Finding[] = [];
-  for (const line of stream.split('\n')) {
-    if (!line.startsWith('{')) continue;
-    const parsed = matchSchema.safeParse(JSON.parse(line));
-    if (!parsed.success) continue;
-    const match = parsed.data;
-    findings.push({
-      ruleId: match.ruleId,
-      file: match.file,
-      line: match.range.start.line + 1,
-      endLine: match.range.end.line + 1,
-      message: match.message ?? '',
-      text: match.text,
-    });
+export class ScanFailed extends Error {}
+
+function parseLine(line: string): Finding {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    throw new ScanFailed(`ast-grep printed a line that isn't JSON: ${line.slice(0, 200)}`);
   }
-  return findings;
+  const parsed = matchSchema.safeParse(value);
+  if (!parsed.success) throw new ScanFailed(`ast-grep printed a line that isn't a match: ${line.slice(0, 200)}`);
+  const match = parsed.data;
+  return { ruleId: match.ruleId, file: match.file, line: match.range.start.line + 1, endLine: match.range.end.line + 1, message: match.message ?? '', text: match.text };
+}
+
+/** One finding per line of `ast-grep scan --json=stream` stdout. */
+export function parseFindings(stream: string): Finding[] {
+  return stream.split('\n').filter((line) => line.trim() !== '').map(parseLine);
 }
 
 export interface ScanInput {
@@ -69,13 +54,15 @@ export interface ScanInput {
 }
 
 const SCAN_TIMEOUT_MS = 120_000;
+const SCAN_SCRIPT = 'binary="$1"; config="$2"; shift 2; exec "$binary" scan -c "$config" --json=stream "$@" 2>/dev/null';
 
 /** Scans `files` with the rules `config` names. No files, no scan. */
 export async function scan(input: ScanInput): Promise<Finding[]> {
   if (input.files.length === 0) return [];
-  const args = ['scan', '-c', input.config, '--json=stream', ...input.files];
-  const result = await input.runner({ command: input.binary, args, cwd: input.cwd, timeoutMs: SCAN_TIMEOUT_MS });
+  // Matches go to stdout; the runner joins stderr in, so warnings are dropped before they reach the parse.
+  const args = ['-c', SCAN_SCRIPT, 'sh', input.binary, input.config, ...input.files];
+  const result = await input.runner({ command: '/bin/sh', args, cwd: input.cwd, timeoutMs: SCAN_TIMEOUT_MS });
   const failed = result.code !== 0 || result.timedOut;
-  if (failed) throw new Error(`ast-grep scan failed (exit ${result.code}):\n${result.output}`);
+  if (failed) throw new ScanFailed(`ast-grep scan failed (exit ${result.code}):\n${result.output}`);
   return parseFindings(result.output);
 }

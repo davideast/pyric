@@ -1,7 +1,6 @@
 // The factory's UI rules on fixtures: each marked line of bad.tsx and bad.css
 // breaks exactly the rules its marker names, and good.tsx and good.css break
-// none once the overlay marker is honored. Needs an ast-grep binary:
-// PYRIC_FACTORY_AST_GREP, as a set-up run's Studio installs it.
+// none once the overlay marker is honored. Runs the harness's own ast-grep.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,10 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { scan } from './ast-grep.ts';
 import type { ChangedLines } from './diff-lines.ts';
 import { hostRunner } from './exec.ts';
+import { harnessAstGrep } from './tools.ts';
 import { hasOverlayMarker, newComponentViolations, ruleViolations, UI_RULES_CONFIG } from './ui-gates.ts';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/ui-rules', import.meta.url));
-const AST_GREP = process.env.PYRIC_FACTORY_AST_GREP;
+const AST_GREP = harnessAstGrep();
 const MARKER = /expect: ([\w -]+?)\s*(?:\*\/|$)/;
 
 /** Every line of each file counts as changed. */
@@ -32,11 +32,11 @@ function expected(file: string): string[] {
 }
 
 async function violations(files: readonly string[]) {
-  const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP ?? '', config: UI_RULES_CONFIG, cwd: FIXTURES, files });
+  const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP, config: UI_RULES_CONFIG, cwd: FIXTURES, files });
   return ruleViolations(findings, allChanged(files), (file) => readFileSync(join(FIXTURES, file), 'utf8'));
 }
 
-describe.skipIf(AST_GREP === undefined)('the factory UI rules', () => {
+describe('the factory UI rules', () => {
   for (const file of ['bad.tsx', 'bad.css']) {
     test(`${file}: each marked line breaks the rules it names, and no other line breaks any`, async () => {
       const found = (await violations([file])).map((violation) => `${violation.line} ${violation.rule}`);
@@ -51,7 +51,7 @@ describe.skipIf(AST_GREP === undefined)('the factory UI rules', () => {
   }
 
   test('a violation on a line that did not change does not count', async () => {
-    const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP ?? '', config: UI_RULES_CONFIG, cwd: FIXTURES, files: ['bad.tsx'] });
+    const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP, config: UI_RULES_CONFIG, cwd: FIXTURES, files: ['bad.tsx'] });
     const onlyLineTen: ChangedLines = new Map([['bad.tsx', new Set([10])]]);
     const found = ruleViolations(findings, onlyLineTen, () => '');
     expect(found.map((violation) => violation.rule)).toEqual(['factory-no-margin']);

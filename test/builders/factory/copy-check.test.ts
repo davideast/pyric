@@ -1,5 +1,5 @@
 // The copy check: the rules one string at a time, then the extractors and the
-// report on a fixture. The extractor half needs PYRIC_FACTORY_AST_GREP.
+// report on a fixture. The extractor half runs the harness's own ast-grep.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { scan } from './ast-grep.ts';
 import { copyProblems, DEFAULT_OVERRIDES_FILE, readOverrides, type CopyOverrides } from './copy-rules.ts';
 import { hostRunner } from './exec.ts';
+import { harnessAstGrep } from './tools.ts';
 import { copyReport, copyStrings, COPY_RULES_CONFIG } from './ui-gates.ts';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/ui-rules', import.meta.url));
-const AST_GREP = process.env.PYRIC_FACTORY_AST_GREP;
+const AST_GREP = harnessAstGrep();
 const overrides: CopyOverrides = readOverrides(DEFAULT_OVERRIDES_FILE);
 
 describe('copyProblems', () => {
@@ -53,11 +54,11 @@ describe('copyProblems', () => {
   });
 });
 
-describe.skipIf(AST_GREP === undefined)('copyStrings on a fixture', () => {
+describe('copyStrings on a fixture', () => {
   test('finds each string once, with its most specific kind, and reports every one', async () => {
     const lines = readFileSync(join(FIXTURES, 'copy.tsx'), 'utf8').split('\n').length;
     const changed = new Map([['copy.tsx', new Set(Array.from({ length: lines }, (_, index) => index + 1))]]);
-    const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP ?? '', config: COPY_RULES_CONFIG, cwd: FIXTURES, files: ['copy.tsx'] });
+    const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP, config: COPY_RULES_CONFIG, cwd: FIXTURES, files: ['copy.tsx'] });
     const strings = copyStrings(findings, changed, overrides);
     const byText = new Map(strings.map((entry) => [entry.text, entry]));
     expect(byText.get('Create playlist')?.kind).toBe('button');
@@ -75,7 +76,7 @@ describe.skipIf(AST_GREP === undefined)('copyStrings on a fixture', () => {
   });
 
   test('a string on an unchanged line is left out', async () => {
-    const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP ?? '', config: COPY_RULES_CONFIG, cwd: FIXTURES, files: ['copy.tsx'] });
+    const findings = await scan({ runner: hostRunner(FIXTURES), binary: AST_GREP, config: COPY_RULES_CONFIG, cwd: FIXTURES, files: ['copy.tsx'] });
     const strings = copyStrings(findings, new Map([['copy.tsx', new Set([8])]]), overrides);
     expect(strings.map((entry) => entry.text)).toEqual(['Create playlist']);
   });
