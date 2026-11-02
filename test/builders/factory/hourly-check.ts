@@ -101,7 +101,7 @@ async function checkCommit(paths: AppPaths, record: AppRecord, context: CheckCon
 }
 
 function servedLine(served: ServeOutcome | undefined): string {
-  if (served?.url === undefined) return 'nothing is served yet';
+  if (served?.url === undefined) return 'nothing is served now';
   return `last good version at ${served.url} (${served.localUrl} here)`;
 }
 
