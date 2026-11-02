@@ -118,6 +118,12 @@ export function hostingPublicDir(cwd: string, hosting: HostingConfig | null): st
   return resolve(cwd, hosting.public ?? 'public');
 }
 
+/** The startup line for a project that serves no static site. */
+export function hostingOffLine(hasFirebaseJson: boolean): string {
+  if (!hasFirebaseJson) return '• hosting  Off: no firebase.json. Add one with hosting.public to serve a site.';
+  return '• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
+}
+
 /** firebase.json's SPA idiom: a `**` rewrite to /index.html. */
 export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
   return (hosting?.rewrites ?? []).some(
@@ -268,12 +274,14 @@ async function startServeRuntime(opts: {
   // firebase.json is optional. Without one, or without a `hosting` block in
   // it, production has no Hosting site, so pyric serves no static files.
   let config: FirebaseJson | null = null;
+  let hasFirebaseJson = true;
   try {
     config = await readFirebaseJson(opts.cwd);
   } catch (e) {
     const isMissingConfig = e instanceof Error && e.message.includes('no firebase.json');
     const shouldFailStartup = !isMissingConfig;
     if (shouldFailStartup) throw e;
+    hasFirebaseJson = false;
     logger.note('  ⚠ no firebase.json found');
   }
 
@@ -733,7 +741,7 @@ async function startServeRuntime(opts: {
   logger.info(`=== Serving from '${opts.cwd}'...`);
   logger.info('');
   if (publicDir === null) {
-    logger.info(`• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.`);
+    logger.info(hostingOffLine(hasFirebaseJson));
   } else {
     logger.info(`✔ hosting  Serving files from: ${hosting?.public ?? 'public'}`);
   }

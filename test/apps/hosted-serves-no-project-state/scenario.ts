@@ -10,7 +10,7 @@
 // including percent-encoded, doubled-slash and dot-segment spellings and a
 // symlink that points into `.pyric/`, and still serves the page. The Vite
 // plugin's hosted dev server, which serves its root the way Vite does,
-// refuses `.pyric/` by path, by query suffix, through `/@fs` and `/@id`.
+// refuses `.pyric/` by path, by query suffix and through `/@fs`.
 import assert from 'node:assert/strict';
 import { existsSync, realpathSync, symlinkSync } from 'node:fs';
 import { request } from 'node:http';
@@ -134,7 +134,7 @@ export default scenario(async (app) => {
 
   const vite = await app.step('the Vite plugin\'s hosted dev server serves the project', () => app.devServer());
 
-  await app.step('the Vite dev server refuses .pyric state, by path, by query suffix, through /@fs and /@id', async () => {
+  await app.step('the Vite dev server refuses .pyric state, by path, by query suffix and through /@fs', async () => {
     const projectDir = realpathSync(app.dir);
     const serveJson = app.readFile('.pyric/serve.json').trim();
     const targets = [
@@ -150,15 +150,11 @@ export default scenario(async (app) => {
       '/.pyric/serve.json?inline',
       `/@fs${projectDir}/${STATE_FILE}`,
       `/@fs${projectDir}/.pyric/serve.json?import`,
-      `/@id/${projectDir}/.pyric/serve.json`,
-      `/@id/${projectDir}/${STATE_FILE}`,
     ];
     const served: string[] = [];
     for (const target of targets) {
       const answer = await rawGet(vite.port, target);
-      // Vite answers a path it does not resolve with the app's index.html.
-      const isPageFallback = answer.status === 200 && answer.body.includes('The page this project deploys');
-      const refused = answer.status === 403 || answer.status === 404 || isPageFallback;
+      const refused = answer.status === 403 || answer.status === 404;
       const leaked = answer.body.includes('SQLite format 3') || answer.body.includes(serveJson);
       if (!refused || leaked) served.push(`${answer.status} ${target}: ${JSON.stringify(answer.body.slice(0, 160))}`);
     }

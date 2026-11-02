@@ -155,7 +155,7 @@ describe('pyric dev end-to-end (HTTP)', () => {
     stops.push(runtime);
     // No firebase.json means no Hosting site, as in production (#1779).
     expect(runtime.publicDir).toBeNull();
-    expect(cap.info.join('\n')).toContain('hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.');
+    expect(cap.info.join('\n')).toContain('hosting  Off: no firebase.json. Add one with hosting.public to serve a site.');
     const root = await fetch(runtime.handle.url + '/', { redirect: 'manual' });
     expect(root.status).toBe(302);
     expect(root.headers.get('location')).toBe('/__pyric/ui/studio');
@@ -168,8 +168,10 @@ describe('pyric dev end-to-end (HTTP)', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-hosting-block-'));
     writeFileSync(join(cwd, 'index.html'), '<!doctype html><html><head></head><body>bare</body></html>');
     writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ firestore: {} }));
-    const off = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    const cap = capturingLogger();
+    const off = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: cap.logger });
     stops.push(off);
+    expect(cap.info.join('\n')).toContain('hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.');
     expect((await fetch(off.handle.url + '/index.html')).status).toBe(404);
     await off.handle.stop();
     stops.pop();
@@ -181,6 +183,19 @@ describe('pyric dev end-to-end (HTTP)', () => {
     expect(html).toContain('bare');
     expect(html).toContain('importmap');
     expect((await fetch(on.handle.url + '/firebase.json')).status).toBe(404);
+  }, 30_000);
+
+  it('serves `public` for a hosting block that names no directory, as production does', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-hosting-default-'));
+    writeFileSync(join(cwd, 'index.html'), '<!doctype html><html><head></head><body>project root</body></html>');
+    mkdirSync(join(cwd, 'public'));
+    writeFileSync(join(cwd, 'public', 'index.html'), '<!doctype html><html><head></head><body>public page</body></html>');
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ hosting: {} }));
+    const runtime = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    stops.push(runtime);
+    const html = await (await fetch(runtime.handle.url + '/')).text();
+    expect(html).toContain('public page');
+    expect(html).not.toContain('project root');
   }, 30_000);
 
   it('always warns that the sandbox is browser-resident (keep the tab open)', async () => {
