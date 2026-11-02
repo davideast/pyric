@@ -1592,7 +1592,9 @@ export class SandboxBackend {
    * In both shapes the provider is linked into `providerUserInfo`, and a
    * provider that vouches for the email (`google.com`, see
    * {@link providerVerifiesEmail}) marks it verified when the record has no
-   * password and no other linked provider. A
+   * password and no other linked provider. `verifyEmail: false` on the
+   * `{providerId, uid}` shape links without marking, for a caller (a staged
+   * sign-in result) that decides the flag itself. A
    * `spec.photoUrl` is stored on a fresh record and refreshes a reused
    * same-email one; a spec without a photo never clears a stored one (see
    * {@link refreshStoredPhoto}).
@@ -1602,7 +1604,7 @@ export class SandboxBackend {
    */
   createSignInCredential(
     req:
-      | { providerId: string; uid: string }
+      | { providerId: string; uid: string; verifyEmail?: boolean }
       | { providerId: string; spec: SignInIdentitySpec },
   ): UserCredential {
     const { providerId } = req;
@@ -1642,7 +1644,8 @@ export class SandboxBackend {
       stored.providerUserInfo.push({ providerId });
       this.notifyUsersChanged();
     }
-    if (markProviderVerifiedEmail(stored, providerId)) this.notifyUsersChanged();
+    const callerKeepsFlag = 'uid' in req && req.verifyEmail === false;
+    if (!callerKeepsFlag && markProviderVerifiedEmail(stored, providerId)) this.notifyUsersChanged();
     return {
       user: this.buildUserFromStored(stored),
       providerId,

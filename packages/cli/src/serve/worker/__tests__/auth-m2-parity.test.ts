@@ -732,6 +732,32 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
       expect(token.claims.email_verified).toBe(emailVerified);
     });
   }
+
+  it('15. a staged emailVerified: false sign-in onto an existing Google-only unverified account never marks it verified', async () => {
+    const { clientAuth, sandbox } = await createTestHarness();
+    const auth = getAuth(sandbox);
+    authSandboxOps.createUser(auth, {
+      uid: 'google-only', email: 'only@example.com', providerUserInfo: [{ providerId: 'google.com' }],
+    });
+    const seen: boolean[] = [];
+    const unsubscribe = authSandboxOps.subscribeUsers(auth, () => {
+      const record = authSandboxOps.listUsers(auth).find((user) => user.uid === 'google-only');
+      if (record) seen.push(record.emailVerified);
+    });
+    try {
+      stageSignInResult(clientAuth, {
+        user: { uid: 'google-only', email: 'only@example.com', emailVerified: false },
+        providerId: 'google.com',
+      });
+      const cred = await signInWithCredential(clientAuth, { providerId: 'google.com', idToken: 'staged-id-token' });
+      expect(cred.user.emailVerified).toBe(false);
+      expect((await cred.user.getIdTokenResult(true)).claims.email_verified).toBe(false);
+    } finally {
+      unsubscribe();
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((verified) => verified === false)).toBe(true);
+  });
 });
 
 

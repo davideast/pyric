@@ -145,7 +145,10 @@ export function resolveOAuthCredentialUser(
   const existing = existingUsers.find((u) => u.uid === targetUid);
   const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing) {
-    authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
+    // A caller's flag leaves an existing account's flag as stored.
+    authSandboxOps.createSignInCredential(auth, {
+      providerId: credential.providerId, uid: targetUid, verifyEmail: !callerDecidesVerification,
+    });
     authSandboxOps.updateUser(auth, targetUid, {
       displayName: credential.displayName ?? existing.displayName,
       email: credential.email ?? existing.email ?? undefined,
@@ -156,7 +159,6 @@ export function resolveOAuthCredentialUser(
         displayName: credential.displayName ?? existing.displayName,
       });
     }
-    if (callerDecidesVerification) keepEmailVerified(auth, targetUid, existing.emailVerified);
   } else {
     authSandboxOps.createUser(auth, {
       uid: targetUid,
@@ -175,11 +177,4 @@ export function resolveOAuthCredentialUser(
     }
   }
   return { uid: targetUid, isNewUser: !existing };
-}
-
-/** Put back an account's `emailVerified` when the provider link changed it. */
-function keepEmailVerified(auth: Auth, uid: string, emailVerified: boolean): void {
-  const current = authSandboxOps.listUsers(auth).find((user) => user.uid === uid);
-  const changed = current !== undefined && current.emailVerified !== emailVerified;
-  if (changed) authSandboxOps.updateUser(auth, uid, { emailVerified });
 }
