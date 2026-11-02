@@ -79,8 +79,6 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'confo
 const NOT_APPLICABLE: Record<string, string> = {
   'auth-bare-getauth-no-default-app.json':
     'exercises the prod fallthrough (fb.getAuth with no default app) — covered by the prod path, not sandbox behavior',
-  'auth-reauthenticate-with-credential.json':
-    'BLOCKED: the committed capture is from a project with the Email/Password provider disabled, so the probe could not create the two accounts it needs. The re-capture waits on the enumeration-protection decision in #1689. Reauth rows are unit-backed.',
   'auth-fetchsigninmethodsforemail-deprecated.json':
     'fetchSignInMethodsForEmail is not implemented (disposition auth.email-enumeration), so there is nothing in the sandbox to replay. The capture backs the disposition: with Email Enumeration Protection on, production returned an empty list for both an account that has a password method and an unknown address. See packages/conformance/surfaces/auth.json.',
 };
@@ -181,21 +179,70 @@ describe('oracle conformance (auth)', () => {
     );
   });
 
-  it('auth-user-not-found-error-code', async () => {
+  it('auth-user-not-found-error-code (KNOWN DIVERGENCE, #1819)', async () => {
     const obs = load('auth-user-not-found-error-code.json');
+    // Production with Email Enumeration Protection on answers
+    // auth/invalid-credential, the sandbox answers auth/user-not-found (#1819).
+    // Both sides are pinned; when #1819 lands, assert the sandbox against obs.code.
+    expect(obs.code).toBe('auth/invalid-credential');
     await expectCode(
       signInWithEmailAndPassword(freshAuth(), 'never-registered@example.com', 'pw123456'),
-      obs.code as string,
+      'auth/user-not-found',
     );
   });
 
-  it('auth-wrong-password-error-code', async () => {
+  it('auth-wrong-password-error-code (KNOWN DIVERGENCE, #1819)', async () => {
     const obs = load('auth-wrong-password-error-code.json');
     const auth = freshAuth();
     authSandbox.seedUsers(auth, [{ uid: 'wp', email: 'wp@example.com', password: 'correct123' }]);
+    // Production with Email Enumeration Protection on answers
+    // auth/invalid-credential, the sandbox answers auth/wrong-password (#1819).
+    // Both sides are pinned; when #1819 lands, assert the sandbox against obs.code.
+    expect(obs.code).toBe('auth/invalid-credential');
     await expectCode(
       signInWithEmailAndPassword(auth, 'wp@example.com', 'wrong9999'),
-      obs.code as string,
+      'auth/wrong-password',
+    );
+  });
+
+  it('auth-reauthenticate-with-credential (KNOWN DIVERGENCE on a wrong password, #1819)', async () => {
+    const obs = load('auth-reauthenticate-with-credential.json') as {
+      setupCode: string | null;
+      reauthCode: string | null;
+      operationType: string;
+      providerId: string | null;
+      uidPreserved: boolean;
+      wrongPasswordCode: string;
+      userMismatchCode: string;
+      cleanupLeaked: boolean;
+    };
+    expect(obs.setupCode).toBeNull();
+    expect(obs.reauthCode).toBeNull();
+    expect(obs.cleanupLeaked).toBe(false);
+    const auth = freshAuth();
+    const password = 'oracle-pw-123';
+    await createUserWithEmailAndPassword(auth, 'reauth-other@example.com', password);
+    await signOut(auth);
+    const { user } = await createUserWithEmailAndPassword(auth, 'reauth@example.com', password);
+    const uid = user.uid;
+    const reauthed = await reauthenticateWithCredential(
+      auth.currentUser!,
+      EmailAuthProvider.credential('reauth@example.com', password),
+    );
+    expect(reauthed.operationType).toBe(obs.operationType as 'reauthenticate');
+    expect(reauthed.providerId).toBe(obs.providerId);
+    expect(reauthed.user.uid === uid).toBe(obs.uidPreserved);
+    await expectCode(
+      reauthenticateWithCredential(auth.currentUser!, EmailAuthProvider.credential('reauth-other@example.com', password)),
+      obs.userMismatchCode,
+    );
+    // A wrong password: production answers auth/invalid-credential, the sandbox
+    // answers auth/wrong-password (#1819). Both sides are pinned; when #1819
+    // lands, assert the sandbox against obs.wrongPasswordCode.
+    expect(obs.wrongPasswordCode).toBe('auth/invalid-credential');
+    await expectCode(
+      reauthenticateWithCredential(auth.currentUser!, EmailAuthProvider.credential('reauth@example.com', 'wrong-pw-999')),
+      'auth/wrong-password',
     );
   });
 

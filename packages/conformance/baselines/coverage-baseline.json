@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T17:46:45.725Z",
+  "generatedAt": "2026-11-02T18:35:40.239Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -297,8 +297,8 @@
     "auth#11": "conforms",
     "auth#12": "diverged-documented",
     "auth#13": "conforms",
-    "auth#14": "conforms",
-    "auth#15": "conforms",
+    "auth#14": "diverged-documented",
+    "auth#15": "diverged-documented",
     "auth#15a": "diverged-documented",
     "auth#16": "conforms",
     "auth#17": "conforms",
@@ -392,7 +392,7 @@
     "auth#161": "conforms",
     "auth#162": "conforms",
     "auth#164": "conforms",
-    "auth#170": "conforms",
+    "auth#170": "diverged-documented",
     "auth#176": "conforms",
     "auth#177": "conforms",
     "auth#171": "diverged-documented",
