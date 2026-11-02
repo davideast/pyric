@@ -31,7 +31,7 @@ directory, as `test/builders/round-paths.ts` resolves it. A run holds:
   report (null when it wrote none that holds the shape). `harness` is what
   the builder couldn't edit: the brief, the commit and tarball hashes, how
   the run ended, `automaticProblems` (allowed refusals, Google hosts),
-  `missingRefusals`, `tokenFoundIn`, usage.
+  `missingRefusals`, `refusalsMatchedByPage`, `tokenFoundIn`, usage.
 - `brief.json`, `network.jsonl`, `logs/`, and `app.tgz` (the app without
   `node_modules`).
 
@@ -63,6 +63,11 @@ the run as having used its own browser when either holds:
 
 A script the builder ran from outside its app leaves only the first signal,
 so check it on every run whose report says it used a page.
+
+**Refusals matched by page.** `harness.refusalsMatchedByPage` names each
+must-be-refused action the report accounts for only with an entry in the
+builder's own words that cites the same Firebase page. Read those entries:
+when none of them really attempted the action, count it missing.
 
 An invalid run still gets a `verdict.json`; every problem of it counts as
 `invalid`.
@@ -200,7 +205,7 @@ Labels: bug, <lane label>
 
 **Done when:** <the scenario under test/apps/ to add or extend>, failing on main first.
 
-Found by builder run <run> (repro: `runs/<round>/<run>/repros/<problem>/`).
+Found by builder run <run>.
 ```
 
 The lane labels are `lane:app-check`, `lane:velocity`, `lane:rules`,
