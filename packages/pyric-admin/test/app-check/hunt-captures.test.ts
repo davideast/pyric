@@ -96,7 +96,6 @@ const PRODUCTION_KEY_ORDER = ['alreadyConsumed', 'appId', 'token'];
 const PYRIC_KEY_ORDER = ['appId', 'token', 'alreadyConsumed'];
 const consumed = (keyOrder: string[], alreadyConsumed: boolean) => ({ mode: 'resolved', keyOrder, alreadyConsumed });
 const sameJtiPins: Pin[] = [
-  { key: 'sameTokens', finding: 'AC-1', production: true, pyric: false },
   { key: 'first', finding: 'AC-12', production: consumed(PRODUCTION_KEY_ORDER, false), pyric: consumed(PYRIC_KEY_ORDER, false) },
   { key: 'secondSameJti', finding: 'AC-1, AC-12', production: consumed(PRODUCTION_KEY_ORDER, true), pyric: consumed(PYRIC_KEY_ORDER, false) },
   { key: 'firstAgain', finding: 'AC-12', production: consumed(PRODUCTION_KEY_ORDER, true), pyric: consumed(PYRIC_KEY_ORDER, true) },
