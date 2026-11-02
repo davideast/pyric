@@ -33,6 +33,9 @@ function markIfRemote(req: PeerRequest): void {
   const isRemote = !isLoopbackAddress(req.socket?.remoteAddress);
   if (!isRemote) return;
   if (req.headers !== undefined) req.headers[REMOTE_PEER_HEADER] = MARK_VALUE;
+  // Node builds this lazily from the header count it recorded at parse time, so
+  // it has to be read, which builds it, before the raw list changes length.
+  if (req.headersDistinct !== undefined) req.headersDistinct[REMOTE_PEER_HEADER] = [MARK_VALUE];
   if (req.rawHeaders !== undefined) overwriteRawMark(req.rawHeaders);
 }
 
