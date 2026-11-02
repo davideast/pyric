@@ -2,7 +2,7 @@
 // breaks exactly the rules its marker names, and good.tsx and good.css break
 // none once the overlay marker is honored. Runs the harness's own ast-grep.
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -76,6 +76,11 @@ describe('new components/ui files', () => {
     expect(found.map((violation) => violation.file)).toEqual(['studio/src/components/ui/checkbox.tsx']);
   });
 
+  test('include files nested under components/ui', () => {
+    const found = newComponentViolations(['studio/src/components/ui/nested/fancy-card.tsx'], new Set(['checkbox.tsx']));
+    expect(found.map((violation) => violation.file)).toEqual(['studio/src/components/ui/nested/fancy-card.tsx']);
+  });
+
   test('pass when the list setup seeded from the brief names them, and fail otherwise', () => {
     const brief = mkdtempSync(join(tmpdir(), 'factory-brief-'));
     writeFileSync(join(brief, APPROVED_COMPONENTS), '# from the design\ncheckbox.tsx\nalert.tsx\n');
@@ -93,7 +98,10 @@ describe('new components/ui files', () => {
     expect(seedApprovedComponents(brief, { approvedComponents })).toBe(false);
     expect(newComponentViolations(['studio/src/components/ui/checkbox.tsx'], readApproved(approvedComponents))).toHaveLength(1);
     symlinkSync('/etc/hostname', join(brief, APPROVED_COMPONENTS));
-    expect(() => seedApprovedComponents(brief, { approvedComponents })).toThrow('is not a regular file');
+    expect(() => seedApprovedComponents(brief, { approvedComponents })).toThrow('it is a link');
+    const dirBrief = mkdtempSync(join(tmpdir(), 'factory-brief-'));
+    mkdirSync(join(dirBrief, APPROVED_COMPONENTS));
+    expect(() => seedApprovedComponents(dirBrief, { approvedComponents })).toThrow('it is not a regular file');
   });
 
   test('tell a session to use an existing component, since it can’t write the approved list', () => {

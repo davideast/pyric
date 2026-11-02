@@ -34,7 +34,8 @@ is in the check's own copy. Once your app is up, run the allowlist command
 in `$BRIEF_DIR/walks/README.md` to add the walk account. It is setup, and
 the one write to the app's data you may make outside the browser. Open
 the app at the `localhost` address its dev command prints: at `127.0.0.1`
-its pages never finish loading.
+its pages load but never hydrate. `MDMEDIA_FAKE_MEDIA=1` is already in your
+environment, so the brief's fake media provider is on once the app has it.
 
 Drive it through Playwright and Chromium from a script run with `node`.
 The app has no Playwright of its own, so import the harness's, and give

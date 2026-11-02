@@ -30,7 +30,7 @@
  * which the supervisor runs each hour, and `runEnd`, which stops the served
  * copy when the run ends (`served.ts`).
  */
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
@@ -41,6 +41,7 @@ import { runStamp } from '../scratch.ts';
 import type { AgentAdapter, AgentInstall, AgentSession, CredentialRead } from './agent.ts';
 import { runAgentSession, socketOf } from './agent-session.ts';
 import { agentNamed } from './agents/registry.ts';
+import { FAKE_MEDIA } from './app-start.ts';
 import { PLAYWRIGHT_CLIENT } from './captures.ts';
 import { hostDirOf, isInside, makeHostDir } from './host-files.ts';
 import { ONLINE_INIT_ENV, ONLINE_INIT_SCRIPT } from './online-init.ts';
@@ -111,13 +112,21 @@ export function runnerConfig(role: Role, options: Pick<SessionOptions, 'agent'>,
   return { agent, install: agent.install(env), skillFile: roleSkill(role), credential: () => agent.readCredential() };
 }
 
+/** Where a path really is, since bwrap follows links when it binds; a path that doesn't exist stays as written. */
+function resolved(path: string): string {
+  return existsSync(path) ? realpathSync(path) : path;
+}
+
 /** Why a read-only bind is refused: it would show the sandbox the host's HOME or the agent's credential. */
 export function bindProblems(binds: readonly string[], config: Pick<RunnerConfig, 'agent' | 'home'>): string[] {
   const home = config.home ?? homedir();
+  const realHome = resolved(home);
+  const credentialDirs = config.agent.credentialDirs.map(resolved);
   return binds.flatMap((bind) => {
     const problems: string[] = [];
-    if (isInside(home, bind)) problems.push(`the bind ${bind} contains the home directory ${home}`);
-    const reachesCredential = config.agent.credentialDirs.some((dir) => isInside(dir, bind) || isInside(bind, dir));
+    const realBind = resolved(bind);
+    if (isInside(realHome, realBind)) problems.push(`the bind ${bind} contains the home directory ${home}`);
+    const reachesCredential = credentialDirs.some((dir) => isInside(dir, realBind) || isInside(realBind, dir));
     if (reachesCredential) problems.push(`the bind ${bind} reaches the agent's credential directory`);
     return problems;
   });
@@ -174,6 +183,7 @@ function baseEnvironment(browsers: string): Record<string, string> {
     PLAYWRIGHT_BROWSERS_PATH: browsers,
     [PLAYWRIGHT_CLIENT_ENV]: PLAYWRIGHT_CLIENT,
     [ONLINE_INIT_ENV]: ONLINE_INIT_SCRIPT,
+    ...FAKE_MEDIA,
   };
   for (const name of ['LANG', 'TMPDIR']) {
     const value = process.env[name];

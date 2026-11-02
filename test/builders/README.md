@@ -660,7 +660,8 @@ fresh tree, which its sandbox unpacks, and runs there, in order:
   before anything of the commit's has run.
   `<run-dir>.host/approved-components.txt` lists the new `components/ui`
   files a run may add, which `factory-setup` copies from the brief's
-  `approved-components.txt`, when it has one; `<run-dir>.host/copy-overrides.json` adds verbs and
+  `approved-components.txt`, when it has one. Edit the list before setup:
+  later edits don't reach the run; `<run-dir>.host/copy-overrides.json` adds verbs and
   labels.
 - The install: the repo root with bun and Studio with npm, offline, with no
   install scripts. A `bun.lock` entry from a source other than the npm
@@ -754,12 +755,13 @@ role prompts depend on the interface alone.
    built. The agent gets the skill's text as its instructions, and
    `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the skills name, in its
    environment and its prompt. Its environment also has
-   `PLAYWRIGHT_BROWSERS_PATH`, `PYRIC_BUILDER_PLAYWRIGHT` (the harness's
+   the check's `MDMEDIA_FAKE_MEDIA=1`, `PLAYWRIGHT_BROWSERS_PATH`,
+   `PYRIC_BUILDER_PLAYWRIGHT` (the harness's
    client, since the app has none) and `PYRIC_BUILDER_ONLINE_SCRIPT`, an init
    script that makes pages report `navigator.onLine` as true, which the walk
    runner uses too. It has no `NODE_OPTIONS`: `pyric sandbox` adds its
    `--import` to what it inherits, and `next dev` joins two space-separated
-   ones into one path and exits. So a session has no Node recorder, like the
+   ones into one path and exits (#1470). So a session has no Node recorder, like the
    check's Studio; the sandbox's resolver and catch-all listener still record.
 4. It saves the agent's output to `<run dir>.host/logs/<seat>-<stamp>.jsonl`
    and returns how the session ended (`factory/agent-session.ts`).

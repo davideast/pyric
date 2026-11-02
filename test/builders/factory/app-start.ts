@@ -19,6 +19,8 @@ import { Aborted, baseEnvironment, sandboxRunner, trackGroup } from './exec.ts';
 
 export const APP_PORT = 3000;
 export const PYRIC_PORT = 3473;
+/** The brief's fake media provider, inert until the app has it. Without it, walks and the user agent can't reach a generated item. */
+export const FAKE_MEDIA = { MDMEDIA_FAKE_MEDIA: '1' };
 const READY_TIMEOUT_MS = 6 * 60_000;
 const STOP_GRACE_MS = 10_000;
 
@@ -56,8 +58,7 @@ export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allo
     FIREBASE_PROJECT_ID: projectId,
     FIREBASE_STORAGE_BUCKET: config.storageBucket ?? '',
     PORT: String(APP_PORT),
-    // The brief's fake media provider, inert until the app has it. Without it, the walks can't reach a generated item.
-    MDMEDIA_FAKE_MEDIA: '1',
+    ...FAKE_MEDIA,
   };
   if (options.allowedHost !== undefined) env.MDMEDIA_ALLOWED_DEV_ORIGINS = options.allowedHost;
   if (options.publicBridgePort !== undefined) env.NEXT_PUBLIC_PYRIC_BRIDGE_PORT = String(options.publicBridgePort);

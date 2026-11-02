@@ -9,6 +9,7 @@ import { basename, join, relative } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
 import { playwrightBrowsersPath, PLAYWRIGHT_CLIENT_ENV } from '../browser-server.ts';
 import { toolchainDirs } from '../namespace.ts';
+import { FAKE_MEDIA } from './app-start.ts';
 import { fakeAgent } from './fixtures/fake-agent.ts';
 import { startFakeUpstream, type FakeUpstream } from './fixtures/fake-upstream.ts';
 import { hostDirOf } from './host-files.ts';
@@ -72,6 +73,20 @@ describe('bindProblems', () => {
     expect(bindProblems(['/h/me'], config)).toEqual(['the bind /h/me contains the home directory /h/me', 'the bind /h/me reaches the agent\'s credential directory']);
     expect(bindProblems(['/h'], config)).toHaveLength(2);
     expect(bindProblems(['/h/me/.agent/bin'], config)).toEqual(['the bind /h/me/.agent/bin reaches the agent\'s credential directory']);
+  });
+
+  test('sees through a link to the home directory or the credential directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'factory-binds-'));
+    const home = join(root, 'home');
+    const secret = join(home, '.agent');
+    mkdirSync(secret, { recursive: true });
+    const toHome = join(root, 'to-home');
+    const toSecret = join(root, 'to-secret');
+    symlinkSync(home, toHome);
+    symlinkSync(secret, toSecret);
+    const config = { agent: fakeAgent({ credentialDirs: [secret] }), home };
+    expect(bindProblems([toHome], config)).toContain(`the bind ${toHome} contains the home directory ${home}`);
+    expect(bindProblems([toSecret], config)).toEqual([`the bind ${toSecret} reaches the agent's credential directory`]);
   });
 });
 
@@ -195,7 +210,7 @@ describe('a session in its sandbox', () => {
     });
     expect(browser?.error).toBeUndefined();
     const names = lines.find((line) => line.type === 'env')?.names;
-    expect(names).toEqual(expect.arrayContaining(['PLAYWRIGHT_BROWSERS_PATH', PLAYWRIGHT_CLIENT_ENV, ONLINE_INIT_ENV]));
+    expect(names).toEqual(expect.arrayContaining(['PLAYWRIGHT_BROWSERS_PATH', PLAYWRIGHT_CLIENT_ENV, ONLINE_INIT_ENV, ...Object.keys(FAKE_MEDIA)]));
     // `next dev` can't take a second space-separated `--import` beside `pyric sandbox`'s.
     expect(names).not.toContain('NODE_OPTIONS');
     // The browsers' directory is bound alone: beside it, only the npm cache when that lives there too.

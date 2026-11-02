@@ -17,7 +17,7 @@ export const COPY_RULES_CONFIG = fileURLToPath(new URL('./ui-rules/copy/sgconfig
 export const OVERLAY_MARKER = /ui-overlay:\s*\S/;
 const ABSOLUTE_RULES = new Set(['factory-no-absolute-layout', 'factory-no-absolute-layout-css']);
 const UI_FILES = /\.(tsx?|css)$/;
-const COMPONENTS_UI = /(^|\/)components\/ui\/[^/]+$/;
+const COMPONENTS_UI = /(^|\/)components\/ui\/.+$/;
 
 export interface Violation {
   rule: string;
