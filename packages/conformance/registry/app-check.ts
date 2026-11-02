@@ -218,7 +218,7 @@ const tokenRows: CompatibilityRow[] = [
     behavior: 'Resolves `{ token }` where `token` is a three-segment JWT: header `alg` RS256, `typ` JWT, with a `kid`; claims `aud`, `exp`, `iat`, `iss`, `jti`, `provider`, `sub`; `iss` is `https://firebaseappcheck.googleapis.com/<projectNumber>`, `aud` is `[projects/<projectNumber>, projects/<projectId>]`, `sub` is the app id, and `exp - iat` is 3600 seconds.',
     evidence: 'capture `app-check-client-debug-get-token` (`first`, `forced`).',
     observations: ['app-check-client-debug-get-token'],
-    notes: 'Not claimed: token length. Production tokens were 1006 to 1008 characters; sandbox tokens are shorter, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly.',
+    notes: 'Not claimed: token length. Production tokens were 1006 to 1008 characters; sandbox tokens are shorter, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly. Also not claimed: the `lu` value. The captures record the claim\'s name only, so the sandbox\'s value is a placeholder.',
   }),
   row({
     plane: 'app-check',
@@ -253,7 +253,7 @@ const tokenRows: CompatibilityRow[] = [
     behavior: 'Resolves `{ token }` with the same JWT shape as `getToken` and a 300 second TTL, a different token on every call, never the cached token, and leaves the cached `getToken` token unchanged.',
     evidence: 'capture `app-check-client-limited-use-token` records the TTL in `ttlSeconds`, and the docs give a fixed 5 minutes (https://firebase.google.com/docs/ai-logic/app-check).',
     observations: ['app-check-client-limited-use-token'],
-    notes: 'Not claimed: token length. Production tokens were 1006 to 1008 characters; sandbox tokens are shorter, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly.',
+    notes: 'Not claimed: token length. Production tokens were 1006 to 1008 characters; sandbox tokens are shorter, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly. Also not claimed: the `lu` value. The captures record the claim\'s name only, so the sandbox\'s value is a placeholder.',
   }),
   row({
     plane: 'app-check',
@@ -341,7 +341,7 @@ const adminRows: CompatibilityRow[] = [
     behavior: 'Resolves `{ token, ttlMillis: 3600000 }`; the token has the web SDK token shape (RS256 JWT with `kid`, claims `aud`, `exp`, `iat`, `iss`, `jti`, `provider`, `sub`, `exp - iat` 3600).',
     evidence: 'capture `app-check-admin-create-token-shape`.',
     observations: ['app-check-admin-create-token-shape'],
-    notes: 'Not claimed: token length. Production tokens were 1006 to 1008 characters; sandbox tokens are shorter, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly.',
+    notes: 'Not claimed: token length. Production tokens were 1006 to 1008 characters; sandbox tokens are shorter, because the sandbox `kid`, `jti`, and `provider` values are shorter. The suite compares every other field of the shape and drops `length` explicitly. Also not claimed: the `lu` value. The captures record the claim\'s name only, so the sandbox\'s value is a placeholder.',
   }),
   row({
     plane: 'app-check-admin',
