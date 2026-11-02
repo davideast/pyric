@@ -1,0 +1,7 @@
+rules_version = '2';
+// marker-in-the-rules-text
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{item} { allow read: if true; }
+  }
+}
