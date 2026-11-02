@@ -62,7 +62,7 @@ function guardedMount(opts: { allowedHosts?: string[] | true; boundHost?: string
   return {
     /** An HTTP request the mount does not answer, such as `/__pyric/init.json`. */
     async request(headers: Record<string, string>, localPort = 5000): Promise<boolean> {
-      const req = { url: '/__pyric/init.json', method: 'GET', headers, socket: { localPort } };
+      const req = { url: '/__pyric/init.json', method: 'GET', headers, socket: { localPort, remoteAddress: '127.0.0.1' } };
       return mount.handler(req as unknown as IncomingMessage, {} as ServerResponse, new URL('http://localhost/__pyric/init.json'));
     },
     upgrade(headers: Record<string, string | undefined>, upgradeOpts: { path?: string; localPort?: number } = {}): UpgradeResult {
@@ -70,7 +70,7 @@ function guardedMount(opts: { allowedHosts?: string[] | true; boundHost?: string
       let destroyed = false;
       const socket = new EventEmitter() as EventEmitter & { destroy(): void };
       socket.destroy = () => { destroyed = true; socket.emit('close'); };
-      const req = { url: upgradeOpts.path ?? WS_PATH, headers, socket: { localPort: upgradeOpts.localPort ?? 5000 } };
+      const req = { url: upgradeOpts.path ?? WS_PATH, headers, socket: { localPort: upgradeOpts.localPort ?? 5000, remoteAddress: '127.0.0.1' } };
       server.emit('upgrade', req, socket, Buffer.alloc(0));
       return { destroyed, handshakes: handshakes - before };
     },

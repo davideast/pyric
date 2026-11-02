@@ -48,6 +48,8 @@ export interface InitPayload {
    * knows the process is verified against this boot.
    */
   instanceId?: string;
+  /** This payload went to a client on another machine, which gets no project data. */
+  remotePeer?: boolean;
   /** Per-server capability for the warning-only activity report endpoint. */
   activityToken?: string;
   /** Per-boot session capability token required on workspace and project endpoints. */

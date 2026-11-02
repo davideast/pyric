@@ -21,6 +21,7 @@ import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
 import { requestInstance } from '../request-instance.js';
+import { rtdbFateAtDrop } from '../rtdb-drop-fates.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
 import { closeSendOrder, issueTime, postInOrder, waitsToSubscribe, withdrawOperation, withdrawSubscription, type SendReservation } from './send-order.js';
 
@@ -381,9 +382,24 @@ export function forgetPendingRequest(id: string): void {
   takePendingRequest(id);
 }
 
+/**
+ * Forgets every Realtime Database onDisconnect call outstanding on a closing
+ * port, sent or held, without settling it. `@firebase/database` 1.1.3 ends a
+ * deleted app's connection as it ends a dropped one (`repoInterrupt`), which
+ * clears the request callbacks, so an onDisconnect never settles there either.
+ * The Firebase presence sample leaves that promise without a handler (#1215).
+ */
+export function forgetOnDisconnectCalls(port: ClientPort): void {
+  for (const { id, message } of pendingRequestsOn(port, () => true)) {
+    const isOnDisconnect = message.t === 'op' && rtdbFateAtDrop(message.method) === 'forget';
+    if (isOnDisconnect) forgetPendingRequest(id);
+  }
+}
+
 /** Drop every client-side correlation owned by a closing app port. */
 export function disconnectPort(port: ClientPort): void {
   disconnectedPorts.add(port);
+  forgetOnDisconnectCalls(port);
   rejectPendingRequests(port, appDeletedError());
   endPortSubscriptions(port, new FirebaseError('aborted', 'The operation was aborted.'), appDeletedError());
   port.onmessage = null;

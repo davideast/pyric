@@ -16,6 +16,7 @@
 import { describeRulesType, isRulesMap } from './rules-type.js';
 import { sliceBoundsError } from './slice-bounds.js';
 import { RulesValue } from './wrappers/base.js';
+import { rulesInt } from './rules-int.js';
 
 /** Production's error for a failed index or key read. */
 export class IndexAccessFailure {
@@ -28,21 +29,22 @@ export function undefinedPropertyMessage(name: string): string {
 }
 
 /** Production's error text for a list or string index outside `[0, size)`. */
-export function indexOutOfBoundMessage(index: number, size: number): string {
+export function indexOutOfBoundMessage(index: bigint | number, size: number): string {
   return `Index out of bound error. Index: [${index}] , size: [${size}].`;
 }
 
 /** `list[index]`: the element, or production's error for the index. */
 export function indexList(list: readonly unknown[], index: unknown): unknown {
-  if (typeof index !== 'number' || !Number.isInteger(index)) {
+  const int = rulesInt(index);
+  if (int === undefined) {
     return new IndexAccessFailure(
       `Unsupported operation error. Received: list[${describeRulesType(index)}]. Expected: list[int].`,
     );
   }
-  if (index < 0 || index >= list.length) {
-    return new IndexAccessFailure(indexOutOfBoundMessage(index, list.length));
+  if (int < 0n || int >= list.length) {
+    return new IndexAccessFailure(indexOutOfBoundMessage(int, list.length));
   }
-  return list[index];
+  return list[Number(int)];
 }
 
 /** `map[key]`: the value of an own key, or production's error for a key the map does not own. */
@@ -54,15 +56,16 @@ export function indexMap(map: object, key: string): unknown {
 
 /** `string[index]`: the character at an int index, or production's error for the index. */
 export function indexString(value: string, index: unknown): unknown {
-  if (typeof index !== 'number' || !Number.isInteger(index)) {
+  const int = rulesInt(index);
+  if (int === undefined) {
     return new IndexAccessFailure(
       `Unsupported operation error. Received: string[${describeRulesType(index)}]. Expected: string[int].`,
     );
   }
-  if (index < 0 || index >= value.length) {
-    return new IndexAccessFailure(indexOutOfBoundMessage(index, value.length));
+  if (int < 0n || int >= value.length) {
+    return new IndexAccessFailure(indexOutOfBoundMessage(int, value.length));
   }
-  return value[index];
+  return value[Number(int)];
 }
 
 /** A path value as index access reads it: its segments and the names bound to them. */
@@ -89,10 +92,11 @@ export function indexValue(value: unknown, index: unknown): unknown {
   if (Array.isArray(value)) return indexList(value, index);
   if (typeof value === 'string') return indexString(value, index);
   if (isPath(value)) {
-    if (typeof index === 'number' && Number.isInteger(index)) {
-      return index >= 0 && index < value.segments.length
-        ? value.segments[index]
-        : new IndexAccessFailure(indexOutOfBoundMessage(index, value.segments.length));
+    const int = rulesInt(index);
+    if (int !== undefined) {
+      return int >= 0n && int < value.segments.length
+        ? value.segments[Number(int)]
+        : new IndexAccessFailure(indexOutOfBoundMessage(int, value.segments.length));
     }
     const name = String(index);
     return Object.hasOwn(value.bindings, name)
@@ -122,16 +126,18 @@ export function readMember(value: unknown, name: string): unknown {
 
 /** Range slice `obj[start:end]` on a List or String; errors on null/non-sliceable or bad bounds. */
 export function sliceValue(obj: unknown, start: unknown, end: unknown): unknown {
-  if (typeof start !== 'number' || !Number.isInteger(start)) {
+  const from = rulesInt(start);
+  if (from === undefined) {
     return new IndexAccessFailure(`Slice start must be an integer, got ${describeRulesType(start)}`);
   }
-  if (typeof end !== 'number' || !Number.isInteger(end)) {
+  const to = rulesInt(end);
+  if (to === undefined) {
     return new IndexAccessFailure(`Slice end must be an integer, got ${describeRulesType(end)}`);
   }
   if (typeof obj === 'string' || Array.isArray(obj)) {
-    const boundsError = sliceBoundsError(start, end, obj.length);
+    const boundsError = sliceBoundsError(from, to, obj.length);
     if (boundsError) return new IndexAccessFailure(boundsError);
-    return obj.slice(start, end);
+    return obj.slice(Number(from), Number(to));
   }
   return new IndexAccessFailure(`Slice not supported on ${describeRulesType(obj)}`);
 }

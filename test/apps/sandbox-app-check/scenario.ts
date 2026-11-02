@@ -11,7 +11,12 @@
 // that never initialized App Check, or initialized it after getAI, gets
 // production's 403; one that initialized it first answers, with or without
 // the debug provider, and with limited-use tokens. Pyric's guidance prints in
-// the dev server terminal and the browser console beside the error.
+// the dev server terminal and the browser console beside the error, on every
+// plane, including a page whose only Firebase services are App Check and AI
+// Logic on the in-page sandbox (#1638). A registered Node process gets
+// guidance it can follow there: the debug token on globalThis beside a
+// CustomProvider, then a minted token, and nothing that needs `self` or
+// `document` (#1639).
 //
 // With no debug token set, production calls an app's CustomProvider and sends
 // the token it returns, and so does the sandbox (#1642): a provider backed by
@@ -53,19 +58,40 @@ function loggedJson(output: string, label: string): unknown {
 
 const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 /**
- * Apps `runAiChecks` leaves refused: one with no App Check, one that called
- * getAI before initializeAppCheck, and the two whose CustomProvider returns an
- * invalid token or rejects.
+ * Apps `runAiChecks` leaves refused: one with no App Check on each backend,
+ * one that called getAI before initializeAppCheck, and the two whose
+ * CustomProvider returns an invalid token or rejects.
  */
-const REFUSED_APPS_PER_RUN = 4;
+const REFUSED_APPS_PER_RUN = 5;
 
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
+/**
+ * The guidance a server process prints, as build/ai-logic.md gives it: the
+ * debug token on globalThis beside a CustomProvider, then a token the server
+ * mints with firebase-admin.
+ */
+const SERVER_HINT = /\[pyric\/ai\] .*This process has no document, so the reCAPTCHA providers throw here\. For local development, set globalThis\.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck\(app, \{ provider: new CustomProvider\(\{ getToken \}\) \}\) before getAI\(app\)\..*getAppCheck\(\)\.createToken\(appId\)/;
 
-function refusal(op: string) {
+const AI_ORIGIN = 'https://firebasevertexai.googleapis.com/v1beta/projects/sandbox';
+
+/**
+ * The SDK's `RequestURL` (@firebase/ai 2.12.0): Google AI's path is
+ * `models/<model>`, Vertex AI's is `locations/<location>/publishers/google/models/<model>`,
+ * and a stream adds `alt=sse` (#1640). The sandbox keeps project `sandbox`.
+ */
+function requestUrl(op: string, location?: string): string {
+  const model = location === undefined
+    ? 'models/gemini-flash-lite-latest'
+    : `locations/${location}/publishers/google/models/gemini-flash-lite-latest`;
+  const query = op === 'streamGenerateContent' ? '?alt=sse' : '';
+  return `${AI_ORIGIN}/${model}:${op}${query}`;
+}
+
+function refusal(op: string, location?: string) {
   return {
     code: 'fetch-error',
     status: 403,
-    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/gemini-flash-lite-latest:${op}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
+    message: `AI: Error fetching from ${requestUrl(op, location)}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
   };
 }
 
@@ -76,6 +102,10 @@ function expected(targetKind: string) {
       generateContent: refusal('generateContent'),
       generateContentStream: refusal('streamGenerateContent'),
       countTokens: refusal('countTokens'),
+    },
+    vertexNoAppCheck: {
+      generateContent: refusal('generateContent', 'europe-west4'),
+      generateContentStream: refusal('streamGenerateContent', 'europe-west4'),
     },
     appCheckFirst: { generateContent: 'answered', generateContentStream: 'answered', countTokens: 'answered' },
     getAiFirst: refusal('generateContent'),
@@ -90,7 +120,7 @@ function expected(targetKind: string) {
         result: {
           code: 'error',
           status: null,
-          message: 'AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/gemini-flash-lite-latest:generateContent: attestation failed (AI/error)',
+          message: `AI: Error fetching from ${requestUrl('generateContent')}: attestation failed (AI/error)`,
         },
       },
     },
@@ -167,7 +197,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the page console carries pyric\'s guidance once per refused app', () => {
-    // runAiChecks refuses four apps (see REFUSED_APPS_PER_RUN).
+    // runAiChecks refuses five apps (see REFUSED_APPS_PER_RUN).
     assert.equal(consoleHints(app), REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
   });
 
@@ -187,7 +217,12 @@ export default scenario(async (app) => {
 
   await app.step('a registered Node process with a CustomProvider gets the same refusal and the same answers', () => {
     assert.deepEqual(loggedJson(node, 'ai-checks'), expected('sandbox'));
-    assert.match(node, HINT);
+  });
+
+  await app.step('a registered Node process: the guidance names a CustomProvider and nothing that throws in Node', () => {
+    assert.match(node, SERVER_HINT);
+    assert.doesNotMatch(node, HINT);
+    assert.doesNotMatch(node, /self\.FIREBASE_APPCHECK_DEBUG_TOKEN/);
   });
 
   await app.step('a server-rendered module: the shared firebase.ts throws document is not defined, a CustomProvider works', () =>
@@ -207,18 +242,24 @@ export default scenario(async (app) => {
     await workerHost.process.waitForLog(HINT, { since });
   });
 
-  await app.step('in-page sandbox: the same refusal and the same answers', async () => {
+  // A fresh dev server: the SharedWorker one already printed this refusal, and
+  // a dev server prints a repeat only once. The page uses only App Check and
+  // AI Logic, so nothing but the AI entry can relay the refusal (#1638).
+  const inPageHost = await app.step('start a dev server for the in-page sandbox', () =>
+    app.devServer({ name: 'in-page-dev-server', env: { SANDBOX_APP_CHECK_PLANE: 'shared-worker' } }));
+
+  await app.step('in-page sandbox: the same refusal and the same answers, with the hint in the terminal', async () => {
     const context = await app.browser();
     await context.addInitScript(() => {
       (globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__ = true;
     });
-    const inPage = await openPage(app, workerHost);
+    const inPage = await openPage(app, inPageHost);
     const hintsBefore = consoleHints(app);
+    const since = inPageHost.process.mark();
     const result = await inPage.evaluate((url) => runAiChecks('in-page', url), tokenUrl);
     assert.deepEqual(result, expected('sandbox'));
-    // The terminal already printed this refusal for the SharedWorker page, and
-    // the dev server throttles a repeat, so the page console is the evidence here.
     assert.equal(consoleHints(app) - hintsBefore, REFUSED_APPS_PER_RUN, app.browserLog.join('\n'));
+    await inPageHost.process.waitForLog(HINT, { since });
   });
 
   await app.step('no request left the browser for reCAPTCHA or App Check', () => {

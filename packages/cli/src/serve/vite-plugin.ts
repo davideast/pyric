@@ -62,6 +62,8 @@ import { installViteNetGuard } from './vite-net-guard.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
+import { pyricFsDeny } from './vite-state-deny.js';
+import { attachViteRealPathDeny } from './vite-real-path-deny.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
 interface EnvironmentHooks {
@@ -302,22 +304,26 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
       const moduleConfig = moduleSwap.config({ devServer: isDevServer });
       const pageConfig = pageRuntime.config(config, env);
-      const serverWatchConfig: UserConfig = {
+      const serverConfig: UserConfig = {
         server: {
           watch: {
             ignored: ['**/.pyric/**'],
+          },
+          fs: {
+            deny: pyricFsDeny(config),
           },
         },
       };
       const finalizedConfig: UserConfig = {
         ...moduleConfig,
         ...pageConfig,
-        ...serverWatchConfig,
+        ...serverConfig,
       };
       return finalizedConfig;
     },
 
     async configResolved(resolved) {
+      pageRuntime.configResolved(resolved);
       moduleSwap.configResolved(resolved);
       serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
       // A sandbox build stamps pages without a dev server, so configureServer
@@ -356,6 +362,8 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
 
       async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+      // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
+      attachViteRealPathDeny(server, projectDir);
       const stateScope = generationStateScope(options);
       const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;

@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDenialThrottle, createPyricNamespace, DENIAL_BODY_LIMIT_BYTES, formatDenialBlock } from '../../src/serve/namespace.js';
 import { startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
+import { expectClosedEarlyAnswer } from './early-answer.js';
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-denials-'));
@@ -198,6 +199,16 @@ describe('/__pyric/denials', () => {
     });
     expect(res.status).toBe(413);
     expect(notes).toEqual([]);
+  });
+
+  it('closes the connection with an early 413, and answers the next request (#1706, #1710)', async () => {
+    const h = await startServe(recordingLogger().logger);
+    const oversized = await fetch(`${h.url}/__pyric/denials`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(denialBody({ message: 'x'.repeat(1024 * 1024) })),
+    });
+    await expectClosedEarlyAnswer(oversized, 413, `${h.url}/__pyric/denials`);
   });
 
   it('prints a same-origin denial carrying terminal escapes as one safe block', async () => {

@@ -1,0 +1,29 @@
+name: "Flaky or red test"
+description: "Report a test that fails intermittently or a check that is red on main."
+title: "Flaky: <test> or Red on main: <check>"
+labels: ["flake"]
+body:
+  - type: textarea
+    id: fails-how
+    attributes:
+      label: "Fails how"
+      description: "The error or symptom, in one or two lines."
+    validations:
+      required: true
+  - type: textarea
+    id: since
+    attributes:
+      label: "Since"
+      description: "The first run, commit, or date it failed."
+  - type: textarea
+    id: cause
+    attributes:
+      label: "Cause"
+      description: "What you know or suspect about the cause."
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The check that shows it is stable."
+    validations:
+      required: true

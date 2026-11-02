@@ -94,8 +94,8 @@ export const REAL_SDK_ENTRIES: ReadonlyMap<ServedFirebaseSpecifier, string> = ne
 
 /**
  * The `@firebase/*` packages the real AI SDK and the passthrough's
- * `firebase/app` and `firebase/app-check` import, which a server runner can
- * reach by file URL (Vite's module runner does).
+ * `firebase/app` and `firebase/app-check` import. Only a real SDK file reaches
+ * them; app code importing them is stopped (#1635).
  */
 const PRODUCTION_AI_SDK_PACKAGES: ReadonlySet<string> = new Set([
   '@firebase/ai',
@@ -149,15 +149,16 @@ const PRODUCTION_AI_FIREBASE_FOLDERS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Whether production AI mode lets a file of the real Firebase SDK load, from
+ * Whether production AI mode lets a file of the real Firebase SDK load from
  * any importer: a `firebase` file under `ai/`, `app/` or `app-check/` (the
- * {@link REAL_SDK_ENTRIES}), or a file of the `@firebase/*` packages those
- * import. Every other file of the client SDK is swapped or stopped, as in
- * sandbox mode. `pathInPackage` is the file's path inside its package, read
- * only for `firebase`.
+ * {@link REAL_SDK_ENTRIES}). A server runner, such as Vite's, imports those by
+ * file URL. The `@firebase/*` packages they import are not among them: those
+ * load only from an SDK file the register already allowed (`swap-or-stop.ts`),
+ * so app code that imports them directly is stopped, as in sandbox mode
+ * (#1635). Every other file of the client SDK is swapped or stopped too.
+ * `pathInPackage` is the file's path inside its package.
  */
 export function isProductionAiSdkFile(packageName: string, pathInPackage: () => string | null): boolean {
-  if (isProductionAiSdkPackage(packageName)) return true;
   if (packageName !== 'firebase') return false;
   const folder = pathInPackage()?.split('/')[0];
   return folder !== undefined && PRODUCTION_AI_FIREBASE_FOLDERS.has(folder);

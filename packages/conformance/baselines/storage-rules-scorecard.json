@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 113,
+    "numerator": 122,
     "denominator": 140,
-    "ratio": 0.8071428571428572,
-    "percent": 80.7
+    "ratio": 0.8714285714285714,
+    "percent": 87.1
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 11
     },
     "productionEvidence": {
-      "verified": 113,
-      "diverged": 23,
+      "verified": 122,
+      "diverged": 14,
       "unverified": 4
     }
   },
   "counts": {
-    "conformant": 113,
-    "diverged": 23,
+    "conformant": 122,
+    "diverged": 14,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1234,17 +1234,17 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "conversion-functions",
         "h1-int64-precision",
         "storage-lookup-path-interpolation"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#207"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.function.cast.int": {
       "productionAcceptance": "accepted",
@@ -1255,16 +1255,16 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "conversion-functions",
         "h1-int64-precision"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "storage-rules#207"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.function.cast.float": {
       "productionAcceptance": "accepted",
@@ -1476,8 +1476,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "list-map-literals-and-slice",
@@ -1487,11 +1487,10 @@
         "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
-        "storage-rules#122"
-      ],
-      "divergedByRows": [
+        "storage-rules#122",
         "storage-rules#219"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.method.map.keys": {
       "productionAcceptance": "accepted",
@@ -2500,8 +2499,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bytes-literal",
@@ -2515,12 +2514,11 @@
         "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
-        "storage-rules#123"
-      ],
-      "divergedByRows": [
+        "storage-rules#123",
         "storage-rules#207",
         "storage-rules#219"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.sub": {
       "productionAcceptance": "accepted",
@@ -2531,8 +2529,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "h1-int64-precision",
@@ -2542,11 +2540,10 @@
         "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
-        "storage-rules#123"
-      ],
-      "divergedByRows": [
+        "storage-rules#123",
         "storage-rules#207"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.mul": {
       "productionAcceptance": "accepted",
@@ -2579,8 +2576,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "conversion-functions",
@@ -2593,11 +2590,10 @@
       ],
       "verifiedByRows": [
         "storage-rules#119",
-        "storage-rules#123"
-      ],
-      "divergedByRows": [
+        "storage-rules#123",
         "storage-rules#219"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.and": {
       "productionAcceptance": "accepted",
@@ -2608,8 +2604,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -2638,11 +2634,10 @@
       ],
       "verifiedByRows": [
         "storage-rules#131",
-        "storage-rules#133"
-      ],
-      "divergedByRows": [
+        "storage-rules#133",
         "storage-rules#211"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.or": {
       "productionAcceptance": "accepted",
@@ -2653,8 +2648,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
         "bool-function",
@@ -2680,11 +2675,10 @@
       "verifiedByRows": [
         "storage-rules#119",
         "storage-rules#131",
-        "storage-rules#133"
-      ],
-      "divergedByRows": [
+        "storage-rules#133",
         "storage-rules#211"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.not": {
       "productionAcceptance": "accepted",
@@ -2909,8 +2903,8 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "conversion-functions",
         "float-modulo-unary-minus",
@@ -2922,11 +2916,10 @@
         "xref-shared-language-semantics"
       ],
       "verifiedByRows": [
-        "storage-rules#123"
-      ],
-      "divergedByRows": [
+        "storage-rules#123",
         "storage-rules#219"
-      ]
+      ],
+      "divergedByRows": []
     },
     "storage.operator.mod": {
       "productionAcceptance": "accepted",

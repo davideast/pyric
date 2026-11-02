@@ -184,6 +184,69 @@ describe('namespace over the real server', () => {
     expect(init.sessionToken.length).toBeGreaterThan(10);
   });
 
+  describe('a client on another machine', () => {
+    const SECRETS = {
+      rules: 'rules source',
+      rulesHash: 'h',
+      storageRules: 'storage rules',
+      storageRulesHash: 'h',
+      bridgeUrl: 'ws://localhost:5000/__pyric/sandbox',
+      seed: { 'users/a': { private: true } },
+      seedState: { firestore: { 'users/a': { private: true } } },
+      authUsers: [{ uid: 'a', email: 'a@example.com', password: 'pw' }],
+      projectKey: '/project/dir',
+      databaseRules: { rules: { '.read': true } },
+      hosted: true,
+      instanceId: 'boot',
+    };
+
+    function call(ns: ReturnType<typeof createPyricNamespace>, path: string, remoteAddress: string | undefined) {
+      let body = '';
+      let status = 0;
+      const req = { method: 'GET', headers: { host: 'localhost:5000' }, socket: { remoteAddress, localPort: 5000 } };
+      const res = {
+        writeHead(code: number) { status = code; return res; },
+        end(chunk?: string) { body = chunk ?? ''; return res; },
+      };
+      return Promise.resolve(ns(req as never, res as never, new URL(`http://localhost:5000${path}`))).then(() => ({ status, body }));
+    }
+
+    function namespace() {
+      return createPyricNamespace({ sdkDir: fixture().sdk, initPayload: () => ({ ...SECRETS }), activity: () => {} });
+    }
+
+    it('reads an init payload with no project data and no capability, whatever Host it sends', async () => {
+      const ns = namespace();
+      for (const peer of ['10.0.0.5', '192.168.1.20', '::ffff:10.0.0.5', undefined]) {
+        const { status, body } = await call(ns, '/__pyric/init.json', peer);
+        expect(status).toBe(200);
+        expect(JSON.parse(body)).toEqual({
+          instanceId: 'boot', hosted: true, remotePeer: true,
+          rules: null, rulesHash: null, storageRules: null, storageRulesHash: null, bridgeUrl: null, seed: null,
+        });
+      }
+    });
+
+    it('leaves the payload whole for a client on this machine', async () => {
+      const ns = namespace();
+      for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+        const init = JSON.parse((await call(ns, '/__pyric/init.json', peer)).body) as Record<string, unknown>;
+        expect(typeof init.sessionToken).toBe('string');
+        expect(typeof init.activityToken).toBe('string');
+        expect(init.authUsers).toEqual(SECRETS.authUsers);
+        expect(init.projectKey).toBe('/project/dir');
+        expect(init.remotePeer).toBeUndefined();
+      }
+    });
+
+    it('is refused at every guarded route', async () => {
+      const ns = namespace();
+      for (const path of ['/__pyric/diagnostics', '/__pyric/ai-proxy/v1/models', '/__pyric/denials']) {
+        expect((await call(ns, path, '10.0.0.5')).status).toBe(403);
+      }
+    });
+  });
+
   it('enforces host and origin guards on /__pyric/events', async () => {
     const { site, sdk } = fixture();
     const events = createEventHub();

@@ -1,4 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { withPyric } from '../../../src/next/index.js';
 import { markRegisterActive } from '../../../src/register/activation.js';
 
@@ -146,12 +149,38 @@ describe('withPyric Next.js configuration wrapper', () => {
       },
     };
     const res = await resolveWith(config) as Record<string, any>;
-    expect(res.serverExternalPackages).toEqual(['existing-pkg', 'firebase', 'firebase-admin']);
-    expect(res.experimental.serverComponentsExternalPackages).toEqual([
+    // Installed @firebase/* packages and aliases follow these, depending on the
+    // install layout (#1626); server-external-packages.test.ts covers them.
+    expect(res.serverExternalPackages.slice(0, 3)).toEqual(['existing-pkg', 'firebase', 'firebase-admin']);
+    expect(res.experimental.serverComponentsExternalPackages.slice(0, 3)).toEqual([
       'other-pkg',
       'firebase-admin',
       'firebase',
     ]);
+    expect(new Set(res.serverExternalPackages).size).toBe(res.serverExternalPackages.length);
+  });
+
+  it('warns in the development server phase when the directory it runs in has no next.config file (#1626)', async () => {
+    const savedCwd = process.cwd();
+    const project = mkdtempSync(join(tmpdir(), 'pyric-next-no-config-'));
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.join(' '));
+    };
+    try {
+      process.chdir(project);
+      await resolveWith({});
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(`@pyric/cli/next: no next.config file in ${process.cwd()}`);
+      writeFileSync(join(project, 'next.config.mjs'), 'export default {};\n');
+      await resolveWith({});
+      expect(warnings).toHaveLength(1);
+    } finally {
+      console.warn = originalWarn;
+      process.chdir(savedCwd);
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 
   it('configures client-side Webpack aliases and builtin fallbacks only for client builds (!isServer)', async () => {

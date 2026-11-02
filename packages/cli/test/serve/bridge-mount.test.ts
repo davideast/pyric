@@ -38,6 +38,27 @@ async function serve(bridge: boolean): Promise<ServeRuntime> {
   return runtime;
 }
 
+describe('a client on another machine', () => {
+  const BRIDGE_ROUTES = ['/__pyric/health', '/__pyric/mcp', '/__pyric/hosted/method', '/__pyric/hosted/repro', '/__pyric/storage/v0/b/x/o/y'];
+
+  function peerCall(handler: ReturnType<typeof createBridgeMount>['handler'], path: string, remoteAddress: string) {
+    let status = 0;
+    const res = {
+      writeHead(code: number) { status = code; return res; },
+      end() { return res; },
+    };
+    const req = { method: 'POST', headers: { host: 'localhost' }, socket: { remoteAddress, localPort: 5000 }, on() { return req; } };
+    return handler(req as never, res as never, new URL(`http://localhost${path}`)).then(() => status);
+  }
+
+  it('is refused at every bridge route, even when all hosts are allowed', async () => {
+    const mount = createBridgeMount({ upgradeGuard: { boundHost: '0.0.0.0', allowedHosts: true }, disableAuditLog: true });
+    for (const path of BRIDGE_ROUTES) {
+      expect(await peerCall(mount.handler, path, '10.0.0.5')).toBe(403);
+    }
+  });
+});
+
 describe('pyric dev --bridge', () => {
   it('mounts health + advertises the ws URL in the init payload', async () => {
     const r = await serve(true);

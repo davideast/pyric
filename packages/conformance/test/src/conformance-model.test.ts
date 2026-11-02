@@ -23,10 +23,10 @@ describe('multi-axis conformance model', () => {
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 128, denominator: 140, ratio: 128 / 140, percent: 91.4,
+      numerator: 135, denominator: 140, ratio: 135 / 140, percent: 96.4,
     });
     expect(model.rulesLanguage.storageScorecard.score).toEqual({
-      numerator: 113, denominator: 140, ratio: 113 / 140, percent: 80.7,
+      numerator: 122, denominator: 140, ratio: 122 / 140, percent: 87.1,
     });
     expect(model.rulesLanguage.rtdbScorecard.score).toEqual({
       numerator: 91, denominator: 91, ratio: 91 / 91, percent: 100,
@@ -132,10 +132,10 @@ describe('multi-axis conformance model', () => {
     expect(source).not.toContain('execFileSync');
   });
 
-  it('reports getAfter as available, conformant, and assurance-eligible', () => {
+  it('reports getAfter as available and unverified while the batch sibling-merge row awaits production evidence', () => {
     const result = one('getAfter');
     expect(result).toMatchObject({
-      surface: 'firestore-rules', availability: 'available', fidelity: 'conforms', assurance: 'eligible',
+      surface: 'firestore-rules', availability: 'available', fidelity: 'unverified', assurance: 'qualified',
     });
     expect(result.claims.map(({ id }) => id)).toEqual(['firestore-rules#164', 'firestore-rules#190', 'firestore.function.getAfter']);
   });

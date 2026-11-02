@@ -17,7 +17,7 @@
 
 import { AiBrokerError, errorEnvelope } from './synthesizer.js';
 import { GeminiUpstream, type GeminiUpstreamOptions } from './gemini-upstream.js';
-import { redactUpstreamText } from './upstream-error-redaction.js';
+import { redactUpstreamError, redactUpstreamText } from './upstream-error-redaction.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -44,6 +44,29 @@ function parseUpstreamError(text: string): { message: string; status: string } |
   return { message: error.message as string, status: error.status as string };
 }
 
+/**
+ * One SSE event's data as a chunk, or undefined when it is not JSON. A 2xx
+ * stream can carry an error event mid-response; it passes through as the
+ * upstream sent it, with the credentials the request carried masked (#1660).
+ */
+function parseStreamData(data: string, credentials: readonly string[]): WireChunk | undefined {
+  let chunk: unknown;
+  try {
+    chunk = JSON.parse(data);
+  } catch {
+    return undefined;
+  }
+  const isErrorEvent = chunk !== null && typeof chunk === 'object' && 'error' in chunk;
+  if (!isErrorEvent) return chunk as WireChunk;
+  return JSON.parse(redactUpstreamError(data, credentials)) as WireChunk;
+}
+
+/** A 2xx upstream answer and the credentials its request carried. */
+interface SentRequest {
+  response: Response;
+  credentials: readonly string[];
+}
+
 export type GeminiEngineOptions = GeminiUpstreamOptions;
 
 export class GeminiEngine implements AnswerEngine {
@@ -64,13 +87,14 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   /** Sends one upstream request; a non-2xx answer throws the upstream's own error. */
-  private async send(model: string, action: string, body: unknown): Promise<Response> {
+  private async send(model: string, action: string, body: unknown): Promise<SentRequest> {
     const { response, credentials } = await this.upstream.sendWithCredentials(
       this.normalizeModel(model),
       action,
       JSON.stringify(body),
     );
-    return this.checkStatus(response, credentials);
+    await this.checkStatus(response, credentials);
+    return { response, credentials };
   }
 
   /**
@@ -92,17 +116,17 @@ export class GeminiEngine implements AnswerEngine {
    * upstream's own error envelope: its HTTP code, `status` and message. A
    * body that is not a Gemini error envelope keeps the HTTP code and reports
    * the body text. Either way the credentials the request carried are masked
-   * in every form the upstream can quote them, as the gemini proxy masks
-   * them (`upstream-error-redaction.ts`).
+   * in every form the upstream can quote them, in the message and the status
+   * alike, with the masking the gemini proxy applies to the same body
+   * (`upstream-error-redaction.ts`, #1660).
    */
-  private async checkStatus(response: Response, credentials: readonly string[]): Promise<Response> {
+  private async checkStatus(response: Response, credentials: readonly string[]): Promise<void> {
     const isSuccess = response.ok;
-    if (isSuccess) return response;
+    if (isSuccess) return;
     const errorText = await response.text().catch(() => '');
-    const upstream = parseUpstreamError(errorText);
+    const upstream = parseUpstreamError(redactUpstreamError(errorText, credentials));
     if (upstream !== null) {
-      const message = redactUpstreamText(upstream.message, credentials);
-      throw new AiBrokerError(errorEnvelope(response.status, message, upstream.status));
+      throw new AiBrokerError(errorEnvelope(response.status, upstream.message, upstream.status));
     }
     throw new AiBrokerError(
       errorEnvelope(
@@ -113,8 +137,28 @@ export class GeminiEngine implements AnswerEngine {
     );
   }
 
+  /**
+   * One read of an upstream stream. A read that fails mid-stream becomes an
+   * {@link AiBrokerError} whose message has the request's credentials masked,
+   * as a failed fetch's does (#1737): the broker logs the message and the
+   * caller receives it, and a read error can quote upstream text.
+   */
+  private async readStream(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    credentials: readonly string[],
+  ): ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']> {
+    try {
+      return await reader.read();
+    } catch (err) {
+      if (err instanceof AiBrokerError) throw err;
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const message = `Gemini API stream aborted mid-response: ${redactUpstreamText(rawMessage, credentials)}`;
+      throw new AiBrokerError(errorEnvelope(502, message, 'UNAVAILABLE'));
+    }
+  }
+
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
-    const response = await this.send(model, 'generateContent', req);
+    const { response } = await this.send(model, 'generateContent', req);
     return (await response.json()) as WireResponse;
   }
 
@@ -122,7 +166,7 @@ export class GeminiEngine implements AnswerEngine {
     req: GenerateContentRequest,
     model: string,
   ): AsyncIterable<WireChunk> {
-    const response = await this.send(model, 'streamGenerateContent?alt=sse', req);
+    const { response, credentials } = await this.send(model, 'streamGenerateContent?alt=sse', req);
 
     const hasBody = response.body !== null && response.body !== undefined;
     if (!hasBody) {
@@ -137,7 +181,7 @@ export class GeminiEngine implements AnswerEngine {
 
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await this.readStream(reader, credentials);
         const isDone = done === true;
         if (isDone) {
           break;
@@ -156,12 +200,9 @@ export class GeminiEngine implements AnswerEngine {
           if (isEmptyOrDone) {
             continue;
           }
-          try {
-            const chunk = JSON.parse(dataStr) as WireChunk;
-            yield chunk;
-          } catch {
-            // Ignore malformed SSE chunk in stream
-          }
+          // A malformed SSE chunk is skipped.
+          const chunk = parseStreamData(dataStr, credentials);
+          if (chunk !== undefined) yield chunk;
         }
       }
 
@@ -173,12 +214,8 @@ export class GeminiEngine implements AnswerEngine {
           const dataStr = line.slice(6).trim();
           const isNotEmptyOrDone = dataStr !== '' && dataStr !== '[DONE]';
           if (isNotEmptyOrDone) {
-            try {
-              const chunk = JSON.parse(dataStr) as WireChunk;
-              yield chunk;
-            } catch {
-              // Ignore malformed SSE chunk in stream
-            }
+            const chunk = parseStreamData(dataStr, credentials);
+            if (chunk !== undefined) yield chunk;
           }
         }
       }
@@ -188,7 +225,7 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
-    const response = await this.send(model, 'countTokens', req);
+    const { response } = await this.send(model, 'countTokens', req);
     return (await response.json()) as CountTokensResponse;
   }
 }

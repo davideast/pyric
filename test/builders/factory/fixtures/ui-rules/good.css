@@ -1,0 +1,10 @@
+/* Nothing here breaks a factory UI rule. */
+.player {
+  color: var(--ink-muted);
+  position: relative;
+}
+
+.follow-button {
+  /* ui-overlay: the floating follow button over the reader */
+  position: absolute;
+}

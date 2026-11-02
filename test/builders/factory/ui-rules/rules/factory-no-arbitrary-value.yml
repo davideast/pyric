@@ -1,0 +1,10 @@
+id: factory-no-arbitrary-value
+language: tsx
+severity: warning
+message: Arbitrary Tailwind value. Use a token from DESIGN.md; only grid track templates of fr, minmax, auto, subgrid and rem may be arbitrary.
+rule:
+  matches: class-string
+  regex: \[
+  # Fine when every token is a plain utility or a grid track template, each after any variants such as md: or data-[state=open]:.
+  not:
+    regex: ^\s*(?:(?:[^\s\[\]:]*(?:\[[^\]\s]*\])?[^\s\[\]:]*:)*(?:[^\s\[\]]+|!?-?grid-(?:cols|rows)-\[(?:minmax|auto|subgrid|fit-content|\d*\.?\d+(?:fr|rem)?|[(),_])+\])(?:\s+|$))*$

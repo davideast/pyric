@@ -1,0 +1,22 @@
+# A description: a `description` prop, or text in an element styled as one (t-card-desc, t-meta, t-lead).
+id: copy-description
+language: tsx
+severity: hint
+rule:
+  any:
+    - kind: string_fragment
+      inside:
+        stopBy: end
+        kind: jsx_attribute
+        has:
+          kind: property_identifier
+          regex: ^description$
+    - kind: jsx_text
+      regex: \S
+      inside:
+        kind: jsx_element
+        has:
+          kind: jsx_opening_element
+          has:
+            kind: jsx_attribute
+            regex: \bt-(card-desc|meta|lead)\b

@@ -89,6 +89,14 @@ export function readChannelRecord(path: string): ModelChannelEvent[] {
   return readFileSync(path, 'utf8').split('\n').filter((line) => line.trim() !== '').map((line) => JSON.parse(line) as ModelChannelEvent);
 }
 
+/** The tokens the forwarder metered across a run's responses; null when it metered none. */
+export function meteredTokens(events: readonly ModelChannelEvent[]): Tokens | null {
+  const metered = events.flatMap((event) => (event.tokens === null ? [] : [event.tokens]));
+  if (metered.length === 0) return null;
+  const total = (field: keyof Tokens) => metered.reduce((sum, tokens) => sum + tokens[field], 0);
+  return { input: total('input'), output: total('output'), cacheCreation: total('cacheCreation'), cacheRead: total('cacheRead') };
+}
+
 /** The metered cost of a run: what the meter charged its forwarded requests. */
 export function meteredCostUsd(events: readonly ModelChannelEvent[]): number {
   return events.reduce((sum, event) => sum + (event.chargedUsd ?? event.costUsd ?? 0), 0);
@@ -120,8 +128,8 @@ export function listen(start: (server: net.Server) => void, onConnection: (socke
 }
 
 /** Starts the bridge on a free loopback port, piping each connection to `socketPath`. */
-export async function startBridge(socketPath: string): Promise<Listening & { port: number }> {
-  const listening = await listen((server) => server.listen(0, '127.0.0.1'), (client) => {
+export async function startBridge(socketPath: string, port = 0): Promise<Listening & { port: number }> {
+  const listening = await listen((server) => server.listen(port, '127.0.0.1'), (client) => {
     const forwarder = net.connect(socketPath);
     forwarder.on('error', () => client.destroy());
     client.on('error', () => forwarder.destroy());

@@ -15,6 +15,11 @@ export function parseWith<T>(schema: ZodType<T, ZodTypeDef, unknown>, value: unk
   return result.success ? { ok: true, value: result.data } : { ok: false, errors: schemaErrors(result.error) };
 }
 
+/** An error's message, or what was thrown, up to its first line break. */
+export function firstLine(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
+}
+
 /** JSON text, parsed, or the parse error as a problem line. */
 export function parseJsonText(text: string): Parsed<unknown> {
   try {

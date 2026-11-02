@@ -3,13 +3,13 @@
 // address routes to loopback, and the only lookups are of `.invalid` names,
 // so nothing here can leave the machine.
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
 import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
-import { DROP_CAPABILITIES, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
+import { awaitSandboxExit, DROP_CAPABILITIES, startTimeOf, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
 
 /** A DNS query for `name`, type A, recursion desired. */
 function query(name: string, id = 0x1234): Buffer {
@@ -158,6 +158,10 @@ describe('startEgressNamespace', () => {
   test('runs a command with only loopback and the allowlisted files, and records its lookups and connections', async () => {
     const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
     const networkLog = join(root, 'network.jsonl');
+    // Links a sandbox could have planted: the harness writes nothing through them.
+    const decoy = join(mkdtempSync(join(tmpdir(), 'builders-decoy-')), 'host-file');
+    writeFileSync(decoy, 'the host’s own file');
+    for (const name of ['hosts', 'resolv.conf']) symlinkSync(decoy, join(root, name));
     const namespace = await startEgressNamespace({ networkLog, runRoot: root });
     const run = (command: string, args: string[]) => {
       const entered = namespace.enter(command, args, root);
@@ -175,6 +179,8 @@ describe('startEgressNamespace', () => {
       expect(JSON.parse(inventory.stdout).problems).toEqual([]);
 
       expect(run('getent', ['hosts', 'canary-probe.invalid']).status).not.toBe(0);
+      expect(run('cat', ['/etc/resolv.conf']).stdout).toContain('nameserver 127.0.0.1');
+      expect(readFileSync(decoy, 'utf8')).toBe('the host’s own file');
 
       const connect = run('node', ['-e', "require('node:net').connect(80, '192.0.2.1').on('error', (e) => console.log(e.code)).on('close', () => console.log('closed'))"]);
       expect(connect.stdout.trim().split('\n')[0]).toBe('ECONNRESET');
@@ -184,5 +190,131 @@ describe('startEgressNamespace', () => {
     const events = readFileSync(networkLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { kind: string; host: string; port?: number });
     expect(events.filter((event) => event.kind === 'dns').map((event) => event.host)).toContain('canary-probe.invalid');
     expect(events.filter((event) => event.kind === 'connect')).toEqual([expect.objectContaining({ via: 'catch-all', address: '192.0.2.1', port: 80 })]);
+  }, SANDBOX_TEST_TIMEOUT_MS);
+
+  test('shows a run the harness’s own files and packages and none of the repo’s, even to cat through a shell', async () => {
+    const repo = resolve(import.meta.dir, '../..');
+    const source = join(repo, 'packages', 'pyric', 'src');
+    const sourceFile = join(source, readdirSync(source).find((name) => name.endsWith('.ts')) ?? 'index.ts');
+    expect(existsSync(sourceFile)).toBe(true);
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root });
+    const run = (command: string, args: string[], cwd = root) => {
+      const entered = namespace.enter(command, args, cwd);
+      return spawnSync(entered.command, entered.args, { encoding: 'utf8', timeout: 120_000 });
+    };
+    const listing = (dir: string) => run('ls', ['-A', dir]).stdout.trim().split('\n').filter((name) => name !== '');
+    try {
+      const cat = run('sh', ['-c', `cat ${sourceFile}`]);
+      expect(cat.status).not.toBe(0);
+      expect(cat.stderr.trim()).toBe(`cat: ${sourceFile}: No such file or directory`);
+      expect(listing(repo).sort()).toEqual(['node_modules', 'packages', 'test']);
+      expect(listing(join(repo, 'packages'))).toEqual(['cli']);
+      expect(listing(join(repo, 'packages', 'cli', 'src'))).toEqual(['google-endpoints.ts']);
+      expect(listing(join(repo, 'test')).sort()).toEqual(['apps', 'builders']);
+      expect(run('sh', ['-c', `find ${repo} -path '*/packages/pyric*' -print -quit`]).stdout.trim()).toBe('');
+
+      const client = run('node', ['-e', "import('@playwright/test').then((m) => console.log(typeof m.chromium.connect))"], import.meta.dir);
+      expect(client.stdout.trim()).toBe('function');
+      const zod = run('node', ['-e', "import('zod').then((m) => console.log(typeof m.z.object))"], import.meta.dir);
+      expect(zod.stdout.trim()).toBe('function');
+    } finally {
+      await namespace.stop();
+    }
+  }, SANDBOX_TEST_TIMEOUT_MS);
+});
+
+/**
+ * A child whose `exit` and `close` never reach its listeners, as when Bun
+ * misses a child's exit under load (#1274). Round 1 hung this way (#1767):
+ * a run's builder exited, and `stop` waited on bwrap's `close` forever.
+ */
+function losingExit(child: ChildProcess): ChildProcess {
+  const emit = child.emit.bind(child);
+  child.emit = ((event: string | symbol, ...args: unknown[]) => (event === 'exit' || event === 'close' ? false : emit(event, ...args))) as ChildProcess['emit'];
+  return child;
+}
+
+const exitedPromise = (child: ChildProcess) => new Promise<void>((resolve) => {
+  child.once('close', () => resolve());
+  child.once('error', () => resolve());
+});
+
+const within = <T>(promise: Promise<T>, ms: number) => Promise.race([promise.then(() => 'settled'), new Promise((resolve) => setTimeout(() => resolve('still waiting'), ms))]);
+
+const isRunning = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+describe('awaitSandboxExit', () => {
+  const timing = { exitMs: 1000, killMs: 1000, pollMs: 20 };
+  const startOf = (child: ChildProcess) => (child.pid === undefined ? null : startTimeOf(child.pid));
+
+  test('ends a stop whose exit the runtime never reports, from /proc', async () => {
+    const child = losingExit(spawn('sleep', ['0.2'], { stdio: 'ignore' }));
+    const started = startOf(child);
+    expect(started).not.toBeNull();
+    const begun = performance.now();
+    expect(await awaitSandboxExit(child, exitedPromise(child), started, timing)).toBe('exited');
+    expect(performance.now() - begun).toBeLessThan(timing.exitMs);
+  });
+
+  test('counts a sandbox gone before its start time was read as exited', async () => {
+    const child = losingExit(spawn('true', [], { stdio: 'ignore' }));
+    const begun = performance.now();
+    expect(await awaitSandboxExit(child, exitedPromise(child), null, timing)).toBe('exited');
+    expect(performance.now() - begun).toBeLessThan(timing.exitMs);
+  });
+
+  test('kills a sandbox that outlives its stop, and goes on once it is gone', async () => {
+    const child = losingExit(spawn('sleep', ['30'], { stdio: 'ignore' }));
+    const pid = child.pid ?? 0;
+    expect(await awaitSandboxExit(child, exitedPromise(child), startOf(child), timing)).toBe('exited');
+    expect(isRunning(pid)).toBe(false);
+  });
+
+  test('says the sandbox is still running when SIGKILL does not end it', async () => {
+    const signals: string[] = [];
+    const undying = { pid: process.pid, kill: (signal: string) => signals.push(signal) } as unknown as ChildProcess;
+    expect(await within(awaitSandboxExit(undying, new Promise(() => {}), startTimeOf(process.pid), timing), 5000)).toBe('settled');
+    expect(await awaitSandboxExit(undying, new Promise(() => {}), startTimeOf(process.pid), timing)).toBe('still-running');
+    expect(signals).toEqual(['SIGKILL', 'SIGKILL']);
+  });
+});
+
+describe('startEgressNamespace stop', () => {
+  test('returns when bwrap exits though the runtime never reports it (#1767)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const spawnChild = (command: string, args: string[], options: SpawnOptions) => losingExit(spawn(command, args, options));
+    const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root, spawnChild, stopTiming: { exitMs: 10_000, killMs: 2000, pollMs: 50 } });
+    // Within the wait before SIGKILL: /proc shows bwrap gone, so the stop needs no kill.
+    expect(await within(namespace.stop(), 5000)).toBe('settled');
+    expect(await namespace.stop()).toBe('exited');
+  }, SANDBOX_TEST_TIMEOUT_MS);
+
+  test('binds an inner view read-only over a path in the run root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-namespace-'));
+    const results = mkdtempSync(join(tmpdir(), 'builders-results-'));
+    writeFileSync(join(results, 'result.json'), '{"passed":true}\n');
+    const namespace = await startEgressNamespace({ networkLog: join(root, 'network.jsonl'), runRoot: root, innerViews: [{ source: results, dest: join(root, 'checks') }] });
+    const run = (script: string) => {
+      const entered = namespace.enter('sh', ['-c', script], root);
+      return spawnSync(entered.command, entered.args, { encoding: 'utf8', timeout: 120_000 });
+    };
+    try {
+      expect(run('cat checks/result.json').stdout).toBe('{"passed":true}\n');
+      expect(run('echo forged > checks/result.json').status).not.toBe(0);
+      expect(run('touch checks/new').status).not.toBe(0);
+      expect(run('mv checks gone').status).not.toBe(0);
+      expect(run('echo ok > own.txt').status).toBe(0);
+      expect(readFileSync(join(results, 'result.json'), 'utf8')).toBe('{"passed":true}\n');
+    } finally {
+      await namespace.stop();
+    }
   }, SANDBOX_TEST_TIMEOUT_MS);
 });

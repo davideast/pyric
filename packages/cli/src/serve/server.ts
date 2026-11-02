@@ -16,6 +16,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
+import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
 
 export interface ServeLogger {
   /** User-facing lines (banner, URLs) → stdout. */
@@ -45,8 +46,9 @@ export function stderrServeLogger(): ServeLogger {
 }
 
 export interface StaticServerOptions {
-  /** Directory to serve. Caller resolves it from firebase.json (or cwd). */
-  publicDir: string;
+  /** Directory to serve: firebase.json's `hosting.public`. `null` serves no
+   *  static site, as production has no Hosting site without a `hosting` block. */
+  publicDir: string | null;
   port?: number;
   host?: string;
   /** SPA fallback: unmatched extension-less GETs serve /index.html. */
@@ -57,6 +59,9 @@ export interface StaticServerOptions {
   /** Handles reserved routes (the `/__pyric/` namespace). Return true when
    *  the request was handled. */
   namespaceHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => boolean | Promise<boolean>;
+  /** Handles Functions HTTP routes after the namespace and before static
+   *  files and the GET/HEAD-only 405. Return true when the request was handled. */
+  functionsHandler?: (req: IncomingMessage, res: ServerResponse) => boolean | Promise<boolean>;
   /** Applied to every served `.html` body (import-map/init injection). */
   transformHtml?: (html: string) => string;
   logger?: ServeLogger;
@@ -92,6 +97,29 @@ export function isAllowedHost(
     ['localhost', '127.0.0.1', '::1', '0.0.0.0', boundHostname, ...extra.map((h) => h.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase())],
   );
   return allowed.has(hostname);
+}
+
+/** `::ffff:127.0.0.1`, an IPv4 loopback peer on a dual-stack socket. */
+const MAPPED_IPV4_PREFIX = '::ffff:';
+const IPV4_LOOPBACK = /^127(\.\d{1,3}){3}$/;
+const IPV6_LOOPBACK = new Set(['::1', '0:0:0:0:0:0:0:1']);
+
+/**
+ * True when a socket's peer address is loopback, so the client runs on this
+ * machine. Unlike the Host header, the client cannot choose it. An unknown
+ * address (a destroyed socket, a request with no socket) is not loopback.
+ */
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (address === undefined) return false;
+  const lower = address.toLowerCase();
+  const isMapped = lower.startsWith(MAPPED_IPV4_PREFIX);
+  const ipv4 = isMapped ? lower.slice(MAPPED_IPV4_PREFIX.length) : lower;
+  return IPV6_LOOPBACK.has(lower) || IPV4_LOOPBACK.test(ipv4);
+}
+
+/** True when the request's socket peer is on this machine. */
+export function isLocalPeer(req: { socket?: { remoteAddress?: string } }): boolean {
+  return isLoopbackAddress(req.socket?.remoteAddress);
 }
 
 /**
@@ -143,7 +171,7 @@ export function isAllowedOrigin(
  * loopback, so only the port tells them apart. `undefined` means the ports
  * are not known, and only the Origin's hostname is compared.
  */
-function isAllowedOriginOnPorts(
+export function isAllowedOriginOnPorts(
   originHeader: string | undefined,
   boundHost: string,
   extra: string[],
@@ -316,6 +344,17 @@ export function resolveStaticFile(publicDir: string, pathname: string): string |
   return file;
 }
 
+/** Resolve a static file the hosting plane may serve: never one production
+ *  Hosting's default `ignore` leaves out of a deploy (#1779). */
+export function resolveHostingFile(publicDir: string, pathname: string): string | null {
+  if (isHostingIgnoredPathname(pathname)) return null;
+  const file = resolveStaticFile(publicDir, pathname);
+  if (file === null) return null;
+  // The request path passed; the file it opens must too, after links resolve.
+  if (isHostingIgnoredRealFile(publicDir, file)) return null;
+  return file;
+}
+
 /**
  * Stream a file to a response with the read stream's `'error'` event handled.
  * A bare `createReadStream(file).pipe(res)` leaves the stream's error event
@@ -375,14 +414,21 @@ async function handleRequest(
     if (handled) return;
   }
 
+  if (opts.functionsHandler && !url.pathname.startsWith('/__pyric/')) {
+    const handled = await opts.functionsHandler(req, res);
+    if (handled) return;
+  }
+
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { allow: 'GET, HEAD' }).end('method not allowed');
     return;
   }
 
-  let file = resolveStaticFile(opts.publicDir, url.pathname);
-  if (!file && opts.spaRewrite && !extname(url.pathname)) {
-    file = resolveStaticFile(opts.publicDir, '/index.html');
+  const publicDir = opts.publicDir;
+  const servesSite = publicDir !== null;
+  let file = servesSite ? resolveHostingFile(publicDir, url.pathname) : null;
+  if (servesSite && !file && opts.spaRewrite && !extname(url.pathname)) {
+    file = resolveHostingFile(publicDir, '/index.html');
   }
   if (!file && url.pathname === '/favicon.ico') {
     // The browser requests /favicon.ico on every load; without this an app

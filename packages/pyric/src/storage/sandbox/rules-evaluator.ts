@@ -1,4 +1,6 @@
+import { Duration } from '../../rules/simulator/wrappers/duration.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { IntFailure, negateInt, rulesFloatValue, rulesInt } from '../../rules/simulator/rules-int.js';
 import {
   expandVerb,
   type EvaluationInput,
@@ -9,6 +11,7 @@ import {
   type MatchBlock,
   type StorageResource,
   type StorageRules,
+  type StorageVerb,
 } from './rules.js';
 import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
 import { evalMethodCall } from './rules-methods.js';
@@ -29,7 +32,7 @@ import {
 } from './rules-evaluation-error.js';
 import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from '../../rules/simulator/expression-budget.js';
 import type { ExpressionPosition } from '../../rules/grammar/expression-positions.js';
-import { StoragePath } from './rules-path.js';
+import { StoragePath, interpolationSegments } from './rules-path.js';
 import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
 import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
 import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
@@ -51,9 +54,63 @@ export function evaluateStorageRules(
   // `request.time` is the request's evaluation moment. The caller injects it
   // (deterministic in tests); it defaults to now. The request binding turns
   // it into the Timestamp value `timestamp.date(...)` and
-  // `timestamp.value(...)` also build.
+  // `timestamp.value(...)` also build. An Invalid Date would bind a NaN
+  // timestamp that no comparison orders, so `!(t < x)` would allow.
   const nowMillis = now.getTime();
+  if (!Number.isFinite(nowMillis)) {
+    throw new TypeError('evaluateStorageRules: now must be a valid Date');
+  }
+  // Production binds `request.method` to one granular verb. A coarse
+  // request (`read`, `write`) evaluates once per granular verb it implies,
+  // with `request.method` bound to that verb, and is allowed when any is.
+  // Its count and reasons are the first allowing evaluation's, or the last
+  // denying one's.
+  let result: EvaluationResult | undefined;
+  for (const method of impliedVerbs(input)) {
+    result = evaluateGranularRequest(rules, input, method, nowMillis, firestoreLookup);
+    if (result.allowed) return result;
+  }
+  if (result === undefined) throw new Error('a request implies at least one verb');
+  return result;
+}
+
+/**
+ * The granular verbs a request implies. A coarse `read` is a `get` or a
+ * `list`. A coarse `write` without `request.resource` is a `delete`. One
+ * with a payload stores an object: a `create` when nothing is stored at the
+ * path (`resource` is null), an `update` when something is, never both.
+ * Binding only the verb production could evaluate keeps a coarse request
+ * from allowing what production would deny for the operation it stands
+ * for, such as an oversized upload admitted by a
+ * `request.method == 'delete'` or `request.method == 'update'` arm.
+ */
+function impliedVerbs(input: EvaluationInput): readonly StorageVerb[] {
+  const { request } = input;
+  if (request.method !== 'write') return expandVerb(request.method);
+  if (request.resource === undefined) return ['delete'];
+  const objectStored = input.resource !== null;
+  return objectStored ? ['update'] : ['create'];
+}
+
+/** The input with its request's method replaced by one granular verb. */
+function withMethod(input: EvaluationInput, method: StorageVerb): EvaluationInput {
+  if (input.request.method === method) return input;
+  return { ...input, request: { ...input.request, method } };
+}
+
+/**
+ * Evaluate a request with `request.method` bound to `requestVerb`, one
+ * granular verb. Reasons name the method the caller passed.
+ */
+function evaluateGranularRequest(
+  rules: StorageRules,
+  input: EvaluationInput,
+  requestVerb: StorageVerb,
+  nowMillis: number,
+  firestoreLookup: FirestoreLookup | undefined,
+): EvaluationResult {
   const pathSegments = splitPath(input.request.path);
+  const boundInput = withMethod(input, requestVerb);
   const reasons: string[] = [];
   const firestoreAccesses = new Set<string>();
   // One expression budget for the request, shared by every allow rule and
@@ -65,11 +122,6 @@ export function evaluateStorageRules(
   // error, and reports that error rather than a limit reached after it.
   let stopped = false;
   let firstError: string | undefined;
-
-  // The operation's verb, reduced to its granular set. A coarse
-  // request method expands to its sub-verbs so umbrella semantics are
-  // symmetric; a precise granular verb expands to itself.
-  const requestVerbs = new Set(expandVerb(input.request.method));
 
   /**
    * Walk a match block. `remaining` is the still-unmatched part of
@@ -97,14 +149,13 @@ export function evaluateStorageRules(
         // grant's verbs after coarse→granular expansion. `allow read`
         // covers get + list; `allow get` covers only get.
         const grantVerbs = new Set(rule.verbs.flatMap(expandVerb));
-        const applies = [...requestVerbs].some((v) => grantVerbs.has(v));
-        if (!applies) continue;
+        if (!grantVerbs.has(requestVerb)) continue;
         let result: boolean;
         try {
           let value: unknown = true;
           if (rule.condition) {
             value = evalExpr(rule.condition, {
-              input,
+              input: boundInput,
               now: nowMillis,
               params: newParams,
               matchParams: newParams,
@@ -366,6 +417,8 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       for (const seg of expr.segments) if (seg.kind === 'literal') ctx.expressionBudget?.pathSegment(expr);
       const interpolated = evalOperands(expr.segments.flatMap((seg) => (seg.kind === 'literal' ? [] : [seg.expr])), ctx);
       if (isErr(interpolated)) return interpolated;
+      // Each interpolation contributes segments by its rules type, as in a
+      // direct `firestore.get()` argument (#1403).
       let next = 0;
       const parts: string[] = [];
       for (const seg of expr.segments) {
@@ -374,12 +427,13 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
           continue;
         }
         const v = interpolated[next++];
-        if (typeof v !== 'string' && typeof v !== 'number') {
-          return new RuleError(`Path interpolation resolved to ${describeType(v)} (expected a string)`);
+        const segments = interpolationSegments(v);
+        if (segments === undefined) {
+          return new RuleError(`Path interpolation resolved to ${describeType(v)} (expected a string or a path)`);
         }
-        parts.push(String(v));
+        parts.push(...segments);
       }
-      return new StoragePath(`/${parts.join('/')}`);
+      return StoragePath.fromSegments(parts);
     }
     case 'unary': {
       const a = evalExpr(expr.arg, ctx);
@@ -394,9 +448,14 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       }
       if (isErr(a)) return a;
       if (expr.op === '-') {
-        if (a instanceof RulesFloat) return new RulesFloat(-a.value);
-        if (typeof a !== 'number') return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
-        return -a;
+        const float = rulesFloatValue(a);
+        if (float !== undefined) return new RulesFloat(-float);
+        if (a instanceof Duration) return a.negated();
+        const int = rulesInt(a);
+        if (int === undefined) return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
+        // `-MIN` is past int64: production's range error value.
+        const negated = negateInt(int);
+        return negated instanceof IntFailure ? new RuleError(negated.message) : negated;
       }
       return undefined;
     }
@@ -452,8 +511,10 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
     case 'slice': {
       const operands = evalOperands([expr.target, expr.start, expr.end], ctx);
       if (isErr(operands)) return operands;
-      const [t, start, end] = operands;
-      if (typeof start !== 'number' || typeof end !== 'number' || !Number.isInteger(start) || !Number.isInteger(end)) {
+      const [t, startValue, endValue] = operands;
+      const start = rulesInt(startValue);
+      const end = rulesInt(endValue);
+      if (start === undefined || end === undefined) {
         return new RuleError(`Slice bounds must be integers.`);
       }
       // Production slices lists and strings, and an out-of-range bound is an
@@ -462,7 +523,7 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       if (Array.isArray(t) || typeof t === 'string') {
         const boundsError = sliceBoundsError(start, end, t.length);
         if (boundsError) return new RuleError(boundsError);
-        return t.slice(start, end);
+        return t.slice(Number(start), Number(end));
       }
       return new RuleError(`Slice applied to ${describeType(t)} (expected a list or string).`);
     }

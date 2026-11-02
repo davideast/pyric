@@ -1,0 +1,15 @@
+# Text in an empty state: inside an element drawn as the dashed box DESIGN.md's Downloads model uses.
+id: copy-empty-state
+language: tsx
+severity: hint
+rule:
+  kind: jsx_text
+  regex: \S
+  inside:
+    stopBy: end
+    kind: jsx_element
+    has:
+      kind: jsx_opening_element
+      has:
+        kind: jsx_attribute
+        regex: border-dashed

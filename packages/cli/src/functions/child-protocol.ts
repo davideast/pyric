@@ -2,6 +2,7 @@
  * The IPC messages between the host and the isolated Functions child, shared
  * by both sides so neither re-declares the other's shapes.
  */
+import type { HttpFunctionInfo } from './http/discovery.js';
 import type { UnsupportedFunctionsTrigger } from './unsupported.js';
 
 export interface SerializedFunctionsError {
@@ -30,18 +31,47 @@ export type FunctionsChildEvent =
       type: 'delivery-error';
       exportName: string;
       error: SerializedFunctionsError;
+    }
+  | {
+      /** An exception no handler caught, which the child logged and survived (functions-http#12). */
+      type: 'uncaught-error';
+      error: SerializedFunctionsError;
     };
+
+/** The child's HTTP listener and the onRequest functions it serves, as the child reports them. */
+export interface FunctionsChildHttpListener {
+  port: number;
+  functions: HttpFunctionInfo[];
+}
+
+/** The listener plus the token the host made for this spawn, which the proxy must send. */
+export interface FunctionsChildHttpReady extends FunctionsChildHttpListener {
+  token: string;
+}
 
 export interface FunctionsChildReady {
   triggerCount: number;
   unsupportedTriggers: UnsupportedFunctionsTrigger[];
+  /** Present when the source exports at least one onRequest function. */
+  http?: FunctionsChildHttpReady;
 }
 
+/** What the child's ready message carries: it never sends the token back. */
+export type FunctionsChildReadyMessage = Omit<FunctionsChildReady, 'http'> & { http?: FunctionsChildHttpListener };
+
 export type FunctionsChildMessage =
-  | ({ type: 'ready' } & FunctionsChildReady)
+  | ({ type: 'ready' } & FunctionsChildReadyMessage)
   | FunctionsChildEvent
   | { type: 'fatal'; error: SerializedFunctionsError }
+  /** Sent every HEARTBEAT_INTERVAL_MS while the child's event loop runs. */
+  | { type: 'heartbeat' }
   | { type: 'stopped' };
+
+/** How long the host waits after asking the child to stop before it force-kills it; the child keeps to the same deadline. */
+export const STOP_DEADLINE_MS = 2_000;
+
+/** How often the child beats. */
+export const HEARTBEAT_INTERVAL_MS = 1_000;
 
 export function serializeError(error: unknown): SerializedFunctionsError {
   if (error instanceof Error) {

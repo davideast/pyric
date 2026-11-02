@@ -5,8 +5,8 @@ import { parseBrief, type Brief } from './brief.ts';
 import { builderMeasurementSchema } from './measurement.ts';
 import { channelEvent, type ModelChannelEvent } from './model-channel.ts';
 import type { NetworkEvent } from './recorder/network-record.ts';
-import { parseBuilderReport, type BuilderReport } from './report.ts';
-import { googleEventsIn, googleHostProblems, measurementLine, missingRefusals, runRecord, type RunOutcome } from './run-record.ts';
+import { parseBuilderReport, type BuilderReport, type Refusal } from './report.ts';
+import { googleEventsIn, googleHostProblems, matchRefusals, measurementLine, missingRefusals, runRecord, type RunOutcome } from './run-record.ts';
 
 const FIXTURES = join(import.meta.dir, 'fixtures');
 
@@ -50,6 +50,8 @@ function outcome(overrides: Partial<RunOutcome> = {}): RunOutcome {
     channel: CHANNEL,
     usage: { tokens: { input: 1, output: 2, cacheCreation: 0, cacheRead: 0 }, costUsd: 0.25, turns: 3, ending: 'success' },
     tokenFoundIn: [],
+    plantedLinks: [],
+    sandboxLeftRunning: false,
     ...overrides,
   };
 }
@@ -73,6 +75,58 @@ describe('missingRefusals', () => {
     expect(missingRefusals(brief(), report())).toEqual([]);
     expect(missingRefusals(brief(), { ...report(), refusals: first === undefined ? [] : [{ ...first, action: '  ANOTHER user\'s write under the given rules ' }] })).toEqual(["an upload larger than the rules' size limit"]);
     expect(missingRefusals(brief(), null)).toHaveLength(2);
+  });
+
+  // Round 1's builders reported every refusal, in their own words (#1767).
+  const STORAGE_RULES = 'https://firebase.google.com/docs/storage/security/rules-conditions';
+  const OTHER_PAGE = 'https://firebase.google.com/docs/storage/web/handle-errors';
+  const entry = (action: string, firebaseDoc = STORAGE_RULES): Refusal => ({ action, firebaseDoc, productionAnswer: 'storage/unauthorized', pyricAnswer: 'storage/unauthorized', result: 'refused' });
+  const reporting = (...refusals: Refusal[]): BuilderReport => ({ ...report(), refusals });
+
+  test('counts an entry in the builder’s words when it cites the action’s Firebase page', () => {
+    expect(missingRefusals(brief(), reporting(entry("upload to another user's folder"), entry('a 300 MiB upload over the 256 MiB limit')))).toEqual([]);
+  });
+
+  test('counts one action the builder split into two entries', () => {
+    expect(missingRefusals(brief(), reporting(entry("another user's write under the given rules"), entry('an empty upload'), entry('a 600 MiB upload')))).toEqual([]);
+  });
+
+  test('names the action no entry is left for when the page has fewer entries than actions', () => {
+    expect(missingRefusals(brief(), reporting(entry("an upload larger than the rules' size limit")))).toEqual(["another user's write under the given rules"]);
+    expect(missingRefusals(brief(), reporting(entry('a write somewhere')))).toEqual(["an upload larger than the rules' size limit"]);
+  });
+
+  test('does not count an entry that cites another page', () => {
+    expect(missingRefusals(brief(), reporting(entry("upload to another user's folder"), entry('a big upload', OTHER_PAGE)))).toEqual(["an upload larger than the rules' size limit"]);
+  });
+
+  test('compares pages without a trailing slash, a fragment or a query, and in any case', () => {
+    const variants = [`${STORAGE_RULES}/`, `${STORAGE_RULES}#size`, `${STORAGE_RULES.replace('firebase.google.com', 'Firebase.Google.com')}?hl=en`];
+    expect(missingRefusals(brief(), reporting(entry("another user's folder", variants[0]), entry('a big upload', variants[1])))).toEqual([]);
+    expect(missingRefusals(brief(), reporting(entry("another user's folder", variants[2]), entry('a big upload', variants[2])))).toEqual([]);
+  });
+
+  test('keeps an action missing when the builder reported another action on its page twice', () => {
+    const twice = reporting(entry("another user's write under the given rules"), entry("a write to another user's file"));
+    expect(missingRefusals(brief(), twice)).toEqual(["an upload larger than the rules' size limit"]);
+  });
+
+  test('does not count a not-attempted entry in the builder\'s words', () => {
+    const skipped = { ...entry('a 300 MiB upload'), result: 'not-attempted' as const };
+    expect(missingRefusals(brief(), reporting(entry("another user's write under the given rules"), skipped))).toEqual(["an upload larger than the rules' size limit"]);
+    const named = { ...entry("an upload larger than the rules' size limit"), result: 'not-attempted' as const };
+    expect(missingRefusals(brief(), reporting(entry("another user's write under the given rules"), named))).toEqual([]);
+  });
+
+  test('names the actions only the page accounts for, for the verifier to check', () => {
+    expect(matchRefusals(brief(), reporting(entry("another user's write under the given rules"), entry('a 300 MiB upload')))).toEqual({
+      missing: [],
+      matchedByPage: ["an upload larger than the rules' size limit"],
+    });
+    expect(runRecord(outcome({ report: { state: 'valid', report: reporting(entry('a write to another user\'s file'), entry('a 300 MiB upload')), errors: [] } })).harness.refusalsMatchedByPage).toEqual([
+      "another user's write under the given rules",
+      "an upload larger than the rules' size limit",
+    ]);
   });
 });
 
@@ -100,13 +154,14 @@ describe('runRecord', () => {
     expect(harness.tokenFoundIn).toEqual(['logs/builder.log']);
   });
 
-  test('makes a measurement line that holds the measurement shape', () => {
-    const line = measurementLine(runRecord(outcome()));
+  test('makes a measurement line from the harness’s own state: the run’s identity, the forwarder’s record and the phase’s timing', () => {
+    const metered = (input: number, output: number): ModelChannelEvent => ({ ...forwarded(0.2), tokens: { input, output, cacheCreation: 1, cacheRead: 2 } });
+    const line = measurementLine(outcome().identity, [metered(10, 1), forwarded(0.1), metered(5, 2)], 1234);
     expect(builderMeasurementSchema.parse(line)).toEqual({
-      kind: 'builder', run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', maxBudgetUsd: 1, costUsd: 0.25, meteredCostUsd: line.meteredCostUsd,
-      tokens: { input: 1, output: 2, cacheCreation: 0, cacheRead: 0 }, turns: 3, wallMs: 1234, report: 'valid', problemsReported: 4, googleHostEvents: 3,
+      kind: 'builder', run: 'fake-1-haiku', round: 'fake', brief: 'fake-1', model: 'haiku', maxBudgetUsd: 1, meteredCostUsd: line.meteredCostUsd,
+      tokens: { input: 15, output: 3, cacheCreation: 2, cacheRead: 4 }, wallMs: 1234,
     });
-    expect(line.meteredCostUsd).toBeCloseTo(0.3, 12);
-    expect(builderMeasurementSchema.parse(measurementLine(runRecord(outcome({ usage: null, exit: null }))))).toMatchObject({ costUsd: null, tokens: null, turns: null, wallMs: null });
+    expect(line.meteredCostUsd).toBeCloseTo(0.5, 12);
+    expect(builderMeasurementSchema.parse(measurementLine(outcome().identity, [], 0))).toMatchObject({ meteredCostUsd: 0, tokens: null, wallMs: 0 });
   });
 });

@@ -63,6 +63,13 @@ export interface ResolvedIdentity {
   readonly photoURL: string | null;
   readonly customClaims: Record<string, unknown>;
   readonly providerId: string;
+  /**
+   * The staged user's `emailVerified` (served `sandbox.mockSignInResult`).
+   * When present, it decides a new account's flag and an existing account
+   * keeps its own, as the in-page mock does. Absent on a dialog identity,
+   * whose provider decides.
+   */
+  readonly emailVerified?: boolean;
 }
 
 /** Wire form of a `UserCredential` returned by the sign-in/create ops. */

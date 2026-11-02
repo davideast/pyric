@@ -85,7 +85,7 @@ describe('Layer 1: Basics', () => {
   });
 
   test('number literal', () => {
-    expect(evaluate(lit(42), baseCtx())).toBe(42);
+    expect(evaluate(lit(42), baseCtx())).toBe(42n);
   });
 
   test('boolean literal', () => {
@@ -124,8 +124,8 @@ describe('Layer 1: Basics', () => {
   });
 
   test('arithmetic', () => {
-    expect(evaluate(binOp('+', lit(1), lit(2)), baseCtx())).toBe(3);
-    expect(evaluate(binOp('-', lit(5), lit(3)), baseCtx())).toBe(2);
+    expect(evaluate(binOp('+', lit(1), lit(2)), baseCtx())).toBe(3n);
+    expect(evaluate(binOp('-', lit(5), lit(3)), baseCtx())).toBe(2n);
   });
 
   test('unary not', () => {
@@ -816,7 +816,7 @@ describe('RULES-B6: + operator type rules', () => {
   });
 
   test('number + number adds', () => {
-    expect(evaluate(binOp('+', lit(2), lit(3)), baseCtx())).toBe(5);
+    expect(evaluate(binOp('+', lit(2), lit(3)), baseCtx())).toBe(5n);
   });
 
   test('list + list ERRORS (no list + list overload)', () => {
@@ -854,7 +854,7 @@ describe('RULES-B6: + operator type rules', () => {
 
   test('list.concat(list) joins two lists', () => {
     const expr = methodCall(listLit([lit(1)]), 'concat', [listLit([lit(2)])]);
-    expect(evaluate(expr, baseCtx())).toEqual([1, 2]);
+    expect(evaluate(expr, baseCtx())).toEqual([1n, 2n]);
   });
 
   const requestTime = member(id('request'), 'time');
@@ -955,13 +955,13 @@ describe('RULES-B5: int/float distinction + integer division', () => {
 
   // ── integer division (truncation) ──
   test('10 / 4 == 2 (int ÷ int truncates, NOT 2.5)', () => {
-    expect(evaluate(binOp('/', lit(10), lit(4)), baseCtx())).toBe(2);
+    expect(evaluate(binOp('/', lit(10), lit(4)), baseCtx())).toBe(2n);
   });
   test('7 / 2 == 3 (truncate toward zero)', () => {
-    expect(evaluate(binOp('/', lit(7), lit(2)), baseCtx())).toBe(3);
+    expect(evaluate(binOp('/', lit(7), lit(2)), baseCtx())).toBe(3n);
   });
   test('-7 / 2 == -3 (truncate toward zero, not floor)', () => {
-    expect(evaluate(binOp('/', lit(-7), lit(2)), baseCtx())).toBe(-3);
+    expect(evaluate(binOp('/', lit(-7), lit(2)), baseCtx())).toBe(-3n);
   });
 
   // ── float division (a float operand promotes to float math) ──
@@ -1027,16 +1027,16 @@ describe('RULES-B6 remainder: strict int()/bool()/float() parsing', () => {
     );
   });
   test("int('12') == 12 (valid integer string)", () => {
-    expect(evaluate(call('int', [lit('12')]), baseCtx())).toBe(12);
+    expect(evaluate(call('int', [lit('12')]), baseCtx())).toBe(12n);
   });
   test('int(1.9) == 1 (float truncates toward zero)', () => {
-    expect(evaluate(call('int', [litFloat(1.9)]), baseCtx())).toBe(1);
-    expect(evaluate(call('int', [litFloat(-1.9)]), baseCtx())).toBe(-1);
+    expect(evaluate(call('int', [litFloat(1.9)]), baseCtx())).toBe(1n);
+    expect(evaluate(call('int', [litFloat(-1.9)]), baseCtx())).toBe(-1n);
   });
   test('int(float) saturates at the int64 bounds and maps NaN to 0', () => {
-    expect(evaluate(call('int', [call('float', [lit('9.3e18')])]), baseCtx())).toBe(2 ** 63);
-    expect(evaluate(call('int', [call('float', [lit('-9.3e18')])]), baseCtx())).toBe(-(2 ** 63));
-    expect(evaluate(call('int', [call('float', [lit('NaN')])]), baseCtx())).toBe(0);
+    expect(evaluate(call('int', [call('float', [lit('9.3e18')])]), baseCtx())).toBe(2n ** 63n - 1n);
+    expect(evaluate(call('int', [call('float', [lit('-9.3e18')])]), baseCtx())).toBe(-(2n ** 63n));
+    expect(evaluate(call('int', [call('float', [lit('NaN')])]), baseCtx())).toBe(0n);
   });
   test('int(string) rejects surrounding spaces, an exponent, hex, and an int64 overflow', () => {
     for (const text of [' 1 ', '1e3', '0x10', '1.5', '9223372036854775808']) {

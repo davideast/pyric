@@ -13,7 +13,8 @@
  * are sent and the browser never holds the key.
  */
 
-import { AiBrokerError, errorEnvelope, redactUrl } from './synthesizer.js';
+import { AiBrokerError, errorEnvelope } from './synthesizer.js';
+import { redactUpstreamText } from './upstream-error-redaction.js';
 
 /** Where the gemini engine talks when no `baseUrl` overrides it. Published
  *  through `pyric/ai/internal` so the CLI's startup banner can name the same
@@ -197,14 +198,14 @@ export class GeminiUpstream {
     const auth = await this.resolveAuthToken();
     const credentials = credentialsOf(auth);
     const first = this.formatUpstreamRequest(resource, action, auth);
-    const response = await this.post(first.url, first.headers, body);
+    const response = await this.post(first.url, first.headers, body, credentials);
     if (response.status === 401 && auth.isAdc) {
       await response.body?.cancel().catch(() => {});
       this.adcToken = undefined;
       const retryAuth = await this.resolveAuthToken();
       credentials.push(...credentialsOf(retryAuth));
       const retry = this.formatUpstreamRequest(resource, action, retryAuth);
-      return { response: await this.post(retry.url, retry.headers, body), credentials };
+      return { response: await this.post(retry.url, retry.headers, body, credentials), credentials };
     }
     return { response, credentials };
   }
@@ -307,16 +308,18 @@ export class GeminiUpstream {
     url: string,
     headers: Record<string, string>,
     body: string | Uint8Array<ArrayBuffer>,
+    credentials: readonly string[],
   ): Promise<Response> {
     try {
       return await this.fetchImpl(url, { method: 'POST', headers, body });
     } catch (err) {
-      // Redact both: `url` always carries the key when auth is a static key
-      // (not bearer/ADC); `message` is defensively redacted too in case the
-      // fetch implementation's own error text echoes the request URL.
+      // Mask both with the request's exact credentials, as an error body is
+      // masked (#1737): `url` carries a static key, and a fetch error can
+      // quote the URL or a header, such as Node's refusal of an invalid
+      // `Authorization` value, which quotes the bearer token.
       const rawMessage = err instanceof Error ? err.message : String(err);
-      const safeUrl = redactUrl(url);
-      const safeMessage = redactUrl(rawMessage);
+      const safeUrl = redactUpstreamText(url, credentials);
+      const safeMessage = redactUpstreamText(rawMessage, credentials);
       throw new AiBrokerError(
         errorEnvelope(
           502,

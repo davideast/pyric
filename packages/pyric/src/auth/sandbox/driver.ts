@@ -82,7 +82,7 @@ export const sandbox = {
   createSignInCredential(
     auth: Auth,
     request:
-      | { providerId: string; uid: string }
+      | { providerId: string; uid: string; verifyEmail?: boolean }
       | { providerId: string; spec: SignInIdentitySpec },
   ): UserCredential {
     return requireSandbox(auth).backend.createSignInCredential(request);

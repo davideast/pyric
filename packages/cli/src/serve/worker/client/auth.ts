@@ -261,6 +261,7 @@ export interface StagedSignInResult {
     readonly email?: string | null;
     readonly displayName?: string | null;
     readonly photoURL?: string | null;
+    readonly emailVerified?: boolean;
   };
   readonly providerId: string | null;
 }
@@ -290,6 +291,8 @@ export function stageSignInResult(auth: ClientAuth, result: StagedSignInResult):
     displayName: profileField(result.user.displayName),
     photoURL: profileField(result.user.photoURL),
     customClaims: {},
+    // In-page, a staged user without the flag is unverified; the wire says so.
+    emailVerified: result.user.emailVerified === true,
   };
   // The signature is void, so an error reply (a deleted app, a refused send)
   // has nowhere to go; the next sign-in reports auth/no-mock-configured.

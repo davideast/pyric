@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alignment fixture</title>
+<style>
+  body { margin: 0; font: 14px/1.4 sans-serif; }
+  .list { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.5rem; padding: 1rem; }
+  /* Rows on the parent's grid: every column lines up. */
+  .subgrid .item-track-grid { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; }
+  /* Rows with their own auto tracks: columns follow each row's content. */
+  .own .item-track-grid { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.5rem; }
+</style>
+</head>
+<body>
+  <section class="list subgrid" data-case="subgrid">
+    <div class="item-track-grid"><span>A</span><span>Short title</span><button>Play</button></div>
+    <div class="item-track-grid"><span>Longer status</span><span>A much longer title for this row</span><button>Play narration</button></div>
+  </section>
+  <section class="list own" data-case="own">
+    <div class="item-track-grid"><span>A</span><span>Short title</span><button>Play</button></div>
+    <div class="item-track-grid"><span>Longer status</span><span>A much longer title for this row</span><button>Play narration</button></div>
+  </section>
+</body>
+</html>

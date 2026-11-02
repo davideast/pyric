@@ -28,11 +28,27 @@
  *       fresh copy of the builder's app on the same tarballs, in the same
  *       sandbox as a round's run and with no model channel: up to two
  *       tries. Exits 0 when it reproduced, 1 when unconfirmed, 3 when no try
- *       could tell. Files nothing.
+ *       could tell, 4 when a try planted a link: the run is invalid, unless
+ *       the verifier's own script planted it. Files nothing.
  *   measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
  *       Per model: cost per run and per verification, confirmed new findings
  *       per app, the share thrown out, cost per confirmed new finding, and
  *       the nightly model and cap.
+ *   factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
+ *       Keeps the factory's roles working against one app until the run's
+ *       deadline, fixed at the start from --hours. --resume goes on with the
+ *       run in --run-dir, with its own deadline.
+ *   factory-summary --run-dir <dir>
+ *       Prints a factory run's timeline for the morning review.
+ *   factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
+ *       Restarts the supervisor's systemd unit when its heartbeat is stale.
+ *   factory-drafts --run-dir <dir>
+ *       Lists the run's issue drafts and checks each against the issue
+ *       standard. Exits 1 when any breaks it. Files nothing.
+ *   factory-setup --run-dir <dir> --app-source <repo> [--commit <sha>] [--brief-dir <dir>] [--packages <dir> | --build]
+ *       Clones and installs the factory's app before a run starts.
+ *   factory-hour --run-dir <dir> --hour <n>
+ *       Runs the hourly check once, as the supervisor does each hour.
  *
  * Every command that runs a builder refuses to run (exit 2) where the
  * sandbox is unavailable; there is no fallback without it.
@@ -40,6 +56,11 @@
 import { readBriefsDir } from './brief.ts';
 import { PreflightFailed, runCanary } from './canary/canary.ts';
 import { flagValue, positionals, rejectUnknownFlags, UsageError } from './cli-args.ts';
+import {
+  FACTORY_CHECK_USAGE, FACTORY_DRAFTS_USAGE, FACTORY_SUMMARY_USAGE, FACTORY_USAGE, factoryCheckCommand, factoryCommand,
+  factoryDraftsCommand, factorySummaryCommand,
+} from './factory/commands.ts';
+import { FACTORY_HOUR_USAGE, FACTORY_SETUP_USAGE, factoryHourCommand, factorySetupCommand } from './factory/app-commands.ts';
 import { formatSummary, summarize } from './measure.ts';
 import { readMeasurements } from './measurement.ts';
 import { NamespaceUnavailable } from './namespace.ts';
@@ -116,6 +137,12 @@ const COMMANDS: Record<string, Command> = {
       return errors.length === 0 ? 0 : 1;
     },
   },
+  factory: { usage: FACTORY_USAGE, run: factoryCommand },
+  'factory-summary': { usage: FACTORY_SUMMARY_USAGE, run: factorySummaryCommand },
+  'factory-check': { usage: FACTORY_CHECK_USAGE, run: factoryCheckCommand },
+  'factory-drafts': { usage: FACTORY_DRAFTS_USAGE, run: factoryDraftsCommand },
+  'factory-setup': { usage: FACTORY_SETUP_USAGE, run: factorySetupCommand },
+  'factory-hour': { usage: FACTORY_HOUR_USAGE, run: factoryHourCommand },
 };
 
 function usage(): string {

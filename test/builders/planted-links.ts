@@ -7,14 +7,29 @@
  * checks that the file is absent or a plain file, and that every directory
  * from the run root down to it is a plain directory.
  */
-import { lstatSync } from 'node:fs';
+import { lstatSync, type Stats } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 /** A path the harness was about to touch is, or runs through, a link or something other than a plain file. */
-export class PlantedLink extends Error {}
+export class PlantedLink extends Error {
+  constructor(readonly problems: readonly string[]) {
+    super(`refusing to touch the run's files outside the sandbox:\n- ${problems.join('\n- ')}`);
+  }
+}
+
+/** `path`'s stat, or why it can't be read: a builder can take the owner's search permission away. */
+function statOrProblem(path: string): { stat?: Stats; problem?: string } {
+  try {
+    return { stat: lstatSync(path, { throwIfNoEntry: false }) };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? String(error);
+    return { problem: `${path} could not be checked (${code})` };
+  }
+}
 
 function componentProblem(path: string, isLast: boolean): string | undefined {
-  const stat = lstatSync(path, { throwIfNoEntry: false });
+  const { stat, problem } = statOrProblem(path);
+  if (problem !== undefined) return problem;
   if (stat === undefined) return undefined;
   if (stat.isSymbolicLink()) return `${path} is a link`;
   const isExpected = isLast ? stat.isFile() : stat.isDirectory();
@@ -38,8 +53,16 @@ export function plantedLinkProblem(root: string, path: string): string | undefin
   return undefined;
 }
 
+/** Each of `paths` that is unsafe to read or append to, with why. */
+export function plantedLinks(root: string, paths: readonly string[]): { path: string; problem: string }[] {
+  return paths.flatMap((path) => {
+    const problem = plantedLinkProblem(root, path);
+    return problem === undefined ? [] : [{ path, problem }];
+  });
+}
+
 /** Throws `PlantedLink`, naming each problem, unless every path is safe to read or append to. */
 export function assertNoPlantedLinks(root: string, paths: readonly string[]): void {
-  const problems = paths.map((path) => plantedLinkProblem(root, path)).filter((problem) => problem !== undefined);
-  if (problems.length > 0) throw new PlantedLink(`refusing to touch the run's files outside the sandbox:\n- ${problems.join('\n- ')}`);
+  const problems = plantedLinks(root, paths).map((planted) => planted.problem);
+  if (problems.length > 0) throw new PlantedLink(problems);
 }
