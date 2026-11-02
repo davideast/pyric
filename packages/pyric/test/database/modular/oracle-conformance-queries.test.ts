@@ -59,7 +59,9 @@ describe('oracle conformance (rtdb-modular): query contracts', () => {
     databaseSandbox.setRules(db, {
       rules: { pyric_oracle: { '.read': 'auth != null', '.write': 'auth != null' } },
     });
-    const run = 'pyric_oracle/1779078484857-q2jll9/mod-orderbyvalue/scores';
+    // Query the path production named in its error, so the message matches
+    // whichever run recorded the capture.
+    const run = /for path "\/([^"]+)"/.exec(obs.message as string)![1]!;
     await update(ref(db, run), { alice: 30, bob: 10, carol: 50, dave: 20, eve: 40 });
     let error: Error & { code?: unknown } | undefined;
     try {

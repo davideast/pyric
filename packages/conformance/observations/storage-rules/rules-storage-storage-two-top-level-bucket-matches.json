@@ -5,8 +5,8 @@
     "storage-rules#217"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-two-top-level-bucket-matches\" (STORAGE-H2-TWO-TOP-LEVEL-MATCHES). Whether production compiles one Storage ruleset with a top-level match block per bucket.",
-  "observedAt": "2026-10-27T02:38:04.059Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:57.792Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

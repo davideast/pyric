@@ -5,9 +5,9 @@
     "rtdb-modular#128"
   ],
   "description": "onValue on a path with existing data — observe the initial fire snapshot value.",
-  "observedAt": "2026-05-18T03:36:43.556Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:55:09.893Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,
@@ -17,7 +17,7 @@
       "val": {
         "seeded": true
       },
-      "ts": 42
+      "ts": 43
     },
     "firedExactlyOnceOnSubscribe": true
   }

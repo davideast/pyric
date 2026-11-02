@@ -21,26 +21,13 @@
   "registry": "ai",
   "dispositions": [
     {
-      "id": "ai.imagen-retirement",
-      "availability": "out-of-scope",
-      "reasonCode": "upstream-deprecated",
-      "summary": "Imagen is deprecated upstream; all Imagen models shut down as early as June 2026 (upstream 2.11.0 deprecation). Mirroring an API whose production counterpart is retiring would freeze dead behavior.",
-      "evidenceRefs": ["upstream:firebase/ai@2.11.0"],
+      "id": "ai.agent-platform-backend",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "The Agent Platform backend is new in firebase 12.19.0 and has no production capture yet, so the sandbox does not route it; implementing it is tracked in #1674.",
+      "evidenceRefs": ["upstream:firebase/ai@2.16.0"],
       "symbols": [
-        "getImagenModel",
-        "ImagenModel",
-        "ImagenImageFormat"
-      ]
-    },
-    {
-      "id": "ai.template-imagen-retirement",
-      "availability": "out-of-scope",
-      "reasonCode": "upstream-deprecated",
-      "summary": "Template-served Imagen models retire with the rest of Imagen (deprecated upstream, June 2026 shutdown); the template transport does not outlive the model family it serves.",
-      "evidenceRefs": ["upstream:firebase/ai@2.11.0"],
-      "symbols": [
-        "getTemplateImagenModel",
-        "TemplateImagenModel"
+        "AgentPlatformBackend"
       ]
     },
     {

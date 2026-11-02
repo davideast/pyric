@@ -5,8 +5,8 @@
     "ai#request-roleless-contents"
   ],
   "description": "generateContent with one contents entry that has parts and no role. Records whether production accepts it and, on success, the candidate finish reason, content role and part key sets. Generated text is never a claim and is not stored.",
-  "observedAt": "2026-10-28T02:26:34.076Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:55:14.673Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

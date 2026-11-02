@@ -336,6 +336,59 @@ describe('OracleRulesSession for RTDB', () => {
   });
 });
 
+describe('OracleRulesSession rules endpoint 429s', () => {
+  function throttledSession(fetch: (url: string, init?: RequestInit) => Promise<Response>, waits: number[]) {
+    return new OracleRulesSession({
+      projectId: PROJECT,
+      accessToken: async () => 'test-token',
+      fetch,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+  }
+
+  test('a restore whose RTDB rules read answers 429 backs off and confirms the restore', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const waits: number[] = [];
+    const s = throttledSession(fake.fetch, waits);
+    await s.deployRtdb(rtdbTarget());
+    fake.failures.push({ method: 'GET', status: 429, remaining: 2 });
+
+    await s.restoreAll();
+
+    expect(waits).toEqual([5_000, 10_000]);
+    expect(fake.source.value).toBe(RTDB_ORIGINAL_JSON);
+  });
+
+  test('a deploy whose RTDB rules write answers 429 backs off and deploys', async () => {
+    const fake = fakeRtdbRules(RTDB_ORIGINAL_JSON);
+    const waits: number[] = [];
+    const s = throttledSession(fake.fetch, waits);
+    fake.failures.push({ method: 'PUT', status: 429, remaining: 1 });
+
+    expect(await s.deployRtdb(rtdbTarget())).toBe('merged');
+
+    expect(waits).toEqual([5_000]);
+    expect(fake.source.value).toContain('pyric_oracle');
+    await s.restoreAll();
+    expect(fake.source.value).toBe(RTDB_ORIGINAL_JSON);
+  });
+
+  test('a Rules API restore that answers 429 backs off and points the release back', async () => {
+    const fake = fakeRulesApi({ 'cloud.firestore': FIRESTORE_ORIGINAL });
+    const waits: number[] = [];
+    const s = throttledSession(fake.fetch, waits);
+    await s.deploy(firestoreOracleTarget());
+    fake.failures.push({ method: 'PATCH', urlIncludes: 'releases/cloud.firestore', status: 429, remaining: 1 });
+
+    await s.restoreAll();
+
+    expect(waits).toEqual([5_000]);
+    expect(liveSource(fake, 'cloud.firestore')).toBe(FIRESTORE_ORIGINAL);
+  });
+});
+
 describe('OracleRulesSession', () => {
   test('a Firestore merge is undone: the release points back at the original ruleset', async () => {
     const fake = fakeRulesApi({ 'cloud.firestore': FIRESTORE_ORIGINAL });

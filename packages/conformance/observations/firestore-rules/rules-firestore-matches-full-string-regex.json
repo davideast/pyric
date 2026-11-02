@@ -5,8 +5,8 @@
     "firestore-rules#170"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"matches-full-string-regex\" (RULES-B4). matches() is an anchored full-string RE2 match; a pattern matching only a substring must be false (JS partial-match said true).",
-  "observedAt": "2026-07-21T23:43:06.161Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:41.087Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

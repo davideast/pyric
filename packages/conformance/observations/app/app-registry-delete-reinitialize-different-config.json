@@ -5,8 +5,8 @@
     "app#20"
   ],
   "description": "firebase/app releases a deleted app name and permits that name to be initialized with different FirebaseOptions afterwards.",
-  "observedAt": "2026-07-13T22:47:49.322Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.838Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "threw": false,
     "distinctApps": true,

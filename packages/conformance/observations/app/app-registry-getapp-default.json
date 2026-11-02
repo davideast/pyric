@@ -5,8 +5,8 @@
     "app#5"
   ],
   "description": "firebase/app getApp() with no name resolves the default app registered by initializeApp() — the same instance, with name '[DEFAULT]'.",
-  "observedAt": "2026-07-12T01:20:59.103Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.846Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "threw": false,
     "resolvesSameInstance": true,

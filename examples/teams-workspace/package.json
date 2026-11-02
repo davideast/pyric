@@ -9,7 +9,7 @@
     "test:notifications": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
-    "firebase": "^12.12.0",
+    "firebase": "^12.19.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

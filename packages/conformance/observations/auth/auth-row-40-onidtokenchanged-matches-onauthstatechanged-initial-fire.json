@@ -5,9 +5,9 @@
     "auth#40"
   ],
   "description": "Subscribe onIdTokenChanged and onAuthStateChanged simultaneously; capture count + timing of their initial fires. Matrix claims same initial-fire semantics.",
-  "observedAt": "2026-05-17T23:58:52.729Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T12:08:16.045Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "sync": {
       "auth": 0,

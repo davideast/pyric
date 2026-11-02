@@ -5,8 +5,8 @@
     "storage-rules#104"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"functions-let-scope\" (STORAGE-FUNC). User-defined functions with let bindings, functions calling functions, and a match-block-scoped helper — the evaluator surface #96/#104 wrongly call unsupported.",
-  "observedAt": "2026-09-28T03:39:08.882Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:53.736Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

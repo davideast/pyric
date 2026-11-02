@@ -62,7 +62,9 @@ function recordedProductionDatabase(): RecordedProductionDatabase | null {
   const observation = JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as {
     diagnostics?: { productionDatabase?: RecordedProductionDatabase };
   };
-  return observation.diagnostics?.productionDatabase ?? null;
+  const recorded = observation.diagnostics?.productionDatabase;
+  // A capture from before this plan records other keys, and no verdict for it.
+  return recorded?.siblingMergeBatch ? recorded : null;
 }
 
 function toVerdict(allowed: boolean): ProbeVerdict {

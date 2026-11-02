@@ -1,0 +1,38 @@
+{
+  "name": "rules-rtdb-r62-deploy-ternary-snapshot-member",
+  "matrixRow": "rtdb-rules#196",
+  "rowIds": [
+    "rtdb-rules#196"
+  ],
+  "description": "RTDB rules deploy verdicts for corpus scenario \"r62-deploy-ternary-snapshot-member\" (rtdb#71). Captured by dry-run deploys to the rules endpoint, which validate without deploying. production stopped deploying the r39 ruleset; each of its expressions needs its own deploy verdict.",
+  "observedAt": "2026-11-02T18:27:08.928Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "(true ? root.parent() : null) == null": {
+      "verdict": "ACCEPTED"
+    },
+    "(true ? root.parent() : null) != null || true": {
+      "verdict": "ACCEPTED"
+    },
+    "((true ? root.parent() : 1) == 1) || true": {
+      "verdict": "ACCEPTED"
+    },
+    "(true ? root.parent() : 1) != 1": {
+      "verdict": "ACCEPTED"
+    },
+    "(true ? root.parent() : '').length == null || true": {
+      "verdict": "ACCEPTED"
+    },
+    "root.parent().exists() || true": {
+      "verdict": "ACCEPTED"
+    },
+    "(true ? data.parent() : null).exists()": {
+      "verdict": "REJECTED",
+      "error": "Invalid property access: target is not an object."
+    },
+    "data.parent().exists()": {
+      "verdict": "ACCEPTED"
+    }
+  }
+}

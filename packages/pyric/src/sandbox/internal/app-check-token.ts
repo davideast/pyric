@@ -35,6 +35,8 @@ export interface AppCheckTokenClaims {
   sub: string;
   aud: string[];
   provider: string;
+  /** Production's tokens carry this claim. The captures record its name only, so the value here is a sandbox placeholder. */
+  lu: string;
   iss: string;
   exp: number;
   iat: number;
@@ -117,6 +119,7 @@ export async function mintAppCheckToken(
     sub: identity.appId,
     aud: [`projects/${projectNumber}`, `projects/${identity.projectId}`],
     provider: 'pyric-sandbox',
+    lu: 'pyric-sandbox',
     iss: `${ISSUER}/${projectNumber}`,
     exp,
     iat,

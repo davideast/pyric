@@ -5,9 +5,9 @@
     "firestore#40"
   ],
   "description": "Rules-denied delete — observes the error class/code/message deleteDoc returns when the target is outside pyric_oracle/*. The doc need not exist; prod evaluates the rule before touching storage, so a deleteDoc on a denied path throws permission-denied regardless of whether the doc is present.",
-  "observedAt": "2026-05-17T23:36:54.914Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T13:36:06.502Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": true,
     "code": "permission-denied",

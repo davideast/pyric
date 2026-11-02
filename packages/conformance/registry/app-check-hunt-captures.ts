@@ -48,11 +48,11 @@ export const appCheckHuntRows: CompatibilityRow[] = [
     rowRef: 'create-token-limited-use-jti',
     featureKeys: ['createToken', 'verifyToken'],
     api: 'getAppCheck().createToken(appId, { limitedUse: true, jti }) twice, then verifyToken(token, { consume: true })',
-    behavior: 'AC-1: pyric ignores jti, so two same-jti tokens differ and both first consumes say false; production returns one token and the second consume says true.',
+    behavior: 'AC-1: pyric ignores jti, so two same-jti tokens differ and both first consumes say false; in production a second consume of the same jti says alreadyConsumed: true.',
     evidence: `\`oracle:${CREATE}\` and \`oracle:${CONSUME}\`.`,
     oracleObservations: [CREATE, CONSUME],
     ...VALUES(3),
-    notes: 'Capture keys: `limitedUse.withJti` (`jtiEqualsRequested`), and `sameTokens` and `consume` (first false, second and first again true).',
+    notes: 'Capture keys: `limitedUse.withJti` (`jtiEqualsRequested`), and `consume` (first false, second and first again true). `sameTokens` varies across captures, so it is not pinned.',
   }),
   captureRow({
     rowRef: 'create-token-option-type-checks',

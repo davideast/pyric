@@ -5,8 +5,8 @@
     "firestore-rules#164"
   ],
   "description": "Authenticated Web SDK operations against temporarily deployed production rules verify getAfter()/existsAfter() target, existence, and cross-document atomic projection semantics. The hosted Rules Test API limitation is retained separately in diagnostics.",
-  "observedAt": "2026-07-22T07:51:38.990Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T16:20:01.482Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
@@ -139,11 +139,11 @@
   },
   "lifecycle": {
     "originalRulesetName": "projects/digame-mas/rulesets/e6d4348c-24df-4dbd-9bb0-9b5a78a712cc",
-    "probeRulesetName": "projects/digame-mas/rulesets/7e6bf98c-c1d0-4ab1-8a2f-2fb42c94c665",
+    "probeRulesetName": "projects/digame-mas/rulesets/6f8d22bf-c7f6-4141-b804-5cbffc2bb917",
     "restoredOriginalRelease": true
   },
   "deployedRulesDigest": {
     "algorithm": "sha256",
-    "value": "1e7f3648ad6477ccf6939fa225dd16e7c94662130c7eb3d8cfdfc1e7f0cf68fe"
+    "value": "233324d863e3fb6daa63a2389996fac2ec8be6a9c86b050981bae22349c60cb2"
   }
 }

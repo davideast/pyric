@@ -5,8 +5,8 @@
     "storage-rules#121"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"type-checks-is\" (Coverage: is (int/float/string/map/list), literal typing). `is` must type storage bindings correctly, and literal 1.0 must be float / 1 must be int (distinct types) per captured Firestore engine truth — the value-typed evaluator diverges on 1.0 is float.",
-  "observedAt": "2026-07-17T19:19:08.973Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:58.091Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
@@ -16,5 +16,52 @@
     "storage bindings type as int/string/map/list → ALLOW": "ALLOW",
     "1.0 is float / 1 is int, cross checks false → ALLOW": "ALLOW",
     "path wildcard is int → DENY": "DENY"
+  },
+  "diagnostics": {
+    "storage bindings type as int/string/map/list → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 123,
+              "endOffset": 129
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "1.0 is float / 1 is int, cross checks false → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 24,
+              "currentOffset": 375,
+              "endOffset": 377
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "path wildcard is int → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 533,
+              "endOffset": 538
+            },
+            "value": false
+          }
+        ]
+      }
+    }
   }
 }

@@ -5,9 +5,9 @@
     "rtdb-rules#19"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r19-literal-and-wildcard-siblings\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the simulator decides which sibling rules apply to a literal key; a wrong choice grants reads or writes that production denies, or denies writes production allows.",
-  "observedAt": "2026-09-25T08:02:09.137Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.263Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "literal first: read of the literal key": "DENY",
     "literal first: write of the literal key": "DENY",

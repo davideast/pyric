@@ -5,8 +5,8 @@
     "firestore-rules#167"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"int-float-and-division\" (RULES-B5). int ÷ int truncates toward zero, float division stays float, div-by-zero errors (deny); `is int` / `is float` are distinct types; `is number` holds for both; `>` orders an int and a float by value.",
-  "observedAt": "2026-09-28T04:38:26.395Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:40.446Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

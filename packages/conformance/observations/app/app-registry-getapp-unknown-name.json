@@ -5,8 +5,8 @@
     "app#7"
   ],
   "description": "firebase/app getApp(name) for a name that was never initialized (empty registry) throws FirebaseError code app/no-app with a name-specific message directing the caller to initializeApp().",
-  "observedAt": "2026-07-12T01:20:59.103Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.847Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "threw": true,
     "code": "app/no-app",

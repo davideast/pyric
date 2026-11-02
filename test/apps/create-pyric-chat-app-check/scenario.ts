@@ -2,9 +2,9 @@
 // (#1299). The scenario scaffolds the template through the packed
 // create-pyric, installs it, and runs its dev server in production AI mode, so
 // the page's firebase/ai and firebase/app-check are the Firebase SDK. Playwright
-// routes answer Google the way it answers from November 2, 2026: AI Logic
-// refuses a request with no X-Firebase-AppCheck header with the captured 403
-// (app-check-ai-gate-wire, noHeader), and the App Check debug exchange answers
+// routes answer Google the way a refusing project does: AI Logic refuses a
+// request with no X-Firebase-AppCheck header with the captured 403
+// (earlier-captures/ai-logic-refusal-unenforced.json), and the App Check debug exchange answers
 // with the captured success shape (app-check-exchange-debug-token-wire,
 // registered). Nothing reaches a real Google endpoint.
 //
@@ -20,7 +20,7 @@ import { scaffoldChatTemplate, sendDirectPrompt, startChatDevServer, streamedRep
 const OBSERVATIONS = join(import.meta.dirname, '..', '..', '..', 'packages', 'conformance', 'observations', 'app-check');
 const REPLY = 'App Check reached the chat template.';
 
-interface GateCapture { behavior: { noHeader: { httpStatus: number; raw: unknown } } }
+interface EarlierCaptures { captures: { 'app-check-ai-gate-wire': { noHeader: { httpStatus: number; raw: unknown } } } }
 interface ExchangeCapture { behavior: { registered: { httpStatus: number; ttl: string } } }
 
 function capture<T>(name: string): T {
@@ -34,7 +34,8 @@ function debugExchangeToken(): string {
 }
 
 export default scenario(async (app) => {
-  const gate = capture<GateCapture>('app-check-ai-gate-wire').behavior.noHeader;
+  const earlierFile = join(OBSERVATIONS, '..', '..', 'earlier-captures', 'ai-logic-refusal-unenforced.json');
+  const gate = (JSON.parse(readFileSync(earlierFile, 'utf8')) as EarlierCaptures).captures['app-check-ai-gate-wire'].noHeader;
   const exchange = capture<ExchangeCapture>('app-check-exchange-debug-token-wire').behavior.registered;
   const token = debugExchangeToken();
 

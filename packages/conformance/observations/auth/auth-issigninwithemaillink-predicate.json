@@ -5,9 +5,9 @@
     "auth#151"
   ],
   "description": "isSignInWithEmailLink — pure client-side predicate over a link. Locks exactly which links prod accepts as an email-link sign-in link (mode=signIn + oobCode) and which it rejects.",
-  "observedAt": "2026-07-12T03:50:11.185Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T12:08:33.347Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "signInLink": true,
     "resetPasswordLink": false,

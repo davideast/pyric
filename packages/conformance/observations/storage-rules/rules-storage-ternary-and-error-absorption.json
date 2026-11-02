@@ -5,8 +5,8 @@
     "storage-rules#119"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"ternary-and-error-absorption\" (Coverage: ternary ?:, error-in-condition, || absorption). Ternary must select by condition; an erroring condition denies even with identical branches; error || true absorbs to allow — mirrors captured Firestore engine truth.",
-  "observedAt": "2026-07-17T19:19:08.892Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:57.989Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
@@ -18,5 +18,80 @@
     "anonymous read takes false branch → DENY": "DENY",
     "erroring ternary condition denies despite true branches → DENY": "DENY",
     "erroring ternary absorbed by || true → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "authed read, true-branch condition holds → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 22,
+              "currentOffset": 163,
+              "endOffset": 169
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "authed read, true-branch condition fails → DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 22,
+              "currentOffset": 163,
+              "endOffset": 169
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "anonymous read takes false branch → DENY": {
+      "notes": [
+        "Error: storage.rules line [6], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 6,
+          "column": 22,
+          "currentOffset": 163,
+          "endOffset": 169
+        }
+      }
+    },
+    "erroring ternary condition denies despite true branches → DENY": {
+      "notes": [
+        "Error: storage.rules line [9], column [47]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 9,
+          "column": 47,
+          "currentOffset": 374,
+          "endOffset": 374
+        }
+      }
+    },
+    "erroring ternary absorbed by || true → ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 469,
+              "endOffset": 469
+            },
+            "value": true
+          }
+        ]
+      }
+    }
   }
 }

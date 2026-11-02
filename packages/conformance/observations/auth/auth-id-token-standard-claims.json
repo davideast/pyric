@@ -5,9 +5,9 @@
     "auth#68b"
   ],
   "description": "The decoded ID token claim set per sign-in flow: anonymous, email and password (unverified, then with a display name and photo URL, then verified with a phone number set through the Admin SDK), accounts whose custom claims reuse standard claim names (one without a display name, one with every profile field, one anonymous), the Admin SDK refusal of reserved claim names, and a custom token for a new uid and for an existing email account. Records which standard claims (email, email_verified, name, picture, phone_number, user_id, provider_id) appear, which value wins when a custom claim reuses the name, and the shape of the firebase namespace (identities keyed by provider, sign_in_provider). Values that identify the test accounts are replaced by placeholders. Every account is removed through the Admin SDK at the end.",
-  "observedAt": "2026-10-07T13:45:01.028Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T12:52:47.845Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "anonymous": {
       "signInProvider": "anonymous",

@@ -19,6 +19,8 @@ import { CustomProvider, type AppCheckProvider } from './providers.js';
 
 /** Web App Check tokens live one hour (capture `app-check-client-debug-get-token`). */
 const TTL_SECONDS = 3600;
+/** Production's limited-use TTL, fixed at 5 minutes (capture `app-check-client-limited-use-token`). */
+const LIMITED_USE_TTL_SECONDS = 300;
 
 export interface AppCheckTokenResult {
   readonly token: string;
@@ -121,10 +123,10 @@ function notifyError(observers: Iterable<TokenObserver>, error: unknown): void {
 }
 
 /** The app's provider token, or a sandbox-minted one when it has no provider to call. */
-function freshToken(app: FirebaseApp, state: AppCheckState, now: number): Promise<MintedToken> {
+function freshToken(app: FirebaseApp, state: AppCheckState, now: number, ttlSeconds: number = TTL_SECONDS): Promise<MintedToken> {
   if (state.attestedBy !== null) return state.attestedBy.getToken();
   warnIfProductionNeverSettles(state.provider, state.debugMode);
-  return mintAppCheckToken(identityOf(app), TTL_SECONDS, now);
+  return mintAppCheckToken(identityOf(app), ttlSeconds, now);
 }
 
 function isValid(token: MintedToken | null, nowMillis: number): token is MintedToken {
@@ -174,7 +176,7 @@ async function tokenForService(app: FirebaseApp, state: AppCheckState): Promise<
 
 /** Upstream `getLimitedUseToken` skips the cache and calls the provider; a rejection propagates. */
 export async function mintLimitedUse(app: FirebaseApp, state: AppCheckState): Promise<AppCheckTokenResult> {
-  const minted = await freshToken(app, state, Date.now());
+  const minted = await freshToken(app, state, Date.now(), LIMITED_USE_TTL_SECONDS);
   return { token: minted.token };
 }
 

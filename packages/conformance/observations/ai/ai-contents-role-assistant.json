@@ -5,8 +5,8 @@
     "ai#contents-role-assistant"
   ],
   "description": "A generateContent whose contents carries a prior answer under role assistant between two user turns. No tools. Records whether production accepts role assistant inside contents.",
-  "observedAt": "2026-10-28T16:23:33.556Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:47.985Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -28,7 +28,7 @@
             "parts": [
               {
                 "text": "pyric",
-                "thoughtSignature": "EmAKXgFpFH0TJURNc02THrjnbp1jZnCuYk4mLD5mErx74RiDd6uUsozbpn2ZDfdbhXnusxvObgqmCoqcpbCZu2lCaoV1puxhp1IuFli2Y11yT9uUee3OxRmfVTEfOsTGm2w="
+                "thoughtSignature": "EmAKXgFpFH0TjkEZHGYrSpltc9V7+DUlT/M9J/COUaYbWqxD6QVC7hdei/NGuyNW/P2AVbWVs+5VzCyE+1U6kfKPuTHJrF1Be6uRro1UCb5YRTDV9ASJwDBXZl6DxzJLFRM="
               }
             ],
             "role": "model"
@@ -50,7 +50,7 @@
         "serviceTier": "standard"
       },
       "modelVersion": "gemini-3.5-flash-lite",
-      "responseId": "gyHiarKxONeQ-8YPgeOh0A4"
+      "responseId": "_oXkav6TI6rO-8YPs9mwQA"
     }
   }
 }

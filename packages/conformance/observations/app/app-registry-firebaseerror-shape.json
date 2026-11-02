@@ -5,8 +5,8 @@
     "app#12"
   ],
   "description": "firebase/app FirebaseError is a real Error subclass: new FirebaseError(code, message) has name 'FirebaseError', constructor.name 'FirebaseError', a readable .code, the given .message verbatim (no wrapper when constructed directly), is an instanceof Error, and an instanceof FirebaseError.",
-  "observedAt": "2026-07-12T01:20:59.103Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.846Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "errorName": "FirebaseError",
     "ctorName": "FirebaseError",

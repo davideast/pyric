@@ -5,8 +5,8 @@
     "firestore-rules#172"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"prototype-chain-keys\" (RULES-B7). `'toString' in map` must be false (own keys only) and `.constructor` access must error; JS prototype-chain leakage said true / returned Object.",
-  "observedAt": "2026-09-28T00:50:27.525Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:41.471Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

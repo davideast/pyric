@@ -5,8 +5,8 @@
     "firestore#write-server-limits"
   ],
   "description": "setDoc at and past the documented write limits: values nested in 19, 20 and 21 maps, a doc over 1 MiB, document ids __x__, . and .., a 1,501-byte id and field name, and 500 and 501 field transforms on one doc. Records whether each resolves or its error.",
-  "observedAt": "2026-10-27T19:38:35.625Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:09:06.844Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "map depth 19 (value nested in 19 maps)": {
@@ -37,14 +37,14 @@
       "sync": false,
       "code": "invalid-argument",
       "name": "FirebaseError",
-      "message": "3 INVALID_ARGUMENT: Document name \"projects/digame-mas/databases/(default)/documents/pyric_oracle/sdkhunt-mvr393ou-sd50/limits/.\" contains a resource id \".\" at index 92."
+      "message": "3 INVALID_ARGUMENT: Document name \"projects/digame-mas/databases/(default)/documents/pyric_oracle/sdkhunt-mvv3y2xr-lt54/limits/.\" contains a resource id \".\" at index 92."
     },
     "document id '..'": {
       "ok": false,
       "sync": false,
       "code": "invalid-argument",
       "name": "FirebaseError",
-      "message": "3 INVALID_ARGUMENT: Document name \"projects/digame-mas/databases/(default)/documents/pyric_oracle/sdkhunt-mvr393ou-sd50/limits/..\" contains a resource id \"..\" at index 92."
+      "message": "3 INVALID_ARGUMENT: Document name \"projects/digame-mas/databases/(default)/documents/pyric_oracle/sdkhunt-mvv3y2xr-lt54/limits/..\" contains a resource id \"..\" at index 92."
     },
     "document id of 1,501 bytes": {
       "ok": false,

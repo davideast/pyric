@@ -1,15 +1,15 @@
 /**
  * App Check in sandbox AI mode (rows `ai#sandbox-app-check-*` in
- * packages/conformance/registry/ai.ts). From November 2, 2026 Firebase AI
- * Logic refuses requests without a valid App Check token; the sandbox broker
- * refuses the same requests with the same envelope, and the app gets the same
- * `AIError` the SDK throws for it.
+ * packages/conformance/registry/ai.ts). The sandbox broker refuses requests
+ * without a valid App Check token, and the app gets the `AIError` the SDK
+ * throws for that refusal.
  *
- * Expected values come from the captures: `app-check-ai-gate-wire` (the wire
- * envelope for each refused token), `app-check-client-ai-header` (the SDK
- * error for an app without App Check, and the limited-use token on each
- * request) and `app-check-client-get-token-before-initialize` (a handle built
- * before `initializeAppCheck` is refused).
+ * The refusal's expected values come from
+ * `earlier-captures/ai-logic-refusal-unenforced.json`: the 403 one unenforced
+ * project answered. The current observations come from an unenforced project
+ * that answers 200, and these files must never make the sandbox allow (#1300).
+ * The limited-use values come from `app-check-client-ai-header`, and the late
+ * initialize shape from `app-check-client-get-token-before-initialize`.
  */
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -32,7 +32,12 @@ type Behavior = Record<string, any>;
 const obs = (name: string): Behavior =>
   (JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as { behavior: Behavior }).behavior;
 
-const gateWire = obs('app-check-ai-gate-wire');
+const EARLIER_REFUSAL = join(import.meta.dir, '..', '..', '..', 'conformance', 'earlier-captures', 'ai-logic-refusal-unenforced.json');
+const earlier = (JSON.parse(readFileSync(EARLIER_REFUSAL, 'utf8')) as { captures: Record<string, Behavior> }).captures;
+const gateWire = earlier['app-check-ai-gate-wire']!;
+const earlierHeader = earlier['app-check-client-ai-header']!;
+const earlierBeforeInitialize = earlier['app-check-client-get-token-before-initialize']!;
+const unenforcedGateWire = obs('app-check-ai-gate-wire');
 const aiHeader = obs('app-check-client-ai-header');
 const beforeInitialize = obs('app-check-client-get-token-before-initialize');
 
@@ -82,7 +87,7 @@ function taskAndQuery(op: string): string {
 
 /** The SDK error the capture saw, with the sandbox's request URL in place of the oracle project's. */
 function expectCapturedRefusal(error: AIError, op: string): void {
-  const captured = aiHeader.noAppCheck.generation;
+  const captured = earlierHeader.noAppCheck.generation;
   const expectedMessage = (captured.message as string)
     .replace('projects/genkit-idx/', 'projects/sandbox/')
     .replace(':generateContent:', `:${taskAndQuery(op)}:`);
@@ -94,10 +99,19 @@ function expectCapturedRefusal(error: AIError, op: string): void {
 }
 
 describe('ai#sandbox-app-check-required', () => {
+  it('stays refusing though the current unenforced capture answers 200; the 403 is another unenforced project\'s (#1300)', async () => {
+    expect(unenforcedGateWire.appCheckEnforcementModeAtCapture).toBe('UNENFORCED');
+    expect(unenforcedGateWire.noHeader.httpStatus).toBe(200);
+    expect(gateWire.appCheckEnforcementModeAtCapture).toBe('UNENFORCED');
+    expect(gateWire.noHeader.httpStatus).toBe(403);
+    const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
+    expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
+  });
+
   it('generateContent from getAI(app) with no App Check rejects with the AIError the SDK throws for the captured 403', async () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
-    expect(aiHeader.noAppCheck.responseStatus).toBe(403);
+    expect(earlierHeader.noAppCheck.responseStatus).toBe(403);
   });
 
   it('the refusal logs pyric guidance once per app beside the SDK error', async () => {
@@ -297,7 +311,7 @@ describe('app-check#custom-provider-without-debug-token: AI Logic judges the pro
 describe('ai#sandbox-app-check-required: the error URL follows the handle backend (#1640)', () => {
   const vertexUrl = (location: string, op: string) =>
     `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/locations/${location}/publishers/google/models/${MODEL}:${taskAndQuery(op)}`;
-  const gate = `[403 Forbidden] ${aiHeader.noAppCheck.generation.message.split('[403 Forbidden] ')[1]}`;
+  const gate = `[403 Forbidden] ${earlierHeader.noAppCheck.generation.message.split('[403 Forbidden] ')[1]}`;
 
   it('a Vertex AI sandbox handle names the Vertex AI path, and a stream adds alt=sse', async () => {
     const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend('europe-west4') }), { model: MODEL });
@@ -366,14 +380,25 @@ describe('ai#sandbox-app-check-initialize-after-getai', () => {
     expect((await getToken(appCheck)).token.split('.')).toHaveLength(beforeInitialize.getTokenAfterLateInitialize.token.segmentCount);
     const error = await rejection(model.generateContent('ping'));
     expect(beforeInitialize.aiRequestAfterLateInitialize.appCheckHeaderPresent).toBe(false);
-    expect(error.code).toBe(beforeInitialize.aiGenerationAfterLateInitialize.code);
+    expect(error.code).toBe(earlierBeforeInitialize.aiGenerationAfterLateInitialize.code);
     expect(error.message).toBe(
-      (beforeInitialize.aiGenerationAfterLateInitialize.message as string).replace('projects/genkit-idx/', 'projects/sandbox/'),
+      (earlierBeforeInitialize.aiGenerationAfterLateInitialize.message as string).replace('projects/genkit-idx/', 'projects/sandbox/'),
     );
   });
 });
 
 describe('ai#sandbox-app-check-limited-use', () => {
+  it('a limited-use token lives as long as the capture records, and the cached token is unchanged', async () => {
+    (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    const appCheck = withAppCheck(newApp());
+    const ttl = (token: string): number => {
+      const claims = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as { exp: number; iat: number };
+      return claims.exp - claims.iat;
+    };
+    expect(ttl((await getLimitedUseToken(appCheck)).token)).toBe(aiHeader.limitedUseModel.appCheckHeaderShape.ttlSeconds);
+    expect(ttl((await getToken(appCheck)).token)).toBe(aiHeader.appCheckInitialized.appCheckHeaderShape.ttlSeconds);
+  });
+
   it('with useLimitedUseAppCheckTokens each request answers with a fresh limited-use token', async () => {
     const app = newApp();
     const appCheck = withAppCheck(app);

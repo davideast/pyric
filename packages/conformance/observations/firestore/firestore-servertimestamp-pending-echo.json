@@ -5,8 +5,8 @@
     "firestore#servertimestamp-pending-value"
   ],
   "description": "updateDoc with serverTimestamp() while online, seen by a doc listener and a query listener with includeMetadataChanges. Records hasPendingWrites and the field under the default, estimate and previous serverTimestamps options for each snapshot.",
-  "observedAt": "2026-10-27T19:41:56.912Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:08:13.183Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "docEvents": [

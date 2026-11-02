@@ -54,9 +54,12 @@ class AppCheckHandle implements AppCheck {
 
 const handles = new WeakMap<FirebaseApp, AppCheckHandle>();
 
-/** Upstream compares the raw option values, so an omitted flag differs from `false`. */
+/**
+ * Upstream (`@firebase/app-check` 0.13.1, firebase 12.19.0) compares the flags
+ * as booleans, `!!initial === !!next`, so an omitted flag equals `false`.
+ */
 function hasSameOptions(state: AppCheckState, options: AppCheckOptions): boolean {
-  const sameRefresh = state.initialAutoRefresh === options.isTokenAutoRefreshEnabled;
+  const sameRefresh = Boolean(state.initialAutoRefresh) === Boolean(options.isTokenAutoRefreshEnabled);
   return sameRefresh && sameProvider(state.provider, options.provider);
 }
 

@@ -29,6 +29,9 @@ export const scenario: RtdbDeployScenarioRecord = {
     'mid-pattern $, dotted or empty .indexOn entries, and long || chains are accepted or refused by pyric without a production verdict to compare.',
   provenance:
     'Drafted from the 2026-10-26 RTDB hunt (SP-1 follow-up, contract-sweep .indexOn lead, LD-7). Captured by dry-run deploy against pyric-oracle-rtdb on 2026-10-26 in observations/rtdb-rules/rules-rtdb-r51-deploy-anchor-index-and-length-probes.json.',
+  // Production takes long enough on the 2,000-term chain that the rig runs this
+  // scenario after the others, with an explicit limit per dry run.
+  largeRuleset: { timeoutMs: 120_000 },
   deployCases: [
     { description: 'SP-1: $ before an alternation (/a$|b/)', construct: 'rtdb.semantic.regex-literal', rules: matching('/a$|b/'), expectation: { verdict: 'REJECTED', error: 'Illegal regular expression, unescaped ^, ^ can only appear at the end of regular expressions' } },
     { description: 'SP-1: $ inside a group (/(a$)/)', construct: 'rtdb.semantic.regex-literal', rules: matching('/(a$)/'), expectation: { verdict: 'REJECTED', error: 'Illegal regular expression, unescaped ^, ^ can only appear at the end of regular expressions' } },

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { SDK_VERSION as FIREBASE_SDK_VERSION } from 'firebase/app';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getAdminDatabase,
@@ -239,7 +240,7 @@ describe('RTDB rules evaluation and sandbox writes match production', () => {
     test('an inline priority of the wrong type throws the SDK assertion', async () => {
       const admin = getAdminDatabase(initializeSandbox());
       await expect(set(ref(admin, 'items/c'), { '.value': 'v', '.priority': true })).rejects.toThrow(
-        'Firebase Database (12.13.0) INTERNAL ASSERT FAILED: Invalid priority type found: boolean',
+        `Firebase Database (${FIREBASE_SDK_VERSION}) INTERNAL ASSERT FAILED: Invalid priority type found: boolean`,
       );
     });
 

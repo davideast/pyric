@@ -43,6 +43,7 @@ window.runAppCheck = async () => {
     segments: first.token.split(".").length,
     cached: again.token === first.token,
     limitedDiffers: limited.token !== first.token,
+    limitedTtl: claims(limited.token).exp - claims(limited.token).iat,
     sub: c.sub,
     aud: c.aud,
     iss: c.iss,

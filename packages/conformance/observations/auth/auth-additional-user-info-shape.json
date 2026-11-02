@@ -5,20 +5,30 @@
     "auth#171"
   ],
   "description": "getAdditionalUserInfo across the three credential-producing flows — anonymous sign-in, a fresh createUserWithEmailAndPassword, and a returning signInWithEmailAndPassword. Locks isNewUser + providerId + profile per flow.",
-  "observedAt": "2026-07-12T03:53:18.235Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T16:10:19.684Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "anonCode": null,
-    "flowCode": "auth/operation-not-allowed",
+    "flowCode": null,
     "anonymous": {
       "isNewUser": true,
       "providerId": null,
       "profile": {},
       "username": null
     },
-    "createUser": null,
-    "signInExisting": null,
-    "cleanupLeaked": true
+    "createUser": {
+      "isNewUser": true,
+      "providerId": "password",
+      "profile": {},
+      "username": null
+    },
+    "signInExisting": {
+      "isNewUser": false,
+      "providerId": "password",
+      "profile": {},
+      "username": null
+    },
+    "cleanupLeaked": false
   }
 }

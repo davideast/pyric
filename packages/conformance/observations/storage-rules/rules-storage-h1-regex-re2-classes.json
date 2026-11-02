@@ -5,8 +5,8 @@
     "storage-rules#204"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-regex-re2-classes\" (STORAGE-H1-REGEX-RE2). matches() is documented as Google RE2 syntax; these constructs separate RE2 from the JavaScript RegExp semantics the shared matcher borrows for classes and escapes.",
-  "observedAt": "2026-10-27T02:46:22.421Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:54.701Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

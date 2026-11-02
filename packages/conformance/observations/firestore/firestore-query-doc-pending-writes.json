@@ -6,8 +6,8 @@
     "firestore#listener-local-write-pending"
   ],
   "description": "A query listener with includeMetadataChanges over one stored doc while a second doc is written. Records the snapshot hasPendingWrites and each doc hasPendingWrites.",
-  "observedAt": "2026-10-27T20:16:22.415Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T15:07:34.024Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "events": [

@@ -5,9 +5,9 @@
     "auth#150"
   ],
   "description": "ActionCodeURL.parseLink / parseActionCodeURL — the PURE CLIENT-SIDE parse contract for an out-of-band action link. No network, no mailbox: fully capturable. Locks which query params become which fields, and what a link that is missing mode/oobCode parses to.",
-  "observedAt": "2026-07-12T03:50:10.892Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T12:08:33.240Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "wellFormed": {
       "operation": "PASSWORD_RESET",

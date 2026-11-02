@@ -5,8 +5,8 @@
     "app#21"
   ],
   "description": "firebase/app initializeApp() without options outside Firebase Hosting source deployment throws FirebaseError code app/no-options.",
-  "observedAt": "2026-07-13T22:47:49.329Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:14:18.849Z",
+  "fbSdkVersion": "12.19.0",
   "behavior": {
     "threw": true,
     "code": "app/no-options",

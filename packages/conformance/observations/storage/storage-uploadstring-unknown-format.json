@@ -5,9 +5,9 @@
     "storage#41"
   ],
   "description": "uploadString with an unknown format string — error code prod throws; base64url is a valid upstream format that Pyric currently rejects.",
-  "observedAt": "2026-06-10T10:41:15.006Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T15:57:54.810Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "unknownCode": "storage/unknown",
     "unknownMessage": "Firebase Storage: An unknown error occurred, please check the error payload for server response. (storage/unknown)",

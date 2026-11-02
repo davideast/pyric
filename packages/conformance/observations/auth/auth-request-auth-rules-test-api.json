@@ -4,9 +4,9 @@
   "rowIds": [
     "auth#68c"
   ],
-  "description": "Production Firestore and Storage rules (Rules Test API, nothing deployed) evaluating each sign-in kind's real decoded ID token claim set as request.auth: equality and type probes on every claim (iat, exp and auth_time as int, email_verified as bool, developer claims as int, float, list and map, firebase.identities as a map of lists), sub and user_id against uid, iss against aud, exp minus iat; a signed-out case sends auth null. Claim shapes come from auth-request-auth-per-sign-in (observed 2026-10-28T02:02:41.919Z); placeholders are filled with fixed synthetic values.",
-  "observedAt": "2026-10-28T02:05:44.152Z",
-  "fbSdkVersion": "12.13.0",
+  "description": "Production Firestore and Storage rules (Rules Test API, nothing deployed) evaluating each sign-in kind's real decoded ID token claim set as request.auth: equality and type probes on every claim (iat, exp and auth_time as int, email_verified as bool, developer claims as int, float, list and map, firebase.identities as a map of lists), sub and user_id against uid, iss against aud, exp minus iat; a signed-out case sends auth null. Claim shapes come from auth-request-auth-per-sign-in (observed 2026-10-30T14:42:05.662Z); placeholders are filled with fixed synthetic values.",
+  "observedAt": "2026-10-30T14:43:26.823Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "signedOut": {

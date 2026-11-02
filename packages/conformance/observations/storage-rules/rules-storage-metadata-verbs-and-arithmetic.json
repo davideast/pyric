@@ -5,8 +5,8 @@
     "storage-rules#117"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-verbs-and-arithmetic\" (Coverage: metadata, granular verbs, arithmetic operators). Production must accept request.resource.size arithmetic (+/-/*/÷, >=, <=), request/resource content-type + metadata, request.method/path, request.auth.token OR-branch, allow list, and a recursive {allPaths=**} read tree.",
-  "observedAt": "2026-07-12T02:33:30.003Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:56.142Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
@@ -21,5 +21,127 @@
     "update changing content type DENY (immutable)": "DENY",
     "signed-in list ALLOW": "ALLOW",
     "public recursive read ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "owner uploads a valid image ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 136,
+              "endOffset": 142
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "non-owner upload DENY": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 136,
+              "endOffset": 142
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "oversize upload DENY (size < 5MiB)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 136,
+              "endOffset": 142
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "wrong content type DENY (matches image/.*)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 136,
+              "endOffset": 142
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "update growing the object keeping content type ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 633,
+              "endOffset": 639
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "update changing content type DENY (immutable)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 24,
+              "currentOffset": 633,
+              "endOffset": 639
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "signed-in list ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 20,
+              "column": 22,
+              "currentOffset": 893,
+              "endOffset": 899
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "public recursive read ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 23,
+              "column": 22,
+              "currentOffset": 976,
+              "endOffset": 979
+            },
+            "value": true
+          }
+        ]
+      }
+    }
   }
 }

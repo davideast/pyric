@@ -8,9 +8,9 @@
     "auth#183"
   ],
   "description": "Real-browser production capture for equal-config app backend sharing, independent Auth sessions, retained-Auth deletion behavior, and deleted-app Firestore/RTDB listener isolation.",
-  "observedAt": "2026-07-14T09:41:20.915Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T11:55:31.185Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "equalConfigAppsAreDistinct": true,
     "authServicesAreDistinct": true,

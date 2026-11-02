@@ -3,7 +3,7 @@
  * App Check SDK in debug mode (a module-wide setting, hence its own process)
  * through the served App Check bridge, with an unregistered debug token. `fetch`
  * answers the debug exchange and AI Logic with the captured 403 envelopes
- * (`app-check-exchange-debug-token-wire`, `app-check-ai-gate-wire`), so nothing
+ * (`app-check-exchange-debug-token-wire`, `earlier-captures/ai-logic-refusal-unenforced.json`), so nothing
  * reaches Google. Prints one JSON line.
  */
 import { readFileSync } from 'node:fs';
@@ -12,7 +12,8 @@ import { join } from 'node:path';
 const OBS = join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'app-check');
 const behavior = (name: string) => (JSON.parse(readFileSync(join(OBS, `${name}.json`), 'utf8')) as { behavior: Record<string, any> }).behavior;
 const exchangeDenied = behavior('app-check-exchange-debug-token-wire').unregistered.body;
-const aiDenied = behavior('app-check-ai-gate-wire').noHeader.raw;
+const earlier = JSON.parse(readFileSync(join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'earlier-captures', 'ai-logic-refusal-unenforced.json'), 'utf8')) as { captures: Record<string, Record<string, any>> };
+const aiDenied = earlier.captures['app-check-ai-gate-wire']!.noHeader.raw;
 const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: 'genkit-idx' };
 const MODEL = 'gemini-flash-lite-latest';
 

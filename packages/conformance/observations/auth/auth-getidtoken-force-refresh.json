@@ -5,13 +5,13 @@
     "auth#55"
   ],
   "description": "getIdToken(forceRefresh=true) — observes whether prod actually returns a different token string.",
-  "observedAt": "2026-05-18T01:02:15.882Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T10:46:03.254Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
-    "token0Length": 837,
-    "token1Length": 837,
-    "token2Length": 837,
+    "token0Length": 834,
+    "token1Length": 834,
+    "token2Length": 834,
     "token0EqualsToken1": false,
     "token1EqualsToken2": true,
     "forceRefreshReturnedDifferentString": true

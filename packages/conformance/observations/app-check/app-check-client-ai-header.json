@@ -9,13 +9,13 @@
     "ai#sandbox-app-check-required"
   ],
   "description": "The X-Firebase-AppCheck header the real firebase/ai SDK attaches to generateContent (GoogleAI backend, observed with a Playwright route and continued unchanged, enforcement off): with App Check initialized, on a second app whose getAI options set useLimitedUseAppCheckTokens (compared with that app's cached getToken token), and on an app that never initialized App Check. Each request records the production response status and, when not 200, the error body.",
-  "observedAt": "2026-10-22T03:10:12.626Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-11-02T19:35:35.622Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "appCheckInitialized": {
       "requestSeen": true,
-      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "path": "/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent",
       "headerNames": [
         "accept",
         "content-type",
@@ -32,7 +32,7 @@
       ],
       "appCheckHeaderPresent": true,
       "appCheckHeaderShape": {
-        "length": 932,
+        "length": 1006,
         "segmentCount": 3,
         "isJwt": true,
         "headerKeySet": [
@@ -49,13 +49,14 @@
           "iat",
           "iss",
           "jti",
+          "lu",
           "provider",
           "sub"
         ],
         "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
         "audShape": [
           "projects/<projectNumber>",
-          "projects/genkit-idx"
+          "projects/digame-mas"
         ],
         "subEqualsAppId": true,
         "ttlSeconds": 3600,
@@ -78,7 +79,7 @@
     },
     "limitedUseModel": {
       "requestSeen": true,
-      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "path": "/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent",
       "headerNames": [
         "accept",
         "content-type",
@@ -95,7 +96,7 @@
       ],
       "appCheckHeaderPresent": true,
       "appCheckHeaderShape": {
-        "length": 932,
+        "length": 1006,
         "segmentCount": 3,
         "isJwt": true,
         "headerKeySet": [
@@ -112,16 +113,17 @@
           "iat",
           "iss",
           "jti",
+          "lu",
           "provider",
           "sub"
         ],
         "issShape": "https://firebaseappcheck.googleapis.com/<projectNumber>",
         "audShape": [
           "projects/<projectNumber>",
-          "projects/genkit-idx"
+          "projects/digame-mas"
         ],
         "subEqualsAppId": true,
-        "ttlSeconds": 3600,
+        "ttlSeconds": 300,
         "hasJti": true
       },
       "appCheckHeaderIsSdkDummyToken": false,
@@ -142,7 +144,7 @@
     },
     "noAppCheck": {
       "requestSeen": true,
-      "path": "/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent",
+      "path": "/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent",
       "headerNames": [
         "accept",
         "content-type",
@@ -159,22 +161,16 @@
       "appCheckHeaderPresent": false,
       "appCheckHeaderShape": null,
       "appCheckHeaderIsSdkDummyToken": false,
-      "responseStatus": 403,
+      "responseStatus": 200,
       "responseBody": {
-        "error": {
-          "code": 403,
-          "message": "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check",
-          "status": "PERMISSION_DENIED"
-        }
+        "ok": true
       },
       "appCheckHeaderEquals": {},
       "generation": {
-        "threw": true,
-        "name": "FirebaseError",
-        "code": "fetch-error",
-        "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/genkit-idx/models/gemini-flash-lite-latest:generateContent: [403 Forbidden] Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check (AI/fetch-error)",
-        "customDataKeys": [],
-        "customData": null
+        "threw": false,
+        "value": {
+          "finishReason": "STOP"
+        }
       }
     }
   }

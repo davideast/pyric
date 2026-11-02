@@ -31,7 +31,7 @@ export const ADMIN_OPTION_PLAN: { name: string; captures: string }[] = [
 const CREATE_TOKEN_DESCRIPTION =
   'firebase-admin createToken options. validation: for each malformed input, whether createToken throws synchronously or returns a rejected promise, with the error code and message. limitedUse: the ttl a limitedUse token gets with no jti and with a chosen jti, and whether the chosen jti is the token jti claim. fractionalTtl: the ttlMillis returned and exp minus iat for fractional ttlMillis values. Token values are never stored.';
 const SAME_JTI_DESCRIPTION =
-  'Two firebase-admin createToken calls with limitedUse true and the same chosen jti: whether they return the identical token, then verifyToken with consume true on the first token, the second token, and the first token again, recording alreadyConsumed and the result key order. Token values are never stored.';
+  'Two firebase-admin createToken calls with limitedUse true and the same chosen jti: whether they return the identical token and whether their iat and lu claims match, then verifyToken with consume true on the first token, the second token, and the first token again, recording alreadyConsumed and the result key order. Token values are never stored.';
 
 export interface AdminOptionInput {
   context: ObservationContext;

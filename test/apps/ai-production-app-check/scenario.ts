@@ -1,7 +1,7 @@
 // In production AI mode the page's firebase/app-check is the Firebase SDK,
 // attached to the same app firebase/ai reads, so AI Logic requests carry the
 // App Check token. A Playwright route answers Google the way AI Logic does
-// (403 without a token, captured in app-check-ai-gate-wire): nothing in this
+// (403 without a token, in earlier-captures/ai-logic-refusal-unenforced.json): nothing in this
 // scenario reaches a real Google endpoint.
 //
 // The app also sends its App Check token to its own backend, which verifies it
@@ -35,7 +35,7 @@ const NOT_SANDBOX =
   "This App Check token was not minted by the Pyric sandbox, so the sandbox's firebase-admin/app-check cannot verify it. " +
   'A page in production AI mode gets its App Check tokens from Firebase. Start this server in production AI mode too ' +
   '(PYRIC_AI_MODE=production) and Pyric verifies them with firebase-admin. In sandbox AI mode, page tokens come from the sandbox and verify here.';
-const DECODED_CLAIMS = ['app_id', 'aud', 'exp', 'iat', 'iss', 'jti', 'provider', 'sub'];
+const DECODED_CLAIMS = ['app_id', 'aud', 'exp', 'iat', 'iss', 'jti', 'lu', 'provider', 'sub'];
 
 const base64url = (value: string | Buffer) => Buffer.from(value).toString('base64url');
 
@@ -51,6 +51,7 @@ function firebaseShapedToken(privateKey: KeyObject): string {
     exp: iat + 3600,
     iat,
     jti: randomBytes(24).toString('base64url'),
+    lu: 'scenario-placeholder',
   };
   const input = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(claims))}`;
   return `${input}.${sign('sha256', Buffer.from(input), privateKey).toString('base64url')}`;

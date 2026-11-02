@@ -5,8 +5,8 @@
     "firestore-rules#187"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"hierarchical-match-cascade\" (CDD: hierarchical match cascade). A nested match must resolve relative to its parent: the exact child path allows while the parent, a sibling, and an extra descendant deny. A recursive wildcard followed by further segments matches zero or more leading segments and reaches no nested match, while one in the last position lets a nested match resolve at any depth.",
-  "observedAt": "2026-10-07T03:40:48.465Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:17:40.359Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

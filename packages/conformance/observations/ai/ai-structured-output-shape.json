@@ -6,8 +6,8 @@
     "ai#schema-rides-request"
   ],
   "description": "responseMimeType application/json plus responseSchema yields a text part that parses as JSON conforming to the schema key set.",
-  "observedAt": "2026-10-28T02:04:05.536Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T11:56:51.788Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -25,7 +25,7 @@
             "parts": [
               {
                 "text": "{\n  \"word\": \"flame\"\n}",
-                "thoughtSignature": "EmAKXgFpFH0TJDcAvLwQKsBHjEbMZkaja0ep9CyMms/syekiTuyXkWynGgsVPpiIZNlam/2uR9ta8cO2uePFJABPllGN8Ja54p8tEF8BF7ix+xLNY3eQ1olWpxmjDwzW67Q="
+                "thoughtSignature": "EmAKXgFpFH0T7iSLOxrCGqHNd8sHcOZvOvPfGI47iYfxbWrvhSymujmASqRevn8fpW4UoHuZk2flVtOOSGUNIK0IiRbWihm8eyXRJVwgFdidVO4jqIYT3QPwvrrjSAFgwL4="
               }
             ],
             "role": "model"
@@ -47,7 +47,7 @@
         "serviceTier": "standard"
       },
       "modelVersion": "gemini-3.5-flash-lite",
-      "responseId": "FFjhaqbmIeLP-8YPg7yjiA4"
+      "responseId": "AYbkaualNpuS39IPxcLekAM"
     }
   }
 }

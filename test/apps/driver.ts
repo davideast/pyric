@@ -12,6 +12,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
+import { retainBrowserChildren } from './browser-children.ts';
 import type { DependencyStore } from './dependency-store.ts';
 import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
 import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
@@ -472,6 +473,9 @@ async function answers(url: string): Promise<boolean> {
     return false;
   }
 }
+
+// At load, not at launch: a scenario can also call chromium.launch itself.
+retainBrowserChildren();
 
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 

@@ -5,9 +5,9 @@
     "rtdb-rules#15"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r23-validate-sibling-scope\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a write must not be denied by the `.validate` rule of a sibling node it does not write, and a node the write does carry must still run its `.validate`.",
-  "observedAt": "2026-09-27T14:22:20.786Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.265Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "set of title next to a count that did not change": "ALLOW",
     "set of title next to a stored tag that fails its validate": "ALLOW",

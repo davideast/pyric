@@ -337,9 +337,6 @@ export const getAI = (
 ) as typeof pyricGetAI;
 
 export {
-  ImagenAspectRatio,
-  ImagenPersonFilterLevel,
-  ImagenSafetyFilterLevel,
   InferenceMode,
   InferenceSource,
   LiveResponseType,

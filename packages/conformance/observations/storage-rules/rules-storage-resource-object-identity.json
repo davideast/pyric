@@ -5,8 +5,8 @@
     "storage-rules#116"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"resource-object-identity\" (STORAGE-RES-IDENTITY). The resource binding's object-identity/time fields — name (full object path), timeCreated, updated, bucket — driving an extension guard, a freshness window, an immutability check, and an absent-property negation that must not false-allow.",
-  "observedAt": "2026-09-28T04:28:24.512Z",
-  "fbSdkVersion": "12.13.0",
+  "observedAt": "2026-10-30T09:18:56.560Z",
+  "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

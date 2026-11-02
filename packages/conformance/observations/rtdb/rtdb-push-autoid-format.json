@@ -10,17 +10,17 @@
     "rtdb-modular#125"
   ],
   "description": "Call push(ref).key three times and capture the auto-id format: length, leading char, monotonicity. RTDB push IDs are documented as 20-char, dash-prefixed, timestamp-encoding, lexicographically sortable.",
-  "observedAt": "2026-05-18T03:36:30.531Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "observedAt": "2026-10-30T16:54:57.305Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,
     "message": null,
     "sampleKeys": [
-      "-Ost90fdbeEJ4iC_e3rZ",
-      "-Ost90flQgF-aR1wDQAz",
-      "-Ost90fsOGfczwy7sK6q"
+      "-P5Cj5DoIO0jK5Yxwlqx",
+      "-P5Cj5DuLgdceck6dyEB",
+      "-P5Cj5DzzhBXwCkQNa2z"
     ],
     "lengths": [
       20,

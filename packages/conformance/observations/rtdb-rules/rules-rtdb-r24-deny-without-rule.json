@@ -5,9 +5,9 @@
     "rtdb-rules#6"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r24-deny-without-rule\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a request no .read or .write rule grants is denied even where the deepest rules node on the path has only children, only a .validate, or only the other operation's rule, so the simulator must deny it rather than report that it found no rule.",
-  "observedAt": "2026-09-27T16:00:44.888Z",
-  "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "observedAt": "2026-10-30T18:17:18.266Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
   "behavior": {
     "write under a node with only .validate, room .write false": "DENY",
     "write under a node with only .validate, room .write true": "ALLOW",

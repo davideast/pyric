@@ -34,6 +34,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Firestore as AdminFirestore } from 'firebase-admin/firestore';
 import { loadOracleServiceAccount, oracleAppOptions } from './oracle-credential.ts';
+import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
 import {
   accessHeaders,
   jsonRequest,
@@ -44,8 +45,8 @@ import {
 import { injectIntoMatch, replaceRulesFile, selectRulesFile, type Release, type Ruleset } from './storage-stdlib-real-rules.ts';
 
 const OBSERVATIONS = join(dirname(fileURLToPath(import.meta.url)), '..', 'observations', 'firestore');
-const FB_SDK_VERSION = '12.13.0';
-const ADMIN_SDK_VERSION = '13.10.0';
+const FB_SDK_VERSION = resolvedFirebaseVersion();
+const ADMIN_SDK_VERSION = resolvedAdminVersion();
 const NAMED = 'probes';
 const ROOT = '__pyric_named_db_c2';
 const RELEASE = `cloud.firestore/${NAMED}`;

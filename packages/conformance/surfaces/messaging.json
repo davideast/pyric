@@ -19,5 +19,19 @@
   ],
   "climb": true,
   "registry": "messaging",
-  "dispositions": []
+  "dispositions": [
+    {
+      "id": "messaging.registration",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "New in firebase 12.19.0, with no production capture yet, so the sandbox does not model it; tracked in #1673.",
+      "evidenceRefs": ["upstream:firebase/messaging@0.13.3"],
+      "symbols": [
+        "register",
+        "unregister",
+        "onRegistered",
+        "onUnregistered"
+      ]
+    }
+  ]
 }
