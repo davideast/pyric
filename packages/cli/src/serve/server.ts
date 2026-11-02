@@ -16,6 +16,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
+import { isHostingIgnoredPathname } from './hosting-ignore.js';
 
 export interface ServeLogger {
   /** User-facing lines (banner, URLs) → stdout. */
@@ -319,6 +320,13 @@ export function resolveStaticFile(publicDir: string, pathname: string): string |
   return file;
 }
 
+/** Resolve a static file the hosting plane may serve: never one production
+ *  Hosting's default `ignore` leaves out of a deploy (#1779). */
+export function resolveHostingFile(publicDir: string, pathname: string): string | null {
+  if (isHostingIgnoredPathname(pathname)) return null;
+  return resolveStaticFile(publicDir, pathname);
+}
+
 /**
  * Stream a file to a response with the read stream's `'error'` event handled.
  * A bare `createReadStream(file).pipe(res)` leaves the stream's error event
@@ -388,9 +396,9 @@ async function handleRequest(
     return;
   }
 
-  let file = resolveStaticFile(opts.publicDir, url.pathname);
+  let file = resolveHostingFile(opts.publicDir, url.pathname);
   if (!file && opts.spaRewrite && !extname(url.pathname)) {
-    file = resolveStaticFile(opts.publicDir, '/index.html');
+    file = resolveHostingFile(opts.publicDir, '/index.html');
   }
   if (!file && url.pathname === '/favicon.ico') {
     // The browser requests /favicon.ico on every load; without this an app

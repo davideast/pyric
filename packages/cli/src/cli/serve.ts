@@ -41,7 +41,7 @@ import {
   consoleServeLogger,
   getHeader,
   isAllowedOriginOnPorts,
-  resolveStaticFile,
+  resolveHostingFile,
   startStaticServer,
   stderrServeLogger,
   type ServeHandle,
@@ -1024,7 +1024,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
           await readFirebaseJson(cwd).catch(() => null),
           (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         ),
-        staticFileExists: (pathname) => runtime !== undefined && resolveStaticFile(runtime.publicDir, pathname) !== null,
+        staticFileExists: (pathname) => runtime !== undefined && resolveHostingFile(runtime.publicDir, pathname) !== null,
         onWarning: (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         onServed: (record) => {
           const { failed, line } = servedLine(record);
