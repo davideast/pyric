@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T18:35:40.239Z",
+  "generatedAt": "2026-11-02T18:39:28.467Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -1260,6 +1260,7 @@
     "rtdb-rules#49": "conforms",
     "rtdb-rules#194": "conforms",
     "rtdb-rules#195": "conforms",
+    "rtdb-rules#196": "diverged-documented",
     "firestore-flutter#1": "conforms",
     "firestore-flutter#2": "diverged-documented",
     "firestore-flutter#3": "conforms",
