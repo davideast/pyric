@@ -509,6 +509,45 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     expect(tok.claims.role).toBe('admin');
   });
 
+  // Production marks a Google account's email verified, on the user and on
+  // the ID token. The dialog lets a developer type any address, and the
+  // worker must report it verified for a new and for a returning identity.
+  it('a Google identity is email-verified on the wire user, the token, and the record', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await enableProvider(ctx, port, 'google.com');
+    const identity = {
+      uid: 'provider-ada', email: 'ada@example.com', displayName: 'Ada',
+      photoURL: null, customClaims: {}, providerId: 'google.com',
+    };
+
+    for (const round of ['new', 'returning']) {
+      const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.acceptIdentity', identity,
+      }));
+      expect(cred.user.emailVerified, round).toBe(true);
+      expect((await currentUser(ctx, port))?.emailVerified, round).toBe(true);
+      const tok = okValue<SerializedIdTokenResult>(
+        await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdTokenResult' }),
+      );
+      expect(tok.claims.email_verified, round).toBe(true);
+      expect(tok.signInProvider, round).toBe('google.com');
+    }
+    const account = authSandboxOps.listUsers(getAuth(ctx.sandbox)).find((user) => user.uid === identity.uid);
+    expect(account?.emailVerified).toBe(true);
+  });
+
+  it('a non-Google identity keeps an unverified email', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await enableProvider(ctx, port, 'github.com');
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity',
+      identity: { uid: 'provider-gh', email: 'gh@example.com', displayName: null, photoURL: null, customClaims: {}, providerId: 'github.com' },
+    }));
+    expect(cred.user.emailVerified).toBe(false);
+  });
+
   it('does NOT fan the bridged sign-in out to other ports (per-port sessions)', async () => {
     const ctx = await makeCtx();
     const watcher = fakePort();
