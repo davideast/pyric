@@ -74,12 +74,14 @@ refuses a draft without one.
 ## A pyric defect
 
 1. Shrink it to a minimal repro: a single `node` script in
-   `$RUN_DIR/issue-drafts/repros/<slug>/repro.mjs` that uses the same pyric
-   packages as the app (import them from `$APP_DIR/node_modules`), does
-   the one thing that fails, and exits 1 when pyric misbehaves and 0 when
-   it behaves as production does. Run it, and keep its output beside it as
-   `output.txt`. When only the browser shows it, write the steps as a
-   Playwright script instead, the same way.
+   `$RUN_DIR/issue-drafts/repros/<slug>/repro.mjs` that uses the app's
+   installed pyric and firebase packages (below), does the one thing that
+   fails, and exits 1 when pyric misbehaves and 0 when it behaves as
+   production does. Run it as
+   `node "$RUN_DIR/issue-drafts/repros/<slug>/repro.mjs" > "$RUN_DIR/issue-drafts/repros/<slug>/output.txt" 2>&1; echo "exit $?" >> "$RUN_DIR/issue-drafts/repros/<slug>/output.txt"`.
+   A repro you haven't run, or that fails for another reason, is not a
+   repro. When only the browser shows it, write the steps as a Playwright
+   script instead, run the same way.
 2. Write the draft (format below) to `$RUN_DIR/issue-drafts/<slug>.md`.
    The slug is short, lowercase words joined by hyphens. When a draft for
    the same behavior exists, add to it instead.
@@ -92,6 +94,63 @@ refuses a draft without one.
    <file>"). Then delete the item's `blocked`, set its `workaround` to one
    line on what the builder may do, and append that to the progress
    notes.
+
+### Loading the app's packages in a repro
+
+The script lives outside the app, so a bare `import 'pyric/firestore'`
+doesn't resolve, and `createRequire(...).resolve` fails on pyric, whose
+packages export only an `import` entry. Start each repro with this loader,
+which imports a package from the app's own `node_modules` (the app package
+is `$APP_DIR/studio`; the loader also finds packages hoisted to
+`$APP_DIR/node_modules`):
+
+```js
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const appPackage = join(process.env.APP_DIR, 'studio');
+
+function packageDir(name) {
+  for (let dir = appPackage; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', name);
+    if (existsSync(join(candidate, 'package.json'))) return candidate;
+    if (dir === dirname(dir)) throw new Error(`${name} is not installed under ${appPackage}`);
+  }
+}
+
+function entryFile(entry) {
+  if (typeof entry === 'string') return entry;
+  for (const key of ['node', 'import', 'default']) if (entry?.[key]) return entryFile(entry[key]);
+  throw new Error('no import entry');
+}
+
+async function load(specifier) {
+  const parts = specifier.split('/');
+  const name = specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  const subpath = `.${specifier.slice(name.length)}`;
+  const dir = packageDir(name);
+  const { exports, main } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+  const file = exports === undefined ? (main ?? 'index.js') : entryFile(typeof exports === 'string' ? exports : exports[subpath]);
+  return import(pathToFileURL(join(dir, file)).href);
+}
+
+const { initializeApp } = await load('pyric/app');
+const { getFirestore } = await load('pyric/firestore');
+```
+
+Load the same entry points the app imports; read the app's code to see
+which. If the app reaches pyric through a register hook or a plugin
+rather than direct imports, say so in the draft and reproduce through
+that path instead.
+
+### Recording the repro in the draft
+
+The draft names the exact command you ran and what it printed, as the
+templates below show: the command and its exit code in the **Repro**
+field of a bug or the "Found by" line of the other kinds, then an
+`Output:` block after the "Found by" line with the lines of `output.txt`
+that show the failure, each indented by four spaces.
 
 Check every draft with:
 
@@ -121,7 +180,10 @@ Label: divergence
 
 **Done when:** <a scenario under test/apps/ that shows the two agree>
 
-Found by factory run <run>, item <item id>. Repro: `issue-drafts/repros/<slug>/repro.mjs`.
+Found by factory run <run>, item <item id>. Repro: `node "$RUN_DIR/issue-drafts/repros/<slug>/repro.mjs"`, exit 1.
+
+Output:
+    <the lines of output.txt that show the failure>
 ```
 
 An API pyric lacks:
@@ -138,7 +200,10 @@ Label: support
 
 **Done when:** <the implementation, and the scenario under test/apps/ that checks it>
 
-Found by factory run <run>, item <item id>. Repro: `issue-drafts/repros/<slug>/repro.mjs`.
+Found by factory run <run>, item <item id>. Repro: `node "$RUN_DIR/issue-drafts/repros/<slug>/repro.mjs"`, exit 1.
+
+Output:
+    <the lines of output.txt that show the failure>
 ```
 
 A crash or unclear error in pyric's own tooling (the CLI, the dev server,
@@ -152,11 +217,14 @@ Label: bug
 
 **Expected:** <what should happen>
 
-**Repro:** `issue-drafts/repros/<slug>/repro.mjs`: <one line on what it does>
+**Repro:** `node "$RUN_DIR/issue-drafts/repros/<slug>/repro.mjs"` exits 1: <one line on what it does>
 
 **Done when:** <the scenario under test/apps/ to add or extend>
 
 Found by factory run <run>, item <item id>.
+
+Output:
+    <the lines of output.txt that show the failure>
 ```
 
 ## Marking items done

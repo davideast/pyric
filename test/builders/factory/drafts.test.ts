@@ -144,6 +144,11 @@ describe('validateDraft', () => {
     expect(validateDraft(SUPPORT.replace(/ \[Reference\]\(.*\)$/m, ''))).toEqual(['the **In production:** field has no link to its evidence']);
   });
 
+  test('ignores the indented Output block after the "Found by" line', () => {
+    const output = '\nOutput:\n    Label: not a label\n    **Production:** not a field\n    exit 1\n';
+    expect(validateDraft(`${DIVERGENCE}${output}`)).toEqual([]);
+  });
+
   test('needs a title', () => {
     expect(validateDraft(BUG.replace(/^Title:.*$/m, ''))).toEqual(['missing the "Title:" line']);
   });
