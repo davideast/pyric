@@ -39,7 +39,7 @@ export const REVIEW_ROLES: readonly ReviewRole[] = ['user-agent', 'design-review
 
 export const PROMPTS = {
   lead: 'Read the specs, the work list, the progress notes and the latest check. Order the work list, add what is missing, and note your decisions in the progress notes.',
-  leadPlan: "The work list has nothing for the builders. Plan the next items from the specs and the user agent's findings, and write them to the work list.",
+  leadPlan: 'The work list has nothing a builder can take. Plan the next items, if any, and write them to the work list.',
   builder: 'Take a todo item from the work list (or go on with yours), set yourself as its owner, build it in the app, add a progress note, and mark it ready when it is built.',
   'user-agent': 'Use the app as its user would, through the items marked ready and the latest check. Write what you find to the progress notes.',
   'design-reviewer': 'Review the design of what is marked ready against the specs. Write what you find to the progress notes.',
