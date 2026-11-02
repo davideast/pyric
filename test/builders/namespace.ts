@@ -95,6 +95,12 @@ export interface SandboxOptions {
    * this keeps the shared cache unchanged.
    */
   overlaid?: readonly string[];
+  /**
+   * Host directories bound read-only over a path inside the run root, after
+   * it: a session sees the harness's check results at `<run>/checks` and
+   * can't change them.
+   */
+  innerViews?: readonly View[];
   /** Starts bwrap; tests pass one that loses its exit, as Bun can (#1274). */
   spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
   /** How `stop` waits for bwrap; tests pass short waits. */
@@ -155,6 +161,8 @@ export interface SandboxLayout {
   etc: readonly string[];
   /** Extra empty directories, such as a TMPDIR outside /tmp. */
   dirs?: readonly string[];
+  /** Read-only binds over paths inside the run root, made after it. */
+  innerViews?: readonly View[];
 }
 
 /** bwrap's arguments for a run, before the command. Parents bind before children. */
@@ -179,6 +187,7 @@ export function sandboxArgs(layout: SandboxLayout): string[] {
     ...(layout.dirs ?? []).flatMap((dir) => ['--dir', dir]),
     ...readOnly.flatMap(({ source, dest }) => ['--ro-bind', source, dest]),
     '--bind', layout.runRoot, layout.runRoot,
+    ...(layout.innerViews ?? []).flatMap(({ source, dest }) => ['--ro-bind', source, dest]),
   ];
 }
 
@@ -375,6 +384,7 @@ export async function startEgressNamespace(options: SandboxOptions): Promise<Egr
     hosts: SANDBOX_HOSTS,
     etc: ETC_ENTRIES.filter((entry) => existsSync(`/etc/${entry}`)),
     dirs: tmpdir ? [tmpdir] : [],
+    innerViews: options.innerViews ?? [],
   };
   const spawnChild = options.spawnChild ?? spawn;
   const child = spawnChild('bwrap', [...sandboxArgs(layout), '--info-fd', '3', 'sh', '-c', HOLDER_SCRIPT, 'sh', HOLDER], {
