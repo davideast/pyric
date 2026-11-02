@@ -34,12 +34,12 @@ const GROUP_OR_OTHER = 0o077;
 
 const octal = (mode: number) => `0${(mode & 0o777).toString(8)}`;
 
-function openProblem(path: string, error: unknown): string {
+function openProblem(path: string, label: string, error: unknown): string {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  if (code === 'ENOENT') return `the token file ${path} does not exist`;
-  if (code === 'ELOOP') return `the token file ${path} is a symbolic link: name the file itself`;
-  if (code === 'EACCES') return `the token file ${path} can't be read by the current user`;
-  return `the token file ${path} can't be opened (${code ?? 'unknown error'})`;
+  if (code === 'ENOENT') return `${label} ${path} does not exist`;
+  if (code === 'ELOOP') return `${label} ${path} is a symbolic link: name the file itself`;
+  if (code === 'EACCES') return `${label} ${path} can't be read by the current user`;
+  return `${label} ${path} can't be opened (${code ?? 'unknown error'})`;
 }
 
 /** The token from the file's text, or undefined when it is not exactly one non-empty line. */
@@ -50,32 +50,47 @@ export function tokenFromText(text: string): string | undefined {
   return isOneLine && token !== '' ? token : undefined;
 }
 
-function statProblem(path: string, fd: number, uid: number): string | undefined {
+function statProblem(path: string, label: string, fd: number, uid: number): string | undefined {
   const stat = fstatSync(fd);
-  if (!stat.isFile()) return `the token file ${path} is not a regular file`;
-  if (stat.uid !== uid) return `the token file ${path} is not owned by the current user`;
+  if (!stat.isFile()) return `${label} ${path} is not a regular file`;
+  if (stat.uid !== uid) return `${label} ${path} is not owned by the current user`;
   const isPrivate = (stat.mode & GROUP_OR_OTHER) === 0;
-  if (!isPrivate) return `the token file ${path} allows group or other access (mode ${octal(stat.mode)}): run \`chmod 600 ${path}\``;
+  if (!isPrivate) return `${label} ${path} allows group or other access (mode ${octal(stat.mode)}): run \`chmod 600 ${path}\``;
   return undefined;
 }
 
-/** Reads a token file, or says which rule it breaks. `uid` is the current user's by default. */
-export function readTokenFile(path: string, uid: number = process.getuid?.() ?? -1): TokenRead {
+export type PrivateRead = { ok: true; text: string } | { ok: false; problem: string };
+
+/**
+ * Reads a file only its owner may read, or says which rule it breaks: a
+ * regular file (not a link), owned by `uid`, with no group or other access.
+ * `label` names the file in a problem (`the token file`), and no problem
+ * says what the file holds. The Codex login (`factory/codex-login.ts`) is
+ * read the same way.
+ */
+export function readPrivateFile(path: string, label: string, uid: number = process.getuid?.() ?? -1): PrivateRead {
   let fd: number;
   try {
     fd = openSync(path, OPEN_FLAGS);
   } catch (error) {
-    return { ok: false, problem: openProblem(path, error) };
+    return { ok: false, problem: openProblem(path, label, error) };
   }
   try {
-    const problem = statProblem(path, fd, uid);
+    const problem = statProblem(path, label, fd, uid);
     if (problem !== undefined) return { ok: false, problem };
-    const token = tokenFromText(readFileSync(fd, 'utf8'));
-    if (token === undefined) return { ok: false, problem: `the token file ${path} must hold exactly one non-empty line` };
-    return { ok: true, token };
+    return { ok: true, text: readFileSync(fd, 'utf8') };
   } finally {
     closeSync(fd);
   }
+}
+
+/** Reads a token file, or says which rule it breaks. `uid` is the current user's by default. */
+export function readTokenFile(path: string, uid: number = process.getuid?.() ?? -1): TokenRead {
+  const read = readPrivateFile(path, 'the token file', uid);
+  if (!read.ok) return read;
+  const token = tokenFromText(read.text);
+  if (token === undefined) return { ok: false, problem: `the token file ${path} must hold exactly one non-empty line` };
+  return { ok: true, token };
 }
 
 function envToken(env: NodeJS.ProcessEnv): string | undefined {
