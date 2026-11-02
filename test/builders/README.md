@@ -603,9 +603,12 @@ login, turn on lingering once: `loginctl enable-linger "$USER"`
 commit with no remote, Studio installed on the packed Pyric packages inside
 the sandbox, `studio/.env.local` written with a demo project and a fake key,
 and the Functions source built, since `pyric sandbox` refuses a declared
-source with no entry. Its one commit on the `factory` branch (the Pyric pins
-and the UI rules registered in Studio's ast-grep config) is the start
-commit, recorded in `app.json`. The UI rules are copied into
+source with no entry. Its one commit on the `factory` branch is the start
+commit, recorded in `app.json`. It holds the Pyric pins, the UI rules
+registered in Studio's ast-grep config, and Studio's `next.config.ts`
+adapted to call the config function `withPyric` returns
+(`factory/next-config.ts`). When the config no longer has the text an edit
+expects, setup stops and names that edit. The UI rules are copied into
 `studio/checks/factory-rules/` and kept out of git, so roles can run them.
 
 `factory-hour` runs one hourly check by hand; the supervisor runs the same

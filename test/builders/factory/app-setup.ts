@@ -13,8 +13,10 @@
  *    there too. Studio depends on it as `file:../mdmedia-0.1.0.tgz`, which no
  *    clone has.
  * 4. Commits one change on a `factory` branch: Studio's Pyric and engine
- *    dependencies pinned to those tarballs, and the factory's UI rules
- *    registered in Studio's ast-grep config. That commit is the run's start
+ *    dependencies pinned to those tarballs, Studio's `next.config.ts`
+ *    adapted to that Pyric's `withPyric` (`next-config.ts`), and the
+ *    factory's UI rules registered in Studio's ast-grep config. `app.json`
+ *    lists the adaptations. That commit is the run's start
  *    commit; the UI gates judge every change after it.
  * 5. Installs the UI rules themselves into `studio/checks/`, kept out of git
  *    by `.git/info/exclude`, then installs Studio inside the sandbox
@@ -35,6 +37,7 @@ import { appPaths, type AppPaths, type Checkout } from './app-paths.ts';
 import { mustRun, type Runner } from './exec.ts';
 import { checkoutCommit, cloneWithoutRemote, git, headCommit } from './git.ts';
 import { fetchFfmpeg } from './ffmpeg.ts';
+import { adaptNextConfig, NEXT_CONFIG } from './next-config.ts';
 import { installRoot, installStudio, type SandboxOpener } from './studio-install.ts';
 import { installUiRules, registerUiRules } from './rules-install.ts';
 import { writeJsonFile } from './run-dir.ts';
@@ -53,6 +56,8 @@ const recordSchema = z.object({
   startCommit: z.string(),
   setupAt: z.string().datetime(),
   briefDir: z.string(),
+  /** What setup changed in Studio's code to run on the pinned Pyric. */
+  adaptations: z.array(z.string()).optional(),
 }).strict();
 
 export type AppRecord = z.infer<typeof recordSchema>;
@@ -111,7 +116,7 @@ export function pinStudio(studio: string, tarballs: Tarballs, engine: string): v
 
 function commitStart(paths: AppPaths): string {
   const { repo } = paths.app;
-  git(repo, ['add', 'studio/package.json', 'studio/checks/sgconfig.yml']);
+  git(repo, ['add', 'studio/package.json', `studio/${NEXT_CONFIG}`, 'studio/checks/sgconfig.yml']);
   git(repo, ['commit', '--quiet', '-m', 'chore(factory): run Studio on the run\'s packed Pyric packages and UI rules']);
   return headCommit(repo);
 }
@@ -143,6 +148,8 @@ export async function setupApp(options: SetupOptions): Promise<AppRecord> {
   say('building and packing the mdmedia engine inside the sandbox');
   const engine = await options.openSandbox(paths.app.root, paths, (runner) => packEngine(runner, paths));
   pinStudio(paths.app.studio, tarballs, engine);
+  const adaptations = adaptNextConfig(paths.app.studio);
+  for (const line of adaptations) say(`adapted ${line}`);
   registerUiRules(paths.app.studio);
   const startCommit = commitStart(paths);
   say(`start commit ${startCommit}`);
@@ -156,6 +163,7 @@ export async function setupApp(options: SetupOptions): Promise<AppRecord> {
     startCommit,
     setupAt: new Date().toISOString(),
     briefDir: options.briefDir ?? defaultBriefDir(),
+    adaptations,
   };
   writeJsonFile(paths.record, record);
   return record;
