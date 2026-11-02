@@ -6,7 +6,8 @@
  *   { "items": [{ "id": "login-form", "title": "...", "status": "todo" }] }
  *
  * A builder sets `owner` to its seat when it takes an item and `ready` when
- * the item is built. Sessions write it through a temporary file and a
+ * the item is built. An item with `blocked` set is no builder's work.
+ * Sessions write it through a temporary file and a
  * rename. A missing list is empty, so the lead plans one. A list that exists
  * but doesn't parse is unreadable, not empty: it may be half written, and the
  * supervisor keeps the last list it read (`work-list-reader.ts`).
@@ -21,6 +22,8 @@ const itemSchema = z.object({
   status: z.enum(['todo', 'in-progress', 'ready', 'done']),
   /** The builder seat working on it. */
   owner: z.string().optional(),
+  /** Why no builder can go on with it: the issue draft that blocks it. Any value but `false` or `""` blocks. */
+  blocked: z.unknown().optional(),
 }).passthrough();
 
 const workListSchema = z.object({ items: z.array(itemSchema) }).passthrough();
@@ -36,9 +39,19 @@ export function readWorkList(path: string): WorkListRead {
   return parsed.ok ? { ok: true, items: parsed.value.items } : parsed;
 }
 
-/** A todo item anyone may take, or an item this seat already took. */
+const NOT_BLOCKED: readonly unknown[] = [undefined, null, false, ''];
+
+export function isBlocked(item: WorkItem): boolean {
+  return !NOT_BLOCKED.includes(item.blocked);
+}
+
+/**
+ * A todo item anyone may take, or an item this seat already took, unless it
+ * is blocked. A list of only blocked items is no work, so the lead plans.
+ */
 export function hasWorkFor(items: readonly WorkItem[], seat: string): boolean {
   return items.some((item) => {
+    if (isBlocked(item)) return false;
     const isOpen = item.status === 'todo' && item.owner === undefined;
     const isOwnUnfinished = item.owner === seat && (item.status === 'todo' || item.status === 'in-progress');
     return isOpen || isOwnUnfinished;

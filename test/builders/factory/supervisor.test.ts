@@ -182,6 +182,19 @@ describe('runSupervisor', () => {
     expect(leadStarts.every((call) => call.prompt === PROMPTS.leadPlan)).toBe(true);
   });
 
+  test('starts no builder on a list of only blocked items, and runs the lead to plan around them', async () => {
+    const runDir = newRunDir();
+    const clock = new FakeClock(START);
+    const blocked: WorkItem = { id: 'search-query', title: 'Query the index', status: 'todo', blocked: 'where-index.md' };
+    const sessions = fakeSessions(clock, () => ({ ms: 5 * MINUTE, onStart: () => writeWork(runDir, [blocked]) }));
+    await clock.runUntilSettled(runSupervisor(options(runDir, clock, sessions.runSession)));
+
+    expect(sessions.calls.some((call) => call.role === 'builder')).toBe(false);
+    const leadStarts = sessions.calls.filter((call) => call.role === 'lead');
+    expect(leadStarts.length).toBeGreaterThan(2);
+    expect(leadStarts.every((call) => call.prompt === PROMPTS.leadPlan)).toBe(true);
+  });
+
   test('never runs more than four sessions at once, and wakes the reviewers when work is ready and on the hour', async () => {
     const runDir = newRunDir();
     const clock = new FakeClock(START);
