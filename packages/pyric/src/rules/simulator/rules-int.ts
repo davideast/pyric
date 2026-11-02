@@ -57,6 +57,32 @@ export function hostNumber(value: number): number | RulesFloat {
 }
 
 /**
+ * Token claims typed as rules values: an integral number inside int64
+ * becomes an int (a bigint), inside nested maps and lists too, and every
+ * other value is returned as it is. A claim reaches the rules as JSON inside
+ * an ID token, not through the SDKs' number rule, and the sign-in captures
+ * (`observations/auth/auth-request-auth-per-sign-in.json`) record `iat`,
+ * `exp` and `auth_time` as ints. A claim at 2^53 and past therefore stays an
+ * int, as it read before #1781; production's typing there needs a capture.
+ */
+export function typeClaimNumbers(value: unknown): unknown {
+  if (typeof value === 'number') return isInt64Integral(value) ? BigInt(value) : value;
+  if (Array.isArray(value)) return value.map(typeClaimNumbers);
+  if (!isPlainRecord(value)) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, typeClaimNumbers(item)]));
+}
+
+function isInt64Integral(value: number): boolean {
+  return Number.isInteger(value) && value >= -(2 ** 63) && value < 2 ** 63;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
  * True for a JavaScript number that reads as an int: a safe integer. A
  * number at or above 2^53 in magnitude reads as a float. `-0` reads as the
  * int 0 here, because the evaluator's own duration and timestamp parts can

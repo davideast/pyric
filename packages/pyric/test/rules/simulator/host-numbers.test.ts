@@ -13,6 +13,11 @@
  * The boundary values come from the SDKs' source, not from a rules capture:
  * no production capture yet records a rules verdict on a document written
  * with 2^53, -2^53, -2^63 or -0. These tests pin the SDK reasoning.
+ *
+ * Token claims are not SDK values. They reach the rules as JSON inside an ID
+ * token, and the sign-in captures record integral claims as ints, so an
+ * integral claim inside int64 stays an int at 2^53 and past. A claim past
+ * int64, or with a fraction, is a bare number that reads as a float.
  */
 import { describe, expect, test } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
@@ -78,8 +83,17 @@ service cloud.firestore {
 function firestore(
   condition: string,
   n: number,
-  options: { method?: 'get' | 'create'; publicCases?: boolean } = {},
+  options: { method?: 'get' | 'create'; publicCases?: boolean; token?: Record<string, unknown> } = {},
 ): string {
+  return firestoreResult(condition, n, options).decision;
+}
+
+/** The first result of a get or create of a document holding `n`. */
+function firestoreResult(
+  condition: string,
+  n: number,
+  options: { method?: 'get' | 'create'; publicCases?: boolean; token?: Record<string, unknown> } = {},
+) {
   const method = options.method ?? 'get';
   const data = { n };
   const res = new SimulateFirestoreRulesHandler().simulate(firestoreSource(condition), [
@@ -89,12 +103,37 @@ function firestore(
       method,
       path: 'c/1',
       requestTime: '2026-01-01T00:00:00Z',
+      ...(options.token === undefined ? {} : { auth: { uid: 'alice', token: options.token } }),
       ...(method === 'get' ? { resource: data } : { data }),
     },
   ], { publicCases: options.publicCases });
   if (!res.success) throw new Error(res.error.message);
-  return res.data.results[0]!.decision;
+  return res.data.results[0]!;
 }
+
+describe('Firestore: an integral token claim inside int64 stays an int', () => {
+  for (const [name, value] of [['2^53', 2 ** 53], ['2^53 + 2', 2 ** 53 + 2]] as const) {
+    test(`request.auth.token.n = ${name} is an int, not a float`, () => {
+      const token = { n: value };
+      expect(firestore('request.auth.token.n is int && !(request.auth.token.n is float)', 0, { token })).toBe('ALLOW');
+      expect(firestore('request.auth.token.n is float', 0, { token })).toBe('DENY');
+    });
+  }
+
+  test('a claim with a fraction is a bare float that combines with a float literal', () => {
+    const token = { f: 1.5 };
+    expect(firestore('request.auth.token.f is float && !(request.auth.token.f is int)', 0, { token })).toBe('ALLOW');
+    expect(firestore('request.auth.token.f - 1.0 == 0.5', 0, { token })).toBe('ALLOW');
+  });
+
+  test('a claim past int64 is a float, and error messages name it a float', () => {
+    const token = { n: 1e300 };
+    expect(firestore('request.auth.token.n is float', 0, { token })).toBe('ALLOW');
+    const result = firestoreResult("request.auth.token.n + 'a' == 'a'", 0, { token });
+    expect(result.decision).toBe('DENY');
+    expect(JSON.stringify(result.trace)).toContain('between float and string');
+  });
+});
 
 describe('Firestore: a host number past the safe range reads as a float', () => {
   for (const [name, value] of FLOATS) {
@@ -131,6 +170,11 @@ describe('Firestore: a host number past the safe range reads as a float', () => 
   test('-0 is a float, as the SDKs send it', () => {
     expect(firestore("resource.data.n is float && string(resource.data.n) == '-0.0'", -0)).toBe('ALLOW');
     expect(firestore('resource.data.n is int', -0)).toBe('DENY');
+  });
+
+  test('a public case literal -0 is a float', () => {
+    expect(firestore('resource.data.n is float', -0, { publicCases: true })).toBe('ALLOW');
+    expect(firestore('resource.data.n is int', -0, { publicCases: true })).toBe('DENY');
   });
 
   test('a float index is an error value that || true and && false absorb, and ! keeps', () => {
@@ -170,19 +214,24 @@ const LOOKUP = 'firestore.get(/databases/(default)/documents/c/1).data.n';
 
 describe('Storage: a host number past the safe range reads as a float', () => {
   for (const [name, value] of FLOATS) {
-    for (const reader of ['resource.size', 'request.auth.token.n', LOOKUP]) {
-      test(`${reader} = ${name} is a float, not an int`, () => {
-        expect(storage(`${reader} is float && !(${reader} is int)`, value)).toBe(true);
-        expect(storage(`${reader} is int`, value)).toBe(false);
-        expect(storage(`${reader} + 0 is float && ${reader} + 0 == ${reader}`, value)).toBe(true);
-      });
-    }
+    test(`a Firestore field of ${name} is a float, not an int`, () => {
+      expect(storage(`${LOOKUP} is float && !(${LOOKUP} is int)`, value)).toBe(true);
+      expect(storage(`${LOOKUP} is int`, value)).toBe(false);
+      expect(storage(`${LOOKUP} + 0 is float && ${LOOKUP} + 0 == ${LOOKUP}`, value)).toBe(true);
+    });
   }
 
   test('2^53 prints and converts as a float', () => {
-    expect(storage("string(resource.size) == '9.007199254740992E15'", 2 ** 53)).toBe(true);
-    expect(storage('int(resource.size) == 9007199254740992', 2 ** 53)).toBe(true);
+    expect(storage(`string(${LOOKUP}) == '9.007199254740992E15'`, 2 ** 53)).toBe(true);
+    expect(storage(`int(${LOOKUP}) == 9007199254740992`, 2 ** 53)).toBe(true);
   });
+
+  for (const [name, value] of [['2^53', 2 ** 53], ['2^53 + 2', 2 ** 53 + 2]] as const) {
+    test(`a token claim of ${name} is an int, not a float`, () => {
+      expect(storage('request.auth.token.n is int && !(request.auth.token.n is float)', value)).toBe(true);
+      expect(storage('request.auth.token.n is float', value)).toBe(false);
+    });
+  }
 
   test('the largest safe integer is still an int', () => {
     expect(storage('resource.size is int && resource.size + 1 == 9007199254740992', SAFE_MAX)).toBe(true);
@@ -193,8 +242,8 @@ describe('Storage: a host number past the safe range reads as a float', () => {
   });
 
   test('a float index is an error value that || true and && false absorb, and ! keeps', () => {
-    expect(storage('([1][resource.size] == 1) || true', 2 ** 53)).toBe(true);
-    expect(storage('([1][resource.size] == 1) && false', 2 ** 53)).toBe(false);
-    expect(storage('!([1][resource.size] == 1)', 2 ** 53)).toBe(false);
+    expect(storage(`([1][${LOOKUP}] == 1) || true`, 2 ** 53)).toBe(true);
+    expect(storage(`([1][${LOOKUP}] == 1) && false`, 2 ** 53)).toBe(false);
+    expect(storage(`!([1][${LOOKUP}] == 1)`, 2 ** 53)).toBe(false);
   });
 });
