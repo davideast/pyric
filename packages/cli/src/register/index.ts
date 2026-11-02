@@ -51,6 +51,7 @@ import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } fro
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installChildProcessGuard } from './child-process-guard.js';
+import { installRemotePeerMark } from './remote-peer-mark.js';
 import { remoteSandbox } from '../remote/index.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 
@@ -216,6 +217,8 @@ function activate(): void {
   // NODE_OPTIONS and with this process's PYRIC_* variables it lacks, so a
   // child of a registered process is registered whatever env it is given.
   installChildProcessGuard(import.meta.url);
+  // A server in this process may forward to the host; keep its clients' peer visible.
+  installRemotePeerMark();
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,
