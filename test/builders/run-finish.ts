@@ -39,6 +39,7 @@ import { BUILDER_LOG, phaseResultSchema, type PhaseResult } from './run-phase.ts
 import { measurementLine, runRecord, type RunIdentity, type RunOutcome, type RunRecord } from './run-record.ts';
 import { copyRedacted, filesContaining, redactedText, type OnUnreadable, type Secrets, type Skipped } from './token-scan.ts';
 import { usageFrom, type Usage } from './usage.ts';
+import type { SandboxStop } from './namespace.ts';
 
 export const RUN_PHASE_LOG = '02-run-phase.log';
 
@@ -133,6 +134,8 @@ export interface RunEnd {
   wallMs: number;
   dataDir: string;
   measurements: string;
+  /** How the sandbox's stop ended: `still-running` makes the run invalid. */
+  sandbox: SandboxStop;
 }
 
 /** What the record reads of the run root: each file, unless it is planted or unreadable. */
@@ -257,7 +260,9 @@ export async function finishRun(input: FinishInput, end: RunEnd): Promise<RunRec
   if (!hasPlantedLinks) settleRunRoot(end, findings.skipped);
   const isPhaseOutputApart = hasPlantedLinks || findings.skipped.has(join(dirs.logs, RUN_PHASE_LOG));
   const files = readRunFiles(dirs, planted, findings);
-  const outcome = { identity: input.identity, brief: input.brief, provenance: input.provenance, startedAt: end.startedAt, endedAt: new Date(), ...files, channel, tokenFoundIn: [] };
+  const sandboxLeftRunning = end.sandbox === 'still-running';
+  if (sandboxLeftRunning) input.say(`${input.identity.run}: its sandbox was still running after SIGKILL, and the run is invalid`);
+  const outcome = { identity: input.identity, brief: input.brief, provenance: input.provenance, startedAt: end.startedAt, endedAt: new Date(), ...files, channel, tokenFoundIn: [], sandboxLeftRunning };
   const measured = buildRecord(outcome, dirs, findings);
   // A file the token scan can't read is skipped and named like any other, so report.json is still written.
   const found = tokenFound(input, end, new Set(findings.skipped.keys()), isPhaseOutputApart, (path, why) => findings.skipped.set(path, why));

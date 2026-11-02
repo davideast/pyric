@@ -30,10 +30,11 @@
  * `ip`, or when a check fails, it refuses to run. It never falls back to
  * running without the sandbox.
  */
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { accessSync, constants, existsSync, lstatSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { unreapedExit } from '../apps/unreaped-exit.ts';
 import { harnessView, type View } from './harness-view.ts';
 import { linkNames, loopbackOnlyProblem } from './sandbox-inventory.ts';
 
@@ -70,7 +71,8 @@ export interface EgressNamespace {
   pid: number;
   /** `command args` as run inside the sandbox, in `cwd`. */
   enter(command: string, args: readonly string[], cwd: string): { command: string; args: string[] };
-  stop(): Promise<void>;
+  /** Stops the sandbox; `still-running` when bwrap outlived its stop and SIGKILL, which makes the run invalid. */
+  stop(): Promise<SandboxStop>;
 }
 
 export interface SandboxOptions {
@@ -87,7 +89,20 @@ export interface SandboxOptions {
    * this keeps the shared cache unchanged.
    */
   overlaid?: readonly string[];
+  /** Starts bwrap; tests pass one that loses its exit, as Bun can (#1274). */
+  spawnChild?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+  /** How `stop` waits for bwrap; tests pass short waits. */
+  stopTiming?: StopTiming;
 }
+
+/** How long `stop` waits for bwrap to exit, then for it to die after SIGKILL, and how often it looks in /proc. */
+export interface StopTiming {
+  exitMs: number;
+  killMs: number;
+  pollMs: number;
+}
+
+const STOP_TIMING: StopTiming = { exitMs: 15_000, killMs: 5_000, pollMs: 250 };
 
 function isExecutable(path: string): boolean {
   try {
@@ -283,6 +298,50 @@ export function ownDirs(runRoot: string, env: NodeJS.ProcessEnv = process.env): 
   return [...new Set([runRoot, '/tmp', ...freshTmpdir])];
 }
 
+/** How a sandbox's stop ended. */
+export type SandboxStop = 'exited' | 'still-running';
+
+/** A process's start time in clock ticks since boot, from /proc; null once it is gone. */
+export function startTimeOf(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Waits for bwrap to exit: its `close` event, or /proc showing it exited
+ * when no event said so. Under load Bun can miss a child's exit (#1274),
+ * leaving it an unreaped zombie or reaping it without a `close`; a run
+ * that waited on the event alone never ended (#1767). `started` is bwrap's
+ * start time, read right after it was spawned; a null one (it was gone by
+ * then) counts as exited. Past `exitMs` it kills bwrap, which takes the
+ * sandbox down with it, and past `killMs` more it stops waiting and
+ * resolves `still-running`.
+ */
+export async function awaitSandboxExit(child: ChildProcess, exited: Promise<void>, started: string | null, timing: StopTiming = STOP_TIMING): Promise<SandboxStop> {
+  const pid = child.pid;
+  // Gone, or its pid reused by another process; or a zombie nobody reaps.
+  const exitedUnseen = () => pid === undefined || started === null || startTimeOf(pid) !== started || unreapedExit(pid) !== undefined;
+  const exitWithin = (ms: number) => new Promise<boolean>((resolve) => {
+    const settle = (hasExited: boolean) => {
+      clearInterval(poll);
+      clearTimeout(limit);
+      resolve(hasExited);
+    };
+    const poll = setInterval(() => { if (exitedUnseen()) settle(true); }, timing.pollMs);
+    const limit = setTimeout(() => settle(false), ms);
+    void exited.then(() => settle(true));
+  });
+  if (await exitWithin(timing.exitMs)) return 'exited';
+  if (!exitedUnseen()) child.kill('SIGKILL');
+  if (await exitWithin(timing.killMs)) return 'exited';
+  console.error(`▸ the sandbox (bwrap pid ${pid}) did not exit within ${(timing.exitMs + timing.killMs) / 1000}s of its stop, even after SIGKILL; the run is invalid`);
+  return 'still-running';
+}
+
 /** The harness's view of its repo; `NamespaceUnavailable` when a package it needs can't be bound. */
 function harnessViewOrRefuse(): ReturnType<typeof harnessView> {
   try {
@@ -315,10 +374,13 @@ export async function startEgressNamespace(options: SandboxOptions): Promise<Egr
     etc: ETC_ENTRIES.filter((entry) => existsSync(`/etc/${entry}`)),
     dirs: tmpdir ? [tmpdir] : [],
   };
-  const child = spawn('bwrap', [...sandboxArgs(layout), '--info-fd', '3', 'sh', '-c', HOLDER_SCRIPT, 'sh', HOLDER], {
+  const spawnChild = options.spawnChild ?? spawn;
+  const child = spawnChild('bwrap', [...sandboxArgs(layout), '--info-fd', '3', 'sh', '-c', HOLDER_SCRIPT, 'sh', HOLDER], {
     env: { PATH: process.env.PATH, PYRIC_BUILDER_NETWORK_LOG: options.networkLog },
     stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
   });
+  // Read now, while bwrap surely runs, so a pid reused after its exit never reads as bwrap.
+  const started = child.pid === undefined ? null : startTimeOf(child.pid);
   const exited = new Promise<void>((resolve) => {
     child.once('close', () => resolve());
     child.once('error', () => resolve());
@@ -333,12 +395,12 @@ export async function startEgressNamespace(options: SandboxOptions): Promise<Egr
       enter: (command, args, cwd) => enterArgs(pid, command, args, cwd),
       async stop() {
         child.stdin?.end();
-        await exited;
+        return awaitSandboxExit(child, exited, started, options.stopTiming);
       },
     };
   } catch (error) {
     child.kill('SIGKILL');
-    await exited;
+    await awaitSandboxExit(child, exited, started, options.stopTiming);
     throw error;
   }
 }
