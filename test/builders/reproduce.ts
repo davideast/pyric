@@ -24,6 +24,8 @@ import { playwrightBrowsersPath } from './browser-server.ts';
 import { phaseEnvironment } from './builder-run.ts';
 import { readPhaseResult } from './run-finish.ts';
 import { startEgressNamespace, type EgressNamespace } from './namespace.ts';
+import { restoreOwnerAccess } from './owner-access.ts';
+import { firstLine } from './parse.ts';
 import { sha256File } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
 import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
@@ -99,10 +101,13 @@ export const tryTouchedPaths = (dirs: BuilderRunDirs) => [
 /**
  * What a try left, read once its sandbox has stopped: how the script ended,
  * its output, and every Google host or metadata address in the network
- * record, the browser's NetLog appended first. Throws `PlantedLink` before it
- * touches anything when a file it would touch is a link.
+ * record, the browser's NetLog appended first. It first gives the owner back
+ * access the script may have taken away (`owner-access.ts`), as a run's end
+ * does. Throws `PlantedLink` before it touches anything when a file it would
+ * touch is a link.
  */
 export function tryEvidence(dirs: BuilderRunDirs, phaseOutput: string): TryEvidence {
+  restoreOwnerAccess(dirs.root, new Set([join(dirs.app, 'node_modules')]));
   assertNoPlantedLinks(dirs.root, tryTouchedPaths(dirs));
   writeFileSync(join(dirs.logs, REPRO_PHASE_LOG), phaseOutput);
   if (existsSync(dirs.netLog)) appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
@@ -112,8 +117,6 @@ export function tryEvidence(dirs: BuilderRunDirs, phaseOutput: string): TryEvide
   const output = existsSync(logFile) ? readFileSync(logFile, 'utf8') : '';
   return { exit: readPhaseResult(dirs), output, googleHosts };
 }
-
-const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
 
 /**
  * A try that failed before it could be judged: invalid when its sandbox

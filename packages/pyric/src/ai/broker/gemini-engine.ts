@@ -137,6 +137,26 @@ export class GeminiEngine implements AnswerEngine {
     );
   }
 
+  /**
+   * One read of an upstream stream. A read that fails mid-stream becomes an
+   * {@link AiBrokerError} whose message has the request's credentials masked,
+   * as a failed fetch's does (#1737): the broker logs the message and the
+   * caller receives it, and a read error can quote upstream text.
+   */
+  private async readStream(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    credentials: readonly string[],
+  ): ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']> {
+    try {
+      return await reader.read();
+    } catch (err) {
+      if (err instanceof AiBrokerError) throw err;
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const message = `Gemini API stream aborted mid-response: ${redactUpstreamText(rawMessage, credentials)}`;
+      throw new AiBrokerError(errorEnvelope(502, message, 'UNAVAILABLE'));
+    }
+  }
+
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
     const { response } = await this.send(model, 'generateContent', req);
     return (await response.json()) as WireResponse;
@@ -161,7 +181,7 @@ export class GeminiEngine implements AnswerEngine {
 
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await this.readStream(reader, credentials);
         const isDone = done === true;
         if (isDone) {
           break;

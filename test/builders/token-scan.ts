@@ -7,6 +7,7 @@
  */
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { firstLine } from './parse.ts';
 
 export const REDACTED = '[redacted: the harness token]';
 
@@ -18,20 +19,41 @@ export type Skipped = ReadonlySet<string>;
 
 const NONE: Skipped = new Set();
 
-/** The files under `path` (a file or a directory) that hold `secret`, but not `skip`. Symbolic links are not followed. */
-export function filesContaining(path: string, secret: string, skip: Skipped = NONE): string[] {
-  if (skip.has(path)) return [];
-  const stat = lstatSync(path, { throwIfNoEntry: false });
-  if (stat === undefined || stat.isSymbolicLink()) return [];
-  if (stat.isFile()) return readFileSync(path).includes(secret) ? [path] : [];
-  if (!stat.isDirectory()) return [];
-  return readdirSync(path).filter((name) => !SKIPPED.has(name)).flatMap((name) => filesContaining(join(path, name), secret, skip));
+/** Called with a file or directory a scan could not read, and why. */
+export type OnUnreadable = (path: string, why: string) => void;
+
+/** `read()`; when it throws and the caller takes unreadable paths, names `path` to it and returns `fallback`. */
+function readOrName<T>(path: string, fallback: T, onUnreadable: OnUnreadable | undefined, read: () => T): T {
+  if (onUnreadable === undefined) return read();
+  try {
+    return read();
+  } catch (error) {
+    onUnreadable(path, `the read failed: ${firstLine(error)}`);
+    return fallback;
+  }
 }
 
 /** One secret, several (the harness can hold a token file's and the environment's), or none. */
 export type Secrets = string | readonly string[] | undefined;
 
 const secretList = (secrets: Secrets): readonly string[] => (secrets === undefined ? [] : typeof secrets === 'string' ? [secrets] : secrets);
+
+/**
+ * The files under `path` (a file or a directory) that hold any of `secret`,
+ * but not `skip`. Symbolic links are not followed. Every file is read, even
+ * with no secret, so with `onUnreadable` a file or directory whose read
+ * fails is named to it and left out; without, the read throws.
+ */
+export function filesContaining(path: string, secret: Secrets, skip: Skipped = NONE, onUnreadable?: OnUnreadable): string[] {
+  if (skip.has(path)) return [];
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (stat === undefined || stat.isSymbolicLink()) return [];
+  const holdsSecret = (content: Buffer) => secretList(secret).some((value) => content.includes(value));
+  if (stat.isFile()) return readOrName(path, false, onUnreadable, () => holdsSecret(readFileSync(path))) ? [path] : [];
+  if (!stat.isDirectory()) return [];
+  const names = readOrName<string[]>(path, [], onUnreadable, () => readdirSync(path));
+  return names.filter((name) => !SKIPPED.has(name)).flatMap((name) => filesContaining(join(path, name), secret, skip, onUnreadable));
+}
 
 function redactedOne(content: Buffer, secret: string): Buffer {
   if (!content.includes(secret)) return content;

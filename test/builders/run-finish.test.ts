@@ -13,6 +13,7 @@ import { finishRun, KEPT_PHASE_OUTPUT, RUN_PHASE_LOG, type FinishInput, type Run
 import { BUILDER_LOG } from './run-phase.ts';
 import * as ownerAccessModule from './owner-access.ts';
 import * as runRecordModule from './run-record.ts';
+import * as tokenScanModule from './token-scan.ts';
 import type { RunRecord } from './run-record.ts';
 import { createRunDirs } from './scratch.ts';
 import { filesContaining } from './token-scan.ts';
@@ -178,6 +179,23 @@ describe('finishRun on a network record the builder wrote', () => {
     });
   }
 
+  test('withholds the app when the token scan skipped a file of it, as tar would pack it unscanned', async () => {
+    const { dirs, end } = plainRun();
+    const big = join(dirs.app, 'big.bin');
+    mkdirSync(dirs.app, { recursive: true });
+    writeFileSync(big, 'tar can read this; the scan could not\n');
+    const real = tokenScanModule.filesContaining;
+    const spy = spyOn(tokenScanModule, 'filesContaining').mockImplementation((path, secret, skip, onUnreadable) => {
+      if (path !== big) return real(path, secret, skip, onUnreadable);
+      onUnreadable?.(path, 'the read failed: File size is greater than 2 GiB');
+      return [];
+    });
+    const record = await finishRun(input(), end).finally(() => spy.mockRestore());
+    expect(record.harness.plantedLinks).toEqual(['app/big.bin: the read failed: File size is greater than 2 GiB']);
+    expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
+    expect(existsSync(join(end.dataDir, 'app.tgz'))).toBe(false);
+  });
+
   test('appends the measurement line, and still keeps the run, when building its record throws', async () => {
     const { end } = plainRun();
     const spy = spyOn(runRecordModule, 'runRecord').mockImplementationOnce(() => {
@@ -204,5 +222,20 @@ describe.skipIf(UID === 0)('finishRun on a file the harness still can’t read',
     expect(record.harness.plantedLinks).toEqual(['logs/builder.log: logs/builder.log is unreadable']);
     expect(record.harness.usage).toBeNull();
     expect(readMeasurements(end.measurements).lines).toHaveLength(1);
+  });
+
+  test('skips and names a file only the token scan reads, and still writes report.json', async () => {
+    const { dirs, end } = plainRun();
+    const extra = join(dirs.logs, 'extra.log');
+    writeFileSync(extra, 'written by the builder\n');
+    chmodSync(extra, 0o000);
+    const spy = spyOn(ownerAccessModule, 'restoreOwnerAccess').mockImplementation(() => {});
+    const record = await finishRun(input(), end).finally(() => {
+      spy.mockRestore();
+      chmodSync(extra, 0o600);
+    });
+    expect(record.harness.plantedLinks).toEqual([expect.stringMatching(/^logs\/extra\.log: the read failed: EACCES/)]);
+    expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
+    expect(existsSync(join(end.dataDir, 'logs', 'extra.log'))).toBe(false);
   });
 });

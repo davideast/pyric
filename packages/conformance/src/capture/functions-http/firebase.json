@@ -1,0 +1,15 @@
+{
+  "functions": {
+    "source": "fixture",
+    "codebase": "pyric-functions-http-oracle",
+    "runtime": "nodejs22"
+  },
+  "hosting": {
+    "public": "public",
+    "rewrites": [
+      { "source": "/api/**", "function": "pyricHttpEcho" },
+      { "source": "/east/**", "function": { "functionId": "pyricHttpRegional", "region": "us-east1" } },
+      { "source": "/legacy/**", "function": "pyricHttpV1" }
+    ]
+  }
+}

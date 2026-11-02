@@ -19,12 +19,14 @@
  * inert plan. `PARITY_REQUIRE_CREDENTIAL=1` turns that skip into an error, so a
  * CI job that expects a credential cannot pass by skipping.
  *
- * This module imports no Firebase code at load time. The capture runners call
- * `hasParityCredential()` on their inert path, which must stay light.
+ * This module imports no Firebase or Google auth code at load time. The
+ * capture runners call `hasParityCredential()` on their inert path, which must
+ * stay light.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import type { AuthClient } from 'google-auth-library';
 import type { ProjectScope } from '../../../src/project-scope.js';
 
 export const DEFAULT_PARITY_PROJECT_ID = 'digame-mas';
@@ -99,6 +101,52 @@ function cachedTokenSource(mint: () => Promise<{ token: string; expiresInSeconds
   };
 }
 
+const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
+
+/**
+ * The ADC file a scope mints from, read when it first mints. google-auth-library
+ * looks for the gcloud file only under `~/.config/gcloud` and ignores
+ * `CLOUDSDK_CONFIG`, so the file is named here: the one
+ * `resolveParityCredential` found.
+ */
+function adcFile(origin: 'GOOGLE_APPLICATION_CREDENTIALS' | 'gcloud'): string {
+  if (origin === 'gcloud') return gcloudAdcPath(process.env, homedir());
+  const file = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!file) throw new Error('GOOGLE_APPLICATION_CREDENTIALS was unset after the parity credential resolved.');
+  return file;
+}
+
+/**
+ * Mints tokens from the Application Default Credentials this scope owns. The
+ * credential is built on first use from the file the environment names at
+ * that moment. firebase-admin's `applicationDefault()` keeps one credential
+ * per process, so a scope built after `GOOGLE_APPLICATION_CREDENTIALS`
+ * changes would mint from whatever file an earlier caller read.
+ *
+ * The project id is passed in so `GoogleAuth` does not look one up. Without
+ * it, `getClient()` runs `gcloud config config-helper`, probes the GCE
+ * metadata server, and calls Cloud Resource Manager before it returns.
+ */
+function applicationDefaultToken(
+  credential: Extract<ParityCredential, { source: 'adc' }>,
+): () => Promise<{ token: string; expiresInSeconds: number }> {
+  let client: AuthClient | undefined;
+  return async () => {
+    if (!client) {
+      const { GoogleAuth } = await import('google-auth-library');
+      client = await new GoogleAuth({
+        scopes: [CLOUD_PLATFORM_SCOPE],
+        projectId: credential.projectId,
+        keyFilename: adcFile(credential.origin),
+      }).getClient();
+    }
+    const { token } = await client.getAccessToken();
+    if (!token) throw new Error('Application Default Credentials returned no access token.');
+    const expiry = client.credentials.expiry_date ?? Date.now() + 3600_000;
+    return { token, expiresInSeconds: Math.floor((expiry - Date.now()) / 1000) };
+  };
+}
+
 /**
  * The `ProjectScope` for the resolved credential. Token minting is lazy: a
  * credential that cannot mint a token (a deleted key, a rejected federation
@@ -107,18 +155,7 @@ function cachedTokenSource(mint: () => Promise<{ token: string; expiresInSeconds
  */
 export function parityScope(credential: ParityCredential = resolveParityCredential()): ProjectScope {
   if (credential.source === 'adc') {
-    let adc: { getAccessToken(): Promise<{ access_token: string; expires_in: number }> } | undefined;
-    return {
-      projectId: credential.projectId,
-      resolveToken: cachedTokenSource(async () => {
-        if (!adc) {
-          const { applicationDefault } = await import('firebase-admin/app');
-          adc = applicationDefault();
-        }
-        const t = await adc.getAccessToken();
-        return { token: t.access_token, expiresInSeconds: t.expires_in };
-      }),
-    };
+    return { projectId: credential.projectId, resolveToken: cachedTokenSource(applicationDefaultToken(credential)) };
   }
   if (credential.source === 'firebase-tools') {
     const { configPath } = credential;

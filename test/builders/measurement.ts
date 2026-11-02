@@ -32,8 +32,8 @@ export const builderMeasurementSchema = z.object({
   meteredCostUsd: cost,
   /** The tokens the forwarder metered; null when it metered no response. */
   tokens: tokens.nullable(),
-  /** How long the run phase took, by the harness's own clock. */
-  wallMs: count,
+  /** How long the run phase took, by the harness's own clock; null only in a round 1 line whose run phase never said. */
+  wallMs: count.nullable(),
 }).strict();
 
 /** How the verifier judged each reported problem of one run. */
@@ -67,6 +67,18 @@ export type VerificationMeasurement = z.infer<typeof verificationMeasurementSche
 export type Measurement = z.infer<typeof measurementSchema>;
 export type VerdictCounts = z.infer<typeof verdictCountsSchema>;
 
+/**
+ * Fields round 1's builder lines carried, read from the run root, which the
+ * builder can write. A read drops them, since the file is never rewritten.
+ */
+const LEGACY_BUILDER_FIELDS = ['costUsd', 'turns', 'report', 'problemsReported', 'googleHostEvents'];
+
+function withoutLegacyFields(value: unknown): unknown {
+  const isBuilderLine = typeof value === 'object' && value !== null && (value as { kind?: unknown }).kind === 'builder';
+  if (!isBuilderLine) return value;
+  return Object.fromEntries(Object.entries(value).filter(([field]) => !LEGACY_BUILDER_FIELDS.includes(field)));
+}
+
 export function appendMeasurement(path: string, line: Measurement): void {
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, `${JSON.stringify(measurementSchema.parse(line))}\n`);
@@ -80,7 +92,7 @@ export function readMeasurements(path: string): { lines: Measurement[]; errors: 
   readFileSync(path, 'utf8').split('\n').forEach((text, index) => {
     if (text.trim() === '') return;
     const json = parseJsonText(text);
-    const parsed = json.ok ? parseWith(measurementSchema, json.value) : json;
+    const parsed = json.ok ? parseWith(measurementSchema, withoutLegacyFields(json.value)) : json;
     if (parsed.ok) lines.push(parsed.value);
     else errors.push(...parsed.errors.map((error) => `line ${index + 1}: ${error}`));
   });

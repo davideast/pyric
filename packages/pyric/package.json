@@ -222,7 +222,8 @@
     "@inbrowser/agent": "0.4.2",
     "@types/bun": "1.3.14",
     "firebase": "^12.12.0",
-    "firebase-admin": "^13.0.0"
+    "firebase-admin": "^13.0.0",
+    "google-auth-library": "^10.6.1"
   },
   "engines": {
     "node": ">=22"

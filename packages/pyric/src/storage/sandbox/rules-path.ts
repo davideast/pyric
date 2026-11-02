@@ -52,7 +52,7 @@ export class StoragePath extends RulesValue {
       const name = (m[1] ?? m[2])!;
       if (Object.hasOwn(bindings, name)) {
         const v = bindings[name];
-        if (v === null || v === undefined || (typeof v !== 'string' && typeof v !== 'number')) {
+        if (v === null || v === undefined || (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'bigint')) {
           throw new TypeError(`Path.bind(): binding '${name}' must not be null`);
         }
         const sv = String(v);
@@ -106,7 +106,7 @@ export function pathValueSegments(value: RulesValue): string[] {
  */
 export function interpolationSegments(value: unknown): string[] | undefined {
   if (typeof value === 'string') return [value];
-  if (typeof value === 'number') return [String(value)];
+  if (typeof value === 'number' || typeof value === 'bigint') return [String(value)];
   if (isPathValue(value)) return pathValueSegments(value);
   return undefined;
 }

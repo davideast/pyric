@@ -91,6 +91,17 @@ describe('measurements.jsonl', () => {
     expect(() => appendMeasurement(path, { ...line, meteredCostUsd: -1 })).toThrow();
   });
 
+  test('reads a round 1 line, dropping the fields it read from the run root', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'builders-measure-')), 'measurements.jsonl');
+    const r1 = '{"kind":"builder","run":"r1-1-sonnet-5-5","round":"r1","brief":"r1-1","model":"claude-sonnet-5-5","maxBudgetUsd":3,"costUsd":0.1972522,"meteredCostUsd":0.21905840000000004,"tokens":{"input":18,"output":4103,"cacheCreation":33595,"cacheRead":218062},"turns":9,"wallMs":44772,"report":"valid","problemsReported":0,"googleHostEvents":0}';
+    const unended = r1.replace('"wallMs":44772', '"wallMs":null').replace('r1-1-sonnet-5-5', 'r1-9-sonnet-5-5');
+    writeFileSync(path, `${r1}\n${unended}\n`);
+    const { lines, errors } = readMeasurements(path);
+    expect(errors).toEqual([]);
+    expect(lines[0]).toEqual({ kind: 'builder', run: 'r1-1-sonnet-5-5', round: 'r1', brief: 'r1-1', model: 'claude-sonnet-5-5', maxBudgetUsd: 3, meteredCostUsd: 0.21905840000000004, tokens: { input: 18, output: 4103, cacheCreation: 33595, cacheRead: 218062 }, wallMs: 44772 });
+    expect(lines[1]).toMatchObject({ run: 'r1-9-sonnet-5-5', wallMs: null });
+  });
+
   test('names each bad line by number instead of skipping it', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'builders-measure-')), 'measurements.jsonl');
     const [first] = readFileSync(FIXTURE, 'utf8').split('\n');

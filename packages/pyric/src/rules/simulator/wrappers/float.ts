@@ -8,16 +8,14 @@
  * true, and did float division for `10 / 4` (→ 2.5, where prod truncates
  * int÷int to 2). See findings-ledger RULES-B5.
  *
- * The fix tags FLOAT values with this lightweight wrapper while bare JS
- * `number` continues to mean `int`. Why wrap floats (not ints): integers
- * are overwhelmingly the common case in rules data (counts, sizes, list
- * indices, `request.time` millis), and every existing `typeof x ===
- * 'number'` site already treats a bare number as an int — so wrapping the
- * rarer float keeps the blast radius small. The evaluator unwraps floats
- * at arithmetic/comparison boundaries via `numericValue()` and re-tags
- * the result when either operand was a float.
+ * The fix tags FLOAT values with this lightweight wrapper, and an int is
+ * not wrapped: it is a `bigint`, or a bare integral JS number from a host
+ * value (`rules-int.ts`, #1335). The evaluator unwraps floats at
+ * arithmetic/comparison boundaries and re-tags the result when either
+ * operand was a float; an int operand is promoted to a double.
  *
- * `is float` ↔ `value instanceof RulesFloat`; `is int` ↔ bare number.
+ * `is float` ↔ `value instanceof RulesFloat`; `is int` ↔ a bigint or a
+ * bare integral number.
  * `string()` of a float keeps its decimal (`string(1.0)` → "1.0").
  *
  * Doc/oracle: https://firebase.google.com/docs/reference/rules/rules.Float
@@ -60,6 +58,18 @@ export function formatRulesFloat(value: number): string {
   return `${mantissa}E${Number(exponent)}`;
 }
 
+/**
+ * The other operand of a float operator or comparison as a double: a float,
+ * or an int, which production promotes. An int is a bigint or a bare number
+ * (`rules-int.ts`).
+ */
+function numericOperand(other: unknown): number | undefined {
+  if (other instanceof RulesFloat) return other.value;
+  if (typeof other === 'number') return other;
+  if (typeof other === 'bigint') return Number(other);
+  return undefined;
+}
+
 export class RulesFloat extends RulesValue {
   readonly typeName = 'float';
   readonly value: number;
@@ -86,9 +96,8 @@ export class RulesFloat extends RulesValue {
   equals(other: unknown): boolean {
     // CEL compares int and float by numeric value (`1 == 1.0` → true), so
     // equality unwraps both sides rather than gating on `instanceof`.
-    if (other instanceof RulesFloat) return this.value === other.value;
-    if (typeof other === 'number') return this.value === other;
-    return false;
+    const r = numericOperand(other);
+    return r !== undefined && this.value === r;
   }
 
   /**
@@ -100,10 +109,7 @@ export class RulesFloat extends RulesValue {
    * type-mismatch guard surfaces e.g. `1.5 + 'a'` as a real error.
    */
   binaryOp(op: string, other: unknown): unknown | NoOp {
-    const r =
-      other instanceof RulesFloat ? other.value
-      : typeof other === 'number' ? other
-      : undefined;
+    const r = numericOperand(other);
     if (r === undefined) return NO_OP;
     const l = this.value;
     switch (op) {

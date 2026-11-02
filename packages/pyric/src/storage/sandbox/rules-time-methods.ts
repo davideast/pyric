@@ -10,6 +10,7 @@ import {
   type ReceiverMethods,
 } from './rules-method-calls.js';
 import { isRuleError as isErr } from './rules-values.js';
+import { isRulesInt, rulesInt } from '../../rules/simulator/rules-int.js';
 
 /** The units `duration.value(magnitude, unit)` accepts, per the rules language. */
 const DURATION_UNITS = ['w', 'd', 'h', 'm', 's', 'ms', 'ns'];
@@ -25,20 +26,20 @@ export function evalTimestampNamespace(expr: MethodCall, ctx: EvalCtx): unknown 
   const args = evalNamespaceArguments(expr, ctx);
   if (isErr(args)) return args;
   if (expr.method === 'value') {
-    if (args.length !== 1 || typeof args[0] !== 'number' || !Number.isInteger(args[0])) {
+    const ms = rulesInt(args[0]);
+    if (args.length !== 1 || ms === undefined) {
       throw new RuleEvalError(`timestamp.value() expects (epochMillis: number)`);
     }
-    const ms = args[0];
     if (ms < MIN_TIMESTAMP_MILLIS || ms > MAX_TIMESTAMP_MILLIS) {
       throw new RuleEvalError(`timestamp.value() out of range [0001-01-01T00:00:00Z, 9999-12-31T23:59:59.999Z]`);
     }
-    return Timestamp.fromMillis(ms);
+    return Timestamp.fromMillis(Number(ms));
   }
   if (expr.method === 'date') {
-    if (args.length !== 3 || !args.every((a) => typeof a === 'number' && Number.isInteger(a))) {
+    if (args.length !== 3 || !args.every(isRulesInt)) {
       throw new RuleEvalError(`timestamp.date() expects (year, month, day) numbers`);
     }
-    const [year, month, day] = args as [number, number, number];
+    const [year, month, day] = args.map(Number) as [number, number, number];
     try {
       return Timestamp.fromYMD(year, month, day);
     } catch (err) {
@@ -62,13 +63,12 @@ export function evalDurationNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
   if (expr.method === 'value') {
     if (
       args.length !== 2 ||
-      typeof args[0] !== 'number' ||
-      !Number.isInteger(args[0]) ||
+      !isRulesInt(args[0]) ||
       typeof args[1] !== 'string'
     ) {
       throw new RuleEvalError(`duration.value() expects (magnitude: number, unit: string)`);
     }
-    const [magnitude, unit] = args as [number, string];
+    const [magnitude, unit] = args as [bigint | number, string];
     if (!DURATION_UNITS.includes(unit)) {
       throw new RuleEvalError(
         `duration.value() got unknown unit "${unit}", expected one of ${DURATION_UNITS.join(', ')}`,
@@ -77,10 +77,10 @@ export function evalDurationNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
     return inDurationRange(() => Duration.fromValue(magnitude, unit));
   }
   if (expr.method === 'time') {
-    if (args.length !== 4 || !args.every((a) => typeof a === 'number' && Number.isInteger(a))) {
+    if (args.length !== 4 || !args.every(isRulesInt)) {
       throw new RuleEvalError(`duration.time() expects (hours, minutes, seconds, nanos) numbers`);
     }
-    const [hours, minutes, seconds, nanos] = args as [number, number, number, number];
+    const [hours, minutes, seconds, nanos] = args as [bigint | number, bigint | number, bigint | number, bigint | number];
     return inDurationRange(() => Duration.fromTime(hours, minutes, seconds, nanos));
   }
   if (expr.method === 'abs') {

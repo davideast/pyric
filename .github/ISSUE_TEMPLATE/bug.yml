@@ -1,0 +1,33 @@
+name: "Bug in pyric's own tooling"
+description: "Report a bug in the CLI, build, or other pyric tooling."
+title: "<What breaks> when <condition>"
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-breaks
+    attributes:
+      label: "What breaks"
+      description: "What fails, in one or two lines."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected"
+      description: "What should happen instead."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: "Repro"
+      description: "The command or steps that show it."
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "The check that shows it is fixed."
+    validations:
+      required: true

@@ -204,10 +204,12 @@ that isn't a string) is left out of the record, and
 `harness.plantedLinks` counts it (`network.jsonl: 1 line is not a network
 event; the harness left it out`). A record that can't be built is built
 again without the network record, and names `network.jsonl` with why.
-Either makes the run invalid. A failure after the record is built, such as
-a file the token scan can't read, stops the copies there: `report.json` is
-kept, but the copies after the unreadable file, `app.tgz` and
-`phase-output.log` are not.
+Either makes the run invalid. The token scan reads every file the harness
+keeps; one it can't read is skipped the same way and named in
+`harness.plantedLinks`, so `report.json` is always written. The copies
+leave it out, and when it is under `app/` the app is withheld, as for a
+token hit, since `tar` would pack it unscanned. A failure packing the app stops there: `app.tgz` and
+`phase-output.log` are not kept.
 
 When the sandbox left a link on a file step 6 or 7 would read or append to
 (`planted-links.ts`), or the harness can't check it, merge into it or

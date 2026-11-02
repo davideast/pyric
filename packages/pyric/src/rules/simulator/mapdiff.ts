@@ -27,6 +27,13 @@ export class MapDiff {
     this.after = after;
   }
 
+  /** This diff with both maps passed through `convert`, as a trace records it (`host-value.ts`). */
+  withMaps(convert: (map: Record<string, unknown>) => Record<string, unknown>): MapDiff {
+    const before = convert(this.before);
+    const after = convert(this.after);
+    return before === this.before && after === this.after ? this : new MapDiff(before, after);
+  }
+
   /** Keys present in `after` but not in `before`. */
   addedKeys(): FirestoreSet {
     const added: string[] = [];

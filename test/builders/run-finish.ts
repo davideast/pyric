@@ -27,7 +27,7 @@ import { runCommand } from '../apps/install.ts';
 import type { Brief } from './brief.ts';
 import { appendMeasurement } from './measurement.ts';
 import type { ModelChannelEvent } from './model-channel.ts';
-import { parseJsonText } from './parse.ts';
+import { firstLine, parseJsonText } from './parse.ts';
 import { restoreOwnerAccess } from './owner-access.ts';
 import { assertNoPlantedLinks, plantedLinks } from './planted-links.ts';
 import type { Provenance } from './provenance.ts';
@@ -37,7 +37,7 @@ import { readBuilderReport, type ReadReport } from './report.ts';
 import type { BuilderRunDirs } from './round-paths.ts';
 import { BUILDER_LOG, phaseResultSchema, type PhaseResult } from './run-phase.ts';
 import { measurementLine, runRecord, type RunIdentity, type RunOutcome, type RunRecord } from './run-record.ts';
-import { copyRedacted, filesContaining, redactedText, type Secrets, type Skipped } from './token-scan.ts';
+import { copyRedacted, filesContaining, redactedText, type OnUnreadable, type Secrets, type Skipped } from './token-scan.ts';
 import { usageFrom, type Usage } from './usage.ts';
 
 export const RUN_PHASE_LOG = '02-run-phase.log';
@@ -61,9 +61,12 @@ const readIfExists = (path: string) => (existsSync(path) ? readFileSync(path, 'u
 /** What `keep` copies of the scratch directory. */
 const keptPaths = (dirs: BuilderRunDirs) => [dirs.report, dirs.briefJson, dirs.networkLog, dirs.logs, dirs.app];
 
-/** The kept files, relative to the run root, that hold any of `secrets`. Names files, never a value. */
-export function tokenFoundIn(dirs: BuilderRunDirs, secrets: readonly string[], skip?: Skipped): string[] {
-  const found = new Set(secrets.flatMap((secret) => keptPaths(dirs).flatMap((path) => filesContaining(path, secret, skip))));
+/**
+ * The kept files, relative to the run root, that hold any of `secrets`. Names
+ * files, never a value. A file it can't read goes to `onUnreadable` when given.
+ */
+export function tokenFoundIn(dirs: BuilderRunDirs, secrets: readonly string[], skip?: Skipped, onUnreadable?: OnUnreadable): string[] {
+  const found = new Set(keptPaths(dirs).flatMap((path) => filesContaining(path, secrets, skip, onUnreadable)));
   return [...found].map((path) => relative(dirs.root, path)).sort();
 }
 
@@ -72,8 +75,8 @@ const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
 /**
  * Copies what the harness keeps of the run into the data root, with the
  * token's value replaced wherever it turns up. The app is packed without
- * node_modules, and withheld when any file of it held the token. Nothing in
- * `skip` is copied.
+ * node_modules, and withheld when any file of it held the token or is in
+ * `skip`. Nothing else in `skip` is copied.
  */
 export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: Secrets, skip?: Skipped): Promise<void> {
   mkdirSync(dataDir, { recursive: true });
@@ -81,7 +84,9 @@ export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: str
   copyRedacted(dirs.briefJson, join(dataDir, 'brief.json'), token, skip);
   copyRedacted(dirs.networkLog, join(dataDir, 'network.jsonl'), token, skip);
   copyRedacted(dirs.logs, join(dataDir, 'logs'), token, skip);
-  if (record.harness.tokenFoundIn.some(isInApp)) return;
+  // tar reads the app whole: a file of it the scan skipped would be packed unscanned.
+  const skipsInApp = [...(skip ?? [])].some((path) => isInApp(relative(dirs.root, path)));
+  if (record.harness.tokenFoundIn.some(isInApp) || skipsInApp) return;
   const tar = await runCommand('tar', ['-czf', join(dataDir, 'app.tgz'), '--exclude=node_modules', '-C', dirs.root, 'app'], { cwd: dirs.root });
   if (tar.code !== 0) throw new Error(`packing the app failed (exit ${tar.code}):\n${tar.output}`);
 }
@@ -160,8 +165,6 @@ interface RunRootFindings {
   leftOut: SkippedFiles;
 }
 
-const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
-
 /** `read()`, or `fallback` when `path` is skipped, or is unreadable or its read throws, either of which skips it. */
 function readOr<T>(skipped: SkippedFiles, path: string, fallback: T, read: () => T): T {
   if (skipped.has(path)) return fallback;
@@ -237,8 +240,8 @@ function buildRecord(outcome: Omit<RunOutcome, 'plantedLinks'>, dirs: BuilderRun
 }
 
 /** The kept files that hold the token: the run root's, and a planted run's phase output, which is kept apart. */
-function tokenFound(input: FinishInput, end: RunEnd, skip: Skipped, isKeptApart: boolean): string[] {
-  const found = tokenFoundIn(end.dirs, input.scanned, skip);
+function tokenFound(input: FinishInput, end: RunEnd, skip: Skipped, isKeptApart: boolean, onUnreadable: OnUnreadable): string[] {
+  const found = tokenFoundIn(end.dirs, input.scanned, skip, onUnreadable);
   const outputHoldsToken = input.scanned.some((secret) => end.phaseOutput.includes(secret));
   return isKeptApart && outputHoldsToken ? [...found, KEPT_PHASE_OUTPUT].sort() : found;
 }
@@ -256,13 +259,13 @@ export async function finishRun(input: FinishInput, end: RunEnd): Promise<RunRec
   const files = readRunFiles(dirs, planted, findings);
   const outcome = { identity: input.identity, brief: input.brief, provenance: input.provenance, startedAt: end.startedAt, endedAt: new Date(), ...files, channel, tokenFoundIn: [] };
   const measured = buildRecord(outcome, dirs, findings);
-  const entries = measured.harness.plantedLinks;
+  // A file the token scan can't read is skipped and named like any other, so report.json is still written.
+  const found = tokenFound(input, end, new Set(findings.skipped.keys()), isPhaseOutputApart, (path, why) => findings.skipped.set(path, why));
+  const entries = skippedEntries(dirs.root, findings);
   if (entries.length > 0) input.say(skippedNotice(input.identity.run, entries));
-  const skip: Skipped = new Set(findings.skipped.keys());
-  const found = tokenFound(input, end, skip, isPhaseOutputApart);
   if (found.length > 0) input.say(tokenNotice(input.identity.run, found));
-  const record: RunRecord = { ...measured, harness: { ...measured.harness, tokenFoundIn: found } };
-  await keep(record, dirs, end.dataDir, input.scanned, skip);
+  const record: RunRecord = { ...measured, harness: { ...measured.harness, plantedLinks: entries, tokenFoundIn: found } };
+  await keep(record, dirs, end.dataDir, input.scanned, new Set(findings.skipped.keys()));
   if (isPhaseOutputApart) writeFileSync(join(end.dataDir, KEPT_PHASE_OUTPUT), redactedText(end.phaseOutput, input.scanned));
   return record;
 }

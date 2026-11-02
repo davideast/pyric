@@ -13,6 +13,7 @@ import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError, functionNotFoundMessage } from './eval-error.js';
+import { isRulesInt, rulesNumberAsDouble } from './rules-int.js';
 import { ConversionFailure, applyConversion, conversionFor } from './conversions.js';
 import { MathFailure, applyMath } from './math-builtins.js';
 import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listJoin, listMembership, listRemoveAll } from './list-methods.js';
@@ -465,9 +466,6 @@ function evaluateNamespaceMethod(ns: string, method: string, args: unknown[]): u
   throw new UnsupportedError(`Unknown namespace '${ns}'`);
 }
 
-function unwrapFloat(v: unknown): unknown {
-  return v instanceof RulesFloat ? v.value : v;
-}
 
 function evaluateLatLngMethod(method: string, args: unknown[]): unknown {
   switch (method) {
@@ -477,10 +475,10 @@ function evaluateLatLngMethod(method: string, args: unknown[]): unknown {
           `Incorrect number of arguments. Received: ${args.length}. Expected: latlng.value(float, float).`,
         );
       }
-      const lat = unwrapFloat(args[0]);
-      const lng = unwrapFloat(args[1]);
+      const lat = rulesNumberAsDouble(args[0]);
+      const lng = rulesNumberAsDouble(args[1]);
       if (
-        typeof lat !== 'number' || typeof lng !== 'number' ||
+        lat === undefined || lng === undefined ||
         !Number.isFinite(lat) || !Number.isFinite(lng)
       ) {
         throw new EvalError(
@@ -513,12 +511,12 @@ function evaluateTimestampMethod(method: string, args: unknown[]): unknown {
           `Incorrect number of arguments. Received: ${args.length}. Expected: timestamp.date(int, int, int).`,
         );
       }
-      if (!args.every((a) => typeof a === 'number' && Number.isInteger(a))) {
+      if (!args.every(isRulesInt)) {
         throw new EvalError(
           `Unsupported operation error. Received: timestamp.date(${args.map(describeRulesType).join(', ')}). Expected: timestamp.date(int, int, int).`,
         );
       }
-      const [y, m, d] = args as [number, number, number];
+      const [y, m, d] = args.map(Number) as [number, number, number];
       try {
         return Timestamp.fromYMD(y, m, d);
       } catch (e) {
@@ -532,15 +530,16 @@ function evaluateTimestampMethod(method: string, args: unknown[]): unknown {
         );
       }
       const ms = args[0];
-      if (typeof ms !== 'number' || !Number.isInteger(ms)) {
+      if (!isRulesInt(ms)) {
         throw new EvalError(
           `Unsupported operation error. Received: timestamp.value(${describeRulesType(ms)}). Expected: timestamp.value(int).`,
         );
       }
+      // JavaScript orders a bigint and a number by exact value.
       if (ms < MIN_TIMESTAMP_MILLIS || ms > MAX_TIMESTAMP_MILLIS) {
         throw new EvalError('Timestamp out of range');
       }
-      return Timestamp.fromMillis(ms);
+      return Timestamp.fromMillis(Number(ms));
     }
   }
   throw new UnsupportedError(`Unknown timestamp method '${method}'`);
@@ -555,7 +554,7 @@ function evaluateDurationMethod(method: string, args: unknown[]): unknown {
         );
       }
       const [mag, unit] = args;
-      if (typeof mag !== 'number' || !Number.isInteger(mag) || typeof unit !== 'string') {
+      if (!isRulesInt(mag) || typeof unit !== 'string') {
         throw new EvalError(
           `Unsupported operation error. Received: duration.value(${describeRulesType(mag)}, ${describeRulesType(unit)}). Expected: duration.value(int, string).`,
         );
@@ -572,13 +571,18 @@ function evaluateDurationMethod(method: string, args: unknown[]): unknown {
           `Incorrect number of arguments. Received: ${args.length}. Expected: duration.time(int, int, int, int).`,
         );
       }
-      if (!args.every((a) => typeof a === 'number' && Number.isInteger(a))) {
+      if (!args.every(isRulesInt)) {
         throw new EvalError(
           `Unsupported operation error. Received: duration.time(${args.map(describeRulesType).join(', ')}). Expected: duration.time(int, int, int, int).`,
         );
       }
-      const [h, m, s, ns] = args as [number, number, number, number];
-      return Duration.fromTime(h, m, s, ns);
+      const [h, m, s, ns] = args as [bigint | number, bigint | number, bigint | number, bigint | number];
+      try {
+        return Duration.fromTime(h, m, s, ns);
+      } catch (e) {
+        if (e instanceof EvalError) throw e;
+        throw new EvalError((e as Error).message);
+      }
     }
     case 'abs': {
       if (args.length !== 1) {
