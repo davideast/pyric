@@ -23,6 +23,7 @@ import {
   type ExitTiming,
   type LiveProcess,
 } from './unreaped-exit.ts';
+import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
 
 /**
  * How `installProject` installs a nested project: from the run's dependency
@@ -103,6 +104,7 @@ export class AppProcess {
   private start(): ChildProcess {
     this.spawnAttempts += 1;
     const child = this.spawnChild(this.command, this.args, { cwd: this.cwd, env: this.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const outputSockets = childOutputSockets(child.pid);
     const isCurrent = () => child === this.child;
     const record = (chunk: unknown) => {
       if (!isCurrent()) return;
@@ -131,6 +133,8 @@ export class AppProcess {
     this.stopWatchingExit = watchChildExit(child, this.name, (exit) => {
       if (!isCurrent()) return;
       this.text += exit.note;
+      // Without `close`, output can go missing: say whether the kernel still holds it (#1797).
+      if (isExitWithoutClose(exit.source)) this.text += describeOutputSockets(this.name, outputSockets);
       if (exit.source !== 'close') this.exitedEarly = true;
       this.leftoverProcesses.push(...exit.leftovers);
       this.finish(exit.code);

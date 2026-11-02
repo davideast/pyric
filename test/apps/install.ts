@@ -7,6 +7,7 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DEFAULT_EXIT_TIMING, describeGroupProcesses, endGroup, watchChildExit, type ExitTiming } from './unreaped-exit.ts';
+import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
 
 /** The waits `runCommand` uses. Tests pass short ones; the runner uses the defaults. */
 export interface CommandTiming {
@@ -86,6 +87,7 @@ function spawnCommand(command: string, args: string[], options: CommandOptions, 
     const timing = options.timing ?? DEFAULT_COMMAND_TIMING;
     // Its own process group, so what it starts and leaves running can be found and ended.
     const child = spawnChild(command, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const outputSockets = childOutputSockets(child.pid);
     let output = '';
     child.stdout?.on('data', (chunk) => { output += chunk; });
     child.stderr?.on('data', (chunk) => { output += chunk; });
@@ -94,7 +96,9 @@ function spawnCommand(command: string, args: string[], options: CommandOptions, 
       clearTimeout(limit);
       const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
       if (hasLeftovers) void endGroup(child.pid ?? 0, timing.leftoverTermMs);
-      resolvePromise({ code: exit.code, output: `${output}${exit.note}`, timedOut: false });
+      // Without `close`, output can go missing: say whether the kernel still holds it (#1797).
+      const whereOutputWent = isExitWithoutClose(exit.source) ? describeOutputSockets(command, outputSockets) : '';
+      resolvePromise({ code: exit.code, output: `${output}${exit.note}${whereOutputWent}`, timedOut: false });
     }, timing.exit);
     if (timeoutMs !== undefined) {
       limit = setTimeout(() => {
