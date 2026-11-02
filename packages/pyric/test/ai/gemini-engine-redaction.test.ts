@@ -195,3 +195,80 @@ describe('GeminiEngine: the error status and mid-stream errors are masked too (#
     expect(chunks).toEqual([{ error: { code: 500, message: 'refused ***', status: 'INTERNAL' } }]);
   });
 });
+
+/** An engine whose upstream fetch rejects with this message, as Node's does for a header it refuses. */
+function engineFailingWith(message: string, apiKey = FAKE_KEY): GeminiEngine {
+  return new GeminiEngine({
+    apiKey,
+    printAdcToken: async () => FAKE_ADC_TOKEN,
+    fetch: (async () => {
+      throw new TypeError(message);
+    }) as unknown as typeof fetch,
+  });
+}
+
+describe('GeminiEngine: a fetch error is masked with the exact credentials (#1737)', () => {
+  it('masks a key the fetch error quotes in plain text', async () => {
+    const { err, texts } = await surfaces(engineFailingWith(`connect refused for key ${FAKE_KEY}`));
+    assertNone(texts, FAKE_KEY);
+    expect(err.envelope.error.message).toEndWith(': connect refused for key ***');
+    expect(err.envelope.error.status).toBe('UNAVAILABLE');
+  });
+
+  it('masks an ADC bearer token the fetch error quotes from the Authorization header', async () => {
+    const message = `Headers.append: "Bearer ${FAKE_ADC_TOKEN}" is an invalid header value.`;
+    const { err, texts } = await surfaces(engineFailingWith(message, ''));
+    assertNone(texts, FAKE_ADC_TOKEN);
+    expect(err.envelope.error.message).toEndWith(': Headers.append: "Bearer ***" is an invalid header value.');
+  });
+
+  it('masks a percent-encoded key in the URL and in the fetch error', async () => {
+    const key = 'fake/key+1737';
+    const { texts } = await surfaces(engineFailingWith(`refused ${key}`, key));
+    assertNone(texts, key);
+    assertNone(texts, encodeURIComponent(key));
+  });
+});
+
+describe('GeminiEngine: a stream read error and nested credentials are masked (review of #1765)', () => {
+  it('masks a key a mid-stream read error quotes, as an AiBrokerError', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(ANSWER_CHUNK)}\n\n`));
+      },
+      pull(controller) {
+        controller.error(new TypeError(`socket reset while sending key ${FAKE_KEY}`));
+      },
+    });
+    const engine = new GeminiEngine({
+      apiKey: FAKE_KEY,
+      fetch: (async () => new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })) as unknown as typeof fetch,
+    });
+    const chunks: unknown[] = [];
+    const err = await captureError(async () => {
+      for await (const chunk of engine.streamGenerateContent(EMPTY_REQUEST, 'gemini-2.5-flash')) chunks.push(chunk);
+    });
+    expect(chunks).toEqual([ANSWER_CHUNK]);
+    expect(err.message).not.toContain(FAKE_KEY);
+    expect(err.envelope.error.message).toBe('Gemini API stream aborted mid-response: socket reset while sending key ***');
+    expect(err.envelope.error.status).toBe('UNAVAILABLE');
+  });
+
+  it('masks a refreshed ADC token that contains the first one, longest first', async () => {
+    const tokens = ['ya29.fake-1765', 'ya29.fake-1765-refreshed'];
+    let lookups = 0;
+    let sends = 0;
+    const engine = new GeminiEngine({
+      apiKey: '',
+      printAdcToken: async () => tokens[lookups++]!,
+      fetch: (async () => {
+        sends += 1;
+        if (sends === 1) return new Response('unauthenticated', { status: 401 });
+        throw new TypeError(`Headers.append: "Bearer ${tokens[1]}" is an invalid header value.`);
+      }) as unknown as typeof fetch,
+    });
+    const { err, texts } = await surfaces(engine);
+    assertNone(texts, 'refreshed');
+    expect(err.envelope.error.message).toEndWith(': Headers.append: "Bearer ***" is an invalid header value.');
+  });
+});

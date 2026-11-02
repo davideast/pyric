@@ -21,9 +21,14 @@ import { redactUrl } from './synthesizer.js';
 
 const MASK = '***';
 
-/** The forms a credential can appear in, longest first. */
-function quotedForms(credential: string): string[] {
-  const forms = new Set([encodeURIComponent(credential), credential]);
+/**
+ * Every form every credential can appear in, raw and percent-encoded,
+ * longest first. One credential can contain another, such as an ADC token
+ * and the refreshed token that extends it, so the longer is masked first:
+ * masking the shorter first would leave the rest of the longer behind.
+ */
+function quotedForms(credentials: readonly string[]): string[] {
+  const forms = new Set(credentials.flatMap((credential) => [encodeURIComponent(credential), credential]));
   return [...forms].sort((a, b) => b.length - a.length);
 }
 
@@ -34,9 +39,7 @@ function quotedForms(credential: string): string[] {
  */
 export function redactUpstreamText(text: string, credentials: readonly string[]): string {
   let masked = text;
-  for (const credential of credentials) {
-    for (const form of quotedForms(credential)) masked = masked.split(form).join(MASK);
-  }
+  for (const form of quotedForms(credentials)) masked = masked.split(form).join(MASK);
   return redactUrl(masked);
 }
 

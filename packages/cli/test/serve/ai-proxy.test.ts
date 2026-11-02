@@ -475,6 +475,90 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     expect(text).toContain('key=***');
   });
 
+  it('masks a bearer token that a real fetch error quotes from the Authorization header (#1737)', async () => {
+    // fetch refuses a header value with a line break before it sends, and its
+    // error quotes the value, token included.
+    const token = 'fake-two-line-token-1737\nsecond-line';
+    const { logger, notes } = recordingLogger();
+    const throttle = { shouldPrint: () => true };
+    const headers = { authorization: `Bearer ${token}` };
+    const sent = fetchAiUpstream(await disconnectedLoopbackUrl('/v1beta/m:generateContent'), { method: 'POST', headers }, throttle, logger);
+    await expect(sent).rejects.toThrow(/fake-two-line-token-1737/);
+    expect(notes.length).toBe(1);
+    expect(notes[0]).toContain('unreachable');
+    expect(notes[0]).not.toContain('fake-two-line-token-1737');
+    expect(notes[0]).toContain('***');
+  });
+
+  it('masks a credential the request forwarded from the 502 body and the log when the fetch error quotes it (#1737)', async () => {
+    const key = 'fake-forwarded-key-1737';
+    const upstream = await disconnectedLoopbackUrl('/v1');
+    const realFetch = globalThis.fetch;
+    const failing = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const toUpstream = String(input instanceof Request ? input.url : input).startsWith(upstream);
+      if (!toUpstream) return realFetch(input, init);
+      const authorization = new Headers(init?.headers).get('authorization');
+      throw new TypeError(`connection refused while sending authorization ${authorization}`);
+    };
+    globalThis.fetch = Object.assign(failing, { preconnect: realFetch.preconnect });
+    try {
+      const { logger, notes } = recordingLogger();
+      const h = await startServe(upstream, logger);
+      const res = await realFetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+        body: '{}',
+      });
+      expect(res.status).toBe(502);
+      const text = await res.text();
+      expect(text).not.toContain(key);
+      expect(text).toContain('authorization Bearer ***');
+      expect(notes.length).toBe(1);
+      expect(notes[0]).not.toContain(key);
+      expect(notes[0]).toContain('authorization Bearer ***');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('masks the credentials a request carried in a stream-abort cause (review of #1765)', async () => {
+    const key = 'fake-stream-key-1765';
+    const realFetch = globalThis.fetch;
+    const aborting = async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"n":1}\n\n'));
+      },
+      pull(controller) {
+        controller.error(new TypeError(`socket reset while sending x-goog-api-key ${key}`));
+      },
+    }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    globalThis.fetch = Object.assign(aborting, { preconnect: realFetch.preconnect });
+    try {
+      const { logger, notes } = recordingLogger();
+      const throttle = { shouldPrint: () => true };
+      const headers = { 'x-goog-api-key': key };
+      const res = await fetchAiUpstream('http://up.example/v1beta/m:streamGenerateContent', { method: 'POST', headers }, throttle, logger);
+      await expect(res.text()).rejects.toThrow(key);
+      expect(notes.length).toBe(1);
+      expect(notes[0]).toContain('stream aborted mid-response: socket reset while sending x-goog-api-key ***');
+      expect(notes[0]).not.toContain(key);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('masks a header credential the target quotes, which redactUrl alone leaves (review of #1765)', async () => {
+    const key = 'fake-path-key-1765';
+    const { logger, notes } = recordingLogger();
+    const throttle = { shouldPrint: () => true };
+    const target = await disconnectedLoopbackUrl(`/gateway/${key}/v1beta/m:generateContent`);
+    const sent = fetchAiUpstream(target, { method: 'POST', headers: { 'x-goog-api-key': key } }, throttle, logger);
+    await expect(sent).rejects.toThrow();
+    expect(notes.length).toBe(1);
+    expect(notes[0]).not.toContain(key);
+    expect(notes[0]).toContain('/gateway/***/v1beta/m:generateContent');
+  });
+
   it('drops diagnostics entirely when no logger is wired (never throws)', async () => {
     const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
@@ -613,6 +697,15 @@ describe('formatAiProxyWarning', () => {
     expect(block.split('\n').length).toBe(3);
     expect(block).not.toContain('\u001b');
     expect(block.split('\n')[0]!.length).toBeLessThan(600);
+  });
+
+  it('masks the request\'s credentials in an unreachable or stream-abort cause (#1737)', () => {
+    const key = 'fake-plain-key-1737';
+    for (const kind of ['unreachable', 'stream-abort'] as const) {
+      const block = formatAiProxyWarning({ kind, target, latencyMs: 1, cause: `refused for ${key}`, credentials: [key] });
+      expect(block).not.toContain(key);
+      expect(block).toContain('refused for ***');
+    }
   });
 
   it('masks credential query params in BOTH the target and the cause', () => {
