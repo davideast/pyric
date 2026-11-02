@@ -160,6 +160,18 @@ describe('runAgentSession', () => {
     expect(await waitUntilGone(pid as number, 3_000)).toBe(true);
   });
 
+  test('a fault in the forwarder stops the session as killed and says so on its stderr', async () => {
+    const run = await newRun();
+    const credential = () => {
+      throw new Error('the credential reader failed');
+    };
+    const options = await sessionIn(run, 'ok', { credential });
+    const result = await runAgentSession(options);
+    expect(result.endedBy).toBe('killed');
+    expect(readFileSync(`${options.logPath}.stderr`, 'utf8')).toContain('[agent-session] the upstream forwarder dropped a request that failed (Error); stopping the session');
+    expect(run.upstream.received).toEqual([]);
+  });
+
   test('stopReason maps the supervisor’s abort reasons', () => {
     expect(stopReason('deadline')).toBe('deadline');
     expect(stopReason('stopped')).toBe('killed');
