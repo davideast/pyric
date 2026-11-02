@@ -16,23 +16,35 @@ import {
   type FunctionsDevelopmentEvent,
 } from '../../src/functions/development-runtime.js';
 import { spawnFunctionsChild, type FunctionsChildHandle, type SpawnFunctionsChildOptions } from '../../src/functions/spawn.js';
+import { heartbeatLimitMs, watchHeartbeat } from '../../src/functions/heartbeat.js';
 
-/** Stands in for the real child entry: ready, then a beat every 100 ms until told to wedge. */
+/**
+ * Stands in for the real child entry: ready, then a beat every 100 ms until
+ * told to wedge, for `ms` or a minute. `READY_HTTP` is the http part of its
+ * ready message, so a test can serve a function with a `timeoutSeconds`.
+ */
 const FAKE_CHILD = `
-process.send({ type: 'ready', triggerCount: 0, unsupportedTriggers: [] });
+process.send({ type: 'ready', triggerCount: 0, unsupportedTriggers: [], ...READY_HTTP });
 setInterval(() => process.send({ type: 'heartbeat' }), 100);
 process.on('message', (message) => {
-  if (message.type === 'wedge') { const until = Date.now() + 60000; while (Date.now() < until) {} }
+  if (message.type === 'wedge') { const until = Date.now() + (message.ms ?? 60000); while (Date.now() < until) {} }
   if (message.type === 'stop') process.exit(0);
 });
 `;
 
-function fakeChildModule(): URL {
+function fakeChildModule(http?: object): URL {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-heartbeat-'));
   const file = join(dir, 'child.cjs');
-  writeFileSync(file, FAKE_CHILD);
+  const readyHttp = http === undefined ? '{}' : JSON.stringify({ http });
+  writeFileSync(file, FAKE_CHILD.replace('READY_HTTP', readyHttp));
   return pathToFileURL(file);
 }
+
+/** A child serving one HTTP function that production lets run for 2 s. */
+const TWO_SECOND_FUNCTION = {
+  port: 1,
+  functions: [{ exportName: 'transform', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: 2 }],
+};
 
 const spawnedFakes: FunctionsChildHandle[] = [];
 
@@ -42,7 +54,7 @@ afterEach(() => {
   }
 });
 
-function spawnFake(onUnresponsive: () => void): FunctionsChildHandle {
+function spawnFake(onUnresponsive: () => void, http?: object): FunctionsChildHandle {
   const handle = spawnFunctionsChild({
     cwd: tmpdir(),
     entry: join(tmpdir(), 'index.js'),
@@ -50,7 +62,7 @@ function spawnFake(onUnresponsive: () => void): FunctionsChildHandle {
     instance: 'demo-default-rtdb',
     location: 'us-central1',
     projectId: 'demo',
-    childModuleUrl: fakeChildModule(),
+    childModuleUrl: fakeChildModule(http),
     heartbeatTimeoutMs: 500,
     onUnresponsive,
   });
@@ -81,6 +93,46 @@ describe('Functions child heartbeat', () => {
     const code = await handle.stop();
     expect(typeof code).toBe('number');
   }, 10_000);
+
+  it('synchronous work within the function\'s own timeoutSeconds is not reported; past it, it is', async () => {
+    let reported = 0;
+    const handle = spawnFake(() => { reported += 1; }, TWO_SECOND_FUNCTION);
+    const ready = await handle.ready;
+    expect(ready.http?.token).toMatch(/^[\w-]{43}$/);
+    // 1.5 s of silence is three times the 500 ms floor, and still inside the function's 2 s.
+    handle.child.send({ type: 'wedge', ms: 1_500 });
+    await Bun.sleep(2_500);
+    expect(reported).toBe(0);
+    handle.child.send({ type: 'wedge' });
+    const deadline = Date.now() + 6_000;
+    while (reported === 0 && Date.now() < deadline) await Bun.sleep(50);
+    expect(reported).toBe(1);
+    await handle.stop();
+  }, 15_000);
+
+  it('the limit is the longest timeoutSeconds plus one beat, the platform default when unset, capped at an hour', () => {
+    const fn = (timeoutSeconds: number | null) => ({ exportName: 'f', regions: ['us-central1'], platform: 'gcfv2' as const, privateInvoker: false, timeoutSeconds });
+    expect(heartbeatLimitMs(undefined, 10_000)).toBe(10_000);
+    expect(heartbeatLimitMs({ port: 1, functions: [fn(2)] }, 10_000)).toBe(10_000);
+    expect(heartbeatLimitMs({ port: 1, functions: [fn(30), fn(null)] }, 10_000)).toBe(61_000);
+    expect(heartbeatLimitMs({ port: 1, functions: [fn(9_000)] }, 10_000)).toBe(3_601_000);
+  });
+
+  it('a wall-clock jump, as when a laptop wakes from sleep, does not count as silence', async () => {
+    let reported = 0;
+    const realNow = Date.now;
+    const watch = watchHeartbeat({ limitMs: 1_000, onSilent: () => { reported += 1; }, isStopping: () => false });
+    try {
+      watch.beat();
+      Date.now = () => realNow() + 3_600_000;
+      // One check runs every 500 ms; no beat arrives in between.
+      await Bun.sleep(700);
+      expect(reported).toBe(0);
+    } finally {
+      Date.now = realNow;
+      watch.stop();
+    }
+  });
 
   it('the runtime restarts an unresponsive child and reports both steps', async () => {
     const spawned: SpawnFunctionsChildOptions[] = [];

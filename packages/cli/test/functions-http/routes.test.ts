@@ -26,10 +26,10 @@ describe('matchEmulatorPath', () => {
     expect(forward('/demo-app/us-east1/east/here')).toBe('/here');
   });
 
-  test('a function answers only under the regions it deploys to; any other key is left to the plane', () => {
-    expect(matchEmulatorPath('/demo-app/us-east1/api', table)).toBeNull();
-    expect(matchEmulatorPath('/demo-app/us-central1/east', table)).toBeNull();
-    expect(matchEmulatorPath('/demo-app/us-central1/nope', table)).toBeNull();
+  test('a function answers only under the regions it deploys to; any other key is an unknown function', () => {
+    expect(matchEmulatorPath('/demo-app/us-east1/api', table)).toEqual({ kind: 'unknown-function', key: 'us-east1-api' });
+    expect(matchEmulatorPath('/demo-app/us-central1/east', table)).toEqual({ kind: 'unknown-function', key: 'us-central1-east' });
+    expect(matchEmulatorPath('/demo-app/us-central1/nope?x=1', table)).toEqual({ kind: 'unknown-function', key: 'us-central1-nope' });
   });
 
   test('paths that are not the emulator shape under this project are left to the plane', () => {

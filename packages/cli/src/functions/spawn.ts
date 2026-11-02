@@ -11,6 +11,8 @@ import {
   type FunctionsChildEvent,
   type FunctionsChildReady,
 } from './child-protocol.js';
+import { HEARTBEAT_FLOOR_MS, heartbeatLimitMs, watchHeartbeat, type HeartbeatWatch } from './heartbeat.js';
+import { CHILD_TOKEN_ENV, createChildToken } from './http/child-token.js';
 
 export interface SpawnFunctionsChildOptions {
   cwd: string;
@@ -24,7 +26,10 @@ export interface SpawnFunctionsChildOptions {
   childModuleUrl?: string | URL;
   nodeExecutable?: string;
   onEvent?(event: FunctionsChildEvent): void;
-  /** Called once when a ready child misses heartbeats for `heartbeatTimeoutMs`. */
+  /**
+   * Called once when a ready child stays silent past `heartbeatTimeoutMs`, or
+   * past the longest `timeoutSeconds` among its HTTP functions when that is longer.
+   */
   onUnresponsive?(): void;
   heartbeatTimeoutMs?: number;
 }
@@ -37,9 +42,6 @@ export interface FunctionsChildHandle {
 }
 
 const FORCE_KILL_AFTER_MS = STOP_DEADLINE_MS;
-
-/** Ten missed beats: long enough for a slow synchronous handler, short enough to notice a loop. */
-const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 export interface FunctionsChildEnvOptions {
   baseEnv: NodeJS.ProcessEnv;
@@ -133,29 +135,19 @@ export function spawnFunctionsChild(
     projectId,
   });
 
+  // New per spawn: only this host's proxy can reach this child's HTTP listener.
+  const httpToken = createChildToken();
   const nodeExecutable = options.nodeExecutable ?? 'node';
   const child = spawn(nodeExecutable, [childModulePath], {
     cwd: options.cwd,
-    env: childEnv,
+    env: { ...childEnv, [CHILD_TOKEN_ENV]: httpToken },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
 
   let readySettled = false;
   let stopping = false;
-  let lastBeat = Date.now();
-  let reportedUnresponsive = false;
-  let watchdog: ReturnType<typeof setInterval> | undefined;
-  const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
-  const watchHeartbeat = (): void => {
-    lastBeat = Date.now();
-    watchdog = setInterval(() => {
-      const silent = Date.now() - lastBeat > heartbeatTimeoutMs;
-      if (!silent || reportedUnresponsive || stopping) return;
-      reportedUnresponsive = true;
-      options.onUnresponsive?.();
-    }, Math.min(1_000, heartbeatTimeoutMs / 2));
-    watchdog.unref();
-  };
+  let watchdog: HeartbeatWatch | undefined;
+  const heartbeatFloorMs = options.heartbeatTimeoutMs ?? HEARTBEAT_FLOOR_MS;
   let stderr = '';
   child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', (chunk: string) => {
@@ -172,14 +164,18 @@ export function spawnFunctionsChild(
   child.on('message', (raw: unknown) => {
     if (!isChildMessage(raw)) return;
     if (raw.type === 'heartbeat') {
-      lastBeat = Date.now();
+      watchdog?.beat();
     } else if (raw.type === 'ready') {
       readySettled = true;
-      watchHeartbeat();
+      watchdog = watchHeartbeat({
+        limitMs: heartbeatLimitMs(raw.http, heartbeatFloorMs),
+        onSilent: () => options.onUnresponsive?.(),
+        isStopping: () => stopping,
+      });
       resolveReady({
         triggerCount: raw.triggerCount,
         unsupportedTriggers: raw.unsupportedTriggers,
-        ...(raw.http === undefined ? {} : { http: raw.http }),
+        ...(raw.http === undefined ? {} : { http: { ...raw.http, token: httpToken } }),
       });
     } else if (raw.type === 'fatal') {
       if (!readySettled) {
@@ -203,7 +199,7 @@ export function spawnFunctionsChild(
     });
     child.once('close', (code, signal) => {
       if (forceTimer !== undefined) clearTimeout(forceTimer);
-      if (watchdog !== undefined) clearInterval(watchdog);
+      watchdog?.stop();
       const exitCode = typeof code === 'number' ? code : signal ? 1 : 0;
       if (!readySettled) {
         readySettled = true;

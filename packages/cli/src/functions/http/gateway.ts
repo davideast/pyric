@@ -14,12 +14,20 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { posix } from 'node:path';
 import type { FunctionsChildHttpReady } from '../child-protocol.js';
 import { DEFAULT_REGION, type HttpFunctionInfo } from './discovery.js';
+import { refuseForeignOrigin, type AppOriginCheck } from './private-origin.js';
 import { proxyToChild } from './proxy.js';
 import { rewriteTarget, sessionCookieOnly, type HostingRewrite, type RewriteFunction } from './rewrites.js';
 import { matchEmulatorPath } from './routes.js';
+import { unavailableReason, type FunctionsPlane } from './unavailable.js';
+
+export type { AppOriginCheck } from './private-origin.js';
+export type { FunctionsPlane } from './unavailable.js';
 
 export type FunctionsHttpState =
+  /** Waiting for a sandbox peer before the first start. */
   | { kind: 'waiting-peer'; serveUrl: string }
+  /** No peer connected within the start's wait. */
+  | { kind: 'peer-timeout'; serveUrl: string }
   | { kind: 'starting' }
   | { kind: 'reloading' }
   | { kind: 'failed'; message: string }
@@ -54,11 +62,15 @@ export interface FunctionsHttpGatewayOptions {
   onWarning?(warning: string): void;
   /** Hosting's cut for a rewritten request; tests shorten it. */
   hostingRewriteTimeoutSeconds?: number;
+  plane: FunctionsPlane;
 }
 
 export interface FunctionsHttpGateway {
-  /** Handle the request if it is for a function; false lets the plane carry on. */
-  handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+  /**
+   * Handle the request if it is for a function; false lets the plane carry on.
+   * `allowsAppOrigin` is the plane's Origin check, applied to private functions.
+   */
+  handle(req: IncomingMessage, res: ServerResponse, allowsAppOrigin: AppOriginCheck): Promise<boolean>;
   update(state: FunctionsHttpState): void;
   state(): FunctionsHttpState;
 }
@@ -108,29 +120,9 @@ const PLAIN_TEXT = { 'content-type': 'text/plain; charset=utf-8' };
 type Resolved =
   | { kind: 'function'; fn: HttpFunctionInfo; forwardUrl: string; viaRewrite: boolean }
   | { kind: 'refused'; message: string }
+  /** The emulator path shape with a key no served function has, and no rewrite for it. */
+  | { kind: 'unknown-function'; key: string }
   | { kind: 'pending' };
-
-/** Why a matched route cannot be served now; null once the child is ready. */
-function unavailableReason(state: FunctionsHttpState): string | null {
-  switch (state.kind) {
-    case 'waiting-peer':
-      return `Functions are not running yet: no browser tab is connected to pyric sandbox. Open ${state.serveUrl} to start them.`;
-    case 'starting':
-      return 'Functions are starting. Retry in a moment.';
-    case 'reloading':
-      return 'Functions are reloading after a source change. Retry in a moment.';
-    case 'failed':
-      return `Functions failed to start: ${state.message}`;
-    case 'unresponsive':
-      return 'The Functions child is unresponsive: a handler may be stuck in a synchronous loop. pyric is restarting it; retry in a moment.';
-    case 'exited':
-      return `The Functions child exited (code ${state.code}). Save a Functions source file or restart pyric to start it again.`;
-    case 'stopped':
-      return 'Functions are stopped.';
-    case 'ready':
-      return null;
-  }
-}
 
 type RewriteMatch =
   | { kind: 'function'; fn: HttpFunctionInfo }
@@ -165,6 +157,17 @@ function unknownRewriteTarget(key: string, functions: readonly HttpFunctionInfo[
   return `Function ${key} named by a hosting rewrite does not exist, valid functions are: ${served.join(', ')}`;
 }
 
+/** firebase-tools' 404 for an unknown trigger key (`functionsEmulator.js:1239-1243`). */
+function notFoundText(key: string, functions: readonly HttpFunctionInfo[]): string {
+  const keys = functions.flatMap((fn) => fn.regions.map((region) => `${region}-${fn.exportName}`));
+  return `Function ${key} does not exist, valid functions are: ${keys.join(', ')}`;
+}
+
+/** A GET or HEAD may be for a static file under a directory named after the project id. */
+function mayBeStaticRead(req: IncomingMessage): boolean {
+  return req.method === 'GET' || req.method === 'HEAD';
+}
+
 /**
  * The path Hosting matches rewrites against, as superstatic computes it
  * (`slasher(url.parse(req.url).pathname)`): undecoded, without the query or
@@ -192,7 +195,11 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     if (emulator?.kind === 'emulator-path') return { kind: 'pending' };
     const pathname = hostingPathname(rawUrl);
     const target = rewriteTarget(rewrites, pathname);
-    if (target === null || options.staticFileExists?.(pathname)) return null;
+    const isRewritten = target !== null && !options.staticFileExists?.(pathname);
+    if (!isRewritten) {
+      if (emulator?.kind === 'unknown-function') return { kind: 'unknown-function', key: emulator.key };
+      return null;
+    }
     if (functions === null) return { kind: 'pending' };
     const match = rewriteFunction(target, functions);
     if (match.kind === 'refused') {
@@ -207,16 +214,22 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     update(state) {
       current = state;
     },
-    async handle(req, res) {
+    async handle(req, res, allowsAppOrigin) {
       const state = current;
       const http = state.kind === 'ready' ? state.http : null;
       const functions = state.kind === 'ready' ? http?.functions ?? [] : null;
       const rawUrl = req.url ?? '/';
       const resolved = resolve(rawUrl, functions);
       if (resolved === null) return false;
-      const reason = unavailableReason(state);
+      const reason = unavailableReason(state, options.plane);
       if (reason !== null) {
         res.writeHead(503, { ...PLAIN_TEXT, 'retry-after': '1' }).end(reason);
+        return true;
+      }
+      if (resolved.kind === 'unknown-function') {
+        const leavesToPlane = http === null || mayBeStaticRead(req);
+        if (leavesToPlane) return false;
+        res.writeHead(404, PLAIN_TEXT).end(notFoundText(resolved.key, http.functions));
         return true;
       }
       if (resolved.kind !== 'function' || http === null) {
@@ -224,6 +237,7 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         res.writeHead(404, PLAIN_TEXT).end(message);
         return true;
       }
+      if (refuseForeignOrigin(req, res, resolved.fn, allowsAppOrigin)) return true;
       const headerOverrides = resolved.viaRewrite
         ? {
             cookie: sessionCookieOnly(req.headers.cookie),
@@ -235,6 +249,7 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
       const timeout = requestTimeout(resolved.fn, resolved, options.hostingRewriteTimeoutSeconds);
       const outcome = await proxyToChild(req, res, {
         port: http.port,
+        token: http.token,
         exportName: resolved.fn.exportName,
         forwardUrl: resolved.forwardUrl,
         timeoutMs: timeout.seconds * 1_000,

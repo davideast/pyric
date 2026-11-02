@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import {
   createFunctionsHttpGateway,
   requestTimeoutSeconds,
+  type AppOriginCheck,
   type FunctionsHttpGateway,
   type FunctionsHttpRecord,
 } from '../../src/functions/http/gateway.js';
@@ -14,6 +15,16 @@ import type { HttpFunctionInfo } from '../../src/functions/http/discovery.js';
 import { servedLine } from '../../src/functions/http/report.js';
 import { hostingRewrites } from '../../src/functions/http/rewrites.js';
 import { FUNCTION_TARGET_HEADER } from '../../src/functions/http/child-server.js';
+import { CHILD_TOKEN_HEADER } from '../../src/functions/http/child-token.js';
+
+const TOKEN = 'test-token';
+
+/** The plane's Origin check: only http://localhost:5173 is the app's own page. */
+const appOriginOnly: AppOriginCheck = (req) => req.headers.origin === undefined || req.headers.origin === 'http://localhost:5173';
+
+const info = (exportName: string, privateInvoker = false): HttpFunctionInfo => ({
+  exportName, regions: ['us-central1'], platform: 'gcfv2', privateInvoker, timeoutSeconds: null,
+});
 
 const servers: Server[] = [];
 
@@ -27,7 +38,7 @@ function listen(server: Server): Promise<string> {
 /** A plane: the gateway first, then a static fallback that answers 404. */
 async function plane(gateway: FunctionsHttpGateway): Promise<string> {
   return listen(createServer((req, res) => {
-    void gateway.handle(req, res).then((handled) => {
+    void gateway.handle(req, res, appOriginOnly).then((handled) => {
       if (!handled) res.writeHead(404).end('static');
     });
   }));
@@ -42,13 +53,16 @@ describe('functions HTTP gateway', () => {
     const gateway = createFunctionsHttpGateway({
       projectId: 'demo-app',
       initial: { kind: 'waiting-peer', serveUrl: 'http://localhost:3473' },
+      plane: 'pyric-sandbox',
     });
     const base = await plane(gateway);
     const read = async () => {
       const response = await fetch(`${base}/demo-app/us-central1/api`);
       return [response.status, await response.text()];
     };
-    expect(await read()).toEqual([503, 'Functions are not running yet: no browser tab is connected to pyric sandbox. Open http://localhost:3473 to start them.']);
+    expect(await read()).toEqual([503, 'Functions are not running yet: no browser tab is connected to the sandbox. Open http://localhost:3473 to start them.']);
+    gateway.update({ kind: 'peer-timeout', serveUrl: 'http://localhost:3473' });
+    expect(await read()).toEqual([503, 'Functions did not start: no browser tab connected to pyric sandbox within 30 s, and pyric sandbox does not retry. Open http://localhost:3473, then restart pyric sandbox.']);
     gateway.update({ kind: 'starting' });
     expect(await read()).toEqual([503, 'Functions are starting. Retry in a moment.']);
     gateway.update({ kind: 'reloading' });
@@ -58,36 +72,86 @@ describe('functions HTTP gateway', () => {
     gateway.update({ kind: 'unresponsive' });
     expect(await read()).toEqual([503, 'The Functions child is unresponsive: a handler may be stuck in a synchronous loop. pyric is restarting it; retry in a moment.']);
     gateway.update({ kind: 'exited', code: 1 });
-    expect(await read()).toEqual([503, 'The Functions child exited (code 1). Save a Functions source file or restart pyric to start it again.']);
+    expect(await read()).toEqual([503, 'The Functions child exited (code 1). Restart pyric sandbox to start it again.']);
     // A path that is not a function route is never claimed, whatever the state.
     expect((await fetch(`${base}/index.html`)).status).toBe(404);
   });
 
+  test('under Vite, the 503 lines name what Vite does to recover: it retries on a tab and reloads on save', async () => {
+    const gateway = createFunctionsHttpGateway({
+      projectId: 'demo-app',
+      initial: { kind: 'peer-timeout', serveUrl: 'http://localhost:5173' },
+      plane: 'vite',
+    });
+    const base = await plane(gateway);
+    const read = async () => (await fetch(`${base}/demo-app/us-central1/api`)).text();
+    expect(await read()).toBe('Functions are not running: no browser tab connected to the sandbox within 30 s. Open http://localhost:5173; they start when the tab connects.');
+    gateway.update({ kind: 'exited', code: 1 });
+    expect(await read()).toBe('The Functions child exited (code 1). Save a Functions source file or restart the Vite dev server to start it again.');
+  });
+
+  test('a write to an unknown function name gets firebase-tools\' 404; a read stays the plane\'s', async () => {
+    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, plane: 'pyric-sandbox' });
+    gateway.update({ kind: 'ready', http: { port: 1, token: TOKEN, functions: [info('api'), info('admin', true)] } });
+    const base = await plane(gateway);
+    const posted = await fetch(`${base}/demo-app/us-central1/typoName`, { method: 'POST', body: 'x' });
+    expect(posted.status).toBe(404);
+    expect(await posted.text()).toBe('Function us-central1-typoName does not exist, valid functions are: us-central1-api, us-central1-admin');
+    const read = await fetch(`${base}/demo-app/us-central1/typoName`);
+    expect([read.status, await read.text()]).toEqual([404, 'static']);
+  });
+
+  test('a private function refuses a foreign Origin; a public one answers it, as production does', async () => {
+    const seen: string[] = [];
+    const child = await listen(createServer((req, res) => {
+      seen.push(String(req.headers[FUNCTION_TARGET_HEADER]));
+      res.end('ran');
+    }));
+    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, plane: 'pyric-sandbox' });
+    gateway.update({ kind: 'ready', http: { port: Number(new URL(child).port), token: TOKEN, functions: [info('api'), info('admin', true)] } });
+    const base = await plane(gateway);
+    const post = (name: string, origin?: string) => fetch(`${base}/demo-app/us-central1/${name}`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', ...(origin === undefined ? {} : { origin }) },
+      body: 'x',
+    });
+
+    const foreign = await post('admin', 'https://attacker.example');
+    expect(foreign.status).toBe(403);
+    expect(await foreign.text()).toContain("invoker: 'private'");
+    expect(seen).toEqual([]);
+
+    expect((await post('admin', 'http://localhost:5173')).status).toBe(200);
+    expect((await post('admin')).status).toBe(200);
+    expect((await post('api', 'https://attacker.example')).status).toBe(200);
+    expect(seen).toEqual(['admin', 'admin', 'api']);
+  });
+
   test('forwards a served function to the child with its body and streams the answer back', async () => {
-    const seen: Array<{ url: string | undefined; target: unknown; body: string }> = [];
+    const seen: Array<{ url: string | undefined; target: unknown; token: unknown; body: string }> = [];
     const child = await listen(createServer((req, res) => {
       let body = '';
       req.setEncoding('utf8');
       req.on('data', (chunk: string) => { body += chunk; });
       req.on('end', () => {
-        seen.push({ url: req.url, target: req.headers[FUNCTION_TARGET_HEADER], body });
+        seen.push({ url: req.url, target: req.headers[FUNCTION_TARGET_HEADER], token: req.headers[CHILD_TOKEN_HEADER], body });
         res.writeHead(201, { 'content-type': 'text/plain', 'set-cookie': ['a=1', 'b=2'] });
         res.write('one,');
         res.end('two');
       });
     }));
     const port = Number(new URL(child).port);
-    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' } });
+    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, plane: 'pyric-sandbox' });
     gateway.update({
       kind: 'ready',
-      http: { port, functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: null }] },
+      http: { port, token: TOKEN, functions: [info('api')] },
     });
     const base = await plane(gateway);
     const response = await fetch(`${base}/demo-app/us-central1/api/items?x=1`, { method: 'POST', body: 'payload' });
     expect(response.status).toBe(201);
     expect(response.headers.getSetCookie()).toEqual(['a=1', 'b=2']);
     expect(await response.text()).toBe('one,two');
-    expect(seen).toEqual([{ url: '/items?x=1', target: 'api', body: 'payload' }]);
+    expect(seen).toEqual([{ url: '/items?x=1', target: 'api', token: TOKEN, body: 'payload' }]);
 
     // Only discovered names are function routes; anything else is the plane's (the plan's collision rule).
     const missing = await fetch(`${base}/demo-app/us-central1/nope`);
@@ -103,12 +167,12 @@ describe('functions HTTP gateway', () => {
       privateInvoker: false,
       timeoutSeconds: null,
       handler: ((req: { ip: string; hostname: string; protocol: string; headers: Record<string, unknown> }, res: { json(value: unknown): void }) => {
-        res.json({ ip: req.ip, hostname: req.hostname, protocol: req.protocol, forwardedFor: req.headers['x-forwarded-for'], secret: req.headers['x-secret'] ?? null });
+        res.json({ ip: req.ip, hostname: req.hostname, protocol: req.protocol, forwardedFor: req.headers['x-forwarded-for'], secret: req.headers['x-secret'] ?? null, token: req.headers[CHILD_TOKEN_HEADER] ?? null });
       }) as DiscoveredOnRequest['handler'],
     };
-    const child = await startHttpChildServer(join(import.meta.dir, '../../../conformance/package.json'), [report]);
-    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' } });
-    gateway.update({ kind: 'ready', http: { port: child.port, functions: [report] } });
+    const child = await startHttpChildServer(join(import.meta.dir, '../../../conformance/package.json'), [report], { token: TOKEN });
+    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, plane: 'pyric-sandbox' });
+    gateway.update({ kind: 'ready', http: { port: child.port, token: TOKEN, functions: [report] } });
     const base = new URL(await plane(gateway));
     try {
       const seen = await new Promise<Record<string, unknown>>((resolveSeen, rejectSeen) => {
@@ -138,6 +202,7 @@ describe('functions HTTP gateway', () => {
         protocol: 'http',
         forwardedFor: '6.6.6.6, 127.0.0.1',
         secret: null,
+        token: null,
       });
     } finally {
       await child.close();
@@ -154,6 +219,7 @@ describe('functions HTTP gateway', () => {
     const gateway = createFunctionsHttpGateway({
       projectId: 'demo-app',
       initial: { kind: 'starting' },
+      plane: 'pyric-sandbox',
       rewrites: hostingRewrites({ hosting: { rewrites: [{ source: '/api/**', function: 'api' }, { source: '/east/**', function: { functionId: 'api', region: 'us-east1' } }] } }),
       staticFileExists: (pathname) => pathname === '/api/static.txt',
       onServed: (record) => records.push(record),
@@ -162,7 +228,7 @@ describe('functions HTTP gateway', () => {
     expect((await fetch(`${base}/api/before`)).status).toBe(503);
     gateway.update({
       kind: 'ready',
-      http: { port: Number(new URL(child).port), functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: null }] },
+      http: { port: Number(new URL(child).port), token: TOKEN, functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: null }] },
     });
     const response = await fetch(`${base}/api/items/42?x=1`, { headers: { cookie: 'other=1; __session=s1' } });
     expect(await response.text()).toBe('ok');
@@ -184,10 +250,10 @@ describe('functions HTTP gateway', () => {
       }
     }));
     const records: FunctionsHttpRecord[] = [];
-    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, onServed: (record) => records.push(record) });
+    const gateway = createFunctionsHttpGateway({ projectId: 'demo-app', initial: { kind: 'starting' }, plane: 'pyric-sandbox', onServed: (record) => records.push(record) });
     gateway.update({
       kind: 'ready',
-      http: { port: Number(new URL(child).port), functions: [{ exportName: 'slow', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: 1 }] },
+      http: { port: Number(new URL(child).port), token: TOKEN, functions: [{ exportName: 'slow', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: 1 }] },
     });
     const base = await plane(gateway);
     const startedAt = Date.now();
@@ -226,6 +292,7 @@ describe('functions HTTP gateway', () => {
     const gateway = createFunctionsHttpGateway({
       projectId: 'demo-app',
       initial: { kind: 'starting' },
+      plane: 'pyric-sandbox',
       rewrites: hostingRewrites({
         hosting: {
           rewrites: [
@@ -245,6 +312,7 @@ describe('functions HTTP gateway', () => {
       kind: 'ready',
       http: {
         port: Number(new URL(child).port),
+        token: TOKEN,
         functions: [
           info('eu', ['europe-west1']),
           info('both', ['europe-west1', 'us-central1']),
@@ -282,13 +350,14 @@ describe('functions HTTP gateway', () => {
     const gateway = createFunctionsHttpGateway({
       projectId: 'demo-app',
       initial: { kind: 'starting' },
+      plane: 'pyric-sandbox',
       rewrites: hostingRewrites({ hosting: { rewrites: [{ source: '/api/**', function: 'api' }] } }),
       // A short stand-in for Hosting's 60 s, so the test runs in under a second.
       hostingRewriteTimeoutSeconds: 0.2,
     });
     gateway.update({
       kind: 'ready',
-      http: { port: Number(new URL(child).port), functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: 5 }] },
+      http: { port: Number(new URL(child).port), token: TOKEN, functions: [{ exportName: 'api', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: 5 }] },
     });
     const base = await plane(gateway);
     const [rewritten, direct] = await Promise.all([fetch(`${base}/api/slow`), fetch(`${base}/demo-app/us-central1/api/slow`)]);

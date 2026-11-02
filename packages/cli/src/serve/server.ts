@@ -146,7 +146,7 @@ export function isAllowedOrigin(
  * loopback, so only the port tells them apart. `undefined` means the ports
  * are not known, and only the Origin's hostname is compared.
  */
-function isAllowedOriginOnPorts(
+export function isAllowedOriginOnPorts(
   originHeader: string | undefined,
   boundHost: string,
   extra: string[],

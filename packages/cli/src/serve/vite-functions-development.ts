@@ -40,6 +40,8 @@ export interface ViteFunctionsDevelopmentOptions {
   rewrites?: readonly HostingRewrite[];
   /** Whether a file the dev server serves answers this path; files win over rewrites. */
   staticFileExists?(pathname: string): boolean;
+  /** Whether the Origin is absent or the app's own page; private functions refuse any other. */
+  allowsAppOrigin(req: IncomingMessage): boolean;
   watcher: ViteDevServer['watcher'];
   logger: ViteDevServer['config']['logger'];
   bridge: BridgeMount;
@@ -184,13 +186,14 @@ export function attachViteFunctionsDevelopment(
       if (failed) options.logger.error(`  ✖ [pyric] ${line}`);
       else options.logger.info(`  ✔ [pyric] ${line}`);
     },
+    plane: 'vite',
   });
   options.middlewares.use((req, res, next) => {
     if (closed || !options.isAllowedRequest(req)) {
       next();
       return;
     }
-    gateway.handle(req, res).then((handled) => {
+    gateway.handle(req, res, options.allowsAppOrigin).then((handled) => {
       if (!handled) next();
     }, next);
   });

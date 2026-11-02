@@ -8,6 +8,7 @@ import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
+import { request } from 'node:http';
 import { join, resolve } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { functionsHttpCaptureDir } from '@pyric/conformance/functions-http-fixture';
@@ -46,6 +47,21 @@ async function waitFor(read: () => Promise<boolean>, timeoutMs: number, logs: re
     await Bun.sleep(100);
   }
   throw new Error(`timed out; dev server logs:\n${logs.slice(-30).join('\n')}`);
+}
+
+/** A raw request, so the test can send a foreign Host, as a rebinding page's browser would. */
+function rawRequest(base: string, path: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+  const { hostname, port } = new URL(base);
+  return new Promise((resolveCall, rejectCall) => {
+    const outgoing = request({ host: hostname, port, path, method: 'POST', headers }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => { body += chunk; });
+      response.on('end', () => resolveCall({ status: response.statusCode ?? 0, body }));
+    });
+    outgoing.on('error', rejectCall);
+    outgoing.end('x');
+  });
 }
 
 function stageFixture(): string {
@@ -117,6 +133,29 @@ describe('functions-http on the Vite plane', () => {
 
     expect((await fetch(`${base}/${PROJECT_ID}/us-east1/pyricHttpRegional`)).status).toBe(200);
     expect((await fetch(`${base}/${PROJECT_ID}/us-east1/pyricHttpEcho`)).status).toBe(404);
+    // A write to an unknown name gets firebase-tools' 404, as under pyric sandbox.
+    const typo = await fetch(`${base}/${PROJECT_ID}/us-central1/typoName`, { method: 'POST', body: 'x' });
+    expect(typo.status).toBe(404);
+    expect(await typo.text()).toStartWith('Function us-central1-typoName does not exist, valid functions are: ');
+
+    // A foreign Host is never proxied: Vite's own host check answers instead of the function.
+    const rebound = await rawRequest(base, `/${PROJECT_ID}/us-central1/pyricHttpEcho`, { host: 'attacker.example', 'content-type': 'text/plain' });
+    expect(rebound.status).toBe(403);
+    expect(rebound.body).not.toContain('"method"');
+
+    // A private function refuses a foreign Origin; the app's own page and Origin-less callers reach it.
+    const privateUrl = `${base}/${PROJECT_ID}/us-central1/pyricHttpPrivate`;
+    const postFrom = (url: string, origin?: string) => fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', ...(origin === undefined ? {} : { origin }) },
+      body: 'x',
+    });
+    const foreign = await postFrom(privateUrl, 'https://attacker.example');
+    expect(foreign.status).toBe(403);
+    expect(await foreign.text()).toContain("invoker: 'private'");
+    expect((await postFrom(privateUrl, base)).status).toBe(200);
+    expect((await postFrom(privateUrl)).status).toBe(200);
+    expect((await postFrom(echoUrl, 'https://attacker.example')).status).toBe(200);
 
     const id = `vite-${Date.now()}`;
     expect((await fetch(`${echoUrl}?adminWrite=${id}`)).status).toBe(200);

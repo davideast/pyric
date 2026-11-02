@@ -3,11 +3,15 @@
  * app from the express that the user's own firebase-functions install depends
  * on, with the request parsing the Cloud Functions runtime applies
  * (functions-framework-nodejs `src/server.ts`), and hands each request to the
- * export the host named. The host proxies every plane to this one listener.
+ * export the host named. The host proxies every plane to this one listener,
+ * and only the host's proxy may reach it: a request without the spawn's token
+ * gets 403 before anything else runs.
  */
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo, Socket } from 'node:net';
+import { timingSafeTokenMatch } from '../../serve/server.js';
+import { CHILD_TOKEN_HEADER } from './child-token.js';
 import type { DiscoveredOnRequest } from './discovery.js';
 
 /** The request header the host sets to name the export a request is for. */
@@ -48,6 +52,8 @@ interface ExpressModule {
 const DRAIN_MS = 1_000;
 
 export interface HttpChildServerOptions {
+  /** The spawn's token; every request must carry it in CHILD_TOKEN_HEADER. */
+  token: string;
   drainMs?: number;
 }
 
@@ -65,6 +71,24 @@ function loadExpress(entry: string): ExpressModule {
 
 function saveRawBody(req: IncomingMessage, _res: ServerResponse, body: Buffer): void {
   (req as IncomingMessage & { rawBody?: Buffer }).rawBody = body;
+}
+
+/**
+ * Refuses any caller but the host's proxy, before body parsing or dispatch,
+ * and strips the token so the function never sees it.
+ */
+function requireToken(token: string): Middleware {
+  return (req, res, next) => {
+    const presented = req.headers[CHILD_TOKEN_HEADER];
+    delete req.headers[CHILD_TOKEN_HEADER];
+    const isFromProxy = typeof presented === 'string' && timingSafeTokenMatch(presented, token);
+    if (!isFromProxy) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('pyric: the Functions child answers only the pyric proxy. Call the function through the URL pyric printed.');
+      return;
+    }
+    next();
+  };
 }
 
 function dispatch(functions: ReadonlyMap<string, DiscoveredOnRequest>): Middleware {
@@ -112,7 +136,7 @@ function drainAndClose(server: Server, sockets: ReadonlySet<Socket>, drainMs: nu
 export function startHttpChildServer(
   entry: string,
   discovered: readonly DiscoveredOnRequest[],
-  options: HttpChildServerOptions = {},
+  options: HttpChildServerOptions,
 ): Promise<HttpChildServer> {
   const express = loadExpress(entry);
   const app = express();
@@ -122,6 +146,7 @@ export function startHttpChildServer(
   // One trusted hop: the host's proxy, which appends the client to X-Forwarded-For.
   // req.ip is then the client the proxy saw, never an address the client claimed.
   app.set('trust proxy', 1);
+  app.use(requireToken(options.token));
   const parser = { limit: BODY_LIMIT, verify: saveRawBody };
   app.use(express.json({ ...parser, type: 'application/cloudevents+json' }));
   app.use(express.json(parser));
