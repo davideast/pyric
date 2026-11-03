@@ -1,6 +1,6 @@
 # The factory harness's unit tests (test/builders/factory): its gates, UI
-# rules and copy check, known failures, git hardening, serving and the
-# supervisor. They reach no network; bubblewrap sandboxes the fetch's
+# rules and copy check, known failures, git hardening, serving, the served
+# copy's status page and the supervisor. They reach no network; bubblewrap sandboxes the fetch's
 # upload-pack, and session-runner.test.ts runs whole session sandboxes.
 #
 # Outside the required CI aggregate: the factory is a test harness, not a
@@ -76,6 +76,7 @@ jobs:
           test/builders/factory/layout-probe.test.ts
           test/builders/factory/next-config.test.ts
           test/builders/factory/served-owner.test.ts
+          test/builders/factory/served-status.test.ts
           test/builders/factory/serving.test.ts
           test/builders/factory/session-end.test.ts
           test/builders/factory/session-runner.test.ts

@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { UsageError } from '../cli-args.ts';
+import { factoryHourCommand } from './app-commands.ts';
+import { factoryCommand } from './commands.ts';
 import { parseCheckOptions, parseFactoryOptions } from './options.ts';
 import { pauseAfterRateLimit } from './rate-limit.ts';
 import { AGENT_NAMES } from './agents/registry.ts';
@@ -32,6 +34,22 @@ describe('parseFactoryOptions', () => {
     expect(() => parseFactoryOptions(['--run-dir', 'night'])).toThrow(UsageError);
     for (const hours of ['0', '25', '-1', 'eight', '1e1']) expect(() => parseFactoryOptions(['--run-dir', 'night', '--hours', hours])).toThrow(UsageError);
     expect(() => parseFactoryOptions(['--run-dir', 'night', '--resume', 'extra'])).toThrow(new UsageError('unexpected arguments: extra'));
+  });
+});
+
+describe('PYRIC_FACTORY_SERVE_HOST', () => {
+  test('a bad serve address stops factory and factory-hour before anything runs', async () => {
+    const before = process.env.PYRIC_FACTORY_SERVE_HOST;
+    const runDir = join(mkdtempSync(join(tmpdir(), 'factory-serve-host-')), 'never-made');
+    process.env.PYRIC_FACTORY_SERVE_HOST = '::ffff:0.0.0.0';
+    try {
+      expect(await factoryCommand(['--run-dir', runDir, '--hours', '1'])).toBe(2);
+      expect(await factoryHourCommand(['--run-dir', runDir, '--hour', '1'])).toBe(2);
+      expect(existsSync(runDir)).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.PYRIC_FACTORY_SERVE_HOST;
+      else process.env.PYRIC_FACTORY_SERVE_HOST = before;
+    }
   });
 });
 

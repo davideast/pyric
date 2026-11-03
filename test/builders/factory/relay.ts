@@ -4,7 +4,8 @@
  * host reaches them through `/proc/<pid>/root/...`, so the path resolves
  * inside that sandbox's own file system: a socket file Studio's code
  * replaced with a link to one of the host's sockets leads nowhere. The host
- * then listens on a port of its loopback (the served copy), or on a Unix
+ * then listens on a port (the served copy, on loopback or the address
+ * `PYRIC_FACTORY_SERVE_HOST` names, `serve-host.ts`), or on a Unix
  * socket in the walk sandbox's root (the walks), and pipes each connection
  * through.
  *
@@ -13,12 +14,14 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, symlinkSync } from 'node:fs';
-import { connect, createServer, type Server } from 'node:net';
+import { connect, createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { EgressNamespace } from '../namespace.ts';
 import { trackGroup } from './exec.ts';
+import { LOOPBACK } from './serve-host.ts';
 import { pipeBoth } from './socket-bridge.ts';
+import { routeConnection, type StatusRoute } from './status-route.ts';
 
 const SOCKET_BRIDGE = fileURLToPath(new URL('./socket-bridge.ts', import.meta.url));
 const SOCKET_WAIT_MS = 15_000;
@@ -58,10 +61,15 @@ function listen(server: Server, start: (done: () => void) => void): Promise<Serv
   });
 }
 
-/** Listens on `port` of the host's loopback and pipes each connection to `socket`. */
-export function relayPortToSocket(port: number, socket: string): Promise<Server> {
-  const server = createServer((client) => pipeBoth(client, connect(socket)));
-  return listen(server, (done) => server.listen(port, '127.0.0.1', done));
+function connectionHandler(socket: string, route: StatusRoute | undefined): (client: Socket) => void {
+  if (route === undefined) return (client) => pipeBoth(client, connect(socket));
+  return (client) => routeConnection(client, () => connect(socket), route);
+}
+
+/** Listens on `port` of `host`, the loopback unless given, and pipes each connection to `socket`, answering `route` itself when given (`status-route.ts`). */
+export function relayPortToSocket(port: number, socket: string, host: string = LOOPBACK, route?: StatusRoute): Promise<Server> {
+  const server = createServer(connectionHandler(socket, route));
+  return listen(server, (done) => server.listen(port, host, done));
 }
 
 /** Listens on the Unix socket `listenPath` and pipes each connection to `socket`. */

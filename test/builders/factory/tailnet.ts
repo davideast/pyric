@@ -3,14 +3,15 @@
  * `tailscale serve --bg --https=<port>` gives `https://<host>:<port>`, where
  * the host is this machine's name on that network. The Tailscale CLI is the
  * one `PYRIC_FACTORY_TAILSCALE` names; without it nothing is published and
- * the served copy stays on 127.0.0.1. `PYRIC_FACTORY_TAILNET_HOST` names the
- * host when `tailscale status` can't.
+ * the served copy stays on the address it listens on (`serve-host.ts`).
+ * `PYRIC_FACTORY_TAILNET_HOST` names the host when `tailscale status` can't.
  *
  * Only the entries this run added are recorded, and only those are removed
  * when the run ends; an entry the machine already had is left as it is.
  */
 import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
+import { hostInUrl, LOOPBACK } from './serve-host.ts';
 
 const TIMEOUT_MS = 30_000;
 
@@ -70,9 +71,9 @@ export interface Published {
   added: number[];
 }
 
-/** Serves each port on the private network unless it already is. */
-export function ensureServed(ports: readonly number[], tailscale: Tailscale | undefined): Published {
-  if (tailscale === undefined) return { lines: ['PYRIC_FACTORY_TAILSCALE is not set; the served copy is on 127.0.0.1 only'], added: [] };
+/** Serves each port on the private network unless it already is, proxied to that port on `host`. */
+export function ensureServed(ports: readonly number[], tailscale: Tailscale | undefined, host: string = LOOPBACK): Published {
+  if (tailscale === undefined) return { lines: ['PYRIC_FACTORY_TAILSCALE is not set; the served copy is on its own address only'], added: [] };
   const status = tailscale(['serve', 'status']).stdout;
   const lines: string[] = [];
   const added: number[] = [];
@@ -81,7 +82,7 @@ export function ensureServed(ports: readonly number[], tailscale: Tailscale | un
       lines.push(`${port}: already served on the private network`);
       continue;
     }
-    const result = tailscale(['serve', '--bg', `--https=${port}`, `http://127.0.0.1:${port}`]);
+    const result = tailscale(['serve', '--bg', `--https=${port}`, `http://${hostInUrl(host)}:${port}`]);
     if (!result.ok) {
       lines.push(`${port}: tailscale serve failed: ${result.stderr.trim()}`);
       continue;
