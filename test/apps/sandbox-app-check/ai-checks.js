@@ -1,6 +1,7 @@
 // The Firebase AI Logic calls an app makes, with and without App Check, shared
 // by the page (main.js) and the registered Node process (ai-server.mjs).
-// From November 2, 2026 AI Logic refuses requests without an App Check token.
+// A project that enforces App Check refuses AI Logic requests without a token,
+// and so does the sandbox.
 import { initializeApp } from "firebase/app";
 import { CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
 import { VertexAIBackend, getAI, getGenerativeModel } from "firebase/ai";
