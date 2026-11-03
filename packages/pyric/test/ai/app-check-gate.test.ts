@@ -24,7 +24,7 @@ import { AiBroker } from '../../src/ai/broker/broker.js';
 import { AiBrokerError, errorEnvelope } from '../../src/ai/broker/synthesizer.js';
 import type { AnswerEngine } from '../../src/ai/broker/types.js';
 import { createTransportAI } from '../../src/ai/internal.js';
-import { APP_CHECK_HINT, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
+import { APP_CHECK_HINT, APP_CHECK_REFUSAL_NOTE, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
 import { mintAppCheckToken, signAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
@@ -112,6 +112,21 @@ describe('ai#sandbox-app-check-required', () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
     expect(earlierHeader.noAppCheck.responseStatus).toBe(403);
+  });
+
+  it('the guidance says enforcement is set per project and the sandbox plays an enforced one (#1834)', () => {
+    expect(APP_CHECK_REFUSAL_NOTE).toBe(
+      'The sandbox refuses AI Logic requests without an App Check token with a 403, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.',
+    );
+    expect(APP_CHECK_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
+    expect(APP_CHECK_SERVER_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
+  });
+
+  it('the page hint fits the dev server terminal whole', () => {
+    // AI_TERMINAL_TEXT_MAX in packages/cli/src/serve/ai-terminal-text.ts: the
+    // terminal cuts longer text and marks the cut.
+    const terminalTextMax = 512;
+    expect(APP_CHECK_HINT.length).toBeLessThanOrEqual(terminalTextMax);
   });
 
   it('the refusal logs pyric guidance once per app beside the SDK error', async () => {
