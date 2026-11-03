@@ -16,6 +16,20 @@ const swap = createViteModuleSwap(context);
 const userImporter = '/some/app/src/main.ts';
 const pyricImporter = path.join(pyricPackageRoot(), 'dist', 'firestore', 'index.js');
 
+/** The id prefix of a module that throws the stop error. */
+const STOP_PREFIX = '\0pyric-stop:';
+
+/** The error a stop module throws when it is imported. */
+async function thrownBy(source: string | null): Promise<Error & { code?: string }> {
+  expect(source).not.toBeNull();
+  try {
+    await import(`data:text/javascript;base64,${Buffer.from(source as string).toString('base64')}`);
+  } catch (error) {
+    return error as Error & { code?: string };
+  }
+  throw new Error(`the module did not throw:\n${source}`);
+}
+
 describe('Vite module swap', () => {
   it('swaps every served Firebase entry for app and dependency importers', () => {
     for (const specifier of SDK_MODULES) {
@@ -166,13 +180,27 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     expect(buildSwap.configEnvironment('worker', {})).toBeNull();
   });
 
-  it('gives the client its entries through the alias, and passes the rest to Vite', async () => {
+  it('gives the client its entries through the alias, and firebase-admin the stop', async () => {
     const fake = fakeContext(clientEnvironment);
     expect(await swap.resolvePluginId(fake, aliased('firebase/firestore'), userImporter)).toBe(context.entries.firestore);
-    expect(await swap.resolvePluginId(fake, aliased('firebase-admin/app'), userImporter))
-      .toEqual({ id: '/node_modules/firebase-admin/app.js' });
-    expect(fake.passedOn).toEqual(['firebase-admin/app']);
+    const admin = await swap.resolvePluginId(fake, aliased('firebase-admin/app'), userImporter);
+    expect(admin).toStartWith(STOP_PREFIX);
+    const source = await swap.loadPluginModule(admin as string);
+    // Declared, so a browser links the page's named import and then gets the stop.
+    expect(source).toContain('__pyricStopped as initializeApp');
+    const error = await thrownBy(source);
+    expect(error.code).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(error.message).toContain('stopped loading the real firebase-admin');
+    expect(fake.passedOn).toEqual([]);
     expect(await swap.resolvePluginId(fake, 'react', userImporter)).toBeNull();
+  });
+
+  it("passes a shadow app's own firebase/app to Vite on the server in production AI mode", async () => {
+    const prodSwap = createViteModuleSwap(context, { getAiMode: () => 'production' });
+    const fake = fakeContext(runnableSsr);
+    const shadow = path.join(context.cliRoot, 'src', 'register', 'client', 'app-bridge.ts');
+    expect(await prodSwap.resolvePluginId(fake, aliased('firebase/app'), shadow)).toEqual({ id: '/node_modules/firebase/app.js' });
+    expect(fake.passedOn).toEqual(['firebase/app']);
   });
 
   it('routes a runnable server environment to what the register maps a remote Node process to', async () => {
@@ -227,5 +255,53 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     expect(source).toContain('const __pyricTarget = await loadServerTarget("pyric-admin/app");');
     expect(source).toMatch(/__pyric\d+ as initializeApp/);
     expect(await swap.loadPluginModule('/src/app.ts')).toBeNull();
+  });
+});
+
+describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', () => {
+  it('gives an unserved firebase/* subpath a module that throws the stop error', async () => {
+    const id = swap.resolveId('firebase/installations', userImporter);
+    expect(id).toStartWith(STOP_PREFIX);
+    const source = await swap.loadPluginModule(id as string);
+    expect(source).toContain('__pyricStopped as getInstallations');
+    const error = await thrownBy(source);
+    expect(error.code).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(error.message).toContain('stopped loading the real firebase');
+    expect(error.message).toContain("import 'firebase/installations'");
+    expect(error.message).toContain(`from   ${userImporter}`);
+    expect(error.message).toMatch(/found {2}file:\/\/\S*\/node_modules\/firebase\/installations\//);
+  });
+
+  it('stops an unserved subpath from a dependency too, with one module per import', () => {
+    const dependency = '/app/node_modules/a-library/index.js';
+    const id = swap.resolveId('firebase/installations', dependency);
+    expect(id).toStartWith(STOP_PREFIX);
+    expect(swap.resolveId('firebase/installations', dependency)).toBe(id);
+    expect(swap.resolveId('firebase/installations', userImporter)).not.toBe(id);
+    expect(swap.resolveId('firebase/compat/app', userImporter)).toStartWith(STOP_PREFIX);
+  });
+
+  it('leaves a subpath the firebase package does not have for Vite to report', () => {
+    expect(swap.resolveId('firebase/not-served', userImporter)).toBeNull();
+  });
+
+  it('keeps an unserved subpath out of the pre-bundle, so the browser gets the stop', async () => {
+    const plugins = swap.config().optimizeDeps?.esbuildOptions?.plugins ?? [];
+    const resolvers: Array<(args: { path: string; importer: string }) => unknown> = [];
+    const build = {
+      onResolve: (options: { filter: RegExp }, run: (args: { path: string; importer: string }) => unknown) => {
+        if (options.filter.test('firebase/installations')) resolvers.push(run);
+      },
+      onLoad: () => undefined,
+    };
+    for (const plugin of plugins) plugin.setup(build as never);
+    const results = resolvers.map((run) => run({ path: 'firebase/installations', importer: '/app/node_modules/a-library/index.js' }));
+    expect(results).toContainEqual({ path: 'firebase/installations', external: true });
+  });
+
+  it('lets production AI mode load the real firebase/ai, and still stops unserved subpaths', () => {
+    const prodSwap = createViteModuleSwap(context, { getAiMode: () => 'production' });
+    expect(prodSwap.resolveId('firebase/ai', userImporter)).toBeNull();
+    expect(prodSwap.resolveId('firebase/installations', userImporter)).toStartWith(STOP_PREFIX);
   });
 });

@@ -11,7 +11,16 @@
 // and refuses what it permits. SSR's config holds the host: a page whose
 // config only adds measurementId is accepted, a page with another storage
 // bucket is refused, and SSR keeps working after both load.
+//
+// Swap or stop (ADR 0022): a real Firebase SDK load the swap doesn't serve
+// stops with PYRIC_REAL_SDK_STOPPED. An installed package Vite externalizes,
+// which imports firebase-admin/app itself, fails the SSR request before the
+// real package runs, and trap.cjs, preloaded into the hosted dev server,
+// records no connection. A page that imports firebase/installations, which the
+// plugin doesn't serve, gets the stop error in Chromium.
 import assert from 'node:assert/strict';
+import { cpSync } from 'node:fs';
+import { join } from 'node:path';
 import { scenario, type App, type DevServer } from '../driver.ts';
 
 type Outcome = { ok: true; value: unknown } | { ok: false; code: string | null; message: string };
@@ -84,6 +93,14 @@ function assertRunsAsUser(run: Run, tag: string): string {
   return uid;
 }
 
+/** The hosts trap.cjs sent to its closed port in the dev server process. */
+async function trappedHosts(server: DevServer): Promise<string[]> {
+  const response = await fetch(`${server.url}/ssr/trapped`);
+  const trapped = JSON.parse(await response.text()) as string[] | null;
+  assert.ok(Array.isArray(trapped), 'trap.cjs did not load in the dev server');
+  return trapped;
+}
+
 /** Nothing in the dev server log since `since` shows live Firebase traffic or an answer from it. */
 function assertNoProductionTraffic(server: DevServer, since: number): void {
   const log = server.process.output.slice(since);
@@ -109,7 +126,12 @@ async function externalizationShape(app: App, noExternal: 'firebase' | 'all', ru
 }
 
 export default scenario(async (app) => {
-  const host = await app.step('start the hosted dev server', () => app.devServer());
+  await app.step("copy the app's own local-admin-lib package into node_modules", () =>
+    cpSync(join(app.dir, 'local-admin-lib'), join(app.dir, 'node_modules', 'local-admin-lib'), { recursive: true }));
+  const closedPort = await app.freePort();
+  const host = await app.step('start the hosted dev server, with trap.cjs preloaded', () => app.devServer({
+    env: { NODE_OPTIONS: '--require ./trap.cjs', SCENARIO_CLOSED_PORT: String(closedPort) },
+  }));
   const since = host.process.mark();
 
   const uid = await app.step('ssrLoadModule: SSR reaches the host as its signed-in user, under the rules', async () =>
@@ -177,6 +199,28 @@ export default scenario(async (app) => {
       assert.ok(result.output.includes(`${tag}: ${JSON.stringify(expected)}`), result.output);
     }
     assert.match(result.output, /browser: \{"rtdb":\{"from":"browser"\},"firestore":\{"from":"browser"\}\}/);
+  });
+
+  await app.step('an externalized package that imports firebase-admin/app fails the SSR request with the stop error', async () => {
+    const logSince = host.process.mark();
+    const before = await trappedHosts(host);
+    const response = await fetch(`${host.url}/ssr/local-admin?runner=legacy`);
+    const body = await response.text();
+    assert.equal(response.status, 500, body);
+    assert.match(body, /stopped loading the real firebase-admin\n {2}import 'firebase-admin\/app'/, body);
+    await host.process.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { since: logSince, timeoutMs: 10_000 });
+    assert.deepEqual((await trappedHosts(host)).slice(before.length), [], 'trap.cjs recorded a connection');
+  });
+
+  await app.step('a page that imports firebase/installations gets the stop error in Chromium', async () => {
+    const page = await app.page(`${host.url}/installations.html`);
+    await page.waitForFunction(() => 'installations' in window);
+    const result = await page.evaluate(() => (window as unknown as { installations: Outcome }).installations);
+    await page.close();
+    assert.equal(result.ok, false, JSON.stringify(result));
+    if (result.ok) return;
+    assert.equal(result.code, 'PYRIC_REAL_SDK_STOPPED', JSON.stringify(result));
+    assert.match(result.message, /stopped loading the real firebase\n {2}import 'firebase\/installations'/, result.message);
   });
 
   await app.step('no SSR call reached live Firebase', () => assertNoProductionTraffic(host, since));
