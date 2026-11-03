@@ -1,11 +1,11 @@
 /**
- * Keeps the served copy on the last good commit. After each check: a failing
- * hour leaves it alone; a passing hour records its commit in
- * `last-good.json` and, when the commit is new or nothing serves, stops the
- * served process, exports the commit into a fresh tree of `<run>.work/`, and
- * starts `served-process.ts` there, detached, on the fixed port. Only that
- * port goes on the private network (`tailnet.ts`); Pyric's WebSocket port
- * stays on this machine's loopback.
+ * The served copy's process. `serve-newest.ts` decides what to serve after
+ * each check; this file stops the served process, exports a commit into a
+ * fresh tree of `<run>.work/`, and starts `served-process.ts` there,
+ * detached, on the fixed port of the address `PYRIC_FACTORY_SERVE_HOST`
+ * names, loopback by default (`serve-host.ts`). Only that port goes on the
+ * private network (`tailnet.ts`); Pyric's WebSocket port stays on this
+ * machine's loopback.
  *
  * Before it signals the served process, the harness checks the pid in
  * `served.json` against /proc: its command line must be `served-process.ts`
@@ -27,14 +27,14 @@ import { startTimeOf } from '../namespace.ts';
 import { appPaths, type AppPaths } from './app-paths.ts';
 import type { AppRecord } from './app-setup.ts';
 import { appendFile } from './host-files.ts';
-import { readLastGood, serveAction, writeLastGood, type ServeAction } from './last-good.ts';
 import { optional } from './optional.ts';
-import type { SandboxOpener } from './sandbox.ts';
 import { DEFAULT_SERVED_PORT, servedStateFile, servedStateSchema, type ServedState } from './served-process.ts';
 import { hasRun, readRun, runPaths } from './run-dir.ts';
 import { recordEntries, removeRecordedEntries } from './served-entries.ts';
 import { ownerArgs, type Owner } from './served-owner.ts';
+import { hostInUrl } from './serve-host.ts';
 import { readJson } from './state-files.ts';
+import { STATUS_PATH } from './status-page.ts';
 import { bunCacheDir } from './studio-install.ts';
 import { ensureServed, tailnetHost, tailnetUrl, tailscaleFrom } from './tailnet.ts';
 import { ffmpegEnvironment, recordedFfmpeg } from './tools.ts';
@@ -133,10 +133,17 @@ function currentOwner(runDir: string): Owner {
   return owner;
 }
 
-async function startServed(paths: AppPaths, record: AppRecord, commit: string, port: number, signal?: AbortSignal): Promise<ServedState | undefined> {
+interface Listen {
+  commit: string;
+  port: number;
+  host: string;
+}
+
+async function startServed(paths: AppPaths, record: AppRecord, listen: Listen, signal?: AbortSignal): Promise<ServedState | undefined> {
+  const { commit, port, host } = listen;
   const tree = exportTree(paths, commit, 'served');
   const log = openSync(join(paths.host, 'served-process.log'), 'a');
-  const args = [SERVED_PROCESS, '--run-dir', paths.runDir, '--commit', commit, '--root', tree.root, '--port', String(port), ...ownerArgs(currentOwner(paths.runDir))];
+  const args = [SERVED_PROCESS, '--run-dir', paths.runDir, '--commit', commit, '--root', tree.root, '--port', String(port), '--host', host, ...ownerArgs(currentOwner(paths.runDir))];
   const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], env: servedEnvironment(recordedFfmpeg(paths.tools, record.tools)) });
   closeSync(log);
   child.unref();
@@ -151,55 +158,53 @@ async function startServed(paths: AppPaths, record: AppRecord, commit: string, p
   return state?.pid === pid ? state : undefined;
 }
 
-export interface ServeOutcome {
-  action: ServeAction;
-  /** What happened, for the check's summary. */
-  note: string;
-  /** The private-network address of the last good version, once it is served and ready. */
+/** The served copy's process, as `serve-newest.ts` drives it; tests pass a fake. */
+export interface ServedControl {
+  /** The commit the served copy shows, while its verified process is up and ready. */
+  servingCommit(): string | undefined;
+  stop(): Promise<void>;
+  /** Starts the copy for `commit`: undefined once it is ready, else why it isn't. */
+  start(commit: string): Promise<string | undefined>;
+  /** Puts the port on the private network, and says what happened. */
+  publish(): string[];
+}
+
+/** The real served process for this run, on `port` of `host`. */
+export function servedControl(paths: AppPaths, record: AppRecord, port: number, host: string, signal?: AbortSignal): ServedControl {
+  return {
+    servingCommit: () => {
+      const state = verifiedState(paths);
+      return state?.status === 'ready' ? state.commit : undefined;
+    },
+    stop: () => stopServed(paths),
+    start: async (commit) => {
+      const state = await startServed(paths, record, { commit, port, host }, signal);
+      const isReady = state?.status === 'ready' && isServedProcess(state, paths.runDir);
+      if (isReady) return undefined;
+      return `${state?.error ?? 'it wrote no ready state'}; see ${join(paths.host, 'served-process.log')}`;
+    },
+    publish: () => {
+      const published = ensureServed([port], tailscaleFrom(), host);
+      recordEntries(paths, published.added);
+      return published.lines;
+    },
+  };
+}
+
+export interface ServedUrls {
+  /** The served copy on the private network, when Tailscale names this machine there. */
   url?: string;
-  /** The same, on this machine. */
-  localUrl?: string;
+  /** The served copy at the address it listens on. */
+  localUrl: string;
+  /** Its status page, on the first of those two. */
+  statusUrl: string;
 }
 
-export interface ServeInput {
-  paths: AppPaths;
-  record: AppRecord;
-  passed: boolean;
-  commit: string;
-  hour: number;
-  signal?: AbortSignal;
-  openSandbox?: SandboxOpener;
-  say: (line: string) => void;
-}
-
-/** The addresses of a ready served copy. */
-function urlsOf(port: number): Pick<ServeOutcome, 'url' | 'localUrl'> {
-  const host = tailnetHost();
-  return { localUrl: `http://127.0.0.1:${port}/`, ...optional('url', host === undefined ? undefined : tailnetUrl(port, host)) };
-}
-
-function leaveNote(passed: boolean): string {
-  if (passed) return 'the served copy already shows this commit';
-  return 'the served copy stays on the last good commit';
-}
-
-/** Serves `commit` when the check passed and it is new, or when nothing serves. */
-export async function serveLastGood(input: ServeInput): Promise<ServeOutcome> {
-  const { paths } = input;
-  const previous = readLastGood(paths.lastGood);
-  const port = servedPort();
-  const serving = isServing(paths);
-  const action = serveAction({ previous, passed: input.passed, commit: input.commit, serving });
-  if (input.passed) writeLastGood(paths.lastGood, { commit: input.commit, hour: input.hour, at: new Date().toISOString() });
-  if (action === 'leave') return { action, note: leaveNote(input.passed), ...(serving ? urlsOf(port) : {}) };
-  await stopServed(paths);
-  input.say(`serving ${input.commit.slice(0, 12)} on 127.0.0.1:${port}`);
-  const state = await startServed(paths, input.record, input.commit, port, input.signal);
-  const isReady = state?.status === 'ready' && isServedProcess(state, paths.runDir);
-  if (!isReady) return { action, note: `the served copy failed to start: ${state?.error ?? 'it wrote no ready state'}; see ${join(paths.host, 'served-process.log')}` };
-  const published = ensureServed([port], tailscaleFrom());
-  recordEntries(paths, published.added);
-  return { action, note: `serving ${input.commit.slice(0, 12)} on 127.0.0.1:${port}; ${published.lines.join('; ')}`, ...urlsOf(port) };
+export function servedUrls(port: number, host: string): ServedUrls {
+  const tailnet = tailnetHost();
+  const url = tailnet === undefined ? undefined : tailnetUrl(port, tailnet);
+  const localUrl = `http://${hostInUrl(host)}:${port}/`;
+  return { localUrl, statusUrl: `${url ?? localUrl}${STATUS_PATH.slice(1)}`, ...optional('url', url) };
 }
 
 /** Stops this run's served copy and removes the private-network entries it added. Runs when the run ends. */

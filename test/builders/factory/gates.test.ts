@@ -1,10 +1,10 @@
-// How the hourly check's gates add up, the layout baseline, and what a pass
-// does to the served copy.
+// How the hourly check's gates add up, the layout baseline, and which
+// commits the served copy takes.
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { composeGates, GATES, skipped, type GateResult } from './gates.ts';
+import { composeGates, GATES, meetsServeMinimum, skipped, type GateResult } from './gates.ts';
 import { readLastGood, serveAction, writeLastGood, type LastGood } from './last-good.ts';
 import { newLayoutProblems } from './layout-gate.ts';
 import { parseChangedLines } from './diff-lines.ts';
@@ -56,19 +56,26 @@ describe('newLayoutProblems', () => {
 describe('serveAction', () => {
   const previous: LastGood = { commit: 'aaa', hour: 1, at: '2026-11-02T01:00:00.000Z' };
 
-  test('a failing hour leaves the served copy alone, serving or not', () => {
-    expect(serveAction({ previous, passed: false, commit: 'bbb', serving: true })).toBe('leave');
-    expect(serveAction({ previous, passed: false, commit: 'bbb', serving: false })).toBe('leave');
+  test('a commit that fails typecheck or app-start is not servable; any other gate may fail', () => {
+    expect(meetsServeMinimum([])).toBe(true);
+    expect(meetsServeMinimum(['tests', 'walks', 'layout'])).toBe(true);
+    expect(meetsServeMinimum(['typecheck'])).toBe(false);
+    expect(meetsServeMinimum(['tests', 'app-start'])).toBe(false);
   });
 
-  test('a passing hour restarts it for a new commit, the first one included', () => {
-    expect(serveAction({ previous, passed: true, commit: 'bbb', serving: true })).toBe('restart');
-    expect(serveAction({ previous: undefined, passed: true, commit: 'aaa', serving: false })).toBe('restart');
+  test('a commit that isn\'t servable leaves the served copy alone, serving or not', () => {
+    expect(serveAction({ previous, servable: false, commit: 'bbb', serving: true })).toBe('leave');
+    expect(serveAction({ previous, servable: false, commit: 'bbb', serving: false })).toBe('leave');
   });
 
-  test('a passing hour on the served commit leaves it, or starts it when nothing serves', () => {
-    expect(serveAction({ previous, passed: true, commit: 'aaa', serving: true })).toBe('leave');
-    expect(serveAction({ previous, passed: true, commit: 'aaa', serving: false })).toBe('start');
+  test('a servable commit restarts it when new, the first one included', () => {
+    expect(serveAction({ previous, servable: true, commit: 'bbb', serving: true })).toBe('restart');
+    expect(serveAction({ previous: undefined, servable: true, commit: 'aaa', serving: false })).toBe('restart');
+  });
+
+  test('the served commit, servable again, leaves it, or starts it when nothing serves', () => {
+    expect(serveAction({ previous, servable: true, commit: 'aaa', serving: true })).toBe('leave');
+    expect(serveAction({ previous, servable: true, commit: 'aaa', serving: false })).toBe('start');
   });
 
   test('last-good.json reads back what was written', () => {

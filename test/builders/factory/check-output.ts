@@ -31,10 +31,15 @@ export interface CheckRecord {
   passed: boolean;
   summary: string;
   gates: { gate: string; passed: boolean; summary: string }[];
-  /** The last good version on the private network, once one is served and ready. */
+  /** The served copy on the private network, once one is served and ready. */
   servedUrl?: string;
-  /** The same, on this machine. */
+  /** The same, at the address it listens on. */
   localUrl?: string;
+  /** Its status page. */
+  statusUrl?: string;
+  /** The commit the served copy shows, and the gates it fails. */
+  servedCommit?: string;
+  servedFailing?: string[];
   serve?: string;
   /** Why the check stopped before it finished, when it did. */
   error?: string;

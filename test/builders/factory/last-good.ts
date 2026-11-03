@@ -1,8 +1,11 @@
 /**
- * The last good commit: the newest one an hourly check passed, which the
- * private-network address serves. A failing hour changes nothing. A passing hour
- * records its commit, and restarts the served copy only when the commit is
- * new, or starts it when nothing serves (after a reboot, say).
+ * The last good commit: the newest one that passed every gate of an hourly
+ * check, recorded in `last-good.json`. What the served copy shows is a
+ * separate choice (`serveAction`): the newest servable commit, one that
+ * passed the serve gates (`SERVE_GATES` in `gates.ts`), recorded in
+ * `last-served.json` (`last-served.ts`). A commit that isn't servable
+ * changes nothing. A servable one restarts the served copy when it is new,
+ * or starts it when nothing serves (after a reboot, say).
  */
 import { z } from 'zod';
 import { readJson, writeJson } from './state-files.ts';
@@ -26,15 +29,17 @@ export function writeLastGood(path: string, value: LastGood): void {
 export type ServeAction = 'restart' | 'start' | 'leave';
 
 export interface ServeInput {
-  previous: LastGood | undefined;
-  passed: boolean;
+  /** The commit served last, from `last-served.json`. */
+  previous: { commit: string } | undefined;
+  /** Whether this hour's commit met the serve minimum. */
+  servable: boolean;
   commit: string;
   /** Whether the served copy is up now. */
   serving: boolean;
 }
 
 export function serveAction(input: ServeInput): ServeAction {
-  if (!input.passed) return 'leave';
+  if (!input.servable) return 'leave';
   const isNewCommit = input.previous?.commit !== input.commit;
   if (isNewCommit) return 'restart';
   return input.serving ? 'leave' : 'start';

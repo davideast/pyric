@@ -10,8 +10,9 @@
  *
  * It writes `<run>.host/checks/hour-<n>.<stamp>/` (`check-output.ts`) and
  * points `hour-<n>` and `latest` at it, also when the check throws. A pass
- * records the commit as the last good one and, when it is new, serves it
- * (`served.ts`). The whole check stops at the supervisor's signal or after
+ * records the commit as the last good one; a commit that passed the serve
+ * gates is served, labelled with the gates it fails (`serve-newest.ts`),
+ * and the summary names the served commit, its label and its status page. The whole check stops at the supervisor's signal or after
  * its budget, 50 minutes unless `PYRIC_FACTORY_CHECK_MINUTES` says. The
  * supervisor writes the result into `latest-check.json`, the extra fields
  * included.
@@ -32,7 +33,7 @@ import { fetchHead } from './git.ts';
 import { copyOverrides, hourGates } from './hour-gates.ts';
 import { optional } from './optional.ts';
 import type { SandboxOpener } from './sandbox.ts';
-import { serveLastGood, type ServeOutcome } from './served.ts';
+import { servedLine, serveNewest, type ServedNow } from './serve-newest.ts';
 import type { CheckContext, CheckResult, HourlyCheck } from './session.ts';
 import { copyReport, readApproved } from './ui-gates.ts';
 import type { PageCapture } from './walk-runner.ts';
@@ -44,16 +45,20 @@ export interface CheckDeps {
   openSandbox?: SandboxOpener;
   say: (line: string) => void;
   /** Starts the served copy; tests pass one that records the call. */
-  serve?: typeof serveLastGood;
+  serve?: typeof serveNewest;
 }
 
 /** What the supervisor writes into `latest-check.json`, beside `passed` and `summary`. */
 export interface HourlyResult extends CheckResult {
   commit?: string;
   resultDir: string;
-  /** The last good version on the private network, when it is served and ready. */
+  /** The served copy on the private network, when it is served and ready. */
   servedUrl?: string;
   localUrl?: string;
+  statusUrl?: string;
+  /** The commit the served copy shows, and the gates it fails. */
+  servedCommit?: string;
+  servedFailing?: string[];
 }
 
 export function checkBudgetMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -100,9 +105,12 @@ async function checkCommit(paths: AppPaths, record: AppRecord, context: CheckCon
   return { commit, gates };
 }
 
-function servedLine(served: ServeOutcome | undefined): string {
-  if (served?.url === undefined) return 'nothing is served now';
-  return `last good version at ${served.url} (${served.localUrl} here)`;
+export type ServedFields = Pick<CheckRecord, 'servedUrl' | 'localUrl' | 'statusUrl' | 'servedCommit' | 'servedFailing'>;
+
+/** The served copy's fields for `result.json` and `latest-check.json`. */
+export function servedFields(served: ServedNow | undefined): ServedFields {
+  if (served === undefined) return {};
+  return { localUrl: served.localUrl, statusUrl: served.statusUrl, servedCommit: served.commit, ...optional('servedUrl', served.url), ...optional('servedFailing', served.failing) };
 }
 
 function errorText(error: unknown): string {
@@ -114,14 +122,17 @@ export async function runHourlyCheck(context: CheckContext, deps: CheckDeps): Pr
   const dir = freshCheckDir(paths, `hour-${context.hour}`);
   const signal = AbortSignal.any([context.signal, AbortSignal.timeout(checkBudgetMs())]);
   const at = () => new Date().toISOString();
+  let fields: ServedFields = {};
   let result: CheckRecord = { hour: context.hour, at: at(), passed: false, summary: 'the check did not finish', gates: [] };
   try {
     const record = readAppRecord(paths);
     result = { ...result, startCommit: record.startCommit };
     const checked = await checkCommit(paths, record, context, dir, deps, signal);
     const composed = composeGates(checked.gates);
-    const serve = deps.serve ?? serveLastGood;
-    const served = await serve({ paths, record, passed: composed.passed, commit: checked.commit, hour: context.hour, signal, say: deps.say, ...optional('openSandbox', deps.openSandbox) });
+    const serve = deps.serve ?? serveNewest;
+    const outcome = await serve({ paths, record, failed: composed.failed, commit: checked.commit, hour: context.hour, signal, say: deps.say, ...optional('openSandbox', deps.openSandbox) });
+    const served = outcome.served;
+    fields = servedFields(served);
     result = {
       ...result,
       at: at(),
@@ -129,9 +140,8 @@ export async function runHourlyCheck(context: CheckContext, deps: CheckDeps): Pr
       passed: composed.passed,
       summary: `${composed.summary}. ${servedLine(served)}. Details in ${dir}`,
       gates: checked.gates.map((gate) => ({ gate: gate.gate, passed: gate.passed, summary: gate.summary })),
-      serve: served.note,
-      ...optional('servedUrl', served.url),
-      ...optional('localUrl', served.localUrl),
+      serve: outcome.note,
+      ...fields,
     };
   } catch (error) {
     const why = signal.aborted ? `the check stopped: ${errorText(signal.reason)}` : errorText(error);
@@ -140,7 +150,7 @@ export async function runHourlyCheck(context: CheckContext, deps: CheckDeps): Pr
     writeResult(dir, result);
     publishCheck(paths, context.hour, dir);
   }
-  return { passed: result.passed, summary: result.summary, resultDir: dir, ...optional('commit', result.commit), ...optional('servedUrl', result.servedUrl), ...optional('localUrl', result.localUrl) };
+  return { passed: result.passed, summary: result.summary, resultDir: dir, ...optional('commit', result.commit), ...fields };
 }
 
 const defaultDeps: CheckDeps = { say: (line) => console.log(`▸ ${line}`) };

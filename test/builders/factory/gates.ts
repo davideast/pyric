@@ -1,11 +1,20 @@
 /**
  * How the hourly check's gates add up. A check passes only when every gate
  * ran and passed: a gate that could not run (the walks, when Studio did not
- * start) fails the check like one that ran and failed.
+ * start) fails the check like one that ran and failed. A commit that passes
+ * `SERVE_GATES` is served for review even when other gates fail (`served.ts`).
  */
 export const GATES = ['typecheck', 'tests', 'studio-checks', 'app-start', 'walks', 'ui-rules', 'copy', 'layout'] as const;
 
 export type GateName = (typeof GATES)[number];
+
+/** The gates a commit must pass to be served for review: it builds and it starts. */
+export const SERVE_GATES: readonly GateName[] = ['typecheck', 'app-start'];
+
+/** Whether a commit whose failing gates are `failed` can be served: no serve gate is among them. */
+export function meetsServeMinimum(failed: readonly GateName[]): boolean {
+  return SERVE_GATES.every((gate) => !failed.includes(gate));
+}
 
 export interface GateResult {
   gate: GateName;

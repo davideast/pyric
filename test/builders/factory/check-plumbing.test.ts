@@ -3,7 +3,9 @@
 // and the tests gate Playwright's browsers and Chromium; a
 // lockfile naming a source other than the registry is named; a check that
 // throws still writes a failed result and points `latest` and `hour-<n>` at
-// it, in a fresh folder that keeps an earlier run of the same hour; and the
+// it, in a fresh folder that keeps an earlier run of the same hour; the
+// summary and latest-check.json name the served commit and the gates it
+// fails; and the
 // default runner module gives the supervisor the hourly check and the run's
 // end hook.
 import { describe, expect, test } from 'bun:test';
@@ -15,7 +17,9 @@ import { staticGates, testsEnvironment } from './app-gates.ts';
 import { appPaths, checkoutAt } from './app-paths.ts';
 import { studioEnvironment } from './app-start.ts';
 import { Aborted, hostRunner, type Run } from './exec.ts';
-import { runHourlyCheck } from './hourly-check.ts';
+import type { GateName } from './gates.ts';
+import { runHourlyCheck, servedFields } from './hourly-check.ts';
+import { servedLine } from './serve-newest.ts';
 import { lockfileProblems } from './lockfile.ts';
 import { loadRunner } from './runner-module.ts';
 import { servedEnvironment } from './served.ts';
@@ -123,6 +127,32 @@ describe('a check that throws', () => {
     expect(readFileSync(join(first.resultDir, 'result.json'), 'utf8')).toContain('"hour": 3');
     expect(join(paths.checks, readlinkSync(paths.latest))).toBe(second.resultDir);
     expect(join(paths.checks, readlinkSync(join(paths.checks, 'hour-3')))).toBe(second.resultDir);
+  });
+});
+
+describe('the served copy in the check\'s result', () => {
+  const served = {
+    commit: 'acf8f7a25106c0ffee',
+    failing: ['tests', 'walks'] as GateName[],
+    localUrl: 'http://127.0.0.1:4120/',
+    statusUrl: 'https://box.example.net:4120/_factory/status',
+    url: 'https://box.example.net:4120/',
+  };
+
+  test('the summary names the served commit, its failing gates, where it is and its status page', () => {
+    expect(servedLine(served)).toBe('serving acf8f7a25106, failing: tests, walks, at https://box.example.net:4120/ (http://127.0.0.1:4120/ here); status at https://box.example.net:4120/_factory/status');
+    expect(servedLine(undefined)).toBe('nothing is served now');
+  });
+
+  test('latest-check.json gets servedCommit and servedFailing beside the URLs', () => {
+    expect(servedFields(served)).toEqual({
+      servedCommit: 'acf8f7a25106c0ffee',
+      servedFailing: ['tests', 'walks'],
+      servedUrl: 'https://box.example.net:4120/',
+      localUrl: 'http://127.0.0.1:4120/',
+      statusUrl: 'https://box.example.net:4120/_factory/status',
+    });
+    expect(servedFields(undefined)).toEqual({});
   });
 });
 
