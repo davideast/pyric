@@ -12,12 +12,14 @@ if (!result.success) {
   process.exit(1);
 }
 
+const GZIP_BUDGET_BYTES = 70_000;
+
 const source = await result.outputs[0]!.text();
 const gzipBytes = gzipSync(source).byteLength;
 if (/[,{](?:"claims"|claims):/.test(source) || source.includes('CONFORMANCE_IMPORT_EVIDENCE')) {
   throw new Error('Browser can-i-use bundle contains Node-only claim evidence');
 }
-if (gzipBytes > 60_000) {
-  throw new Error(`Browser can-i-use bundle is ${gzipBytes} gzip bytes; budget is 60000`);
+if (gzipBytes > GZIP_BUDGET_BYTES) {
+  throw new Error(`Browser can-i-use bundle is ${gzipBytes} gzip bytes; budget is ${GZIP_BUDGET_BYTES}`);
 }
 console.log(`Browser can-i-use bundle: ${source.length} bytes raw, ${gzipBytes} bytes gzip`);

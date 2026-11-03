@@ -9,6 +9,7 @@ import { firestoreRegistry } from './firestore.ts';
 import { firestoreFlutterRegistry } from './firestore-flutter.ts';
 import { firestoreKotlinRegistry } from './firestore-kotlin.ts';
 import { firestoreSwiftRegistry } from './firestore-swift.ts';
+import { functionsCallableRegistry } from './functions-callable.ts';
 import { functionsHttpRegistry } from './functions-http.ts';
 import { functionsRtdbRegistry } from './functions-rtdb.ts';
 import { messagingRegistry } from './messaging.ts';
@@ -39,6 +40,7 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     appCheckRegistry,
     functionsRtdbRegistry,
     functionsHttpRegistry,
+    functionsCallableRegistry,
     rulesRegistry,
     firestoreFlutterRegistry,
     firestoreKotlinRegistry,
