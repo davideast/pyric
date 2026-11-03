@@ -90,19 +90,24 @@ export function limitProblem(fields: Record<string, unknown>, sentBytes: number,
 }
 
 /**
- * `fields` with `maxOutputTokens` set to the model's cap when a token-billed
- * body doesn't set it, in the spelling each API reads: `generationConfig.
- * maxOutputTokens` for generateContent, `generation_config.max_output_tokens`
- * for an interaction. The result is what is checked and sent. A body that
- * sets it, in either spelling, and a per-call model's body are unchanged.
+ * `fields` with `maxOutputTokens` in the spelling each API reads:
+ * `generationConfig.maxOutputTokens` for generateContent,
+ * `generation_config.max_output_tokens` for an interaction. The body is sent
+ * re-serialized, so a variant spelling (`max_outputTokens`, or
+ * `generationConfig` on an interaction) is renamed rather than passed on,
+ * where the provider could ignore it and bill to its default output limit.
+ * A token-billed body that sets no cap gets its model's. The result is what
+ * is checked and sent. A per-call model's body is unchanged.
  */
 export function withOutputCap(fields: Record<string, unknown>, price: ProviderPrice, api: 'generate' | 'interactions'): Record<string, unknown> {
   if (price.rates.billedPer === 'call') return fields;
-  const fallbackKey = api === 'generate' ? 'generationConfig' : 'generation_config';
-  const configKey = Object.keys(fields).find((key) => camel(key) === 'generationConfig') ?? fallbackKey;
-  const raw = fields[configKey];
-  const config = raw === undefined ? {} : fieldsOf(raw);
-  if (config === undefined || entryOf(config, 'maxOutputTokens') !== undefined) return fields;
-  const tokenKey = api === 'generate' ? 'maxOutputTokens' : 'max_output_tokens';
-  return { ...fields, [configKey]: { ...config, [tokenKey]: price.limits.maxOutputTokens } };
+  const configName = api === 'generate' ? 'generationConfig' : 'generation_config';
+  const tokenName = api === 'generate' ? 'maxOutputTokens' : 'max_output_tokens';
+  const configKey = Object.keys(fields).find((key) => camel(key) === 'generationConfig');
+  const config = configKey === undefined ? {} : fieldsOf(fields[configKey]);
+  if (config === undefined) return fields;
+  const tokens = entryOf(config, 'maxOutputTokens') ?? price.limits.maxOutputTokens;
+  const otherSettings = Object.entries(config).filter(([key]) => camel(key) !== 'maxOutputTokens');
+  const otherFields = Object.entries(fields).filter(([key]) => key !== configKey);
+  return { ...Object.fromEntries(otherFields), [configName]: { ...Object.fromEntries(otherSettings), [tokenName]: tokens } };
 }

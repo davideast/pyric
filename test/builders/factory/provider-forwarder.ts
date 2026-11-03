@@ -140,6 +140,14 @@ function responseHeaders(upstream: http.IncomingMessage): http.OutgoingHttpHeade
   return headers;
 }
 
+/** The longest model name the calls record keeps; an unpriced one can be as long as the body. */
+export const MAX_RECORDED_MODEL_CHARS = 128;
+
+function recordedModel(model: string | null | undefined): string | null {
+  if (model === undefined || model === null) return null;
+  return model.length > MAX_RECORDED_MODEL_CHARS ? `${model.slice(0, MAX_RECORDED_MODEL_CHARS)}...` : model;
+}
+
 type Fields = Pick<ProviderCall, 'action' | 'reason' | 'status'> & Partial<Pick<ProviderCall, 'model' | 'chargedUsd'>>;
 
 /** Writes a request's line once, whichever way it ends. */
@@ -156,6 +164,7 @@ function recorder(options: ProviderForwarderOptions, request: http.IncomingMessa
       model: null,
       chargedUsd: 0,
       ...fields,
+      model: recordedModel(fields.model),
     };
     try {
       appendFile(options.calls, `${JSON.stringify(call)}\n`);
