@@ -193,6 +193,35 @@ describe('what is sent on', () => {
 });
 
 describe('refusals', () => {
+  test('a body field that could cost more than one call is refused and never reaches upstream', async () => {
+    const { socket, upstream, calls } = await rig();
+    const text = [{ parts: [{ text: 'a lighthouse' }] }];
+    const bodies: unknown[] = [
+      { contents: text, generationConfig: { candidateCount: 8 } },
+      { contents: text, generationConfig: { imageConfig: { imageSize: '4K' } } },
+      { contents: text, tools: [{ googleSearch: {} }] },
+      { contents: text, toolConfig: {} },
+      { contents: text, cachedContent: 'cachedContents/abc' },
+      { contents: [{ parts: [{ fileData: { fileUri: 'https://example.invalid/f', mimeType: 'image/png' } }] }] },
+      { contents: [{ parts: [{ file_data: { file_uri: 'files/abc' } }] }] },
+      { contents: text, generationConfig: { unknownKnob: 1 } },
+      { contents: text, stream: false },
+    ];
+    for (const body of bodies) expect((await call(socket, 'POST', IMAGE_PATH, body)).status).toBe(403);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: 'x', tools: [] })).status).toBe(403);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['field', 'field', 'field', 'field', 'field', 'field', 'field', 'field', 'streaming', 'field']);
+    expect(upstream.received).toEqual([]);
+  });
+
+  test('a normal image, music and text body still passes', async () => {
+    const { socket, upstream } = await rig();
+    const image = { contents: [{ role: 'user', parts: [{ text: 'a lighthouse' }] }], generationConfig: { candidateCount: 1, responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '16:9', imageSize: '2K' } } };
+    expect((await call(socket, 'POST', IMAGE_PATH, image)).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', generation_config: { seed: 3 } })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/models/gemini-3.5-flash-lite:generateContent', { contents: [{ parts: [{ text: 'adapt this prompt' }] }], systemInstruction: { parts: [{ text: 'be brief' }] }, generationConfig: { temperature: 0.2, maxOutputTokens: 256 } })).status).toBe(200);
+    expect(upstream.received).toHaveLength(3);
+  });
+
   test('an interaction naming an agent, a generate body naming another model and dot ids are refused', async () => {
     const { socket, upstream, calls } = await rig();
     const answers = [

@@ -39,7 +39,7 @@ export const PLACEHOLDER_KEY = 'factory-forwarded';
 
 export type ProviderKeyRead = { ok: true; key: string } | { ok: false; problem: string };
 
-export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | LedgerRefusal;
+export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'field' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | LedgerRefusal;
 
 /** One request to the forwarder, as a line of the calls record. */
 export interface ProviderCall {
@@ -187,6 +187,75 @@ function readBody(request: http.IncomingMessage, done: (read: BodyRead) => void)
   request.once('close', () => report({ kind: 'closed' }));
 }
 
+/** A field name in either case the API reads, `generation_config` or `generationConfig`. */
+function camel(name: string): string {
+  return name.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+/**
+ * The fields a body may set, by name. An allowlist, so a field that could
+ * make one call cost more than its fixed price (more candidates, tools,
+ * cached content, files) is refused unless it is named here.
+ */
+const TOP_FIELDS = new Set(['model', 'contents', 'input', 'systemInstruction', 'generationConfig', 'safetySettings', 'responseModalities', 'responseMimeType', 'responseFormat']);
+const CONFIG_FIELDS = new Set(['temperature', 'topP', 'topK', 'maxOutputTokens', 'seed', 'stopSequences', 'candidateCount', 'responseModalities', 'responseMimeType', 'responseSchema', 'responseJsonSchema', 'imageConfig', 'thinkingConfig', 'thinkingLevel']);
+const IMAGE_CONFIG_FIELDS = new Set(['aspectRatio', 'imageSize']);
+/** The image sizes the table's image price covers: up to 2K. A larger size is refused. */
+const PRICED_IMAGE_SIZES = new Set(['1K', '2K']);
+/** Keys that point a part at a stored file, anywhere in the body. */
+const FILE_KEYS = new Set(['fileData', 'fileUri', 'uri']);
+
+function fieldsOf(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function unknownField(fields: Record<string, unknown>, allowed: ReadonlySet<string>, where: string): string | undefined {
+  const name = Object.keys(fields).find((key) => !allowed.has(camel(key)));
+  return name === undefined ? undefined : `${where}${name}`;
+}
+
+function fileKey(value: unknown): string | undefined {
+  if (Array.isArray(value)) return value.map(fileKey).find((found) => found !== undefined);
+  const fields = fieldsOf(value);
+  if (fields === undefined) return undefined;
+  for (const [key, inner] of Object.entries(fields)) {
+    if (FILE_KEYS.has(camel(key))) return key;
+    const found = fileKey(inner);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function entryOf(fields: Record<string, unknown>, name: string): unknown {
+  const key = Object.keys(fields).find((candidate) => camel(candidate) === name);
+  return key === undefined ? undefined : fields[key];
+}
+
+/** The first field that is not allowed, or could make the call cost more than its price. */
+export function costlyField(fields: Record<string, unknown>): string | undefined {
+  const top = unknownField(fields, TOP_FIELDS, '');
+  if (top !== undefined) return top;
+  const file = fileKey(fields);
+  if (file !== undefined) return file;
+  const rawConfig = entryOf(fields, 'generationConfig');
+  if (rawConfig === undefined) return undefined;
+  const config = fieldsOf(rawConfig);
+  if (config === undefined) return 'generationConfig';
+  const inConfig = unknownField(config, CONFIG_FIELDS, 'generationConfig.');
+  if (inConfig !== undefined) return inConfig;
+  const count = entryOf(config, 'candidateCount');
+  if (count !== undefined && count !== 1) return 'generationConfig.candidateCount';
+  const rawImage = entryOf(config, 'imageConfig');
+  if (rawImage === undefined) return undefined;
+  const image = fieldsOf(rawImage);
+  if (image === undefined) return 'generationConfig.imageConfig';
+  const inImage = unknownField(image, IMAGE_CONFIG_FIELDS, 'generationConfig.imageConfig.');
+  if (inImage !== undefined) return inImage;
+  const size = entryOf(image, 'imageSize');
+  const isPricedSize = size === undefined || (typeof size === 'string' && PRICED_IMAGE_SIZES.has(size));
+  return isPricedSize ? undefined : 'generationConfig.imageConfig.imageSize';
+}
+
 type BodyCheck = { ok: true; model: string | null; body: Buffer } | { ok: false; reason: ProviderRefusal; message: string; model?: string };
 
 /**
@@ -206,14 +275,16 @@ function checkBody(route: Route, body: Buffer): BodyCheck {
   if (!isObject) return { ok: false, reason: 'body-not-json', message: 'the body is not a JSON object' };
   const fields = parsed as Record<string, unknown>;
   const sent = Buffer.from(JSON.stringify(fields));
-  if (fields.stream === true) return { ok: false, reason: 'streaming', message: 'streaming calls are not metered' };
+  if ('stream' in fields) return { ok: false, reason: 'streaming', message: 'streaming calls are not metered' };
+  if ('agent' in fields && route.kind === 'interactions') return { ok: false, reason: 'agent', message: 'an interaction may not name an agent' };
+  const costly = costlyField(fields);
+  if (costly !== undefined) return { ok: false, reason: 'field', message: `the body's ${costly} could cost more than one call's price` };
   const named = typeof fields.model === 'string' ? bareModel(fields.model) : null;
   if (route.kind === 'generate') {
     const isOtherModel = 'model' in fields && named !== route.model;
     if (isOtherModel) return { ok: false, reason: 'model', message: 'the body names another model than the path', model: named ?? undefined };
     return { ok: true, model: route.model, body: sent };
   }
-  if ('agent' in fields) return { ok: false, reason: 'agent', message: 'an interaction may not name an agent' };
   if (named === null || priceOf(named) === undefined) return { ok: false, reason: 'model', message: `the model ${named ?? '(none)'} is not one a factory run may call`, model: named ?? undefined };
   return { ok: true, model: named, body: sent };
 }
