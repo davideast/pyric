@@ -3,7 +3,7 @@
  * `<run>.host/checks/hour-<n>.<stamp>/`, a fresh folder for every run of
  * the check:
  *
- *   result.json      the verdict, each gate's line, the commits and the URLs
+ *   result.json      the verdict, the hour's progress, each gate's line, the commits and the URLs
  *   <gate>.log       a failing gate's output
  *   copy-report.md   every new or changed visible string and its verdict
  *   screenshots/     this hour's captures, with capture.json (commit and time)
@@ -20,6 +20,7 @@ import { basename, dirname, join } from 'node:path';
 import { runStamp } from '../scratch.ts';
 import type { AppPaths } from './app-paths.ts';
 import type { GateResult } from './gates.ts';
+import type { CheckProgress } from './session.ts';
 import { makeHostDir, writeNewFile } from './host-files.ts';
 import { writeJson } from './state-files.ts';
 
@@ -30,6 +31,8 @@ export interface CheckRecord {
   startCommit?: string;
   passed: boolean;
   summary: string;
+  /** What the run made this hour (`hour-progress.ts`), once the commit is fetched. */
+  progress?: CheckProgress;
   gates: { gate: string; passed: boolean; summary: string }[];
   /** The served copy on the private network, once one is served and ready. */
   servedUrl?: string;
