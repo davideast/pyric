@@ -50,6 +50,7 @@ import { FAKE_MEDIA } from './app-start.ts';
 import { PLAYWRIGHT_CLIENT } from './captures.ts';
 import { hostDirOf, isInside, makeHostDir } from './host-files.ts';
 import { ONLINE_INIT_ENV, ONLINE_INIT_SCRIPT } from './online-init.ts';
+import { providerEnvironment } from './provider-wiring.ts';
 import { roleSkill, rolePrompt } from './roles.ts';
 import { appPaths } from './app-paths.ts';
 import { optional } from './optional.ts';
@@ -202,7 +203,12 @@ interface SessionTools {
  * two space-separated `--import`s into one module path and exits. The sandbox's
  * resolver and catch-all listener still record, as for the check's Studio.
  */
-function baseEnvironment(tools: SessionTools): Record<string, string> {
+/** Fake media, or the provider's placeholder key and base URL when the session has a provider socket. */
+export function mediaEnvironment(providerSocket: string | undefined): Record<string, string> {
+  return providerSocket === undefined ? FAKE_MEDIA : providerEnvironment();
+}
+
+function baseEnvironment(tools: SessionTools, providerSocket?: string): Record<string, string> {
   const base: Record<string, string> = {
     PATH: process.env.PATH ?? '',
     PLAYWRIGHT_BROWSERS_PATH: tools.browsers,
@@ -210,7 +216,7 @@ function baseEnvironment(tools: SessionTools): Record<string, string> {
     ...ffmpegEnvironment(tools.ffmpeg),
     [PLAYWRIGHT_CLIENT_ENV]: PLAYWRIGHT_CLIENT,
     [ONLINE_INIT_ENV]: ONLINE_INIT_SCRIPT,
-    ...FAKE_MEDIA,
+    ...mediaEnvironment(providerSocket),
   };
   for (const name of ['LANG', 'TMPDIR']) {
     const value = process.env[name];
@@ -241,7 +247,7 @@ export async function runConfiguredSession(role: Role, options: SessionOptions, 
   const namespace = await startEgressNamespace({
     networkLog: paths.networkLog,
     runRoot: options.runDir,
-    readOnly: [...readOnlyBinds(options, config), paths.sandboxDir, ...app.readOnly],
+    readOnly: [...readOnlyBinds(options, config), paths.sandboxDir, ...app.readOnly, ...(options.providerSocket === undefined ? [] : [options.providerSocket])],
     overlaid: existsSync(cache) ? [cache] : [],
     innerViews: app.innerViews,
   });
@@ -255,7 +261,8 @@ export async function runConfiguredSession(role: Role, options: SessionOptions, 
       channelRecord: paths.channelRecord,
       deadlineMs: options.remainingMs,
       enter: namespace.enter,
-      base: baseEnvironment(tools),
+      base: baseEnvironment(tools, options.providerSocket),
+      ...optional('providerSocket', options.providerSocket),
       signal: options.signal,
       credential: config.credential,
       upstream: config.upstream,

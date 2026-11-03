@@ -38,6 +38,8 @@ export interface SessionOptions {
   remainingMs: number;
   /** Aborted at the deadline, or when the supervisor stops. The runner kills the session then. */
   signal: AbortSignal;
+  /** The sessions' provider socket, bound read-only into the sandbox, when the run has `--provider-keys`. */
+  providerSocket?: string;
 }
 
 export type RunSession = (role: Role, options: SessionOptions) => Promise<SessionResult>;
@@ -74,6 +76,8 @@ export interface CheckContext {
   /** Whole hours since the run started: 1 for the first check. */
   hour: number;
   signal: AbortSignal;
+  /** The served copy's provider socket, when the run has `--provider-keys`. The check's own sandbox never gets one. */
+  providerSocket?: string;
 }
 
 export type HourlyCheck = (context: CheckContext) => Promise<CheckResult>;

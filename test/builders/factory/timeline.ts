@@ -27,6 +27,7 @@ export type TimelineLine =
   | { type: 'pause'; at: string; until: string; seat: string; source: 'reset-at' | 'backoff' }
   /** `progress` is the check's commits and finished items, when it got that far. */
   | { type: 'check'; at: string; hour: number; passed: boolean; summary: string; progress?: CheckProgress }
+  | { type: 'provider-cap'; at: string; scope: 'run' | 'session'; capUsd: number }
   | { type: 'end'; at: string };
 
 export function appendTimeline(path: string, line: TimelineLine): void {

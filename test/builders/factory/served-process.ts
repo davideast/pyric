@@ -33,6 +33,7 @@ import { appPaths, checkoutAt, type AppPaths } from './app-paths.ts';
 import { APP_PORT, PYRIC_PORT, startApp } from './app-start.ts';
 import { optional } from './optional.ts';
 import { insideSandbox, relayPortToSocket, startInsideBridge, waitForSocket } from './relay.ts';
+import { PROVIDER_BRIDGE_PORT } from './provider-wiring.ts';
 import { openSandbox, specAt } from './sandbox.ts';
 import { readLastServed } from './last-served.ts';
 import { allowedHosts, LOOPBACK } from './serve-host.ts';
@@ -47,7 +48,7 @@ import { unpackTree } from './tree.ts';
 
 export const DEFAULT_SERVED_PORT = 4120;
 
-const USAGE = 'bun served-process.ts --run-dir <dir> --commit <sha> --root <tree> --owner-pid <pid> --owner-start <time> [--deadline <iso>] [--port <n>] [--host <address>]';
+const USAGE = 'bun served-process.ts --run-dir <dir> --commit <sha> --root <tree> --owner-pid <pid> --owner-start <time> [--deadline <iso>] [--port <n>] [--host <address>] [--provider-socket <path>]';
 
 export const servedStateSchema = z.object({
   pid: z.number().int().positive(),
@@ -92,6 +93,8 @@ interface ServeOptions {
   port: number;
   host: string;
   owner: Owner;
+  /** The served copy's provider socket, bound read-only and bridged from 127.0.0.1:4180. */
+  providerSocket?: string;
 }
 
 /** The status page for this process's commit, built from `last-served.json` on each request. */
@@ -137,11 +140,13 @@ async function serve(options: ServeOptions): Promise<void> {
   const stopped = stopReason(owner);
   const checkout = checkoutAt(root);
   try {
-    await openSandbox(specAt(root), paths, async (runner, namespace) => {
+    const providerBinds = options.providerSocket === undefined ? [] : [options.providerSocket];
+    await openSandbox(specAt(root, undefined, providerBinds), paths, async (runner, namespace) => {
       await unpackTree(runner, checkout);
       await installStudio({ runner, namespace, checkout, withRoot: false, say: (line) => console.log(`▸ ${line}`) });
-      const app = await startApp({ checkout, namespace, logFile: join(checkout.logs, 'studio.log'), ...allowedHostOption(options.host), ...optional('ffmpeg', process.env.FFMPEG_BIN), publicBridgePort: port + 1 });
+      const app = await startApp({ checkout, namespace, logFile: join(checkout.logs, 'studio.log'), ...allowedHostOption(options.host), ...optional('ffmpeg', process.env.FFMPEG_BIN), publicBridgePort: port + 1, provider: options.providerSocket !== undefined });
       const sockets = join(root, 'sockets');
+      if (options.providerSocket !== undefined) startInsideBridge(namespace, ['tcp-to-unix', String(PROVIDER_BRIDGE_PORT), options.providerSocket], sockets);
       for (const bridge of BRIDGES) startInsideBridge(namespace, ['unix-to-tcp', bridge.socket, String(bridge.inner)], sockets);
       const reach = insideSandbox(namespace.pid, sockets);
       for (const bridge of BRIDGES) await waitForSocket(join(reach, bridge.socket));
@@ -168,6 +173,7 @@ if (import.meta.main) {
   const port = Number(flagValue(args, '--port') ?? DEFAULT_SERVED_PORT);
   const host = flagValue(args, '--host') ?? LOOPBACK;
   const owner = parseOwner((flag) => flagValue(args, flag));
-  await serve({ runDir, commit, root, port, host, owner });
+  const providerSocket = flagValue(args, '--provider-socket');
+  await serve({ runDir, commit, root, port, host, owner, ...optional('providerSocket', providerSocket) });
   process.exit();
 }

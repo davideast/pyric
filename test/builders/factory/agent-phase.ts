@@ -29,6 +29,7 @@ import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
 import { startBridge } from '../model-channel.ts';
 import { assertInsideSandbox, inventoryLine } from '../sandbox-check.ts';
+import { PROVIDER_BRIDGE_PORT } from './provider-wiring.ts';
 
 export const agentPhaseSchema = z.object({
   /** The run directory, whose sandbox the phase checks it is in before it starts anything. */
@@ -37,6 +38,8 @@ export const agentPhaseSchema = z.object({
   socketPath: z.string().min(1),
   /** The bridge's port on the sandbox's loopback, which the invocation already names. */
   bridgePort: z.number().int().positive(),
+  /** The provider forwarder's socket, when the run has one; bridged from `PROVIDER_BRIDGE_PORT`. */
+  providerSocketPath: z.string().min(1).optional(),
   /** The session's HOME and the directories the agent keeps under it. */
   homeDirs: z.array(z.string().min(1)),
   cwd: z.string().min(1),
@@ -54,6 +57,7 @@ export function signalExitCode(signal: NodeJS.Signals): number {
 export async function runAgentPhase(phase: AgentPhase): Promise<number> {
   for (const dir of phase.homeDirs) mkdirSync(dir, { recursive: true });
   const bridge = await startBridge(phase.socketPath, phase.bridgePort);
+  const provider = phase.providerSocketPath === undefined ? undefined : await startBridge(phase.providerSocketPath, PROVIDER_BRIDGE_PORT);
   const { command, args, env } = phase.invocation;
   const child = spawn(command, args, { cwd: phase.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const copied = Promise.all([copyTo(child.stdout, process.stdout), copyTo(child.stderr, process.stderr)]);
@@ -69,6 +73,7 @@ export async function runAgentPhase(phase: AgentPhase): Promise<number> {
   });
   await copied;
   await bridge.close();
+  await provider?.close();
   return code;
 }
 

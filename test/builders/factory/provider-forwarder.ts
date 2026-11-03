@@ -161,7 +161,6 @@ function recorder(options: ProviderForwarderOptions, request: http.IncomingMessa
       caller: options.caller,
       method: request.method ?? null,
       path: request.url === undefined ? null : request.url.split('?')[0] ?? null,
-      model: null,
       chargedUsd: 0,
       ...fields,
       model: recordedModel(fields.model),
