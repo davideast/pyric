@@ -9,14 +9,23 @@
  * directories the agent keeps there, starts the model channel's bridge on
  * the sandbox's loopback at the phase's port, then the agent's command,
  * which the harness built outside (`AgentAdapter.invocation`). The agent's
- * stdout is this process's stdout and nothing else is; the phase's own
- * lines go to stderr. A SIGTERM or SIGINT is passed on to the agent, and the
- * phase exits as the agent did.
+ * stdout is copied to this process's stdout and nothing else is; the
+ * phase's own lines go to stderr. A SIGTERM or SIGINT is passed on to the
+ * agent, and the phase exits as the agent did, once all of the agent's
+ * output is written.
+ *
+ * The agent gets pipes of its own, never this process's. Bun makes its
+ * stdout pipe non-blocking once it is used, and a child that inherits the
+ * pipe inherits that flag. An agent that prints a line larger than the
+ * pipe's 64 KiB buffer while the harness drains it late then gets EAGAIN,
+ * and an agent that treats that as fatal crashes (exit 101). Bun's own
+ * writes to its stdout wait out EAGAIN.
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { constants } from 'node:os';
 import { dirname } from 'node:path';
+import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
 import { startBridge } from '../model-channel.ts';
 import { assertInsideSandbox, inventoryLine } from '../sandbox-check.ts';
@@ -46,7 +55,8 @@ export async function runAgentPhase(phase: AgentPhase): Promise<number> {
   for (const dir of phase.homeDirs) mkdirSync(dir, { recursive: true });
   const bridge = await startBridge(phase.socketPath, phase.bridgePort);
   const { command, args, env } = phase.invocation;
-  const child = spawn(command, args, { cwd: phase.cwd, env, stdio: ['ignore', 'inherit', 'inherit'] });
+  const child = spawn(command, args, { cwd: phase.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const copied = Promise.all([copyTo(child.stdout, process.stdout), copyTo(child.stderr, process.stderr)]);
   const passOn = (signal: NodeJS.Signals) => child.kill(signal);
   process.on('SIGTERM', passOn);
   process.on('SIGINT', passOn);
@@ -57,8 +67,17 @@ export async function runAgentPhase(phase: AgentPhase): Promise<number> {
     });
     child.once('close', (exit, signal) => resolve(exit ?? signalExitCode(signal ?? 'SIGKILL')));
   });
+  await copied;
   await bridge.close();
   return code;
+}
+
+/** Copies `from` into `to` without ending it; resolves once `from` has ended and `to` has written all of it. */
+function copyTo(from: Readable, to: Writable): Promise<void> {
+  from.pipe(to, { end: false });
+  return new Promise((resolve) => {
+    from.once('close', () => to.write('', () => resolve()));
+  });
 }
 
 if (import.meta.main) {

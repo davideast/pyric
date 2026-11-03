@@ -763,6 +763,11 @@ role prompts depend on the interface alone.
    `--import` to what it inherits, and `next dev` joins two space-separated
    ones into one path and exits (#1470). So a session has no Node recorder, like the
    check's Studio; the sandbox's resolver and catch-all listener still record.
+   The agent gets stdout and stderr pipes of its own, which the phase
+   copies to its own and drains before it exits. Bun makes a stdout pipe
+   it has used non-blocking, and an agent that inherited it could get
+   EAGAIN on a line larger than the pipe's 64 KiB buffer and crash with
+   exit 101.
 4. It saves the agent's output to `<run dir>.host/logs/<seat>-<stamp>.jsonl`
    and returns how the session ended (`factory/agent-session.ts`).
 
@@ -790,7 +795,9 @@ sandbox's `resolv.conf` and `hosts` are checked in
 **How a session ends.** `exit`, when the agent exits; `rate-limit`, when it
 failed at the upstream rate limit, by its own output (the adapter reads it) or because
 its last request came back 429; `killed`, when the supervisor stops it, the
-forwarder faults, or a signal no one sent ends it; `deadline`, at
+forwarder faults, it prints nothing for 20 minutes (`SESSION_SILENCE_MS`,
+above the check's 15-minute tests gate; its stderr says so), or a signal
+no one sent ends it; `deadline`, at
 `remainingMs` or when the supervisor aborts with `deadline`. `resetAt` is
 the forwarder's: what this session's latest 429 named. Only this session's
 lines of the seat's record count. Each session runs in its own process
