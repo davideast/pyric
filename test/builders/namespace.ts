@@ -296,10 +296,19 @@ function mountOverlays(pid: number, dirs: readonly string[]): void {
   if (result.status !== 0) throw new NamespaceUnavailable(`could not mount the overlays on ${dirs.join(', ')}:\n${result.stderr}`);
 }
 
+/**
+ * How long the inventory may take. A CI runner's first walk lists about
+ * 112,000 directories from a cold disk at about 1,000 a second, and listing
+ * them in parallel took as long. Passing tests that include it took about
+ * 124 s; failed runs were cut off at the old 120 s limit, so the upper bound
+ * isn't known. Later walks take 2 s.
+ */
+export const INVENTORY_TIMEOUT_MS = 240_000;
+
 /** Fails closed unless `sandbox-inventory.ts` finds nothing inside the sandbox. */
 function assertInventory(pid: number, ownDirs: readonly string[]): void {
   const { command, args } = enterArgs(pid, 'node', [INVENTORY, ...ownDirs], '/');
-  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000 });
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: INVENTORY_TIMEOUT_MS });
   if (result.status === 0) return;
   throw new NamespaceUnavailable(`the sandbox inventory failed (exit ${result.status}):\n${result.stdout}${result.stderr}`);
 }
