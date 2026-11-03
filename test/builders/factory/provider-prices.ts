@@ -12,13 +12,18 @@
  *
  * The worst case, in tokens:
  *
- * - input: one token per byte of the body outside its images (a token is
- *   never shorter than one byte, and the body's JSON is never shorter than
- *   the text it carries), plus `IMAGE_PART_TOKENS` for each image part;
+ * - input: one token per byte of the body outside its image parts' data (a
+ *   token is never shorter than one byte, and the body's JSON is never
+ *   shorter than the text it carries), plus `IMAGE_PART_TOKENS` for each
+ *   image part where the API reads one (`provider-body-parts.ts`);
  * - output: `maxOutputTokens` plus the thinking cap, every token at the
- *   model's output rate (the image rate for an image model). The provider
- *   counts thoughts within `maxOutputTokens`; adding the thinking cap on top
- *   errs high in case it doesn't.
+ *   model's output rate (the image rate for an image model).
+ *
+ * Two assumptions to confirm before the run: that image and music output,
+ * and thoughts, obey `maxOutputTokens`, since a thinking level, or no
+ * thinking setting, gets the provider's default thinking, which only
+ * `maxOutputTokens` bounds (the thinking cap added on top is margin); and
+ * that one image part is billed at most `IMAGE_PART_TOKENS`.
  *
  * The dollar figure is the larger of that and the model's per-call floor,
  * rounded up to the cent.

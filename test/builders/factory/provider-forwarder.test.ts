@@ -96,6 +96,8 @@ interface RigOptions {
   sessionCapUsd?: number;
   caller?: CallerKind;
   dir?: string;
+  /** The key `credential()` reads; the sentinel by default. */
+  key?: string;
 }
 
 async function rig(options: RigOptions = {}): Promise<Rig> {
@@ -107,7 +109,7 @@ async function rig(options: RigOptions = {}): Promise<Rig> {
   const socket = join(dir, `${options.caller ?? 'served'}-${Math.random().toString(36).slice(2)}.sock`);
   const forwarder = await startProviderForwarder({
     socketPath: socket, caller: options.caller ?? 'served', ledger, calls,
-    credential: () => ({ ok: true, key: SENTINEL_KEY }),
+    credential: () => ({ ok: true, key: options.key ?? SENTINEL_KEY }),
     upstream: { host: '127.0.0.1', port: upstream.port, tls: true, ca: upstream.ca },
   });
   open.push(upstream, forwarder);
@@ -121,9 +123,9 @@ interface Answer {
   cut: boolean;
 }
 
-function call(socketPath: string, method: string, path: string, body?: unknown): Promise<Answer> {
+function call(socketPath: string, method: string, path: string, body?: unknown, contentType = 'application/json'): Promise<Answer> {
   return new Promise((resolve, reject) => {
-    const request = http.request({ socketPath, method, path, headers: { 'content-type': 'application/json', 'x-goog-api-key': PLACEHOLDER_KEY, cookie: 'c=1' } }, (response) => {
+    const request = http.request({ socketPath, method, path, headers: { 'content-type': contentType, 'x-goog-api-key': PLACEHOLDER_KEY, cookie: 'c=1' } }, (response) => {
       const chunks: Buffer[] = [];
       const done = (cut: boolean) => resolve({ status: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks).toString('utf8'), cut });
       response.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -366,7 +368,7 @@ describe('token limits', () => {
       await call(socket, 'POST', TEXT_PATH, { contents: text('x'.repeat(129 * 1024)), generationConfig: OUTPUT }),
     ];
     expect(answers.map((answer) => answer.status)).toEqual([403, 403, 403, 403, 403, 413, 413]);
-    expect(readCalls(calls).map((line) => line.reason)).toEqual(['input', 'input', 'input', 'input', 'input', 'body-too-large', 'body-too-large']);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['input', 'input', 'input', 'field', 'input', 'body-too-large', 'body-too-large']);
     expect(upstream.received).toEqual([]);
   });
 
@@ -385,6 +387,74 @@ describe('token limits', () => {
     const textBody = { contents: text('z'.repeat(60 * 1024)), generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 2048 }, thinkingLevel: 'low' } };
     expect((await call(socket, 'POST', TEXT_PATH, textBody)).status).toBe(200);
     expect(ledger.spentUsd()).toBeCloseTo(IMAGE_USD + 0.05);
+  });
+});
+
+describe('where image data may be', () => {
+  const TEXT_PATH = '/v1beta/models/gemini-3.5-flash-lite:generateContent';
+  const fakeImage = () => ({ inlineData: { mimeType: 'image/png', data: 'x'.repeat(2_000_000) } });
+  const prompt = [{ parts: [{ text: 'a lighthouse' }] }];
+
+  test('fake images in a schema, a response format or a function response are refused and never reach upstream', async () => {
+    const { socket, upstream, calls, ledger } = await rig();
+    const schema = { type: 'object', properties: { a: fakeImage(), b: fakeImage(), c: fakeImage(), d: fakeImage() } };
+    const bodies: Array<[string, unknown]> = [
+      [IMAGE_PATH, { contents: prompt, generationConfig: { ...OUTPUT, responseJsonSchema: schema } }],
+      [IMAGE_PATH, { contents: prompt, generationConfig: { ...OUTPUT, responseSchema: { type: 'object' } } }],
+      [TEXT_PATH, { contents: prompt, generationConfig: { ...OUTPUT, responseJsonSchema: { properties: { a: { inlineData: { mimeType: 'image/png', data: 'x'.repeat(30_000) } } } } } }],
+      ['/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', response_format: { type: 'audio', ...fakeImage() }, generation_config: MUSIC_OUTPUT }],
+      ['/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', response_format: { type: 'audio', mime_type: 'image/png', data: 'x'.repeat(2_000_000) }, generation_config: MUSIC_OUTPUT }],
+      [IMAGE_PATH, { contents: [{ parts: [{ functionResponse: { name: 'f', response: { image: fakeImage() } } }] }], generationConfig: OUTPUT }],
+      [IMAGE_PATH, { contents: [{ parts: [{ functionCall: { name: 'f', args: {} } }] }], generationConfig: OUTPUT }],
+      [IMAGE_PATH, { contents: [{ parts: [{ text: 'a' }], extra: fakeImage() }], generationConfig: OUTPUT }],
+      [IMAGE_PATH, { contents: [{ parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA', extra: 'x' } }] }], generationConfig: OUTPUT }],
+      [IMAGE_PATH, { contents: prompt, generationConfig: OUTPUT, safetySettings: [fakeImage()] }],
+      ['/v1beta/interactions', { model: 'lyria-3.5', input: [{ type: 'function_result', data: 'x' }], generation_config: MUSIC_OUTPUT }],
+      ['/v1beta/interactions', { model: IMAGE_MODEL, input: 'a lighthouse', response_format: { type: 'image', image_size: '4K' }, generation_config: OUTPUT }],
+    ];
+    for (const [path, body] of bodies) expect((await call(socket, 'POST', path, body)).status).toBe(403);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(bodies.map(() => 'field'));
+    expect(upstream.received).toEqual([]);
+    expect(ledger.spentUsd()).toBe(0);
+  });
+
+  test('text in a text model schema counts as text', async () => {
+    const { socket, upstream, calls } = await rig();
+    const schema = { type: 'object', description: 'y'.repeat(70 * 1024) };
+    expect((await call(socket, 'POST', TEXT_PATH, { contents: prompt, generationConfig: { ...OUTPUT, responseJsonSchema: schema } })).status).toBe(403);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['input']);
+    expect(upstream.received).toEqual([]);
+  });
+
+  test('images where the API reads them pass: inline parts, system instruction parts and interaction image items', async () => {
+    const { socket, upstream } = await rig();
+    const pixel = { inlineData: { mimeType: 'image/png', data: 'AAAA' } };
+    const generate = { contents: [{ role: 'user', parts: [pixel, { text: 'like this' }] }], systemInstruction: { parts: [pixel] }, generationConfig: OUTPUT };
+    expect((await call(socket, 'POST', IMAGE_PATH, generate)).status).toBe(200);
+    const interaction = { model: IMAGE_MODEL, input: [{ type: 'text', text: 'like this' }, { type: 'image', data: 'AAAA', mime_type: 'image/png' }], response_format: { type: 'image', aspect_ratio: '16:9', image_size: '2K' }, generation_config: { ...OUTPUT, thinking_level: 'high' } };
+    expect((await call(socket, 'POST', '/v1beta/interactions', interaction)).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: [{ type: 'image', data: 'AAAA', mime_type: 'image/jpeg' }, { type: 'text', text: 'a tune' }], response_format: { type: 'audio' }, generation_config: MUSIC_OUTPUT })).status).toBe(200);
+    expect(upstream.received).toHaveLength(3);
+  });
+});
+
+describe('what the upstream call carries', () => {
+  test('the body goes up as application/json whatever type the app named', async () => {
+    const { socket, upstream } = await rig();
+    expect((await call(socket, 'POST', IMAGE_PATH, { contents: [{ parts: [{ text: 'a' }] }], generationConfig: OUTPUT }, 'text/plain; charset=x')).status).toBe(200);
+    expect(upstream.received[0]?.headers['content-type']).toBe('application/json');
+  });
+
+  test('a call the transport refuses before sending settles its reservation and frees its slot', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-provider-'));
+    const { socket, upstream, ledger, spend, calls } = await rig({ dir, key: 'bad\nkey' });
+    const answer = await image(socket).catch(() => null);
+    expect(answer === null || answer.cut || answer.status === 0).toBe(true);
+    expect(upstream.received).toEqual([]);
+    expect(ledger.inFlight()).toBe(0);
+    const settle = readLedger(spend).find((line) => line.type === 'settle');
+    expect(settle?.type === 'settle' ? settle.outcome : null).toBe('upstream-error');
+    expect(readCalls(calls).map((line) => [line.reason, line.chargedUsd])).toEqual([['upstream-error', IMAGE_USD]]);
   });
 });
 

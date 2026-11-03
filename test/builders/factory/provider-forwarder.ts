@@ -32,7 +32,8 @@ import type { Listening } from '../model-channel.ts';
 import type { Upstream } from '../model-forwarder.ts';
 import { appendFile } from './host-files.ts';
 import type { CallerKind, CallOutcome, LedgerReservation, LedgerRefusal, ProviderLedger } from './provider-ledger.ts';
-import { camel, entryOf, fieldsOf, limitProblem, type LimitRefusal } from './provider-body-limits.ts';
+import { limitProblem, type LimitRefusal } from './provider-body-limits.ts';
+import { camel, entryOf, fieldsOf, PRICED_IMAGE_SIZES } from './provider-body-parts.ts';
 import { bareModel, MAX_PROVIDER_REQUEST_BYTES, priceOf, PROVIDER_HOST } from './provider-prices.ts';
 
 /** How long one call may take, polling included, before it is cut off. */
@@ -83,8 +84,8 @@ export interface ProviderForwarderOptions {
 
 const DEFAULT_UPSTREAM: ProviderUpstream = { host: PROVIDER_HOST, port: 443, tls: true };
 
-/** The app's headers that pass. The key's header, cookies and the hop's own are never among them. */
-const FORWARDED_HEADERS = new Set(['content-type', 'accept', 'accept-encoding', 'user-agent', 'x-goog-api-client']);
+/** The app's headers that pass. The key's header, cookies, the hop's own and the body's type are never among them. */
+const FORWARDED_HEADERS = new Set(['accept', 'accept-encoding', 'user-agent', 'x-goog-api-client']);
 
 /** Response headers the app never gets: the hop's own, cookies, and where a redirect points. */
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'set-cookie', 'location']);
@@ -117,7 +118,8 @@ export function forwardedHeaders(headers: http.IncomingHttpHeaders, key: string,
     if (value === undefined || !FORWARDED_HEADERS.has(name)) continue;
     forwarded[name] = Array.isArray(value) ? value.join(', ') : value;
   }
-  return { ...forwarded, host: PROVIDER_HOST, 'content-length': String(bodyLength), 'x-goog-api-key': key };
+  // The body sent is JSON the forwarder serialized, whatever type the app named.
+  return { ...forwarded, host: PROVIDER_HOST, 'content-type': 'application/json', 'content-length': String(bodyLength), 'x-goog-api-key': key };
 }
 
 function responseHeaders(upstream: http.IncomingMessage): http.OutgoingHttpHeaders {
@@ -199,8 +201,6 @@ function readBody(request: http.IncomingMessage, maxBytes: number, done: (read: 
 const TOP_FIELDS = new Set(['model', 'contents', 'input', 'systemInstruction', 'generationConfig', 'safetySettings', 'responseModalities', 'responseMimeType', 'responseFormat']);
 const CONFIG_FIELDS = new Set(['temperature', 'topP', 'topK', 'maxOutputTokens', 'seed', 'stopSequences', 'candidateCount', 'responseModalities', 'responseMimeType', 'responseSchema', 'responseJsonSchema', 'imageConfig', 'thinkingConfig', 'thinkingLevel']);
 const IMAGE_CONFIG_FIELDS = new Set(['aspectRatio', 'imageSize']);
-/** The image sizes the table's image price covers: up to 2K. A larger size is refused. */
-const PRICED_IMAGE_SIZES = new Set(['1K', '2K']);
 /** Keys that point a part at a stored file, anywhere in the body. */
 const FILE_KEYS = new Set(['fileData', 'fileUri', 'uri']);
 
@@ -281,7 +281,7 @@ function checkBody(route: Route, body: Buffer): BodyCheck {
   const model = route.kind === 'generate' ? route.model : named;
   const price = model === null ? undefined : priceOf(model);
   if (model === null || price === undefined) return { ok: false, reason: 'model', message: `the model ${model ?? '(none)'} is not one a factory run may call`, model: model ?? undefined };
-  const problem = limitProblem(fields, sent.length, price.limits);
+  const problem = limitProblem(fields, sent.length, price);
   if (problem !== undefined) return { ok: false, ...problem, model };
   return { ok: true, model, body: sent };
 }
@@ -371,7 +371,15 @@ function admit(request: http.IncomingMessage, response: http.ServerResponse, rou
   // No query is sent on: it could carry a key, switch to streaming or override the method.
   const path = (request.url ?? '').split('?')[0] ?? '';
   const method = route.kind === 'poll' ? 'GET' : 'POST';
-  forward(response, { method, path, body: check.body, model: check.model, headers: forwardedHeaders(request.headers, read.key, check.body.length), reservation }, options, record);
+  try {
+    forward(response, { method, path, body: check.body, model: check.model, headers: forwardedHeaders(request.headers, read.key, check.body.length), reservation }, options, record);
+  } catch (error) {
+    // Thrown before the call went out, such as a header the transport rejects: settle the
+    // reservation so it can't hold an in-flight slot. It is still charged, erring high.
+    reservation?.settle('upstream-error');
+    record({ action: 'refused', reason: 'upstream-error', status: null, model: check.model, chargedUsd: reservation?.reservedUsd ?? 0 });
+    throw error;
+  }
 }
 
 function handle(request: http.IncomingMessage, response: http.ServerResponse, options: ProviderForwarderOptions): void {
