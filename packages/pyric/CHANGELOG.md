@@ -1,30 +1,153 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.33
+
+pyric 0.1.0-alpha.33 is on the `exp` dist-tag. `latest` stays at alpha.30.2. No other dist-tag moves, and this release carries no `fb` compatibility tag.
+
+```bash
+npm create pyric@exp my-app
+# or, in an existing project
+npm install pyric@exp
+npm install -D @pyric/cli@exp
+```
+
+This release covers everything merged to `main` since alpha.32. It moves pyric to firebase 12.19, keeps sandbox routes on the machine that runs them, serves Cloud Functions `onRequest` exports locally, and computes rules ints as production does.
+
+### App Check and AI Logic
+
+App Check enforcement for AI Logic is a per-project mode, not one date for everyone. Firebase's automatic enforcement starts on November 2, 2026, and a setting on each project can delay it, up to January 21, 2027. A project that is not enforced can answer an AI request with no token with 200. This corrects the alpha.31 notes, which said every project was required from November 2.
+
+- **The sandbox still refuses.** It doesn't read your project's mode. A request with no App Check token, a malformed one, the web SDK's placeholder or a token whose signature fails gets a 403 `PERMISSION_DENIED`, so an app finds a missing token before production does. A valid token answers. See Known gaps for what isn't settled about enforced projects (#1676).
+- **Limited-use tokens last 300 seconds.** A limited-use token the sandbox mints, from `getLimitedUseToken` or `useLimitedUseAppCheckTokens`, now has a TTL of 300 seconds, where it had 3600. Other sandbox tokens stay at 3600 (#1676).
+- **Minted tokens carry `lu`.** Every token the sandbox mints now has an `lu` claim, limited-use or not, and so does one `firebase-admin`'s `createToken` mints under pyric. The captures record only the claim's name, so its value is the placeholder `pyric-sandbox`. With a `CustomProvider` and no debug token set, your provider's token is still used as given, so neither the 300 seconds nor `lu` applies to it (#1676).
+
+### New in this release
+
+- **`onRequest` functions run locally.** `pyric sandbox` and the `pyric()` Vite plugin serve Cloud Functions `onRequest` exports, v2 and v1, unchanged, at `/{projectId}/{region}/{name}`. Before the functions are running, a request gets a 503 that names the cause (#1202).
+- **Hosting rewrites reach functions.** A `firebase.json` rewrite such as `{ "source": "/api/**", "function": "api" }` reaches the function with the full original URL, and with only the `__session` cookie. A request is cut with a 504 at `timeoutSeconds` (60 when unset, at most 3600) on the function's own path, and at 60 seconds at most through a rewrite. Each served request prints one execution line. `pyric sandbox --hosted` serves functions too (#1204).
+- **Firebase 12.19.** Pyric is conformance-tested against firebase 12.19.0, up from 12.13.0, and scaffolded apps pin `~12.19.0`. `firebase` is a dev dependency of `pyric` and `@pyric/cli`, so upgrading pyric doesn't change the firebase version an existing app installs (#1676).
+- **New firebase names import, then throw on use.** Through the served `firebase/*` modules, `AgentPlatformBackend`, Firestore's `maximum` and `minimum`, and messaging's `register`, `unregister`, `onRegistered` and `onUnregistered` load, and calling one throws `<service>/unsupported-in-served-mode`. A service worker gets `onRegistered` and `onUnregistered` the same way. `firebase/firestore/lite`, which is deferred as a whole, gains `maximum` and `minimum`, which throw its own deferred error. `pyric/ai`, `pyric/firestore` and `pyric/messaging` don't export these names (#1676).
+- **A Google dialog sign-in reports a verified email.** A new Google identity from the sandbox dialog has `emailVerified: true` on the user, the ID token and `request.auth.token`, so a rule that requires `email_verified` admits it. An existing account keeps its own flag (#1801).
 
 ### Behavior changes
 
-- Pyric now requires `firebase@^12.19.0`, raised from `^12.12.0`, and is
-  conformance-tested against 12.19.0. Scaffolded apps install `~12.19.0`.
-  Firebase 12.19.0 removed the Imagen API from `firebase/ai`, so `pyric/ai` no
-  longer exports the `ImagenAspectRatio`, `ImagenPersonFilterLevel` and
-  `ImagenSafetyFilterLevel` constants, and the served `firebase/ai` module no
-  longer exports them or `getImagenModel`, `ImagenModel`, `ImagenImageFormat`,
-  `getTemplateImagenModel` and `TemplateImagenModel`. The
-  new `AgentPlatformBackend`, Firestore's `maximum` and `minimum`, and
-  messaging's `register`, `unregister`, `onRegistered` and `onUnregistered`
-  can be imported in served mode but throw `unsupported-in-served-mode` until
-  pyric implements them (#1604).
-- `SDK_VERSION` from `pyric/app` is now `12.19.0`. A second `initializeApp`
-  under an existing name with different options or settings throws
-  `app/duplicate-app` with the 12.19.0 message, which names the mismatched
-  parameter and includes the existing and new values as JSON, for example
-  `Firebase App named '[DEFAULT]' already exists with different options.
-  Existing: '{...}'. New: '{...}'.` (#1604).
-- A second `initializeAppCheck` on the same app treats an omitted
-  `isTokenAutoRefreshEnabled` as `false`, as firebase 12.19.0 does. Calls
-  that differ only in omitting it versus passing `false` now return the same
-  instance instead of throwing `appCheck/already-initialized` (#1604).
+Each entry names the old behavior, the new behavior and the PR. The changes that can stop code that ran before are also under Breaking changes.
+
+#### Firebase 12.19
+
+- `SDK_VERSION` from `pyric/app`: before, `12.13.0`. Now, `12.19.0` (#1676).
+- A second `initializeApp` under an existing name with different options or settings: `app/duplicate-app` now has the 12.19.0 message, which names the mismatched parameter and quotes both values as JSON: `Firebase App named '[DEFAULT]' already exists with different options. Existing: '{...}'. New: '{...}'.` (#1676).
+- A second `initializeAppCheck` that differs only in omitting `isTokenAutoRefreshEnabled` versus passing `false`: before, threw `appCheck/already-initialized`. Now, returns the same instance (#1676).
+
+#### Sandbox routes and clients on other machines
+
+The connection's peer address decides who is on this machine, so `--allowed-host` and Vite's `allowedHosts` don't open these routes to another machine.
+
+- Sandbox, Studio, MCP, service command and Storage byte routes under `/__pyric`: before, the Host, Origin and session token checks decided, whichever machine the client was on. Now, a client on another machine gets 403, with the message `this route answers clients on this machine only`. The bridge socket is closed to that client (#1808).
+- `/__pyric/init.json` for a client on another machine: before, the full payload. Now, 200 with `remotePeer: true` and no session token, seed, rules or project data (#1808).
+- A client on another machine that reaches the host through a dev server: before, the forwarding server's loopback connection made it look local. Now, it gets the same answers as from the host's own port. This covers the `withPyric` Next rewrite, a Vite `server.proxy` and a Node proxy that forwards the incoming headers. A Node server under `pyric sandbox` or `withPyric` sets `x-pyric-remote-peer` on a request from another machine. The header only takes access away: its presence means remote whatever its value (#1821).
+- Still answered for every client: hosted pages, SDK bundles, the docs and Studio shells, avatars and Functions HTTP routes (#1808).
+
+#### Project files
+
+- `pyric sandbox` with no `hosting` block in `firebase.json`, or no `firebase.json`: before, served the current directory. Now, serves no static files and prints a `hosting  Off` line that says to add `hosting.public`. `/` still opens Studio (#1798).
+- A `hosting` block without `public`: before, served `.`. Now, serves `public`, and `pyric sandbox` stops at startup with `hosting.public directory does not exist` if there is no such directory. A block with only function rewrites deploys with no directory, so it stops here too: see Known gaps (#1798, #1825).
+- With a `hosting` block: before, every file under the directory. Now, what a default deploy would upload. Dot files and dot directories such as `.pyric/`, `.env` and `.well-known/`, `node_modules` and a root `firebase.json` answer 404, whatever the project's own `ignore` says. So does a link that leaves the public directory (#1798).
+- Studio's workspace routes: `.pyric/`, `.env`, `.env.*`, `.envrc` and `node_modules` now answer 403 for read, write, list and remove, on this machine too, and are left out of listings (#1808).
+- The Vite plugin: `.pyric/` is refused by path, by query form and through `/@fs`, and a request whose real path is in `.pyric/` or is an env file is refused too. Vite keeps serving `node_modules` (#1798, #1808).
+
+#### Firestore and Storage rules
+
+- Ints: before, JavaScript doubles, so `9223372036854775807 + 1 > 0` allowed. Now, signed 64-bit, and overflow is an error value that denies, and that `|| true` and `&& false` absorb. The exception is the minimum int divided by `-1`, which returns the minimum, as production does. A literal past the int64 range fails to compile with `Invalid number literal` (#1776).
+- Ints above 2^53: before, rounded. Now, they compare and print exactly, and a trace shows such an int as a string of digits (#1776).
+- A host number that isn't a safe integer, such as `2 ** 53` in document or request data: before, an int. Now, a float: `is int` is false and `string()` prints `9.007199254740992E15`. In Firestore, a rule that interpolates such a field into a path, or compares it to an int in a list, now denies. An integral custom claim inside int64 stays an int, and a fractional claim such as `1.5` now reads as a float (#1796).
+- `-duration`: before, an error. Now, it negates the duration (#1495, #1776).
+- Storage, a method no type defines, such as `'a'.foo()`: before, an error `||` couldn't absorb. Now, production's `Function not found error`, which `||` and `&&` absorb. Namespace calls such as `hashing.foo()` still fail closed (#1495).
+- Storage, a coarse request in `evaluateStorageRules` or `pyric simulate`: before, `request.method` was the word `read` or `write`. Now, `read` evaluates as `get` then `list`, a `write` with `request.resource` as `create` then `update`, and a `write` without one as `delete` (#1495).
+- Storage, an invalid `now` passed to `evaluateStorageRules`: now throws a `TypeError` at the call (#1495).
+- Storage, a path built in a helper function: an interpolated string is now one segment even if it holds `/` (#1495).
+
+#### Next.js and AI
+
+- `withPyric` keeps an npm-aliased `firebase-admin` and every installed `@firebase/*` package out of Next server bundles. Before, a server route that imported them loaded the real package. Now, it stops with `PYRIC_REAL_SDK_STOPPED` (#1755).
+- Upstream fetch errors on both AI planes: before, text that quoted the key or bearer token reached the page, the `/__pyric/ai-proxy` 502 body and the terminal. Now, the request's credentials are masked as `***` (#1765).
+
+### Breaking changes
+
+Each of these refuses something that used to work. Check them before you upgrade.
+
+- **No `hosting` block, no static files.** A project that relied on `pyric sandbox` serving its directory now gets 404s. Add `"hosting": { "public": "." }` to `firebase.json`, or name your site's directory (#1798).
+- **A `hosting` block without `public` needs a `public` directory.** Without one, `pyric sandbox` stops at startup. Name a directory in `hosting.public`. That includes a block with only function rewrites, which `firebase-tools` accepts with no directory (#1798, #1825).
+- **Dot files, `node_modules` and `firebase.json` aren't served from Hosting.** That includes `/.well-known/`, even if your own `ignore` would upload it (#1798).
+- **Hosted pages and servers on another machine lose the sandbox.** A hosted page opened over the LAN loads, but its Firebase calls fail with an error saying the host answers its own machine only. On the in-page sandbox, such a page reads and writes Firestore in its own browser, with no project data, and Storage is denied. A server on another machine can't attach with `PYRIC_SANDBOX=remote:<url>` (#1808, #1821).
+- **Imagen is gone.** Firebase 12.19.0 removed the Imagen API from `firebase/ai`. `pyric/ai` no longer exports `ImagenAspectRatio`, `ImagenPersonFilterLevel` and `ImagenSafetyFilterLevel`. The served `firebase/ai` no longer exports those, `getImagenModel`, `ImagenModel`, `ImagenImageFormat`, `getTemplateImagenModel` or `TemplateImagenModel`, so a page that imports one fails to load, even with an older firebase installed (#1676).
+- **Rules that relied on the old number handling now deny.** An int overflow denies, as production's captures do (#1776). An `is int` check on a stored number of 2^53 or more denies too; that boundary comes from the SDK sources, not a rules capture: see Known gaps (#1796).
+- **`withPyric` refuses a `transpilePackages` entry it keeps external.** The error names the package. Next refused this already, without naming pyric (#1755).
+
+### Known gaps
+
+#### App Check and AI Logic
+
+- What an enforced project answers isn't settled. Two captures on a project reading `ENFORCED` answered 401 to every request, including valid tokens, and the cause is unknown. The 403 the sandbox replays was captured on a project reading `UNENFORCED`. So the sandbox's refusal is a deliberate early check, not a replay of a confirmed enforced answer (#1300).
+- The AI Logic guide and the tutorial still say AI Logic requires App Check from November 2, 2026, with no mention of the per-project setting. These notes are the correct statement.
+- The sandbox has no token refresher, so `onTokenChanged` and auto-refresh differ from production (#1656).
+- A registered Node process has no `initializeServerApp` (#1644).
+- In production AI mode, app code can still load a real `firebase/app` or `firebase/app-check` file by absolute path (#1735).
+- For a Node process connected with `PYRIC_SANDBOX=remote:<url>`, the dev server terminal still prints the browser App Check hint (#1736).
+- An error event inside a successful Gemini stream reaches the app, masked. The Firebase SDK drops such a chunk (#1753).
+- A username and password in an AI upstream base URL aren't masked in error text (#1766).
+- A `VITE_GEMINI_API_KEY` set only in `.env` doesn't get the banner note (#1743).
+
+#### Firebase 12.19 and tags
+
+- npm's `latest` firebase is 13.2.0, and pyric is tested on the 12 line. Pyric's suites fail against npm's latest firebase and firebase-admin (#1602, #1188). Stay on `~12.19.0`, as scaffolded apps do.
+- The new names above throw until pyric implements them: `maximum` and `minimum` (#1672), messaging's four (#1673), `AgentPlatformBackend` (#1674).
+- The versioning page tells readers to run `npm install pyric@fb12.19`. No such tag exists yet: this release moves no `fb` tag, and `fb12.13` still points at alpha.24.
+
+#### Other machines
+
+- These still count as local: a forwarder that doesn't pass on the header, a forwarder not running under the preload (a non-Node process, or a Node process started outside `pyric sandbox` without `withPyric`), an HTTP/2 server, an app's own server code calling the host, and a tunnel (#1808, #1821).
+- A published container port should count as another machine, but that comes from reasoning and isn't tested (#1808).
+- Functions HTTP routes answer clients on other machines and can write through `firebase-admin`, so a backend bound with `--host` isn't private on your network (#1808).
+- Hosted pages still show the project directory to other machines (#1813).
+- Under `vite --host`, Vite itself keeps serving the app's source to other machines, except what the plugin refuses (#1808).
+
+#### Functions
+
+- `pyric sandbox` stops at startup on a `hosting` block with only function rewrites and no `public/` directory, which `firebase-tools` accepts (#1825).
+- `pyric sandbox` exits at startup when `firebase.json` declares a Functions source whose `main` hasn't been built, so a fresh clone can stop before anything starts (#1812).
+- No production capture backs Functions HTTP yet: 16 of its 21 rows are unverified, and scaling options are unsupported.
+- A `regex` rewrite runs as a JavaScript regular expression, where production uses RE2, so a pattern can match in pyric and fail to deploy (#1204).
+- Rewrite responses skip Hosting's cache-control, set-cookie and `Vary` handling. No app scenario covers a catch-all `"**"` function rewrite under Vite, where it could claim a dev-only virtual module path (#1204).
+- On the Node host, served requests don't reach the host's event stream (#1768).
+
+#### Auth and rules
+
+- With Email Enumeration Protection on, production answers `auth/invalid-credential` where the sandbox answers `auth/wrong-password` and `auth/user-not-found` (#1819).
+- `verifyBeforeUpdateEmail` (#1693), linking an email credential onto an anonymous user (#1698) and `getAdditionalUserInfo().providerId` (#1699) differ from production.
+- A Google sign-in links onto an existing unverified account, where production overwrites it for `@gmail.com` (#1814). No production capture of a Google sign-in backs the verified email above.
+- `signInWithPopup` throws on a served page that runs in-page (#1802).
+- The host-number boundaries come from the SDK sources and sign-in captures, not from a rules capture (#1796). Open divergences: a bare float in a Storage lookup path (#1815), an int field incremented past 2^53 (#1816), an integral claim between 2^53 and 2^63 (#1817), and `-0`, NaN and infinities after JSON (#1794).
+- `(true ? data.parent() : null).exists()` loads in pyric and is refused at deploy in production (#1820).
+- `pyric can-i-use getAfter` reads `unverified` until a capture backs the batch sibling-merge row (#1769).
+
+#### Dev server
+
+- `/__pyric/rate-captures` and the Storage byte route still answer before reading the whole body without closing the connection (#1721).
+
+### Everything else
+
+#### Conformance
+
+- Rules scores, conformant constructs: Firestore 135/140, up from 128, and Storage 122/140, up from 113, both from pyric matching captures (#1495, #1776). RTDB 90/91, down from 91/91 because a new row records the deploy refusal above (#1676).
+- Public surface coverage fell because firebase 12.19.0 added names, with nothing reclassified: Firestore runtime 98.1%, messaging runtime 55.6%, messaging types 88.9% (#1676).
+- `@pyric/cli` now depends on `minimatch` 6.2.3, the version superstatic resolves (#1204).
+
+#### Docs
+
+- The guides gain "Call your HTTP functions" and say HTTP functions run locally. The `--host` reference says what stays reachable from another machine, and the Node host and Start building guides say which directory is served (#1204, #1798, #1808).
+
+**Full changelog:** https://github.com/davideast/pyric/compare/v0.1.0-alpha.32...v0.1.0-alpha.33
 
 ## 0.1.0-alpha.32
 
