@@ -45,7 +45,7 @@ Server code has one signed-in user for the whole dev server process, shared by e
 
 Vite's default externalization and `ssr.noExternal` both work. A server environment Vite does not run in its own Node process, such as a Cloudflare Workers runtime, gets a module that throws when it loads.
 
-The dev server's network guard stays on for Firebase code the swap does not reach: other `firebase/*` subpaths, an installed package that imports `firebase` itself, and your Vite config's own imports. The dev server log names each refused host.
+The swap does not reach other `firebase/*` subpaths, an installed package that imports `firebase` itself, or your Vite config's own imports, so that code talks to production Firebase. The dev server's network guard refuses only requests for a server-side Google access token, so that code can't act with your machine's Google credentials. The dev server log names each refused host.
 
 `pyric sandbox` does the same swap for a static page or a Node process. The served page carries an import map, so the browser makes the same substitution without Vite.
 

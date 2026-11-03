@@ -1,11 +1,11 @@
 /**
  * The single shared source of Google/Firebase production endpoint hosts.
  *
- * Two readers consume this table and they must never drift apart:
- *  - the runtime net guard (`register/net-guard.ts`), which matches every
- *    catalog host on egress from a pyric-launched child;
- *  - the throwing frontend build check (`cli/inlined-sdk-scanner.ts`), which
- *    greps served assets for the narrower SDK fingerprint subset below.
+ * The throwing frontend build check (`cli/inlined-sdk-scanner.ts`) greps
+ * served assets for the narrower SDK fingerprint subset below. The runtime
+ * network guard doesn't read this table: it refuses only token sources
+ * (`google-token-endpoints.ts`, ADR 0022). It shares `normalizeHostname`, so
+ * both compare hosts in one spelling.
  *
  * It lives at the package root, not under `cli/` or `register/`, so both
  * import it without a cycle, and it has zero imports so the `--import`ed
@@ -13,23 +13,15 @@
  *
  * Membership rule: a host belongs here only if it is real-SDK-only, meaning it
  * can never legitimately be contacted by a sandbox-clean app (whose Firebase
- * traffic all routes to the local `/__pyric/*` namespace). User-configured
- * upstreams (BYOK AI base URLs, app APIs) are handled by the guard's
- * allowlist, not by omission from this table.
+ * traffic all routes to the local `/__pyric/*` namespace).
  */
 
 /** One production endpoint host and the service it belongs to. */
 export interface GoogleEndpoint {
   /** Registrable host or host suffix. Matched by label-boundary suffix. */
   readonly host: string;
-  /** Human-readable service name, used verbatim in guard and scanner messages. */
+  /** Human-readable service name, used verbatim in scanner messages. */
   readonly service: string;
-  /**
-   * Blocked from day one rather than warn-first. Reserved for egress that is
-   * never explainable as a false positive, currently only the GCE/GKE metadata
-   * server, whose only purpose here would be credential theft.
-   */
-  readonly alwaysBlock?: true;
   /**
    * True when the host string is evidence that real Firebase SDK code was
    * compiled into a build artifact. Only these hosts feed the throwing
@@ -38,9 +30,7 @@ export interface GoogleEndpoint {
    * False for a host an ordinary app can carry without any SDK: a public Cloud
    * Storage asset URL, a bare callable URL on `cloudfunctions.net`, a
    * `databaseURL` config literal on `firebaseio.com`, a Vertex AI call from a
-   * hand-written client, a server-side FCM send, an admin control plane, or an
-   * infrastructure reference to the metadata server. The net guard still
-   * matches all of them on the wire.
+   * hand-written client, a server-side FCM send, or an admin control plane.
    */
   readonly fingerprint: boolean;
 }
@@ -99,20 +89,6 @@ export const GOOGLE_ENDPOINT_CATALOG: readonly GoogleEndpoint[] = [
   // from any HTTP client.
   { host: FIREBASE_AI_LOGIC_HOST, service: 'Firebase AI Logic', fingerprint: true },
   { host: 'aiplatform.googleapis.com', service: 'Vertex AI', fingerprint: false },
-  // Credential exfiltration target. Never a false positive on the wire, and
-  // never evidence that an SDK was inlined.
-  {
-    host: '169.254.169.254',
-    service: 'GCE metadata server',
-    alwaysBlock: true,
-    fingerprint: false,
-  },
-  {
-    host: 'metadata.google.internal',
-    service: 'GCE metadata server',
-    alwaysBlock: true,
-    fingerprint: false,
-  },
 ];
 
 /**

@@ -22,7 +22,7 @@ describe('withPyric Next.js configuration wrapper', () => {
   const origPyricSandbox = process.env.PYRIC_SANDBOX;
   const origPyricSandboxForce = process.env.PYRIC_SANDBOX_FORCE;
   const origPyricSandboxPort = process.env.PYRIC_SANDBOX_PORT;
-  // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
+  // Kept out of other suites in case a test sets it.
   const origPyricGuard = process.env.PYRIC_GUARD;
 
   beforeEach(() => {
@@ -402,22 +402,22 @@ describe('withPyric Next.js configuration wrapper', () => {
 });
 
 /**
- * #1443: inside the Next dev server that withPyric wraps, nothing is meant to
- * reach live Firebase, so the guard defaults to block there, as it does in the
- * Vite dev server. An explicit PYRIC_GUARD still names the mode.
+ * ADR 0022: the credential choke point is the default in every registered
+ * process, so withPyric no longer touches PYRIC_GUARD or the guard the
+ * register published. Before, it set `block` and escalated the guard (#1443).
  */
-describe('withPyric guard default in the Next dev server', () => {
+describe('withPyric leaves the network guard alone', () => {
   const NET_GUARD = Symbol.for('pyric.netGuard');
   const slot = globalThis as unknown as Record<symbol, unknown>;
   const saved = { guard: process.env.PYRIC_GUARD, sandbox: process.env.PYRIC_SANDBOX, published: slot[NET_GUARD] };
-  let escalations: string[];
+  let published: { mode: string };
 
   beforeEach(() => {
-    escalations = [];
     process.env.PYRIC_SANDBOX = 'remote:http://127.0.0.1:4000';
     markRegisterActive();
     delete process.env.PYRIC_GUARD;
-    slot[NET_GUARD] = { mode: 'warn', escalate: (reason: string) => { escalations.push(reason); return true; } };
+    published = Object.freeze({ mode: 'block' });
+    slot[NET_GUARD] = published;
   });
 
   afterEach(() => {
@@ -432,11 +432,10 @@ describe('withPyric guard default in the Next dev server', () => {
     else slot[NET_GUARD] = saved.published;
   });
 
-  it('escalates the guard in this process and sets PYRIC_GUARD=block for the processes Next starts', async () => {
+  it('sets no PYRIC_GUARD in the dev server, and keeps the published guard as it is', async () => {
     await resolveWith({});
-    expect(process.env.PYRIC_GUARD).toBe('block');
-    expect(escalations).toHaveLength(1);
-    expect(escalations[0]).toContain('Next dev server');
+    expect(process.env.PYRIC_GUARD).toBeUndefined();
+    expect(slot[NET_GUARD]).toBe(published);
   });
 
   it('leaves an explicit PYRIC_GUARD alone', async () => {
@@ -445,7 +444,6 @@ describe('withPyric guard default in the Next dev server', () => {
       await resolveWith({});
       expect(process.env.PYRIC_GUARD).toBe(mode);
     }
-    expect(escalations).toEqual([]);
   });
 
   it('changes nothing in production phases', async () => {
@@ -453,12 +451,5 @@ describe('withPyric guard default in the Next dev server', () => {
       await resolveWith({}, undefined, phase);
     }
     expect(process.env.PYRIC_GUARD).toBeUndefined();
-    expect(escalations).toEqual([]);
-  });
-
-  it('sets the default without a published guard, as when the register installs none', async () => {
-    delete slot[NET_GUARD];
-    await resolveWith({});
-    expect(process.env.PYRIC_GUARD).toBe('block');
   });
 });
