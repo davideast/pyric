@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { deleteApp, initializeApp } from 'pyric/app';
 import { resetAppRegistryForTests } from '../../../pyric/dist/app/registry.js';
 import { createAppSessionStores } from '../../src/serve/entries/app-session-store.js';
@@ -16,6 +16,9 @@ function memoryStorage() {
 }
 
 beforeEach(() => resetAppRegistryForTests());
+// initializeApp binds the process-wide registry to this file's config and a
+// fresh sandbox. Release both so later files can bind their own.
+afterEach(() => resetAppRegistryForTests());
 
 describe('served app SessionStore ownership', () => {
   it('evicts the deleted app object while preserving the name-keyed persisted session', async () => {
