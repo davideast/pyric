@@ -4,7 +4,8 @@
  *   pyric sandbox --hosted --no-open --host 127.0.0.1 --port 3473 -- next dev --port 3000
  *
  * from `studio/`, as Studio's own `dev` script runs it, with a fake Firebase
- * web config and no secret: no Gemini or ElevenLabs key, no service account.
+ * web config, the run's ffmpeg when there is one, and no secret: no Gemini
+ * or ElevenLabs key, no service account.
  * The sandbox's network is loopback alone, so no Google host is reachable,
  * and each sandbox has its own loopback, so every checkout uses Studio's
  * usual ports without meeting another's. It resolves once Studio answers.
@@ -16,6 +17,7 @@ import type { EgressNamespace } from '../namespace.ts';
 import { demoProjectId, fakeFirebaseConfig } from '../scratch.ts';
 import type { Checkout } from './app-paths.ts';
 import { Aborted, baseEnvironment, sandboxRunner, trackGroup } from './exec.ts';
+import { ffmpegEnvironment } from './tools.ts';
 
 export const APP_PORT = 3000;
 export const PYRIC_PORT = 3473;
@@ -33,6 +35,8 @@ export interface StartOptions {
   allowedHost?: string;
   /** The port a remote page dials for Pyric's WebSocket, when it isn't 3473. */
   publicBridgePort?: number;
+  /** The run's ffmpeg, checked by hash, for Studio's media routes. */
+  ffmpeg?: string;
   /** Stops Studio when it aborts. */
   signal?: AbortSignal;
 }
@@ -43,8 +47,8 @@ export interface StartedApp {
   stop(): Promise<void>;
 }
 
-/** Studio's environment: the base one, a fake web config for a `demo-` project, and the public host when there is one. */
-export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allowedHost' | 'publicBridgePort'>): Record<string, string> {
+/** Studio's environment: the base one, a fake web config for a `demo-` project, and the public host and the run's ffmpeg when there are. */
+export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allowedHost' | 'publicBridgePort' | 'ffmpeg'>): Record<string, string> {
   const projectId = demoProjectId('mdmedia-studio');
   const config = fakeFirebaseConfig(projectId);
   const env: Record<string, string> = {
@@ -59,6 +63,7 @@ export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allo
     FIREBASE_STORAGE_BUCKET: config.storageBucket ?? '',
     PORT: String(APP_PORT),
     ...FAKE_MEDIA,
+    ...ffmpegEnvironment(options.ffmpeg),
   };
   if (options.allowedHost !== undefined) env.MDMEDIA_ALLOWED_DEV_ORIGINS = options.allowedHost;
   if (options.publicBridgePort !== undefined) env.NEXT_PUBLIC_PYRIC_BRIDGE_PORT = String(options.publicBridgePort);

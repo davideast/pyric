@@ -20,6 +20,7 @@
  * (which flushes the NetLog) on SIGTERM, SIGINT or when its stdin closes.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +57,40 @@ export function chromiumArgs(netLogPath: string): string[] {
 /** Where Playwright's browsers are, read from the harness's own HOME before a run's scratch HOME replaces it. */
 export function playwrightBrowsersPath(env: NodeJS.ProcessEnv = process.env): string {
   return env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), '.cache', 'ms-playwright');
+}
+
+/** A Chromium revision's directory, `chromium-<n>`; not the headless shell's `chromium_headless_shell-<n>`. */
+const CHROMIUM_REVISION = /^chromium-(\d+)$/;
+/** Where a revision keeps its executable on Linux; newer Playwright releases use the second. */
+const LINUX_DIRS = ['chrome-linux', 'chrome-linux64'];
+
+function revisionOf(name: string): number | undefined {
+  const match = CHROMIUM_REVISION.exec(name);
+  return match === null ? undefined : Number(match[1]);
+}
+
+/** Chromium's revisions under `browsersPath`, newest first. */
+function revisionsNewestFirst(browsersPath: string): string[] {
+  const names = existsSync(browsersPath) ? readdirSync(browsersPath) : [];
+  const revisions = names.flatMap((name) => {
+    const revision = revisionOf(name);
+    return revision === undefined ? [] : [{ name, revision }];
+  });
+  return revisions.sort((a, b) => b.revision - a.revision).map((entry) => entry.name);
+}
+
+/**
+ * The newest Chromium executable Playwright installed under `browsersPath`,
+ * `chromium-<n>/chrome-linux/chrome` or `chromium-<n>/chrome-linux64/chrome`,
+ * or nothing. A session and the tests gate get it as `CHROME_PATH`, for code
+ * that starts Chromium without Playwright's own lookup.
+ */
+export function chromiumExecutable(browsersPath: string): string | undefined {
+  for (const revision of revisionsNewestFirst(browsersPath)) {
+    const executable = LINUX_DIRS.map((dir) => join(browsersPath, revision, dir, 'chrome')).find((path) => existsSync(path));
+    if (executable !== undefined) return executable;
+  }
+  return undefined;
 }
 
 export interface BrowserServerOptions {
