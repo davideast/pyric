@@ -12,10 +12,11 @@
 import { firstLine } from '../parse.ts';
 import { systemClock, type Clock } from './clock.ts';
 import { pauseAfterRateLimit } from './rate-limit.ts';
+import { optional } from './optional.ts';
 import { openRun, type OpenedRun } from './run-open.ts';
 import { writeHeartbeat, writeJsonFile, writeState, type RunPaths, type SupervisorState } from './run-dir.ts';
 import { MAX_SESSIONS, REVIEW_ROLES, wanted, type Start } from './schedule.ts';
-import type { HourlyCheck, RunEnd, RunSession, SessionResult } from './session.ts';
+import type { CheckResult, HourlyCheck, RunEnd, RunSession, SessionResult } from './session.ts';
 import { noHourlyCheck } from './session.ts';
 import { appendTimeline } from './timeline.ts';
 import { WorkListReader } from './work-list-reader.ts';
@@ -205,10 +206,10 @@ class Supervisor {
     const hook = this.options.hourlyCheck ?? noHourlyCheck;
     const context = { runDir: this.paths.root, appDir: this.paths.app, hour, signal: this.halt.signal };
     // `then` turns a synchronous throw into a rejection, so either is a failed check.
-    const result = await Promise.resolve().then(() => hook(context)).catch((error: unknown) => ({ passed: false, summary: `the check threw: ${firstLine(error)}` }));
+    const result = await Promise.resolve().then(() => hook(context)).catch((error: unknown): CheckResult => ({ passed: false, summary: `the check threw: ${firstLine(error)}` }));
     const at = iso(this.clock.now());
     writeJsonFile(this.paths.files.latestCheck, { at, hour, ...result });
-    appendTimeline(this.paths.timeline, { type: 'check', at, hour, passed: result.passed, summary: result.summary });
+    appendTimeline(this.paths.timeline, { type: 'check', at, hour, passed: result.passed, summary: result.summary, ...optional('progress', result.progress) });
     this.oweReviews();
     this.saveState();
   }

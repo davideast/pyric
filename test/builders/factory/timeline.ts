@@ -5,7 +5,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile } from './host-files.ts';
-import type { EndedBy, Role } from './session.ts';
+import type { CheckProgress, EndedBy, Role } from './session.ts';
 
 export type TimelineLine =
   | { type: 'start'; at: string; deadline: string; pid: number }
@@ -25,7 +25,8 @@ export type TimelineLine =
     error?: string;
   }
   | { type: 'pause'; at: string; until: string; seat: string; source: 'reset-at' | 'backoff' }
-  | { type: 'check'; at: string; hour: number; passed: boolean; summary: string }
+  /** `progress` is the check's commits and finished items, when it got that far. */
+  | { type: 'check'; at: string; hour: number; passed: boolean; summary: string; progress?: CheckProgress }
   | { type: 'end'; at: string };
 
 export function appendTimeline(path: string, line: TimelineLine): void {

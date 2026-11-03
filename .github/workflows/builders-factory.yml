@@ -72,6 +72,7 @@ jobs:
           test/builders/factory/gates.test.ts
           test/builders/factory/git-hardening.test.ts
           test/builders/factory/host-files.test.ts
+          test/builders/factory/hour-progress.test.ts
           test/builders/factory/known-failures.test.ts
           test/builders/factory/layout-probe.test.ts
           test/builders/factory/next-config.test.ts
