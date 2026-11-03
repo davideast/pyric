@@ -14,10 +14,16 @@
  * payload, or signature fails verification. It is not a security boundary:
  * anyone can mint one.
  */
-import { base64url, checkSandboxJwt, signSandboxJwt, type SandboxJwtCheck, type SandboxJwtParts } from './sandbox-jwt.js';
+import {
+  base64url,
+  checkSandboxJwt,
+  SANDBOX_JWT_KID,
+  signSandboxJwt,
+  type SandboxJwtCheck,
+  type SandboxJwtParts,
+} from './sandbox-jwt.js';
 
 const ISSUER = 'https://firebaseappcheck.googleapis.com';
-const SANDBOX_KID = 'pyric-sandbox';
 const SANDBOX_KEY = 'pyric-sandbox-app-check-signing-key';
 
 /**
@@ -79,7 +85,7 @@ export async function mintAppCheckToken(
     iat,
     jti: randomId(),
   };
-  const token = await signAppCheckToken({ alg: 'RS256', kid: SANDBOX_KID, typ: 'JWT' }, claims);
+  const token = await signAppCheckToken({ alg: 'RS256', kid: SANDBOX_JWT_KID, typ: 'JWT' }, claims);
   return { token, expireTimeMillis: exp * 1000 };
 }
 
@@ -99,5 +105,5 @@ export type AppCheckTokenCheck = SandboxJwtCheck;
  * caller's rules.
  */
 export async function checkAppCheckToken(token: string): Promise<AppCheckTokenCheck> {
-  return checkSandboxJwt(token, { kid: SANDBOX_KID, key: SANDBOX_KEY });
+  return checkSandboxJwt(token, { kid: SANDBOX_JWT_KID, key: SANDBOX_KEY });
 }

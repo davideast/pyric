@@ -15,6 +15,9 @@
  */
 const SIGNATURE_BLOCKS = 8;
 
+/** The `kid` every sandbox token kind carries; the per-kind key keeps kinds apart. */
+export const SANDBOX_JWT_KID = 'pyric-sandbox';
+
 export function base64url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);

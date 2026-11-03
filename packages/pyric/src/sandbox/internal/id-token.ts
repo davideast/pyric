@@ -9,11 +9,10 @@
  * payload, or tag fails {@link checkIdToken}. It is not a security boundary:
  * anyone with this source can mint a token that checks.
  */
-import { checkSandboxJwt, signSandboxJwt, type SandboxJwtCheck } from './sandbox-jwt.js';
+import { checkSandboxJwt, SANDBOX_JWT_KID, signSandboxJwt, type SandboxJwtCheck } from './sandbox-jwt.js';
 
-const ID_TOKEN_KID = 'pyric-sandbox';
 const ID_TOKEN_KEY = 'pyric-sandbox-id-token-signing-key';
-const ID_TOKEN_HEADER = { alg: 'RS256', kid: ID_TOKEN_KID, typ: 'JWT' } as const;
+const ID_TOKEN_HEADER = { alg: 'RS256', kid: SANDBOX_JWT_KID, typ: 'JWT' } as const;
 
 export type IdTokenCheck = SandboxJwtCheck;
 
@@ -28,5 +27,5 @@ export async function signIdToken(claims: Record<string, unknown>): Promise<stri
  * and expiry are the caller's rules.
  */
 export async function checkIdToken(token: string): Promise<IdTokenCheck> {
-  return checkSandboxJwt(token, { kid: ID_TOKEN_KID, key: ID_TOKEN_KEY });
+  return checkSandboxJwt(token, { kid: SANDBOX_JWT_KID, key: ID_TOKEN_KEY });
 }
