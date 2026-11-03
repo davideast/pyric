@@ -77,7 +77,7 @@ describe('withPyric Edge runtime warning', () => {
     rmSync(root, { recursive: true, force: true });
     if (savedSandbox === undefined) delete process.env.PYRIC_SANDBOX;
     else process.env.PYRIC_SANDBOX = savedSandbox;
-    // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
+    // Kept out of other suites in case a test sets it.
     if (savedGuard === undefined) delete process.env.PYRIC_GUARD;
     else process.env.PYRIC_GUARD = savedGuard;
     delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];

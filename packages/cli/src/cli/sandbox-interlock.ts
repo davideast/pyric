@@ -17,7 +17,7 @@ import { detectUnsupportedRuntime, formatUnsupportedRuntimeWarning } from './uns
  * child, entirely from the env it just assembled: no waiting, no round trip.
  */
 export interface InterlockStatus {
-  /** Net-guard mode the child will run under (`PYRIC_GUARD`, default warn). */
+  /** Net-guard mode the child will run under (`PYRIC_GUARD`, default block). */
   readonly guard: GuardMode;
   /** Whether `NODE_OPTIONS` actually carries the register `--import`. */
   readonly registerImported: boolean;

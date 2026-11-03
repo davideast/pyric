@@ -20,7 +20,7 @@ describe('withPyric webpack ordering', () => {
     markRegisterActive();
   });
 
-  // withPyric sets PYRIC_GUARD=block in a dev phase (#1443); keep it out of other suites.
+  // Kept out of other suites in case a test sets it.
   const savedGuard = process.env.PYRIC_GUARD;
 
   afterEach(() => {

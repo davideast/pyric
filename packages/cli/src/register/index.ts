@@ -23,9 +23,8 @@
  * didn't choose it, throws `PYRIC_REAL_SDK_STOPPED` before the file loads.
  *
  * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
- * refuses egress from this process to live Google/Firebase endpoints, or only
- * reports it under `PYRIC_GUARD=warn`. See that module for the policy and the
- * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs. Whatever the guard mode, it
+ * refuses every request from this process for a server-side Google access
+ * token, unless `PYRIC_GUARD=off`. See that module for the policy. Whatever the guard mode, it
  * wraps `worker_threads.Worker` (`./worker-guard.js`) so every worker thread
  * loads this module as well, including those Node starts without preloads,
  * and gets the swap and the stop. It also wraps `child_process`
