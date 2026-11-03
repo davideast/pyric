@@ -175,7 +175,7 @@ describe('allowed calls', () => {
     expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'models/lyria-3.5', input: 'a calm tune', generation_config: MUSIC_OUTPUT })).status).toBe(200);
     expect((await call(socket, 'GET', '/v1beta/interactions/abc')).status).toBe(200);
     expect(upstream.received.map((sent) => [sent.method, sent.url])).toEqual([['POST', '/v1beta/interactions'], ['GET', '/v1beta/interactions/abc']]);
-    expect(ledger.spentUsd()).toBeCloseTo(1.06);
+    expect(ledger.spentUsd()).toBeCloseTo(1);
   });
 });
 
@@ -311,26 +311,40 @@ describe('token limits', () => {
     expect(byTokens).toBeCloseTo(1.055808, 6);
     expect(image.usdPerCall).toBe(IMAGE_USD);
     expect(worstCaseUsd(image.limits, image.rates)).toBe(IMAGE_USD);
-    expect(priceOf('lyria-3.5')?.usdPerCall).toBe(1.06);
-    expect(priceOf('lyria-3-clip-preview')?.usdPerCall).toBe(1.06);
+    expect(priceOf('lyria-3.5')?.usdPerCall).toBe(1);
+    expect(priceOf('lyria-3-clip-preview')?.usdPerCall).toBe(1);
     expect(priceOf('gemini-3.5-flash-lite')?.usdPerCall).toBe(0.05);
     for (const model of [IMAGE_MODEL, 'lyria-3.5', 'lyria-3-clip-preview', 'gemini-3.5-flash-lite']) {
       expect(priceOf(model)?.limits.maxRequestBytes).toBeLessThanOrEqual(8 * 1024 * 1024);
     }
   });
 
-  test('a body without maxOutputTokens, or over the cap, is refused and never reaches upstream', async () => {
+  test('a token-billed body without maxOutputTokens is sent with its model\'s cap, in each API\'s spelling', async () => {
+    const { socket, upstream } = await rig();
+    expect((await call(socket, 'POST', IMAGE_PATH, { contents: text() })).status).toBe(200);
+    expect((await call(socket, 'POST', TEXT_PATH, { contents: text(), generationConfig: { temperature: 1 } })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { thinking_level: 'high' } })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: IMAGE_MODEL, input: 'a lighthouse', generationConfig: { thinkingLevel: 'high' } })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune' })).status).toBe(200);
+    expect(upstream.received.map((sent) => JSON.parse(sent.body))).toEqual([
+      { contents: text(), generationConfig: { maxOutputTokens: 4096 } },
+      { contents: text(), generationConfig: { temperature: 1, maxOutputTokens: 2048 } },
+      { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { thinking_level: 'high', max_output_tokens: 4096 } },
+      { model: IMAGE_MODEL, input: 'a lighthouse', generationConfig: { thinkingLevel: 'high', max_output_tokens: 4096 } },
+      { model: 'lyria-3.5', input: 'a calm tune' },
+    ]);
+  });
+
+  test('a maxOutputTokens over the cap, or not a whole number, is refused and never reaches upstream', async () => {
     const { socket, upstream, calls, ledger } = await rig();
     const bodies: Array<[string, unknown]> = [
-      [IMAGE_PATH, { contents: text() }],
-      [IMAGE_PATH, {}],
-      [IMAGE_PATH, { contents: text(), generationConfig: { temperature: 1 } }],
       [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: 4097 } }],
+      [IMAGE_PATH, { contents: text(), generation_config: { max_output_tokens: 4097 } }],
       [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: 0 } }],
       [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: 100.5 } }],
       [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: '1024' } }],
       [TEXT_PATH, { contents: text(), generationConfig: { maxOutputTokens: 2049 } }],
-      ['/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune' }],
+      ['/v1beta/interactions', { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { max_output_tokens: 4097 } }],
       ['/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', generation_config: { max_output_tokens: 8193 } }],
     ];
     for (const [path, body] of bodies) expect((await call(socket, 'POST', path, body)).status).toBe(403);
@@ -455,6 +469,87 @@ describe('what the upstream call carries', () => {
     const settle = readLedger(spend).find((line) => line.type === 'settle');
     expect(settle?.type === 'settle' ? settle.outcome : null).toBe('upstream-error');
     expect(readCalls(calls).map((line) => [line.reason, line.chargedUsd])).toEqual([['upstream-error', IMAGE_USD]]);
+  });
+});
+
+describe('the app\'s own calls', () => {
+  // Bodies in the shape the app sends them through the SDK: image and music
+  // interactions (sent as the app builds them), and generateContent for the
+  // image fallback, prompt adaptation and narration (as the SDK maps them).
+  const reference = { data: Buffer.alloc(48, 1).toString('base64'), mime: 'image/png' };
+  const bodies: Array<[string, Record<string, unknown>]> = [
+    ['/v1beta/interactions', { model: IMAGE_MODEL, store: true, input: 'a lighthouse at dusk', response_format: { type: 'image', aspect_ratio: '16:9', image_size: '2K' } }],
+    ['/v1beta/interactions', { model: IMAGE_MODEL, store: true, input: [{ type: 'text', text: 'like this' }, { type: 'image', data: reference.data, mime_type: reference.mime }], response_format: { type: 'image', image_size: '512', mime_type: 'image/jpeg' }, generation_config: { thinking_level: 'high' } }],
+    [IMAGE_PATH, { contents: [{ role: 'user', parts: [{ inlineData: { data: reference.data, mimeType: reference.mime } }, { text: 'like this' }] }], generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '1:1', imageSize: '1K' } } }],
+    ['/v1beta/interactions', { model: 'lyria-3.5', store: true, input: 'a calm tune' }],
+    ['/v1beta/interactions', { model: 'lyria-3.5', store: true, input: [{ type: 'image', data: reference.data, mime_type: 'image/jpeg' }, { type: 'text', text: 'a calm tune' }], response_format: { type: 'audio' } }],
+    ['/v1beta/interactions', { model: 'lyria-3-clip-preview', store: true, input: 'a short jingle' }],
+    ['/v1beta/models/gemini-3.5-flash-lite:generateContent', { contents: [{ role: 'user', parts: [{ text: JSON.stringify({ source: 'notes', instructions: '' }) }] }], systemInstruction: { role: 'user', parts: [{ text: 'Turn the supplied notes into a clear visual brief.' }] } }],
+    ['/v1beta/models/gemini-3.5-flash-lite:generateContent', { contents: [{ role: 'user', parts: [{ text: 'Transform the following technical markdown' }] }], systemInstruction: { role: 'user', parts: [{ text: 'narrate' }] }, generationConfig: { temperature: 0.4 } }],
+  ];
+
+  test('pass through and reach the upstream, a music file download included', async () => {
+    const { socket, upstream, ledger } = await rig();
+    for (const [path, body] of bodies) expect((await call(socket, 'POST', path, body)).status).toBe(200);
+    expect((await call(socket, 'GET', '/v1beta/interactions/abc_123')).status).toBe(200);
+    expect((await call(socket, 'GET', '/v1beta/files/abc123-x_y:download?alt=media')).status).toBe(200);
+    expect(upstream.received.map((sent) => sent.url)).toEqual([...bodies.map(([path]) => path), '/v1beta/interactions/abc_123', '/v1beta/files/abc123-x_y:download?alt=media']);
+    expect(upstream.received.slice(-1)[0]?.method).toBe('GET');
+    const sentStore = upstream.received.slice(0, bodies.length).map((sent) => JSON.parse(sent.body).store);
+    expect(sentStore).toEqual([true, true, undefined, true, true, true, undefined, undefined]);
+    // Three image calls, three music calls and two text calls; polling and the download are free.
+    expect(ledger.spentUsd()).toBeCloseTo(3 * IMAGE_USD + 3 * 1 + 2 * 0.05);
+  });
+
+  test('store must be a boolean', async () => {
+    const { socket, upstream, calls } = await rig();
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', store: 'yes', input: 'a calm tune' })).status).toBe(403);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['field']);
+    expect(upstream.received).toEqual([]);
+  });
+
+  test('the download route forwards only GET with alt=media for a file id', async () => {
+    const { socket, upstream, calls } = await rig();
+    const download = '/v1beta/files/abc123:download';
+    const answers = [
+      await call(socket, 'POST', `${download}?alt=media`, {}),
+      await call(socket, 'DELETE', download),
+      await call(socket, 'GET', download),
+      await call(socket, 'GET', `${download}?alt=json`),
+      await call(socket, 'GET', `${download}?alt=media&key=x`),
+      await call(socket, 'GET', `${download}?alt=media&alt=media`),
+      await call(socket, 'GET', `${download}?uploadType=resumable`),
+      await call(socket, 'GET', '/v1beta/files'),
+      await call(socket, 'GET', '/v1beta/files/abc123'),
+      await call(socket, 'GET', '/v1beta/files/../models:download?alt=media'),
+      await call(socket, 'GET', '/v1beta/files/.abc:download?alt=media'),
+      await call(socket, 'GET', '/v1beta/files/a.b:download?alt=media'),
+      await call(socket, 'POST', '/upload/v1beta/files?alt=media', {}),
+    ];
+    expect(answers.map((answer) => answer.status)).toEqual(answers.map(() => 403));
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['method', 'method', 'query', 'query', 'query', 'query', 'query', 'path', 'path', 'path', 'path', 'path', 'path']);
+    expect(upstream.received).toEqual([]);
+  });
+
+  test('a calls record that can\'t be written is a fault, not a crash, and the spend still settles', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-provider-'));
+    const upstream = await startFakeTlsUpstream();
+    const ledger = openProviderLedger({ path: join(dir, 'spend.jsonl'), capUsd: 50 });
+    const faults: string[] = [];
+    const socket = join(dir, 'served.sock');
+    const forwarder = await startProviderForwarder({
+      socketPath: socket, caller: 'served', ledger, calls: join(dir, 'no-such-dir', 'calls.jsonl'),
+      credential: () => ({ ok: true, key: SENTINEL_KEY }),
+      upstream: { host: '127.0.0.1', port: upstream.port, tls: true, ca: upstream.ca },
+      onFault: (reason) => faults.push(reason),
+    });
+    open.push(upstream, forwarder);
+    expect((await image(socket)).status).toBe(200);
+    expect((await call(socket, 'GET', '/v1beta/models')).status).toBe(403);
+    expect(faults.length).toBeGreaterThanOrEqual(2);
+    expect(faults.every((fault) => fault.startsWith('the provider calls record could not be written'))).toBe(true);
+    expect(ledger.spentUsd()).toBeCloseTo(IMAGE_USD);
+    expect(ledger.inFlight()).toBe(0);
   });
 });
 

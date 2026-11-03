@@ -27,8 +27,12 @@ export type PartsCheck =
   | { ok: true; images: ImageParts }
   | { ok: false; reason: 'field' | 'input'; field: string };
 
-/** The image sizes the table's image price covers: up to 2K. A larger size is refused. */
-export const PRICED_IMAGE_SIZES: ReadonlySet<string> = new Set(['1K', '2K']);
+/**
+ * The image sizes the table's image price covers: 512 (the app's 0.5K), 1K
+ * and 2K. A larger size is refused. The price is bounded by
+ * `maxOutputTokens`, so a smaller size costs no more than 1K.
+ */
+export const PRICED_IMAGE_SIZES: ReadonlySet<string> = new Set(['512', '1K', '2K']);
 
 const CONTENT_FIELDS = new Set(['role', 'parts']);
 const PART_FIELDS = new Set(['text', 'inlineData', 'thoughtSignature']);

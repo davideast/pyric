@@ -10,9 +10,13 @@
  *
  * - `POST /v1beta/interactions` with a body `model` in the price table;
  * - `POST /v1beta/models/<model in the table>:generateContent`;
- * - `GET /v1beta/interactions/<id>`, polling, which is free.
+ * - `GET /v1beta/interactions/<id>`, polling, which is free;
+ * - `GET /v1beta/files/<id>:download?alt=media`, downloading a file a call
+ *   made (a song returned by file name), which is free. `alt=media` is the
+ *   one query allowed, on this route only, and it is sent as a constant.
  *
- * Video, file uploads, model listing and streaming are refused. The
+ * Video, file uploads, file listing and deletion, model listing and
+ * streaming are refused. The
  * forwarder drops the app's `x-goog-api-key` and the whole query
  * string, sets the real key, read once per request, and sends the call
  * over TLS to the one fixed host (`PROVIDER_HOST`), whatever `Host` the app
@@ -32,7 +36,7 @@ import type { Listening } from '../model-channel.ts';
 import type { Upstream } from '../model-forwarder.ts';
 import { appendFile } from './host-files.ts';
 import type { CallerKind, CallOutcome, LedgerReservation, LedgerRefusal, ProviderLedger } from './provider-ledger.ts';
-import { limitProblem, type LimitRefusal } from './provider-body-limits.ts';
+import { limitProblem, withOutputCap, type LimitRefusal } from './provider-body-limits.ts';
 import { camel, entryOf, fieldsOf, PRICED_IMAGE_SIZES } from './provider-body-parts.ts';
 import { bareModel, MAX_PROVIDER_REQUEST_BYTES, priceOf, PROVIDER_HOST } from './provider-prices.ts';
 
@@ -44,7 +48,7 @@ export const PLACEHOLDER_KEY = 'factory-forwarded';
 
 export type ProviderKeyRead = { ok: true; key: string } | { ok: false; problem: string };
 
-export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'field' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | LimitRefusal | LedgerRefusal;
+export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'field' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | 'query' | LimitRefusal | LedgerRefusal;
 
 /** One request to the forwarder, as a line of the calls record. */
 export interface ProviderCall {
@@ -93,12 +97,17 @@ const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'tra
 const INTERACTIONS = '/v1beta/interactions';
 const GENERATE_CONTENT = /^\/v1beta\/models\/([A-Za-z0-9._-]+):generateContent$/;
 const INTERACTION = /^\/v1beta\/interactions\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
+/** The path the SDK's `files.download` requests, for a file id in the charset the app accepts. */
+const FILE_DOWNLOAD = /^\/v1beta\/files\/[A-Za-z0-9][A-Za-z0-9_-]*:download$/;
+/** The one query a download sends, and the only query the forwarder ever sends on. */
+const DOWNLOAD_QUERY = 'alt=media';
 
 /** What a request line asks for, once its method and path are allowed. */
 export type Route =
   | { kind: 'interactions' }
   | { kind: 'generate'; model: string }
   | { kind: 'poll' }
+  | { kind: 'download' }
   | { kind: 'refused'; reason: 'path' | 'model' | 'method' };
 
 export function routeOf(method: string, path: string): Route {
@@ -106,6 +115,7 @@ export function routeOf(method: string, path: string): Route {
   const isPost = method === 'POST';
   if (path === INTERACTIONS) return isPost ? { kind: 'interactions' } : { kind: 'refused', reason: 'method' };
   if (INTERACTION.test(path)) return method === 'GET' ? { kind: 'poll' } : { kind: 'refused', reason: 'method' };
+  if (FILE_DOWNLOAD.test(path)) return method === 'GET' ? { kind: 'download' } : { kind: 'refused', reason: 'method' };
   if (generate === null) return { kind: 'refused', reason: 'path' };
   const model = generate[1] ?? '';
   if (!isPost) return { kind: 'refused', reason: 'method' };
@@ -147,7 +157,13 @@ function recorder(options: ProviderForwarderOptions, request: http.IncomingMessa
       chargedUsd: 0,
       ...fields,
     };
-    appendFile(options.calls, `${JSON.stringify(call)}\n`);
+    try {
+      appendFile(options.calls, `${JSON.stringify(call)}\n`);
+    } catch (error) {
+      // Often called from a stream's listener, where a throw would crash the host. The spend is settled first.
+      const code = error instanceof Error ? (error as NodeJS.ErrnoException).code ?? error.name : 'unknown';
+      options.onFault?.(`the provider calls record could not be written (${code})`);
+    }
   };
 }
 
@@ -198,7 +214,7 @@ function readBody(request: http.IncomingMessage, maxBytes: number, done: (read: 
  * make one call cost more than its price (more candidates, tools,
  * cached content, files) is refused unless it is named here.
  */
-const TOP_FIELDS = new Set(['model', 'contents', 'input', 'systemInstruction', 'generationConfig', 'safetySettings', 'responseModalities', 'responseMimeType', 'responseFormat']);
+const TOP_FIELDS = new Set(['model', 'store', 'contents', 'input', 'systemInstruction', 'generationConfig', 'safetySettings', 'responseModalities', 'responseMimeType', 'responseFormat']);
 const CONFIG_FIELDS = new Set(['temperature', 'topP', 'topK', 'maxOutputTokens', 'seed', 'stopSequences', 'candidateCount', 'responseModalities', 'responseMimeType', 'responseSchema', 'responseJsonSchema', 'imageConfig', 'thinkingConfig', 'thinkingLevel']);
 const IMAGE_CONFIG_FIELDS = new Set(['aspectRatio', 'imageSize']);
 /** Keys that point a part at a stored file, anywhere in the body. */
@@ -230,6 +246,9 @@ function walkedField(value: unknown): string | undefined {
 export function costlyField(fields: Record<string, unknown>): string | undefined {
   const top = unknownField(fields, TOP_FIELDS, '');
   if (top !== undefined) return top;
+  // Whether the provider keeps the interaction, which costs nothing: a boolean only.
+  const store = entryOf(fields, 'store');
+  if (store !== undefined && typeof store !== 'boolean') return 'store';
   const walked = walkedField(fields);
   if (walked !== undefined) return walked;
   const rawConfig = entryOf(fields, 'generationConfig');
@@ -256,10 +275,12 @@ type BodyCheck = { ok: true; model: string | null; body: Buffer } | { ok: false;
 /**
  * The body's model, and the body sent on. The body sent is the one checked,
  * serialized again from what was parsed, so a duplicate key can't name one
- * model to the check and another to the provider.
+ * model to the check and another to the provider. A token-billed body
+ * without `maxOutputTokens` gets its model's cap (`withOutputCap`) before
+ * it is checked.
  */
 function checkBody(route: Route, body: Buffer): BodyCheck {
-  if (route.kind === 'poll') return { ok: true, model: null, body: Buffer.alloc(0) };
+  if (route.kind === 'poll' || route.kind === 'download') return { ok: true, model: null, body: Buffer.alloc(0) };
   let parsed: unknown;
   try {
     parsed = body.length === 0 && route.kind === 'generate' ? {} : JSON.parse(body.toString('utf8'));
@@ -268,19 +289,20 @@ function checkBody(route: Route, body: Buffer): BodyCheck {
   }
   const isObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
   if (!isObject) return { ok: false, reason: 'body-not-json', message: 'the body is not a JSON object' };
-  const fields = parsed as Record<string, unknown>;
-  const sent = Buffer.from(JSON.stringify(fields));
-  const names = new Set(Object.keys(fields).map(camel));
+  const parsedFields = parsed as Record<string, unknown>;
+  const names = new Set(Object.keys(parsedFields).map(camel));
   if (names.has('stream')) return { ok: false, reason: 'streaming', message: 'streaming calls are not metered' };
   if (names.has('agent') && route.kind === 'interactions') return { ok: false, reason: 'agent', message: 'an interaction may not name an agent' };
-  const costly = costlyField(fields);
+  const costly = costlyField(parsedFields);
   if (costly !== undefined) return { ok: false, reason: 'field', message: `the body's ${costly} could cost more than one call's price` };
-  const named = typeof fields.model === 'string' ? bareModel(fields.model) : null;
-  const isOtherModel = route.kind === 'generate' && 'model' in fields && named !== route.model;
+  const named = typeof parsedFields.model === 'string' ? bareModel(parsedFields.model) : null;
+  const isOtherModel = route.kind === 'generate' && 'model' in parsedFields && named !== route.model;
   if (isOtherModel) return { ok: false, reason: 'model', message: 'the body names another model than the path', model: named ?? undefined };
   const model = route.kind === 'generate' ? route.model : named;
   const price = model === null ? undefined : priceOf(model);
   if (model === null || price === undefined) return { ok: false, reason: 'model', message: `the model ${model ?? '(none)'} is not one a factory run may call`, model: model ?? undefined };
+  const fields = withOutputCap(parsedFields, price, route.kind === 'generate' ? 'generate' : 'interactions');
+  const sent = Buffer.from(JSON.stringify(fields));
   const problem = limitProblem(fields, sent.length, price);
   if (problem !== undefined) return { ok: false, ...problem, model };
   return { ok: true, model, body: sent };
@@ -368,9 +390,10 @@ function admit(request: http.IncomingMessage, response: http.ServerResponse, rou
     if (typeof reserved === 'string') return refuse(response, record, reserved, `the call was refused (${reserved})`, check.model);
     reservation = reserved;
   }
-  // No query is sent on: it could carry a key, switch to streaming or override the method.
-  const path = (request.url ?? '').split('?')[0] ?? '';
-  const method = route.kind === 'poll' ? 'GET' : 'POST';
+  // The app's query is never sent on: it could carry a key, switch to streaming or override the method.
+  const bare = (request.url ?? '').split('?')[0] ?? '';
+  const path = route.kind === 'download' ? `${bare}?${DOWNLOAD_QUERY}` : bare;
+  const method = route.kind === 'poll' || route.kind === 'download' ? 'GET' : 'POST';
   try {
     forward(response, { method, path, body: check.body, model: check.model, headers: forwardedHeaders(request.headers, read.key, check.body.length), reservation }, options, record);
   } catch (error) {
@@ -388,6 +411,9 @@ function handle(request: http.IncomingMessage, response: http.ServerResponse, op
   const path = (request.url ?? '').split('?')[0] ?? '';
   const route = routeOf(request.method ?? '', path);
   if (route.kind === 'refused') return refuse(response, record, route.reason, `${request.method} ${path} is not a call a factory run may make`);
+  const query = (request.url ?? '').split('?').slice(1).join('?');
+  const isDownloadQuery = route.kind !== 'download' || query === DOWNLOAD_QUERY;
+  if (!isDownloadQuery) return refuse(response, record, 'query', `a download may only ask for ${DOWNLOAD_QUERY}`);
   const encoding = request.headers['content-encoding'];
   const isEncoded = encoding !== undefined && encoding !== 'identity';
   if (isEncoded) return refuse(response, record, 'encoded-body', `a body sent with content-encoding ${encoding} can't be checked`);

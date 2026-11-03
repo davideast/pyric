@@ -5,12 +5,18 @@
  * price is its worst case under its limits (`worstCaseUsd`), reserved before
  * the call is sent and never lowered by what the response says it used.
  *
- * A body is refused unless it sets `maxOutputTokens` at or under the
- * model's cap, names only a thinking level the model allows, sets a
+ * A body is refused unless its `maxOutputTokens` is at or under the
+ * model's cap, it names only a thinking level the model allows, sets a
  * thinking budget at or under the model's cap, and stays under the model's
- * request bytes, text bytes and image parts (`provider-body-limits.ts`).
+ * request bytes, text bytes and image parts (`provider-body-limits.ts`). A
+ * body to a model billed per token that doesn't set `maxOutputTokens` gets
+ * the model's cap set by the forwarder before it is checked and sent.
  *
- * The worst case, in tokens:
+ * A model billed per call (music) is charged its per-call price, whatever
+ * its tokens; that the provider bills it per call, at or under that price,
+ * is an assumption to confirm before the run.
+ *
+ * For a model billed per token, the worst case, in tokens:
  *
  * - input: one token per byte of the body outside its image parts' data (a
  *   token is never shorter than one byte, and the body's JSON is never
@@ -19,8 +25,8 @@
  * - output: `maxOutputTokens` plus the thinking cap, every token at the
  *   model's output rate (the image rate for an image model).
  *
- * Two assumptions to confirm before the run: that image and music output,
- * and thoughts, obey `maxOutputTokens`, since a thinking level, or no
+ * Two assumptions to confirm before the run: that image output and
+ * thoughts obey `maxOutputTokens`, since a thinking level, or no
  * thinking setting, gets the provider's default thinking, which only
  * `maxOutputTokens` bounds (the thinking cap added on top is margin); and
  * that one image part is billed at most `IMAGE_PART_TOKENS`.
@@ -71,8 +77,10 @@ export interface ProviderRates {
   usdPerMillionInput: number;
   /** Dollars per million output tokens, thoughts included. */
   usdPerMillionOutput: number;
-  /** The least one call is charged, for a model billed per item rather than per token. */
+  /** The least one call is charged; for a model billed per call, what every call is charged. */
   usdFloor: number;
+  /** Whether the provider bills the model by its tokens or per call. */
+  billedPer: 'token' | 'call';
 }
 
 export interface ProviderPrice {
@@ -95,6 +103,7 @@ export function worstOutputTokens(limits: ProviderLimits): number {
 
 /** A call's worst case in dollars, rounded up to the cent. */
 export function worstCaseUsd(limits: ProviderLimits, rates: ProviderRates): number {
+  if (rates.billedPer === 'call') return rates.usdFloor;
   const byTokens = (worstInputTokens(limits) * rates.usdPerMillionInput + worstOutputTokens(limits) * rates.usdPerMillionOutput) / 1_000_000;
   return Math.ceil(Math.max(byTokens, rates.usdFloor) * 100 - 1e-9) / 100;
 }
@@ -125,16 +134,14 @@ const TEXT_LIMITS: ProviderLimits = {
 export const PROVIDER_PRICES: Readonly<Record<string, ProviderPrice>> = {
   // Placeholder rates, erring high: confirm the image model's per-token rates with a dated source before the run.
   // Worst case: (16,384 + 4 x 5,000) input x $2/M + (4,096 + 4,096) output x $120/M = $1.0558, so $1.06.
-  'gemini-nano-banana-2.1': priced('image', IMAGE_LIMITS, { usdPerMillionInput: 2, usdPerMillionOutput: 120, usdFloor: 0.134 }),
-  // Placeholder rates and floor, erring high: confirm the music rate with a dated source before the run.
-  // Worst case: (16,384 + 4 x 5,000) input x $2/M + 8,192 output x $120/M = $1.0558, so $1.06 (above the $1 floor).
-  'lyria-3.5': priced('music', MUSIC_LIMITS, { usdPerMillionInput: 2, usdPerMillionOutput: 120, usdFloor: 1 }),
-  // Placeholder rates and floor, erring high: confirm the music clip rate with a dated source before the run.
-  // Worst case: as `lyria-3.5`, $1.06.
-  'lyria-3-clip-preview': priced('music', MUSIC_LIMITS, { usdPerMillionInput: 2, usdPerMillionOutput: 120, usdFloor: 1 }),
+  'gemini-nano-banana-2.1': priced('image', IMAGE_LIMITS, { usdPerMillionInput: 2, usdPerMillionOutput: 120, usdFloor: 0.134, billedPer: 'token' }),
+  // Placeholder per-call price, erring high: confirm the music rate, and that it is billed per call, with a dated source before the run.
+  'lyria-3.5': priced('music', MUSIC_LIMITS, { usdPerMillionInput: 0, usdPerMillionOutput: 0, usdFloor: 1, billedPer: 'call' }),
+  // Placeholder per-call price, erring high: confirm the music clip rate, and that it is billed per call, with a dated source before the run.
+  'lyria-3-clip-preview': priced('music', MUSIC_LIMITS, { usdPerMillionInput: 0, usdPerMillionOutput: 0, usdFloor: 1, billedPer: 'call' }),
   // Placeholder rates, erring high: confirm the text model's per-token rates with a dated source before the run.
   // Worst case: 65,536 input x $0.50/M + (2,048 + 2,048) output x $4/M = $0.0492, so $0.05.
-  'gemini-3.5-flash-lite': priced('text', TEXT_LIMITS, { usdPerMillionInput: 0.5, usdPerMillionOutput: 4, usdFloor: 0 }),
+  'gemini-3.5-flash-lite': priced('text', TEXT_LIMITS, { usdPerMillionInput: 0.5, usdPerMillionOutput: 4, usdFloor: 0, billedPer: 'token' }),
 };
 
 /** The largest request body any model in the table accepts; the forwarder stops reading past it. */
