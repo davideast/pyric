@@ -18,6 +18,7 @@
 import Module from 'node:module';
 import { isRegisterActive } from '../register/activation.js';
 import { canonicalFirebaseSpecifier } from '../register/mapping.js';
+import { packageNameOf } from '../register/package-identity.js';
 import { createStopReporter, stopFor } from '../register/swap-or-stop.js';
 import type { AiMode } from './firebase-module-swap.js';
 
@@ -58,6 +59,26 @@ export interface ViteProcessStopHookInput {
   write: (line: string) => void;
 }
 
+/** The package the real `firebase/ai` entry re-exports. */
+const FIREBASE_AI_PACKAGE = '@firebase/ai';
+
+/**
+ * Whether this is Vite importing the real `firebase/ai` entry's own package
+ * in production AI mode. The plugin hands that entry to Vite, which runs it
+ * in its module runner and imports its `@firebase/ai` natively, by file URL
+ * from a file of the `vite` package, so `stopFor` sees Vite as the importer.
+ * Only `@firebase/ai`, only in production AI mode, and only from Vite: the
+ * runner's other `@firebase/*` loads, and an app file's own `@firebase/ai`,
+ * still stop. `@firebase/ai`'s own imports pass as the imports of an allowed
+ * SDK file.
+ */
+function isViteFirebaseAiLoad(url: string, importer: string | undefined, aiMode: AiMode): boolean {
+  const isProductionMode = aiMode === 'production';
+  const isFromVite = importer !== undefined && packageNameOf(importer) === 'vite';
+  if (!isProductionMode || !isFromVite) return false;
+  return packageNameOf(url) === FIREBASE_AI_PACKAGE;
+}
+
 /**
  * The hook: resolve as Node would, then stop a load of the real SDK that the
  * swap doesn't choose. Each stop is written once per file, so a caught
@@ -68,14 +89,19 @@ export function viteProcessStopHook(input: ViteProcessStopHookInput): SyncResolv
   const allowedUrls = new Set<string>();
   return (specifier, context, nextResolve) => {
     const result = nextResolve(specifier, context);
+    const aiMode = input.getAiMode();
     const stop = stopFor({
       specifier,
       canonical: canonicalFirebaseSpecifier(specifier),
       importer: context.parentURL,
       url: result.url,
-      aiMode: input.getAiMode(),
+      aiMode,
     }, allowedUrls);
     if (stop === null) return result;
+    if (isViteFirebaseAiLoad(result.url, context.parentURL, aiMode)) {
+      allowedUrls.add(result.url);
+      return result;
+    }
     report(stop);
     throw stop;
   };
