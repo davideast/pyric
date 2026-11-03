@@ -96,22 +96,25 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
     expect(decoded.sub).toBe('alice');
     expect(decoded.role).toBe('admin');
     expect(decoded.tier).toBe(2);
-    // Required DecodedIdToken fields are populated with sandbox placeholders.
-    expect(decoded.iss).toBe('pyric-sandbox');
+    // Required DecodedIdToken fields are populated with the unnamed sandbox project.
+    expect(decoded.iss).toBe('https://securetoken.google.com/pyric-sandbox');
     expect(decoded.aud).toBe('pyric-sandbox');
     expect(decoded.firebase.sign_in_provider).toBe('custom');
   });
 
-  it('rejects tokens that do not carry the sandbox prefix', async () => {
+  it('rejects tokens in no sandbox format', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));
-    // A real-looking JWT — three base64 segments joined by '.'. The
-    // sandbox backend doesn't try to parse JWTs; it only accepts its
-    // own minted tokens.
-    const realJwt = 'eyJhbGciOi.eyJzdWIiOi.signature';
-    await expect(auth.verifyIdToken(realJwt)).rejects.toThrow(
+    await expect(auth.verifyIdToken('not a token')).rejects.toThrow(
       /sandbox.*createCustomToken/,
     );
+  });
+
+  it('rejects a JWT whose header and payload do not decode as JSON', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(initializeApp({ sandbox }));
+    // Three base64url segments, cut off mid-JSON.
+    await expect(auth.verifyIdToken('eyJhbGciOi.eyJzdWIiOi.signature')).rejects.toThrow(/malformed client ID token/);
   });
 
   it('rejects tokens with malformed claim JSON', async () => {
@@ -121,7 +124,7 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
     await expect(auth.verifyIdToken(badToken)).rejects.toThrow(/JSON/);
   });
 
-  it('verifies client ID tokens minted with sandbox-id-token prefix', async () => {
+  it('still decodes client ID tokens in the shape before JWTs', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));
     const clientClaims = { sub: 'bob', role: 'editor', firebase: { sign_in_provider: 'google.com' } };
@@ -131,9 +134,27 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
     expect(decoded.sub).toBe('bob');
     expect(decoded.role).toBe('editor');
     expect(decoded.firebase.sign_in_provider).toBe('google.com');
-    expect(decoded.iss).toBe('https://sandbox.pyric.dev');
+    expect(decoded.iss).toBe('https://securetoken.google.com/pyric-sandbox');
     expect(decoded.aud).toBe('pyric-sandbox');
   });
+
+  // #1836: a display name with a space or outside Latin-1 used to reach the token text.
+  for (const displayName of ['Builder One', '李']) {
+    it(`verifies the JWT a user named ${displayName} gets, as minted, through a Bearer header`, async () => {
+      const { getAuth: getClientAuth, signInWithEmailAndPassword, updateProfile, sandbox: clientAuthSandbox } = await import('pyric/auth');
+      const sandbox = initializeSandbox();
+      const clientAuth = getClientAuth(sandbox);
+      clientAuthSandbox.createUser(clientAuth, { email: 'builder@example.com', password: 'secret-pw' });
+      const { user } = await signInWithEmailAndPassword(clientAuth, 'builder@example.com', 'secret-pw');
+      await updateProfile(user, { displayName });
+      const idToken = await user.getIdToken(true);
+      const header = new Headers({ Authorization: `Bearer ${idToken}` }).get('Authorization') ?? '';
+      const decoded = await getAuth(initializeApp({ sandbox })).verifyIdToken(header.split(' ')[1] ?? '');
+      const { claims } = await user.getIdTokenResult();
+      expect(decoded).toEqual({ ...claims, uid: user.uid } as typeof decoded);
+      expect(decoded.name).toBe(displayName);
+    });
+  }
 
   it('verifies a signed-in client token with the account standard claims', async () => {
     const { getAuth: getClientAuth, signInWithEmailAndPassword, sandbox: clientAuthSandbox } = await import('pyric/auth');

@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { checkIdToken } from 'pyric/sandbox/internal';
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -204,7 +205,9 @@ describe('sandbox.createSignInCredential (A2)', () => {
     expect(cred.user.uid).toBe('alice');
     expect(cred.user.email).toBe('alice@x.com');
     const token = await cred.user.getIdToken();
-    expect(token.startsWith('sandbox-id-token-alice-')).toBe(true);
+    const check = await checkIdToken(token);
+    expect(check.ok).toBe(true);
+    if (check.ok) expect(check.claims.sub).toBe('alice');
     const result = await cred.user.getIdTokenResult();
     expect(result.claims.role).toBe('admin');
   });

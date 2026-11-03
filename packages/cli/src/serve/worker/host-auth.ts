@@ -18,7 +18,7 @@
  * imports).
  */
 
-import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush, clearRtdbSessionHandles } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush, clearRtdbSessionHandles, hostProjectId } from './host-context.js';
 import {
   deleteUser,
   getAuth,
@@ -119,6 +119,9 @@ export function portOriginScope(port: PortLike): { origin?: string } {
 export function ensureAuth(ctx: HostCtx): Auth {
   if (ctx.auth) return ctx.auth;
   ctx.auth = getAuth(ctx.sandbox);
+  // Minted ID tokens name the served project in `iss` and `aud`, as the
+  // page's in-page plane does from `app.options.projectId`.
+  authSandboxOps.setProjectIdSource(ctx.auth, () => hostProjectId(ctx));
   if (ctx.sessionMode === undefined) ctx.sessionMode = 'LOCAL';
   return ctx.auth;
 }

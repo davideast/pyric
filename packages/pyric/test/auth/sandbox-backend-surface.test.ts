@@ -101,6 +101,7 @@ const FROZEN_PROTOTYPE_METHODS = [
   'setMockResult',
   'setPasswordByEmail',
   'setPersistenceMode',
+  'setProjectIdSource',
   'setProviderConfig',
   'setProviderEnforcementDelegated',
   'setRedirectResult',

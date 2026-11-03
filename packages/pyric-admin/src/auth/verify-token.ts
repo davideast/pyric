@@ -8,11 +8,11 @@ import { SANDBOX_TOKEN_PREFIX, TOKEN_DECODERS } from './token-decoders.js';
 /**
  * Parse a token minted by `createCustomToken` or a client ID token
  * minted by `pyric/auth`'s `getIdToken()`. Routes to the appropriate
- * modular token decoder based on token prefix.
+ * modular token decoder based on the token's format.
  *
- * Throws on any token that doesn't match a recognized sandbox prefix —
- * including real JWTs that another verifier would parse. The sandbox
- * backends are intentionally not drop-ins for production verification.
+ * Throws on any token in no recognized format. A JWT is decoded as a
+ * client ID token; checking its tag, audience, issuer and expiry is #1308's
+ * work, so the sandbox is not yet a drop-in for production verification.
  */
 export function verifySandboxIdToken(idToken: string): Promise<DecodedIdToken> {
   const isInvalidTokenArgument = typeof idToken !== 'string';
@@ -23,8 +23,7 @@ export function verifySandboxIdToken(idToken: string): Promise<DecodedIdToken> {
   }
   const nowSec = Math.floor(Date.now() / 1000);
   for (const decoder of TOKEN_DECODERS) {
-    const matchesDecoderPrefix = idToken.startsWith(decoder.prefix);
-    if (matchesDecoderPrefix) {
+    if (decoder.matches(idToken)) {
       try {
         return Promise.resolve(decoder.decode(idToken, nowSec));
       } catch (error) {
@@ -36,7 +35,7 @@ export function verifySandboxIdToken(idToken: string): Promise<DecodedIdToken> {
     new Error(
       'pyric-admin/auth: verifyIdToken on the sandbox backend only ' +
         'accepts tokens minted by this sandbox\'s createCustomToken or client getIdToken(). ' +
-        `Token must begin with "${SANDBOX_TOKEN_PREFIX}:" or "sandbox-id-token-".`,
+        `Token must be a JWT or begin with "${SANDBOX_TOKEN_PREFIX}:".`,
     ),
   );
 }

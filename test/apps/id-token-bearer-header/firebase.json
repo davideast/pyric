@@ -1,0 +1,4 @@
+{
+  "hosting": { "public": "." },
+  "firestore": { "rules": "firestore.rules" }
+}

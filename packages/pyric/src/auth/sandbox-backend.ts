@@ -52,8 +52,8 @@ import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js'
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
-  absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, makeServiceMutationEvent, realmOrigin,
-  providerVerifiesEmail, tokenClaimAccount, rulesTokenFromIdToken,
+  absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, idTokenAudience, makeServiceMutationEvent,
+  realmOrigin, providerVerifiesEmail, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -313,6 +313,15 @@ export class SandboxBackend {
    */
   private tenantId: string | null = null;
 
+  /**
+   * Name where the project id for minted ID tokens comes from. A served host
+   * learns its project after Auth starts, so the source is read at each mint.
+   * The source is shared by every session over this project's users.
+   */
+  setProjectIdSource(source: () => string | undefined): void {
+    this.projectStore.projectId = source;
+  }
+
   /** Read `Auth.tenantId`. */
   getTenantId(): string | null {
     return this.tenantId;
@@ -324,6 +333,9 @@ export class SandboxBackend {
   setTenantId(tenantId: string | null): void {
     this.tenantId = tenantId;
   }
+
+  /** The shared project data; its `projectId` names the project each mint's `iss` and `aud` carry. */
+  private readonly projectStore: AuthProjectStore;
 
   constructor(
     sandbox: Sandbox,
@@ -339,6 +351,7 @@ export class SandboxBackend {
     this.providerConfig = projectStore.providerConfig;
     this.providerConfigSubs = projectStore.providerConfigSubscribers;
     this.sharedCounters = projectStore.counters;
+    this.projectStore = projectStore;
     // Initialize cachedUser from the injected session host.
     this.cachedUser = this.buildUserFromState(session.currentUser);
     this.lastNotifiedUid = this.cachedUser?.uid ?? null;
@@ -2116,10 +2129,11 @@ export class SandboxBackend {
     // so a profile or verification change reaches the token on the next
     // refresh, as custom claims do.
     const stored = this.usersByUid.get(uid);
+    const { iss, aud } = idTokenAudience(this.projectStore.projectId() ?? SANDBOX_PROJECT_ID);
     const fullClaims: Record<string, unknown> = {
       sub: uid,
-      aud: 'pyric-sandbox',
-      iss: 'https://sandbox.pyric.dev',
+      aud,
+      iss,
       auth_time: Math.floor(authenticatedAt.getTime() / 1000),
       iat: Math.floor(issuedAt.getTime() / 1000),
       exp: Math.floor(expires.getTime() / 1000),
@@ -2137,7 +2151,7 @@ export class SandboxBackend {
     // The token string carries the full claim set, JWT registered claims
     // included, so `verifyIdToken` returns the minted `auth_time`, `iat` and
     // `exp` rather than values made up at verify time.
-    const token = sandboxTokenFor(uid, tokenClaims, serial);
+    const token = sandboxTokenFor(tokenClaims, serial);
     const result: IdTokenResult = {
       token,
       claims: tokenClaims,

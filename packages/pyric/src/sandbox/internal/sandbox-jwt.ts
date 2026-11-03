@@ -3,25 +3,30 @@
  * Check tokens, Auth ID tokens), so each kind encodes, decodes and signs the
  * same way on every plane.
  *
- * Encoding and decoding use `atob`/`btoa` and `TextEncoder`/`TextDecoder`
- * only, never Node's `Buffer`, so a token reads the same in a browser, a
- * worker, or Node.
+ * Encoding and decoding use the plain-JavaScript codec in `base64url.ts` and
+ * `TextEncoder`/`TextDecoder` only, never Node's `Buffer` or `btoa`/`atob`, so
+ * a token reads the same in a browser, a worker, Node, or a realm with none
+ * of those globals.
  *
  * The signature is not RSA. It is a 256-byte SHA-256 expansion over the
  * signing input and a fixed sandbox key, the length of a real RS256
  * signature, so any edit to the header, payload, or signature fails the
  * check. Each token kind passes its own key, so a token of one kind never
  * checks as another. It is not a security boundary: anyone can mint one.
+ *
+ * The digest is the rules engine's synchronous SHA-256, so an Auth ID token
+ * can be minted inside a synchronous sign-in, as the token cache needs.
  */
+import { sha256 } from '../../rules/simulator/hashing-builtins.js';
+import { decodeBase64url, encodeBase64url } from './base64url.js';
+
 const SIGNATURE_BLOCKS = 8;
 
 /** The `kid` every sandbox token kind carries; the per-kind key keeps kinds apart. */
 export const SANDBOX_JWT_KID = 'pyric-sandbox';
 
 export function base64url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return encodeBase64url(bytes);
 }
 
 /** jws `JWS_REGEX`: base64url characters only, header and payload non-empty, signature optional. */
@@ -29,8 +34,9 @@ export const JWS_SHAPE = /^[a-zA-Z0-9\-_]+?\.[a-zA-Z0-9\-_]+?\.([a-zA-Z0-9\-_]+)
 
 /** A base64url segment as Latin-1 text, one character per byte, as jws reads a header (`toString('binary')`). */
 export function latin1FromBase64url(text: string): string {
-  const padded = text.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(text.length / 4) * 4, '=');
-  return atob(padded);
+  let binary = '';
+  for (const byte of decodeBase64url(text)) binary += String.fromCharCode(byte);
+  return binary;
 }
 
 /**
@@ -39,10 +45,7 @@ export function latin1FromBase64url(text: string): string {
  * Buffer does.
  */
 export function utf8FromBase64url(text: string): string {
-  const binary = latin1FromBase64url(text);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return new TextDecoder('utf-8').decode(bytes);
+  return new TextDecoder('utf-8').decode(decodeBase64url(text));
 }
 
 /** A value's JSON as UTF-8 bytes in base64url, one JWT segment. */
@@ -50,22 +53,29 @@ export function encodeJson(value: unknown): string {
   return base64url(new TextEncoder().encode(JSON.stringify(value)));
 }
 
-/** The sandbox signature segment for a signing input (`<header>.<payload>`) under one token kind's key. */
-export async function sandboxSignature(key: string, signingInput: string): Promise<string> {
-  const blocks: Uint8Array[] = [];
+/** The sandbox signature segment for a signing input (`<header>.<payload>`) under one token kind's key, computed synchronously. */
+export function sandboxSignatureSync(key: string, signingInput: string): string {
+  const out = new Uint8Array(SIGNATURE_BLOCKS * 32);
   for (let block = 0; block < SIGNATURE_BLOCKS; block++) {
-    const data = new TextEncoder().encode(`${block}.${key}.${signingInput}`);
-    blocks.push(new Uint8Array(await crypto.subtle.digest('SHA-256', data)));
+    out.set(sha256(new TextEncoder().encode(`${block}.${key}.${signingInput}`)), block * 32);
   }
-  const out = new Uint8Array(blocks.length * 32);
-  blocks.forEach((bytes, index) => out.set(bytes, index * 32));
   return base64url(out);
 }
 
-/** Signs any header and claims with one token kind's sandbox key. */
-export async function signSandboxJwt(key: string, header: Record<string, unknown>, claims: Record<string, unknown>): Promise<string> {
+/** {@link sandboxSignatureSync} for callers that await a signature. */
+export async function sandboxSignature(key: string, signingInput: string): Promise<string> {
+  return sandboxSignatureSync(key, signingInput);
+}
+
+/** Signs any header and claims with one token kind's sandbox key, synchronously. */
+export function signSandboxJwtSync(key: string, header: Record<string, unknown>, claims: Record<string, unknown>): string {
   const signingInput = `${encodeJson(header)}.${encodeJson(claims)}`;
-  return `${signingInput}.${await sandboxSignature(key, signingInput)}`;
+  return `${signingInput}.${sandboxSignatureSync(key, signingInput)}`;
+}
+
+/** {@link signSandboxJwtSync} for callers that await a token. */
+export async function signSandboxJwt(key: string, header: Record<string, unknown>, claims: Record<string, unknown>): Promise<string> {
+  return signSandboxJwtSync(key, header, claims);
 }
 
 /** A decoded token's header and claims, unchecked: any field may be missing or of any type. */
