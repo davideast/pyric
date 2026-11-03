@@ -22,7 +22,7 @@ bun test/builders/harness.ts reproduce <round> <run> --list
 bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
     [--expect <text>] [--register] [--packages <dir>] [--minutes <n>]
 bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
-bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
+bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>] [--provider-keys <file>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
 bun test/builders/harness.ts factory-drafts --run-dir <dir>
