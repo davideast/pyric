@@ -116,10 +116,17 @@ describe('ai#sandbox-app-check-required', () => {
 
   it('the guidance says enforcement is set per project and the sandbox plays an enforced one (#1834)', () => {
     expect(APP_CHECK_REFUSAL_NOTE).toBe(
-      'The sandbox refuses Firebase AI Logic requests without an App Check token with a 403, as a project that enforces App Check does. In production, App Check enforcement for AI Logic is set per project, and a project that delayed enforcement still answers requests without a token until January 21, 2027.',
+      'The sandbox refuses AI Logic requests without an App Check token with a 403, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.',
     );
     expect(APP_CHECK_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
     expect(APP_CHECK_SERVER_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
+  });
+
+  it('the page hint fits the dev server terminal whole', () => {
+    // AI_TERMINAL_TEXT_MAX in packages/cli/src/serve/ai-terminal-text.ts: the
+    // terminal cuts longer text and marks the cut.
+    const terminalTextMax = 512;
+    expect(APP_CHECK_HINT.length).toBeLessThanOrEqual(terminalTextMax);
   });
 
   it('the refusal logs pyric guidance once per app beside the SDK error', async () => {

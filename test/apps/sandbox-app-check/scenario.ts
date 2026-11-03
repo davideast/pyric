@@ -69,7 +69,7 @@ const REFUSED_APPS_PER_RUN = 5;
  * production, and a project that delayed it answers without a token until
  * January 21, 2027 (#1834).
  */
-const PER_PROJECT = 'In production, App Check enforcement for AI Logic is set per project, and a project that delayed enforcement still answers requests without a token until January 21, 2027\\.';
+const PER_PROJECT = 'In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027\\.';
 const HINT = new RegExp(`${PER_PROJECT} Call initializeAppCheck\\(app, \\{ provider \\}\\) before getAI\\(app\\)\\.`);
 /**
  * The guidance a server process prints, as build/ai-logic.md gives it: the

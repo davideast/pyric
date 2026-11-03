@@ -41,9 +41,12 @@ export const APP_CHECK_REQUIRED_MESSAGE =
 /**
  * The refusal sentence both hints open with. Enforcement is a per-project
  * setting in production, and the sandbox plays an enforced project (#1834).
+ * Keep it short: the dev server cuts terminal text at 512 characters
+ * (`AI_TERMINAL_TEXT_MAX` in the CLI's `ai-terminal-text.ts`), and
+ * {@link APP_CHECK_HINT} must fit whole.
  */
 export const APP_CHECK_REFUSAL_NOTE =
-  'The sandbox refuses Firebase AI Logic requests without an App Check token with a 403, as a project that enforces App Check does. In production, App Check enforcement for AI Logic is set per project, and a project that delayed enforcement still answers requests without a token until January 21, 2027.';
+  'The sandbox refuses AI Logic requests without an App Check token with a 403, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.';
 
 /** Pyric's guidance for a page, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
