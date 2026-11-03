@@ -7,8 +7,9 @@
  *
  * `<tree>` is a fresh directory of `<run>.work/` holding the commit's tar
  * (`tree.ts`). In a sandbox rooted there, as the check runs it, it unpacks
- * and installs the commit and starts Studio, so the served copy reaches no
- * Google host either. The host reaches it through Unix sockets in that
+ * and installs the commit and starts Studio, with the run's ffmpeg from
+ * `FFMPEG_BIN` (`served.ts` checks it by hash), so the served copy reaches
+ * no Google host either. The host reaches it through Unix sockets in that
  * sandbox, opened through `/proc/<pid>/root` (`relay.ts`): `--port` carries
  * Studio and `--port + 1` Pyric's WebSocket, both on 127.0.0.1. Only
  * `--port` is published on the private network (`served.ts`).
@@ -98,7 +99,7 @@ async function serve(runDir: string, commit: string, root: string, port: number,
     await openSandbox(specAt(root), paths, async (runner, namespace) => {
       await unpackTree(runner, checkout);
       await installStudio({ runner, namespace, checkout, withRoot: false, say: (line) => console.log(`▸ ${line}`) });
-      const app = await startApp({ checkout, namespace, logFile: join(checkout.logs, 'studio.log'), ...allowedHostOption(), publicBridgePort: port + 1 });
+      const app = await startApp({ checkout, namespace, logFile: join(checkout.logs, 'studio.log'), ...allowedHostOption(), ...optional('ffmpeg', process.env.FFMPEG_BIN), publicBridgePort: port + 1 });
       const sockets = join(root, 'sockets');
       for (const bridge of BRIDGES) startInsideBridge(namespace, ['unix-to-tcp', bridge.socket, String(bridge.inner)], sockets);
       const reach = insideSandbox(namespace.pid, sockets);

@@ -629,10 +629,13 @@ Where things live, by who can write them:
 
 - `<run-dir>/` is every session's: the roles' clone in `app/`. Sessions see
   the check results read-only at `<run-dir>/checks`, bound from the host
-  directory, and the packed packages read-only.
+  directory, and the packed packages and `tools/` read-only.
 - `<run-dir>.host/` is the harness's alone: `app.json`, the packed
   packages, `tools/` (the harness's ast-grep and the source checkout's
-  ffmpeg, each checked against the sha256 in `app.json` before use), `git/`
+  ffmpeg, each checked against the sha256 in `app.json` before use; the
+  install skips `ffmpeg-static`'s download, so sessions, the tests gate,
+  the check's Studio and the served copy get this ffmpeg as `FFMPEG_BIN`
+  and `FFMPEG_PATH`), `git/`
   (a bare repo the check fetches each commit into), `checks/`,
   `last-good.json`, `served.json`, `approved-components.txt` and
   `copy-overrides.json`. Every JSON file is read back through a schema.
@@ -675,7 +678,10 @@ fresh tree, which its sandbox unpacks, and runs there, in order:
 - `layout`: no overlap, clipped text, horizontal scroll or misaligned
   column at 1440px or 390px that the start commit didn't have.
 - `typecheck`, `tests`, `studio-checks`: Studio's own, last, so the tests
-  can't change what the walks saw. A failing gate passes only when each
+  can't change what the walks saw. The tests get the run's ffmpeg,
+  `PLAYWRIGHT_BROWSERS_PATH` and `CHROME_PATH`, the newest Chromium there
+  (`testsEnvironment` in `factory/app-gates.ts`), since the check's HOME
+  has no browsers. A failing gate passes only when each
   failure it names, counted, already showed at the start commit in that
   gate. A timeout, a kill, an unhandled error, or a total that differs from
   the failures named is never excused (`known-failures.ts`).
@@ -740,12 +746,14 @@ role prompts depend on the interface alone.
    problem names the file and the rule, never a value.
 2. It starts the session's own sandbox, as a round's run does, with the
    run directory as its one read-write bind and, read-only, the agent's
-   install, the role's skill, the brief directory, Playwright's browsers and
-   the session's sandbox directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
+   install, the role's skill, the brief directory, Playwright's browsers,
+   the run's `tools/` once setup has run, and the session's sandbox
+   directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
    file and the forwarder's socket); the npm cache is under an overlay. The
    brief directory must be outside the run directory and the app directory
    inside it. No bind may contain the host's home directory or reach the
-   agent's credential directory. The role's skill is
+   agent's credential directory, and Playwright's browsers must hold a
+   Chromium executable. The role's skill is
    `.agents/skills/factory-<role>/SKILL.md` in the checkout the harness
    runs from, and a session doesn't start without it.
 3. It starts the upstream forwarder (`factory/upstream-forwarder.ts`)
@@ -756,6 +764,8 @@ role prompts depend on the interface alone.
    `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the skills name, in its
    environment and its prompt. Its environment also has
    the check's `MDMEDIA_FAKE_MEDIA=1`, `PLAYWRIGHT_BROWSERS_PATH`,
+   `CHROME_PATH` (the newest Chromium there), the run's ffmpeg as
+   `FFMPEG_BIN` and `FFMPEG_PATH` once setup has placed one,
    `PYRIC_BUILDER_PLAYWRIGHT` (the harness's
    client, since the app has none) and `PYRIC_BUILDER_ONLINE_SCRIPT`, an init
    script that makes pages report `navigator.onLine` as true, which the walk

@@ -1,14 +1,15 @@
-// The runner's layout, what each role is told, the binds it refuses, and
-// sessions in a real sandbox with the made-up agent
-// (`fixtures/fake-agent.ts`) and a stand-in upstream on loopback. Nothing
-// reaches the network.
+// The runner's layout, what each role is told, the binds it refuses, where
+// it finds Chromium, and sessions in a real sandbox with the made-up agent
+// (`fixtures/fake-agent.ts`) and a stand-in upstream on loopback, including
+// one that finds the run's ffmpeg and Chromium. Nothing reaches the network.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join, relative } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
-import { playwrightBrowsersPath, PLAYWRIGHT_CLIENT_ENV } from '../browser-server.ts';
+import { chromiumExecutable, playwrightBrowsersPath, PLAYWRIGHT_CLIENT_ENV } from '../browser-server.ts';
 import { INVENTORY_TIMEOUT_MS, toolchainDirs } from '../namespace.ts';
+import { appPaths } from './app-paths.ts';
 import { FAKE_MEDIA } from './app-start.ts';
 import { fakeAgent } from './fixtures/fake-agent.ts';
 import { startFakeUpstream, type FakeUpstream } from './fixtures/fake-upstream.ts';
@@ -17,6 +18,7 @@ import { ONLINE_INIT_ENV } from './online-init.ts';
 import { roleSkill, rolePrompt } from './roles.ts';
 import { bindProblems, layoutProblems, runConfiguredSession, runnerConfig, sessionPaths, type RunnerConfig } from './session-runner.ts';
 import type { SessionOptions } from './session.ts';
+import { FFMPEG, sha256Of } from './tools.ts';
 
 /** The inventory's own limit, so it fails with its own message, and the rest of the session, which takes seconds. */
 const SANDBOX_TEST_TIMEOUT_MS = INVENTORY_TIMEOUT_MS + 60_000;
@@ -62,6 +64,35 @@ describe('the role’s prompt and skill', () => {
 
   test('needs an agent the registry knows', () => {
     expect(() => runnerConfig('lead', { agent: 'no-such-agent' })).toThrow('no agent adapter named "no-such-agent"');
+  });
+});
+
+/** A Playwright browsers directory holding one executable per revision named, as `chromium-<n>/chrome-linux64/chrome`. */
+function plantBrowsers(dir: string, revisions: readonly string[]): string {
+  for (const revision of revisions) {
+    const bin = join(dir, `chromium-${revision}`, 'chrome-linux64');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'chrome'), '');
+  }
+  return dir;
+}
+
+describe('chromiumExecutable', () => {
+  test('finds the newest revision\'s chrome, by number, in either Linux directory, and skips the headless shell', () => {
+    const browsers = plantBrowsers(mkdtempSync(join(tmpdir(), 'factory-browsers-')), ['999', '1208']);
+    mkdirSync(join(browsers, 'chromium-1234', 'chrome-linux'), { recursive: true });
+    writeFileSync(join(browsers, 'chromium-1234', 'chrome-linux', 'chrome'), '');
+    mkdirSync(join(browsers, 'chromium_headless_shell-1300', 'chrome-linux64'), { recursive: true });
+    writeFileSync(join(browsers, 'chromium_headless_shell-1300', 'chrome-linux64', 'chrome'), '');
+    expect(chromiumExecutable(browsers)).toBe(join(browsers, 'chromium-1234', 'chrome-linux', 'chrome'));
+  });
+
+  test('passes over a revision without its executable, and finds nothing in an empty or missing directory', () => {
+    const browsers = plantBrowsers(mkdtempSync(join(tmpdir(), 'factory-browsers-')), ['1208']);
+    mkdirSync(join(browsers, 'chromium-1234', 'chrome-linux64'), { recursive: true });
+    expect(chromiumExecutable(browsers)).toBe(join(browsers, 'chromium-1208', 'chrome-linux64', 'chrome'));
+    expect(chromiumExecutable(mkdtempSync(join(tmpdir(), 'factory-browsers-')))).toBeUndefined();
+    expect(chromiumExecutable(join(tmpdir(), 'no-such-browsers'))).toBeUndefined();
   });
 });
 
@@ -152,13 +183,45 @@ describe('layoutProblems', () => {
     const paths = sessionPaths(options.runDir, 'lead', 'stamp');
     const missing = join(tmpdir(), 'no-such-browsers');
     expect(layoutProblems(options, { ...config, browsers: missing }, paths)).toEqual([`Playwright's browsers are not at ${missing}, so the session could not start Chromium`]);
-    const home = mkdtempSync(join(tmpdir(), 'factory-home-'));
+    const home = plantBrowsers(mkdtempSync(join(tmpdir(), 'factory-home-')), ['1']);
     expect(layoutProblems(options, { ...config, browsers: home, home }, paths)).toEqual([`the bind ${home} contains the home directory ${home}`]);
-    const secret = mkdtempSync(join(tmpdir(), 'factory-credential-'));
+    const secret = plantBrowsers(mkdtempSync(join(tmpdir(), 'factory-credential-')), ['1']);
     const agent = fakeAgent({ credentialDirs: [secret] });
     expect(layoutProblems(options, { ...config, agent, browsers: secret }, paths)).toEqual([`the bind ${secret} reaches the agent's credential directory`]);
   });
+
+  test('refuses Playwright\'s browsers when they hold no Chromium executable', async () => {
+    const { options, config } = await layout();
+    const paths = sessionPaths(options.runDir, 'lead', 'stamp');
+    const empty = mkdtempSync(join(tmpdir(), 'factory-browsers-'));
+    expect(layoutProblems(options, { ...config, browsers: empty }, paths)).toEqual([`no Chromium executable under ${empty}, so the session could not start Chromium`]);
+  });
 });
+
+/**
+ * A run as setup leaves it, as far as the tools go: an ffmpeg in
+ * `<run>.host/tools/` with its hash in `app.json`, and the app's own
+ * `ffmpeg-static`, a stand-in that reads `FFMPEG_BIN` as the real package's
+ * `binary-path-env-var` names it and otherwise points at a binary the
+ * install never downloaded.
+ */
+function setUpTools(runDir: string): string {
+  const paths = appPaths(runDir);
+  mkdirSync(paths.tools, { recursive: true, mode: 0o700 });
+  const ffmpeg = join(paths.tools, FFMPEG);
+  writeFileSync(ffmpeg, '#!/bin/sh\n');
+  chmodSync(ffmpeg, 0o755);
+  const record = {
+    source: '/src/app', sourceCommit: 'a'.repeat(40), startCommit: 'b'.repeat(40), setupAt: new Date().toISOString(),
+    briefDir: '/briefs/app', adaptations: [], tools: { [FFMPEG]: sha256Of(ffmpeg) },
+  };
+  writeFileSync(paths.record, JSON.stringify(record));
+  const stub = join(runDir, 'app', 'node_modules', 'ffmpeg-static');
+  mkdirSync(stub, { recursive: true });
+  writeFileSync(join(stub, 'package.json'), JSON.stringify({ name: 'ffmpeg-static', main: 'index.js', 'ffmpeg-static': { 'binary-path-env-var': 'FFMPEG_BIN' } }));
+  writeFileSync(join(stub, 'index.js'), "const { 'binary-path-env-var': name } = require('./package.json')['ffmpeg-static'];\nmodule.exports = process.env[name] || require('node:path').join(__dirname, 'ffmpeg');\n");
+  return ffmpeg;
+}
 
 describe('a session in its sandbox', () => {
   test('sees $BRIEF_DIR, $RUN_DIR and $APP_DIR, reads the brief, writes the run and the app, can’t write the brief, and logs to the host directory', async () => {
@@ -220,5 +283,25 @@ describe('a session in its sandbox', () => {
     const topUnderHome = (path: string) => relative(homedir(), path).split('/')[0];
     const bound = new Set([playwrightBrowsersPath(), npmCacheDir(), ...toolchainDirs(), import.meta.dir].map(topUnderHome));
     expect((browser?.hostHomeEntries as string[]).filter((entry) => !bound.has(entry))).toEqual([]);
+  }, SANDBOX_TEST_TIMEOUT_MS);
+
+  test('finds the run\'s ffmpeg through the app\'s own ffmpeg-static, and Chromium through CHROME_PATH, both bound read-only', async () => {
+    const { options, config } = await layout();
+    const ffmpeg = setUpTools(options.runDir);
+    const plain = fakeAgent();
+    const agent = fakeAgent({
+      invocation: (session, bridgeUrl, env) => {
+        const invocation = plain.invocation(session, bridgeUrl, env);
+        return { ...invocation, env: { ...invocation.env, FAKE_AGENT_MODE: 'tools' } };
+      },
+    });
+    const result = await runConfiguredSession('builder', options, { ...config, agent });
+    const stderr = readFileSync(`${result.logPath}.stderr`, 'utf8');
+    expect(result, stderr).toMatchObject({ exitCode: 0, endedBy: 'exit' });
+    const lines = readFileSync(result.logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.find((line) => line.type === 'tools')).toMatchObject({
+      ffmpeg, ffmpegExists: true, ffmpegPath: ffmpeg, requireError: '',
+      chrome: chromiumExecutable(playwrightBrowsersPath()), chromeExists: true,
+    });
   }, SANDBOX_TEST_TIMEOUT_MS);
 });

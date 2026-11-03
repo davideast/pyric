@@ -23,8 +23,12 @@
  * `logs/<seat>-<stamp>.network.jsonl` in the run directory.
  *
  * Once the app is set up, a session also sees the run's packed packages
- * (`<run dir>.host/packages`, which Studio's manifest names) and the hourly
- * check's results, bound read-only over `<run dir>/checks`.
+ * (`<run dir>.host/packages`, which Studio's manifest names), the run's
+ * tools (`<run dir>.host/tools`) and the hourly check's results, bound
+ * read-only over `<run dir>/checks`. The agent gets the run's ffmpeg, checked
+ * by hash, as `FFMPEG_BIN` and `FFMPEG_PATH`, since the app installs without
+ * scripts and its `ffmpeg-static` has no binary, and the newest Chromium in
+ * Playwright's browsers as `CHROME_PATH`.
  *
  * The module also exports the factory's hourly check (`hourly-check.ts`),
  * which the supervisor runs each hour, and `runEnd`, which stops the served
@@ -34,22 +38,25 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'nod
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
-import { PLAYWRIGHT_CLIENT_ENV, playwrightBrowsersPath } from '../browser-server.ts';
+import { chromiumExecutable, PLAYWRIGHT_CLIENT_ENV, playwrightBrowsersPath } from '../browser-server.ts';
 import type { Upstream } from '../model-forwarder.ts';
 import { startEgressNamespace } from '../namespace.ts';
 import { runStamp } from '../scratch.ts';
 import type { AgentAdapter, AgentInstall, AgentSession, CredentialRead } from './agent.ts';
 import { runAgentSession, socketOf } from './agent-session.ts';
 import { agentNamed } from './agents/registry.ts';
+import { readAppRecord } from './app-setup.ts';
 import { FAKE_MEDIA } from './app-start.ts';
 import { PLAYWRIGHT_CLIENT } from './captures.ts';
 import { hostDirOf, isInside, makeHostDir } from './host-files.ts';
 import { ONLINE_INIT_ENV, ONLINE_INIT_SCRIPT } from './online-init.ts';
 import { roleSkill, rolePrompt } from './roles.ts';
 import { appPaths } from './app-paths.ts';
+import { optional } from './optional.ts';
 import type { View } from '../harness-view.ts';
 import { stopRunServing } from './served.ts';
 import type { Role, SessionOptions, SessionResult } from './session.ts';
+import { ffmpegEnvironment, recordedFfmpeg } from './tools.ts';
 
 export { hourlyCheck } from './hourly-check.ts';
 
@@ -58,10 +65,10 @@ export function runEnd(runDir: string): Promise<void> {
   return stopRunServing(runDir);
 }
 
-/** What a session sees of the app's harness state: the packages read-only, and the checks read-only over `<run>/checks`. */
+/** What a session sees of the app's harness state: the packages and the tools read-only, and the checks read-only over `<run>/checks`. */
 export function appViews(runDir: string): { readOnly: string[]; innerViews: View[] } {
   const paths = appPaths(runDir);
-  const readOnly = existsSync(paths.packages) ? [paths.packages] : [];
+  const readOnly = [paths.packages, paths.tools].filter((dir) => existsSync(dir));
   const innerViews = existsSync(paths.checks) ? [{ source: paths.checks, dest: paths.roleChecks }] : [];
   return { readOnly, innerViews };
 }
@@ -134,6 +141,14 @@ export function bindProblems(binds: readonly string[], config: Pick<RunnerConfig
 
 const browsersOf = (config: Pick<RunnerConfig, 'browsers'>) => config.browsers ?? playwrightBrowsersPath();
 
+/** The run's ffmpeg, checked by hash, once setup has placed one; nothing before setup or when the source had none. */
+function sessionFfmpeg(runDir: string): string | undefined {
+  const paths = appPaths(runDir);
+  const isSetUp = existsSync(paths.record);
+  if (!isSetUp) return undefined;
+  return recordedFfmpeg(paths.tools, readAppRecord(paths).tools);
+}
+
 /** What the sandbox binds read-only for a session. */
 const readOnlyBinds = (options: Pick<SessionOptions, 'briefDir'>, config: RunnerConfig) => [...config.install.binds, config.skillFile, options.briefDir, browsersOf(config)];
 
@@ -151,7 +166,11 @@ export function layoutProblems(options: Pick<SessionOptions, 'runDir' | 'appDir'
   if (!briefIsDirectory) problems.push(`the brief directory ${options.briefDir} does not exist`);
   if (isInside(options.briefDir, options.runDir)) problems.push(`the brief directory ${options.briefDir} is inside the run directory, which sessions can write`);
   if (!isInside(options.appDir, options.runDir)) problems.push(`the app directory ${options.appDir} is outside the run directory, so sessions could not write it`);
-  if (!existsSync(browsersOf(config))) problems.push(`Playwright's browsers are not at ${browsersOf(config)}, so the session could not start Chromium`);
+  const browsers = browsersOf(config);
+  const hasBrowsers = existsSync(browsers);
+  if (!hasBrowsers) problems.push(`Playwright's browsers are not at ${browsers}, so the session could not start Chromium`);
+  const hasChromium = chromiumExecutable(browsers) !== undefined;
+  if (hasBrowsers && !hasChromium) problems.push(`no Chromium executable under ${browsers}, so the session could not start Chromium`);
   problems.push(...bindProblems(readOnlyBinds(options, config), config));
   const socket = socketOf(paths.sandboxDir);
   if (Buffer.byteLength(socket) > MAX_SOCKET_PATH_BYTES) problems.push(`the run directory's path is too long for the forwarder's socket ${socket}`);
@@ -170,6 +189,12 @@ function makeDirs(runDir: string, paths: SessionPaths): void {
   }
 }
 
+/** Where the session's tools are: Playwright's browsers, and the run's ffmpeg once setup placed one. */
+interface SessionTools {
+  browsers: string;
+  ffmpeg?: string;
+}
+
 /**
  * The environment besides HOME and the three directories. No secret. No
  * `NODE_OPTIONS`, so not the Node recorder: a session starts the app, `pyric
@@ -177,10 +202,12 @@ function makeDirs(runDir: string, paths: SessionPaths): void {
  * two space-separated `--import`s into one module path and exits. The sandbox's
  * resolver and catch-all listener still record, as for the check's Studio.
  */
-function baseEnvironment(browsers: string): Record<string, string> {
+function baseEnvironment(tools: SessionTools): Record<string, string> {
   const base: Record<string, string> = {
     PATH: process.env.PATH ?? '',
-    PLAYWRIGHT_BROWSERS_PATH: browsers,
+    PLAYWRIGHT_BROWSERS_PATH: tools.browsers,
+    ...optional('CHROME_PATH', chromiumExecutable(tools.browsers)),
+    ...ffmpegEnvironment(tools.ffmpeg),
     [PLAYWRIGHT_CLIENT_ENV]: PLAYWRIGHT_CLIENT,
     [ONLINE_INIT_ENV]: ONLINE_INIT_SCRIPT,
     ...FAKE_MEDIA,
@@ -197,6 +224,7 @@ export async function runConfiguredSession(role: Role, options: SessionOptions, 
   const paths = sessionPaths(options.runDir, options.seat, runStamp());
   const problems = layoutProblems(options, config, paths);
   if (problems.length > 0) throw new Error(`the ${options.seat} session can't start:\n- ${problems.join('\n- ')}`);
+  const tools: SessionTools = { browsers: browsersOf(config), ...optional('ffmpeg', sessionFfmpeg(options.runDir)) };
   makeDirs(options.runDir, paths);
   const dirs = { briefDir: options.briefDir, runDir: options.runDir, appDir: options.appDir };
   const session: AgentSession = {
@@ -227,7 +255,7 @@ export async function runConfiguredSession(role: Role, options: SessionOptions, 
       channelRecord: paths.channelRecord,
       deadlineMs: options.remainingMs,
       enter: namespace.enter,
-      base: baseEnvironment(browsersOf(config)),
+      base: baseEnvironment(tools),
       signal: options.signal,
       credential: config.credential,
       upstream: config.upstream,
