@@ -3,9 +3,10 @@
  * Check tokens, Auth ID tokens), so each kind encodes, decodes and signs the
  * same way on every plane.
  *
- * Encoding and decoding use `atob`/`btoa` and `TextEncoder`/`TextDecoder`
- * only, never Node's `Buffer`, so a token reads the same in a browser, a
- * worker, or Node.
+ * Encoding and decoding use the plain-JavaScript codec in `base64url.ts` and
+ * `TextEncoder`/`TextDecoder` only, never Node's `Buffer` or `btoa`/`atob`, so
+ * a token reads the same in a browser, a worker, Node, or a realm with none
+ * of those globals.
  *
  * The signature is not RSA. It is a 256-byte SHA-256 expansion over the
  * signing input and a fixed sandbox key, the length of a real RS256
@@ -17,6 +18,7 @@
  * can be minted inside a synchronous sign-in, as the token cache needs.
  */
 import { sha256 } from '../../rules/simulator/hashing-builtins.js';
+import { decodeBase64url, encodeBase64url } from './base64url.js';
 
 const SIGNATURE_BLOCKS = 8;
 
@@ -24,9 +26,7 @@ const SIGNATURE_BLOCKS = 8;
 export const SANDBOX_JWT_KID = 'pyric-sandbox';
 
 export function base64url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return encodeBase64url(bytes);
 }
 
 /** jws `JWS_REGEX`: base64url characters only, header and payload non-empty, signature optional. */
@@ -34,8 +34,9 @@ export const JWS_SHAPE = /^[a-zA-Z0-9\-_]+?\.[a-zA-Z0-9\-_]+?\.([a-zA-Z0-9\-_]+)
 
 /** A base64url segment as Latin-1 text, one character per byte, as jws reads a header (`toString('binary')`). */
 export function latin1FromBase64url(text: string): string {
-  const padded = text.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(text.length / 4) * 4, '=');
-  return atob(padded);
+  let binary = '';
+  for (const byte of decodeBase64url(text)) binary += String.fromCharCode(byte);
+  return binary;
 }
 
 /**
@@ -44,10 +45,7 @@ export function latin1FromBase64url(text: string): string {
  * Buffer does.
  */
 export function utf8FromBase64url(text: string): string {
-  const binary = latin1FromBase64url(text);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return new TextDecoder('utf-8').decode(bytes);
+  return new TextDecoder('utf-8').decode(decodeBase64url(text));
 }
 
 /** A value's JSON as UTF-8 bytes in base64url, one JWT segment. */
