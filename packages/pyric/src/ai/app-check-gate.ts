@@ -40,11 +40,11 @@ export const APP_CHECK_REQUIRED_MESSAGE =
 
 /** Pyric's guidance for a page, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
-  'Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check';
+  'The sandbox refuses Firebase AI Logic requests without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can delay enforcement up to January 21, 2027. Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check';
 
 /** Pyric's guidance for a server process, where reCAPTCHA throws and `self` does not exist. */
 export const APP_CHECK_SERVER_HINT =
-  "Firebase AI Logic refuses requests without an App Check token, and so does the sandbox. This process has no document, so the reCAPTCHA providers throw here. For local development, set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck(app, { provider: new CustomProvider({ getToken }) }) before getAI(app). The sandbox does not call getToken while the debug token is set. Without the debug token, getToken returns { token, expireTimeMillis: Date.now() + ttlMillis } from a token your server mints with firebase-admin's getAppCheck().createToken(appId). https://firebase.google.com/docs/ai-logic/app-check";
+  "The sandbox refuses Firebase AI Logic requests without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can delay enforcement up to January 21, 2027. This process has no document, so the reCAPTCHA providers throw here. For local development, set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck(app, { provider: new CustomProvider({ getToken }) }) before getAI(app). The sandbox does not call getToken while the debug token is set. Without the debug token, getToken returns { token, expireTimeMillis: Date.now() + ttlMillis } from a token your server mints with firebase-admin's getAppCheck().createToken(appId). https://firebase.google.com/docs/ai-logic/app-check";
 
 /**
  * The guidance for the realm the app runs in. A page has a `document`, and a

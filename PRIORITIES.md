@@ -1,6 +1,6 @@
 # Priorities
 
-As of 2026-10-28. The Node host has shipped: main and npm `latest` (alpha.26) include it. Firebase AI Logic requires App Check on November 2, so App Check comes first. CI and release velocity comes second, because the last two releases each took hours and every other priority pays for that time. Rules fidelity, multi-resource support, and reliability follow. When a proposal serves none of the tests below, it waits.
+As of 2026-10-28. The Node host has shipped: main and npm `latest` (alpha.26) include it. Firebase AI Logic enforces App Check from November 2, and each project can delay enforcement up to January 21, 2027, so App Check comes first. CI and release velocity comes second, because the last two releases each took hours and every other priority pays for that time. Rules fidelity, multi-resource support, and reliability follow. When a proposal serves none of the tests below, it waits.
 
 ## Direction
 
@@ -10,15 +10,15 @@ This is not a priority and has no test yet. It is the lens for reading the prior
 
 ## App Check
 
-**Test:** Before November 2, 2026, does this get App Check working in pyric, end to end, and shipped in a release? After it, does this watch and verify that pyric still behaves like production once AI Logic enforces App Check?
+**Test:** Does this get App Check working in pyric, end to end, and shipped in a release, or watch and verify that pyric behaves like production on a project that enforces App Check for AI Logic?
 
-On November 2, 2026, Firebase AI Logic requires App Check. An app that uses AI Logic through pyric must work the way it will in production after that date. App Check stays first after November 2, because we need to watch and verify that pyric still behaves like production once enforcement starts. The alpha.30 release shipped App Check to the npm `exp` tag. npm `latest` is still alpha.26, so an app installed from `latest` still gets a `pyric/app-check` that throws on first use.
+From November 2, 2026, Firebase AI Logic enforces App Check on every project that has not delayed it, and a project can delay enforcement up to January 21, 2027. Pyric refuses AI calls without a token with a 403. An app that uses AI Logic through pyric must work the way it will in production once its project enforces App Check, and we need to watch and verify whether pyric still behaves that way. The alpha.30 release shipped App Check to the npm `exp` tag. npm `latest` is still alpha.26, so an app installed from `latest` still gets a `pyric/app-check` that throws on first use.
 
 **Counts:** `initializeAppCheck` and `getToken` working in sandbox mode; production AI mode passing the real `firebase/app-check` through so AI Logic requests carry a token; App Check tokens in the in-page sandbox, the worker bridge, and the Node host; a new `app-check` surface built under CDD (`docs/conformance/cdd.md`); the release that ships it; alpha.30 reaching `latest`; re-capturing the AI Logic App Check gate after November 2 (#1300).
 **Doesn't count:** App Check for other services beyond what AI Logic needs.
 
 **Now:**
-- Sandbox AI mode answers requests without an App Check token, and production refuses them (#1291)
+- Sandbox AI mode answers requests without an App Check token, and a captured project refused them (#1291)
 - Production AI mode fails on the import-map plane (#1290)
 - Unclear App Check errors in production AI mode (#1293)
 - `pyric-admin` `cert()` drops the service account `project_id` (#1294)
