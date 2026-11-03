@@ -28,10 +28,12 @@ async function checkPlane(app: App, name: string, env: Record<string, string>): 
   const host = await app.devServer({ name, env });
   const page = await app.page(host.url);
   await page.waitForFunction(() => 'runRoles' in window);
+  const since = host.process.mark();
   assertRoles(await page.evaluate(() => runRoles()));
   // The SDK's error text omits the status name, so read it from the host's log.
-  assert.match(host.process.output, new RegExp(`${SYSTEM_REFUSAL}\\s+model: .*\\s+INVALID_ARGUMENT \\(400\\)`));
-  assert.doesNotMatch(host.process.output, /Role 'assistant' is not supported/);
+  // The host prints the rejection after the page has its answer, so wait for it.
+  await host.process.waitForLog(new RegExp(`${SYSTEM_REFUSAL}\\s+model: .*\\s+INVALID_ARGUMENT \\(400\\)`), { since, timeoutMs: 10_000 });
+  assert.doesNotMatch(host.process.output.slice(since), /Role 'assistant' is not supported/);
   await host.process.stop();
 }
 
