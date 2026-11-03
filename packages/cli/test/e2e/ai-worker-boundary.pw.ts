@@ -25,7 +25,7 @@ test('served AI uses only the SharedWorker broker and emits one authoritative ev
     const appModule = await import('firebase/app');
     const aiModule = await import('firebase/ai');
     const appCheckModule = await import('firebase/app-check');
-    // AI Logic requires App Check before getAI, and so does the sandbox.
+    // The sandbox refuses AI Logic requests without an App Check token, so App Check comes before getAI.
     appCheckModule.initializeAppCheck(appModule.getApp(), {
       provider: new appCheckModule.ReCaptchaV3Provider('site-key'),
     });

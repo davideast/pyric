@@ -27,8 +27,8 @@ import type { FirebaseApp } from '../../src/app/types.js';
 import { mintAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
 
 /**
- * AI Logic requires App Check before getAI(app), and so does the sandbox
- * (app-check-gate.test.ts). Bun has no `document` for reCAPTCHA, so the app
+ * The sandbox refuses AI Logic requests without an App Check token
+ * (app-check-gate.test.ts), so App Check comes before getAI(app). Bun has no `document` for reCAPTCHA, so the app
  * attests with a CustomProvider whose tokens the sandbox signs.
  */
 function withAppCheck(app: FirebaseApp): FirebaseApp {

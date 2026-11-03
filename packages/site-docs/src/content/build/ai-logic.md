@@ -13,7 +13,7 @@ Keep using the Firebase AI Logic Web API, with App Check initialized first. Duri
 
 ## Initialize App Check before getAI
 
-Pyric refuses an AI Logic request without an App Check token with a 403, as a project that enforces App Check does. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can [delay enforcement](https://firebase.google.com/docs/ai-logic/app-check#app-check-for-already-released-app) up to January 21, 2027. `getAI` reads App Check when it starts, so call `initializeAppCheck` before `getAI`, synchronously, with a static import. A model created before App Check sends no token.
+Pyric refuses an AI Logic request without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can [delay enforcement](https://firebase.google.com/docs/ai-logic/app-check#app-check-for-already-released-app) up to January 21, 2027. `getAI` reads App Check when it starts, so call `initializeAppCheck` before `getAI`, synchronously, with a static import. A model created before App Check sends no token.
 
 ```ts
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';

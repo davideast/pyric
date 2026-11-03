@@ -5,8 +5,10 @@ one chat app, written entirely against the upstream `firebase/ai` API, that
 runs unchanged under `pyric sandbox` on two answer engines.
 
 The app imports only `firebase/app`, `firebase/app-check`, and `firebase/ai`.
-It initializes App Check before `getAI`, as a project that enforces App Check
-for AI Logic requires. It uses `getGenerativeModel`, streaming via `generateContentStream`, multi-turn
+It initializes App Check before `getAI`: pyric refuses AI Logic requests
+without an App Check token with a 403, and Firebase enforces App Check for AI
+Logic from November 2, 2026, though a project can delay enforcement up to
+January 21, 2027. It uses `getGenerativeModel`, streaming via `generateContentStream`, multi-turn
 history via `ChatSession`, and a function-calling round trip with a
 `get_weather` tool. Under `pyric sandbox` the import map serves the pyric mirror
 for those imports; no app code changes.
