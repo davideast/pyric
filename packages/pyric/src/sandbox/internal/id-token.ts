@@ -23,6 +23,27 @@ export const SANDBOX_PROJECT_ID = 'pyric-sandbox';
 
 export type IdTokenCheck = SandboxJwtCheck;
 
+/** An ID token's lifetime, as production issues it (auth#68c: `exp - iat` is 3600). */
+export const ID_TOKEN_LIFETIME_MS = 60 * 60 * 1000;
+
+/**
+ * How long before `exp` a token counts as expired and is minted again on
+ * read: `TOKEN_REFRESH_BUFFER_MS` in `@firebase/auth` 1.13.6
+ * (`StsTokenManager.isExpired`: `Date.now() > expirationTime - 30000`).
+ */
+export const TOKEN_REFRESH_BUFFER_MS = 30_000;
+
+/**
+ * Whether ID token claims are past their refresh point at `nowMs` on the
+ * sandbox clock. Claims with no numeric `exp` are past it.
+ */
+export function isPastIdTokenRefreshPoint(claims: Record<string, unknown> | undefined, nowMs: number): boolean {
+  const exp = claims?.exp;
+  const hasExp = typeof exp === 'number';
+  if (!hasExp) return true;
+  return nowMs > exp * 1000 - TOKEN_REFRESH_BUFFER_MS;
+}
+
 /** Production's `iss` and `aud` for a project's ID tokens (capture `auth-request-auth-per-sign-in`). */
 export function idTokenAudience(projectId: string): { iss: string; aud: string } {
   return { iss: `https://securetoken.google.com/${projectId}`, aud: projectId };

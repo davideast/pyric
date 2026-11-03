@@ -143,20 +143,8 @@ const KINDS: Record<string, () => Promise<Run>> = {
  * `absent`) or `provider`. Each holds pyric's answer, production's, and the
  * finding.
  */
-const SIGNED_IN = Object.keys(KINDS).filter((kind) => kind !== 'signedOut');
-
 interface PinGroup { finding: string; plane: string; kinds: string[]; labels: string[]; pyric: string; production: string }
 const PIN_GROUPS: PinGroup[] = [
-  {
-    finding: '#1502: minted ID tokens last 100 years, so a rule on exp minus iat equal to 3600 denies',
-    plane: 'rtdb', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
-    labels: ['token.exp minus token.iat is 3600'],
-  },
-  {
-    finding: '#1502: minted ID tokens last 100 years, so a rule on exp minus iat equal to 3600 denies',
-    plane: 'firestore', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
-    labels: ['token.exp minus token.iat is 3600'],
-  },
   {
     finding: 'auth-claims CO-3: reauthenticating a custom-token session with a password credential keeps sign_in_provider custom',
     plane: 'provider', kinds: ['customTokenReauthPassword'], pyric: 'custom', production: 'password',
