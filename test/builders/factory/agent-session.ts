@@ -75,6 +75,8 @@ export interface AgentSessionOptions {
   phaseScript?: string;
   /** Test seam: the bridge's port, for phases run on the host. */
   bridgePort?: number;
+  /** The sessions' provider socket, bound read-only; the phase bridges 127.0.0.1:4180 to it. */
+  providerSocket?: string;
   /** Test seam: how long a stopped session gets before SIGKILL. */
   stopGraceMs?: number;
   /** Test seam: how long a session may print nothing; `SESSION_SILENCE_MS` by default. */
@@ -91,6 +93,7 @@ function phaseOf(options: AgentSessionOptions): AgentPhase {
     runRoot: options.runRoot,
     socketPath: socketOf(options.sandboxDir),
     bridgePort,
+    ...(options.providerSocket === undefined ? {} : { providerSocketPath: options.providerSocket }),
     homeDirs: [session.home, ...agent.homeDirs(session.home)],
     cwd: session.cwd,
     invocation: agent.invocation(session, `http://127.0.0.1:${bridgePort}`, sessionEnvironment(session, options.base)),

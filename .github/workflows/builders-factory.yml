@@ -77,6 +77,7 @@ jobs:
           test/builders/factory/layout-probe.test.ts
           test/builders/factory/next-config.test.ts
           test/builders/factory/provider-forwarder.test.ts
+          test/builders/factory/provider-wiring.test.ts
           test/builders/factory/served-owner.test.ts
           test/builders/factory/served-status.test.ts
           test/builders/factory/serving.test.ts

@@ -17,6 +17,7 @@ import type { EgressNamespace } from '../namespace.ts';
 import { demoProjectId, fakeFirebaseConfig } from '../scratch.ts';
 import type { Checkout } from './app-paths.ts';
 import { Aborted, baseEnvironment, sandboxRunner, trackGroup } from './exec.ts';
+import { providerEnvironment } from './provider-wiring.ts';
 import { ffmpegEnvironment } from './tools.ts';
 
 export const APP_PORT = 3000;
@@ -39,6 +40,8 @@ export interface StartOptions {
   ffmpeg?: string;
   /** Stops Studio when it aborts. */
   signal?: AbortSignal;
+  /** Real media through the provider bridge, in place of fake media. Only the served copy sets it. */
+  provider?: boolean;
 }
 
 export interface StartedApp {
@@ -48,7 +51,7 @@ export interface StartedApp {
 }
 
 /** Studio's environment: the base one, a fake web config for a `demo-` project, and the public host and the run's ffmpeg when there are. */
-export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allowedHost' | 'publicBridgePort' | 'ffmpeg'>): Record<string, string> {
+export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allowedHost' | 'publicBridgePort' | 'ffmpeg' | 'provider'>): Record<string, string> {
   const projectId = demoProjectId('mdmedia-studio');
   const config = fakeFirebaseConfig(projectId);
   const env: Record<string, string> = {
@@ -62,7 +65,7 @@ export function studioEnvironment(options: Pick<StartOptions, 'checkout' | 'allo
     FIREBASE_PROJECT_ID: projectId,
     FIREBASE_STORAGE_BUCKET: config.storageBucket ?? '',
     PORT: String(APP_PORT),
-    ...FAKE_MEDIA,
+    ...(options.provider === true ? providerEnvironment() : FAKE_MEDIA),
     ...ffmpegEnvironment(options.ffmpeg),
   };
   if (options.allowedHost !== undefined) env.MDMEDIA_ALLOWED_DEV_ORIGINS = options.allowedHost;

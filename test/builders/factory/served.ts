@@ -139,11 +139,12 @@ interface Listen {
   host: string;
 }
 
-async function startServed(paths: AppPaths, record: AppRecord, listen: Listen, signal?: AbortSignal): Promise<ServedState | undefined> {
+async function startServed(paths: AppPaths, record: AppRecord, listen: Listen, signal?: AbortSignal, providerSocket?: string): Promise<ServedState | undefined> {
   const { commit, port, host } = listen;
+  const provider = providerSocket === undefined ? [] : ['--provider-socket', providerSocket];
   const tree = exportTree(paths, commit, 'served');
   const log = openSync(join(paths.host, 'served-process.log'), 'a');
-  const args = [SERVED_PROCESS, '--run-dir', paths.runDir, '--commit', commit, '--root', tree.root, '--port', String(port), '--host', host, ...ownerArgs(currentOwner(paths.runDir))];
+  const args = [SERVED_PROCESS, '--run-dir', paths.runDir, '--commit', commit, '--root', tree.root, '--port', String(port), '--host', host, ...ownerArgs(currentOwner(paths.runDir)), ...provider];
   const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], env: servedEnvironment(recordedFfmpeg(paths.tools, record.tools)) });
   closeSync(log);
   child.unref();
@@ -170,7 +171,7 @@ export interface ServedControl {
 }
 
 /** The real served process for this run, on `port` of `host`. */
-export function servedControl(paths: AppPaths, record: AppRecord, port: number, host: string, signal?: AbortSignal): ServedControl {
+export function servedControl(paths: AppPaths, record: AppRecord, port: number, host: string, signal?: AbortSignal, providerSocket?: string): ServedControl {
   return {
     servingCommit: () => {
       const state = verifiedState(paths);
@@ -178,7 +179,7 @@ export function servedControl(paths: AppPaths, record: AppRecord, port: number, 
     },
     stop: () => stopServed(paths),
     start: async (commit) => {
-      const state = await startServed(paths, record, { commit, port, host }, signal);
+      const state = await startServed(paths, record, { commit, port, host }, signal, providerSocket);
       const isReady = state?.status === 'ready' && isServedProcess(state, paths.runDir);
       if (isReady) return undefined;
       return `${state?.error ?? 'it wrote no ready state'}; see ${join(paths.host, 'served-process.log')}`;

@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Listening } from '../model-channel.ts';
-import { PLACEHOLDER_KEY, startProviderForwarder, type ProviderCall } from './provider-forwarder.ts';
+import { MAX_RECORDED_MODEL_CHARS, PLACEHOLDER_KEY, startProviderForwarder, type ProviderCall } from './provider-forwarder.ts';
 import { openProviderLedger, type CallerKind, type LedgerLine, type ProviderLedger } from './provider-ledger.ts';
 import { IMAGE_PART_TOKENS, priceOf, PROVIDER_HOST, worstCaseUsd } from './provider-prices.ts';
 
@@ -263,6 +263,15 @@ describe('refusals', () => {
     expect(upstream.received).toEqual([]);
   });
 
+  test('an unpriced model name is cut short in the calls record', async () => {
+    const { socket, calls } = await rig();
+    const answer = await call(socket, 'POST', '/v1beta/interactions', { model: `unpriced-${'x'.repeat(100_000)}` });
+    expect(answer.status).toBe(403);
+    const [line] = readCalls(calls);
+    expect(line?.reason).toBe('model');
+    expect(line?.model?.length).toBe(MAX_RECORDED_MODEL_CHARS + 3);
+  });
+
   test('with $1.05 left a $1.06 image is refused and the upstream sees nothing', async () => {
     const { socket, upstream, ledger, calls } = await rig({ capUsd: 1.2 });
     const earlier = ledger.reserve('served', 'gemini-3.5-flash-lite', 0.15);
@@ -330,8 +339,22 @@ describe('token limits', () => {
       { contents: text(), generationConfig: { maxOutputTokens: 4096 } },
       { contents: text(), generationConfig: { temperature: 1, maxOutputTokens: 2048 } },
       { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { thinking_level: 'high', max_output_tokens: 4096 } },
-      { model: IMAGE_MODEL, input: 'a lighthouse', generationConfig: { thinkingLevel: 'high', max_output_tokens: 4096 } },
+      { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { thinkingLevel: 'high', max_output_tokens: 4096 } },
       { model: 'lyria-3.5', input: 'a calm tune' },
+    ]);
+  });
+
+  test('a variant spelling of the output cap or its settings is sent under the name each API reads', async () => {
+    const { socket, upstream } = await rig();
+    expect((await call(socket, 'POST', IMAGE_PATH, { contents: text(), generation_config: { max_outputTokens: 1024 } })).status).toBe(200);
+    expect((await call(socket, 'POST', IMAGE_PATH, { contents: text(), generationConfig: { max_output_tokens: 1024 } })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: IMAGE_MODEL, input: 'a lighthouse', generationConfig: { maxOutputTokens: 1024 } })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { max_outputTokens: 1024 } })).status).toBe(200);
+    expect(upstream.received.map((sent) => JSON.parse(sent.body))).toEqual([
+      { contents: text(), generationConfig: { maxOutputTokens: 1024 } },
+      { contents: text(), generationConfig: { maxOutputTokens: 1024 } },
+      { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { max_output_tokens: 1024 } },
+      { model: IMAGE_MODEL, input: 'a lighthouse', generation_config: { max_output_tokens: 1024 } },
     ]);
   });
 

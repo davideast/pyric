@@ -5,12 +5,14 @@ import { RunDirError, runPaths } from './run-dir.ts';
 import { serveHostProblem } from './serve-host.ts';
 import { loadRunner } from './runner-module.ts';
 import { workDirOf } from './app-paths.ts';
+import { providerKeyFileProblem } from './provider-keys.ts';
+import { providerSpendLine } from './provider-wiring.ts';
 import { formatSummary, workSizeLine } from './summary.ts';
 import { runSupervisor } from './supervisor.ts';
 import { readTimeline } from './timeline.ts';
 import { checkSupervisor } from './watchdog.ts';
 
-export const FACTORY_USAGE = 'factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]';
+export const FACTORY_USAGE = 'factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>] [--provider-keys <file>]';
 export const FACTORY_SUMMARY_USAGE = 'factory-summary --run-dir <dir>';
 export const FACTORY_DRAFTS_USAGE = 'factory-drafts --run-dir <dir>';
 export const FACTORY_CHECK_USAGE = 'factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]';
@@ -23,13 +25,20 @@ export async function factoryCommand(args: readonly string[]): Promise<number> {
     console.error(hostProblem);
     return 2;
   }
+  const keyProblem = options.providerKeys === undefined ? undefined : providerKeyFileProblem(options.providerKeys, options.runDir, runPaths(options.runDir).app);
+  if (keyProblem !== undefined) {
+    console.error(keyProblem);
+    return 2;
+  }
   const runner = await loadRunner(options.runner);
   const stop = new AbortController();
   const onSignal = (): void => stop.abort();
   process.once('SIGTERM', onSignal);
   process.once('SIGINT', onSignal);
   try {
-    await runSupervisor({ ...options, ...runner, stop: stop.signal });
+    const { providerKeys, ...rest } = options;
+    const provider = providerKeys === undefined ? {} : { provider: { keyFile: providerKeys } };
+    await runSupervisor({ ...rest, ...runner, ...provider, stop: stop.signal });
     return 0;
   } catch (error) {
     if (!(error instanceof RunDirError)) throw error;
@@ -44,6 +53,8 @@ export async function factoryCommand(args: readonly string[]): Promise<number> {
 export async function factorySummaryCommand(args: readonly string[]): Promise<number> {
   const { runDir } = parseSummaryOptions(args);
   console.log(formatSummary(readTimeline(runPaths(runDir).timeline)));
+  const spend = providerSpendLine(runDir);
+  if (spend !== undefined) console.log(spend);
   console.log(workSizeLine(workDirOf(runDir)));
   return 0;
 }

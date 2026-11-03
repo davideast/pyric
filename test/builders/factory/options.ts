@@ -28,6 +28,8 @@ export interface FactoryOptions {
   briefDir?: string;
   /** A module exporting `runSession`, and `hourlyCheck` if it has one; the session runner when not given. */
   runner?: string;
+  /** The provider key file: turns the run's provider channel on. */
+  providerKeys?: string;
 }
 
 export interface CheckOptions {
@@ -55,7 +57,7 @@ export function parseHours(raw: string): number {
 }
 
 export function parseFactoryOptions(args: readonly string[]): FactoryOptions {
-  const valueFlags = ['--run-dir', '--hours', '--runner', '--agent', '--brief-dir'];
+  const valueFlags = ['--run-dir', '--hours', '--runner', '--agent', '--brief-dir', '--provider-keys'];
   rejectUnknownFlags(args, [...valueFlags, '--resume']);
   rejectPositionals(args, valueFlags);
   const hours = flagValue(args, '--hours');
@@ -66,6 +68,7 @@ export function parseFactoryOptions(args: readonly string[]): FactoryOptions {
   const isKnownAgent = agent === undefined || AGENT_NAMES.includes(agent);
   if (!isKnownAgent) throw new UsageError(`--agent takes one of ${AGENT_NAMES.join(', ')}, received "${agent}"`);
   const briefDir = flagValue(args, '--brief-dir');
+  const providerKeys = flagValue(args, '--provider-keys');
   return {
     runDir: requiredRunDir(args),
     ...(hours === undefined ? {} : { hours: parseHours(hours) }),
@@ -73,6 +76,7 @@ export function parseFactoryOptions(args: readonly string[]): FactoryOptions {
     ...(agent === undefined ? {} : { agent }),
     ...(briefDir === undefined ? {} : { briefDir: resolve(briefDir) }),
     ...(runner === undefined ? {} : { runner: resolve(runner) }),
+    ...(providerKeys === undefined ? {} : { providerKeys: resolve(providerKeys) }),
   };
 }
 

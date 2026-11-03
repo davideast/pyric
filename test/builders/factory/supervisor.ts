@@ -18,6 +18,7 @@ import { writeHeartbeat, writeJsonFile, writeState, type RunPaths, type Supervis
 import { MAX_SESSIONS, REVIEW_ROLES, wanted, type Start } from './schedule.ts';
 import type { CheckResult, HourlyCheck, RunEnd, RunSession, SessionResult } from './session.ts';
 import { noHourlyCheck } from './session.ts';
+import { capLine, startProviderChannel, type CapReached, type ProviderChannel, type ProviderChannelOptions } from './provider-wiring.ts';
 import { appendTimeline } from './timeline.ts';
 import { WorkListReader } from './work-list-reader.ts';
 import { readyIds } from './work-list.ts';
@@ -55,6 +56,8 @@ export interface SupervisorOptions {
   stop?: AbortSignal;
   pid?: number;
   log?: (line: string) => void;
+  /** Turns the provider channel on: the key file, and test seams for the caps and the upstream. */
+  provider?: Pick<ProviderChannelOptions, 'keyFile' | 'capUsd' | 'sessionCapUsd' | 'upstream'>;
 }
 
 export type SupervisorOutcome = 'deadline' | 'stopped' | 'already-over';
@@ -98,6 +101,7 @@ class Supervisor {
   private readonly log: (line: string) => void;
   private readonly pid: number;
   private readonly workList: WorkListReader;
+  private provider: ProviderChannel | undefined;
 
   constructor(private readonly options: SupervisorOptions, private readonly clock: Clock, opened: OpenedRun) {
     this.paths = opened.paths;
@@ -114,6 +118,34 @@ class Supervisor {
 
   async run(): Promise<SupervisorOutcome> {
     this.log(`factory run until ${iso(this.deadline)}`);
+    await this.startProvider();
+    try {
+      return await this.runToEnd();
+    } finally {
+      // After the run's end hook, which stops the served copy, so no caller outlives its forwarder.
+      await this.provider?.close();
+    }
+  }
+
+  private async startProvider(): Promise<void> {
+    const provider = this.options.provider;
+    if (provider === undefined) return;
+    this.provider = await startProviderChannel({
+      ...provider,
+      runDir: this.paths.root,
+      onCap: (cap) => this.capReached(cap),
+      onFault: (reason) => this.log(reason),
+      now: () => new Date(this.clock.now()),
+    });
+    this.log('provider calls go through the run\'s forwarders');
+  }
+
+  private capReached(cap: CapReached): void {
+    appendTimeline(this.paths.timeline, { type: 'provider-cap', at: iso(this.clock.now()), scope: cap.scope, capUsd: cap.capUsd });
+    this.log(capLine(cap));
+  }
+
+  private async runToEnd(): Promise<SupervisorOutcome> {
     while (this.isBeforeDeadline() && !this.isStopped()) {
       this.tick();
       await this.waitForNextEvent();
@@ -204,7 +236,7 @@ class Supervisor {
 
   private async runCheck(hour: number): Promise<void> {
     const hook = this.options.hourlyCheck ?? noHourlyCheck;
-    const context = { runDir: this.paths.root, appDir: this.paths.app, hour, signal: this.halt.signal };
+    const context = { runDir: this.paths.root, appDir: this.paths.app, hour, signal: this.halt.signal, ...optional('providerSocket', this.provider?.socket('served')) };
     // `then` turns a synchronous throw into a rejection, so either is a failed check.
     const result = await Promise.resolve().then(() => hook(context)).catch((error: unknown): CheckResult => ({ passed: false, summary: `the check threw: ${firstLine(error)}` }));
     const at = iso(this.clock.now());
@@ -253,6 +285,7 @@ class Supervisor {
       deadline: iso(this.deadline),
       remainingMs: this.deadline - entry.startedAt,
       signal: entry.controller.signal,
+      ...optional('providerSocket', this.provider?.socket('session')),
     };
     try {
       this.recordEnd(entry, await this.options.runSession(seat.role, options));
