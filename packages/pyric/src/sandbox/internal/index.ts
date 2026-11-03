@@ -263,6 +263,21 @@ export {
   type AppCheckTokenParts,
   type MintedAppCheckToken,
 } from './app-check-token.js';
+// The JWT codec and sandbox signer every sandbox token kind shares.
+export {
+  base64url,
+  checkSandboxJwt,
+  encodeJson,
+  JWS_SHAPE,
+  latin1FromBase64url,
+  sandboxSignature,
+  signSandboxJwt,
+  utf8FromBase64url,
+  type SandboxJwtCheck,
+  type SandboxJwtParts,
+  type SandboxSigningKey,
+} from './sandbox-jwt.js';
+export { checkIdToken, signIdToken, type IdTokenCheck } from './id-token.js';
 export {
   appCheckActivationOf,
   appCheckTokenFor,

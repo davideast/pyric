@@ -37,6 +37,7 @@ import { ownerArgs, type Owner } from './served-owner.ts';
 import { readJson } from './state-files.ts';
 import { bunCacheDir } from './studio-install.ts';
 import { ensureServed, tailnetHost, tailnetUrl, tailscaleFrom } from './tailnet.ts';
+import { ffmpegEnvironment, recordedFfmpeg } from './tools.ts';
 import { exportTree } from './tree.ts';
 
 export const SERVED_PROCESS = fileURLToPath(new URL('./served-process.ts', import.meta.url));
@@ -107,10 +108,12 @@ export async function stopServed(paths: AppPaths): Promise<void> {
 
 /**
  * The detached process's environment: the host paths the sandbox binds,
- * read here from the harness's HOME, which the served process doesn't get.
+ * read here from the harness's HOME, which the served process doesn't get,
+ * and the run's ffmpeg, which it hands to Studio as the check does.
  */
-function servedEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function servedEnvironment(ffmpeg: string | undefined, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return {
+    ...ffmpegEnvironment(ffmpeg),
     PATH: env.PATH ?? '',
     HOME: '/nonexistent',
     LANG: env.LANG ?? 'C.UTF-8',
@@ -130,11 +133,11 @@ function currentOwner(runDir: string): Owner {
   return owner;
 }
 
-async function startServed(paths: AppPaths, commit: string, port: number, signal?: AbortSignal): Promise<ServedState | undefined> {
+async function startServed(paths: AppPaths, record: AppRecord, commit: string, port: number, signal?: AbortSignal): Promise<ServedState | undefined> {
   const tree = exportTree(paths, commit, 'served');
   const log = openSync(join(paths.host, 'served-process.log'), 'a');
   const args = [SERVED_PROCESS, '--run-dir', paths.runDir, '--commit', commit, '--root', tree.root, '--port', String(port), ...ownerArgs(currentOwner(paths.runDir))];
-  const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], env: servedEnvironment() });
+  const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], env: servedEnvironment(recordedFfmpeg(paths.tools, record.tools)) });
   closeSync(log);
   child.unref();
   const pid = child.pid ?? -1;
@@ -191,7 +194,7 @@ export async function serveLastGood(input: ServeInput): Promise<ServeOutcome> {
   if (action === 'leave') return { action, note: leaveNote(input.passed), ...(serving ? urlsOf(port) : {}) };
   await stopServed(paths);
   input.say(`serving ${input.commit.slice(0, 12)} on 127.0.0.1:${port}`);
-  const state = await startServed(paths, input.commit, port, input.signal);
+  const state = await startServed(paths, input.record, input.commit, port, input.signal);
   const isReady = state?.status === 'ready' && isServedProcess(state, paths.runDir);
   if (!isReady) return { action, note: `the served copy failed to start: ${state?.error ?? 'it wrote no ready state'}; see ${join(paths.host, 'served-process.log')}` };
   const published = ensureServed([port], tailscaleFrom());

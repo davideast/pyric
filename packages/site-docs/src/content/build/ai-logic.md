@@ -13,7 +13,7 @@ Keep using the Firebase AI Logic Web API, with App Check initialized first. Duri
 
 ## Initialize App Check before getAI
 
-From November 2, 2026, Firebase AI Logic requires App Check: a request without an App Check token gets a 403. `getAI` reads App Check when it starts, so call `initializeAppCheck` before `getAI`, synchronously, with a static import. A model created before App Check sends no token.
+Pyric refuses an AI Logic request without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can [delay enforcement](https://firebase.google.com/docs/ai-logic/app-check#app-check-for-already-released-app) up to January 21, 2027. `getAI` reads App Check when it starts, so call `initializeAppCheck` before `getAI`, synchronously, with a static import. A model created before App Check sends no token.
 
 ```ts
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
@@ -37,7 +37,7 @@ const result = await model.generateContent('Summarise this report.');
 
 Setting `FIREBASE_APPCHECK_DEBUG_TOKEN` in development switches App Check to its debug provider, so local runs need no reCAPTCHA. In the sandbox, Pyric answers App Check locally. In [production AI mode](#pass-through-to-production-ai-models) the Firebase SDK prints a debug token to the browser console; register it in the Firebase console under App Check, Apps, Manage debug tokens, and AI Logic accepts the requests. Get the reCAPTCHA v3 site key for production builds from the same App Check page.
 
-The sandbox refuses these requests too. If an app never calls `initializeAppCheck`, or calls it after `getAI`, `generateContent`, `generateContentStream`, `countTokens` and chat messages fail with the same 403 error production returns. Pyric prints how to fix it in the browser console and in the dev server terminal. Sandbox tokens from `initializeAppCheck` are accepted, with or without the debug provider.
+If an app never calls `initializeAppCheck`, or calls it after `getAI`, the sandbox refuses `generateContent`, `generateContentStream`, `countTokens` and chat messages with a 403 error. That 403 was captured for `generateContent` from a project that was not enforcing App Check; what a project that enforces it answers is not yet known. Pyric prints how to fix it in the browser console and in the dev server terminal. Sandbox tokens from `initializeAppCheck` are accepted, with or without the debug provider.
 
 With a `CustomProvider` and no debug token set, the sandbox calls your provider's `getToken` and sends the token it returns, as production does. AI Logic requests then answer only when that token is one the sandbox signed, such as a token your server mints with `firebase-admin` `createToken` under Pyric. A provider that rejects, or returns anything else, gets the same 403 as a request with no token. The sandbox cannot check a token Google signed, so a provider that returns a real App Check token is refused too. Set the debug token in development to skip the provider, as production does.
 

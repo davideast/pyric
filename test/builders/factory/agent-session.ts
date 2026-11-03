@@ -15,12 +15,13 @@
  * A session ends one of four ways (`session-end.ts`): the agent exits
  * (`exit`), hits the upstream rate limit (`rate-limit`, with `resetAt` when the
  * upstream named one), is stopped by the caller's signal, a fault in the
- * forwarder or a signal no one in the harness sent (`killed`), or is stopped
- * at its deadline (`deadline`).
+ * forwarder, `SESSION_SILENCE_MS` without output or a signal no one in the
+ * harness sent (`killed`), or is stopped at its deadline (`deadline`).
  */
 import { spawn } from 'node:child_process';
 import { createWriteStream, readFileSync, type WriteStream } from 'node:fs';
 import { join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import type { Listening } from '../model-channel.ts';
 import type { Upstream } from '../model-forwarder.ts';
@@ -35,6 +36,14 @@ export const AGENT_PHASE = fileURLToPath(new URL('./agent-phase.ts', import.meta
 
 /** How long a stopped session gets to exit after SIGTERM before SIGKILL. */
 export const STOP_GRACE_MS = 10_000;
+
+/**
+ * How long a session may print nothing before it is stopped as `killed`.
+ * Above the hourly check's 15-minute tests gate, so an agent that runs the
+ * tests is not cut off, and well under the run's deadline, so an agent that
+ * crashed without exiting does not hold its seat until the run ends.
+ */
+export const SESSION_SILENCE_MS = 20 * 60_000;
 
 /** The bridge's port on the sandbox's loopback. Each session has a network namespace of its own, so one port serves them all. */
 export const AGENT_BRIDGE_PORT = 47_013;
@@ -68,6 +77,8 @@ export interface AgentSessionOptions {
   bridgePort?: number;
   /** Test seam: how long a stopped session gets before SIGKILL. */
   stopGraceMs?: number;
+  /** Test seam: how long a session may print nothing; `SESSION_SILENCE_MS` by default. */
+  silenceMs?: number;
 }
 
 export const phaseFileOf = (sandboxDir: string) => join(sandboxDir, 'phase.json');
@@ -111,6 +122,8 @@ const newLog = (path: string): WriteStream => createWriteStream(path, { fd: open
 
 interface RunningPhase {
   exited: Promise<PhaseExit>;
+  /** The phase's stdout: the agent's output. */
+  output: Readable;
   stop(why: 'deadline' | 'killed'): void;
 }
 
@@ -145,12 +158,35 @@ function startPhase(options: AgentSessionOptions, events: WriteStream, stderr: W
       resolve({ code, signal, stoppedBy });
     });
   });
-  return { exited, stop };
+  return { exited, output: child.stdout, stop };
 }
 
-/** Runs the phase to its exit, stopping it at the deadline, on the caller's signal, or on a forwarder fault. */
-async function runPhase(options: AgentSessionOptions, phase: RunningPhase): Promise<PhaseExit> {
+/** A limit in words: whole minutes when it is, seconds otherwise. */
+function durationText(ms: number): string {
+  const wholeMinutes = ms % 60_000 === 0;
+  const [count, unit] = wholeMinutes ? [ms / 60_000, 'minute'] : [ms / 1000, 'second'];
+  return `${count} ${unit}${count === 1 ? '' : 's'}`;
+}
+
+/** Stops the phase as `killed` once it prints nothing for the silence limit; each chunk of output starts the wait again. Returns the cleanup. */
+function stopWhenSilent(options: AgentSessionOptions, phase: RunningPhase, stderr: WriteStream): () => void {
+  const silenceMs = options.silenceMs ?? SESSION_SILENCE_MS;
+  const timer = setTimeout(() => {
+    stderr.write(`[agent-session] no output for ${durationText(silenceMs)}; stopping the session\n`);
+    phase.stop('killed');
+  }, silenceMs);
+  const restart = () => timer.refresh();
+  phase.output.on('data', restart);
+  return () => {
+    clearTimeout(timer);
+    phase.output.off('data', restart);
+  };
+}
+
+/** Runs the phase to its exit, stopping it at the deadline, on the caller's signal, on a forwarder fault, or when it goes silent. */
+async function runPhase(options: AgentSessionOptions, phase: RunningPhase, stderr: WriteStream): Promise<PhaseExit> {
   const deadline = setTimeout(() => phase.stop('deadline'), options.deadlineMs);
+  const stopSilenceWatch = stopWhenSilent(options, phase, stderr);
   const onAbort = () => phase.stop(stopReason(options.signal?.reason));
   if (options.signal?.aborted === true) onAbort();
   options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -158,6 +194,7 @@ async function runPhase(options: AgentSessionOptions, phase: RunningPhase): Prom
     return await phase.exited;
   } finally {
     clearTimeout(deadline);
+    stopSilenceWatch();
     options.signal?.removeEventListener('abort', onAbort);
   }
 }
@@ -192,7 +229,7 @@ export async function runAgentSession(options: AgentSessionOptions): Promise<Ses
       },
     });
     phase = startPhase(options, events, stderr);
-    exit = await runPhase(options, phase);
+    exit = await runPhase(options, phase, stderr);
   } finally {
     await forwarder?.close();
     await Promise.all([endStream(events), endStream(stderr)]);

@@ -33,8 +33,9 @@ import { CustomProvider, initializeAppCheck } from 'firebase/app-check';
 
 export async function run() {
   const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-smoke' });
-  // AI Logic requires App Check before getAI, and so does the sandbox. Bun has
-  // no document for reCAPTCHA, so the debug token stands in for the provider.
+  // The sandbox refuses AI Logic requests without an App Check token, so App
+  // Check comes before getAI. Bun has no document for reCAPTCHA, so the debug
+  // token stands in for the provider.
   const debug = globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean };
   debug.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   initializeAppCheck(app, { provider: new CustomProvider({ getToken: async () => { throw new Error('not called'); } }) });
@@ -113,8 +114,9 @@ import { CustomProvider, initializeAppCheck } from 'firebase/app-check';
 
 export async function run() {
   const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-engine' });
-  // AI Logic requires App Check before getAI, and so does the sandbox. Bun has
-  // no document for reCAPTCHA, so the debug token stands in for the provider.
+  // The sandbox refuses AI Logic requests without an App Check token, so App
+  // Check comes before getAI. Bun has no document for reCAPTCHA, so the debug
+  // token stands in for the provider.
   const debug = globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean };
   debug.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   initializeAppCheck(app, { provider: new CustomProvider({ getToken: async () => { throw new Error('not called'); } }) });

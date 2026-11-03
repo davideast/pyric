@@ -629,10 +629,13 @@ Where things live, by who can write them:
 
 - `<run-dir>/` is every session's: the roles' clone in `app/`. Sessions see
   the check results read-only at `<run-dir>/checks`, bound from the host
-  directory, and the packed packages read-only.
+  directory, and the packed packages and `tools/` read-only.
 - `<run-dir>.host/` is the harness's alone: `app.json`, the packed
   packages, `tools/` (the harness's ast-grep and the source checkout's
-  ffmpeg, each checked against the sha256 in `app.json` before use), `git/`
+  ffmpeg, each checked against the sha256 in `app.json` before use; the
+  install skips `ffmpeg-static`'s download, so sessions, the tests gate,
+  the check's Studio and the served copy get this ffmpeg as `FFMPEG_BIN`
+  and `FFMPEG_PATH`), `git/`
   (a bare repo the check fetches each commit into), `checks/`,
   `last-good.json`, `served.json`, `approved-components.txt` and
   `copy-overrides.json`. Every JSON file is read back through a schema.
@@ -675,7 +678,10 @@ fresh tree, which its sandbox unpacks, and runs there, in order:
 - `layout`: no overlap, clipped text, horizontal scroll or misaligned
   column at 1440px or 390px that the start commit didn't have.
 - `typecheck`, `tests`, `studio-checks`: Studio's own, last, so the tests
-  can't change what the walks saw. A failing gate passes only when each
+  can't change what the walks saw. The tests get the run's ffmpeg,
+  `PLAYWRIGHT_BROWSERS_PATH` and `CHROME_PATH`, the newest Chromium there
+  (`testsEnvironment` in `factory/app-gates.ts`), since the check's HOME
+  has no browsers. A failing gate passes only when each
   failure it names, counted, already showed at the start commit in that
   gate. A timeout, a kill, an unhandled error, or a total that differs from
   the failures named is never excused (`known-failures.ts`).
@@ -740,12 +746,14 @@ role prompts depend on the interface alone.
    problem names the file and the rule, never a value.
 2. It starts the session's own sandbox, as a round's run does, with the
    run directory as its one read-write bind and, read-only, the agent's
-   install, the role's skill, the brief directory, Playwright's browsers and
-   the session's sandbox directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
+   install, the role's skill, the brief directory, Playwright's browsers,
+   the run's `tools/` once setup has run, and the session's sandbox
+   directory (`<run dir>.host/s/<seat>-<stamp>/`, holding the phase
    file and the forwarder's socket); the npm cache is under an overlay. The
    brief directory must be outside the run directory and the app directory
    inside it. No bind may contain the host's home directory or reach the
-   agent's credential directory. The role's skill is
+   agent's credential directory, and Playwright's browsers must hold a
+   Chromium executable. The role's skill is
    `.agents/skills/factory-<role>/SKILL.md` in the checkout the harness
    runs from, and a session doesn't start without it.
 3. It starts the upstream forwarder (`factory/upstream-forwarder.ts`)
@@ -756,6 +764,8 @@ role prompts depend on the interface alone.
    `$BRIEF_DIR`, `$RUN_DIR` and `$APP_DIR`, which the skills name, in its
    environment and its prompt. Its environment also has
    the check's `MDMEDIA_FAKE_MEDIA=1`, `PLAYWRIGHT_BROWSERS_PATH`,
+   `CHROME_PATH` (the newest Chromium there), the run's ffmpeg as
+   `FFMPEG_BIN` and `FFMPEG_PATH` once setup has placed one,
    `PYRIC_BUILDER_PLAYWRIGHT` (the harness's
    client, since the app has none) and `PYRIC_BUILDER_ONLINE_SCRIPT`, an init
    script that makes pages report `navigator.onLine` as true, which the walk
@@ -763,6 +773,11 @@ role prompts depend on the interface alone.
    `--import` to what it inherits, and `next dev` joins two space-separated
    ones into one path and exits (#1470). So a session has no Node recorder, like the
    check's Studio; the sandbox's resolver and catch-all listener still record.
+   The agent gets stdout and stderr pipes of its own, which the phase
+   copies to its own and drains before it exits. Bun makes a stdout pipe
+   it has used non-blocking, and an agent that inherited it could get
+   EAGAIN on a line larger than the pipe's 64 KiB buffer and crash with
+   exit 101.
 4. It saves the agent's output to `<run dir>.host/logs/<seat>-<stamp>.jsonl`
    and returns how the session ended (`factory/agent-session.ts`).
 
@@ -790,7 +805,9 @@ sandbox's `resolv.conf` and `hosts` are checked in
 **How a session ends.** `exit`, when the agent exits; `rate-limit`, when it
 failed at the upstream rate limit, by its own output (the adapter reads it) or because
 its last request came back 429; `killed`, when the supervisor stops it, the
-forwarder faults, or a signal no one sent ends it; `deadline`, at
+forwarder faults, it prints nothing for 20 minutes (`SESSION_SILENCE_MS`,
+above the check's 15-minute tests gate; its stderr says so), or a signal
+no one sent ends it; `deadline`, at
 `remainingMs` or when the supervisor aborts with `deadline`. `resetAt` is
 the forwarder's: what this session's latest 429 named. Only this session's
 lines of the seat's record count. Each session runs in its own process

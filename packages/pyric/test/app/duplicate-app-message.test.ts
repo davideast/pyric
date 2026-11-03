@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as upstream from 'firebase/app';
 import { initializeApp, getApps, deleteApp } from '../../src/app/index.js';
 import { resetAppRegistryForTests } from '../../src/app/registry.js';
@@ -25,9 +25,15 @@ function upstreamMessage(first: () => unknown, second: () => unknown): string {
 }
 
 describe('app/duplicate-app message', () => {
+  // The registry is module state shared by every file in the process. An
+  // earlier file can leave it bound to other options, so start from a reset.
+  beforeEach(async () => {
+    await resetAppRegistryForTests();
+  });
+
   afterEach(async () => {
     for (const app of getApps()) await deleteApp(app);
-    resetAppRegistryForTests();
+    await resetAppRegistryForTests();
   });
 
   it('names the mismatched config and both serialized values, as firebase/app does', () => {

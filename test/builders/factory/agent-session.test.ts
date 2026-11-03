@@ -172,6 +172,21 @@ describe('runAgentSession', () => {
     expect(run.upstream.received).toEqual([]);
   });
 
+  test('a session that prints nothing for the silence limit is stopped as killed and says so on its stderr', async () => {
+    const run = await newRun();
+    const options = await sessionIn(run, 'hang', { silenceMs: 2_000, stopGraceMs: 1_000 });
+    const result = await runAgentSession(options);
+    expect(result.endedBy).toBe('killed');
+    expect(result.exitCode).not.toBe(0);
+    expect(readFileSync(`${options.logPath}.stderr`, 'utf8')).toContain('[agent-session] no output for 2 seconds; stopping the session');
+  });
+
+  test('each line of output starts the silence limit again, so a session that keeps printing runs past it', async () => {
+    const run = await newRun();
+    const result = await runAgentSession(await sessionIn(run, 'trickle', { silenceMs: 1_000 }));
+    expect(result).toMatchObject({ exitCode: 0, endedBy: 'exit' });
+  });
+
   test('stopReason maps the supervisor’s abort reasons', () => {
     expect(stopReason('deadline')).toBe('deadline');
     expect(stopReason('stopped')).toBe('killed');

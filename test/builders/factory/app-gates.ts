@@ -4,14 +4,16 @@
  *
  * - Studio's typecheck (as its CI runs it), its tests (`bun test test/studio`
  *   at the repo root) and its own ast-grep rule tests and scan, with the
- *   harness's ast-grep and ffmpeg. Their verdicts come from each command's
- *   exit and output alone.
+ *   harness's ast-grep and ffmpeg. The tests also get Playwright's browsers
+ *   and the Chromium in them (`testsEnvironment`). Their verdicts come from
+ *   each command's exit and output alone.
  * - The one command start, the allowlist entry the walks sign in with, and
  *   the walks, run in a walk sandbox of their own against Studio through the
  *   relay (`relay.ts`).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { chromiumExecutable, playwrightBrowsersPath } from '../browser-server.ts';
 import type { EgressNamespace } from '../namespace.ts';
 import type { AppPaths, Checkout } from './app-paths.ts';
 import { APP_PORT, PYRIC_PORT, startApp, studioEnvironment, type StartedApp } from './app-start.ts';
@@ -21,6 +23,7 @@ import { skipped, type GateName, type GateResult } from './gates.ts';
 import { optional } from './optional.ts';
 import { insideSandbox, relaySocketToSocket, shortLink, startInsideBridge, waitForSocket } from './relay.ts';
 import { specAt, type SandboxOpener } from './sandbox.ts';
+import { ffmpegEnvironment } from './tools.ts';
 import { newWorkRoot } from './tree.ts';
 import type { WalkResult } from './walk-runner.ts';
 
@@ -55,14 +58,27 @@ export interface StaticTools {
   ffmpeg?: string;
 }
 
+/**
+ * What Studio's tests run with besides the base environment: the run's
+ * ffmpeg, Playwright's browsers, which the check's sandbox binds read-only,
+ * and the Chromium in them. The check's HOME is empty, so without these a
+ * test that starts Chromium finds nothing.
+ */
+export function testsEnvironment(tools: StaticTools, browsers: string = playwrightBrowsersPath()): Record<string, string> {
+  return {
+    ...ffmpegEnvironment(tools.ffmpeg),
+    PLAYWRIGHT_BROWSERS_PATH: browsers,
+    ...optional('CHROME_PATH', chromiumExecutable(browsers)),
+  };
+}
+
 export async function staticGates(runner: Runner, checkout: Checkout, tools: StaticTools): Promise<GateResult[]> {
   const studio = checkout.studio;
   const typecheck = await gate(runner, 'typecheck', [
     { command: 'node', args: ['node_modules/next/dist/bin/next', 'typegen'], cwd: studio, timeoutMs: TYPECHECK_TIMEOUT_MS },
     { command: 'node', args: ['node_modules/typescript/bin/tsc', '--noEmit', '--incremental', 'false'], cwd: studio, timeoutMs: TYPECHECK_TIMEOUT_MS },
   ]);
-  const ffmpeg: Record<string, string> = { ...optional('FFMPEG_BIN', tools.ffmpeg) };
-  const tests = await gate(runner, 'tests', [{ command: 'bun', args: ['test', 'test/studio'], cwd: checkout.repo, timeoutMs: TESTS_TIMEOUT_MS, env: ffmpeg }]);
+  const tests = await gate(runner, 'tests', [{ command: 'bun', args: ['test', 'test/studio'], cwd: checkout.repo, timeoutMs: TESTS_TIMEOUT_MS, env: testsEnvironment(tools) }]);
   const checks = await gate(runner, 'studio-checks', [
     { command: tools.astGrep, args: ['test', '-c', 'checks/sgconfig.yml'], cwd: studio, timeoutMs: AST_GREP_TIMEOUT_MS },
     { command: tools.astGrep, args: ['scan', '-c', 'checks/sgconfig.yml'], cwd: studio, timeoutMs: AST_GREP_TIMEOUT_MS },
@@ -97,6 +113,8 @@ export interface WalkRunInput {
   logDir: string;
   /** The first job's walks are the gate; the rest only capture. */
   jobs: readonly WalkJobSpec[];
+  /** The run's ffmpeg, which Studio gets as the tests do. */
+  ffmpeg?: string;
   signal?: AbortSignal;
 }
 
@@ -156,7 +174,7 @@ export async function startAndWalk(input: WalkRunInput): Promise<WalkRun> {
   const expected = first?.walks.length ?? 0;
   let app: StartedApp;
   try {
-    app = await startApp({ checkout: input.checkout, namespace: input.namespace, logFile: join(input.logDir, 'studio.log'), ...optional('signal', input.signal) });
+    app = await startApp({ checkout: input.checkout, namespace: input.namespace, logFile: join(input.logDir, 'studio.log'), ...optional('ffmpeg', input.ffmpeg), ...optional('signal', input.signal) });
   } catch (error) {
     if (error instanceof Aborted) throw error;
     return { appStart: { gate: 'app-start', passed: false, summary: errorText(error) }, walks: skipped('walks', 'Studio did not start'), results: new Map() };
