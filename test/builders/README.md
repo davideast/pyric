@@ -22,7 +22,7 @@ bun test/builders/harness.ts reproduce <round> <run> --list
 bun test/builders/harness.ts reproduce <round> <run> <problem> --script <file.mjs>
     [--expect <text>] [--register] [--packages <dir>] [--minutes <n>]
 bun test/builders/harness.ts measure [--file <measurements.jsonl>] [--runs-per-night <n>] [--json]
-bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>]
+bun test/builders/harness.ts factory --run-dir <dir> [--hours <n> --agent <name> --brief-dir <dir>] [--resume] [--runner <module>] [--provider-keys <file>]
 bun test/builders/harness.ts factory-summary --run-dir <dir>
 bun test/builders/harness.ts factory-check --run-dir <dir> --unit <name> [--stale-minutes <n>]
 bun test/builders/harness.ts factory-drafts --run-dir <dir>
@@ -851,6 +851,37 @@ lines of the seat's record count. Each session runs in its own process
 group, and a stop signals the whole group; inside, bwrap's
 `--die-with-parent` ends the sandbox and everything in it if the
 supervisor is killed.
+
+### Provider calls
+
+`factory --provider-keys <file>` lets sessions and the served copy make
+real image and music calls. The file holds a `GEMINI_API_KEY=...` line,
+mode 0600, outside the run's directories, the app and the repo, or the run
+refuses to start (`factory/provider-keys.ts`). Without the flag nothing
+changes: fake media, and no provider socket anywhere.
+
+With it, the supervisor starts two provider forwarders
+(`factory/provider-forwarder.ts`) in its own process, one for sessions and
+one for the served copy, on `<run>.host/provider/session.sock` and
+`served.sock`, sharing one ledger object (`factory/provider-wiring.ts`).
+Each socket is bound read-only into its caller's sandbox, and the
+hourly check's own sandbox gets none. Inside, a bridge pipes
+127.0.0.1:4180 to the socket, and the app gets
+`GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:4180` and a placeholder
+`GEMINI_API_KEY` in place of `MDMEDIA_FAKE_MEDIA=1`. The key is read from
+its file per call, in the forwarder; it never reaches an env var, argv, a
+sandbox or a run file. The forwarder sends the output cap under the names
+each API reads, whatever spelling the body used.
+
+Sessions and the served copy share a $50 cap; sessions have a $15 sub-cap
+so the served build keeps budget. At a cap calls are refused and the run
+goes on: one `provider-cap` timeline line per cap, and the journal says
+`provider spend reached $50.00; provider calls are refused`.
+`factory-summary` and the hourly check's summary show
+`provider spend $X of $50 (N images, M music, R refused)` from
+`<run>.host/provider/calls.jsonl`. The served copy's owner is the
+supervisor, so it stops when the supervisor and its forwarders do; the
+forwarders close after the run's end hook stops the served copy.
 
 ## The canary
 

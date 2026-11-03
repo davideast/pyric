@@ -53,6 +53,7 @@ function describeLine(line: TimelineLine): string {
     }
     case 'pause': return `${clockTime(line.at)}  pause until ${clockTime(line.until)} (${line.seat}, ${line.source})`;
     case 'check': return `${clockTime(line.at)}  hourly check ${line.hour}: ${line.passed ? 'passed' : 'failed'}, ${line.summary}`;
+    case 'provider-cap': return `${clockTime(line.at)}  ${line.scope === 'run' ? 'provider' : 'session provider'} spend reached $${line.capUsd.toFixed(2)}; calls refused`;
     case 'end': return `${clockTime(line.at)}  deadline reached`;
   }
 }

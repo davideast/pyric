@@ -38,6 +38,7 @@ import { copyOverrides, hourGates } from './hour-gates.ts';
 import { hourProgress } from './hour-progress.ts';
 import { optional } from './optional.ts';
 import type { SandboxOpener } from './sandbox.ts';
+import { providerSpendLine } from './provider-wiring.ts';
 import { servedLine, serveNewest, type ServedNow } from './serve-newest.ts';
 import type { CheckContext, CheckProgress, CheckResult, HourlyCheck } from './session.ts';
 import { copyReport, readApproved } from './ui-gates.ts';
@@ -112,6 +113,12 @@ export function servedFields(served: ServedNow | undefined): ServedFields {
   return { localUrl: served.localUrl, statusUrl: served.statusUrl, servedCommit: served.commit, ...optional('servedUrl', served.url), ...optional('servedFailing', served.failing) };
 }
 
+/** The run's provider spend, as the hourly status shows it, when the run has a provider channel. */
+function spendLead(runDir: string): string {
+  const line = providerSpendLine(runDir);
+  return line === undefined ? '' : `${line}. `;
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -136,14 +143,14 @@ export async function runHourlyCheck(context: CheckContext, deps: CheckDeps): Pr
     const gates = await checkCommit(paths, record, context, commit, dir, deps, signal);
     const composed = composeGates(gates);
     const serve = deps.serve ?? serveNewest;
-    const outcome = await serve({ paths, record, failed: composed.failed, commit, hour: context.hour, signal, say: deps.say, ...optional('openSandbox', deps.openSandbox) });
+    const outcome = await serve({ paths, record, failed: composed.failed, commit, hour: context.hour, signal, say: deps.say, ...optional('openSandbox', deps.openSandbox), ...optional('providerSocket', context.providerSocket) });
     const served = outcome.served;
     fields = servedFields(served);
     result = {
       ...result,
       at: at(),
       passed: composed.passed,
-      summary: `${lead()}${composed.summary}. ${servedLine(served)}. Details in ${dir}`,
+      summary: `${lead()}${composed.summary}. ${servedLine(served)}. ${spendLead(context.runDir)}Details in ${dir}`,
       gates: gates.map((gate) => ({ gate: gate.gate, passed: gate.passed, summary: gate.summary })),
       serve: outcome.note,
       ...fields,

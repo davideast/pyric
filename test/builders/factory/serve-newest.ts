@@ -44,6 +44,8 @@ export interface ServeInput {
   failed: readonly GateName[];
   commit: string;
   hour: number;
+  /** The served copy's provider socket, when the run has one. */
+  providerSocket?: string;
   signal?: AbortSignal;
   openSandbox?: SandboxOpener;
   say: (line: string) => void;
@@ -124,7 +126,7 @@ export async function serveNewest(input: ServeInput): Promise<ServeOutcome> {
   if (isAllPassed) writeLastGood(paths.lastGood, { commit, hour: input.hour, at });
   const port = servedPort();
   const host = serveHost();
-  const control = input.control ?? servedControl(paths, input.record, port, host, input.signal);
+  const control = input.control ?? servedControl(paths, input.record, port, host, input.signal, input.providerSocket);
   const previous = readLastServed(paths.lastServed);
   const serving = control.servingCommit();
   const servable = meetsServeMinimum(input.failed);
