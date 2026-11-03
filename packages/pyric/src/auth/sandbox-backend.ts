@@ -54,6 +54,7 @@ import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox'
 import {
   absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, idTokenAudience, makeServiceMutationEvent,
   realmOrigin, providerVerifiesEmail, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken,
+  ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -2115,8 +2116,8 @@ export class SandboxBackend {
     tenantId: string | null,
   ): { token: string; result: IdTokenResult } {
     const issuedAt = this.now();
-    // 100 years out — sandbox tokens never expire.
-    const expires = new Date(issuedAt.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
+    // Production's one-hour lifetime; a read past the refresh point mints again.
+    const expires = new Date(issuedAt.getTime() + ID_TOKEN_LIFETIME_MS);
     const serial = this.nextTokenSerial++;
     // The provider of the current sign-in session for this uid —
     // recorded by setCurrentUser at sign-in time. Null for identities
@@ -2171,7 +2172,9 @@ export class SandboxBackend {
    * Get-or-mint the ID token entry for a uid. `forceRefresh: true`
    * always mints a fresh token, overwrites the cache, and fires the
    * `onIdTokenChanged` listeners (NOT `onAuthStateChanged` — the
-   * user identity didn't change). Matches prod oracle observations:
+   * user identity didn't change). A cached token whose `exp` is within
+   * {@link TOKEN_REFRESH_BUFFER_MS} of the sandbox clock is refreshed the
+   * same way. Matches prod oracle observations:
    *
    *   - `auth-getidtoken-force-refresh.json` — forceRefresh returns a
    *     different string than the previous read; a subsequent
@@ -2196,7 +2199,12 @@ export class SandboxBackend {
     forceRefresh: boolean,
     tenantId: string | null = null,
   ): IdTokenResult {
-    if (forceRefresh) {
+    const cached = this.tokenCache.get(uid)?.get(tenantId);
+    const hasCachedToken = cached !== undefined;
+    // A cached token past its refresh point is minted again on read and fires
+    // onIdTokenChanged, as `@firebase/auth` `getIdToken` does on expiry.
+    const cachedTokenExpired = hasCachedToken && isPastIdTokenRefreshPoint(cached.result.claims, this.now().getTime());
+    if (forceRefresh || cachedTokenExpired) {
       const fresh = this.mintToken(uid, claims, tenantId);
       const current = this.session.currentUser;
       const refreshesCurrentUser = current !== null && current.uid === uid && (current.tenant ?? null) === tenantId;
@@ -2212,8 +2220,6 @@ export class SandboxBackend {
       this.fanOut('id-token');
       return fresh.result;
     }
-    const cached = this.tokenCache.get(uid)?.get(tenantId);
-    const hasCachedToken = cached !== undefined;
     if (hasCachedToken) return cached.result;
     const fresh = this.mintToken(uid, claims, tenantId);
     return fresh.result;
