@@ -1,12 +1,12 @@
 /**
  * The shared Google endpoint catalog.
  *
- * Two sets come out of one table and they mean different things. Every catalog
- * host is matched on the wire by the net guard. Only the fingerprint subset
- * feeds the throwing frontend build check, because that check fails a build
- * outright and must not fire on a host an ordinary app can carry without any
- * Firebase SDK. Both sets are pinned literally below, so widening either one
- * is a deliberate edit to this file.
+ * Only the fingerprint subset feeds the throwing frontend build check, because
+ * that check fails a build outright and must not fire on a host an ordinary
+ * app can carry without any Firebase SDK. The network guard doesn't read the
+ * catalog: it refuses only token sources (`google-token-endpoints.ts`). Both
+ * sets are pinned literally below, so widening either one is a deliberate
+ * edit to this file.
  */
 import { describe, expect, it } from 'bun:test';
 import {
@@ -17,7 +17,7 @@ import {
   normalizeHostname,
 } from '../src/google-endpoints.js';
 
-/** Every host in the catalog, which is the net guard's match set. */
+/** Every host in the catalog. */
 const catalogHosts = (): string[] => GOOGLE_ENDPOINT_CATALOG.map((e) => e.host);
 
 /** Hosts the throwing build check may fail a build over. */
@@ -34,19 +34,17 @@ const EXPECTED_FINGERPRINT_HOSTS = [
 /** Catalog hosts the throwing build check must never fail a build over, each
  *  with the ordinary non-SDK usage that would otherwise be a false positive. */
 const EXPECTED_NON_FINGERPRINT_HOSTS = [
-  '169.254.169.254', // infrastructure reference
   'aiplatform.googleapis.com', // a hand-written Vertex AI client
   'cloudfunctions.googleapis.com', // deployment tooling
   'cloudfunctions.net', // a bare callable URL
   'fcm.googleapis.com', // a server-side send
   'firebaseio.com', // a databaseURL config literal
   'firebasestorage.googleapis.com', // a download URL
-  'metadata.google.internal', // infrastructure reference
   'storage.googleapis.com', // a public asset URL
 ];
 
 describe('GOOGLE_ENDPOINT_CATALOG', () => {
-  it('holds every host the guard matches, each with a service label', () => {
+  it('holds every Firebase service host, each with a service label', () => {
     expect(catalogHosts().sort()).toEqual(
       [...EXPECTED_FINGERPRINT_HOSTS, ...EXPECTED_NON_FINGERPRINT_HOSTS].sort(),
     );
@@ -55,12 +53,9 @@ describe('GOOGLE_ENDPOINT_CATALOG', () => {
     }
   });
 
-  it('blocks the metadata server from day one and nothing else', () => {
-    expect(
-      GOOGLE_ENDPOINT_CATALOG.filter((e) => e.alwaysBlock)
-        .map((e) => e.host)
-        .sort(),
-    ).toEqual(['169.254.169.254', 'metadata.google.internal']);
+  it('no longer lists the metadata server, which moved to the token list (ADR 0022)', () => {
+    expect(lookupGoogleEndpoint('169.254.169.254')).toBeUndefined();
+    expect(lookupGoogleEndpoint('metadata.google.internal')).toBeUndefined();
   });
 });
 
@@ -98,11 +93,6 @@ describe('lookupGoogleEndpoint', () => {
 
   it('normalizes case and a trailing root dot', () => {
     expect(lookupGoogleEndpoint('  FIRESTORE.googleapis.com. ')?.service).toBe('Cloud Firestore');
-  });
-
-  it('reports alwaysBlock for the metadata server', () => {
-    expect(lookupGoogleEndpoint('169.254.169.254')?.alwaysBlock).toBe(true);
-    expect(lookupGoogleEndpoint('metadata.google.internal')?.alwaysBlock).toBe(true);
   });
 });
 
@@ -144,15 +134,6 @@ describe('normalizeHostname on IP literals', () => {
   it('writes every IPv4 spelling of the metadata IP as its dotted quad', () => {
     for (const spelling of METADATA_SPELLINGS) {
       expect({ spelling, host: normalizeHostname(spelling) }).toEqual({ spelling, host: '169.254.169.254' });
-    }
-  });
-
-  it('finds the metadata server under every spelling', () => {
-    for (const spelling of METADATA_SPELLINGS) {
-      expect({ spelling, alwaysBlock: lookupGoogleEndpoint(spelling)?.alwaysBlock }).toEqual({
-        spelling,
-        alwaysBlock: true,
-      });
     }
   });
 

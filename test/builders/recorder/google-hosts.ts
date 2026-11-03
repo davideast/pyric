@@ -51,6 +51,7 @@ const GOOGLE_COUNTRY_DOMAIN = /(?:^|\.)google\.(?:com?\.)?[a-z]{2}$/;
 
 /** The GCE metadata server, by address and by name. */
 const METADATA_HOSTS: readonly string[] = ['169.254.169.254', 'metadata.google.internal'];
+const METADATA_SERVICE = 'GCE metadata server';
 
 /** What the recorder knows about one host. */
 export interface HostClass {
@@ -76,6 +77,8 @@ function isWiderGoogle(host: string): boolean {
 export function classifyHost(value: string): HostClass {
   const host = normalizeHostname(value);
   const metadata = METADATA_HOSTS.includes(host);
+  // The metadata server left pyric's catalog for its token list (ADR 0022).
+  if (metadata) return { host, google: true, service: METADATA_SERVICE, catalogGap: false, metadata };
   const endpoint = lookupGoogleEndpoint(host);
   if (endpoint !== undefined) return { host, google: true, service: endpoint.service, catalogGap: false, metadata };
   const google = isWiderGoogle(host);

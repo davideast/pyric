@@ -4,21 +4,14 @@
  * Under `vite dev` the plugin swaps `firebase/*` for the browser and routes
  * the served `firebase/*` subpaths and `firebase-admin/*` in the modules Vite
  * loads for server rendering to the sandbox (`vite-ssr-routing.ts`, #1123).
- * Some Firebase code in the dev server process still loads the real SDK:
- * other `firebase/*` subpaths, an installed package Vite externalizes that
- * imports `firebase` itself (Node loads it, so no plugin sees its imports),
- * and the config file's own imports. This guard keeps that traffic from
- * reaching production.
+ * Code the swap doesn't reach, such as an installed package Vite externalizes
+ * that loads `firebase-admin` itself, can act with admin authority only once
+ * it holds a Google access token. This guard refuses every request for one
+ * (ADR 0022), as it does in a `@pyric/cli/register` child.
  *
  * It installs the register's guard (`../register/net-guard.ts`) rather than a
- * copy. Two things differ from a `@pyric/cli/register` child:
- *   - The activator is the plugin running under `vite dev`, not `PYRIC_SANDBOX`.
- *   - The default mode is `block`. A registered child may talk to production
- *     beside the sandbox on purpose, so it reports by default. Nothing in the
- *     dev server process is meant to reach live Firebase except the AI
- *     upstreams the plugin permits, and SSR code that does reach it looks
- *     swapped to its author. `PYRIC_GUARD=warn` and `PYRIC_GUARD=off` still
- *     select the other modes, and `PYRIC_GUARD_ALLOW` still permits hosts.
+ * copy. The activator is the plugin running under `vite dev`, not
+ * `PYRIC_SANDBOX`; `PYRIC_GUARD` selects the mode as it does there.
  *
  * A process launched under `pyric sandbox` already has the register's guard;
  * that one is kept as it is.
@@ -29,14 +22,6 @@ export const VITE_SSR_ISSUE_URL = 'https://github.com/davideast/pyric/issues/112
 
 /** Stands in for `PYRIC_SANDBOX` in the env the guard reads; never written to `process.env`. */
 const VITE_GUARD_ACTIVATOR = 'vite-dev';
-
-/** Explains a guard verdict in the dev server: which Firebase code still reaches production. */
-export const VITE_SSR_GUARD_NOTE =
-  '[pyric] Firebase code in this Vite dev server process tried to reach live Firebase. The plugin routes ' +
-  'the served firebase/* imports and firebase-admin/* in server-rendered modules to the sandbox; other ' +
-  'firebase/* subpaths, an installed package that imports firebase itself, and the Vite config\'s own ' +
-  `imports keep the real SDK (${VITE_SSR_ISSUE_URL}). Call that Firebase code from a module Vite loads, ` +
-  'or from a separate process started with `node --import @pyric/cli/register` and PYRIC_SANDBOX=remote.\n';
 
 type GuardSlot = Record<symbol, unknown>;
 
@@ -52,25 +37,10 @@ export interface ViteNetGuardInput {
   hooks?: Omit<NetGuardHooks, 'env' | 'write'>;
 }
 
-/** The env the guard installs under: activated, and `block` unless `PYRIC_GUARD` names a mode. */
+/** The env the guard installs under: activated by the plugin when no `PYRIC_SANDBOX` is set. */
 export function viteGuardEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
-  const namesMode = (env.PYRIC_GUARD ?? '').trim().length > 0;
-  const mode = namesMode ? env.PYRIC_GUARD : 'block';
   const activator = env.PYRIC_SANDBOX || VITE_GUARD_ACTIVATOR;
-  return { ...env, PYRIC_SANDBOX: activator, PYRIC_GUARD: mode };
-}
-
-/** Writes each guard line, then the SSR note once after the first verdict. */
-function withSsrNote(write: (line: string) => void): (line: string) => void {
-  let noted = false;
-  return (line) => {
-    write(line);
-    const isVerdict = / (BLOCK|WARN|ALLOW) /.test(line);
-    const needsNote = isVerdict && !noted;
-    if (!needsNote) return;
-    noted = true;
-    write(VITE_SSR_GUARD_NOTE);
-  };
+  return { ...env, PYRIC_SANDBOX: activator };
 }
 
 /**
@@ -85,11 +55,10 @@ export function installViteNetGuard(input: ViteNetGuardInput = {}): NetGuard | n
   const alreadyAttempted = slot[VITE_GUARD_ATTEMPTED] === true;
   if (alreadyAttempted) return null;
   slot[VITE_GUARD_ATTEMPTED] = true;
-  const write = input.write ?? ((line: string) => void process.stderr.write(line));
   const guard = installNetGuard({
     ...input.hooks,
     env: viteGuardEnv(input.env ?? process.env),
-    write: withSsrNote(write),
+    write: input.write,
   });
   if (guard !== null) slot[NET_GUARD_GLOBAL] = guard;
   return guard;

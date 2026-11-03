@@ -1,12 +1,12 @@
 /**
- * The runtime network guard: the enforcement half of the production-leak
- * invariant.
+ * The runtime network guard: the credential choke point.
  *
- * A sandboxed app's Firebase traffic all routes to the local `/__pyric/*`
- * namespace. So a pyric-launched process that opens a connection to a real
- * Google/Firebase endpoint has escaped the sandbox: it is reading or writing
- * live production data with the developer believing otherwise. This module
- * detects that egress and, depending on one knob, warns about it or fails it.
+ * The module swap keeps a sandboxed app's Firebase traffic on the local
+ * `/__pyric/*` namespace, and stops a real `firebase` or `firebase-admin` load
+ * where pyric intends a swap. What the swap can't see, such as a bundled copy
+ * of `firebase-admin` or another Google client library, can act with admin
+ * authority only once it holds a Google access token. This module refuses
+ * every request for one.
  *
  * Where it hooks, and why exactly there
  * -------------------------------------
@@ -37,8 +37,8 @@
  *    `createConnection` on the `http.Agent` and `https.Agent` prototypes, and
  *    `net.Socket.prototype.connect`: the backstop for traffic that never goes
  *    through undici, such as `http.request`, gRPC, database drivers, anything
- *    holding a raw socket. Same catalog, same policy. (undici itself connects
- *    through `net.connect`, so a warn-mode fetch would report twice; the
+ *    holding a raw socket. Same list, same policy. (undici itself connects
+ *    through `net.connect`, so a refused fetch would report twice; the
  *    once-per-host dedupe below collapses that.)
  *
  *    `Socket.prototype.connect` is the seam every client connection reaches:
@@ -57,58 +57,42 @@
  *    patches are installed BEFORE the dispatcher is materialized: materializing
  *    loads undici, which loads `_http_agent`.
  *
- * 3. `http.ClientRequest.prototype.onSocket`, for a request to a proxy. The
- *    socket reaches only the proxy; the real destination is the `CONNECT`
- *    target or the absolute-form URL in the request's path, and the request is
- *    the only object that still carries its path. Likewise a TLS session over a
- *    tunnel names its destination only in `servername`, which the socket seams
- *    check beside `host`.
+ * 3. `http.ClientRequest.prototype.onSocket`, for a request's path. A request
+ *    to a proxy names its real destination only in the `CONNECT` target or the
+ *    absolute-form URL in its path, and a token request to `www.googleapis.com`
+ *    differs from that host's other APIs only in its path. The request is the
+ *    only object that still carries it; undici's `opts.path` is the other.
+ *    Likewise a TLS session over a tunnel names its destination only in
+ *    `servername`, which the socket seams check beside `host`.
  *
- * Every host is compared in the catalog's one spelling (`normalizeHostname`),
- * which writes each IPv4 form the resolver accepts (`2852039166`,
- * `0xa9fea9fe`, `169.254.43518`) and each IPv4-mapped IPv6 address as a dotted
- * quad, so no respelling of the metadata IP gets past its entry. Worker
+ * Every host is compared in one spelling (`normalizeHostname`), which writes
+ * each IPv4 form the resolver accepts (`2852039166`, `0xa9fea9fe`,
+ * `169.254.43518`) and each IPv4-mapped IPv6 address as a dotted quad, so no
+ * respelling of the metadata IP gets past its entry. Worker
  * threads load the register too (`./worker-guard.js`).
  *
  * Policy
  * ------
- * One knob, `PYRIC_GUARD=warn|block|off`, default `warn`:
- *   warn   report the egress, naming the service it reached, and let it through
- *   block  report it and fail the request; only when the developer asks for it
+ * The guard is a credential choke point (ADR 0022). It refuses only the places
+ * a server-side Google access token comes from (`../google-token-endpoints.ts`):
+ * the OAuth 2.0, STS and IAM credentials hosts, the token paths on
+ * `www.googleapis.com`, the metadata server, and the hosts `GCE_METADATA_*` and
+ * the credentials file name. Every other host passes without a report. The
+ * Firebase client SDK never asks for a token, so live mode and production AI
+ * mode never meet it.
+ *
+ * One knob, `PYRIC_GUARD`:
+ *   unset, empty, unrecognized, `block`   refuse token sources
+ *   warn   the same, with one notice line saying `warn` no longer lets them through
  *   off    no hooks at all, one notice line at install time
- * Unset, empty and unrecognized values all mean `warn`. A process may talk to
- * the sandbox and to live production at once on purpose, so the guard's
- * default job is to say which system each request reached, never to refuse
- * it. Under `block`, the GCE metadata IP (`169.254.169.254`, `alwaysBlock` in
- * the catalog) is refused and cannot be allowlisted; under `warn` it is
- * reported like any other catalog host.
+ * Swap or stop (`./swap-or-stop.ts`) doesn't depend on this knob.
  *
  * A blocked fetch surfaces to app code as a bare `TypeError: fetch failed`
- * (the reason is buried on `error.cause`), so the guard must log its own
- * denial, naming the two ways to let the host through: the app's error will
- * never explain itself.
+ * (the reason is buried on `error.cause`), so the guard logs its own denial:
+ * the app's error will never explain itself.
  *
- * The allowlist seam
- * ------------------
- * `PYRIC_GUARD_ALLOW` is a comma/whitespace separated list of hosts or URLs,
- * matched on label boundaries, permitting an otherwise-flagged catalog host
- * (an allowlisted hit is still reported once). Env is the seam by design:
- *   - the AI engine baseUrls live in the user's Vite config
- *     (`PyricAiOptions.engine.baseUrl`, `serve/vite-ai-config.ts`), which is
- *     read by the Vite plugin inside the serve host, a different process from
- *     the one this module loads into, and not parsed by the CLI at all;
- *   - `pyric.json` is read asynchronously by `runServe` (`cli/pyric-config.ts`)
- *     and this module runs on the `--import` hot path of every child, where a
- *     synchronous config-file read has no business being.
- * `cli/sandbox-runner.ts:buildChildEnv` spreads the parent env into the child,
- * so anything the pyric process exports reaches every descendant for free
- * (`NODE_OPTIONS` already propagates the register import the same way).
- * `pyric sandbox` uses that seam for the AI upstream it resolves
- * (`serve/ai-proxy.ts:aiUpstreamGuardAllowance`): `buildChildEnv` appends it to
- * the child's `PYRIC_GUARD_ALLOW`, so a Vertex AI upstream keeps working under
- * `block`. A `pyric.json` `guardAllow` would take the same route: add the field
- * to `PyricConfig` and pass it to `buildChildEnv` at the `cli/serve.ts` call
- * site, where `pyricConfig` is already in scope.
+ * `PYRIC_GUARD_ALLOW` and `permit` still parse, but nothing the guard refuses
+ * can be allowed (ruling 3), so they change nothing.
  *
  * Bun and Deno are out of scope: neither evaluates Node loader hooks (the
  * register module never loads there) and neither routes `fetch` through
@@ -116,12 +100,12 @@
  * backstop instead of throwing.
  */
 import { createRequire } from 'node:module';
+import { normalizeHostname } from '../google-endpoints.js';
 import {
-  lookupGoogleEndpoint,
-  matchesHostSuffix,
-  normalizeHostname,
-  type GoogleEndpoint,
-} from '../google-endpoints.js';
+  findTokenSource,
+  tokenEndpointsFrom,
+  type TokenEndpoints,
+} from '../google-token-endpoints.js';
 import {
   nodeAgentPrototypes,
   nodeClientRequestPrototypes,
@@ -154,35 +138,31 @@ const LOG_PREFIX = '@pyric/cli/register: net-guard';
 /** How often to check that nobody replaced the global dispatcher under us. */
 const REASSERT_INTERVAL_MS = 5_000;
 
+/**
+ * `PYRIC_GUARD` as the developer named it. `warn` and `block` both refuse
+ * token sources; `warn` is kept apart only so the beacon and the interlock line
+ * report the value that was set.
+ */
 export type GuardMode = 'warn' | 'block' | 'off';
 
-/** What the guard decided about one outbound connection. */
+/** A refused request: which token source it reached. */
 export interface EgressVerdict {
-  /** `warn` reported-and-permitted, `block` refused, `allow` allowlisted. */
-  readonly verdict: 'warn' | 'block' | 'allow';
-  /** Whether the connection may proceed. */
-  readonly permitted: boolean;
-  /**
-   * The hostname actually being contacted, which is what the developer needs
-   * in order to find the call. Not the catalog suffix: `cloudfunctions.net`
-   * does not tell you which region or project a callable went to.
-   */
+  /** Always `block`: the guard reports nothing it lets through. */
+  readonly verdict: 'block';
+  readonly permitted: false;
+  /** The hostname actually being contacted, which is what the developer needs to find the call. */
   readonly host: string;
-  /** The catalog suffix that matched (`host` when the match was exact). */
-  readonly endpoint: string;
-  /** Human service label, verbatim from the shared catalog. */
+  /** Human service label, verbatim from the token list. */
   readonly service: string;
-  /** Present only for catalog entries that can never be a false positive. */
-  readonly alwaysBlock?: true;
 }
 
-/** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean `warn`;
- *  `block` and `off` take effect only when named. */
+/** `PYRIC_GUARD` → mode. Unset, empty and unrecognised values mean `block`;
+ *  `warn` and `off` take effect only when named. */
 export function parseGuardMode(raw: string | undefined): GuardMode {
   const value = (raw ?? '').trim().toLowerCase();
-  if (value === 'block') return 'block';
+  if (value === 'warn') return 'warn';
   if (value === 'off') return 'off';
-  return 'warn';
+  return 'block';
 }
 
 /** `PYRIC_GUARD_ALLOW` → hostnames. Accepts bare hosts and full URLs, because
@@ -205,9 +185,8 @@ const NAME_WITH_PORT = /^([^:]+):\d+$/;
 const BRACKETED_HOST = /^\[([^\]]+)\](?::\d+)?$/;
 
 /**
- * Best-effort hostname from a host, `host:port`, `[v6]:port`, or full URL.
- * Normalization and suffix matching are the catalog's, so the guard and the
- * catalog can never disagree about what a hostname is.
+ * Best-effort hostname from a host, `host:port`, `[v6]:port`, or full URL, in
+ * `normalizeHostname`'s spelling, the one the token list is written in.
  */
 function hostnameOf(value: string): string {
   const trimmed = value.trim();
@@ -224,55 +203,43 @@ function hostnameOf(value: string): string {
   return normalizeHostname(hostPart);
 }
 
-/**
- * The whole verdict, pure: catalog lookup, then `alwaysBlock`, then the
- * allowlist, then the mode. `null` means nothing to say: either not a
- * production endpoint, or the guard is off.
- */
-export function evaluateEgress(
-  hostname: string,
-  policy: { mode: GuardMode; allow: readonly string[] },
-): EgressVerdict | null {
-  if (policy.mode === 'off') return null;
-  const host = hostnameOf(hostname);
-  if (host.length === 0) return null;
-  const entry: GoogleEndpoint | undefined = lookupGoogleEndpoint(host);
-  if (entry === undefined) return null;
-
-  // Under `block`, `alwaysBlock` outranks the allowlist: the metadata server
-  // is refused whatever PYRIC_GUARD_ALLOW says. Under `warn` it is reported
-  // like any other catalog host.
-  const refusesAlways = entry.alwaysBlock === true && policy.mode === 'block';
-  if (refusesAlways) {
-    return {
-      verdict: 'block',
-      permitted: false,
-      host,
-      endpoint: entry.host,
-      service: entry.service,
-      alwaysBlock: true,
-    };
-  }
-
-  if (policy.allow.some((allowed) => matchesHostSuffix(host, allowed))) {
-    return { verdict: 'allow', permitted: true, host, endpoint: entry.host, service: entry.service };
-  }
-
-  if (policy.mode === 'block') {
-    return {
-      verdict: 'block',
-      permitted: false,
-      host,
-      endpoint: entry.host,
-      service: entry.service,
-    };
-  }
-  return { verdict: 'warn', permitted: true, host, endpoint: entry.host, service: entry.service };
+/** The token sources in force and the mode, which is all a verdict reads. */
+export interface EgressPolicy {
+  readonly mode: GuardMode;
+  readonly endpoints: TokenEndpoints;
 }
 
-/** One stderr line per verdict: structured (fixed leading fields, so it is
- *  greppable) and attributable (service + transport + initiating command).
- *  The request PATH is deliberately never logged: it carries ids and tokens. */
+/**
+ * The whole verdict, pure: `null` unless the guard is on and `hostname`, with
+ * `path` when the seam knows it, is a token source. `hostname` may be a proxy's
+ * absolute-form target (`http://host/path`), which carries its own path.
+ */
+export function evaluateEgress(hostname: string, policy: EgressPolicy, path?: string): EgressVerdict | null {
+  if (policy.mode === 'off') return null;
+  const target = destinationOf(hostname, path);
+  if (target.host.length === 0) return null;
+  const source = findTokenSource(policy.endpoints, target.host, target.path);
+  if (source === undefined) return null;
+  return { verdict: 'block', permitted: false, host: source.host, service: source.service };
+}
+
+function destinationOf(hostname: string, path: string | undefined): { host: string; path?: string } {
+  const isUrl = hostname.includes('://');
+  if (!isUrl) return { host: hostnameOf(hostname), path };
+  try {
+    const url = new URL(hostname);
+    return { host: normalizeHostname(url.hostname), path: url.pathname };
+  } catch {
+    return { host: hostnameOf(hostname), path };
+  }
+}
+
+const REMEDY =
+  'To use real Google credentials, run this command outside pyric sandbox, or set PYRIC_GUARD=off for it';
+
+/** One stderr line per refused host: structured (fixed leading fields, so it
+ *  is greppable) and attributable (service + transport + initiating command).
+ *  The request path is deliberately never logged: it carries ids and tokens. */
 export function formatGuardLine(
   verdict: EgressVerdict,
   transport: 'fetch' | 'socket',
@@ -280,25 +247,7 @@ export function formatGuardLine(
 ): string {
   let where = `via ${transport}`;
   if (context !== undefined && context.length > 0) where = `${where} from ${context}`;
-  const head = `${LOG_PREFIX} ${verdict.verdict.toUpperCase()} ${verdict.host} (${verdict.service}) ${where}:`;
-  const tail = 'Further attempts to this host are not logged.';
-  if (verdict.verdict === 'allow') {
-    return `${head} live production egress permitted by PYRIC_GUARD_ALLOW. ${tail}\n`;
-  }
-  if (verdict.verdict === 'warn') {
-    return (
-      `${head} LIVE production egress. A sandboxed app routes Firebase traffic to /__pyric/*, ` +
-      `so this is reaching real data. Set PYRIC_GUARD=block to fail these requests instead. ${tail}\n`
-    );
-  }
-  let why: string;
-  let remedy = '';
-  if (verdict.alwaysBlock === true) {
-    why = 'the credential metadata server is refused under PYRIC_GUARD=block, and no allowlist entry permits it';
-  } else {
-    why = 'live production egress refused';
-    remedy = ` To reach it deliberately, ${guardRemedy(verdict)}.`;
-  }
+  const head = `${LOG_PREFIX} BLOCK ${verdict.host} (${verdict.service}) ${where}:`;
   // What the app actually observes differs by seam: undici swallows our throw
   // into the opaque `TypeError: fetch failed`, while a raw socket caller gets
   // the error itself. Say which, or the developer cannot connect the two.
@@ -308,46 +257,35 @@ export function formatGuardLine(
   } else {
     surfaces = `the caller sees an error with code ${GUARD_BLOCKED_CODE}`;
   }
-  return `${head} ${why}; ${surfaces}.${remedy} ${tail}\n`;
-}
-
-/** The two ways to let a refused catalog host through, for the log line and
- *  the error alike. The metadata server has neither. */
-function guardRemedy(verdict: EgressVerdict): string {
   return (
-    `set PYRIC_GUARD_ALLOW=${verdict.host} to permit this host, ` +
-    `or PYRIC_GUARD=warn to report live egress without refusing it`
+    `${head} a sandboxed process can't get a server-side Google access token; ` +
+    `${surfaces}. ${REMEDY}. Further attempts to this host are not logged.\n`
   );
 }
 
 function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error {
-  let remedy: string;
-  if (verdict.alwaysBlock === true) {
-    remedy = 'The credential metadata server is refused under PYRIC_GUARD=block, and no allowlist entry permits it.';
-  } else {
-    remedy = `To reach it deliberately, ${guardRemedy(verdict)}.`;
-  }
   return Object.assign(
     new Error(
       `pyric net-guard blocked ${transport} egress to ${verdict.host} (${verdict.service}): ` +
-        `this is LIVE production, not the pyric sandbox. ${remedy}`,
+        `a sandboxed process can't get a server-side Google access token. ${REMEDY}.`,
     ),
     { code: GUARD_BLOCKED_CODE, host: verdict.host, service: verdict.service },
   );
 }
 
-// ─── the reporter: evaluate, log once, permit or refuse ───────────────────────
+// ─── the reporter: evaluate, log once, refuse ─────────────────────────────────
 
 export interface ReporterOptions {
   readonly mode: GuardMode;
-  readonly allow: readonly string[];
+  /** The token sources to refuse. Defaults to the fixed list, with nothing from the environment. */
+  readonly endpoints?: TokenEndpoints;
   readonly write?: (line: string) => void;
   /** Initiating command, for attribution. Usually `basename(argv[1])`. */
   readonly context?: string;
   /**
    * The shared "already reported" ledger. `installNetGuard` hands the SAME set
    * to the dispatcher wrapper and the socket backstop, because undici connects
-   * through `net.connect`: a warn-mode fetch trips both seams and would
+   * through `net.connect`: a refused fetch trips both seams and would
    * otherwise print the same host twice. It also survives a re-assert, so
    * being re-wrapped does not restart the noise.
    */
@@ -355,28 +293,26 @@ export interface ReporterOptions {
 }
 
 interface Reporter {
-  /** Returns the verdict, having logged it at most once per host, and throws
-   *  when the verdict refuses the connection. */
-  check(hostname: string | undefined, transport: 'fetch' | 'socket'): void;
+  /** Logs a refusal at most once per host, and throws it. */
+  check(hostname: string | undefined, transport: 'fetch' | 'socket', path?: string): void;
 }
 
 function createReporter(options: ReporterOptions): Reporter {
   const write = options.write ?? ((line: string) => void process.stderr.write(line));
   const reported = options.reported ?? new Set<string>();
+  const policy: EgressPolicy = { mode: options.mode, endpoints: options.endpoints ?? tokenEndpointsFrom({ env: {} }) };
   return {
-    check(hostname, transport) {
+    check(hostname, transport, path) {
       if (hostname === undefined) return;
-      // Read per check: an escalated guard (`NetGuard.escalate`) changes the mode.
-      const verdict = evaluateEgress(hostname, { mode: options.mode, allow: options.allow });
+      const verdict = evaluateEgress(hostname, policy, path);
       if (verdict === null) return;
       // A dev server retries relentlessly; one line per host is the signal,
       // and it also collapses the undici-over-net.connect double report.
-      const key = `${verdict.verdict}:${verdict.host}`;
-      if (!reported.has(key)) {
-        reported.add(key);
+      if (!reported.has(verdict.host)) {
+        reported.add(verdict.host);
         write(formatGuardLine(verdict, transport, options.context));
       }
-      if (!verdict.permitted) throw blockedError(verdict, transport);
+      throw blockedError(verdict, transport);
     },
   };
 }
@@ -404,6 +340,12 @@ function originHost(opts: unknown): string | undefined {
   }
 }
 
+/** `opts.path`, which names a token path on a host that serves other APIs too. */
+function requestPath(opts: unknown): string | undefined {
+  const path = (opts as { path?: unknown } | null | undefined)?.path;
+  return typeof path === 'string' ? path : undefined;
+}
+
 /**
  * Wrap a dispatcher so `dispatch` is guarded and every other member still
  * belongs to the real instance.
@@ -416,7 +358,7 @@ function originHost(opts: unknown): string | undefined {
 export function wrapDispatcher<T extends Dispatcher>(real: T, options: ReporterOptions): T {
   const reporter = createReporter(options);
   const guardedDispatch = (opts: unknown, handler: unknown): unknown => {
-    reporter.check(originHost(opts), 'fetch');
+    reporter.check(originHost(opts), 'fetch', requestPath(opts));
     // Both arguments cross UNTOUCHED. Edge hands a v6 handler to the host's
     // v7 Agent, and that handoff only survives by identity.
     return real.dispatch(opts, handler);
@@ -466,20 +408,13 @@ export interface NetGuardHooks {
 type RequestPrototype = { onSocket?: unknown };
 
 export interface NetGuard {
-  /** The mode in force now; `escalate` can move it from `warn` to `block`. */
+  /** The mode `PYRIC_GUARD` named. `warn` and `block` refuse the same requests. */
   readonly mode: GuardMode;
+  /** The hosts `PYRIC_GUARD_ALLOW` and `permit` named. They change no verdict:
+   *  nothing the guard refuses can be allowed (ADR 0022, ruling 3). */
   readonly allow: readonly string[];
-  /**
-   * Move a `warn` guard to `block` for the rest of this process, and write one
-   * line naming `reason`. A `block` guard is left as it is. Returns whether
-   * the mode changed. Used when the process shows it is about to reach
-   * production by mistake, such as the real `firebase-admin` loading under
-   * the register (#1443), and by `withPyric` in the Next dev server.
-   */
-  escalate(reason: string): boolean;
-  /** Permit one more host, given bare or as a URL, for the rest of this
-   *  process. A launcher that learns a destination after install, such as the
-   *  Vite plugin's configured AI upstream, names it here. */
+  /** Record one more host, given bare or as a URL. Kept for the Vite plugin's
+   *  AI upstream; it changes no verdict. */
   permit(hostOrUrl: string): void;
   /** Re-wrap the global dispatcher if something replaced it (a future Next
    *  calling `setGlobalDispatcher` would otherwise silently unhook us). */
@@ -544,22 +479,24 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 
   if (mode === 'off') {
     write(
-      `${LOG_PREFIX} disabled (PYRIC_GUARD=off): egress from this process to live ` +
-        `Google/Firebase endpoints is neither reported nor blocked, not even the GCE ` +
-        `metadata server (169.254.169.254).\n`,
+      `${LOG_PREFIX} disabled (PYRIC_GUARD=off): this process may request server-side ` +
+        `Google access tokens, from the GCE metadata server too. Loads of the real firebase ` +
+        `and firebase-admin still stop.\n`,
     );
     return null;
+  }
+  if (mode === 'warn') {
+    write(
+      `${LOG_PREFIX} PYRIC_GUARD=warn no longer lets token requests through: requests for a ` +
+        `server-side Google access token are refused, as they are by default.\n`,
+    );
   }
 
   const allow = parseAllowHosts(env.PYRIC_GUARD_ALLOW);
   const context = contextFrom(hooks.argv ?? process.argv);
-  // One mode for every seam, read on each check, so `escalate` reaches them all.
-  const state = { mode };
   const reporterOptions: ReporterOptions = {
-    get mode() {
-      return state.mode;
-    },
-    allow,
+    mode,
+    endpoints: tokenEndpointsFrom({ env }),
     write,
     context,
     reported: new Set(),
@@ -607,9 +544,10 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
     guardConnect(prototype as { [k: string]: unknown }, 'connect');
   }
   // And the request a socket carries, whose path names a proxy's real
-  // destination. The socket itself only reaches the proxy.
+  // destination, or a token path on a host that serves other APIs too. The
+  // socket itself sees only the host it reaches.
   for (const prototype of hooks.requestPrototypes ?? nodeClientRequestPrototypes()) {
-    guardProxiedRequest(prototype, reporter);
+    guardRequest(prototype, reporter);
   }
 
   const installed = new Map<symbol, Dispatcher>();
@@ -638,20 +576,8 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   }
 
   return {
-    get mode() {
-      return state.mode;
-    },
+    mode,
     allow,
-    escalate(reason: string): boolean {
-      const isWarn = state.mode === 'warn';
-      if (!isWarn) return false;
-      state.mode = 'block';
-      write(
-        `${LOG_PREFIX} escalated to block: ${reason}. Egress from this process to live ` +
-          `Google/Firebase endpoints now fails with ${GUARD_BLOCKED_CODE}; PYRIC_GUARD_ALLOW still permits its hosts.\n`,
-      );
-      return true;
-    },
     permit(hostOrUrl: string): void {
       for (const host of parseAllowHosts(hostOrUrl)) {
         if (!allow.includes(host)) allow.push(host);
@@ -665,25 +591,38 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 }
 
 /**
- * Check the destination a request to a proxy names before its request line is
- * written. A refusal goes to `onSocket` as its error argument, which is how
- * Node fails a request whose socket could not be used: the request emits
- * `error` with the guard's error and the proxy receives nothing. Throwing here
- * instead would surface as an uncaught exception from the Agent's callback.
+ * Check what a request names before its request line is written: the
+ * destination a request to a proxy names in its path, or else the request's
+ * own host and path, which tell a token request to `www.googleapis.com` from
+ * that host's other APIs. A refusal goes to `onSocket` as its error argument,
+ * which is how Node fails a request whose socket could not be used: the
+ * request emits `error` with the guard's error and the server receives
+ * nothing. Throwing here instead would surface as an uncaught exception from
+ * the Agent's callback.
  */
-function guardProxiedRequest(prototype: RequestPrototype, reporter: Reporter): void {
+function guardRequest(prototype: RequestPrototype, reporter: Reporter): void {
   const original = prototype.onSocket;
   if (typeof original !== 'function') return;
   prototype.onSocket = function (this: RequestLike, socket: unknown, error?: unknown): unknown {
-    const target = proxiedTarget(this);
-    if (target === undefined || error !== undefined) return original.call(this, socket, error);
+    if (error !== undefined) return original.call(this, socket, error);
     try {
-      reporter.check(target, 'socket');
+      checkRequest(this, reporter);
     } catch (refusal) {
       return original.call(this, socket, refusal);
     }
     return original.call(this, socket, error);
   };
+}
+
+function checkRequest(request: RequestLike, reporter: Reporter): void {
+  const target = proxiedTarget(request);
+  if (target !== undefined) {
+    reporter.check(target, 'socket');
+    return;
+  }
+  const host = typeof request.host === 'string' ? request.host : undefined;
+  const path = typeof request.path === 'string' ? request.path : undefined;
+  reporter.check(host, 'socket', path);
 }
 
 /**
@@ -727,6 +666,8 @@ function optionHosts(options: ConnectOptions): string[] {
 interface RequestLike {
   method?: unknown;
   path?: unknown;
+  /** The host the request was made to: the proxy, for a request to a proxy. */
+  host?: unknown;
 }
 
 /** Matches an absolute-form request target, `http://host/...`. */

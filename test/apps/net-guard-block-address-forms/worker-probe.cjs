@@ -1,4 +1,4 @@
-// A worker thread's connect to a catalog host. Its DNS is answered with
+// A worker thread's connect to a token host. Its DNS is answered with
 // 127.0.0.1 and the port is closed, so a connect the guard permits fails
 // locally.
 const net = require('node:net');
@@ -10,7 +10,7 @@ const lookup = (_host, options, callback) => {
 };
 
 try {
-  const socket = net.connect({ host: 'firestore.googleapis.com', port: Number(process.env.SCENARIO_CLOSED_PORT), lookup });
+  const socket = net.connect({ host: 'oauth2.googleapis.com', port: Number(process.env.SCENARIO_CLOSED_PORT), lookup });
   socket.on('error', () => {});
   socket.destroy();
   parentPort.postMessage('permitted');

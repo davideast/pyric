@@ -1,6 +1,7 @@
-// `node --import @pyric/cli/register` under PYRIC_GUARD=block must refuse the
-// GCE metadata server however its address is written, a Firebase host reached
-// through a proxy tunnel, and a connection from a worker thread. Before the fix
+// `node --import @pyric/cli/register` must refuse the GCE metadata server
+// however its address is written, a token host reached through a proxy tunnel,
+// and a connection from a worker thread, with no PYRIC_GUARD set: refusing
+// token sources is the default (ADR 0022). Before the fix
 // the guard compared host text, checked only the TCP peer, and was missing from
 // CommonJS eval workers and workers given their own execArgv (#1442).
 //
@@ -22,7 +23,7 @@ interface ProbeOutput {
 const BLOCKED = 'PYRIC_GUARD_BLOCKED';
 
 export default scenario(async (app) => {
-  const output = await app.step('run the probes under the register with PYRIC_GUARD=block', async () => {
+  const output = await app.step('run the probes under the register with no PYRIC_GUARD', async () => {
     const closedPort = await app.freePort();
     const result = await app.command(
       'node',
@@ -30,7 +31,6 @@ export default scenario(async (app) => {
       {
         env: {
           PYRIC_SANDBOX: `remote:http://127.0.0.1:${closedPort}`,
-          PYRIC_GUARD: 'block',
           SCENARIO_CLOSED_PORT: String(closedPort),
         },
       },
@@ -65,8 +65,8 @@ export default scenario(async (app) => {
     }
   });
 
-  await app.step('a Firebase host reached through a proxy tunnel is refused', () => {
-    assert.equal(output.results['CONNECT firestore.googleapis.com:443'], BLOCKED);
+  await app.step('a token host reached through a proxy tunnel is refused', () => {
+    assert.equal(output.results['CONNECT oauth2.googleapis.com:443'], BLOCKED);
     assert.equal(output.results['tls.connect servername over a tunnel'], BLOCKED);
   });
 
