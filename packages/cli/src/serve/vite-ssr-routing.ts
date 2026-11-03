@@ -20,10 +20,17 @@
  *   non-runnable environments) gets a module that throws when it loads: the
  *   Node client cannot run there, and the real SDK would reach production
  *   from a runtime the network guard does not cover.
+ * - An import the routing leaves alone, and the swap does not choose the real
+ *   SDK for, gets a module that throws the register's stop error (ADR 0022):
+ *   `stopModule`, the same module the client gets for an unserved
+ *   `firebase/*` subpath. Code that loads the real SDK natively in this
+ *   process, such as an externalized package, meets the stop hook
+ *   (`vite-process-stop.ts`) instead.
  *
  * Each routed import loads through a shim that awaits
  * `@pyric/cli/vite/ssr-loader` (see that module for why).
  */
+import * as esbuild from 'esbuild';
 import { SDK_MODULES, type AiMode } from './firebase-module-swap.js';
 import { mapFirebaseSpecifier } from '../register/mapping.js';
 import { VITE_SSR_ISSUE_URL } from './vite-net-guard.js';
@@ -32,6 +39,8 @@ import { VITE_SSR_ISSUE_URL } from './vite-net-guard.js';
 export const SSR_SWAP_PREFIX = '\0pyric-ssr-swap:';
 const TARGET_PREFIX = '\0pyric-ssr-target:';
 const OUTSIDE_PREFIX = '\0pyric-ssr-outside:';
+/** The prefix of a module that throws the stop error, in the client and on the server. */
+export const STOP_PREFIX = '\0pyric-stop:';
 const SSR_LOADER = '@pyric/cli/vite/ssr-loader';
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
@@ -83,6 +92,63 @@ function outsideModule(rest: string): string {
     'server-rendered modules that Vite runs in its own Node process (server.ssrLoadModule or a runnable ' +
     `environment) with pyric({ hosted: true }). See ${VITE_SSR_ISSUE_URL}.`;
   return `throw new Error(${JSON.stringify(message)});\n`;
+}
+
+/** Keeps every package an admin entry imports out of the build that reads its export names. */
+const externalPackages: esbuild.Plugin = {
+  name: 'pyric-stop-exports',
+  setup(build) {
+    build.onResolve({ filter: /^[^./]/ }, (args) => {
+      const isEntry = args.kind === 'entry-point';
+      return isEntry ? null : { path: args.path, external: true };
+    });
+  },
+};
+
+/**
+ * The names the real module exports, read by esbuild without running it, so
+ * a stop module can declare them. A browser links named imports before it
+ * evaluates anything, so a module that lacks a name fails with a
+ * `SyntaxError` and never shows the stop. A client entry re-exports its
+ * `@firebase/*` package, so it is followed; a firebase-admin entry names its
+ * exports itself, so its packages stay out. Empty when esbuild can't build it.
+ */
+export async function stopModuleExports(specifier: string, resolveDir: string): Promise<string[]> {
+  const isAdmin = specifier === 'firebase-admin' || specifier.startsWith('firebase-admin/');
+  try {
+    const result = await esbuild.build({
+      entryPoints: [specifier],
+      absWorkingDir: resolveDir,
+      bundle: true,
+      write: false,
+      metafile: true,
+      format: 'esm',
+      platform: isAdmin ? 'node' : 'browser',
+      logLevel: 'silent',
+      plugins: isAdmin ? [externalPackages] : [],
+    });
+    return Object.values(result.metafile.outputs).flatMap((output) => output.exports);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The source of a module that throws `error` when it loads: its message, and
+ * its `code` when it has one, such as `PYRIC_REAL_SDK_STOPPED` from
+ * `stopFor` in `../register/swap-or-stop.ts`. It declares `names`, so an
+ * importer's named imports link and the throw is what the importer sees.
+ */
+export function stopModule(error: Error, names: readonly string[] = []): string {
+  const code = (error as { code?: unknown }).code;
+  const fields = typeof code === 'string' ? `, { code: ${JSON.stringify(code)} }` : '';
+  const lines = [`throw Object.assign(new Error(${JSON.stringify(error.message)})${fields});`];
+  const hasNames = names.length > 0;
+  if (hasNames) {
+    lines.push('const __pyricStopped = undefined;');
+    lines.push(`export { ${names.map((name) => `__pyricStopped as ${exportedAs(name)}`).join(', ')} };`);
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 function exportedAs(name: string): string {

@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+  <body>
+    <script type="module">
+      // firebase/installations is a subpath the plugin doesn't serve.
+      import("/src/installations.js").then(
+        (module) => { window.installations = { ok: true, value: typeof module.installationsOf }; },
+        (error) => { window.installations = { ok: false, code: error?.code ?? null, message: String(error?.message ?? error) }; },
+      );
+    </script>
+  </body>
+</html>

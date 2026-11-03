@@ -1,0 +1,122 @@
+/**
+ * Swap or stop in the Vite dev server process (ADR 0022).
+ *
+ * The plugin swaps `firebase/*` for the browser and routes the served
+ * subpaths and `firebase-admin/*` in the server-rendered modules Vite
+ * processes (`vite-ssr-routing.ts`). Vite leaves some loads to Node itself:
+ * an installed package it externalizes that imports `firebase-admin` or
+ * `firebase`, or an unserved `firebase/*` subpath in a server module. Under
+ * `pyric sandbox -- vite dev` the register's resolve hook stops those. Under
+ * plain `vite dev` there is no register, so the plugin installs this sync
+ * resolve hook in its process: it resolves nothing differently, and throws
+ * `PYRIC_REAL_SDK_STOPPED` before a real SDK file loads, with the register's
+ * own decision and error (`stopFor` in `../register/swap-or-stop.ts`).
+ *
+ * The hook can't see what loaded before the plugin module ran, such as the
+ * Vite config's own static imports.
+ */
+import Module from 'node:module';
+import { isRegisterActive } from '../register/activation.js';
+import { canonicalFirebaseSpecifier } from '../register/mapping.js';
+import { createStopReporter, stopFor } from '../register/swap-or-stop.js';
+import type { AiMode } from './firebase-module-swap.js';
+
+interface SyncResolveContext {
+  parentURL?: string;
+  conditions?: string[];
+}
+
+interface SyncResolveResult {
+  url: string;
+  format?: string | null;
+  shortCircuit?: boolean;
+}
+
+/** Node's sync resolve hook (`module.registerHooks`, Node 22.15 and later). */
+export type SyncResolve = (
+  specifier: string,
+  context: SyncResolveContext,
+  nextResolve: (specifier: string, context?: SyncResolveContext) => SyncResolveResult,
+) => SyncResolveResult;
+
+type RegisterHooks = (hooks: { resolve: SyncResolve }) => void;
+
+/** Typed locally: the repo's ambient Node types predate `registerHooks`. */
+const moduleApi = Module as unknown as { registerHooks?: RegisterHooks };
+
+/** What this process's hook reads on each resolve, so a Vite restart can replace the AI mode. */
+interface StopState {
+  getAiMode: () => AiMode;
+}
+
+/** Holds the installed hook's state, once per process. */
+const VITE_PROCESS_STOP = Symbol.for('pyric.viteProcessStop');
+
+export interface ViteProcessStopHookInput {
+  /** The plugin's resolved AI mode, read on each resolve. */
+  getAiMode: () => AiMode;
+  write: (line: string) => void;
+}
+
+/**
+ * The hook: resolve as Node would, then stop a load of the real SDK that the
+ * swap doesn't choose. Each stop is written once per file, so a caught
+ * import still shows in the dev server log.
+ */
+export function viteProcessStopHook(input: ViteProcessStopHookInput): SyncResolve {
+  const report = createStopReporter(input.write);
+  const allowedUrls = new Set<string>();
+  return (specifier, context, nextResolve) => {
+    const result = nextResolve(specifier, context);
+    const stop = stopFor({
+      specifier,
+      canonical: canonicalFirebaseSpecifier(specifier),
+      importer: context.parentURL,
+      url: result.url,
+      aiMode: input.getAiMode(),
+    }, allowedUrls);
+    if (stop === null) return result;
+    report(stop);
+    throw stop;
+  };
+}
+
+export interface ViteProcessStopInput {
+  getAiMode?: () => AiMode;
+  write?: (line: string) => void;
+  /** Where the installed hook's state is kept. Defaults to `globalThis`. */
+  slot?: Record<symbol, unknown>;
+  /** Defaults to `module.registerHooks`; undefined on a Node without it. */
+  registerHooks?: RegisterHooks;
+  /** Defaults to the register's activation mark. */
+  registerActive?: () => boolean;
+}
+
+/**
+ * Install the hook in this process once, unless the register is active, in
+ * which case its own hook already stops these loads. Returns whether a hook
+ * of this module is in place. A later call, from the plugin a Vite restart
+ * builds, only replaces the AI mode the hook reads.
+ */
+export function installViteProcessStop(input: ViteProcessStopInput = {}): boolean {
+  const registerActive = input.registerActive ?? isRegisterActive;
+  if (registerActive()) return false;
+  const slot = input.slot ?? (globalThis as unknown as Record<symbol, unknown>);
+  const getAiMode = input.getAiMode ?? (() => 'sandbox');
+  const installed = slot[VITE_PROCESS_STOP] as StopState | undefined;
+  if (installed !== undefined) {
+    installed.getAiMode = getAiMode;
+    return true;
+  }
+  const registerHooks = 'registerHooks' in input ? input.registerHooks : moduleApi.registerHooks?.bind(Module);
+  if (typeof registerHooks !== 'function') return false;
+  const state: StopState = { getAiMode };
+  registerHooks({
+    resolve: viteProcessStopHook({
+      getAiMode: () => state.getAiMode(),
+      write: input.write ?? ((line) => void process.stderr.write(line)),
+    }),
+  });
+  slot[VITE_PROCESS_STOP] = state;
+  return true;
+}

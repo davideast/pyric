@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { DepOptimizationOptions, ResolvedConfig, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import {
@@ -15,8 +17,17 @@ import {
   type AiMode,
   type ServedFirebaseSpecifier,
 } from './firebase-module-swap.js';
-import { loadRoutedModule, routeServerImport, ssrSwapAlias, unaliasedSpecifier } from './vite-ssr-routing.js';
+import {
+  STOP_PREFIX,
+  loadRoutedModule,
+  routeServerImport,
+  ssrSwapAlias,
+  stopModule,
+  stopModuleExports,
+  unaliasedSpecifier,
+} from './vite-ssr-routing.js';
 import { loadServerTarget } from './vite-ssr-loader.js';
+import { stopFor } from '../register/swap-or-stop.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
@@ -98,6 +109,13 @@ export function createViteModuleContext(): ViteModuleContext {
   return { entries, cliRoot: packageRootOf(entries.init) };
 }
 
+/** A real SDK import the swap stops: the register's error, and where the import resolves from. */
+interface Stop {
+  readonly error: Error;
+  readonly specifier: string;
+  readonly resolveDir: string;
+}
+
 export interface ViteModuleSwapOptions {
   /** The resolved AI mode. Read on each resolution, since Vite resolves the
    *  mode from its env files after the plugin is constructed. */
@@ -131,6 +149,58 @@ export function createViteModuleSwap(
   const aiMode = (): AiMode => options?.getAiMode?.() ?? 'sandbox';
   /** Set by `config()`: whether this server routes server-rendered imports. */
   let routesServerImports = false;
+  /** Vite's root, set by `configResolved`: where an import with no file importer resolves from. */
+  let root = process.cwd();
+  /** The stop behind each stop module id, and the id each import got. */
+  const stops = new Map<string, Stop>();
+  const stopIds = new Map<string, string>();
+  /** The real SDK files the stop allowed, as the register's hook keeps them. */
+  const allowedUrls = new Set<string>();
+
+  /** The files an import resolves from: the importer's, when it is a file, then the root's. */
+  function resolveBases(importer: string | undefined): string[] {
+    const importerFile = importer?.split('?')[0];
+    const fromRoot = path.join(root, 'package.json');
+    const isFileImporter = importerFile !== undefined && path.isAbsolute(importerFile);
+    return isFileImporter ? [importerFile, fromRoot] : [fromRoot];
+  }
+
+  /** Where Node resolves `specifier` from the first base that has it installed, or null when none does. */
+  function installedFileOf(specifier: string, importer: string | undefined): { url: string; base: string } | null {
+    for (const base of resolveBases(importer)) {
+      try {
+        return { url: pathToFileURL(createRequire(base).resolve(specifier)).href, base };
+      } catch {
+        // Not installed where this base looks; try the next one.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Swap or stop (ADR 0022): the id of a module that throws the register's
+   * stop error, for an import of the real SDK the swap does not choose here.
+   * `stopFor` decides, as the register's hook does, from the file the import
+   * resolves to. Null when the swap chooses the real SDK (production AI
+   * mode's `firebase/ai`, a shadow app's own `firebase/app`), or when the
+   * import is not installed, so Vite reports it as before.
+   */
+  function stopIdFor(specifier: string, importer: string | undefined): string | null {
+    const mode = aiMode();
+    const key = [specifier, importer ?? '', mode].join('\0');
+    const known = stopIds.get(key);
+    if (known !== undefined) return known;
+    const installed = installedFileOf(specifier, importer);
+    if (installed === null) return null;
+    const error = stopFor({ specifier, importer, url: installed.url, aiMode: mode }, allowedUrls);
+    if (error === null) return null;
+    const id = `${STOP_PREFIX}${stops.size}:${specifier}`;
+    const importerDir = path.dirname(installed.base);
+    const resolveDir = existsSync(importerDir) ? importerDir : root;
+    stops.set(id, { error, specifier, resolveDir });
+    stopIds.set(key, id);
+    return id;
+  }
 
   function resolveId(source: string, importer: string | undefined): string | null {
     if (isBypassedBridgeImport(source, importer)) return null;
@@ -139,7 +209,8 @@ export function createViteModuleSwap(
     if (isFirebaseSpecifier) {
       const swapped = swappedFirebaseEntries(aiMode());
       const key = swapped.get(source as ServedFirebaseSpecifier);
-      return key === undefined ? null : entries[key] ?? null;
+      const isServed = key !== undefined;
+      return isServed ? entries[key] ?? null : stopIdFor(source, importer);
     }
 
     const nodeMatch = NODE_BUILTIN_RE.exec(source);
@@ -173,13 +244,23 @@ export function createViteModuleSwap(
       : resolveId(original, importer);
     const isRouted = routed !== null;
     if (isRouted) return routed;
-    // Not swapped here (the real firebase/ai in production AI mode, a shadow
-    // app's own firebase/app, firebase-admin in browser code): resolve it as
-    // Vite would have. The alias is in the skip set this call inherits.
+    // Not swapped here. firebase-admin in browser code, and any other load of
+    // the real SDK the swap does not choose, gets the stop module.
+    const stopId = stopIdFor(original, importer);
+    if (stopId !== null) return stopId;
+    // The real firebase/ai in production AI mode, or a shadow app's own
+    // firebase/app: resolve it as Vite would have. The alias is in the skip
+    // set this call inherits.
     return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
   }
 
+  async function loadStopModule(stop: Stop): Promise<string> {
+    return stopModule(stop.error, await stopModuleExports(stop.specifier, stop.resolveDir));
+  }
+
   function loadPluginModule(id: string): Promise<string | null> {
+    const stop = stops.get(id);
+    if (stop !== undefined) return loadStopModule(stop);
     const shim = load(id);
     const isShim = shim !== null;
     if (isShim) return Promise.resolve(shim);
@@ -276,6 +357,7 @@ export function createViteModuleSwap(
       return isOtherServerEnvironment ? { resolve: { external: [...SSR_EXTERNAL] } } : null;
     },
     configResolved(config) {
+      root = config.root ?? root;
       const allow = config.server?.fs?.allow;
       const hasNoAllowList = allow === undefined || !Array.isArray(allow);
       if (hasNoAllowList) {
