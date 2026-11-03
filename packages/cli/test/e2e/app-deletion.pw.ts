@@ -80,7 +80,8 @@ test('served firebase imports replay the production app-deletion lifecycle', asy
       { model: 'gemini-2.5-flash' },
     );
     const survivingApp = appModule.initializeApp(options, 'surviving-ai');
-    // The sandbox refuses AI Logic requests without an App Check token, so App Check comes before getAI.
+    // The sandbox refuses AI Logic requests without an App Check token, so App
+    // Check comes before getAI.
     appCheckModule.initializeAppCheck(survivingApp, {
       provider: new appCheckModule.ReCaptchaV3Provider('site-key'),
     });
