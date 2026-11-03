@@ -23,6 +23,7 @@ interface Received {
   method: string;
   url: string;
   headers: http.IncomingHttpHeaders;
+  body: string;
 }
 
 interface FakeTlsUpstream {
@@ -52,9 +53,10 @@ beforeAll(() => {
 async function startFakeTlsUpstream(): Promise<FakeTlsUpstream> {
   const fake: FakeTlsUpstream = { port: 0, ca: cert, received: [], cutOff: false, close: async () => {} };
   const server = https.createServer({ key, cert }, (request, response) => {
-    request.resume();
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
     request.on('end', () => {
-      fake.received.push({ method: request.method ?? '', url: request.url ?? '', headers: request.headers });
+      fake.received.push({ method: request.method ?? '', url: request.url ?? '', headers: request.headers, body: Buffer.concat(chunks).toString('utf8') });
       if (fake.cutOff) {
         response.writeHead(200, { 'content-type': 'application/json', 'content-length': '100000' });
         response.write('{"candidates":[{"content":');
@@ -130,7 +132,8 @@ function call(socketPath: string, method: string, path: string, body?: unknown):
       response.on('aborted', () => done(true));
     });
     request.on('error', reject);
-    request.end(body === undefined ? undefined : JSON.stringify(body));
+    // A string is sent as it is, to test bodies JSON.stringify can't make.
+    request.end(body === undefined || typeof body === 'string' ? body : JSON.stringify(body));
   });
 }
 
@@ -156,7 +159,7 @@ describe('allowed calls', () => {
     expect(sent?.headers['x-goog-api-key']).toBe(SENTINEL_KEY);
     expect(sent?.headers.host).toBe(PROVIDER_HOST);
     expect(sent?.headers.cookie).toBeUndefined();
-    expect(sent?.url).toBe(`${IMAGE_PATH}?alt=json`);
+    expect(sent?.url).toBe(IMAGE_PATH);
     expect(ledger.spentUsd()).toBeCloseTo(0.134);
   });
 
@@ -169,7 +172,41 @@ describe('allowed calls', () => {
   });
 });
 
+describe('what is sent on', () => {
+  test('a body with a duplicate model key is sent as checked, naming only the allowed model', async () => {
+    const { socket, upstream } = await rig();
+    const answer = await call(socket, 'POST', '/v1beta/interactions', '{"model":"veo-3.1-generate-preview","model":"lyria-3.5","input":"a calm tune"}');
+    expect(answer.status).toBe(200);
+    expect(upstream.received).toHaveLength(1);
+    expect(JSON.parse(upstream.received[0]?.body ?? '')).toEqual({ model: 'lyria-3.5', input: 'a calm tune' });
+    expect(upstream.received[0]?.body).not.toContain('veo');
+    expect(upstream.received[0]?.headers['content-length']).toBe(String(Buffer.byteLength(upstream.received[0]?.body ?? '')));
+  });
+
+  test('no query string reaches upstream, on any route', async () => {
+    const { socket, upstream } = await rig();
+    await image(socket, '?alt=sse&$httpMethod=DELETE');
+    await call(socket, 'POST', '/v1beta/interactions?alt=sse&$httpMethod=DELETE', { model: 'lyria-3.5' });
+    await call(socket, 'GET', '/v1beta/interactions/abc?alt=sse&$httpMethod=DELETE');
+    expect(upstream.received.map((sent) => sent.url)).toEqual([IMAGE_PATH, '/v1beta/interactions', '/v1beta/interactions/abc']);
+  });
+});
+
 describe('refusals', () => {
+  test('an interaction naming an agent, a generate body naming another model and dot ids are refused', async () => {
+    const { socket, upstream, calls } = await rig();
+    const answers = [
+      await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', agent: 'deep-research' }),
+      await call(socket, 'POST', IMAGE_PATH, { model: 'veo-3.1-generate-preview' }),
+      await call(socket, 'GET', '/v1beta/interactions/.'),
+      await call(socket, 'GET', '/v1beta/interactions/..'),
+      await call(socket, 'GET', '/v1beta/interactions/.abc'),
+    ];
+    expect(answers.map((answer) => answer.status)).toEqual([403, 403, 403, 403, 403]);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['agent', 'model', 'path', 'path', 'path']);
+    expect(upstream.received).toEqual([]);
+  });
+
   test('a video path, an unknown model and model listing are refused with their reason and never reach upstream', async () => {
     const { socket, upstream, calls } = await rig();
     const answers = [

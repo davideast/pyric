@@ -13,8 +13,8 @@
  * - `GET /v1beta/interactions/<id>`, polling, which is free.
  *
  * Video, file uploads, model listing and streaming are refused. The
- * forwarder drops the app's `x-goog-api-key` and any `key=` query
- * parameter, sets the real key, read once per request, and sends the call
+ * forwarder drops the app's `x-goog-api-key` and the whole query
+ * string, sets the real key, read once per request, and sends the call
  * over TLS to the one fixed host (`PROVIDER_HOST`), whatever `Host` the app
  * named. Redirects are never followed. A billable call reserves its price in
  * the ledger (`provider-ledger.ts`) before it is sent.
@@ -39,7 +39,7 @@ export const PLACEHOLDER_KEY = 'factory-forwarded';
 
 export type ProviderKeyRead = { ok: true; key: string } | { ok: false; problem: string };
 
-export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | LedgerRefusal;
+export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | LedgerRefusal;
 
 /** One request to the forwarder, as a line of the calls record. */
 export interface ProviderCall {
@@ -87,7 +87,7 @@ const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'tra
 
 const INTERACTIONS = '/v1beta/interactions';
 const GENERATE_CONTENT = /^\/v1beta\/models\/([A-Za-z0-9._-]+):generateContent$/;
-const INTERACTION = /^\/v1beta\/interactions\/([A-Za-z0-9._-]+)$/;
+const INTERACTION = /^\/v1beta\/interactions\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
 
 /** What a request line asks for, once its method and path are allowed. */
 export type Route =
@@ -105,16 +105,6 @@ export function routeOf(method: string, path: string): Route {
   const model = generate[1] ?? '';
   if (!isPost) return { kind: 'refused', reason: 'method' };
   return priceOf(model) === undefined ? { kind: 'refused', reason: 'model' } : { kind: 'generate', model };
-}
-
-/** The query sent on: the app's, without any `key`. */
-export function forwardedQuery(url: string): string {
-  const at = url.indexOf('?');
-  if (at < 0) return '';
-  const params = new URLSearchParams(url.slice(at + 1));
-  params.delete('key');
-  const query = params.toString();
-  return query.length > 0 ? `?${query}` : '';
 }
 
 export function forwardedHeaders(headers: http.IncomingHttpHeaders, key: string, bodyLength: number): Record<string, string> {
@@ -197,23 +187,35 @@ function readBody(request: http.IncomingMessage, done: (read: BodyRead) => void)
   request.once('close', () => report({ kind: 'closed' }));
 }
 
-type BodyCheck = { ok: true; model: string | null } | { ok: false; reason: ProviderRefusal; message: string; model?: string };
+type BodyCheck = { ok: true; model: string | null; body: Buffer } | { ok: false; reason: ProviderRefusal; message: string; model?: string };
 
-/** The body's model, for an interactions call, and whether the call streams. */
+/**
+ * The body's model, and the body sent on. The body sent is the one checked,
+ * serialized again from what was parsed, so a duplicate key can't name one
+ * model to the check and another to the provider.
+ */
 function checkBody(route: Route, body: Buffer): BodyCheck {
-  if (route.kind === 'poll') return { ok: true, model: null };
+  if (route.kind === 'poll') return { ok: true, model: null, body: Buffer.alloc(0) };
   let parsed: unknown;
   try {
     parsed = body.length === 0 && route.kind === 'generate' ? {} : JSON.parse(body.toString('utf8'));
   } catch {
     return { ok: false, reason: 'body-not-json', message: 'the body is not JSON' };
   }
-  const fields = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  const isObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
+  if (!isObject) return { ok: false, reason: 'body-not-json', message: 'the body is not a JSON object' };
+  const fields = parsed as Record<string, unknown>;
+  const sent = Buffer.from(JSON.stringify(fields));
   if (fields.stream === true) return { ok: false, reason: 'streaming', message: 'streaming calls are not metered' };
-  if (route.kind === 'generate') return { ok: true, model: route.model };
-  const model = typeof fields.model === 'string' ? bareModel(fields.model) : null;
-  if (model === null || priceOf(model) === undefined) return { ok: false, reason: 'model', message: `the model ${model ?? '(none)'} is not one a factory run may call`, model: model ?? undefined };
-  return { ok: true, model };
+  const named = typeof fields.model === 'string' ? bareModel(fields.model) : null;
+  if (route.kind === 'generate') {
+    const isOtherModel = 'model' in fields && named !== route.model;
+    if (isOtherModel) return { ok: false, reason: 'model', message: 'the body names another model than the path', model: named ?? undefined };
+    return { ok: true, model: route.model, body: sent };
+  }
+  if ('agent' in fields) return { ok: false, reason: 'agent', message: 'an interaction may not name an agent' };
+  if (named === null || priceOf(named) === undefined) return { ok: false, reason: 'model', message: `the model ${named ?? '(none)'} is not one a factory run may call`, model: named ?? undefined };
+  return { ok: true, model: named, body: sent };
 }
 
 interface Admitted {
@@ -298,10 +300,10 @@ function admit(request: http.IncomingMessage, response: http.ServerResponse, rou
     if (typeof reserved === 'string') return refuse(response, record, reserved, `the call was refused (${reserved})`, check.model);
     reservation = reserved;
   }
-  const url = request.url ?? '';
-  const path = `${url.split('?')[0] ?? ''}${forwardedQuery(url)}`;
+  // No query is sent on: it could carry a key, switch to streaming or override the method.
+  const path = (request.url ?? '').split('?')[0] ?? '';
   const method = route.kind === 'poll' ? 'GET' : 'POST';
-  forward(response, { method, path, body, model: check.model, headers: forwardedHeaders(request.headers, read.key, body.length), reservation }, options, record);
+  forward(response, { method, path, body: check.body, model: check.model, headers: forwardedHeaders(request.headers, read.key, check.body.length), reservation }, options, record);
 }
 
 function handle(request: http.IncomingMessage, response: http.ServerResponse, options: ProviderForwarderOptions): void {
