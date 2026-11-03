@@ -214,13 +214,18 @@ function unknownField(fields: Record<string, unknown>, allowed: ReadonlySet<stri
   return name === undefined ? undefined : `${where}${name}`;
 }
 
-function fileKey(value: unknown): string | undefined {
-  if (Array.isArray(value)) return value.map(fileKey).find((found) => found !== undefined);
+/** A key naming a stored file, or one of two keys that spell one field, at any level of the body. */
+function walkedField(value: unknown): string | undefined {
+  if (Array.isArray(value)) return value.map(walkedField).find((found) => found !== undefined);
   const fields = fieldsOf(value);
   if (fields === undefined) return undefined;
+  const spelled = new Set<string>();
   for (const [key, inner] of Object.entries(fields)) {
-    if (FILE_KEYS.has(camel(key))) return key;
-    const found = fileKey(inner);
+    const name = camel(key);
+    if (spelled.has(name)) return key;
+    spelled.add(name);
+    if (FILE_KEYS.has(name)) return key;
+    const found = walkedField(inner);
     if (found !== undefined) return found;
   }
   return undefined;
@@ -235,8 +240,8 @@ function entryOf(fields: Record<string, unknown>, name: string): unknown {
 export function costlyField(fields: Record<string, unknown>): string | undefined {
   const top = unknownField(fields, TOP_FIELDS, '');
   if (top !== undefined) return top;
-  const file = fileKey(fields);
-  if (file !== undefined) return file;
+  const walked = walkedField(fields);
+  if (walked !== undefined) return walked;
   const rawConfig = entryOf(fields, 'generationConfig');
   if (rawConfig === undefined) return undefined;
   const config = fieldsOf(rawConfig);
@@ -275,8 +280,9 @@ function checkBody(route: Route, body: Buffer): BodyCheck {
   if (!isObject) return { ok: false, reason: 'body-not-json', message: 'the body is not a JSON object' };
   const fields = parsed as Record<string, unknown>;
   const sent = Buffer.from(JSON.stringify(fields));
-  if ('stream' in fields) return { ok: false, reason: 'streaming', message: 'streaming calls are not metered' };
-  if ('agent' in fields && route.kind === 'interactions') return { ok: false, reason: 'agent', message: 'an interaction may not name an agent' };
+  const names = new Set(Object.keys(fields).map(camel));
+  if (names.has('stream')) return { ok: false, reason: 'streaming', message: 'streaming calls are not metered' };
+  if (names.has('agent') && route.kind === 'interactions') return { ok: false, reason: 'agent', message: 'an interaction may not name an agent' };
   const costly = costlyField(fields);
   if (costly !== undefined) return { ok: false, reason: 'field', message: `the body's ${costly} could cost more than one call's price` };
   const named = typeof fields.model === 'string' ? bareModel(fields.model) : null;

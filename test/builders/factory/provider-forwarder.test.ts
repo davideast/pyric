@@ -205,11 +205,15 @@ describe('refusals', () => {
       { contents: [{ parts: [{ fileData: { fileUri: 'https://example.invalid/f', mimeType: 'image/png' } }] }] },
       { contents: [{ parts: [{ file_data: { file_uri: 'files/abc' } }] }] },
       { contents: text, generationConfig: { unknownKnob: 1 } },
+      { contents: text, generationConfig: { candidateCount: 1 }, generation_config: { candidateCount: 8 } },
+      { contents: text, generationConfig: { candidateCount: 1, candidate_count: 8 } },
+      { contents: text, generationConfig: { imageConfig: { imageSize: '1K' }, image_config: { image_size: '4K' } } },
       { contents: text, stream: false },
     ];
     for (const body of bodies) expect((await call(socket, 'POST', IMAGE_PATH, body)).status).toBe(403);
     expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: 'x', tools: [] })).status).toBe(403);
-    expect(readCalls(calls).map((line) => line.reason)).toEqual(['field', 'field', 'field', 'field', 'field', 'field', 'field', 'field', 'streaming', 'field']);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: 'x', is_stream: true })).status).toBe(403);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['field', 'field', 'field', 'field', 'field', 'field', 'field', 'field', 'field', 'field', 'field', 'streaming', 'field', 'field']);
     expect(upstream.received).toEqual([]);
   });
 
