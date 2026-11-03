@@ -64,13 +64,19 @@ const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To
  */
 const REFUSED_APPS_PER_RUN = 5;
 
-const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
+/**
+ * The refusal sentence both hints open with: enforcement is set per project in
+ * production, and a project that delayed it answers without a token until
+ * January 21, 2027 (#1834).
+ */
+const PER_PROJECT = 'In production, App Check enforcement for AI Logic is set per project, and a project that delayed enforcement still answers requests without a token until January 21, 2027\\.';
+const HINT = new RegExp(`${PER_PROJECT} Call initializeAppCheck\\(app, \\{ provider \\}\\) before getAI\\(app\\)\\.`);
 /**
  * The guidance a server process prints, as build/ai-logic.md gives it: the
  * debug token on globalThis beside a CustomProvider, then a token the server
  * mints with firebase-admin.
  */
-const SERVER_HINT = /\[pyric\/ai\] .*This process has no document, so the reCAPTCHA providers throw here\. For local development, set globalThis\.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck\(app, \{ provider: new CustomProvider\(\{ getToken \}\) \}\) before getAI\(app\)\..*getAppCheck\(\)\.createToken\(appId\)/;
+const SERVER_HINT = new RegExp(`\\[pyric\\/ai\\] .*${PER_PROJECT} This process has no document, so the reCAPTCHA providers throw here\\. For local development, set globalThis\\.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck\\(app, \\{ provider: new CustomProvider\\(\\{ getToken \\}\\) \\}\\) before getAI\\(app\\)\\..*getAppCheck\\(\\)\\.createToken\\(appId\\)`);
 
 const AI_ORIGIN = 'https://firebasevertexai.googleapis.com/v1beta/projects/sandbox';
 

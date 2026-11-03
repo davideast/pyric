@@ -24,7 +24,7 @@ import { AiBroker } from '../../src/ai/broker/broker.js';
 import { AiBrokerError, errorEnvelope } from '../../src/ai/broker/synthesizer.js';
 import type { AnswerEngine } from '../../src/ai/broker/types.js';
 import { createTransportAI } from '../../src/ai/internal.js';
-import { APP_CHECK_HINT, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
+import { APP_CHECK_HINT, APP_CHECK_REFUSAL_NOTE, APP_CHECK_SERVER_HINT } from '../../src/ai/app-check-gate.js';
 import { mintAppCheckToken, signAppCheckToken } from '../../src/sandbox/internal/app-check-token.js';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
@@ -112,6 +112,14 @@ describe('ai#sandbox-app-check-required', () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
     expect(earlierHeader.noAppCheck.responseStatus).toBe(403);
+  });
+
+  it('the guidance says enforcement is set per project and the sandbox plays an enforced one (#1834)', () => {
+    expect(APP_CHECK_REFUSAL_NOTE).toBe(
+      'The sandbox refuses Firebase AI Logic requests without an App Check token with a 403, as a project that enforces App Check does. In production, App Check enforcement for AI Logic is set per project, and a project that delayed enforcement still answers requests without a token until January 21, 2027.',
+    );
+    expect(APP_CHECK_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
+    expect(APP_CHECK_SERVER_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
   });
 
   it('the refusal logs pyric guidance once per app beside the SDK error', async () => {
