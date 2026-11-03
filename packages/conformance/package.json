@@ -7,7 +7,8 @@
   "exports": {
     "./docs": "./src/docs/index.ts",
     "./functions-rtdb-fixture": "./src/functions-rtdb-fixture/index.ts",
-    "./functions-http-fixture": "./src/functions-http-fixture/index.ts"
+    "./functions-http-fixture": "./src/functions-http-fixture/index.ts",
+    "./functions-callable-fixture": "./src/functions-callable-fixture/index.ts"
   },
   "scripts": {
     "test": "bun test",
