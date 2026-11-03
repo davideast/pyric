@@ -59,6 +59,7 @@ import { createViteModuleContext, createViteModuleSwap } from './vite-module-swa
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { installViteNetGuard } from './vite-net-guard.js';
+import { installViteProcessStop } from './vite-process-stop.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
@@ -299,8 +300,13 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
     config(config, env) {
       // Before the page runtime permits its AI upstreams on the guard. Only
       // the dev server: a build or a preview runs no server-rendered app code.
+      // The stop hook covers what Node loads itself in this process, such as
+      // an externalized package that imports firebase-admin (ADR 0022).
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
-      if (isDevServer) installViteNetGuard();
+      if (isDevServer) {
+        installViteNetGuard();
+        installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
+      }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
       const moduleConfig = moduleSwap.config({ devServer: isDevServer });
       const pageConfig = pageRuntime.config(config, env);
