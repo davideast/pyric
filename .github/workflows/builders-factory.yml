@@ -13,8 +13,6 @@ on:
     paths:
       - 'test/builders/**'
       - 'test/apps/install.ts'
-      - 'package.json'
-      - 'bun.lock'
       - '.github/workflows/builders-factory.yml'
   push:
     branches: [main]
