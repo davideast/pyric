@@ -14,7 +14,7 @@ import { relayPortToSocket } from './relay.ts';
 import { allowedHosts, isLoopback, LOOPBACK, serveHost, ServeHostInvalid } from './serve-host.ts';
 import { servedUrls } from './served.ts';
 import { STATUS_PATH, statusPage } from './status-page.ts';
-import { parseHead } from './status-route.ts';
+import { HEAD_TIMEOUT_MS, parseHead, routeConnection } from './status-route.ts';
 
 const COMMIT = 'acf8f7a25106' + 'd'.repeat(28);
 const PREVIOUS = '182e5f2aaaaa' + 'e'.repeat(28);
@@ -150,6 +150,48 @@ describe('the status route on the served port', () => {
   });
 });
 
+describe('the head timeout', () => {
+  /** Listens on a loopback port and routes each connection with a short head timeout. */
+  async function routeWithTimeout(socket: string, ms: number): Promise<number> {
+    const route = { path: STATUS_PATH, body: () => statusPage(COMMIT, record) };
+    const server = createServer((client) => routeConnection(client, () => connect(socket), route, ms));
+    await new Promise<void>((resolve) => server.listen(0, LOOPBACK, resolve));
+    servers.push(server);
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('the router has no port');
+    return address.port;
+  }
+
+  /** Writes `bytes`, then resolves with how long the connection stayed open, or `undefined` if it outlived `waitMs`. */
+  async function openFor(port: number, bytes: string, waitMs: number): Promise<number | undefined> {
+    const client = connect(port, LOOPBACK);
+    await new Promise<void>((resolve) => client.once('connect', () => resolve()));
+    const start = Date.now();
+    client.write(bytes);
+    const closed = new Promise<number>((resolve) => client.once('close', () => resolve(Date.now() - start)));
+    const outlived = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), waitMs));
+    const result = await Promise.race([closed, outlived]);
+    client.destroy();
+    return result;
+  }
+
+  test('is ten seconds by default', () => {
+    expect(HEAD_TIMEOUT_MS).toBe(10_000);
+  });
+
+  test('closes a connection whose request head stays partial', async () => {
+    const port = await routeWithTimeout(await fakeStudio(), 100);
+    const open = await openFor(port, 'GET /settings HTTP/1.1\r\nHost: a\r\n', 2_000);
+    expect(open).toBeDefined();
+    expect(open ?? 0).toBeGreaterThanOrEqual(90);
+  });
+
+  test('leaves a connection open once its head is complete', async () => {
+    const port = await routeWithTimeout(await fakeStudio(), 100);
+    expect(await openFor(port, 'GET /settings HTTP/1.1\r\nHost: a\r\n\r\n', 400)).toBeUndefined();
+  });
+});
+
 describe('serveHost', () => {
   test('is loopback unless PYRIC_FACTORY_SERVE_HOST names one address', () => {
     expect(serveHost({})).toBe(LOOPBACK);
@@ -162,6 +204,26 @@ describe('serveHost', () => {
     for (const bad of ['box.example.net', 'localhost', '0.0.0.0', '::', '0:0::0', '192.0.2.10:4120']) {
       expect(() => serveHost({ PYRIC_FACTORY_SERVE_HOST: bad })).toThrow(ServeHostInvalid);
     }
+  });
+
+  test('refuses the IPv4-mapped wildcard address in every spelling', () => {
+    const spellings = [
+      '::ffff:0.0.0.0',
+      '::ffff:0:0',
+      '::FFFF:0:0',
+      '::ffff:0000:0000',
+      '0:0:0:0:0:ffff:0:0',
+      '0:0:0:0:0:ffff:0.0.0.0',
+      '0000:0000:0000:0000:0000:FFFF:0000:0000',
+    ];
+    for (const bad of spellings) {
+      expect(() => serveHost({ PYRIC_FACTORY_SERVE_HOST: bad })).toThrow(ServeHostInvalid);
+    }
+    expect(serveHost({ PYRIC_FACTORY_SERVE_HOST: '::ffff:192.0.2.10' })).toBe('::ffff:192.0.2.10');
+  });
+
+  test('refuses an IPv6 address with a zone id', () => {
+    expect(() => serveHost({ PYRIC_FACTORY_SERVE_HOST: 'fe80::1%lo' })).toThrow(ServeHostInvalid);
   });
 
   test('the served copy listens on the address given, and the reported URLs use it', async () => {

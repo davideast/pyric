@@ -16,6 +16,8 @@
 import type { Socket } from 'node:net';
 
 const MAX_HEAD = 64 * 1024;
+/** How long a request head may take to arrive in full before the connection is closed. */
+export const HEAD_TIMEOUT_MS = 10_000;
 const HEAD_END = Buffer.from('\r\n\r\n');
 
 export interface StatusRoute {
@@ -50,12 +52,21 @@ export function parseHead(head: string): RequestHead {
   const isUpgrade = headers.has('upgrade');
   const isChunked = (headers.get('transfer-encoding') ?? '').toLowerCase().includes('chunked');
   const hasBadLength = !Number.isInteger(length) || length < 0;
-  return { method, path: target.split('?')[0] ?? '', contentLength: hasBadLength ? 0 : length, passThrough: isUpgrade || isChunked || hasBadLength };
+  const cannotFollow = isUpgrade || isChunked || hasBadLength;
+  return { method, path: target.split('?')[0] ?? '', contentLength: hasBadLength ? 0 : length, passThrough: cannotFollow };
 }
 
 export function statusResponse(method: string, html: string): string {
   const body = Buffer.from(html, 'utf8');
-  const head = ['HTTP/1.1 200 OK', 'Content-Type: text/html; charset=utf-8', `Content-Length: ${body.length}`, 'Cache-Control: no-store', 'Connection: close', '', ''].join('\r\n');
+  const head = [
+    'HTTP/1.1 200 OK',
+    'Content-Type: text/html; charset=utf-8',
+    `Content-Length: ${body.length}`,
+    'Cache-Control: no-store',
+    'Connection: close',
+    '',
+    '',
+  ].join('\r\n');
   const isHead = method === 'HEAD';
   return isHead ? head : head + html;
 }
@@ -69,11 +80,34 @@ class Router {
   /** Set once the route answered: the connection is closing, so nothing more goes to Studio. */
   private answered = false;
 
-  constructor(private readonly client: Socket, private readonly open: () => Socket, private readonly route: StatusRoute) {
+  private headTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    private readonly client: Socket,
+    private readonly open: () => Socket,
+    private readonly route: StatusRoute,
+    private readonly headTimeoutMs: number,
+  ) {
     client.on('data', (chunk: Buffer) => this.take(chunk));
     client.once('end', () => this.upstream?.end());
     client.once('error', () => this.upstream?.destroy());
-    client.once('close', () => this.upstream?.destroy());
+    client.once('close', () => {
+      this.stopHeadTimer();
+      this.upstream?.destroy();
+    });
+  }
+
+  /** Closes the connection when a head is still partial the timeout after its first bytes. */
+  private watchHead(): void {
+    const isPartialHead = this.pending.length > 0 && this.bodyLeft === 0 && !this.passThrough && !this.answered;
+    if (!isPartialHead) return this.stopHeadTimer();
+    if (this.headTimer !== undefined) return;
+    this.headTimer = setTimeout(() => this.client.destroy(), this.headTimeoutMs);
+  }
+
+  private stopHeadTimer(): void {
+    clearTimeout(this.headTimer);
+    this.headTimer = undefined;
   }
 
   private take(chunk: Buffer): void {
@@ -81,6 +115,7 @@ class Router {
     if (this.passThrough) return this.forward(chunk);
     this.pending = Buffer.concat([this.pending, chunk]);
     this.drain();
+    this.watchHead();
   }
 
   private drain(): void {
@@ -96,6 +131,7 @@ class Router {
       }
       const headBytes = this.pending.subarray(0, end + HEAD_END.length);
       this.pending = this.pending.subarray(end + HEAD_END.length);
+      this.stopHeadTimer();
       const head = parseHead(headBytes.subarray(0, end).toString('latin1'));
       if (head.path === this.route.path) return this.answer(head);
       this.forward(headBytes);
@@ -147,7 +183,11 @@ class Router {
   }
 }
 
-/** Serves `route` on `client`'s connection and pipes every other request to the socket `open` connects. */
-export function routeConnection(client: Socket, open: () => Socket, route: StatusRoute): void {
-  new Router(client, open, route);
+/**
+ * Serves `route` on `client`'s connection and pipes every other request to
+ * the socket `open` connects. A request head still partial after
+ * `headTimeoutMs` closes the connection.
+ */
+export function routeConnection(client: Socket, open: () => Socket, route: StatusRoute, headTimeoutMs = HEAD_TIMEOUT_MS): void {
+  new Router(client, open, route, headTimeoutMs);
 }

@@ -12,8 +12,9 @@
  * points `hour-<n>` and `latest` at it, also when the check throws. A pass
  * records the commit as the last good one; a commit that passed the serve
  * gates is served, labelled with the gates it fails (`serve-newest.ts`),
- * and the summary names the served commit, its label and its status page. The whole check stops at the supervisor's signal or after
- * its budget, 50 minutes unless `PYRIC_FACTORY_CHECK_MINUTES` says. The
+ * and the summary names the served commit, its label and its status page.
+ * The whole check stops at the supervisor's signal or after its budget, 50
+ * minutes unless `PYRIC_FACTORY_CHECK_MINUTES` says. The
  * supervisor writes the result into `latest-check.json`, the extra fields
  * included.
  */

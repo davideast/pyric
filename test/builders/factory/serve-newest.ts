@@ -113,7 +113,8 @@ async function serveThis(action: ServeAction, decided: Decided): Promise<ServeOu
   const record = decided.next();
   writeLastServed(input.paths.lastServed, record);
   const lines = control.publish();
-  return { action, note: `serving ${short(input.commit)} on port ${port}; ${lines.join('; ')}`, served: { ...labelOf(input.commit, record), ...decided.urls() } };
+  const note = `serving ${short(input.commit)} on port ${port}; ${lines.join('; ')}`;
+  return { action, note, served: { ...labelOf(input.commit, record), ...decided.urls() } };
 }
 
 export async function serveNewest(input: ServeInput): Promise<ServeOutcome> {
