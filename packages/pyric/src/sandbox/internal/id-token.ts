@@ -9,16 +9,43 @@
  * payload, or tag fails {@link checkIdToken}. It is not a security boundary:
  * anyone with this source can mint a token that checks.
  */
-import { checkSandboxJwt, SANDBOX_JWT_KID, signSandboxJwt, type SandboxJwtCheck } from './sandbox-jwt.js';
+import { checkSandboxJwt, SANDBOX_JWT_KID, signSandboxJwtSync, type SandboxJwtCheck } from './sandbox-jwt.js';
 
 const ID_TOKEN_KEY = 'pyric-sandbox-id-token-signing-key';
 const ID_TOKEN_HEADER = { alg: 'RS256', kid: SANDBOX_JWT_KID, typ: 'JWT' } as const;
 
+/**
+ * The project an ID token names when the minting side knows none, such as a
+ * bare `getAuth(sandbox)`. No real project has this id, so its tokens fail an
+ * admin app set up for a real project.
+ */
+export const SANDBOX_PROJECT_ID = 'pyric-sandbox';
+
 export type IdTokenCheck = SandboxJwtCheck;
 
-/** Signs ID token claims with the sandbox ID token key. Callers choose every claim. */
+/** Production's `iss` and `aud` for a project's ID tokens (capture `auth-request-auth-per-sign-in`). */
+export function idTokenAudience(projectId: string): { iss: string; aud: string } {
+  return { iss: `https://securetoken.google.com/${projectId}`, aud: projectId };
+}
+
+/**
+ * Signs ID token claims with the sandbox ID token key, synchronously, so a
+ * sign-in can mint inside its own transition. Callers choose every claim.
+ *
+ * `mint` numbers one mint among others with the same claims: two forced
+ * refreshes in the same second carry the same `iat`, and production still
+ * returns two different strings (capture `auth-getidtoken-force-refresh`).
+ * It rides in the header as `pyric_mint`, which no claim reader sees.
+ */
+export function mintIdToken(claims: Record<string, unknown>, mint?: number): string {
+  const header: Record<string, unknown> = { ...ID_TOKEN_HEADER };
+  if (mint !== undefined) header.pyric_mint = mint;
+  return signSandboxJwtSync(ID_TOKEN_KEY, header, claims);
+}
+
+/** {@link mintIdToken} without a mint number, for callers that await a token. */
 export async function signIdToken(claims: Record<string, unknown>): Promise<string> {
-  return signSandboxJwt(ID_TOKEN_KEY, { ...ID_TOKEN_HEADER }, claims);
+  return mintIdToken(claims);
 }
 
 /**

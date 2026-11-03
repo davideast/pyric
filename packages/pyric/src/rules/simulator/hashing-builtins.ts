@@ -200,7 +200,8 @@ function rotr(x: number, n: number): number {
   return (x >>> n) | (x << (32 - n));
 }
 
-function sha256(data: Uint8Array): Uint8Array {
+/** SHA-256 of `data`, synchronous and without `node:crypto`, so it runs in a browser, a worker, or Node. */
+export function sha256(data: Uint8Array): Uint8Array {
   const view = padMessage(data, false);
   const h = new Int32Array([
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,

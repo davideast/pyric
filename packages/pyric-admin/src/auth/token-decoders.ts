@@ -3,6 +3,7 @@
  * Each decoder strategy isolates prefix detection and claim decoding
  * for one recognized token format.
  */
+import { checkIdToken, idTokenAudience, JWS_SHAPE, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 import type { DecodedIdToken } from './types.js';
 
 /**
@@ -23,10 +24,19 @@ import type { DecodedIdToken } from './types.js';
  */
 export const SANDBOX_TOKEN_PREFIX = 'pyric-sandbox-custom';
 
+/** The `iss` and `aud` a token that names neither gets: the project every unnamed sandbox mints for. */
+const SANDBOX_AUDIENCE = idTokenAudience(SANDBOX_PROJECT_ID);
+
 export interface TokenDecoder {
   readonly name: string;
-  readonly prefix: string;
-  decode(token: string, nowSec: number): DecodedIdToken;
+  /** True when the token is in this decoder's format. */
+  matches(token: string): boolean;
+  decode(token: string, nowSec: number): DecodedIdToken | Promise<DecodedIdToken>;
+}
+
+/** A decoder for the tokens that begin with `prefix`. */
+function startsWith(prefix: string): (token: string) => boolean {
+  return (token) => token.startsWith(prefix);
 }
 
 function resolveStringClaim(claims: Record<string, unknown>, key: string, fallback: string): string {
@@ -76,7 +86,7 @@ function resolveFirebaseClaim(
 
 const customTokenDecoder: TokenDecoder = {
   name: 'custom-token',
-  prefix: `${SANDBOX_TOKEN_PREFIX}:`,
+  matches: startsWith(`${SANDBOX_TOKEN_PREFIX}:`),
   decode(idToken: string, nowSec: number): DecodedIdToken {
     const firstColon = idToken.indexOf(':');
     const secondColon = idToken.indexOf(':', firstColon + 1);
@@ -97,7 +107,7 @@ const customTokenDecoder: TokenDecoder = {
       );
     }
     return {
-      aud: 'pyric-sandbox',
+      aud: SANDBOX_AUDIENCE.aud,
       auth_time: nowSec,
       exp: nowSec + 3600,
       firebase: {
@@ -105,7 +115,7 @@ const customTokenDecoder: TokenDecoder = {
         sign_in_provider: 'custom',
       },
       iat: nowSec,
-      iss: 'pyric-sandbox',
+      iss: SANDBOX_AUDIENCE.iss,
       sub: uid,
       uid,
       ...claims,
@@ -113,9 +123,10 @@ const customTokenDecoder: TokenDecoder = {
   },
 };
 
-const clientIdTokenDecoder: TokenDecoder = {
-  name: 'client-id-token',
-  prefix: 'sandbox-id-token-',
+/** The client ID token shape before #1836: `sandbox-id-token-<uid>-<serial>:` and the claims as JSON. */
+const legacyClientIdTokenDecoder: TokenDecoder = {
+  name: 'legacy-client-id-token',
+  matches: startsWith('sandbox-id-token-'),
   decode(idToken: string, nowSec: number): DecodedIdToken {
     const firstColon = idToken.indexOf(':');
     const isMissingClaimsSegment = firstColon < 0;
@@ -134,8 +145,8 @@ const clientIdTokenDecoder: TokenDecoder = {
       );
     }
     const uid = resolveUid(idToken, firstColon, claims);
-    const aud = resolveStringClaim(claims, 'aud', 'pyric-sandbox');
-    const iss = resolveStringClaim(claims, 'iss', 'https://sandbox.pyric.dev');
+    const aud = resolveStringClaim(claims, 'aud', SANDBOX_AUDIENCE.aud);
+    const iss = resolveStringClaim(claims, 'iss', SANDBOX_AUDIENCE.iss);
     const exp = resolveNumberClaim(claims, 'exp', nowSec + 3600);
     const iat = resolveNumberClaim(claims, 'iat', nowSec);
     const authTime = resolveNumberClaim(claims, 'auth_time', nowSec);
@@ -155,4 +166,25 @@ const clientIdTokenDecoder: TokenDecoder = {
   },
 };
 
-export const TOKEN_DECODERS: TokenDecoder[] = [customTokenDecoder, clientIdTokenDecoder];
+/**
+ * The client ID token `pyric/auth` `getIdToken()` mints: a JWT whose payload
+ * holds every claim, decoded as firebase-admin decodes one, with `uid` set
+ * from `sub`. The claims come back as minted. Checking the tag, `aud`, `iss`
+ * and expiry is #1308's work; until then a token that decodes verifies.
+ */
+const clientIdTokenDecoder: TokenDecoder = {
+  name: 'client-id-token',
+  matches: (token) => JWS_SHAPE.test(token),
+  async decode(idToken: string): Promise<DecodedIdToken> {
+    const check = await checkIdToken(idToken);
+    if ('reason' in check && check.reason === 'malformed') {
+      throw new Error(
+        'pyric-admin/auth: verifyIdToken received a malformed client ID token: its header and payload must decode as JSON objects.',
+      );
+    }
+    const { claims } = check;
+    return { ...claims, uid: claims.sub } as DecodedIdToken;
+  },
+};
+
+export const TOKEN_DECODERS: TokenDecoder[] = [customTokenDecoder, legacyClientIdTokenDecoder, clientIdTokenDecoder];

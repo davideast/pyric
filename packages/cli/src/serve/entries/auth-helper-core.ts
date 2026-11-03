@@ -15,6 +15,7 @@ import type {
   User,
   UserCredential,
 } from 'pyric/auth';
+import { idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 
 export interface NewIdentitySpec {
   email: string;
@@ -249,10 +250,11 @@ function bareCredential(identity: HelperIdentity, providerId: string): UserCrede
   const expirationTime = new Date(Date.now() + 3600_000).toISOString();
   const claims: Record<string, unknown> = {
     sub: identity.uid,
+    ...idTokenAudience(SANDBOX_PROJECT_ID),
     ...identity.customClaims,
     firebase: { sign_in_provider: providerId },
   };
-  const token = `sandbox-id-token-${identity.uid}-0:${JSON.stringify(claims)}`;
+  const token = mintIdToken(claims);
   // A directory entry without a photo mints a photo-less credential; the
   // helper never invents one.
   const photoURL = identity.photoURL ?? null;

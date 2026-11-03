@@ -271,13 +271,15 @@ export {
   JWS_SHAPE,
   latin1FromBase64url,
   sandboxSignature,
+  sandboxSignatureSync,
   signSandboxJwt,
+  signSandboxJwtSync,
   utf8FromBase64url,
   type SandboxJwtCheck,
   type SandboxJwtParts,
   type SandboxSigningKey,
 } from './sandbox-jwt.js';
-export { checkIdToken, signIdToken, type IdTokenCheck } from './id-token.js';
+export { checkIdToken, idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID, signIdToken, type IdTokenCheck } from './id-token.js';
 export {
   appCheckActivationOf,
   appCheckTokenFor,

@@ -10,6 +10,12 @@ export interface AuthProjectStore {
   readonly counters: {
     nextAdminUserId: number;
   };
+  /**
+   * The project the minted ID tokens name in `iss` and `aud`, read at each
+   * mint because a served host learns it after Auth starts. `undefined`
+   * mints for `SANDBOX_PROJECT_ID`.
+   */
+  projectId: () => string | undefined;
 }
 
 export function createAuthProjectStore(): AuthProjectStore {
@@ -25,5 +31,6 @@ export function createAuthProjectStore(): AuthProjectStore {
     counters: {
       nextAdminUserId: 1,
     },
+    projectId: () => undefined,
   };
 }

@@ -39,13 +39,18 @@ function backendFor(sandbox: Sandbox): SandboxBackend {
 function backendForApp(app: FirebaseApp, runtime: ClientAppRuntime): SandboxBackend {
   return runtime.service('auth/backend', () => {
     const { sandbox, session } = runtime;
+    const store = projectStoreFor(sandbox);
+    // The app's project names the minted ID tokens' `iss` and `aud`, as
+    // production's tokens name the project the app signs in to.
+    const projectId = app.options.projectId;
+    if (typeof projectId === 'string' && projectId.length > 0) store.projectId = () => projectId;
     // Firebase apps always own their Auth middleware lifecycle, including the
     // default app whose session host happens to be the sandbox itself. The
     // bare `getAuth(sandbox)` API keeps its separate sandbox-lifetime backend.
     const backend = new SandboxBackend(
       sandbox,
       session,
-      projectStoreFor(sandbox),
+      store,
       (cleanup) => { runtime.onDelete(cleanup); },
     );
     runtime.onDelete(registerAuthPersistence(sandbox, backend, session, app.name));

@@ -25,6 +25,7 @@
  */
 
 import { FirebaseError } from './firebase-error.js';
+import { idTokenAudience, SANDBOX_PROJECT_ID } from './id-token.js';
 
 /**
  * Developer claim names the Admin SDK refuses with `auth/reserved-claim`
@@ -160,12 +161,15 @@ function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
  * Complete a token claim set with the standard Firebase ID-token claims
  * (`sub`, `aud`, `iss`, `auth_time`, `iat`, `exp`, `user_id`, and
  * `firebase.identities`) that production rules read on `auth.token`,
- * preserving any caller-supplied or account-projected claims.
+ * preserving any caller-supplied or account-projected claims. `iss` and
+ * `aud` name `projectId` as production's do; a caller that knows no project
+ * gets `SANDBOX_PROJECT_ID`.
  */
 export function withIdTokenClaims(
   uid: string,
   tokenClaims: Record<string, unknown>,
   nowMs: number = Date.now(),
+  projectId: string = SANDBOX_PROJECT_ID,
 ): Record<string, unknown> {
   const issuedAtSec = Math.floor(nowMs / 1000);
   const base = accountTokenClaims(uid, null, tokenClaims, null);
@@ -178,8 +182,7 @@ export function withIdTokenClaims(
   };
   return {
     sub: uid,
-    aud: 'pyric-sandbox',
-    iss: 'https://sandbox.pyric.dev',
+    ...idTokenAudience(projectId),
     auth_time: issuedAtSec,
     iat: issuedAtSec,
     exp: issuedAtSec + 3600,
