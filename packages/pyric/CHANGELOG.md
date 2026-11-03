@@ -51,21 +51,21 @@ The connection's peer address decides who is on this machine, so `--allowed-host
 #### Project files
 
 - `pyric sandbox` with no `hosting` block in `firebase.json`, or no `firebase.json`: before, served the current directory. Now, serves no static files and prints a `hosting  Off` line that says to add `hosting.public`. `/` still opens Studio (#1798).
-- A `hosting` block without `public`: before, served `.`. Now, serves `public`, production's default (#1798).
+- A `hosting` block without `public`: before, served `.`. Now, serves `public`, and `pyric sandbox` stops at startup with `hosting.public directory does not exist` if there is no such directory. A block with only function rewrites deploys with no directory, so it stops here too: see Known gaps (#1798, #1825).
 - With a `hosting` block: before, every file under the directory. Now, what a default deploy would upload. Dot files and dot directories such as `.pyric/`, `.env` and `.well-known/`, `node_modules` and a root `firebase.json` answer 404, whatever the project's own `ignore` says. So does a link that leaves the public directory (#1798).
 - Studio's workspace routes: `.pyric/`, `.env`, `.env.*`, `.envrc` and `node_modules` now answer 403 for read, write, list and remove, on this machine too, and are left out of listings (#1808).
 - The Vite plugin: `.pyric/` is refused by path, by query form and through `/@fs`, and a request whose real path is in `.pyric/` or is an env file is refused too. Vite keeps serving `node_modules` (#1798, #1808).
 
 #### Firestore and Storage rules
 
-- Ints: before, JavaScript doubles, so `9223372036854775807 + 1 > 0` allowed. Now, signed 64-bit, and overflow is an error value that denies, and that `|| true` and `&& false` absorb. A literal past the int64 range fails to compile with `Invalid number literal` (#1776).
+- Ints: before, JavaScript doubles, so `9223372036854775807 + 1 > 0` allowed. Now, signed 64-bit, and overflow is an error value that denies, and that `|| true` and `&& false` absorb. The exception is the minimum int divided by `-1`, which returns the minimum, as production does. A literal past the int64 range fails to compile with `Invalid number literal` (#1776).
 - Ints above 2^53: before, rounded. Now, they compare and print exactly, and a trace shows such an int as a string of digits (#1776).
-- A host number that isn't a safe integer, such as `2 ** 53` in document or request data: before, an int. Now, a float: `is int` is false and `string()` prints `9.007199254740992E15`. A rule that interpolates such a field into a path, or compares it to an int in a list, now denies. An integral custom claim inside int64 stays an int, and a fractional claim such as `1.5` now reads as a float (#1796).
+- A host number that isn't a safe integer, such as `2 ** 53` in document or request data: before, an int. Now, a float: `is int` is false and `string()` prints `9.007199254740992E15`. In Firestore, a rule that interpolates such a field into a path, or compares it to an int in a list, now denies. An integral custom claim inside int64 stays an int, and a fractional claim such as `1.5` now reads as a float (#1796).
 - `-duration`: before, an error. Now, it negates the duration (#1495, #1776).
 - Storage, a method no type defines, such as `'a'.foo()`: before, an error `||` couldn't absorb. Now, production's `Function not found error`, which `||` and `&&` absorb. Namespace calls such as `hashing.foo()` still fail closed (#1495).
 - Storage, a coarse request in `evaluateStorageRules` or `pyric simulate`: before, `request.method` was the word `read` or `write`. Now, `read` evaluates as `get` then `list`, a `write` with `request.resource` as `create` then `update`, and a `write` without one as `delete` (#1495).
 - Storage, an invalid `now` passed to `evaluateStorageRules`: now throws a `TypeError` at the call (#1495).
-- A path built in a helper function: an interpolated string is now one segment even if it holds `/` (#1495).
+- Storage, a path built in a helper function: an interpolated string is now one segment even if it holds `/` (#1495).
 
 #### Next.js and AI
 
@@ -77,10 +77,11 @@ The connection's peer address decides who is on this machine, so `--allowed-host
 Each of these refuses something that used to work. Check them before you upgrade.
 
 - **No `hosting` block, no static files.** A project that relied on `pyric sandbox` serving its directory now gets 404s. Add `"hosting": { "public": "." }` to `firebase.json`, or name your site's directory (#1798).
+- **A `hosting` block without `public` needs a `public` directory.** Without one, `pyric sandbox` stops at startup. Name a directory in `hosting.public`. That includes a block with only function rewrites, which `firebase-tools` accepts with no directory (#1798, #1825).
 - **Dot files, `node_modules` and `firebase.json` aren't served from Hosting.** That includes `/.well-known/`, even if your own `ignore` would upload it (#1798).
 - **Hosted pages and servers on another machine lose the sandbox.** A hosted page opened over the LAN loads, but its Firebase calls fail with an error saying the host answers its own machine only. On the in-page sandbox, such a page reads and writes Firestore in its own browser, with no project data, and Storage is denied. A server on another machine can't attach with `PYRIC_SANDBOX=remote:<url>` (#1808, #1821).
 - **Imagen is gone.** Firebase 12.19.0 removed the Imagen API from `firebase/ai`. `pyric/ai` no longer exports `ImagenAspectRatio`, `ImagenPersonFilterLevel` and `ImagenSafetyFilterLevel`. The served `firebase/ai` no longer exports those, `getImagenModel`, `ImagenModel`, `ImagenImageFormat`, `getTemplateImagenModel` or `TemplateImagenModel`, so a page that imports one fails to load, even with an older firebase installed (#1676).
-- **Rules that relied on the old number handling now deny.** An int overflow and an `is int` check on a stored number of 2^53 or more both deny, as production does (#1776, #1796).
+- **Rules that relied on the old number handling now deny.** An int overflow denies, as production's captures do (#1776). An `is int` check on a stored number of 2^53 or more denies too; that boundary comes from the SDK sources, not a rules capture: see Known gaps (#1796).
 - **`withPyric` refuses a `transpilePackages` entry it keeps external.** The error names the package. Next refused this already, without naming pyric (#1755).
 
 ### Known gaps
@@ -99,6 +100,7 @@ Each of these refuses something that used to work. Check them before you upgrade
 
 #### Firebase 12.19 and tags
 
+- npm's `latest` firebase is 13.2.0, and pyric is tested on the 12 line. Pyric's suites fail against npm's latest firebase and firebase-admin (#1602, #1188). Stay on `~12.19.0`, as scaffolded apps do.
 - The new names above throw until pyric implements them: `maximum` and `minimum` (#1672), messaging's four (#1673), `AgentPlatformBackend` (#1674).
 - The versioning page tells readers to run `npm install pyric@fb12.19`. No such tag exists yet: this release moves no `fb` tag, and `fb12.13` still points at alpha.24.
 
@@ -112,6 +114,7 @@ Each of these refuses something that used to work. Check them before you upgrade
 
 #### Functions
 
+- `pyric sandbox` stops at startup on a `hosting` block with only function rewrites and no `public/` directory, which `firebase-tools` accepts (#1825).
 - `pyric sandbox` exits at startup when `firebase.json` declares a Functions source whose `main` hasn't been built, so a fresh clone can stop before anything starts (#1812).
 - No production capture backs Functions HTTP yet: 16 of its 21 rows are unverified, and scaling options are unsupported.
 - A `regex` rewrite runs as a JavaScript regular expression, where production uses RE2, so a pattern can match in pyric and fail to deploy (#1204).
