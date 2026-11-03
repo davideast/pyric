@@ -34,17 +34,10 @@ import {
 } from 'pyric/sandbox/internal';
 import type { AuthLens } from 'pyric/sandbox';
 
-import type { HostCtx, HostRtdbInstance, PortLike } from '../host-context.js';
+import { hostProjectId, type HostCtx, type HostRtdbInstance, type PortLike } from '../host-context.js';
 import { portSession } from '../host-auth.js';
 import { defaultInstanceDeploy, twoDefaultRulesFilesMessage } from '../../database-instance-rules-host.js';
 import { authStateForLens, lensCacheKey, sessionCacheKey } from './core.js';
-
-/** The project id the host serves: the server's, else the first app port's. */
-export function hostProjectId(ctx: HostCtx): string | undefined {
-  if (ctx.rtdbProjectId) return ctx.rtdbProjectId;
-  const fromApp = ctx.appOptions?.projectId;
-  return typeof fromApp === 'string' && fromApp.length > 0 ? fromApp : undefined;
-}
 
 /** The default instance's name, when known: the project config's, else the app's project default. */
 export function defaultInstanceNameOf(ctx: HostCtx): string | undefined {

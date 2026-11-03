@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { checkIdToken } from 'pyric/sandbox/internal';
 
 import {
   getAuth,
@@ -44,8 +45,9 @@ describe('getIdToken(forceRefresh) — sandbox', () => {
     const token0 = await user.getIdToken();
     const token1 = await user.getIdToken(true);
     expect(token0).not.toBe(token1);
-    expect(token1.startsWith('sandbox-id-token-')).toBe(true);
-    expect(token1).toContain(user.uid);
+    const check = await checkIdToken(token1);
+    expect(check.ok).toBe(true);
+    if (check.ok) expect(check.claims.sub).toBe(user.uid);
   });
 
   it('caches the refreshed token — subsequent getIdToken(false) returns the new token', async () => {
@@ -120,7 +122,7 @@ describe('getIdToken(forceRefresh) — sandbox', () => {
 });
 
 describe('token string is sensitive to claims, not just the mint serial', () => {
-  // `sandboxTokenFor(uid, claims, serial)` hashes claims + serial; every
+  // `sandboxTokenFor(claims, serial)` signs claims + serial; every
   // adversarial-review test elsewhere compares tokens ACROSS mints
   // (refresh, re-sign-in), where the monotonic serial always advances
   // too — so a mutant that dropped `claims` from the hash and hashed

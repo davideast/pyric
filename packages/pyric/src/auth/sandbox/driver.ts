@@ -55,6 +55,15 @@ export const sandbox = {
     requireSandbox(auth).backend.setCurrentUser(user);
   },
 
+  /**
+   * Name the project the minted ID tokens' `iss` and `aud` carry, read at
+   * each mint. A host that learns its project later passes a function that
+   * reads it; until it returns one, tokens name `pyric-sandbox`.
+   */
+  setProjectIdSource(auth: Auth, source: () => string | undefined): void {
+    requireSandbox(auth).backend.setProjectIdSource(source);
+  },
+
   setAuthFlowResolver(auth: Auth, resolver: AuthFlowResolver | null): void {
     requireSandbox(auth).backend.setResolver(resolver);
   },

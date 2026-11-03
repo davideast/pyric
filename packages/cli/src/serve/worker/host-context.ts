@@ -345,6 +345,13 @@ export interface ActiveRulesState {
 
 // ─── Utility: post a typed reply to a port ───────────────────────────────
 
+/** The project id the host serves: the server's, else the first app port's. */
+export function hostProjectId(ctx: HostCtx): string | undefined {
+  if (ctx.rtdbProjectId) return ctx.rtdbProjectId;
+  const fromApp = ctx.appOptions?.projectId;
+  return typeof fromApp === 'string' && fromApp.length > 0 ? fromApp : undefined;
+}
+
 export function post(port: PortLike, msg: OutboundMessage): void {
   port.postMessage(msg);
 }

@@ -11,8 +11,12 @@
  *   replayed values back before comparing. A recorded id bound to two replayed
  *   ids is a divergence.
  * - Times compare equal to times: epoch milliseconds, `{ seconds, nanoseconds }`
- *   timestamps, ISO and HTTP dates, and the `iat`, `exp` and `auth_time` claims,
- *   also inside a sandbox ID token string, which carries its claims as JSON.
+ *   timestamps, ISO and HTTP dates, and the `iat`, `exp` and `auth_time` claims.
+ *   A JWT ID token reaches the comparison as its header and claims, because the
+ *   replay redacts every JWT first (`redactSecrets`), so its tag, which signs
+ *   the times, is never compared. A recording made before ID tokens were JWTs
+ *   holds `sandbox-id-token-<uid>-<serial>:` and its claims as JSON, and still
+ *   compares by those claims.
  *
  * Everything else must be equal.
  */
@@ -22,7 +26,7 @@ const TOKEN_SPLIT = /([^A-Za-z0-9_-]+)/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const HTTP_DATE = /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/;
 const TIME_CLAIMS = new Set(['iat', 'exp', 'auth_time']);
-/** A sandbox ID token: `sandbox-id-token-<uid>-<serial>:` and its claims as JSON. */
+/** An ID token in the shape before JWTs: `sandbox-id-token-<uid>-<serial>:` and its claims as JSON. */
 const SANDBOX_ID_TOKEN = /^(sandbox-id-token-[^:]*):(\{.*\})$/s;
 export const TIME = '<time>';
 

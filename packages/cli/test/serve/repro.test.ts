@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { mintIdToken } from 'pyric/sandbox/internal';
 import { IdBindings, matchRecorded, normalize, TIME } from '../../src/serve/repro/compare.js';
 import { parseRepro, redactSecrets, REDACTED_SECRET, restoreRedactedTokens } from '../../src/serve/repro/format.js';
 import { createReproRecorder } from '../../src/serve/repro/recorder.js';
@@ -77,6 +78,13 @@ describe('repro comparison', () => {
     expect(matchRecorded({ value: minted(1_793_196_457) }, { value: minted(1_793_196_458) }, new IdBindings()).matches).toBe(true);
     const otherSubject = minted(1_793_196_457).replace('"sub":"u1"', '"sub":"u2"');
     expect(matchRecorded({ value: minted(1_793_196_457) }, { value: otherSubject }, new IdBindings()).matches).toBe(false);
+  });
+
+  test('a JWT ID token minted a second later matches as the replay compares it: claims kept, times as times, tag dropped (#1836)', () => {
+    const minted = (at: number, sub = 'u1') => mintIdToken({ sub, auth_time: at, iat: at, exp: at + 3600, user_id: sub, name: 'Builder One' }, 1);
+    const recorded = redactSecrets({ value: minted(1_793_196_457) });
+    expect(matchRecorded(recorded, redactSecrets({ value: minted(1_793_196_458) }), new IdBindings()).matches).toBe(true);
+    expect(matchRecorded(recorded, redactSecrets({ value: minted(1_793_196_457, 'u2') }), new IdBindings()).matches).toBe(false);
   });
 });
 

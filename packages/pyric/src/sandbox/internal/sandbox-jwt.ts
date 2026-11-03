@@ -12,7 +12,12 @@
  * signature, so any edit to the header, payload, or signature fails the
  * check. Each token kind passes its own key, so a token of one kind never
  * checks as another. It is not a security boundary: anyone can mint one.
+ *
+ * The digest is the rules engine's synchronous SHA-256, so an Auth ID token
+ * can be minted inside a synchronous sign-in, as the token cache needs.
  */
+import { sha256 } from '../../rules/simulator/hashing-builtins.js';
+
 const SIGNATURE_BLOCKS = 8;
 
 /** The `kid` every sandbox token kind carries; the per-kind key keeps kinds apart. */
@@ -50,22 +55,29 @@ export function encodeJson(value: unknown): string {
   return base64url(new TextEncoder().encode(JSON.stringify(value)));
 }
 
-/** The sandbox signature segment for a signing input (`<header>.<payload>`) under one token kind's key. */
-export async function sandboxSignature(key: string, signingInput: string): Promise<string> {
-  const blocks: Uint8Array[] = [];
+/** The sandbox signature segment for a signing input (`<header>.<payload>`) under one token kind's key, computed synchronously. */
+export function sandboxSignatureSync(key: string, signingInput: string): string {
+  const out = new Uint8Array(SIGNATURE_BLOCKS * 32);
   for (let block = 0; block < SIGNATURE_BLOCKS; block++) {
-    const data = new TextEncoder().encode(`${block}.${key}.${signingInput}`);
-    blocks.push(new Uint8Array(await crypto.subtle.digest('SHA-256', data)));
+    out.set(sha256(new TextEncoder().encode(`${block}.${key}.${signingInput}`)), block * 32);
   }
-  const out = new Uint8Array(blocks.length * 32);
-  blocks.forEach((bytes, index) => out.set(bytes, index * 32));
   return base64url(out);
 }
 
-/** Signs any header and claims with one token kind's sandbox key. */
-export async function signSandboxJwt(key: string, header: Record<string, unknown>, claims: Record<string, unknown>): Promise<string> {
+/** {@link sandboxSignatureSync} for callers that await a signature. */
+export async function sandboxSignature(key: string, signingInput: string): Promise<string> {
+  return sandboxSignatureSync(key, signingInput);
+}
+
+/** Signs any header and claims with one token kind's sandbox key, synchronously. */
+export function signSandboxJwtSync(key: string, header: Record<string, unknown>, claims: Record<string, unknown>): string {
   const signingInput = `${encodeJson(header)}.${encodeJson(claims)}`;
-  return `${signingInput}.${await sandboxSignature(key, signingInput)}`;
+  return `${signingInput}.${sandboxSignatureSync(key, signingInput)}`;
+}
+
+/** {@link signSandboxJwtSync} for callers that await a token. */
+export async function signSandboxJwt(key: string, header: Record<string, unknown>, claims: Record<string, unknown>): Promise<string> {
+  return signSandboxJwtSync(key, header, claims);
 }
 
 /** A decoded token's header and claims, unchecked: any field may be missing or of any type. */

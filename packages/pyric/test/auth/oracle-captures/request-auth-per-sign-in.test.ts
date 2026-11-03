@@ -148,16 +148,6 @@ const SIGNED_IN = Object.keys(KINDS).filter((kind) => kind !== 'signedOut');
 interface PinGroup { finding: string; plane: string; kinds: string[]; labels: string[]; pyric: string; production: string }
 const PIN_GROUPS: PinGroup[] = [
   {
-    finding: '#1503: the minted token names aud pyric-sandbox and iss https://sandbox.pyric.dev, not the project and securetoken',
-    plane: 'rtdb', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
-    labels: ['token.iss is securetoken plus token.aud'],
-  },
-  {
-    finding: '#1503: the minted token names aud pyric-sandbox and iss https://sandbox.pyric.dev, not the project and securetoken',
-    plane: 'firestore', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
-    labels: ['token.iss is securetoken plus token.aud'],
-  },
-  {
     finding: '#1502: minted ID tokens last 100 years, so a rule on exp minus iat equal to 3600 denies',
     plane: 'rtdb', kinds: SIGNED_IN, pyric: 'DENY', production: 'ALLOW',
     labels: ['token.exp minus token.iat is 3600'],
