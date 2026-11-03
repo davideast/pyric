@@ -64,6 +64,7 @@ jobs:
       - name: Factory unit tests
         run: >-
           bun test
+          test/builders/factory/agent-phase.test.ts
           test/builders/factory/agent-session.test.ts
           test/builders/factory/check-plumbing.test.ts
           test/builders/factory/commands.test.ts
