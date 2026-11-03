@@ -18,15 +18,27 @@ export function hostInUrl(host: string): string {
   return isIP(host) === 6 ? `[${host}]` : host;
 }
 
-/** `0.0.0.0` or `::` in any spelling. The URL parser writes an IPv6 address in its shortest form. */
+/**
+ * The URL parser writes an IPv6 address in its shortest form, so these are
+ * `::` and its IPv4-mapped form `::ffff:0.0.0.0` in any spelling. Binding
+ * either listens on every network.
+ */
+const WILDCARD_V6 = new Set(['[::]', '[::ffff:0:0]']);
+
+/** The IPv6 address in its shortest form, as the URL parser writes it, in brackets. */
+function shortestV6(address: string): string {
+  return new URL(`http://[${address}]/`).hostname;
+}
+
+/** `0.0.0.0`, `::` or `::ffff:0.0.0.0`, in any spelling. */
 function isWildcard(address: string): boolean {
   if (isIP(address) === 4) return address === '0.0.0.0';
-  return new URL(`http://[${address}]/`).hostname === '[::]';
+  return WILDCARD_V6.has(shortestV6(address));
 }
 
 export function isLoopback(address: string): boolean {
   const isLoopbackV4 = isIP(address) === 4 && address.startsWith('127.');
-  const isLoopbackV6 = isIP(address) === 6 && new URL(`http://[${address}]/`).hostname === '[::1]';
+  const isLoopbackV6 = isIP(address) === 6 && shortestV6(address) === '[::1]';
   return isLoopbackV4 || isLoopbackV6;
 }
 
@@ -35,8 +47,25 @@ export function serveHost(env: NodeJS.ProcessEnv = process.env): string {
   if (value === undefined || value === '') return LOOPBACK;
   const isAddress = isIP(value) !== 0;
   if (!isAddress) throw new ServeHostInvalid(`PYRIC_FACTORY_SERVE_HOST must be one IP address, not ${value}`);
-  if (isWildcard(value)) throw new ServeHostInvalid(`PYRIC_FACTORY_SERVE_HOST must name one address, not ${value}, which listens on every network`);
+  const hasZone = value.includes('%');
+  if (hasZone) {
+    throw new ServeHostInvalid(`PYRIC_FACTORY_SERVE_HOST must be an address without a zone id, not ${value}`);
+  }
+  if (isWildcard(value)) {
+    throw new ServeHostInvalid(`PYRIC_FACTORY_SERVE_HOST must name one address, not ${value}, which listens on every network`);
+  }
   return value;
+}
+
+/** Why `PYRIC_FACTORY_SERVE_HOST` can't be served on, for the harness commands to refuse before a run starts. */
+export function serveHostProblem(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  try {
+    serveHost(env);
+    return undefined;
+  } catch (error) {
+    if (!(error instanceof ServeHostInvalid)) throw error;
+    return error.message;
+  }
 }
 
 /** The host names Next and Pyric must accept from a page: the private network's name and the bound address, past loopback. */
