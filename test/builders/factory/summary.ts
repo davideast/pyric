@@ -1,7 +1,9 @@
 /**
- * `factory-summary`: the timeline as the morning review reads it. Totals per
- * seat first, then every line in order, then the size of the run's work
- * trees (`<run>.work/`).
+ * `factory-summary`: the timeline as the morning review reads it. The first
+ * line leads with the run's commits and finished items, from the newest
+ * hourly check that counted them (`hour-progress.ts`). Totals per seat
+ * next, then every line in order, then the size of the run's work trees
+ * (`<run>.work/`).
  */
 import { lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +11,7 @@ import type { TimelineLine } from './timeline.ts';
 
 type SessionLine = Extract<TimelineLine, { type: 'session' }>;
 type PauseLine = Extract<TimelineLine, { type: 'pause' }>;
+type CheckLine = Extract<TimelineLine, { type: 'check' }>;
 
 const clockTime = (iso: string): string => iso.slice(11, 19);
 
@@ -31,6 +34,15 @@ function seatTotals(sessions: readonly SessionLine[]): string[] {
   });
 }
 
+/** The run's commits and finished items, from the newest check that counted them. */
+function progressTotals(checks: readonly CheckLine[]): string {
+  const latest = checks.findLast((line) => line.progress !== undefined)?.progress;
+  if (latest === undefined) return 'no commits or finished items counted yet';
+  const commits = `${latest.commitsSinceStart} commit${latest.commitsSinceStart === 1 ? '' : 's'}`;
+  const finished = latest.readyOrDone.length;
+  return `${commits} and ${finished} item${finished === 1 ? '' : 's'} finished since start`;
+}
+
 function describeLine(line: TimelineLine): string {
   switch (line.type) {
     case 'start': return `${clockTime(line.at)}  start, deadline ${line.deadline}`;
@@ -49,12 +61,12 @@ export function formatSummary(lines: readonly TimelineLine[]): string {
   const sessions = lines.filter((line): line is SessionLine => line.type === 'session');
   const pauses = lines.filter((line): line is PauseLine => line.type === 'pause');
   const restarts = lines.filter((line) => line.type === 'restart').length;
-  const checks = lines.filter((line) => line.type === 'check');
-  const passed = checks.filter((line) => line.type === 'check' && line.passed).length;
+  const checks = lines.filter((line): line is CheckLine => line.type === 'check');
+  const passed = checks.filter((line) => line.passed).length;
   const ended = lines.some((line) => line.type === 'end');
   const waited = pauses.reduce((total, line) => total + span(line.at, line.until), 0);
   return [
-    `${sessions.length} sessions, ${restarts} restarts, ${pauses.length} pauses (${minutes(waited)} waiting), ${checks.length} hourly checks (${passed} passed), ${ended ? 'reached its deadline' : 'not at its deadline yet'}`,
+    `${progressTotals(checks)}; ${sessions.length} sessions, ${restarts} restarts, ${pauses.length} pauses (${minutes(waited)} waiting), ${checks.length} hourly checks (${passed} passed), ${ended ? 'reached its deadline' : 'not at its deadline yet'}`,
     '',
     ...seatTotals(sessions),
     '',

@@ -656,6 +656,20 @@ so the clone can't point the fetch at another repository. The harness
 opens `.git` once, with `O_NOFOLLOW`, checks it through that descriptor
 and has bwrap bind the same descriptor (`--ro-bind-fd`, bubblewrap 0.9.0
 or later), so a `.git` swapped after the check is never the one fetched.
+
+Once the commit is fetched, the check works out what the run made this
+hour (`factory/hour-progress.ts`): commits since the commit the previous
+hour's check fetched and since the start commit, counted with
+`git rev-list --count` in the bare repo, the last commit's time, and the
+work list's items now `ready` or `done` that the previous hour's
+`result.json` didn't list. The check's summary starts with that line, also
+when a later step throws, and the journal, `result.json`,
+`latest-check.json` (`progress`) and the timeline's check line get it:
+
+```
+hour 3: no commits this hour (9 since start, last at 19:08Z), 0 items finished this hour (8 ready, 0 done)
+```
+
 The check exports the roles' current commit with `git archive` into a
 fresh tree, which its sandbox unpacks, and runs there, in order:
 
@@ -745,8 +759,9 @@ crash has none; the `restart` line after it gives the last heartbeat.
 bun test/builders/harness.ts factory-summary --run-dir "$RUN"
 ```
 
-prints totals per seat, then the timeline, then the size of the run's
-`.work` trees.
+prints the run's commits and finished items, from the newest hourly check
+that counted them, then totals per seat, then the timeline, then the size
+of the run's `.work` trees.
 
 ### Agent sessions
 

@@ -107,7 +107,7 @@ describe('formatSummary', () => {
       { type: 'end', at: at(120) },
     ];
     expect(formatSummary(lines)).toBe([
-      '2 sessions, 1 restarts, 1 pauses (30m waiting), 1 hourly checks (1 passed), reached its deadline',
+      'no commits or finished items counted yet; 2 sessions, 1 restarts, 1 pauses (30m waiting), 1 hourly checks (1 passed), reached its deadline',
       '',
       '  lead               1 sessions    10m working  0 failed  0 rate-limited',
       '  builder-1          1 sessions     2m working  0 failed  1 rate-limited',

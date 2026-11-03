@@ -5,7 +5,8 @@
 // throws still writes a failed result and points `latest` and `hour-<n>` at
 // it, in a fresh folder that keeps an earlier run of the same hour; the
 // summary and latest-check.json name the served commit and the gates it
-// fails; and the
+// fails; the supervisor puts the check's progress on the timeline's check
+// line and in latest-check.json; and the
 // default runner module gives the supervisor the hourly check and the run's
 // end hook.
 import { describe, expect, test } from 'bun:test';
@@ -22,7 +23,13 @@ import { runHourlyCheck, servedFields } from './hourly-check.ts';
 import { servedLine } from './serve-newest.ts';
 import { lockfileProblems } from './lockfile.ts';
 import { loadRunner } from './runner-module.ts';
+import { FakeClock } from './fake-clock.ts';
+import { fakeSessions } from './fake-session.ts';
+import { runPaths } from './run-dir.ts';
 import { servedEnvironment } from './served.ts';
+import type { CheckProgress, HourlyCheck } from './session.ts';
+import { runSupervisor } from './supervisor.ts';
+import { readTimeline } from './timeline.ts';
 import { runEnd } from './session-runner.ts';
 import { hourlyCheck } from './hourly-check.ts';
 
@@ -153,6 +160,23 @@ describe('the served copy in the check\'s result', () => {
       statusUrl: 'https://box.example.net:4120/_factory/status',
     });
     expect(servedFields(undefined)).toEqual({});
+  });
+});
+
+describe('the check\'s progress in the supervisor', () => {
+  test('goes on the timeline\'s check line and into latest-check.json', async () => {
+    const runDir = mkdtempSync(join(tmpdir(), 'factory-progress-supervisor-'));
+    const briefDir = mkdtempSync(join(tmpdir(), 'factory-brief-'));
+    const clock = new FakeClock(Date.parse('2026-11-02T17:24:00.000Z'));
+    const line = 'hour 1: no commits this hour (none since start), 0 items finished this hour (0 ready, 0 done)';
+    const progress: CheckProgress = { line, commitsThisHour: 0, commitsSinceStart: 0, finished: [], readyOrDone: [], ready: 0, done: 0 };
+    const hourlyCheck: HourlyCheck = async () => ({ passed: false, summary: `${line}. gates`, progress });
+    const sessions = fakeSessions(clock, () => ({ ms: 20 * 60_000 }));
+    await clock.runUntilSettled(runSupervisor({ runDir, hours: 2, agent: 'fake', briefDir, resume: false, runSession: sessions.runSession, clock, pid: 1, log: () => {}, hourlyCheck }));
+    const check = readTimeline(runPaths(runDir).timeline).find((entry) => entry.type === 'check');
+    expect(check).toMatchObject({ hour: 1, summary: `${line}. gates`, progress });
+    const latest = JSON.parse(readFileSync(runPaths(runDir).files.latestCheck, 'utf8')) as { progress?: CheckProgress };
+    expect(latest.progress).toEqual(progress);
   });
 });
 

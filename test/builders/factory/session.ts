@@ -42,10 +42,30 @@ export interface SessionOptions {
 
 export type RunSession = (role: Role, options: SessionOptions) => Promise<SessionResult>;
 
+/** What the run made by an hourly check (`hour-progress.ts`). */
+export interface CheckProgress {
+  /** The line the check's summary starts with. */
+  line: string;
+  /** Commits since the commit the previous hour's check fetched, or since the start commit. */
+  commitsThisHour: number;
+  commitsSinceStart: number;
+  /** The checked commit's time, as an ISO time, when it is newer than the start commit. */
+  lastCommitAt?: string;
+  /** Ids now `ready` or `done` that the previous hour's check didn't list. */
+  finished: string[];
+  /** Every id now `ready` or `done`, which the next hour's check compares against. */
+  readyOrDone: string[];
+  /** How many items are `ready` and `done`; absent when the work list doesn't parse. */
+  ready?: number;
+  done?: number;
+}
+
 /** What an hourly check reports (`hourly-check.ts`). */
 export interface CheckResult {
   passed: boolean;
   summary: string;
+  /** What the run made, when the check got as far as fetching the commit. */
+  progress?: CheckProgress;
 }
 
 export interface CheckContext {

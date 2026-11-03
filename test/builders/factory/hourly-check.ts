@@ -3,7 +3,10 @@
  * commit it passes only when every gate passes (`gates.ts`, `hour-gates.ts`).
  *
  * It fetches the commit from the roles' clone into the harness's bare repo
- * (`git.ts`) and checks it in a fresh tree (`check-run.ts`): the UI scans,
+ * (`git.ts`) and first works out what the run made this hour, commits and
+ * finished items (`hour-progress.ts`): the summary starts with that line,
+ * also when a later step throws, and the journal gets it at once. Then it
+ * checks the commit in a fresh tree (`check-run.ts`): the UI scans,
  * the install, Studio's start and the walks from the walk sandbox, then
  * Studio's typecheck, tests and ast-grep checks. The baseline is taken the
  * same way at the start commit (`baseline.ts`).
@@ -32,10 +35,11 @@ import { galleryHtml } from './gallery.ts';
 import { composeGates, type GateResult } from './gates.ts';
 import { fetchHead } from './git.ts';
 import { copyOverrides, hourGates } from './hour-gates.ts';
+import { hourProgress } from './hour-progress.ts';
 import { optional } from './optional.ts';
 import type { SandboxOpener } from './sandbox.ts';
 import { servedLine, serveNewest, type ServedNow } from './serve-newest.ts';
-import type { CheckContext, CheckResult, HourlyCheck } from './session.ts';
+import type { CheckContext, CheckProgress, CheckResult, HourlyCheck } from './session.ts';
 import { copyReport, readApproved } from './ui-gates.ts';
 import type { PageCapture } from './walk-runner.ts';
 
@@ -80,14 +84,8 @@ function writeGallery(dir: string, hour: number, walked: WalkRun, before: readon
   writeFileSync(join(dir, 'gallery.html'), html);
 }
 
-interface Checked {
-  commit: string;
-  gates: GateResult[];
-}
-
-/** Takes the baseline when it is due, checks the commit's tree, and writes the gates' files into `dir`. */
-async function checkCommit(paths: AppPaths, record: AppRecord, context: CheckContext, dir: string, deps: CheckDeps, signal: AbortSignal): Promise<Checked> {
-  const commit = fetchHead(paths.gitDir, context.appDir);
+/** Takes the baseline when it is due, checks the fetched commit's tree, and writes the gates' files into `dir`. */
+async function checkCommit(paths: AppPaths, record: AppRecord, context: CheckContext, commit: string, dir: string, deps: CheckDeps, signal: AbortSignal): Promise<GateResult[]> {
   deps.say(`hour ${context.hour}: checking ${commit.slice(0, 12)}`);
   const walks = walkNames(record.briefDir);
   const sandbox = optional('openSandbox', deps.openSandbox);
@@ -103,7 +101,7 @@ async function checkCommit(paths: AppPaths, record: AppRecord, context: CheckCon
   writeGateLogs(dir, gates);
   writeCaptureRecord(join(dir, 'screenshots'), { commit, capturedAt, widths: WIDTHS });
   writeGallery(dir, context.hour, checked.walked, before);
-  return { commit, gates };
+  return gates;
 }
 
 export type ServedFields = Pick<CheckRecord, 'servedUrl' | 'localUrl' | 'statusUrl' | 'servedCommit' | 'servedFailing'>;
@@ -124,34 +122,40 @@ export async function runHourlyCheck(context: CheckContext, deps: CheckDeps): Pr
   const signal = AbortSignal.any([context.signal, AbortSignal.timeout(checkBudgetMs())]);
   const at = () => new Date().toISOString();
   let fields: ServedFields = {};
+  let progress: CheckProgress | undefined;
   let result: CheckRecord = { hour: context.hour, at: at(), passed: false, summary: 'the check did not finish', gates: [] };
+  const lead = (): string => (progress === undefined ? '' : `${progress.line}. `);
   try {
     const record = readAppRecord(paths);
     result = { ...result, startCommit: record.startCommit };
-    const checked = await checkCommit(paths, record, context, dir, deps, signal);
-    const composed = composeGates(checked.gates);
+    const commit = fetchHead(paths.gitDir, context.appDir);
+    result = { ...result, commit };
+    progress = hourProgress({ paths, hour: context.hour, startCommit: record.startCommit, commit });
+    result = { ...result, progress };
+    deps.say(progress.line);
+    const gates = await checkCommit(paths, record, context, commit, dir, deps, signal);
+    const composed = composeGates(gates);
     const serve = deps.serve ?? serveNewest;
-    const outcome = await serve({ paths, record, failed: composed.failed, commit: checked.commit, hour: context.hour, signal, say: deps.say, ...optional('openSandbox', deps.openSandbox) });
+    const outcome = await serve({ paths, record, failed: composed.failed, commit, hour: context.hour, signal, say: deps.say, ...optional('openSandbox', deps.openSandbox) });
     const served = outcome.served;
     fields = servedFields(served);
     result = {
       ...result,
       at: at(),
-      commit: checked.commit,
       passed: composed.passed,
-      summary: `${composed.summary}. ${servedLine(served)}. Details in ${dir}`,
-      gates: checked.gates.map((gate) => ({ gate: gate.gate, passed: gate.passed, summary: gate.summary })),
+      summary: `${lead()}${composed.summary}. ${servedLine(served)}. Details in ${dir}`,
+      gates: gates.map((gate) => ({ gate: gate.gate, passed: gate.passed, summary: gate.summary })),
       serve: outcome.note,
       ...fields,
     };
   } catch (error) {
     const why = signal.aborted ? `the check stopped: ${errorText(signal.reason)}` : errorText(error);
-    result = { ...result, at: at(), passed: false, summary: `the check failed: ${why.split('\n')[0] ?? ''}. Details in ${dir}`, error: why };
+    result = { ...result, at: at(), passed: false, summary: `${lead()}the check failed: ${why.split('\n')[0] ?? ''}. Details in ${dir}`, error: why };
   } finally {
     writeResult(dir, result);
     publishCheck(paths, context.hour, dir);
   }
-  return { passed: result.passed, summary: result.summary, resultDir: dir, ...optional('commit', result.commit), ...fields };
+  return { passed: result.passed, summary: result.summary, resultDir: dir, ...optional('commit', result.commit), ...optional('progress', progress), ...fields };
 }
 
 const defaultDeps: CheckDeps = { say: (line) => console.log(`▸ ${line}`) };
