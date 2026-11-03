@@ -279,7 +279,10 @@ export {
   type SandboxJwtParts,
   type SandboxSigningKey,
 } from './sandbox-jwt.js';
-export { checkIdToken, idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID, signIdToken, type IdTokenCheck } from './id-token.js';
+export {
+  checkIdToken, ID_TOKEN_LIFETIME_MS, idTokenAudience, isPastIdTokenRefreshPoint, mintIdToken, SANDBOX_PROJECT_ID, signIdToken,
+  TOKEN_REFRESH_BUFFER_MS, type IdTokenCheck,
+} from './id-token.js';
 export {
   appCheckActivationOf,
   appCheckTokenFor,

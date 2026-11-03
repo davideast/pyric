@@ -42,7 +42,7 @@ import {
   resolveOAuthCredentialUser,
 } from './host/auth-session-seeder.js';
 import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
-import { rulesTokenFromIdToken } from 'pyric/sandbox/internal';
+import { getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
@@ -240,7 +240,17 @@ export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
   return changed;
 }
 
-/** Apply a forced ID-token refresh to this port's data authorization state. */
+/**
+ * Whether this port's session holds a token past its refresh point, so the
+ * read it just made minted a new one (or returned one a sibling port with the
+ * same identity minted). A sign-in on another port does not count: this
+ * port's own token is still current.
+ */
+function sessionTokenExpired(ctx: HostCtx, session: MintedSession): boolean {
+  return isPastIdTokenRefreshPoint(session.state.token, getClock(ctx.sandbox).now());
+}
+
+/** Apply a refreshed ID token to this port's data authorization state. */
 function refreshPortAuthorization(
   ctx: HostCtx,
   port: PortLike,
@@ -363,13 +373,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'getIdToken');
         const user = session.user;
-        const token = await user.getIdToken(msg.forceRefresh);
-        const refreshesClaims = msg.forceRefresh === true;
-        if (refreshesClaims) {
-          const result = await user.getIdTokenResult(false);
-          refreshPortAuthorization(ctx, port, session, result.claims);
-        }
-        ok(port, msg.id, token);
+        const result = await user.getIdTokenResult(msg.forceRefresh);
+        const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
+        if (refreshesClaims) refreshPortAuthorization(ctx, port, session, result.claims);
+        ok(port, msg.id, result.token);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -379,7 +386,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const session = requirePortSession(portSession(ctx, port), 'getIdTokenResult');
         const user = session.user;
         const r = await user.getIdTokenResult(msg.forceRefresh);
-        const refreshesClaims = msg.forceRefresh === true;
+        const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
         if (refreshesClaims) refreshPortAuthorization(ctx, port, session, r.claims);
         ok(port, msg.id, {
           token: r.token,
