@@ -1,6 +1,6 @@
 // Run as `node --import ./safety.mjs --import @pyric/cli/register probes.mjs`
-// under PYRIC_GUARD=block. Each probe reaches for the GCE metadata server or a
-// Firebase host in a way the guard has to recognize, and records the error
+// with PYRIC_GUARD unset. Each probe reaches for the GCE metadata server or a
+// token endpoint in a way the guard has to recognize, and records the error
 // code it got, or `permitted`. It prints one JSON line.
 import http from 'node:http';
 import net from 'node:net';
@@ -52,7 +52,7 @@ function requestOutcome(options) {
   });
 }
 
-/** What a worker thread's connect to a catalog host got. */
+/** What a worker thread's connect to a token host got. */
 function workerOutcome(source, options) {
   return new Promise((resolve) => {
     const worker = new Worker(source, options);
@@ -87,6 +87,14 @@ record(
     .then(() => 'permitted', (error) => error.cause?.code ?? error.message),
 );
 
+record('CONNECT oauth2.googleapis.com:443', await requestOutcome({
+  host: '127.0.0.1',
+  port: proxyPort,
+  method: 'CONNECT',
+  path: 'oauth2.googleapis.com:443',
+}));
+// A Firebase data host is not a token source, so its tunnel passes the guard
+// and reaches only the local proxy.
 record('CONNECT firestore.googleapis.com:443', await requestOutcome({
   host: '127.0.0.1',
   port: proxyPort,
@@ -95,7 +103,7 @@ record('CONNECT firestore.googleapis.com:443', await requestOutcome({
 }));
 record('tls.connect servername over a tunnel', await new Promise((resolve) => {
   const tunnel = net.connect(proxyPort, '127.0.0.1', () => {
-    resolve(connectOutcome(() => tls.connect({ socket: tunnel, servername: 'firestore.googleapis.com' })));
+    resolve(connectOutcome(() => tls.connect({ socket: tunnel, servername: 'oauth2.googleapis.com' })));
     tunnel.destroy();
   });
   tunnel.on('error', (error) => resolve(`tunnel error: ${error.code}`));

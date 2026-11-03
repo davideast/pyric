@@ -592,7 +592,8 @@ describe('@pyric/cli/register beacon (child process)', () => {
         guard: string;
         hooks: boolean;
       };
-      expect(report.guard).toBe('warn');
+      // `warn` refuses token requests like block, and the beacon reports what is in force (ADR-0022).
+      expect(report.guard).toBe('block');
       expect(report.hooks).toBe(true);
       expect(report.pid).toBeGreaterThan(0);
       // The stderr fallback carries the same facts, always.

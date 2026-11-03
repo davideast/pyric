@@ -14,6 +14,11 @@
 // (`firebase-admin-<16 hex>/app`). Before #1443 the register let the renamed
 // import through, and the route ran the real `firebase-admin`.
 //
+// ADR-0022: a route that posts to Google's OAuth 2.0 token endpoint is
+// refused under the default guard, and under PYRIC_GUARD=warn too (#1475
+// item 4). Before the change the Next dev server's `block` refused only its
+// list of Firebase hosts, so the request reached the trap.
+//
 // Nothing can leave the machine, before or after the fix. A preload, loaded
 // through NODE_OPTIONS ahead of the register the launcher appends, sends every
 // connection to a host other than loopback to a sink this scenario runs on
@@ -35,6 +40,8 @@ export interface FirebaseImportsCase {
   /** Extra `next dev` flags, such as `--webpack` or `--turbopack`. */
   nextFlags: readonly string[];
   hosted: boolean;
+  /** A `PYRIC_GUARD` value for the launcher and every process it starts (#1475 item 4). */
+  guard?: string;
 }
 
 export const PROJECT_ID = 'demo-firebase-imports';
@@ -197,11 +204,9 @@ export async function GET() {
 
 /**
  * Loads the real firebase-admin by absolute path, a load no import map can
- * recognize, then calls Firestore's REST endpoint as it would. `require` comes
- * from `process.getBuiltinModule` so neither bundler sees the load and Node
- * resolves it at run time, through the register's hook. The Firestore URL
- * comes from the environment: a route file that names a Firebase host makes
- * `pyric sandbox` refuse the directory as one that bundles the real SDK.
+ * recognize. `require` comes from `process.getBuiltinModule` so neither
+ * bundler sees the load and Node resolves it at run time, through the
+ * register's hook.
  */
 const REAL_ADMIN_ROUTE = `export const dynamic = 'force-dynamic';
 
@@ -214,11 +219,28 @@ export async function GET() {
   } catch (error) {
     return Response.json({ load: error?.code ?? String(error) });
   }
+  return Response.json({ load: 'loaded' });
+}
+`;
+
+/**
+ * Posts a refresh-token exchange to Google's OAuth 2.0 token endpoint, as a
+ * Google client library does for gcloud's application-default credentials
+ * (ADR-0022). The URL comes from the environment, so no route file names a
+ * Google host.
+ */
+const TOKEN_ROUTE = `export const dynamic = 'force-dynamic';
+
+export async function GET() {
   try {
-    await fetch(process.env.SCENARIO_FIRESTORE_URL);
-    return Response.json({ load: 'loaded', fetch: 'sent' });
+    await fetch(process.env.SCENARIO_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=refresh_token&refresh_token=scenario-placeholder&client_id=scenario&client_secret=scenario',
+    });
+    return Response.json({ token: 'sent' });
   } catch (error) {
-    return Response.json({ load: 'loaded', fetch: error?.cause?.code ?? error?.code ?? String(error) });
+    return Response.json({ token: error?.cause?.code ?? error?.code ?? String(error) });
   }
 }
 `;
@@ -290,6 +312,7 @@ const APP_FILES: Record<string, string> = {
   'src/app/api/admin/route.js': ADMIN_ROUTE,
   'src/app/api/client/route.js': CLIENT_ROUTE,
   'src/app/api/real-admin/route.js': REAL_ADMIN_ROUTE,
+  'src/app/api/token/route.js': TOKEN_ROUTE,
   'src/app/api/firebase-scope/route.js': FIREBASE_SCOPE_ROUTE,
   'src/app/api/probe/route.js': PROBE_ROUTE,
 };
@@ -393,7 +416,7 @@ export function nextEnv(app: App, safety: Safety): Record<string, string> {
     SCENARIO_SINK_PORT: String(safety.sinkPort),
     CLOUDSDK_CONFIG: safety.emptyGcloud,
     NEXT_TELEMETRY_DISABLED: '1',
-    SCENARIO_FIRESTORE_URL: `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/items/from-admin`,
+    SCENARIO_TOKEN_URL: 'https://oauth2.googleapis.com/token',
   };
 }
 
@@ -435,7 +458,8 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
   const sandboxArgs = ['sandbox', '--no-open', '--port', String(sandboxPort)];
   if (testCase.hosted) sandboxArgs.push('--hosted');
   const nextArgs = ['next', 'dev', ...testCase.nextFlags, '--port', String(nextPort), '--hostname', '127.0.0.1'];
-  const env = { ...nextEnv(app, safety), SCENARIO_SAFETY_LOG: safetyLog };
+  const guardEnv: Record<string, string> = testCase.guard === undefined ? {} : { PYRIC_GUARD: testCase.guard };
+  const env = { ...nextEnv(app, safety), ...guardEnv, SCENARIO_SAFETY_LOG: safetyLog };
 
   const sandbox = await app.step(`${testCase.name}: Next serves the app`, async () => {
     const child = app.pyricProcess([...sandboxArgs, '--', ...nextArgs], { env });
@@ -510,6 +534,19 @@ async function runCase(app: App, safety: Safety, testCase: FirebaseImportsCase):
     await waitForStop(sandbox, since, '@firebase/firestore', /\/@firebase\/firestore\/\S+/);
     await waitForStop(sandbox, since, '@firebase/app', /\/@firebase\/app\/\S+/);
   });
+
+  // ADR-0022, decision 2: a registered process can't get a Google access
+  // token, under the default guard and under PYRIC_GUARD=warn alike.
+  await app.step(`${testCase.name}: a request for a Google access token is refused, and nothing leaves`, async () => {
+    await expectStopped(`${nextUrl}/api/token`, safetyLog, { token: 'PYRIC_GUARD_BLOCKED' });
+    await sandbox.waitForLog(/net-guard BLOCK oauth2\.googleapis\.com /, { timeoutMs: 10_000 });
+  });
+
+  if (testCase.guard === 'warn') {
+    await app.step(`${testCase.name}: the register says warn no longer lets token requests through`, async () => {
+      await sandbox.waitForLog(/PYRIC_GUARD=warn no longer lets token requests through/, { timeoutMs: 10_000 });
+    });
+  }
 
   // ADR 0022: a load the register can't map stops before the real firebase-admin runs.
   await app.step(`${testCase.name}: the real firebase-admin stops at load, and nothing runs or leaves`, async () => {

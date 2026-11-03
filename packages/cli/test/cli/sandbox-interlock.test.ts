@@ -27,20 +27,21 @@ describe('describeInterlock', () => {
       { PYRIC_GUARD: 'warn' } as NodeJS.ProcessEnv,
       { serveUrl: 'http://localhost:3473', registerUrl: REGISTER_URL, beaconToken: 't' },
     );
+    // `warn` no longer lets a token request through, so the child's guard is block (ADR-0022).
     expect(describeInterlock(env, REGISTER_URL)).toEqual({
-      guard: 'warn',
+      guard: 'block',
       registerImported: true,
       beacon: 'http://localhost:3473/__pyric/beacon',
     });
   });
 
-  it('defaults the guard to warn and survives a user NODE_OPTIONS prefix', () => {
+  it('defaults the guard to block and survives a user NODE_OPTIONS prefix', () => {
     const env = buildChildEnv(
       { NODE_OPTIONS: '--max-old-space-size=4096' } as NodeJS.ProcessEnv,
       { serveUrl: 'http://localhost:3473', registerUrl: REGISTER_URL, beaconToken: 't' },
     );
     const status = describeInterlock(env, REGISTER_URL);
-    expect(status.guard).toBe('warn');
+    expect(status.guard).toBe('block');
     expect(status.registerImported).toBe(true);
   });
 

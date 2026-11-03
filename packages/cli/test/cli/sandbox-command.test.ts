@@ -266,14 +266,14 @@ describe('pyric sandbox unsupported-runtime warning', () => {
 });
 
 /**
- * With blocking turned on (`PYRIC_GUARD=block`), the AI upstream `pyric
- * sandbox` resolves is a destination the developer chose, so the launcher
- * adds it to the child's allow list while every other catalog host stays
- * refused. The child dials both with a resolver of its own, so the
- * permitted connection stops there instead of reaching DNS.
+ * The child's guard refuses only token sources (ADR-0022), so the AI upstream
+ * `pyric sandbox` resolves and the Firebase hosts pass, while a token endpoint
+ * is refused even under `PYRIC_GUARD=block`. The child dials each with a
+ * resolver of its own, so a connection the guard lets through stops there
+ * instead of reaching DNS.
  */
 describe('pyric sandbox and the AI upstream', () => {
-  it("permits the configured AI upstream in the child's guard and refuses other catalog hosts", () => {
+  it("lets the configured AI upstream and Firestore through the child's guard, and refuses a token endpoint", () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-ai-upstream-'));
     try {
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
@@ -298,7 +298,8 @@ function dial(host) {
 }
 const upstream = await dial('aiplatform.googleapis.com');
 const firestore = await dial('firestore.googleapis.com');
-console.log('DIAL ' + JSON.stringify({ upstream, firestore }));
+const token = await dial('oauth2.googleapis.com');
+console.log('DIAL ' + JSON.stringify({ upstream, firestore, token }));
 `,
       );
       const result = spawnSync(
@@ -322,10 +323,12 @@ console.log('DIAL ' + JSON.stringify({ upstream, firestore }));
       expect(dialLine).not.toBeNull();
       expect(JSON.parse(dialLine![1]!)).toEqual({
         upstream: 'FIXTURE_NO_DNS',
-        firestore: 'PYRIC_GUARD_BLOCKED',
+        firestore: 'FIXTURE_NO_DNS',
+        token: 'PYRIC_GUARD_BLOCKED',
       });
-      expect(all).toContain('net-guard ALLOW aiplatform.googleapis.com');
-      expect(all).toContain('net-guard BLOCK firestore.googleapis.com');
+      expect(all).not.toContain('net-guard ALLOW');
+      expect(all).not.toContain('net-guard BLOCK firestore.googleapis.com');
+      expect(all).toContain('net-guard BLOCK oauth2.googleapis.com');
       expect(result.status).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });

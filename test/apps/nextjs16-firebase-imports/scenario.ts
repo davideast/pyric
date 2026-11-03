@@ -17,4 +17,5 @@ export default scenario((app) => runFirebaseImports(app, [
   { name: 'pyric sandbox -- next dev', nextFlags: [], hosted: false },
   { name: 'pyric sandbox --hosted -- next dev', nextFlags: [], hosted: true },
   { name: 'pyric sandbox -- next dev --webpack', nextFlags: ['--webpack'], hosted: false },
+  { name: 'PYRIC_GUARD=warn pyric sandbox -- next dev', nextFlags: [], hosted: false, guard: 'warn' },
 ], { refusals: true, extraCases: productionAiCases([[], ['--webpack']]) }));

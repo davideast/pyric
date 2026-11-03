@@ -5,16 +5,13 @@
  * call, and the catalog compared that text as written. These tests pin the
  * rest: every spelling of the metadata IP, the TLS `servername` of a socket
  * that tunnels through a proxy, the target of a `CONNECT` request, and the
- * host in an absolute-form request path sent to a forward proxy. They drive
- * `installNetGuard` with stand-in `net` and `tls` modules, so no socket opens.
+ * host in an absolute-form request path sent to a forward proxy. Under the
+ * credential choke point (ADR-0022) the refused hosts are the token sources,
+ * refused with `PYRIC_GUARD` unset. They drive `installNetGuard` with stand-in
+ * `net` and `tls` modules, so no socket opens.
  */
 import { describe, expect, it } from 'bun:test';
-import {
-  GUARD_BLOCKED_CODE,
-  evaluateEgress,
-  installNetGuard,
-  parseAllowHosts,
-} from '../../src/register/net-guard.js';
+import { GUARD_BLOCKED_CODE, installNetGuard, parseAllowHosts } from '../../src/register/net-guard.js';
 
 type ConnectFn = (...args: unknown[]) => unknown;
 
@@ -28,8 +25,8 @@ interface Seams {
   onSocketErrors: unknown[];
 }
 
-/** Installs a block-mode guard over stand-in seams, and returns them. */
-function guardedSeams(): Seams {
+/** Installs the guard under the default mode over stand-in seams, and returns them. */
+function guardedSeams(env: Record<string, string> = {}): Seams {
   const passThrough: ConnectFn = () => ({});
   const onSocketErrors: unknown[] = [];
   const seams: Seams = {
@@ -42,7 +39,7 @@ function guardedSeams(): Seams {
   };
   const guard = installNetGuard({
     scope: {},
-    env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
+    env: { PYRIC_SANDBOX: '1', ...env },
     write: () => {},
     net: seams.net,
     tls: seams.tls,
@@ -55,7 +52,7 @@ function guardedSeams(): Seams {
 }
 
 /** The code of the error a request's `onSocket` handed Node, or `permitted`. */
-function requestOutcome(request: { method: string; path: string }): string {
+function requestOutcome(request: { method: string; path: string; host?: string }): string {
   const seams = guardedSeams();
   seams.request.onSocket.call(request, {});
   const error = seams.onSocketErrors[0];
@@ -98,29 +95,37 @@ describe('metadata IP spellings through the socket backstop', () => {
   }
 
   it('the allowlist cannot permit a respelled metadata IP', () => {
-    const verdict = evaluateEgress('0xa9fea9fe', { mode: 'block', allow: ['2852039166'] });
-    expect(verdict?.permitted).toBe(false);
-    expect(verdict?.alwaysBlock).toBe(true);
-    expect(verdict?.host).toBe('169.254.169.254');
+    const { net } = guardedSeams({ PYRIC_GUARD_ALLOW: '2852039166,169.254.169.254' });
+    expect(outcome(() => net.connect({ host: '0xa9fea9fe', port: 80 }))).toBe(GUARD_BLOCKED_CODE);
+  });
+
+  it('PYRIC_GUARD=warn refuses a respelled metadata IP too', () => {
+    const { socket } = guardedSeams({ PYRIC_GUARD: 'warn' });
+    expect(outcome(() => socket.connect(80, '::ffff:a9fe:a9fe'))).toBe(GUARD_BLOCKED_CODE);
+  });
+
+  it('refuses the IPv6 metadata address in every form the URL parser compresses', () => {
+    const { net } = guardedSeams();
+    for (const host of ['fd20:ce::254', 'fd20:00ce:0000:0000:0000:0000:0000:0254', '[fd20:ce::254]']) {
+      expect({ host, outcome: outcome(() => net.connect({ host, port: 80 })) }).toEqual({ host, outcome: GUARD_BLOCKED_CODE });
+    }
   });
 });
 
 describe('hosts a tunnelled connection names', () => {
-  it('tls.connect refuses a servername on a catalog host over an existing socket', () => {
+  it('tls.connect refuses a servername on a token host over an existing socket', () => {
     const { tls } = guardedSeams();
-    expect(outcome(() => tls.connect({ socket: {}, servername: 'firestore.googleapis.com' }))).toBe(
-      GUARD_BLOCKED_CODE,
-    );
+    expect(outcome(() => tls.connect({ socket: {}, servername: 'oauth2.googleapis.com' }))).toBe(GUARD_BLOCKED_CODE);
   });
 
-  it('tls.connect refuses a servername on a catalog host when the peer is local', () => {
+  it('tls.connect refuses a servername on a token host when the peer is local', () => {
     const { tls } = guardedSeams();
-    const options = { host: '127.0.0.1', port: 8443, servername: 'firestore.googleapis.com' };
+    const options = { host: '127.0.0.1', port: 8443, servername: 'sts.googleapis.com' };
     expect(outcome(() => tls.connect(options))).toBe(GUARD_BLOCKED_CODE);
   });
 
-  it('fails a CONNECT request whose target is a catalog host', () => {
-    expect(requestOutcome({ method: 'CONNECT', path: 'firestore.googleapis.com:443' })).toBe(GUARD_BLOCKED_CODE);
+  it('fails a CONNECT request whose target is a token host', () => {
+    expect(requestOutcome({ method: 'CONNECT', path: 'oauth2.googleapis.com:443' })).toBe(GUARD_BLOCKED_CODE);
   });
 
   it('fails a CONNECT request whose target is a respelled metadata IP', () => {
@@ -129,15 +134,40 @@ describe('hosts a tunnelled connection names', () => {
     expect(requestOutcome({ method: 'CONNECT', path: '[::ffff:a9fe:a9fe%25lo]:80' })).toBe(GUARD_BLOCKED_CODE);
   });
 
-  it('fails an absolute-form request to a catalog host sent to a forward proxy', () => {
-    expect(requestOutcome({ method: 'GET', path: 'http://firestore.googleapis.com/v1/x' })).toBe(GUARD_BLOCKED_CODE);
+  it('fails an absolute-form request to a token source sent to a forward proxy', () => {
+    expect(requestOutcome({ method: 'GET', path: 'http://metadata.google.internal/computeMetadata/v1/' })).toBe(GUARD_BLOCKED_CODE);
+    expect(requestOutcome({ method: 'POST', path: 'https://www.googleapis.com/oauth2/v4/token' })).toBe(GUARD_BLOCKED_CODE);
   });
 
-  it('permits an ordinary request path, a CONNECT outside the catalog, and a local servername', () => {
-    expect(requestOutcome({ method: 'GET', path: '/v1/firestore.googleapis.com' })).toBe('permitted');
-    expect(requestOutcome({ method: 'CONNECT', path: 'example.com:443' })).toBe('permitted');
+  it('permits an ordinary request path, a CONNECT to a Firebase host, and a local servername', () => {
+    expect(requestOutcome({ method: 'GET', path: '/v1/oauth2.googleapis.com' })).toBe('permitted');
+    expect(requestOutcome({ method: 'CONNECT', path: 'firestore.googleapis.com:443' })).toBe('permitted');
+    expect(requestOutcome({ method: 'GET', path: 'http://firestore.googleapis.com/v1/x' })).toBe('permitted');
     const { tls } = guardedSeams();
     expect(outcome(() => tls.connect({ host: '127.0.0.1', port: 8443, servername: 'localhost' }))).toBe('permitted');
+    expect(outcome(() => tls.connect({ socket: {}, servername: 'firestore.googleapis.com' }))).toBe('permitted');
+  });
+});
+
+describe('a request names its own path (ADR-0022, decision 6)', () => {
+  it('fails a request to the gtoken exchange path on www.googleapis.com', () => {
+    expect(requestOutcome({ method: 'POST', host: 'www.googleapis.com', path: '/oauth2/v4/token' })).toBe(GUARD_BLOCKED_CODE);
+    expect(requestOutcome({ method: 'POST', host: 'www.googleapis.com', path: '/oauth2/v3/token?x=1' })).toBe(GUARD_BLOCKED_CODE);
+  });
+
+  it('permits other paths on www.googleapis.com', () => {
+    expect(requestOutcome({ method: 'GET', host: 'www.googleapis.com', path: '/oauth2/v3/certs' })).toBe('permitted');
+    expect(requestOutcome({ method: 'GET', host: 'www.googleapis.com', path: '/drive/v3/files' })).toBe('permitted');
+  });
+
+  it('destroys the socket with the refusal, so the request fails with the guard code and sends nothing', () => {
+    const seams = guardedSeams();
+    const destroyed: unknown[] = [];
+    const socket = { destroy: (error: unknown) => destroyed.push(error) };
+    seams.request.onSocket.call({ method: 'POST', host: 'www.googleapis.com', path: '/oauth2/v4/token' }, socket);
+    expect(destroyed).toHaveLength(1);
+    expect((destroyed[0] as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
+    expect(seams.onSocketErrors[0]).toBe(destroyed[0]);
   });
 });
 

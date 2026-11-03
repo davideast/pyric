@@ -1,27 +1,27 @@
 /**
- * The runtime network guard (`src/register/net-guard.ts`).
+ * The runtime network guard (`src/register/net-guard.ts`): the credential
+ * choke point (ADR-0022, decision 2).
  *
- * Once `PYRIC_SANDBOX` is set, a pyric-launched Node process that reaches a
- * LIVE Google/Firebase endpoint is talking to production, and the guard says
- * which system it reached (warn, the default). It refuses the request only
- * when the developer turned blocking on (`PYRIC_GUARD=block`).
+ * Once `PYRIC_SANDBOX` is set, a pyric-launched Node process can't get a
+ * server-side Google access token: every request to a token source
+ * (`google-token-endpoints.ts`) fails with `PYRIC_GUARD_BLOCKED`, whatever
+ * `PYRIC_GUARD` says except `off`. Every other host passes without a report,
+ * Firebase data hosts included.
  *
  * Test shape, and why:
- *  - The interception SEAM is unit-tested against MOCK dispatchers. We cannot
- *    rewrite DNS, so a "real" warn-mode test would have to actually contact
- *    Google; instead the seam that decides + logs + passes through is exercised
- *    directly, with the same catalog the production path uses.
+ *  - The interception seams are unit-tested against MOCK dispatchers and
+ *    stand-in `net`/`tls` modules, with the same token list the production
+ *    path uses.
  *  - The dispatcher hook itself only works on a real Node undici (Bun serves
  *    `fetch` natively and never reads
  *    `Symbol.for('undici.globalDispatcher.1')`), so the end-to-end facts are
  *    proven in `node --import` subprocesses: installing the guard does not
- *    break an ordinary child, block mode fails a fetch with the GUARD's
- *    cause rather than DNS's, a plain `http.request` is refused before
- *    it connects even when `node:http` loaded first, and a real socket is
- *    refused however the caller reached `connect`: a `net.connect` reference
- *    taken before the guard installed, a hand-built `net.Socket`, or
- *    `tls.connect`. Those children replace the resolver, so a connection the
- *    guard lets through stops there instead of reaching DNS.
+ *    break an ordinary child, a token request fails with the GUARD's cause
+ *    rather than DNS's in every mode but `off`, a plain `http.request` is
+ *    refused before it connects even when `node:http` loaded first, and a real
+ *    socket is refused however the caller reached `connect`. Those children
+ *    replace the resolver, so a connection the guard lets through stops there
+ *    instead of reaching DNS.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -38,29 +38,33 @@ import {
   parseAllowHosts,
   parseGuardMode,
   wrapDispatcher,
-  type EgressVerdict,
+  type EgressRefusal,
 } from '../../src/register/net-guard.js';
+import { tokenEndpoints } from '../../src/google-token-endpoints.js';
 
 // ─── mode + allowlist parsing ───────────────────────────────────────────────
 
 describe('parseGuardMode', () => {
-  it('defaults to warn when unset or empty', () => {
-    expect(parseGuardMode(undefined)).toBe('warn');
-    expect(parseGuardMode('')).toBe('warn');
-    expect(parseGuardMode('   ')).toBe('warn');
+  it('is block, the choke point, when unset or empty', () => {
+    expect(parseGuardMode(undefined)).toBe('block');
+    expect(parseGuardMode('')).toBe('block');
+    expect(parseGuardMode('   ')).toBe('block');
   });
 
-  it('accepts the three knob values case/space-insensitively', () => {
+  it('is block for warn too: warn no longer lets a token request through', () => {
+    expect(parseGuardMode('warn')).toBe('block');
+    expect(parseGuardMode(' WARN ')).toBe('block');
     expect(parseGuardMode('block')).toBe('block');
-    expect(parseGuardMode(' BLOCK ')).toBe('block');
-    expect(parseGuardMode('off')).toBe('off');
-    expect(parseGuardMode('Off')).toBe('off');
-    expect(parseGuardMode('warn')).toBe('warn');
   });
 
-  it('falls back to warn on an unknown value', () => {
-    expect(parseGuardMode('nope')).toBe('warn');
-    expect(parseGuardMode('true')).toBe('warn');
+  it('is off only when named, case/space-insensitively', () => {
+    expect(parseGuardMode('off')).toBe('off');
+    expect(parseGuardMode(' Off ')).toBe('off');
+  });
+
+  it('is block on an unknown value', () => {
+    expect(parseGuardMode('nope')).toBe('block');
+    expect(parseGuardMode('true')).toBe('block');
   });
 });
 
@@ -86,87 +90,67 @@ describe('parseAllowHosts', () => {
   });
 });
 
-// ─── the verdict: catalog, then alwaysBlock, then allowlist, then mode ─────
+// ─── the verdict: token sources only ────────────────────────────────────────
 
-const warn = { mode: 'warn' as const, allow: [] as string[] };
-const block = { mode: 'block' as const, allow: [] as string[] };
+const on = { mode: 'block' as const };
 
 describe('evaluateEgress', () => {
-  it('ignores hosts that are not production Google endpoints', () => {
-    expect(evaluateEgress('127.0.0.1', warn)).toBeNull();
-    expect(evaluateEgress('localhost', warn)).toBeNull();
-    expect(evaluateEgress('example.com', block)).toBeNull();
-    // label-boundary: a lookalike is NOT a catalog host
-    expect(evaluateEgress('evilfirebaseio.com', block)).toBeNull();
-  });
-
-  it('warns (but permits) a catalog host in warn mode', () => {
-    const v = evaluateEgress('firestore.googleapis.com', warn);
-    expect(v).toMatchObject({
-      verdict: 'warn',
-      permitted: true,
-      host: 'firestore.googleapis.com',
-      service: 'Cloud Firestore',
-    });
-  });
-
-  it('blocks a catalog host in block mode', () => {
-    expect(evaluateEgress('identitytoolkit.googleapis.com', block)).toMatchObject({
-      verdict: 'block',
-      permitted: false,
-      service: 'Firebase Authentication',
-    });
-  });
-
-  it('matches subdomains of a catalog suffix through the shared lookup', () => {
-    expect(evaluateEgress('us-central1-demo.cloudfunctions.net', warn)).toMatchObject({
-      verdict: 'warn',
-      service: 'Cloud Functions',
-    });
-  });
-
-  it('is silent for every host when the guard is off', () => {
-    const off = { mode: 'off' as const, allow: [] };
-    expect(evaluateEgress('firestore.googleapis.com', off)).toBeNull();
-    // "off is off", even the metadata IP.
-    expect(evaluateEgress('169.254.169.254', off)).toBeNull();
-  });
-
-  it('reports the GCE metadata IP in warn mode, and lets it through', () => {
-    expect(evaluateEgress('169.254.169.254', warn)).toMatchObject({
-      verdict: 'warn',
-      permitted: true,
-      service: 'GCE metadata server',
-    });
-  });
-
-  it('blocks the GCE metadata IP in block mode, whatever the allowlist says', () => {
-    expect(evaluateEgress('169.254.169.254', { mode: 'block', allow: ['169.254.169.254'] })).toMatchObject({
-      verdict: 'block',
-      permitted: false,
-      service: 'GCE metadata server',
-      alwaysBlock: true,
-    });
-  });
-
-  it('permits an allowlisted catalog host, in warn AND block mode, but still reports it', () => {
-    const allow = ['aiplatform.googleapis.com'];
-    for (const mode of ['warn', 'block'] as const) {
-      expect(evaluateEgress('aiplatform.googleapis.com', { mode, allow })).toMatchObject({
-        verdict: 'allow',
-        permitted: true,
-        service: 'Vertex AI',
-      });
+  it('lets every host that is not a token source through, Firebase data hosts included', () => {
+    for (const host of [
+      '127.0.0.1',
+      'localhost',
+      'example.com',
+      'firestore.googleapis.com',
+      'identitytoolkit.googleapis.com',
+      'securetoken.googleapis.com',
+      'us-central1-demo.cloudfunctions.net',
+      'fonts.googleapis.com',
+      'my-api-abc123-uc.a.run.app',
+      'firebasevertexai.googleapis.com',
+      'firebaserules.googleapis.com',
+    ]) {
+      expect({ host, refusal: evaluateEgress(host, on) }).toEqual({ host, refusal: null });
     }
   });
 
-  it('applies the allowlist on label boundaries too', () => {
-    const allow = ['cloudfunctions.net'];
-    expect(evaluateEgress('us-central1-demo.cloudfunctions.net', { mode: 'block', allow })).toMatchObject({
-      verdict: 'allow',
-      permitted: true,
+  it('refuses a token host, naming the host and the service', () => {
+    expect(evaluateEgress('oauth2.googleapis.com', on)).toEqual({
+      host: 'oauth2.googleapis.com',
+      endpoint: 'oauth2.googleapis.com',
+      service: 'Google OAuth 2.0 token endpoint',
     });
-    expect(evaluateEgress('notcloudfunctions.net', { mode: 'block', allow: ['cloudfunctions.net'] })).toBeNull();
+    expect(evaluateEgress('sts.googleapis.com', on)?.service).toBe('Google Security Token Service');
+    expect(evaluateEgress('iamcredentials.googleapis.com', on)?.service).toBe('IAM Service Account Credentials');
+  });
+
+  it('refuses the metadata server, by any name and address form', () => {
+    for (const host of ['169.254.169.254', '0xa9fea9fe', 'metadata.google.internal.', 'metadata', '[fd20:ce::254]:80']) {
+      expect({ host, refused: evaluateEgress(host, on) !== null }).toEqual({ host, refused: true });
+    }
+  });
+
+  it('refuses www.googleapis.com only on a token path', () => {
+    expect(evaluateEgress({ host: 'www.googleapis.com', path: '/oauth2/v4/token' }, on)?.host).toBe('www.googleapis.com');
+    expect(evaluateEgress({ host: 'www.googleapis.com', path: '/oauth2/v3/certs' }, on)).toBeNull();
+    expect(evaluateEgress('www.googleapis.com', on)).toBeNull();
+  });
+
+  it('reads a host and path out of an absolute-form URL and a host:port', () => {
+    expect(evaluateEgress('https://www.googleapis.com/oauth2/v4/token', on)).not.toBeNull();
+    expect(evaluateEgress('oauth2.googleapis.com:443', on)).not.toBeNull();
+    expect(evaluateEgress('https://www.googleapis.com/oauth2/v1/certs', on)).toBeNull();
+  });
+
+  it('is silent for every host when the guard is off', () => {
+    const off = { mode: 'off' as const };
+    expect(evaluateEgress('oauth2.googleapis.com', off)).toBeNull();
+    expect(evaluateEgress('169.254.169.254', off)).toBeNull();
+  });
+
+  it('uses the token list it is given, such as one read from GCE_METADATA_HOST', () => {
+    const endpoints = tokenEndpoints({ env: { GCE_METADATA_HOST: 'metadata.corp.example' }, readFile: () => '' });
+    expect(evaluateEgress('metadata.corp.example', { mode: 'block', endpoints })).not.toBeNull();
+    expect(evaluateEgress('metadata.corp.example', on)).toBeNull();
   });
 });
 
@@ -198,132 +182,90 @@ function collector(): { lines: string[]; write: (line: string) => void } {
   return { lines, write: (line) => void lines.push(line) };
 }
 
+function thrownBy(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
 describe('wrapDispatcher', () => {
-  it('passes a non-catalog origin straight through, silently', () => {
+  it('passes every other origin straight through, silently, Firebase data hosts included', () => {
     const real = mockDispatcher();
     const log = collector();
     const handler = { onData() {} };
-    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
+    const wrapped = wrapDispatcher(real, { mode: 'block', write: log.write });
     expect(wrapped.dispatch({ origin: 'http://127.0.0.1:5000', path: '/x' }, handler)).toBe(true);
-    expect(real.calls).toHaveLength(1);
+    expect(wrapped.dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1/x' }, handler)).toBe(true);
+    expect(wrapped.dispatch({ origin: 'https://fonts.googleapis.com', path: '/css2' }, handler)).toBe(true);
+    expect(wrapped.dispatch({ origin: 'https://www.googleapis.com', path: '/oauth2/v3/certs' }, handler)).toBe(true);
+    expect(real.calls).toHaveLength(4);
     expect(log.lines).toEqual([]);
   });
 
-  it('WARN: logs one line and still completes the request', () => {
+  it('passes the handler and opts through by IDENTITY (v6/v7 cross-version handoff)', () => {
     const real = mockDispatcher();
-    const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write, context: 'next' });
-    wrapped.dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1/x' }, { id: 1 });
-    expect(real.calls).toHaveLength(1);
-    expect(log.lines).toHaveLength(1);
-    expect(log.lines[0]).toContain('net-guard WARN firestore.googleapis.com');
-    expect(log.lines[0]).toContain('Cloud Firestore');
-    expect(log.lines[0]).toContain('from next');
-    expect(log.lines[0]!.endsWith('\n')).toBe(true);
-    // The request path can carry tokens and ids, so it must never be logged.
-    expect(log.lines[0]).not.toContain('/v1/x');
-  });
-
-  it('passes the handler through by IDENTITY and untouched (v6/v7 cross-version handoff)', () => {
-    const real = mockDispatcher();
-    const log = collector();
     const handler = Object.freeze({ onConnect() {}, onHeaders() {} });
     const opts = { origin: new URL('https://firestore.googleapis.com'), path: '/v1/x' };
-    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
+    const wrapped = wrapDispatcher(real, { mode: 'block', write: collector().write });
     wrapped.dispatch(opts, handler);
     expect(real.calls[0]!.handler).toBe(handler);
     expect(real.calls[0]!.opts).toBe(opts);
   });
 
-  it('BLOCK: never reaches the real dispatcher and throws the guard error', () => {
+  it('refuses a token host: never reaches the real dispatcher and throws the guard error', () => {
     const real = mockDispatcher();
     const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'block', allow: [], write: log.write });
-    let thrown: unknown;
-    try {
-      wrapped.dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1/x' }, {});
-    } catch (e) {
-      thrown = e;
-    }
+    const wrapped = wrapDispatcher(real, { mode: 'block', write: log.write, context: 'probe.mjs' });
+    const thrown = thrownBy(() => wrapped.dispatch({ origin: 'https://oauth2.googleapis.com', path: '/token' }, {}));
     expect(real.calls).toHaveLength(0);
     expect((thrown as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
-    expect((thrown as Error).message).toContain('firestore.googleapis.com');
+    expect((thrown as Error).message).toContain('oauth2.googleapis.com');
     expect(log.lines).toHaveLength(1);
-    expect(log.lines[0]).toContain('net-guard BLOCK firestore.googleapis.com');
+    expect(log.lines[0]).toContain('net-guard BLOCK oauth2.googleapis.com (Google OAuth 2.0 token endpoint) via fetch from probe.mjs');
+    expect(log.lines[0]!.endsWith('\n')).toBe(true);
   });
 
-  it('BLOCK: the log line and the error both name the two ways to let the host through', () => {
+  it('refuses the gtoken exchange path on www.googleapis.com, reading opts.path', () => {
     const real = mockDispatcher();
     const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'block', allow: [], write: log.write });
-    let thrown: unknown;
-    try {
-      wrapped.dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1/x' }, {});
-    } catch (e) {
-      thrown = e;
-    }
-    for (const text of [log.lines[0]!, (thrown as Error).message]) {
-      expect(text).toContain('PYRIC_GUARD_ALLOW=firestore.googleapis.com');
-      expect(text).toContain('PYRIC_GUARD=warn');
-    }
+    const wrapped = wrapDispatcher(real, { mode: 'block', write: log.write });
+    const thrown = thrownBy(() => wrapped.dispatch({ origin: 'https://www.googleapis.com', path: '/oauth2/v4/token' }, {}));
+    expect((thrown as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
+    expect(real.calls).toHaveLength(0);
+    // The request path can carry ids, so it is never logged.
+    expect(log.lines[0]).not.toContain('/oauth2/v4/token');
   });
 
-  it('BLOCK: the metadata server refusal offers no allowlist remedy', () => {
-    const real = mockDispatcher();
+  it('names the two ways out, and no allowlist, in the log line and the error alike', () => {
     const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'block', allow: [], write: log.write });
-    let thrown: unknown;
-    try {
-      wrapped.dispatch({ origin: 'http://169.254.169.254', path: '/x' }, {});
-    } catch (e) {
-      thrown = e;
-    }
+    const wrapped = wrapDispatcher(mockDispatcher(), { mode: 'block', write: log.write });
+    const thrown = thrownBy(() => wrapped.dispatch({ origin: 'http://169.254.169.254', path: '/x' }, {}));
     for (const text of [log.lines[0]!, (thrown as Error).message]) {
+      expect(text).toContain('outside pyric sandbox');
+      expect(text).toContain('PYRIC_GUARD=off');
       expect(text).not.toContain('PYRIC_GUARD_ALLOW');
+      expect(text).not.toContain('PYRIC_GUARD=warn');
     }
-  });
-
-  it('WARN: the metadata IP is reported and let through under warn mode', () => {
-    const real = mockDispatcher();
-    const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
-    wrapped.dispatch({ origin: 'http://169.254.169.254', path: '/x' }, {});
-    expect(real.calls).toHaveLength(1);
-    expect(log.lines[0]).toContain('net-guard WARN 169.254.169.254 (GCE metadata server)');
-  });
-
-  it('ALLOW: an allowlisted catalog host passes through and is still reported once', () => {
-    const real = mockDispatcher();
-    const log = collector();
-    const wrapped = wrapDispatcher(real, {
-      mode: 'block',
-      allow: ['aiplatform.googleapis.com'],
-      write: log.write,
-    });
-    expect(wrapped.dispatch({ origin: 'https://aiplatform.googleapis.com', path: '/p' }, {})).toBe(true);
-    expect(real.calls).toHaveLength(1);
-    expect(log.lines).toHaveLength(1);
-    expect(log.lines[0]).toContain('net-guard ALLOW aiplatform.googleapis.com');
-    expect(log.lines[0]).toContain('PYRIC_GUARD_ALLOW');
+    expect(log.lines[0]).toContain('TypeError: fetch failed');
   });
 
   it('logs each host only once, since a dev server retries constantly', () => {
-    const real = mockDispatcher();
     const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
+    const wrapped = wrapDispatcher(mockDispatcher(), { mode: 'block', write: log.write });
     for (let i = 0; i < 5; i++) {
-      wrapped.dispatch({ origin: 'https://firestore.googleapis.com', path: `/v1/${i}` }, {});
+      thrownBy(() => wrapped.dispatch({ origin: 'https://oauth2.googleapis.com', path: `/token?${i}` }, {}));
     }
-    wrapped.dispatch({ origin: 'https://identitytoolkit.googleapis.com', path: '/v1' }, {});
-    expect(real.calls).toHaveLength(6);
+    thrownBy(() => wrapped.dispatch({ origin: 'https://sts.googleapis.com', path: '/v1/token' }, {}));
     expect(log.lines).toHaveLength(2);
-    expect(log.lines[1]).toContain('identitytoolkit.googleapis.com');
+    expect(log.lines[1]).toContain('sts.googleapis.com');
   });
 
   it('forwards every other dispatcher member to the real instance', () => {
     const real = mockDispatcher();
-    const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write }) as unknown as {
+    const wrapped = wrapDispatcher(real, { mode: 'block', write: collector().write }) as unknown as {
       close: () => void;
       calls: MockCall[];
     };
@@ -335,14 +277,14 @@ describe('wrapDispatcher', () => {
   it('tolerates a dispatch with no usable origin', () => {
     const real = mockDispatcher();
     const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'block', allow: [], write: log.write });
+    const wrapped = wrapDispatcher(real, { mode: 'block', write: log.write });
     expect(wrapped.dispatch({ path: '/x' }, {})).toBe(true);
     expect(wrapped.dispatch({ origin: 'not a url' }, {})).toBe(true);
     expect(log.lines).toEqual([]);
   });
 });
 
-// ─── install: the off notice, the scope handoff, the re-assert ──────────────
+// ─── install: the notices, the scope handoff, the re-assert ─────────────────
 
 /** A stand-in for `globalThis` so no test ever mutates the real one. */
 function fakeScope(dispatcher: unknown): Record<symbol, unknown> {
@@ -350,6 +292,8 @@ function fakeScope(dispatcher: unknown): Record<symbol, unknown> {
 }
 
 const UNDICI = Symbol.for('undici.globalDispatcher.1');
+
+type Dispatch = (o: unknown, h: unknown) => unknown;
 
 describe('installNetGuard', () => {
   const noNet = { connect: () => ({}), createConnection: () => ({}) };
@@ -362,14 +306,7 @@ describe('installNetGuard', () => {
     const real = mockDispatcher();
     const scope = fakeScope(real);
     const log = collector();
-    const guard = installNetGuard({
-      scope,
-      env: {},
-      write: log.write,
-      net: noNet,
-      tls: noTls,
-      ...noPrototypes,
-    });
+    const guard = installNetGuard({ scope, env: {}, write: log.write, net: noNet, tls: noTls, ...noPrototypes });
     expect(guard).toBeNull();
     expect(scope[UNDICI]).toBe(real);
     expect(log.lines).toEqual([]);
@@ -391,11 +328,46 @@ describe('installNetGuard', () => {
     expect(scope[UNDICI]).toBe(real);
     expect(log.lines).toHaveLength(1);
     expect(log.lines[0]).toContain('net-guard disabled (PYRIC_GUARD=off)');
-    // The off notice must still name what is being given up.
+    // The off notice names what is given up, and what still holds.
     expect(log.lines[0]).toContain('169.254.169.254');
+    expect(log.lines[0]).toContain('still stop');
   });
 
-  it('warn mode replaces the global dispatcher and stays quiet until a hit', () => {
+  for (const [label, env] of [
+    ['unset', {}],
+    ['block', { PYRIC_GUARD: 'block' }],
+    ['unrecognized', { PYRIC_GUARD: 'loud' }],
+  ] as const) {
+    it(`PYRIC_GUARD ${label}: installs the choke point silently, and refuses a token host`, () => {
+      const real = mockDispatcher();
+      const scope = fakeScope(real);
+      const log = collector();
+      const guard = installNetGuard({
+        scope,
+        env: { PYRIC_SANDBOX: '1', ...env },
+        write: log.write,
+        net: noNet,
+        tls: noTls,
+        ...noPrototypes,
+        argv: ['/usr/bin/node', '/app/node_modules/.bin/next'],
+      });
+      expect(guard?.mode).toBe('block');
+      expect(scope[UNDICI]).not.toBe(real);
+      expect(log.lines).toEqual([]);
+      const dispatch = (scope[UNDICI] as { dispatch: Dispatch }).dispatch;
+      dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {});
+      expect(real.calls).toHaveLength(1);
+      expect(log.lines).toEqual([]);
+      expect(thrownBy(() => dispatch({ origin: 'https://oauth2.googleapis.com', path: '/token' }, {}))).toMatchObject({
+        code: GUARD_BLOCKED_CODE,
+      });
+      expect(real.calls).toHaveLength(1);
+      expect(log.lines).toHaveLength(1);
+      expect(log.lines[0]).toContain('from next');
+    });
+  }
+
+  it('PYRIC_GUARD=warn refuses a token host too, and says so once at install', () => {
     const real = mockDispatcher();
     const scope = fakeScope(real);
     const log = collector();
@@ -406,17 +378,67 @@ describe('installNetGuard', () => {
       net: noNet,
       tls: noTls,
       ...noPrototypes,
-      argv: ['/usr/bin/node', '/app/node_modules/.bin/next'],
     });
-    expect(guard).not.toBeNull();
-    expect(scope[UNDICI]).not.toBe(real);
-    expect(log.lines).toEqual([]);
-    (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch(
-      { origin: 'https://firestore.googleapis.com', path: '/v1' },
-      {},
-    );
+    expect(guard?.mode).toBe('block');
     expect(log.lines).toHaveLength(1);
-    expect(log.lines[0]).toContain('from next');
+    expect(log.lines[0]).toContain('PYRIC_GUARD=warn no longer lets token requests through');
+    const dispatch = (scope[UNDICI] as { dispatch: Dispatch }).dispatch;
+    expect(thrownBy(() => dispatch({ origin: 'http://metadata.google.internal', path: '/' }, {}))).toMatchObject({
+      code: GUARD_BLOCKED_CODE,
+    });
+    expect(real.calls).toHaveLength(0);
+  });
+
+  it('PYRIC_GUARD_ALLOW cannot open a token host', () => {
+    const real = mockDispatcher();
+    const scope = fakeScope(real);
+    const guard = installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD_ALLOW: 'oauth2.googleapis.com,169.254.169.254' },
+      write: collector().write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    })!;
+    guard.permit('https://sts.googleapis.com/v1/token');
+    const dispatch = (scope[UNDICI] as { dispatch: Dispatch }).dispatch;
+    for (const origin of ['https://oauth2.googleapis.com', 'http://169.254.169.254', 'https://sts.googleapis.com']) {
+      expect({ origin, error: thrownBy(() => dispatch({ origin, path: '/' }, {})) }).toMatchObject({
+        origin,
+        error: { code: GUARD_BLOCKED_CODE },
+      });
+    }
+    expect(real.calls).toHaveLength(0);
+  });
+
+  it('reads GCE_METADATA_HOST and the credentials file once, at install', () => {
+    const real = mockDispatcher();
+    const scope = fakeScope(real);
+    const reads: string[] = [];
+    installNetGuard({
+      scope,
+      env: {
+        PYRIC_SANDBOX: '1',
+        GCE_METADATA_HOST: 'metadata.corp.example:8080',
+        GOOGLE_APPLICATION_CREDENTIALS: '/creds/external.json',
+      },
+      readFile: (path) => {
+        reads.push(path);
+        return JSON.stringify({ token_url: 'https://sts.corp.example/v1/token' });
+      },
+      write: collector().write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    });
+    const dispatch = (scope[UNDICI] as { dispatch: Dispatch }).dispatch;
+    for (const origin of ['http://metadata.corp.example:8080', 'https://sts.corp.example']) {
+      expect({ origin, error: thrownBy(() => dispatch({ origin, path: '/' }, {})) }).toMatchObject({
+        origin,
+        error: { code: GUARD_BLOCKED_CODE },
+      });
+    }
+    expect(reads).toEqual(['/creds/external.json']);
   });
 
   it('re-asserts itself after another library calls setGlobalDispatcher', () => {
@@ -424,7 +446,7 @@ describe('installNetGuard', () => {
     const log = collector();
     const guard = installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'warn' },
+      env: { PYRIC_SANDBOX: '1' },
       write: log.write,
       net: noNet,
       tls: noTls,
@@ -438,19 +460,20 @@ describe('installNetGuard', () => {
     expect(scope[UNDICI]).not.toBe(usurper);
     expect(scope[UNDICI]).not.toBe(installed);
     // and the new wrapper still guards, delegating to the usurper
-    (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch(
-      { origin: 'https://firestore.googleapis.com', path: '/v1' },
-      {},
-    );
+    const dispatch = (scope[UNDICI] as { dispatch: Dispatch }).dispatch;
+    dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {});
     expect(usurper.calls).toHaveLength(1);
-    expect(log.lines).toHaveLength(1);
+    expect(thrownBy(() => dispatch({ origin: 'https://oauth2.googleapis.com', path: '/token' }, {}))).toMatchObject({
+      code: GUARD_BLOCKED_CODE,
+    });
+    expect(usurper.calls).toHaveLength(1);
     // A reassert with nothing to do is a no-op.
     const current = scope[UNDICI];
     guard.reassert();
     expect(scope[UNDICI]).toBe(current);
   });
 
-  it('wraps net/tls connect as the non-fetch backstop, blocking with the guard code', () => {
+  it('wraps net/tls connect as the non-fetch backstop, refusing token hosts with the guard code', () => {
     const scope = fakeScope(mockDispatcher());
     const log = collector();
     const netCalls: unknown[][] = [];
@@ -471,50 +494,41 @@ describe('installNetGuard', () => {
         return { tls: true };
       },
     };
-    installNetGuard({
-      scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
-      write: log.write,
-      net,
-      tls,
-      ...noPrototypes,
-    });
+    installNetGuard({ scope, env: { PYRIC_SANDBOX: '1' }, write: log.write, net, tls, ...noPrototypes });
 
-    // untouched host → passthrough
+    // untouched hosts → passthrough, a Firebase data host among them
     expect(net.connect({ host: '127.0.0.1', port: 5000 })).toEqual({ sock: true });
-    expect(netCalls).toHaveLength(1);
+    expect(net.connect(443, 'firestore.googleapis.com')).toEqual({ sock: true });
+    expect(tls.connect({ host: 'identitytoolkit.googleapis.com', port: 443 })).toEqual({ tls: true });
+    expect(netCalls).toHaveLength(2);
+    expect(tlsCalls).toHaveLength(1);
 
     // positional (port, host) form
-    expect(() => net.connect(443, 'firestore.googleapis.com')).toThrow(/firestore\.googleapis\.com/);
-    expect(netCalls).toHaveLength(1);
+    expect(() => net.connect(443, 'oauth2.googleapis.com')).toThrow(/oauth2\.googleapis\.com/);
+    expect(netCalls).toHaveLength(2);
 
     // options form, through tls
-    let thrown: unknown;
-    try {
-      tls.connect({ host: 'identitytoolkit.googleapis.com', port: 443 });
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
-    expect(tlsCalls).toHaveLength(0);
+    expect(thrownBy(() => tls.connect({ host: 'sts.googleapis.com', port: 443 }))).toMatchObject({
+      code: GUARD_BLOCKED_CODE,
+    });
+    expect(tlsCalls).toHaveLength(1);
 
     // createConnection shares the policy
-    expect(() => net.createConnection({ host: 'firebaseio.com' })).toThrow(/firebaseio\.com/);
+    expect(() => net.createConnection({ host: 'metadata.google.internal', port: 80 })).toThrow(/metadata\.google\.internal/);
 
     // an IPC path is not a host
     expect(net.connect('/tmp/some.sock')).toEqual({ sock: true });
 
     expect(log.lines.map((l) => l.split(' ')[3])).toEqual([
-      'firestore.googleapis.com',
-      'identitytoolkit.googleapis.com',
-      'firebaseio.com',
+      'oauth2.googleapis.com',
+      'sts.googleapis.com',
+      'metadata.google.internal',
     ]);
     expect(log.lines[0]).toContain('via socket');
   });
 
   it('guards an Agent prototype that snapshotted createConnection before install', () => {
     const scope = fakeScope(mockDispatcher());
-    const log = collector();
     const netCalls: unknown[][] = [];
     const realCreateConnection = (...args: unknown[]): unknown => {
       netCalls.push(args);
@@ -528,8 +542,8 @@ describe('installNetGuard', () => {
 
     installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
-      write: log.write,
+      env: { PYRIC_SANDBOX: '1' },
+      write: collector().write,
       net,
       tls: { connect: () => ({}) },
       agentPrototypes: [httpAgentPrototype],
@@ -537,132 +551,15 @@ describe('installNetGuard', () => {
       requestPrototypes: [],
     });
 
-    // The prototype's own copy now refuses a catalog host.
-    expect(() =>
-      (httpAgentPrototype.createConnection as (o: unknown) => unknown)({
-        host: 'firestore.googleapis.com',
-        port: 443,
-      }),
-    ).toThrow(/firestore\.googleapis\.com/);
+    const createConnection = httpAgentPrototype.createConnection as (o: unknown) => unknown;
+    expect(() => createConnection({ host: '169.254.169.254', port: 80 })).toThrow(/169\.254\.169\.254/);
     expect(netCalls).toHaveLength(0);
-    // And an ordinary local connection still goes through.
-    expect(
-      (httpAgentPrototype.createConnection as (o: unknown) => unknown)({
-        host: '127.0.0.1',
-        port: 5000,
-      }),
-    ).toEqual({ sock: true });
+    expect(createConnection({ host: '127.0.0.1', port: 5000 })).toEqual({ sock: true });
     expect(netCalls).toHaveLength(1);
-  });
-
-  it('reports a catalog host and lets it through when PYRIC_GUARD is unset', () => {
-    const real = mockDispatcher();
-    const scope = fakeScope(real);
-    const log = collector();
-    const guard = installNetGuard({
-      scope,
-      env: { PYRIC_SANDBOX: '1' },
-      write: log.write,
-      net: noNet,
-      tls: noTls,
-      ...noPrototypes,
-    });
-    expect(guard?.mode).toBe('warn');
-    (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch(
-      { origin: 'https://firestore.googleapis.com', path: '/v1' },
-      {},
-    );
-    expect(real.calls).toHaveLength(1);
-    expect(log.lines[0]).toContain('net-guard WARN firestore.googleapis.com (Cloud Firestore)');
-    expect(log.lines[0]).toContain('Set PYRIC_GUARD=block to fail these requests instead.');
-  });
-
-  it('escalate moves a warn guard to block for the rest of the process, with one line saying why (#1443)', () => {
-    const real = mockDispatcher();
-    const scope = fakeScope(real);
-    const log = collector();
-    const socketCalls: unknown[][] = [];
-    const socketPrototype = { connect: (...args: unknown[]): unknown => socketCalls.push(args) };
-    const guard = installNetGuard({
-      scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'warn' },
-      write: log.write,
-      net: noNet,
-      tls: noTls,
-      agentPrototypes: [],
-      socketPrototypes: [socketPrototype],
-    })!;
-    const dispatch = (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch;
-    dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {});
-    expect(real.calls).toHaveLength(1);
-
-    expect(guard.escalate('the real firebase-admin loaded')).toBe(true);
-    expect(guard.mode).toBe('block');
-    expect(log.lines.filter((line) => line.includes('escalated to block'))).toHaveLength(1);
-    expect(log.lines.at(-1)).toContain('the real firebase-admin loaded');
-
-    expect(() => dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {})).toThrow(
-      expect.objectContaining({ code: 'PYRIC_GUARD_BLOCKED' }),
-    );
-    expect(real.calls).toHaveLength(1);
-    expect(() => socketPrototype.connect({ host: '169.254.169.254', port: 80 })).toThrow(
-      expect.objectContaining({ code: 'PYRIC_GUARD_BLOCKED' }),
-    );
-    expect(socketCalls).toHaveLength(0);
-
-    // A second escalation changes nothing and says nothing.
-    const before = log.lines.length;
-    expect(guard.escalate('again')).toBe(false);
-    expect(log.lines).toHaveLength(before);
-  });
-
-  it('escalate leaves a block guard as it is, and the allowlist still permits its hosts', () => {
-    const real = mockDispatcher();
-    const scope = fakeScope(real);
-    const log = collector();
-    const guard = installNetGuard({
-      scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block', PYRIC_GUARD_ALLOW: 'aiplatform.googleapis.com' },
-      write: log.write,
-      net: noNet,
-      tls: noTls,
-      ...noPrototypes,
-    })!;
-    expect(guard.escalate('the real firebase-admin loaded')).toBe(false);
-    expect(guard.mode).toBe('block');
-    expect(log.lines).toEqual([]);
-    const dispatch = (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch;
-    dispatch({ origin: 'https://aiplatform.googleapis.com', path: '/v1' }, {});
-    expect(real.calls).toHaveLength(1);
-  });
-
-  it('permits a host named after install, as the Vite plugin does for its AI upstream', () => {
-    const real = mockDispatcher();
-    const scope = fakeScope(real);
-    const log = collector();
-    const guard = installNetGuard({
-      scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
-      write: log.write,
-      net: noNet,
-      tls: noTls,
-      ...noPrototypes,
-    });
-    const dispatch = (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch;
-    const vertex = { origin: 'https://aiplatform.googleapis.com', path: '/v1/projects/demo' };
-    expect(() => dispatch(vertex, {})).toThrow(/aiplatform\.googleapis\.com/);
-    guard!.permit('https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi');
-    dispatch(vertex, {});
-    expect(real.calls).toHaveLength(1);
-    // Only the named host: other catalog hosts stay refused.
-    expect(() => dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {})).toThrow(
-      /firestore\.googleapis\.com/,
-    );
   });
 
   it('guards a Socket prototype, reading the host from every connect argument form', () => {
     const scope = fakeScope(mockDispatcher());
-    const log = collector();
     const connectCalls: unknown[][] = [];
     const socketPrototype = {
       connect: (...args: unknown[]): unknown => {
@@ -673,8 +570,8 @@ describe('installNetGuard', () => {
 
     installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
-      write: log.write,
+      env: { PYRIC_SANDBOX: '1' },
+      write: collector().write,
       net: noNet,
       tls: noTls,
       agentPrototypes: [],
@@ -685,26 +582,35 @@ describe('installNetGuard', () => {
 
     // `net.connect` and `net.createConnection` call the prototype with their
     // arguments already normalized into one `[options, callback]` array.
-    expect(() => connect([{ port: 443, host: 'firestore.googleapis.com' }, null])).toThrow(
-      /firestore\.googleapis\.com/,
-    );
+    expect(() => connect([{ port: 443, host: 'oauth2.googleapis.com' }, null])).toThrow(/oauth2\.googleapis\.com/);
     // `new net.Socket().connect(port, host)`
-    expect(() => connect(443, 'identitytoolkit.googleapis.com')).toThrow(
-      /identitytoolkit\.googleapis\.com/,
-    );
+    expect(() => connect(443, 'iamcredentials.googleapis.com')).toThrow(/iamcredentials\.googleapis\.com/);
     // `tls.connect` passes an options object
-    expect(() => connect({ host: 'firebaseio.com', port: 443 })).toThrow(/firebaseio\.com/);
+    expect(() => connect({ host: 'metadata', port: 80 })).toThrow(/metadata/);
     expect(connectCalls).toHaveLength(0);
 
-    // Loopback in each form, and an IPC path, go straight through with their
-    // arguments untouched.
+    // Loopback in each form, an IPC path, and a Firebase data host go straight
+    // through with their arguments untouched.
     const normalizedLoopback = [{ port: 5000, host: '127.0.0.1' }, null];
     expect(connect(normalizedLoopback)).toEqual({ connected: true });
     expect(connectCalls[0]![0]).toBe(normalizedLoopback);
     expect(connect(5000, '127.0.0.1')).toEqual({ connected: true });
     expect(connect({ host: 'localhost', port: 5000 })).toEqual({ connected: true });
     expect(connect([{ path: '/tmp/pyric.sock' }, null])).toEqual({ connected: true });
-    expect(connectCalls).toHaveLength(4);
+    expect(connect({ host: 'firebaseio.com', port: 443 })).toEqual({ connected: true });
+    expect(connectCalls).toHaveLength(5);
+  });
+
+  it('has no escalate: there is no warn mode left to escalate from', () => {
+    const guard = installNetGuard({
+      scope: fakeScope(mockDispatcher()),
+      env: { PYRIC_SANDBOX: '1' },
+      write: collector().write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    });
+    expect('escalate' in (guard ?? {})).toBe(false);
   });
 });
 
@@ -745,12 +651,12 @@ let fixtureDir: string;
 function runNode(
   script: string,
   env: Record<string, string | undefined>,
-  preload?: string,
+  preloads: readonly string[] = [],
 ): { status: number | null; stdout: string; stderr: string } {
   const args: string[] = [];
   // A preload is `--import`ed BEFORE register, which is how a child ends up
   // with `node:http` already loaded when the guard installs.
-  if (preload !== undefined) args.push('--import', pathToFileURL(join(fixtureDir, preload)).href);
+  for (const preload of preloads) args.push('--import', pathToFileURL(join(fixtureDir, preload)).href);
   args.push('--import', registerUrl, script);
   const res = spawnSync('node', args, {
     cwd: fixtureDir,
@@ -761,12 +667,18 @@ function runNode(
       PYRIC_SANDBOX: undefined,
       PYRIC_GUARD: undefined,
       PYRIC_GUARD_ALLOW: undefined,
+      GCE_METADATA_HOST: undefined,
+      GCE_METADATA_IP: undefined,
+      GOOGLE_APPLICATION_CREDENTIALS: undefined,
       ...env,
     },
     timeout: 30_000,
   });
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
+
+/** The preload that keeps every child off DNS: a host the guard lets through fails with FIXTURE_NO_DNS. */
+const NO_DNS = 'preload-sockets.mjs';
 
 describe('net-guard under `node --import @pyric/cli/register`', () => {
   beforeAll(() => {
@@ -848,36 +760,48 @@ console.log(JSON.stringify({
     //    the Agent prototype's snapshot is taken from the unpatched `net`.
     writeFileSync(join(fixtureDir, 'preload-http.mjs'), `import 'node:http';\n`);
 
-    // 4. Block mode against a real catalog host: the fetch must fail with the
-    //    GUARD's cause, never DNS/ENOTFOUND. That is proof the guard, not the
-    //    network, stopped it.
+    // 4. fetch and http.request to a token source and to hosts that pass. The
+    //    outcome is the guard's code, or the fixture resolver's for a request
+    //    the guard let through.
     writeFileSync(
-      join(fixtureDir, 'blocked.mjs'),
-      `let err;
-try {
-  await fetch('https://firestore.googleapis.com/v1/projects/x/databases/(default)/documents');
-} catch (e) {
-  err = e;
+      join(fixtureDir, 'fetches.mjs'),
+      `import https from 'node:https';
+async function viaFetch(url) {
+  try {
+    await fetch(url, { method: 'POST', body: 'grant_type=x' });
+    return 'sent';
+  } catch (e) {
+    return e.cause?.code ?? e.code ?? e.message;
+  }
 }
-// Report, never assert: off/allowlist modes reach the real network, whose
-// outcome depends on whether this machine is online. Only the guard's own
-// fingerprint (\`causeCode\`) is a stable fact.
-console.log(JSON.stringify(err === undefined ? { rejected: false, causeCode: null } : {
-  rejected: true,
-  name: err.name,
-  message: err.message,
-  causeCode: err.cause?.code ?? null,
-  causeMessage: err.cause?.message ?? null,
+function viaRequest(host, path) {
+  return new Promise((resolve) => {
+    try {
+      const req = https.request({ host, path, method: 'POST' }, (res) => { res.resume(); resolve('sent'); });
+      req.on('error', (e) => resolve(e.code ?? e.message));
+      req.end('grant_type=x');
+    } catch (e) {
+      resolve(e.code ?? e.message);
+    }
+  });
+}
+console.log(JSON.stringify({
+  oauth2: await viaFetch('https://oauth2.googleapis.com/token'),
+  gtokenFetch: await viaFetch('https://www.googleapis.com/oauth2/v4/token'),
+  gtokenRequest: await viaRequest('www.googleapis.com', '/oauth2/v4/token'),
+  certs: await viaFetch('https://www.googleapis.com/oauth2/v3/certs'),
+  firestore: await viaFetch('https://firestore.googleapis.com/v1/projects/x/databases/(default)/documents'),
+  fonts: await viaFetch('https://fonts.googleapis.com/css2?family=Roboto'),
 }));
 `,
     );
     // 5. A preload that runs BEFORE register: it takes its own references to
     //    the connect functions, the way a library does at load time, and
-    //    replaces the resolver so no remote hostname reaches DNS. A catalog host
-    //    the guard lets through fails at that resolver with FIXTURE_NO_DNS,
-    //    which is distinguishable from the guard's own refusal.
+    //    replaces the resolver so no remote hostname reaches DNS. A host the
+    //    guard lets through fails at that resolver with FIXTURE_NO_DNS, which
+    //    is distinguishable from the guard's own refusal.
     writeFileSync(
-      join(fixtureDir, 'preload-sockets.mjs'),
+      join(fixtureDir, NO_DNS),
       `import dns from 'node:dns';
 import net from 'node:net';
 import tls from 'node:tls';
@@ -900,8 +824,8 @@ dns.lookup = function (hostname, options, callback) {
     );
 
     // 6. Real sockets: the captured references, a hand-built net.Socket, and
-    //    a captured tls.connect against catalog hosts, then loopback TCP, a
-    //    Unix socket, and an HTTP request to a local /__pyric/* route.
+    //    a captured tls.connect against token hosts and a Firebase data host,
+    //    then loopback TCP, a Unix socket, and a local /__pyric/* route.
     writeFileSync(
       join(fixtureDir, 'sockets.mjs'),
       `import { mkdtempSync } from 'node:fs';
@@ -942,14 +866,13 @@ const pyricHost = http.createServer((req, res) => res.end(req.url));
 const { port: pyricPort } = await listen(pyricHost, 0);
 
 const outcomes = {
-  capturedNetConnect: await attempt(() => netConnect(443, 'firestore.googleapis.com')),
+  capturedNetConnect: await attempt(() => netConnect(443, 'oauth2.googleapis.com')),
   capturedCreateConnection: await attempt(() =>
-    netCreateConnection({ host: 'firebaseio.com', port: 443 }),
+    netCreateConnection({ host: 'metadata.google.internal', port: 80 }),
   ),
-  socketConnect: await attempt(() => new net.Socket().connect(443, 'identitytoolkit.googleapis.com')),
-  capturedTlsConnect: await attempt(() =>
-    tlsConnect({ host: 'firebasestorage.googleapis.com', port: 443 }),
-  ),
+  socketConnect: await attempt(() => new net.Socket().connect(443, 'iamcredentials.googleapis.com')),
+  capturedTlsConnect: await attempt(() => tlsConnect({ host: 'sts.googleapis.com', port: 443 })),
+  firestoreSocket: await attempt(() => new net.Socket().connect(443, 'firestore.googleapis.com')),
   loopbackCaptured: await attempt(() => netConnect(tcpPort, '127.0.0.1')),
   loopbackSocket: await attempt(() => new net.Socket().connect(tcpPort, '127.0.0.1')),
   ipcCaptured: await attempt(() => netConnect(ipcPath)),
@@ -975,58 +898,63 @@ console.log(JSON.stringify(outcomes));
     if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
   });
 
+  const SANDBOX = { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' };
+
   it('does not disturb a plain child: localhost fetch works, exit 0, no verdict lines', () => {
-    const res = runNode('local.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
+    const res = runNode('local.mjs', SANDBOX);
     expect(res.stderr).toContain('@pyric/cli/register: active');
-    expect(res.stderr).not.toContain('net-guard WARN');
-    expect(res.stderr).not.toContain('net-guard BLOCK');
+    expect(res.stderr).not.toContain('net-guard');
     expect(res.stdout).toContain('LOCAL_OK');
     expect(res.status).toBe(0);
   });
 
-  it('PYRIC_GUARD=block fails a catalog-host fetch with the guard cause (never DNS)', () => {
-    const res = runNode('blocked.mjs', {
-      PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
-      PYRIC_GUARD: 'block',
+  for (const [label, guard] of [
+    ['an unset PYRIC_GUARD', undefined],
+    ['PYRIC_GUARD=block', 'block'],
+    ['PYRIC_GUARD=warn', 'warn'],
+  ] as const) {
+    it(`${label} refuses token requests with the guard cause, and lets every other host through`, () => {
+      const res = runNode('fetches.mjs', { ...SANDBOX, PYRIC_GUARD: guard }, [NO_DNS]);
+      expect(res.status).toBe(0);
+      expect(JSON.parse(res.stdout.trim())).toEqual({
+        oauth2: GUARD_BLOCKED_CODE,
+        gtokenFetch: GUARD_BLOCKED_CODE,
+        gtokenRequest: GUARD_BLOCKED_CODE,
+        certs: 'FIXTURE_NO_DNS',
+        firestore: 'FIXTURE_NO_DNS',
+        fonts: 'FIXTURE_NO_DNS',
+      });
+      expect(res.stderr).toContain('net-guard BLOCK oauth2.googleapis.com (Google OAuth 2.0 token endpoint)');
+      expect(res.stderr).toContain('net-guard BLOCK www.googleapis.com');
+      expect(res.stderr).not.toContain('firestore.googleapis.com');
+      expect(res.stderr).not.toContain('fonts.googleapis.com');
+      expect(res.stderr).not.toContain('net-guard WARN');
+      const warnNotice = res.stderr.includes('PYRIC_GUARD=warn no longer lets token requests through');
+      expect(warnNotice).toBe(guard === 'warn');
     });
-    expect(res.status).toBe(0);
-    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
-    expect(seen.rejected).toBe(true);
-    expect(seen.name).toBe('TypeError');
-    expect(seen.message).toBe('fetch failed');
-    expect(seen.causeCode).toBe(GUARD_BLOCKED_CODE);
-    expect(seen.causeMessage).toContain('firestore.googleapis.com');
-    expect(res.stderr).toContain('net-guard BLOCK firestore.googleapis.com');
-    expect(res.stderr).toContain('Cloud Firestore');
-  });
+  }
 
-  it('PYRIC_GUARD=off prints the disabled notice and lets the request reach the network', () => {
-    const res = runNode('blocked.mjs', {
-      PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
-      PYRIC_GUARD: 'off',
-    });
+  it('PYRIC_GUARD=off prints the disabled notice and refuses nothing', () => {
+    const res = runNode('fetches.mjs', { ...SANDBOX, PYRIC_GUARD: 'off' }, [NO_DNS]);
     expect(res.stderr).toContain('net-guard disabled (PYRIC_GUARD=off)');
-    // Whatever happens on the wire (offline CI → DNS error), it is NOT ours.
-    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
-    expect(seen.causeCode).not.toBe(GUARD_BLOCKED_CODE);
+    const seen = JSON.parse(res.stdout.trim()) as Record<string, string>;
+    expect(Object.values(seen).every((outcome) => outcome === 'FIXTURE_NO_DNS')).toBe(true);
   });
 
-  it('PYRIC_GUARD_ALLOW permits a catalog host and still reports it', () => {
-    const res = runNode('blocked.mjs', {
-      PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
-      PYRIC_GUARD: 'block',
-      PYRIC_GUARD_ALLOW: 'https://firestore.googleapis.com',
-    });
-    expect(res.stderr).toContain('net-guard ALLOW firestore.googleapis.com');
-    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
-    expect(seen.causeCode).not.toBe(GUARD_BLOCKED_CODE);
+  it('PYRIC_GUARD_ALLOW does not open a token endpoint', () => {
+    const res = runNode(
+      'fetches.mjs',
+      { ...SANDBOX, PYRIC_GUARD_ALLOW: 'https://oauth2.googleapis.com,www.googleapis.com' },
+      [NO_DNS],
+    );
+    const seen = JSON.parse(res.stdout.trim()) as Record<string, string>;
+    expect(seen.oauth2).toBe(GUARD_BLOCKED_CODE);
+    expect(seen.gtokenFetch).toBe(GUARD_BLOCKED_CODE);
+    expect(res.stderr).not.toContain('net-guard ALLOW');
   });
 
-  it('refuses a plain http.request to the metadata server before it connects', () => {
-    const res = runNode('metadata.mjs', {
-      PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
-      PYRIC_GUARD: 'block',
-    });
+  it('refuses a plain http.request to the metadata server before it connects, with PYRIC_GUARD unset', () => {
+    const res = runNode('metadata.mjs', SANDBOX);
     expect(res.status).toBe(0);
     const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
     expect(seen.code).toBe(GUARD_BLOCKED_CODE);
@@ -1038,11 +966,7 @@ console.log(JSON.stringify(outcomes));
   }, 30_000);
 
   it('still intercepts http.request when node:http loaded before the guard', () => {
-    const res = runNode(
-      'metadata.mjs',
-      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: 'block' },
-      'preload-http.mjs',
-    );
+    const res = runNode('metadata.mjs', SANDBOX, ['preload-http.mjs']);
     expect(res.status).toBe(0);
     const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
     expect(seen.code).toBe(GUARD_BLOCKED_CODE);
@@ -1050,70 +974,34 @@ console.log(JSON.stringify(outcomes));
     expect(res.stderr).toContain('net-guard BLOCK 169.254.169.254');
   }, 30_000);
 
-  /** The catalog hosts `sockets.mjs` dials, keyed by the attempt that dials each. */
-  const socketCatalogAttempts = {
-    capturedNetConnect: 'firestore.googleapis.com',
-    capturedCreateConnection: 'firebaseio.com',
-    socketConnect: 'identitytoolkit.googleapis.com',
-    capturedTlsConnect: 'firebasestorage.googleapis.com',
+  /** The token hosts `sockets.mjs` dials, keyed by the attempt that dials each. */
+  const socketTokenAttempts = {
+    capturedNetConnect: 'oauth2.googleapis.com',
+    capturedCreateConnection: 'metadata.google.internal',
+    socketConnect: 'iamcredentials.googleapis.com',
+    capturedTlsConnect: 'sts.googleapis.com',
   } as const;
 
-  /** Loopback TCP, the Unix socket and the local /__pyric/* route, in every mode. */
-  function expectLocalTrafficUntouched(seen: Record<string, unknown>): void {
+  it('refuses real sockets to token hosts however the caller reached connect, and lets Firestore through', () => {
+    const res = runNode('sockets.mjs', SANDBOX, [NO_DNS]);
+    expect(res.status).toBe(0);
+    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
+    for (const [attemptName, host] of Object.entries(socketTokenAttempts)) {
+      expect({ attemptName, outcome: seen[attemptName] }).toEqual({ attemptName, outcome: GUARD_BLOCKED_CODE });
+      expect(res.stderr).toContain(`net-guard BLOCK ${host}`);
+    }
+    expect(seen.firestoreSocket).toBe('FIXTURE_NO_DNS');
     expect(seen.loopbackCaptured).toBe('connected');
     expect(seen.loopbackSocket).toBe('connected');
     expect(seen.ipcCaptured).toBe('connected');
     expect(seen.ipcSocket).toBe('connected');
     expect(seen.pyricRoute).toBe('/__pyric/init.json');
-  }
-
-  it('PYRIC_GUARD=block refuses real sockets to catalog hosts, however the caller reached connect', () => {
-    const res = runNode(
-      'sockets.mjs',
-      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: 'block' },
-      'preload-sockets.mjs',
-    );
-    expect(res.status).toBe(0);
-    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
-    for (const [attemptName, host] of Object.entries(socketCatalogAttempts)) {
-      expect({ attemptName, outcome: seen[attemptName] }).toEqual({
-        attemptName,
-        outcome: GUARD_BLOCKED_CODE,
-      });
-      expect(res.stderr).toContain(`net-guard BLOCK ${host}`);
-    }
-    expectLocalTrafficUntouched(seen);
   }, 30_000);
 
-  for (const [label, guardMode] of [
-    ['PYRIC_GUARD=warn', 'warn'],
-    ['an unset PYRIC_GUARD', undefined],
-  ] as const) {
-    it(`${label} reports real sockets to catalog hosts and lets them through`, () => {
-      const res = runNode(
-        'sockets.mjs',
-        { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: guardMode },
-        'preload-sockets.mjs',
-      );
-      expect(res.status).toBe(0);
-      const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
-      for (const [attemptName, host] of Object.entries(socketCatalogAttempts)) {
-        // Past the guard, the attempt reaches the fixture's resolver and stops.
-        expect({ attemptName, outcome: seen[attemptName] }).toEqual({
-          attemptName,
-          outcome: 'FIXTURE_NO_DNS',
-        });
-        expect(res.stderr).toContain(`net-guard WARN ${host}`);
-      }
-      expect(res.stderr).not.toContain('net-guard BLOCK');
-      expectLocalTrafficUntouched(seen);
-    }, 30_000);
-  }
-
-  it('publishes the installed guard, so a later destination can be permitted', () => {
-    const res = runNode('published.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
+  it('publishes the installed guard in block mode', () => {
+    const res = runNode('published.mjs', SANDBOX);
     expect(res.status).toBe(0);
-    expect(JSON.parse(res.stdout.trim())).toEqual({ mode: 'warn', permit: 'function' });
+    expect(JSON.parse(res.stdout.trim())).toEqual({ mode: 'block', permit: 'function' });
   });
 
   it('stays inert without PYRIC_SANDBOX', () => {
@@ -1124,15 +1012,13 @@ console.log(JSON.stringify(outcomes));
   });
 });
 
-// Keep the exported verdict shape honest for the callers that format it.
-describe('EgressVerdict shape', () => {
+// Keep the exported refusal shape honest for the callers that format it.
+describe('EgressRefusal shape', () => {
   it('carries everything a log line needs', () => {
-    const v = evaluateEgress('firebasestorage.googleapis.com', warn) as EgressVerdict;
-    expect(Object.keys(v).sort()).toEqual(['endpoint', 'host', 'permitted', 'service', 'verdict']);
-    // The observed hostname is reported; the catalog suffix is kept alongside.
-    const sub = evaluateEgress('us-central1-demo.cloudfunctions.net', warn) as EgressVerdict;
-    expect(sub.host).toBe('us-central1-demo.cloudfunctions.net');
-    expect(sub.endpoint).toBe('cloudfunctions.net');
+    const refusal = evaluateEgress('0xa9fea9fe', on) as EgressRefusal;
+    expect(Object.keys(refusal).sort()).toEqual(['endpoint', 'host', 'service']);
+    // The observed hostname is reported, in the one spelling.
+    expect(refusal.host).toBe('169.254.169.254');
   });
 });
 
@@ -1148,15 +1034,11 @@ describe('installNetGuard multi-slot undici globalDispatcher coverage', () => {
     const d1 = mockDispatcher();
     const d2 = mockDispatcher();
     const d3 = mockDispatcher();
-    const scope: Record<symbol, unknown> = {
-      [slot1]: d1,
-      [slot2]: d2,
-      [slot3]: d3,
-    };
+    const scope: Record<symbol, unknown> = { [slot1]: d1, [slot2]: d2, [slot3]: d3 };
     const log = collector();
     const guard = installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
+      env: { PYRIC_SANDBOX: '1' },
       write: log.write,
       net: noNet,
       tls: noTls,
@@ -1167,31 +1049,23 @@ describe('installNetGuard multi-slot undici globalDispatcher coverage', () => {
     expect(scope[slot2]).not.toBe(d2);
     expect(scope[slot3]).not.toBe(d3);
 
-    expect(() =>
-      (scope[slot2] as { dispatch: (opts: unknown, handler: unknown) => unknown }).dispatch(
-        { origin: 'https://firestore.googleapis.com' },
-        {},
-      ),
-    ).toThrow(/pyric net-guard blocked fetch egress to firestore\.googleapis\.com/);
-    expect(() =>
-      (scope[slot3] as { dispatch: (opts: unknown, handler: unknown) => unknown }).dispatch(
-        { origin: 'https://identitytoolkit.googleapis.com' },
-        {},
-      ),
-    ).toThrow(/pyric net-guard blocked fetch egress to identitytoolkit\.googleapis\.com/);
+    const dispatchOn = (slot: symbol) => (scope[slot] as { dispatch: Dispatch }).dispatch;
+    expect(() => dispatchOn(slot2)({ origin: 'https://oauth2.googleapis.com' }, {})).toThrow(
+      /pyric net-guard blocked fetch egress to oauth2\.googleapis\.com/,
+    );
+    expect(() => dispatchOn(slot3)({ origin: 'https://sts.googleapis.com' }, {})).toThrow(
+      /pyric net-guard blocked fetch egress to sts\.googleapis\.com/,
+    );
 
     // Reassert wraps a newly replaced .2 slot without disturbing .1
     const firstWrapped1 = scope[slot1];
     scope[slot2] = mockDispatcher();
     guard!.reassert();
     expect(scope[slot1]).toBe(firstWrapped1);
-    expect(() =>
-      (scope[slot2] as { dispatch: (opts: unknown, handler: unknown) => unknown }).dispatch(
-        { origin: 'https://firebasestorage.googleapis.com' },
-        {},
-      ),
-    ).toThrow(/pyric net-guard blocked fetch egress to firebasestorage\.googleapis\.com/);
-    expect(log.lines.some((l) => l.includes('net-guard BLOCK firestore.googleapis.com'))).toBe(true);
+    expect(() => dispatchOn(slot2)({ origin: 'https://iamcredentials.googleapis.com' }, {})).toThrow(
+      /pyric net-guard blocked fetch egress to iamcredentials\.googleapis\.com/,
+    );
+    expect(log.lines.some((l) => l.includes('net-guard BLOCK oauth2.googleapis.com'))).toBe(true);
     guard!.stop();
   });
 });

@@ -1,0 +1,6 @@
+{
+  "type": "authorized_user",
+  "client_id": "000000000000-scenario.apps.googleusercontent.com",
+  "client_secret": "scenario-placeholder-secret",
+  "refresh_token": "scenario-placeholder-refresh-token"
+}
