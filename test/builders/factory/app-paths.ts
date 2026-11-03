@@ -16,7 +16,8 @@
  *   tools/                   ffmpeg and ast-grep, each checked by hash before use
  *   git/                     a bare repo: each hour's commit is fetched into it, never checked out on the host
  *   checks/                  each check's result, the baseline, the reference screens, `latest`
- *   last-good.json           the last commit that passed
+ *   last-good.json           the last commit that passed every gate
+ *   last-served.json         the commit the served copy shows, its failing gates and what changed
  *   served.json              the served copy's process, checked against /proc before any signal
  *   approved-components.txt  new components/ui files the brief approved
  *   copy-overrides.json      verbs and labels the copy check accepts
@@ -53,6 +54,7 @@ export interface AppPaths {
   baseline: string;
   reference: string;
   lastGood: string;
+  lastServed: string;
   served: string;
   approvedComponents: string;
   copyOverrides: string;
@@ -88,6 +90,7 @@ export function appPaths(runDir: string): AppPaths {
     baseline: join(checks, 'baseline'),
     reference: join(checks, 'reference'),
     lastGood: join(host, 'last-good.json'),
+    lastServed: join(host, 'last-served.json'),
     served: join(host, 'served.json'),
     approvedComponents: join(host, 'approved-components.txt'),
     copyOverrides: join(host, 'copy-overrides.json'),

@@ -1,9 +1,9 @@
 /**
- * Serves the last good commit until it is stopped, detached from the check
- * that started it:
+ * Serves the newest servable commit until it is stopped, detached from the
+ * check that started it:
  *
  *   bun test/builders/factory/served-process.ts --run-dir <dir> --commit <sha> --root <tree> \
- *     --owner-pid <pid> --owner-start <time> [--deadline <iso>] [--port 4120]
+ *     --owner-pid <pid> --owner-start <time> [--deadline <iso>] [--port 4120] [--host <address>]
  *
  * `<tree>` is a fresh directory of `<run>.work/` holding the commit's tar
  * (`tree.ts`). In a sandbox rooted there, as the check runs it, it unpacks
@@ -11,8 +11,12 @@
  * `FFMPEG_BIN` (`served.ts` checks it by hash), so the served copy reaches
  * no Google host either. The host reaches it through Unix sockets in that
  * sandbox, opened through `/proc/<pid>/root` (`relay.ts`): `--port` carries
- * Studio and `--port + 1` Pyric's WebSocket, both on 127.0.0.1. Only
- * `--port` is published on the private network (`served.ts`).
+ * Studio on `--host` (loopback unless `PYRIC_FACTORY_SERVE_HOST` names an
+ * address, `serve-host.ts`), and `--port + 1` Pyric's WebSocket on
+ * 127.0.0.1. Only `--port` is published on the private network
+ * (`served.ts`). `--port` also answers `/_factory/status` itself
+ * (`status-route.ts`): which commit is served, what changed since the one
+ * served before it, and which gates it fails, from `last-served.json`.
  *
  * It writes `<run>.host/served.json` (`starting`, then `ready` or `failed`)
  * with its pid and start time, which the harness checks before it signals
@@ -30,16 +34,20 @@ import { APP_PORT, PYRIC_PORT, startApp } from './app-start.ts';
 import { optional } from './optional.ts';
 import { insideSandbox, relayPortToSocket, startInsideBridge, waitForSocket } from './relay.ts';
 import { openSandbox, specAt } from './sandbox.ts';
+import { readLastServed } from './last-served.ts';
+import { allowedHosts, LOOPBACK } from './serve-host.ts';
 import { removeRecordedEntries } from './served-entries.ts';
 import { parseOwner, watchOwner, type Owner } from './served-owner.ts';
 import { writeJson } from './state-files.ts';
 import { installStudio } from './studio-install.ts';
+import { STATUS_PATH, statusPage } from './status-page.ts';
+import type { StatusRoute } from './status-route.ts';
 import { tailnetHost } from './tailnet.ts';
 import { unpackTree } from './tree.ts';
 
 export const DEFAULT_SERVED_PORT = 4120;
 
-const USAGE = 'bun served-process.ts --run-dir <dir> --commit <sha> --root <tree> --owner-pid <pid> --owner-start <time> [--deadline <iso>] [--port <n>]';
+const USAGE = 'bun served-process.ts --run-dir <dir> --commit <sha> --root <tree> --owner-pid <pid> --owner-start <time> [--deadline <iso>] [--port <n>] [--host <address>]';
 
 export const servedStateSchema = z.object({
   pid: z.number().int().positive(),
@@ -59,12 +67,44 @@ export function servedStateFile(paths: AppPaths): string {
   return paths.served;
 }
 
-/** The private network's host name, which Next must allow as a dev origin, when there is one. */
-function allowedHostOption(): { allowedHost?: string } {
-  return optional('allowedHost', tailnetHost());
+/** The private network's host name and the bound address, which Next and Pyric must allow, when there are. */
+function allowedHostOption(host: string): { allowedHost?: string } {
+  return optional('allowedHost', allowedHosts(tailnetHost(), host));
 }
 
-const BRIDGES = [{ inner: APP_PORT, socket: 'app.sock', offset: 0 }, { inner: PYRIC_PORT, socket: 'pyric.sock', offset: 1 }];
+interface Bridge {
+  inner: number;
+  socket: string;
+  offset: number;
+  /** Whether this port listens on the served host and answers the status page; the other stays on loopback. */
+  isPublic: boolean;
+}
+
+const BRIDGES: readonly Bridge[] = [
+  { inner: APP_PORT, socket: 'app.sock', offset: 0, isPublic: true },
+  { inner: PYRIC_PORT, socket: 'pyric.sock', offset: 1, isPublic: false },
+];
+
+interface ServeOptions {
+  runDir: string;
+  commit: string;
+  root: string;
+  port: number;
+  host: string;
+  owner: Owner;
+}
+
+/** The status page for this process's commit, built from `last-served.json` on each request. */
+function statusRoute(paths: AppPaths, commit: string): StatusRoute {
+  return { path: STATUS_PATH, body: () => statusPage(commit, readLastServed(paths.lastServed)) };
+}
+
+function relayBridge(bridge: Bridge, reach: string, options: ServeOptions, route: StatusRoute) {
+  const port = options.port + bridge.offset;
+  const socket = join(reach, bridge.socket);
+  if (!bridge.isPublic) return relayPortToSocket(port, socket);
+  return relayPortToSocket(port, socket, options.host, route);
+}
 
 /** Resolves with why the copy stops: a signal from the harness, or its owner gone (`served-owner.ts`). */
 function stopReason(owner: Owner): Promise<StopReason> {
@@ -88,7 +128,8 @@ function afterStop(paths: AppPaths, reason: StopReason): void {
   for (const line of removeRecordedEntries(paths)) log(line);
 }
 
-async function serve(runDir: string, commit: string, root: string, port: number, owner: Owner): Promise<void> {
+async function serve(options: ServeOptions): Promise<void> {
+  const { runDir, commit, root, port, owner } = options;
   const paths = appPaths(runDir);
   const stateFile = servedStateFile(paths);
   const base = { pid: process.pid, startTime: startTimeOf(process.pid) ?? '', runDir, commit, port, startedAt: new Date().toISOString() };
@@ -99,12 +140,13 @@ async function serve(runDir: string, commit: string, root: string, port: number,
     await openSandbox(specAt(root), paths, async (runner, namespace) => {
       await unpackTree(runner, checkout);
       await installStudio({ runner, namespace, checkout, withRoot: false, say: (line) => console.log(`▸ ${line}`) });
-      const app = await startApp({ checkout, namespace, logFile: join(checkout.logs, 'studio.log'), ...allowedHostOption(), ...optional('ffmpeg', process.env.FFMPEG_BIN), publicBridgePort: port + 1 });
+      const app = await startApp({ checkout, namespace, logFile: join(checkout.logs, 'studio.log'), ...allowedHostOption(options.host), ...optional('ffmpeg', process.env.FFMPEG_BIN), publicBridgePort: port + 1 });
       const sockets = join(root, 'sockets');
       for (const bridge of BRIDGES) startInsideBridge(namespace, ['unix-to-tcp', bridge.socket, String(bridge.inner)], sockets);
       const reach = insideSandbox(namespace.pid, sockets);
       for (const bridge of BRIDGES) await waitForSocket(join(reach, bridge.socket));
-      const servers = await Promise.all(BRIDGES.map((bridge) => relayPortToSocket(port + bridge.offset, join(reach, bridge.socket))));
+      const route = statusRoute(paths, commit);
+      const servers = await Promise.all(BRIDGES.map((bridge) => relayBridge(bridge, reach, options, route)));
       writeJson(stateFile, { ...base, status: 'ready' });
       const reason = await stopped;
       for (const server of servers) server.close();
@@ -124,7 +166,8 @@ if (import.meta.main) {
   const root = flagValue(args, '--root');
   if (runDir === undefined || commit === undefined || root === undefined) throw new Error(`usage: ${USAGE}`);
   const port = Number(flagValue(args, '--port') ?? DEFAULT_SERVED_PORT);
+  const host = flagValue(args, '--host') ?? LOOPBACK;
   const owner = parseOwner((flag) => flagValue(args, flag));
-  await serve(runDir, commit, root, port, owner);
+  await serve({ runDir, commit, root, port, host, owner });
   process.exit();
 }

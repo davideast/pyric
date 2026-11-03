@@ -2,6 +2,7 @@
 import { checkDrafts, draftsDir, formatDrafts } from './drafts.ts';
 import { parseCheckOptions, parseFactoryOptions, parseSummaryOptions } from './options.ts';
 import { RunDirError, runPaths } from './run-dir.ts';
+import { serveHostProblem } from './serve-host.ts';
 import { loadRunner } from './runner-module.ts';
 import { workDirOf } from './app-paths.ts';
 import { formatSummary, workSizeLine } from './summary.ts';
@@ -17,6 +18,11 @@ export const FACTORY_CHECK_USAGE = 'factory-check --run-dir <dir> --unit <name> 
 /** Runs the supervisor to the deadline. A SIGTERM or SIGINT stops it, and its sessions, early. */
 export async function factoryCommand(args: readonly string[]): Promise<number> {
   const options = parseFactoryOptions(args);
+  const hostProblem = serveHostProblem();
+  if (hostProblem !== undefined) {
+    console.error(hostProblem);
+    return 2;
+  }
   const runner = await loadRunner(options.runner);
   const stop = new AbortController();
   const onSignal = (): void => stop.abort();

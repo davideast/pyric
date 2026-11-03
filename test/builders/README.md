@@ -637,7 +637,8 @@ Where things live, by who can write them:
   the check's Studio and the served copy get this ffmpeg as `FFMPEG_BIN`
   and `FFMPEG_PATH`), `git/`
   (a bare repo the check fetches each commit into), `checks/`,
-  `last-good.json`, `served.json`, `approved-components.txt` and
+  `last-good.json`, `last-served.json`, `served.json`,
+  `approved-components.txt` and
   `copy-overrides.json`. Every JSON file is read back through a schema.
 - `<run-dir>.work/` holds the trees the check builds, one fresh directory
   per check, never bound into a session. They are kept, one Studio install
@@ -695,9 +696,30 @@ log per failing gate, `screenshots/`, `copy-report.md`, `capture.json` and
 captures are in `checks/baseline/`, taken by the same path, and DESIGN.md's
 reference screens in `checks/reference/`.
 
-A passing commit becomes the last good one (`last-good.json`) and is served
-from a fresh tree in its own sandbox: `next dev` on 127.0.0.1:4120, and
-Pyric's WebSocket on 4121. It restarts only when a newer commit passes.
+A commit that passes every gate becomes the last good one
+(`last-good.json`). The served copy shows the newest servable commit, one
+that passed `typecheck` and `app-start` (`SERVE_GATES` in
+`factory/gates.ts`), whatever else failed, so there is always something to
+review (`factory/serve-newest.ts`). It runs from a fresh tree in its own
+sandbox: `next dev` on port 4120, and Pyric's WebSocket on 127.0.0.1:4121.
+It restarts only for a newer servable commit, and starts when nothing
+serves. A commit that fails either serve gate leaves the copy as it is.
+`last-served.json` records the served commit, the gates it fails (its
+label), and the commit subjects since the commit served before it, or
+since the start commit for the first one; when the same commit is checked
+again, the copy stays up and only its label changes. The check's summary
+and `latest-check.json` (`servedCommit`, `servedFailing`) carry the label:
+`serving acf8f7a25106, failing: tests, walks`.
+
+Port 4120 listens on 127.0.0.1 unless `PYRIC_FACTORY_SERVE_HOST` names
+one IP address of this machine, such as its address on a private network,
+so another device there can open it (`factory/serve-host.ts`). A host name
+or a wildcard address is refused; Next and Pyric are told to accept the
+address as a host. The same port answers `/_factory/status` itself
+(`factory/status-route.ts`): a plain HTML page with the served commit, the
+commit subjects since the one served before it, and its failing gates,
+read from `last-served.json` on each request.
+
 With `PYRIC_FACTORY_TAILSCALE` naming the Tailscale CLI, port 4120 alone is
 published on the private network with `tailscale serve`, which exposes
 Studio's dev server to every device on that network; 4121 stays on this

@@ -14,6 +14,7 @@ import { flagValue, positionals, rejectUnknownFlags, UsageError } from '../cli-a
 import { setupApp } from './app-setup.ts';
 import { hourlyCheck } from './hourly-check.ts';
 import { openSandbox } from './sandbox.ts';
+import { serveHostProblem } from './serve-host.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 
@@ -61,6 +62,11 @@ export async function factoryHourCommand(args: readonly string[]): Promise<numbe
   const hour = Number(required(args, '--hour'));
   if (!Number.isInteger(hour) || hour < 1) throw new UsageError('--hour takes a whole number of at least 1');
   const runDir = resolve(required(args, '--run-dir'));
+  const hostProblem = serveHostProblem();
+  if (hostProblem !== undefined) {
+    console.error(hostProblem);
+    return 2;
+  }
   const result = await hourlyCheck({ runDir, appDir: resolve(runDir, 'app'), hour, signal: new AbortController().signal });
   console.log(JSON.stringify(result, null, 2));
   return result.passed ? 0 : 1;
