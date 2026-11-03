@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "source": "fixture",
+    "codebase": "pyric-functions-callable-oracle",
+    "runtime": "nodejs22"
+  },
+  "hosting": {
+    "public": "public",
+    "rewrites": [
+      { "source": "/pyricCallableEcho", "function": "pyricCallableEcho" }
+    ]
+  }
+}
