@@ -14,7 +14,6 @@
  */
 import { spawnSync } from 'node:child_process';
 import { lstatSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
-import { readdir } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -190,33 +189,6 @@ export function socketFiles(root: string, skip: readonly string[]): { sockets: s
   return { sockets: sockets.sort(), unlisted: unlisted.sort(), walked };
 }
 
-/** How many directories `readAhead` lists at once; `namespace.ts` gives Node as many threads. */
-export const READ_AHEAD_LISTINGS = 32;
-
-/**
- * Lists the tree in parallel so its directories are in the file cache when
- * `socketFiles` walks it. On a fresh machine that walk waits on the disk once
- * per directory, which took most of two minutes on a CI runner. This checks
- * nothing and ignores every error: `socketFiles` still lists each directory
- * itself and reports what it can't.
- */
-export async function readAhead(root: string, skip: readonly string[]): Promise<void> {
-  const skipped = new Set(skip);
-  let level = [root];
-  while (level.length > 0) {
-    const next: string[] = [];
-    for (let start = 0; start < level.length; start += READ_AHEAD_LISTINGS) {
-      const dirs = level.slice(start, start + READ_AHEAD_LISTINGS);
-      const listings = await Promise.all(dirs.map((dir) => readdir(dir, { withFileTypes: true }).catch((): Dirent[] => [])));
-      dirs.forEach((dir, index) => {
-        const subdirs = listings[index]?.filter((entry) => entry.isDirectory()).map((entry) => join(dir, entry.name)) ?? [];
-        next.push(...subdirs.filter((path) => !skipped.has(path)));
-      });
-    }
-    level = next;
-  }
-}
-
 /** The sandbox's problems; none means it has only what the harness put in it. */
 export function inventory(input: InventoryInput): Inventory {
   const problems: string[] = [];
@@ -272,11 +244,8 @@ export function sandboxInventory(ownDirs: readonly string[]): Inventory {
 }
 
 const isEntryPoint = process.argv[1] === fileURLToPath(import.meta.url);
-async function main(): Promise<void> {
-  const ownDirs = process.argv.slice(2);
-  await readAhead('/', [...PSEUDO_DIRS, ...ownDirs]);
-  const result = sandboxInventory(ownDirs);
+if (isEntryPoint) {
+  const result = sandboxInventory(process.argv.slice(2));
   console.log(JSON.stringify(result));
   process.exit(result.problems.length === 0 ? 0 : 1);
 }
-if (isEntryPoint) void main();
