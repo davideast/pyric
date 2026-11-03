@@ -27,6 +27,10 @@ const RULES = {
 let previousWorker: unknown;
 let ctx: HostCtx;
 let rtdb: ReturnType<typeof client.rtdbGetDatabase>;
+// The served page reopens every open listener when the lens changes, a denied
+// one included, so a listener a test leaves open is denied again by the lens
+// reset below and relays that denial into whichever test runs next.
+let listeners: Array<() => void> = [];
 
 beforeEach(async () => {
   previousWorker = (globalThis as { SharedWorker?: unknown }).SharedWorker;
@@ -38,6 +42,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  for (const stop of listeners) stop();
+  listeners = [];
   client.setLens(undefined);
   (globalThis as { SharedWorker?: unknown }).SharedWorker = previousWorker;
 });
@@ -112,7 +118,7 @@ test('a transaction on a location the rules deny reading runs its update functio
 
 test('an initially denied listener cancels with the context', async () => {
   const error = await new Promise<Error & { denialContext?: unknown }>((resolve) => {
-    client.rtdbOnValue(client.rtdbRef(rtdb, 'rooms/bob'), () => {}, resolve);
+    listeners.push(client.rtdbOnValue(client.rtdbRef(rtdb, 'rooms/bob'), () => {}, resolve));
   });
   expect((error as { code?: string }).code).toBe('PERMISSION_DENIED');
   expect(error.denialContext).toMatchObject({ ...ROOM_RULE, request: { method: 'listen', path: '/rooms/bob' } });
@@ -120,7 +126,7 @@ test('an initially denied listener cancels with the context', async () => {
 
 test('a listener revoked by a rules change cancels with the context', async () => {
   const errors: Array<Error & { denialContext?: unknown }> = [];
-  client.rtdbOnValue(client.rtdbRef(rtdb, 'rooms/alice'), () => {}, (error) => errors.push(error));
+  listeners.push(client.rtdbOnValue(client.rtdbRef(rtdb, 'rooms/alice'), () => {}, (error) => errors.push(error)));
   await client.rtdbGet(client.rtdbRef(rtdb, 'rooms/alice')); // answered after the host attached the listener
   rtdbSandbox.setRules(getDatabase(ctx.sandbox), { rules: { rooms: { '.read': 'false' } } });
   await until(() => errors.length >= 1, 'listener cancellation');
