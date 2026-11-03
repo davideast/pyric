@@ -298,8 +298,10 @@ function mountOverlays(pid: number, dirs: readonly string[]): void {
 
 /**
  * How long the inventory may take. A CI runner's first walk lists about
- * 112,000 directories from a cold disk in up to 120 s, about 1,000 a second,
- * and listing them in parallel took as long. Later walks take 2 s.
+ * 112,000 directories from a cold disk at about 1,000 a second, and listing
+ * them in parallel took as long. Passing tests that include it took about
+ * 124 s; failed runs were cut off at the old 120 s limit, so the upper bound
+ * isn't known. Later walks take 2 s.
  */
 export const INVENTORY_TIMEOUT_MS = 240_000;
 
