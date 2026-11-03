@@ -274,8 +274,11 @@ export function sandboxInventory(ownDirs: readonly string[]): Inventory {
 const isEntryPoint = process.argv[1] === fileURLToPath(import.meta.url);
 async function main(): Promise<void> {
   const ownDirs = process.argv.slice(2);
+  const t0 = Date.now();
   await readAhead('/', [...PSEUDO_DIRS, ...ownDirs]);
+  const t1 = Date.now();
   const result = sandboxInventory(ownDirs);
+  console.error(`DIAG read-ahead ${t1 - t0}ms walk ${Date.now() - t1}ms walked ${result.walked}`);
   console.log(JSON.stringify(result));
   process.exit(result.problems.length === 0 ? 0 : 1);
 }

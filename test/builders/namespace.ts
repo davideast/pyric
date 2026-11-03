@@ -301,6 +301,7 @@ function assertInventory(pid: number, ownDirs: readonly string[]): void {
   const { command, args } = enterArgs(pid, 'node', [INVENTORY, ...ownDirs], '/');
   const env = { ...process.env, UV_THREADPOOL_SIZE: String(READ_AHEAD_LISTINGS) };
   const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000, env });
+  console.error(`DIAG inventory ${result.stderr}`);
   if (result.status === 0) return;
   throw new NamespaceUnavailable(`the sandbox inventory failed (exit ${result.status}):\n${result.stdout}${result.stderr}`);
 }
