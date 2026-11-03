@@ -9,8 +9,10 @@ import { firebaseApp, firebaseConfig } from './config';
 
 export { firebaseApp, firebaseConfig };
 
-// AI Logic requires App Check from November 2, 2026, and getAI reads App
-// Check when it starts, so App Check is initialized first.
+// Pyric refuses AI Logic requests without an App Check token with a 403.
+// Firebase enforces App Check for AI Logic from November 2, 2026, and a
+// project can delay enforcement up to January 21, 2027. getAI reads App Check
+// when it starts, so App Check is initialized first.
 // In development the debug provider stands in for reCAPTCHA: in production AI
 // mode the SDK prints a debug token to the console, which you register under
 // App Check > Apps > Manage debug tokens in the Firebase console.
