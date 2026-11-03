@@ -16,8 +16,12 @@
  * forwarder drops the app's `x-goog-api-key` and the whole query
  * string, sets the real key, read once per request, and sends the call
  * over TLS to the one fixed host (`PROVIDER_HOST`), whatever `Host` the app
- * named. Redirects are never followed. A billable call reserves its price in
- * the ledger (`provider-ledger.ts`) before it is sent.
+ * named. Redirects are never followed. A billable body must keep to its
+ * model's limits (`provider-body-limits.ts`): `maxOutputTokens` set and
+ * under the model's cap, thinking within the model's levels and budget, and
+ * its input under the model's bytes and image parts. A body that keeps to
+ * them reserves its model's worst-case price in the ledger
+ * (`provider-ledger.ts`) before it is sent.
  *
  * Every request is one line of `<run>.host/provider/calls.jsonl`, with the
  * path without its query. Never a header's value or a query string.
@@ -26,10 +30,10 @@ import http from 'node:http';
 import https from 'node:https';
 import type { Listening } from '../model-channel.ts';
 import type { Upstream } from '../model-forwarder.ts';
-import { MAX_BODY_BYTES } from '../request-body.ts';
 import { appendFile } from './host-files.ts';
 import type { CallerKind, CallOutcome, LedgerReservation, LedgerRefusal, ProviderLedger } from './provider-ledger.ts';
-import { bareModel, priceOf, PROVIDER_HOST } from './provider-prices.ts';
+import { camel, entryOf, fieldsOf, limitProblem, type LimitRefusal } from './provider-body-limits.ts';
+import { bareModel, MAX_PROVIDER_REQUEST_BYTES, priceOf, PROVIDER_HOST } from './provider-prices.ts';
 
 /** How long one call may take, polling included, before it is cut off. */
 export const PROVIDER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -39,7 +43,7 @@ export const PLACEHOLDER_KEY = 'factory-forwarded';
 
 export type ProviderKeyRead = { ok: true; key: string } | { ok: false; problem: string };
 
-export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'field' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | LedgerRefusal;
+export type ProviderRefusal = 'path' | 'model' | 'method' | 'streaming' | 'agent' | 'field' | 'body-not-json' | 'body-too-large' | 'encoded-body' | 'no-key' | LimitRefusal | LedgerRefusal;
 
 /** One request to the forwarder, as a line of the calls record. */
 export interface ProviderCall {
@@ -169,7 +173,7 @@ function refuse(response: http.ServerResponse, record: RecordLine, reason: Provi
 
 type BodyRead = { kind: 'body'; body: Buffer } | { kind: 'too-large' } | { kind: 'closed' };
 
-function readBody(request: http.IncomingMessage, done: (read: BodyRead) => void): void {
+function readBody(request: http.IncomingMessage, maxBytes: number, done: (read: BodyRead) => void): void {
   const chunks: Buffer[] = [];
   let total = 0;
   let reported = false;
@@ -180,21 +184,16 @@ function readBody(request: http.IncomingMessage, done: (read: BodyRead) => void)
   };
   request.on('data', (chunk: Buffer) => {
     total += chunk.length;
-    if (total > MAX_BODY_BYTES) return report({ kind: 'too-large' });
+    if (total > maxBytes) return report({ kind: 'too-large' });
     chunks.push(chunk);
   });
   request.once('end', () => report({ kind: 'body', body: Buffer.concat(chunks) }));
   request.once('close', () => report({ kind: 'closed' }));
 }
 
-/** A field name in either case the API reads, `generation_config` or `generationConfig`. */
-function camel(name: string): string {
-  return name.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
-}
-
 /**
  * The fields a body may set, by name. An allowlist, so a field that could
- * make one call cost more than its fixed price (more candidates, tools,
+ * make one call cost more than its price (more candidates, tools,
  * cached content, files) is refused unless it is named here.
  */
 const TOP_FIELDS = new Set(['model', 'contents', 'input', 'systemInstruction', 'generationConfig', 'safetySettings', 'responseModalities', 'responseMimeType', 'responseFormat']);
@@ -204,10 +203,6 @@ const IMAGE_CONFIG_FIELDS = new Set(['aspectRatio', 'imageSize']);
 const PRICED_IMAGE_SIZES = new Set(['1K', '2K']);
 /** Keys that point a part at a stored file, anywhere in the body. */
 const FILE_KEYS = new Set(['fileData', 'fileUri', 'uri']);
-
-function fieldsOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
 
 function unknownField(fields: Record<string, unknown>, allowed: ReadonlySet<string>, where: string): string | undefined {
   const name = Object.keys(fields).find((key) => !allowed.has(camel(key)));
@@ -229,11 +224,6 @@ function walkedField(value: unknown): string | undefined {
     if (found !== undefined) return found;
   }
   return undefined;
-}
-
-function entryOf(fields: Record<string, unknown>, name: string): unknown {
-  const key = Object.keys(fields).find((candidate) => camel(candidate) === name);
-  return key === undefined ? undefined : fields[key];
 }
 
 /** The first field that is not allowed, or could make the call cost more than its price. */
@@ -286,13 +276,14 @@ function checkBody(route: Route, body: Buffer): BodyCheck {
   const costly = costlyField(fields);
   if (costly !== undefined) return { ok: false, reason: 'field', message: `the body's ${costly} could cost more than one call's price` };
   const named = typeof fields.model === 'string' ? bareModel(fields.model) : null;
-  if (route.kind === 'generate') {
-    const isOtherModel = 'model' in fields && named !== route.model;
-    if (isOtherModel) return { ok: false, reason: 'model', message: 'the body names another model than the path', model: named ?? undefined };
-    return { ok: true, model: route.model, body: sent };
-  }
-  if (named === null || priceOf(named) === undefined) return { ok: false, reason: 'model', message: `the model ${named ?? '(none)'} is not one a factory run may call`, model: named ?? undefined };
-  return { ok: true, model: named, body: sent };
+  const isOtherModel = route.kind === 'generate' && 'model' in fields && named !== route.model;
+  if (isOtherModel) return { ok: false, reason: 'model', message: 'the body names another model than the path', model: named ?? undefined };
+  const model = route.kind === 'generate' ? route.model : named;
+  const price = model === null ? undefined : priceOf(model);
+  if (model === null || price === undefined) return { ok: false, reason: 'model', message: `the model ${model ?? '(none)'} is not one a factory run may call`, model: model ?? undefined };
+  const problem = limitProblem(fields, sent.length, price.limits);
+  if (problem !== undefined) return { ok: false, ...problem, model };
+  return { ok: true, model, body: sent };
 }
 
 interface Admitted {
@@ -392,9 +383,10 @@ function handle(request: http.IncomingMessage, response: http.ServerResponse, op
   const encoding = request.headers['content-encoding'];
   const isEncoded = encoding !== undefined && encoding !== 'identity';
   if (isEncoded) return refuse(response, record, 'encoded-body', `a body sent with content-encoding ${encoding} can't be checked`);
-  readBody(request, (read) => {
+  const maxBytes = route.kind === 'generate' ? priceOf(route.model)?.limits.maxRequestBytes ?? 0 : MAX_PROVIDER_REQUEST_BYTES;
+  readBody(request, maxBytes, (read) => {
     if (read.kind === 'closed') return record({ action: 'refused', reason: 'client-closed', status: null });
-    if (read.kind === 'too-large') return refuse(response, record, 'body-too-large', `the body is over ${MAX_BODY_BYTES} bytes`);
+    if (read.kind === 'too-large') return refuse(response, record, 'body-too-large', `the body is over ${maxBytes} bytes`);
     guarded(response, options, () => admit(request, response, route, read.body, options, record));
   });
 }

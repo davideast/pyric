@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import type { Listening } from '../model-channel.ts';
 import { PLACEHOLDER_KEY, startProviderForwarder, type ProviderCall } from './provider-forwarder.ts';
 import { openProviderLedger, type CallerKind, type LedgerLine, type ProviderLedger } from './provider-ledger.ts';
-import { PROVIDER_HOST } from './provider-prices.ts';
+import { IMAGE_PART_TOKENS, priceOf, PROVIDER_HOST, worstCaseUsd } from './provider-prices.ts';
 
 const SENTINEL_KEY = 'sentinel-provider-key-not-real';
 const IMAGE_MODEL = 'gemini-nano-banana-2.1';
@@ -137,7 +137,12 @@ function call(socketPath: string, method: string, path: string, body?: unknown):
   });
 }
 
-const image = (socket: string, query = '') => call(socket, 'POST', `${IMAGE_PATH}${query}`, { contents: [{ parts: [{ text: 'a lighthouse' }] }] });
+/** The worst-case price each image call reserves. */
+const IMAGE_USD = 1.06;
+const OUTPUT = { maxOutputTokens: 1024 };
+const MUSIC_OUTPUT = { max_output_tokens: 1024 };
+
+const image = (socket: string, query = '') => call(socket, 'POST', `${IMAGE_PATH}${query}`, { contents: [{ parts: [{ text: 'a lighthouse' }] }], generationConfig: OUTPUT });
 
 function readCalls(path: string): ProviderCall[] {
   return readFileSync(path, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as ProviderCall);
@@ -160,25 +165,25 @@ describe('allowed calls', () => {
     expect(sent?.headers.host).toBe(PROVIDER_HOST);
     expect(sent?.headers.cookie).toBeUndefined();
     expect(sent?.url).toBe(IMAGE_PATH);
-    expect(ledger.spentUsd()).toBeCloseTo(0.134);
+    expect(ledger.spentUsd()).toBeCloseTo(IMAGE_USD);
   });
 
   test('a music interaction is charged and its polling is free', async () => {
     const { socket, upstream, ledger } = await rig();
-    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'models/lyria-3.5', input: 'a calm tune' })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'models/lyria-3.5', input: 'a calm tune', generation_config: MUSIC_OUTPUT })).status).toBe(200);
     expect((await call(socket, 'GET', '/v1beta/interactions/abc')).status).toBe(200);
     expect(upstream.received.map((sent) => [sent.method, sent.url])).toEqual([['POST', '/v1beta/interactions'], ['GET', '/v1beta/interactions/abc']]);
-    expect(ledger.spentUsd()).toBeCloseTo(1);
+    expect(ledger.spentUsd()).toBeCloseTo(1.06);
   });
 });
 
 describe('what is sent on', () => {
   test('a body with a duplicate model key is sent as checked, naming only the allowed model', async () => {
     const { socket, upstream } = await rig();
-    const answer = await call(socket, 'POST', '/v1beta/interactions', '{"model":"veo-3.1-generate-preview","model":"lyria-3.5","input":"a calm tune"}');
+    const answer = await call(socket, 'POST', '/v1beta/interactions', '{"model":"veo-3.1-generate-preview","model":"lyria-3.5","input":"a calm tune","generation_config":{"max_output_tokens":1024}}');
     expect(answer.status).toBe(200);
     expect(upstream.received).toHaveLength(1);
-    expect(JSON.parse(upstream.received[0]?.body ?? '')).toEqual({ model: 'lyria-3.5', input: 'a calm tune' });
+    expect(JSON.parse(upstream.received[0]?.body ?? '')).toEqual({ model: 'lyria-3.5', input: 'a calm tune', generation_config: MUSIC_OUTPUT });
     expect(upstream.received[0]?.body).not.toContain('veo');
     expect(upstream.received[0]?.headers['content-length']).toBe(String(Buffer.byteLength(upstream.received[0]?.body ?? '')));
   });
@@ -186,7 +191,7 @@ describe('what is sent on', () => {
   test('no query string reaches upstream, on any route', async () => {
     const { socket, upstream } = await rig();
     await image(socket, '?alt=sse&$httpMethod=DELETE');
-    await call(socket, 'POST', '/v1beta/interactions?alt=sse&$httpMethod=DELETE', { model: 'lyria-3.5' });
+    await call(socket, 'POST', '/v1beta/interactions?alt=sse&$httpMethod=DELETE', { model: 'lyria-3.5', generation_config: MUSIC_OUTPUT });
     await call(socket, 'GET', '/v1beta/interactions/abc?alt=sse&$httpMethod=DELETE');
     expect(upstream.received.map((sent) => sent.url)).toEqual([IMAGE_PATH, '/v1beta/interactions', '/v1beta/interactions/abc']);
   });
@@ -219,9 +224,9 @@ describe('refusals', () => {
 
   test('a normal image, music and text body still passes', async () => {
     const { socket, upstream } = await rig();
-    const image = { contents: [{ role: 'user', parts: [{ text: 'a lighthouse' }] }], generationConfig: { candidateCount: 1, responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '16:9', imageSize: '2K' } } };
+    const image = { contents: [{ role: 'user', parts: [{ text: 'a lighthouse' }] }], generationConfig: { candidateCount: 1, maxOutputTokens: 2048, responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '16:9', imageSize: '2K' } } };
     expect((await call(socket, 'POST', IMAGE_PATH, image)).status).toBe(200);
-    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', generation_config: { seed: 3 } })).status).toBe(200);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', generation_config: { seed: 3, max_output_tokens: 1024 } })).status).toBe(200);
     expect((await call(socket, 'POST', '/v1beta/models/gemini-3.5-flash-lite:generateContent', { contents: [{ parts: [{ text: 'adapt this prompt' }] }], systemInstruction: { parts: [{ text: 'be brief' }] }, generationConfig: { temperature: 0.2, maxOutputTokens: 256 } })).status).toBe(200);
     expect(upstream.received).toHaveLength(3);
   });
@@ -256,8 +261,8 @@ describe('refusals', () => {
     expect(upstream.received).toEqual([]);
   });
 
-  test('with $0.05 left a $0.134 image is refused and the upstream sees nothing', async () => {
-    const { socket, upstream, ledger, calls } = await rig({ capUsd: 0.2 });
+  test('with $1.05 left a $1.06 image is refused and the upstream sees nothing', async () => {
+    const { socket, upstream, ledger, calls } = await rig({ capUsd: 1.2 });
     const earlier = ledger.reserve('served', 'gemini-3.5-flash-lite', 0.15);
     if (typeof earlier === 'string') throw new Error(`the earlier spend was refused (${earlier})`);
     earlier.settle('complete');
@@ -272,7 +277,7 @@ describe('refusals', () => {
 
   test('sessions stop at their sub-cap while the served copy still spends the shared cap', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-provider-'));
-    const session = await rig({ dir, capUsd: 1, sessionCapUsd: 0.3, caller: 'session' });
+    const session = await rig({ dir, capUsd: 5, sessionCapUsd: 2.5, caller: 'session' });
     expect((await image(session.socket)).status).toBe(200);
     expect((await image(session.socket)).status).toBe(200);
     expect((await image(session.socket)).status).toBe(429);
@@ -284,9 +289,102 @@ describe('refusals', () => {
     });
     open.push(served);
     expect((await image(join(dir, 'served.sock'))).status).toBe(200);
-    expect(session.ledger.spentBy('session')).toBeCloseTo(0.268);
-    expect(session.ledger.spentBy('served')).toBeCloseTo(0.134);
-    expect(session.ledger.spentUsd()).toBeCloseTo(0.402);
+    expect(session.ledger.spentBy('session')).toBeCloseTo(2 * IMAGE_USD);
+    expect(session.ledger.spentBy('served')).toBeCloseTo(IMAGE_USD);
+    expect(session.ledger.spentUsd()).toBeCloseTo(3 * IMAGE_USD);
+  });
+});
+
+describe('token limits', () => {
+  const TEXT_PATH = '/v1beta/models/gemini-3.5-flash-lite:generateContent';
+  const text = (prompt = 'a lighthouse') => [{ parts: [{ text: prompt }] }];
+  const pixel = (mimeType = 'image/png') => ({ inlineData: { mimeType, data: Buffer.alloc(64, 7).toString('base64') } });
+
+  test('each price is its model\'s worst case under its limits', () => {
+    const image = priceOf(IMAGE_MODEL);
+    if (image === undefined) throw new Error('the image model is not in the table');
+    const input = image.limits.maxTextBytes + image.limits.maxImageParts * IMAGE_PART_TOKENS;
+    const output = image.limits.maxOutputTokens + image.limits.maxThinkingTokens;
+    const byTokens = (input * image.rates.usdPerMillionInput + output * image.rates.usdPerMillionOutput) / 1_000_000;
+    expect(byTokens).toBeCloseTo(1.055808, 6);
+    expect(image.usdPerCall).toBe(IMAGE_USD);
+    expect(worstCaseUsd(image.limits, image.rates)).toBe(IMAGE_USD);
+    expect(priceOf('lyria-3.5')?.usdPerCall).toBe(1.06);
+    expect(priceOf('lyria-3-clip-preview')?.usdPerCall).toBe(1.06);
+    expect(priceOf('gemini-3.5-flash-lite')?.usdPerCall).toBe(0.05);
+    for (const model of [IMAGE_MODEL, 'lyria-3.5', 'lyria-3-clip-preview', 'gemini-3.5-flash-lite']) {
+      expect(priceOf(model)?.limits.maxRequestBytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+    }
+  });
+
+  test('a body without maxOutputTokens, or over the cap, is refused and never reaches upstream', async () => {
+    const { socket, upstream, calls, ledger } = await rig();
+    const bodies: Array<[string, unknown]> = [
+      [IMAGE_PATH, { contents: text() }],
+      [IMAGE_PATH, {}],
+      [IMAGE_PATH, { contents: text(), generationConfig: { temperature: 1 } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: 4097 } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: 0 } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: 100.5 } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { maxOutputTokens: '1024' } }],
+      [TEXT_PATH, { contents: text(), generationConfig: { maxOutputTokens: 2049 } }],
+      ['/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune' }],
+      ['/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', generation_config: { max_output_tokens: 8193 } }],
+    ];
+    for (const [path, body] of bodies) expect((await call(socket, 'POST', path, body)).status).toBe(403);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(bodies.map(() => 'output-tokens'));
+    expect(upstream.received).toEqual([]);
+    expect(ledger.spentUsd()).toBe(0);
+  });
+
+  test('a thinking setting over the model\'s limit is refused and never reaches upstream', async () => {
+    const { socket, upstream, calls } = await rig();
+    const bodies: Array<[string, unknown]> = [
+      [IMAGE_PATH, { contents: text(), generationConfig: { ...OUTPUT, thinkingConfig: { thinkingBudget: 4097 } } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { ...OUTPUT, thinkingConfig: { thinkingBudget: -1 } } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { ...OUTPUT, thinkingConfig: { thinkingLevel: 'ultra' } } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { ...OUTPUT, thinkingLevel: 'low' } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { ...OUTPUT, thinkingConfig: { thinkingBudget: 10, extraThoughts: 9 } } }],
+      [IMAGE_PATH, { contents: text(), generationConfig: { ...OUTPUT, thinkingConfig: 'high' } }],
+      [TEXT_PATH, { contents: text(), generationConfig: { ...OUTPUT, thinking_config: { thinking_level: 'high' } } }],
+      ['/v1beta/interactions', { model: 'lyria-3.5', input: 'a calm tune', generation_config: { ...MUSIC_OUTPUT, thinking_level: 'minimal' } }],
+    ];
+    for (const [path, body] of bodies) expect((await call(socket, 'POST', path, body)).status).toBe(403);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(bodies.map(() => 'thinking'));
+    expect(upstream.received).toEqual([]);
+  });
+
+  test('a body over the model\'s input limits is refused and never reaches upstream', async () => {
+    const { socket, upstream, calls } = await rig();
+    const answers = [
+      await call(socket, 'POST', IMAGE_PATH, { contents: text('x'.repeat(17 * 1024)), generationConfig: OUTPUT }),
+      await call(socket, 'POST', IMAGE_PATH, { contents: [{ parts: [pixel(), pixel(), pixel(), pixel(), pixel(), { text: 'five references' }] }], generationConfig: OUTPUT }),
+      await call(socket, 'POST', IMAGE_PATH, { contents: [{ parts: [pixel('audio/mpeg'), { text: 'a song' }] }], generationConfig: OUTPUT }),
+      await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', input: [{ type: 'audio', data: 'AAAA', mime_type: 'image/png' }], generation_config: MUSIC_OUTPUT }),
+      await call(socket, 'POST', TEXT_PATH, { contents: [{ parts: [pixel(), { text: 'describe' }] }], generationConfig: OUTPUT }),
+      await call(socket, 'POST', IMAGE_PATH, { contents: [{ parts: [{ inlineData: { mimeType: 'image/png', data: 'A'.repeat(8 * 1024 * 1024) } }] }], generationConfig: OUTPUT }),
+      await call(socket, 'POST', TEXT_PATH, { contents: text('x'.repeat(129 * 1024)), generationConfig: OUTPUT }),
+    ];
+    expect(answers.map((answer) => answer.status)).toEqual([403, 403, 403, 403, 403, 413, 413]);
+    expect(readCalls(calls).map((line) => line.reason)).toEqual(['input', 'input', 'input', 'input', 'input', 'body-too-large', 'body-too-large']);
+    expect(upstream.received).toEqual([]);
+  });
+
+  test('a body at every cap passes and reserves the worst-case price', async () => {
+    const { socket, upstream, spend, ledger } = await rig();
+    const body = {
+      contents: [{ parts: [pixel(), pixel('image/jpeg'), pixel('image/webp'), pixel(), { text: 'y'.repeat(15 * 1024) }] }],
+      generationConfig: { maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 4096, thinkingLevel: 'high', includeThoughts: false }, imageConfig: { imageSize: '2K' } },
+    };
+    expect((await call(socket, 'POST', IMAGE_PATH, body)).status).toBe(200);
+    expect(upstream.received).toHaveLength(1);
+    expect(JSON.parse(upstream.received[0]?.body ?? '')).toEqual(body);
+    const reserve = readLedger(spend).find((line) => line.type === 'reserve');
+    expect(reserve?.usd).toBe(IMAGE_USD);
+    expect(ledger.spentUsd()).toBeCloseTo(IMAGE_USD);
+    const textBody = { contents: text('z'.repeat(60 * 1024)), generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 2048 }, thinkingLevel: 'low' } };
+    expect((await call(socket, 'POST', TEXT_PATH, textBody)).status).toBe(200);
+    expect(ledger.spentUsd()).toBeCloseTo(IMAGE_USD + 0.05);
   });
 });
 
@@ -296,19 +394,19 @@ describe('the ledger', () => {
     upstream.cutOff = true;
     const answer = await image(socket);
     expect(answer.cut).toBe(true);
-    expect(ledger.spentUsd()).toBeCloseTo(0.134);
+    expect(ledger.spentUsd()).toBeCloseTo(IMAGE_USD);
     expect(ledger.inFlight()).toBe(0);
     const settle = readLedger(spend).find((line) => line.type === 'settle');
-    expect(settle?.type === 'settle' ? [settle.usd, settle.outcome] : null).toEqual([0.134, 'cut-off']);
+    expect(settle?.type === 'settle' ? [settle.usd, settle.outcome] : null).toEqual([IMAGE_USD, 'cut-off']);
   });
 
   test('after a restart an unsettled reservation still counts', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-provider-'));
     const path = join(dir, 'spend.jsonl');
-    const before = openProviderLedger({ path, capUsd: 0.2 });
-    expect(typeof before.reserve('served', IMAGE_MODEL, 0.134)).toBe('object');
-    const { socket, upstream, ledger } = await rig({ dir, capUsd: 0.2 });
-    expect(ledger.spentUsd()).toBeCloseTo(0.134);
+    const before = openProviderLedger({ path, capUsd: 1.5 });
+    expect(typeof before.reserve('served', IMAGE_MODEL, IMAGE_USD)).toBe('object');
+    const { socket, upstream, ledger } = await rig({ dir, capUsd: 1.5 });
+    expect(ledger.spentUsd()).toBeCloseTo(IMAGE_USD);
     expect(ledger.inFlight()).toBe(0);
     expect((await image(socket)).status).toBe(429);
     expect(upstream.received).toEqual([]);
@@ -320,7 +418,7 @@ describe('the ledger', () => {
     const { socket, upstream, ledger, calls } = await rig({ dir });
     expect(ledger.problem()).toContain('line 1');
     expect((await image(socket)).status).toBe(503);
-    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5' })).status).toBe(503);
+    expect((await call(socket, 'POST', '/v1beta/interactions', { model: 'lyria-3.5', generation_config: MUSIC_OUTPUT })).status).toBe(503);
     expect(readCalls(calls).map((line) => line.reason)).toEqual(['ledger-unreadable', 'ledger-unreadable']);
     expect(upstream.received).toEqual([]);
   });
@@ -336,6 +434,6 @@ describe('the calls record', () => {
     expect(text).not.toContain(PLACEHOLDER_KEY);
     expect(text).not.toContain('query-secret-value');
     expect(text).not.toContain('?');
-    expect(readCalls(calls).map((line) => [line.path, line.action, line.chargedUsd])).toEqual([[IMAGE_PATH, 'forwarded', 0.134], ['/v1beta/models', 'refused', 0]]);
+    expect(readCalls(calls).map((line) => [line.path, line.action, line.chargedUsd])).toEqual([[IMAGE_PATH, 'forwarded', IMAGE_USD], ['/v1beta/models', 'refused', 0]]);
   });
 });
