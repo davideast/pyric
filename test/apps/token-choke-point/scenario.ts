@@ -56,7 +56,8 @@ async function runProbe(app: App, probe: string, env: Record<string, string>): P
     timeoutMs: 120_000,
   });
   assert.equal(result.code, 0, result.output);
-  const line = result.output.split('\n').find((text) => text.startsWith('{"probe"'));
+  // `pyric sandbox` prints its command's output with a `[dev] ` prefix.
+  const line = result.output.split('\n').map((text) => text.replace(/^\[dev\] /, '')).find((text) => text.startsWith('{"probe"'));
   assert.ok(line, `probe.mjs printed no result:\n${result.output}`);
   const output = JSON.parse(line) as ProbeOutput;
   assert.ok(Array.isArray(output.trapped), `trap.cjs did not load:\n${result.output}`);
