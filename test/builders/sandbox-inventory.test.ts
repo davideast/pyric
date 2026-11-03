@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { capabilityProblems, interfaceNames, inventory, IP_LINK_FAILED, linkNames, loopbackOnlyProblem, mountProblems, nameservers, parseMountinfo, socketFiles, UNLISTABLE, type InventoryInput } from './sandbox-inventory.ts';
+import { capabilityProblems, interfaceNames, inventory, IP_LINK_FAILED, linkNames, loopbackOnlyProblem, mountProblems, nameservers, parseMountinfo, readAhead, socketFiles, UNLISTABLE, type InventoryInput } from './sandbox-inventory.ts';
 
 const IS_ROOT = process.getuid?.() === 0;
 
@@ -131,6 +131,16 @@ describe('socketFiles', () => {
     const all = socketFiles(root, []);
     expect(all.sockets).toEqual([join(root, 'run/a.sock')]);
     expect(all.walked).toBeGreaterThan(4);
+  });
+});
+
+describe('readAhead', () => {
+  test('finishes on a tree it can read and on a root it cannot, leaving the reporting to the walk', async () => {
+    const root = sandboxTree();
+    await expect(readAhead(root, [join(root, 'run')])).resolves.toBeUndefined();
+    const missing = join(root, 'no-such-directory');
+    await expect(readAhead(missing, [])).resolves.toBeUndefined();
+    expect(socketFiles(missing, []).unlisted).toEqual([missing]);
   });
 });
 

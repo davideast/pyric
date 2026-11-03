@@ -36,7 +36,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unreapedExit } from '../apps/unreaped-exit.ts';
 import { harnessView, type View } from './harness-view.ts';
-import { linkNames, loopbackOnlyProblem } from './sandbox-inventory.ts';
+import { linkNames, loopbackOnlyProblem, READ_AHEAD_LISTINGS } from './sandbox-inventory.ts';
 
 const HOLDER = fileURLToPath(new URL('./recorder/holder.mjs', import.meta.url));
 const INVENTORY = fileURLToPath(new URL('./sandbox-inventory.ts', import.meta.url));
@@ -299,7 +299,8 @@ function mountOverlays(pid: number, dirs: readonly string[]): void {
 /** Fails closed unless `sandbox-inventory.ts` finds nothing inside the sandbox. */
 function assertInventory(pid: number, ownDirs: readonly string[]): void {
   const { command, args } = enterArgs(pid, 'node', [INVENTORY, ...ownDirs], '/');
-  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000 });
+  const env = { ...process.env, UV_THREADPOOL_SIZE: String(READ_AHEAD_LISTINGS) };
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000, env });
   if (result.status === 0) return;
   throw new NamespaceUnavailable(`the sandbox inventory failed (exit ${result.status}):\n${result.stdout}${result.stderr}`);
 }
