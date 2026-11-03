@@ -9,10 +9,10 @@ order: 30
 Pyric has its own semver. Firebase compatibility is a separate claim, made by an npm dist-tag:
 
 ```
-npm install pyric@fb12.19
+npm install pyric@fb12.13
 ```
 
-`fb<major>.<minor>` points at the newest pyric release whose conformance gates passed against that line of Firebase. It means **"conformance-tested against Firebase 12.19"** — not "equal to" and not "full parity." The tag is a statement about what was tested, not about how much matched.
+`fb<major>.<minor>` points at the newest pyric release whose conformance gates passed against that line of Firebase. It means **"conformance-tested against Firebase 12.13"** — not "equal to" and not "full parity." The tag is a statement about what was tested, not about how much matched.
 
 Three rules govern it:
 
@@ -22,7 +22,7 @@ Three rules govern it:
 
 The same tested-against version appears everywhere a user forms an impression: the README badge, the npm description, `pyric --version`, and the docs header.
 
-Today: the newest Firebase 12 release is 12.19.0, pyric's pinned conformance version is 12.19.0, and pyric supports `firebase@^12.19.0`, so the tag is `fb12.19`. Releases tested against 12.13 keep the `fb12.13` tag. A `fb` tag can point at an alpha release — compatibility and stability are separate claims, and `alpha`, `latest`, and `fb12.19` can all resolve to the same publish, each making its own.
+Today: pyric's pinned conformance version is 12.19.0, and the newest `fb` tag is `fb12.13`, which points at alpha.24. An `exp` publish moves no `fb` tag, so `fb12.19` appears only when a `latest` or `next` publish passes `compat:check` against that pin. Until then, `npm install pyric@fb12.19` fails, and `npm install pyric@exp` gets the release tested against 12.19. A `fb` tag can point at an alpha release — compatibility and stability are separate claims, and `alpha`, `latest`, and `fb12.19` can all resolve to the same publish, each making its own.
 
 Bumping the pinned Firebase version re-snapshots the upstream surface; the diff is the worklist, and the new line's tag appears only when `compat:check` passes against the new pin.
 
