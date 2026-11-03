@@ -4,9 +4,11 @@
  *
  * - ast-grep, from the harness's own install (`@ast-grep/cli`, pinned in the
  *   repo's package.json), never the one in a checkout a session can change;
- * - ffmpeg for Studio's tests, which `ffmpeg-static`'s install script would
+ * - ffmpeg for Studio, which `ffmpeg-static`'s install script would
  *   download and `--ignore-scripts` skips. Setup copies the source
- *   checkout's, and tests find it through `FFMPEG_BIN`.
+ *   checkout's. Sessions, the tests gate, the check's Studio and the served
+ *   copy find it through `FFMPEG_BIN`, which `ffmpeg-static` reads, and
+ *   `FFMPEG_PATH`, which Studio's own code reads first (`ffmpegEnvironment`).
  *
  * Both run only inside a sandbox, bound read-only from there.
  */
@@ -62,6 +64,18 @@ export function verifiedTool(tools: string, hashes: ToolHashes, name: string): s
   const actual = sha256Of(path);
   if (actual !== expected) throw new ToolChanged(`${path} changed since setup (sha256 ${actual}, recorded ${expected})`);
   return path;
+}
+
+/** The run's ffmpeg, checked by hash, when setup placed one; nothing when the source checkout had none. */
+export function recordedFfmpeg(tools: string, hashes: ToolHashes): string | undefined {
+  const hasFfmpeg = hashes[FFMPEG] !== undefined;
+  return hasFfmpeg ? verifiedTool(tools, hashes, FFMPEG) : undefined;
+}
+
+/** The variables that point Studio and its `ffmpeg-static` at `ffmpeg`, or none without one. */
+export function ffmpegEnvironment(ffmpeg: string | undefined): Record<string, string> {
+  if (ffmpeg === undefined) return {};
+  return { FFMPEG_BIN: ffmpeg, FFMPEG_PATH: ffmpeg };
 }
 
 /** The source checkout's ffmpeg, when its install downloaded one. */

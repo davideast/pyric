@@ -5,8 +5,9 @@
  * 1. The UI scans on the lines changed since the start commit, with the
  *    harness's ast-grep, before anything of the commit's has run.
  * 2. The install (`studio-install.ts`).
- * 3. Studio's start, and the walks from the walk sandbox. The agent's tests
- *    have not run yet, so nothing they do can shape what the walks see.
+ * 3. Studio's start, with the run's ffmpeg, and the walks from the walk
+ *    sandbox. The agent's tests have not run yet, so nothing they do can
+ *    shape what the walks see.
  * 4. Studio's typecheck, tests and ast-grep checks.
  *
  * The hourly check and the baseline both run it, so the start commit's
@@ -21,7 +22,7 @@ import { showFile } from './git.ts';
 import { openSandbox as realSandbox, specAt, type SandboxOpener } from './sandbox.ts';
 import { optional } from './optional.ts';
 import { bunCacheDir, installStudio } from './studio-install.ts';
-import { AST_GREP, FFMPEG, verifiedTool } from './tools.ts';
+import { AST_GREP, recordedFfmpeg, verifiedTool } from './tools.ts';
 import { exportTree, unpackTree } from './tree.ts';
 import { runUiGates, type UiGateInput, type UiGateResult } from './ui-gates.ts';
 
@@ -81,8 +82,7 @@ export async function runTreeCheck(input: TreeCheckInput): Promise<TreeCheck> {
   const { paths, record } = input;
   const opener = input.openSandbox ?? realSandbox;
   const astGrep = verifiedTool(paths.tools, record.tools, AST_GREP);
-  const hasFfmpeg = record.tools[FFMPEG] !== undefined;
-  const ffmpeg = hasFfmpeg ? verifiedTool(paths.tools, record.tools, FFMPEG) : undefined;
+  const ffmpeg = recordedFfmpeg(paths.tools, record.tools);
   const checkout = exportTree(paths, input.commit, input.label);
   const spec = { ...specAt(checkout.root, input.signal, [record.briefDir]), overlaid: [bunCacheDir()] };
   return opener(spec, paths, async (runner, namespace) => {
@@ -95,7 +95,7 @@ export async function runTreeCheck(input: TreeCheckInput): Promise<TreeCheck> {
       if (input.signal?.aborted === true) throw new Aborted('the check was stopped during the install');
       return withUi(brokenBefore('the install', error));
     }
-    const walked = await startAndWalk({ paths, runner, namespace, checkout, openSandbox: opener, briefDir: record.briefDir, logDir: input.logDir, jobs: input.jobs, ...optional('signal', input.signal) });
+    const walked = await startAndWalk({ paths, runner, namespace, checkout, openSandbox: opener, briefDir: record.briefDir, logDir: input.logDir, jobs: input.jobs, ...optional('ffmpeg', ffmpeg), ...optional('signal', input.signal) });
     const statics = await staticGates(runner, checkout, { astGrep, ...optional('ffmpeg', ffmpeg) });
     return withUi({ statics, walked });
   });
