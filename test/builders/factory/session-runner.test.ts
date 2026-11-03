@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join, relative } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
 import { playwrightBrowsersPath, PLAYWRIGHT_CLIENT_ENV } from '../browser-server.ts';
-import { toolchainDirs } from '../namespace.ts';
+import { INVENTORY_TIMEOUT_MS, toolchainDirs } from '../namespace.ts';
 import { FAKE_MEDIA } from './app-start.ts';
 import { fakeAgent } from './fixtures/fake-agent.ts';
 import { startFakeUpstream, type FakeUpstream } from './fixtures/fake-upstream.ts';
@@ -18,8 +18,8 @@ import { roleSkill, rolePrompt } from './roles.ts';
 import { bindProblems, layoutProblems, runConfiguredSession, runnerConfig, sessionPaths, type RunnerConfig } from './session-runner.ts';
 import type { SessionOptions } from './session.ts';
 
-/** A real sandbox's inventory walks every bound directory; with a cold file cache that passes bun's default 5 s. */
-const SANDBOX_TEST_TIMEOUT_MS = 120_000;
+/** The inventory's own limit, so it fails with its own message, and the rest of the session, which takes seconds. */
+const SANDBOX_TEST_TIMEOUT_MS = INVENTORY_TIMEOUT_MS + 60_000;
 
 const upstreams: FakeUpstream[] = [];
 
