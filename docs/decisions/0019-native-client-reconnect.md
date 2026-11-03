@@ -40,6 +40,11 @@ its connection is lost, as decision 7 rules, and follows the 2026-10-18 rule
 for Realtime Database calls in flight at a drop. See
 [the amendment](#amendment-2026-10-19-the-node-remote-client-follows-decision-7-and-the-realtime-database-rule).
 
+Amended: 2026-11-03. On the web hosted client, an Auth session restore held
+ahead of every other held operation is sent before the held subscriptions, an
+exception to D5's release order. See
+[the amendment](#amendment-2026-11-03-a-held-session-restore-goes-before-held-subscriptions).
+
 ## Context
 
 The Dart (`packages/flutter-client`), Swift (`packages/swift-client`) and Kotlin
@@ -726,7 +731,9 @@ it.
   the restore (Auth on a replaced host, then the restored listeners in the
   order they were opened), then subscriptions opened while not attached, then
   held operations in the order they were admitted. Release starts only after
-  every send started before the drop has returned.
+  every send started before the drop has returned. The 2026-11-03 amendment
+  sends the web hosted client's held session restore ahead of the held
+  subscriptions.
 - **D6. Close.** An explicit close, or a failure that permits no retry,
   fails every pending and held operation once with that client's close error,
   sends none of them, and ends every subscription once. A client that closed
@@ -985,3 +992,37 @@ the start.
   alive meanwhile. An operation issued while the connection is lost keeps it
   alive for at most 10 seconds.
 - Registry row `rtdb-modular#HD2` conforms.
+
+## Amendment (2026-11-03): a held session restore goes before held subscriptions
+
+On a hosted page, `getAuth` posts `auth.restorePortSession` for the persisted
+sign-in, and the app registers `onAuthStateChanged` right after it. Before the
+first attach both frames are held. D5 sent the held subscription first, so the
+host answered it with the port's empty session and only then ran the restore,
+and every reload reported `null` before the restored user
+([#1837](https://github.com/davideast/pyric/issues/1837)). Production's first
+callback waits for the persisted user.
+
+### The rule on the web hosted client
+
+- **Restore traffic.** When the client releases its held messages, it looks at
+  the held frames that are not subscriptions, in the order they were admitted.
+  If an `auth.restorePortSession` operation comes before every other held
+  operation, it counts as restore traffic. It is sent first, together with the
+  frames that await no reply admitted ahead of it, such as the app
+  configuration and `clock-subscribe`. Then the client sends the held
+  subscriptions in issue order, then the remaining held operations in the
+  order they were admitted.
+- **A later restore keeps its place.** A session restore admitted after
+  another held operation, such as a held sign-in, is sent with the operations
+  in admission order. Operations never reorder among themselves, so D1 holds.
+- **Unchanged.** On a replaced host, the client's own Auth restore and the
+  restored listeners still go before every held frame, as D5 rules. The
+  SharedWorker and in-page planes hold no frames.
+
+### Consequences of the amendment
+
+- An `onAuthStateChanged` registered before the first attach hears the
+  restored user first, once, as on Firebase and on the SharedWorker plane.
+- App scenario `test/apps/hosted-auth-reload-restores-user` asserts it: a
+  hosted page signs in, reloads, and sees exactly the restored uid.

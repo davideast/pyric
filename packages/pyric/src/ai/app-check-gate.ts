@@ -38,13 +38,23 @@ import { RequestHeadersFailure } from './errors.js';
 export const APP_CHECK_REQUIRED_MESSAGE =
   'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
 
+/**
+ * The refusal sentence both hints open with. Enforcement is a per-project
+ * setting in production, and the sandbox plays an enforced project (#1834).
+ * Keep it short: the dev server cuts terminal text at 512 characters
+ * (`AI_TERMINAL_TEXT_MAX` in the CLI's `ai-terminal-text.ts`), and
+ * {@link APP_CHECK_HINT} must fit whole.
+ */
+export const APP_CHECK_REFUSAL_NOTE =
+  'The sandbox refuses AI Logic requests without an App Check token with a 403, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.';
+
 /** Pyric's guidance for a page, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
-  'The sandbox refuses Firebase AI Logic requests without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can delay enforcement up to January 21, 2027. Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check';
+  `${APP_CHECK_REFUSAL_NOTE} Call initializeAppCheck(app, { provider }) before getAI(app). For local development, set self.FIREBASE_APPCHECK_DEBUG_TOKEN = true before initializeAppCheck to use the debug provider; the sandbox accepts its tokens. https://firebase.google.com/docs/ai-logic/app-check`;
 
 /** Pyric's guidance for a server process, where reCAPTCHA throws and `self` does not exist. */
 export const APP_CHECK_SERVER_HINT =
-  "The sandbox refuses Firebase AI Logic requests without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can delay enforcement up to January 21, 2027. This process has no document, so the reCAPTCHA providers throw here. For local development, set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck(app, { provider: new CustomProvider({ getToken }) }) before getAI(app). The sandbox does not call getToken while the debug token is set. Without the debug token, getToken returns { token, expireTimeMillis: Date.now() + ttlMillis } from a token your server mints with firebase-admin's getAppCheck().createToken(appId). https://firebase.google.com/docs/ai-logic/app-check";
+  `${APP_CHECK_REFUSAL_NOTE} This process has no document, so the reCAPTCHA providers throw here. For local development, set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck(app, { provider: new CustomProvider({ getToken }) }) before getAI(app). The sandbox does not call getToken while the debug token is set. Without the debug token, getToken returns { token, expireTimeMillis: Date.now() + ttlMillis } from a token your server mints with firebase-admin's getAppCheck().createToken(appId). https://firebase.google.com/docs/ai-logic/app-check`;
 
 /**
  * The guidance for the realm the app runs in. A page has a `document`, and a

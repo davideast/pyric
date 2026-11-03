@@ -4,7 +4,8 @@
  * was issued; a subscription frame has no deadline. Held messages are sent
  * once, after the client's restore traffic: subscription frames first, then
  * operations, each in issue order (ADR-0019, 2026-10-17 amendment, D5). A
- * page's held session restore counts as restore traffic and goes first.
+ * page's held session restore that leads the held operations counts as
+ * restore traffic and goes first (ADR-0019, 2026-11-03 amendment).
  * An RTDB operation the dropped socket took is held again, ahead of every
  * later operation and with no deadline, as the Realtime Database SDK re-sends
  * its outstanding writes and reads on reconnect (#1088).
