@@ -71,11 +71,13 @@ export function setDatabaseRules(
   const previous = entry.rules?.status === 'active' ? entry.rules.source : entry.rules?.lastKnownGood;
   const lastKnownGood = previous === undefined ? {} : { lastKnownGood: previous };
   // Production refuses a ruleset its deploy would reject. The sandbox keeps
-  // the active ruleset, and the status carries the reason.
+  // the active ruleset, and the status carries the reason. `source` stays the
+  // ruleset in force, absent when none was deployed, because a reset re-applies
+  // it: the refused ruleset is never kept where a reset would install it.
   const rejection = rules === null ? null : rtdbRulesSourceRejection(rules);
   if (rejection !== null) {
     const messages = [{ severity: 'error' as const, text: rejection.message }];
-    entry.rules = { source: entry.rules?.source ?? rules, updatedAt: Date.now(), status: 'error', messages, ...lastKnownGood };
+    entry.rules = { source: entry.rules?.source, updatedAt: Date.now(), status: 'error', messages, ...lastKnownGood };
     return { ok: false, messages };
   }
   rtdbSandbox.setRules(entry.live, rules);
