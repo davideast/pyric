@@ -34,7 +34,8 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const outcome = productionOutcome(record);
   if (outcome === null) return null;
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
-  return { service, method: record.name, at, outcome, ...project };
+  const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
+  return { service, method: record.name, at, outcome, ...project, ...billed };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */

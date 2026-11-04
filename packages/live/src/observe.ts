@@ -8,8 +8,9 @@
  * the observer a record of the call and its outcome.
  *
  * A record names the module, the export and the outcome, plus the error code
- * on a failure. It never carries an argument or a result, so no document
- * value, credential or token reaches it.
+ * on a failure and, on a Firestore snapshot, the documents production billed
+ * it for. It never carries an argument or a result, so no document value,
+ * credential or token reaches it.
  *
  * Recording is isolated from the app: building a record, calling the
  * observer and a rejection from an async observer are each caught, so an
@@ -36,6 +37,12 @@ export interface LiveCallRecord {
    * first argument belongs to. Absent when the argument names no app.
    */
   readonly projectId?: string;
+  /**
+   * On a delivered Firestore snapshot: the documents production billed it
+   * for, zero for a snapshot only its metadata changed (`billed-documents.ts`).
+   * Absent on any other record, and when the snapshot could not be read.
+   */
+  readonly billedDocuments?: number;
 }
 
 /** The hook a plane supplies to receive records. Its return value is ignored. */
@@ -57,6 +64,8 @@ export interface ObservedSite {
   readonly uncaughtListenerError?: UncaughtListenerError;
   /** The project of the call this site records, read from its arguments. */
   readonly projectId?: string;
+  /** For one listener: counts the documents each delivery was billed for. */
+  readonly billing?: BilledDocuments;
 }
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
@@ -74,11 +83,26 @@ function errorCode(error: unknown): string {
   return 'unknown';
 }
 
-function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, error: unknown): LiveCallRecord {
+/** The billed documents of a delivered value, or undefined when it is no snapshot or reading it threw. */
+function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): number | undefined {
+  const isDelivery = outcome === 'delivered' && site.billing !== undefined;
+  if (!isDelivery) return undefined;
+  try {
+    return site.billing?.(value);
+  } catch {
+    // A snapshot that throws on read is still recorded; the host counts it once.
+    return undefined;
+  }
+}
+
+/** `value` is the delivered value or the error, by outcome. */
+function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
   const project = site.projectId === undefined ? {} : { projectId: site.projectId };
-  if (!isFailure) return { module: site.module, name: site.name, outcome, ...project };
-  return { module: site.module, name: site.name, outcome, code: errorCode(error), ...project };
+  if (isFailure) return { module: site.module, name: site.name, outcome, code: errorCode(value), ...project };
+  const billedDocuments = billedOf(site, outcome, value);
+  const billed = billedDocuments === undefined ? {} : { billedDocuments };
+  return { module: site.module, name: site.name, outcome, ...project, ...billed };
 }
 
 function stringAt(value: unknown, path: readonly string[]): string | undefined {
@@ -126,9 +150,9 @@ function ignoreRejection(returned: unknown): void {
 }
 
 /** Hands the observer one record. Nothing it does, or fails to do, reaches the caller. */
-function report(site: ObservedSite, outcome: LiveCallOutcome, error?: unknown): void {
+function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): void {
   try {
-    const record = buildRecord(site, outcome, error);
+    const record = buildRecord(site, outcome, value);
     ignoreRejection(site.observer(record));
   } catch {
     // A recorder failure never changes what the app sees.
@@ -159,6 +183,122 @@ function observeSettlement(site: ObservedSite, result: unknown): unknown {
       throw error;
     },
   );
+}
+
+/**
+ * The documents production billed one Firestore listener delivery for.
+ * Production bills a listener per document added, changed or removed in its
+ * result set, and at least one read for its first result, even an empty one.
+ * It bills nothing for a snapshot the SDK raises only because the metadata
+ * changed, which a listener with `includeMetadataChanges` receives when a
+ * pending write is acknowledged or the result stops coming from the cache.
+ *
+ * A query snapshot names its changes: `docChanges()` leaves out the ones
+ * that touched only metadata. A document snapshot does not, so its data is
+ * compared with the listener's previous delivery. A document snapshot read
+ * through a converter is counted as changed rather than call the app's
+ * converter; so is any value the comparison cannot be sure of.
+ *
+ * Nothing here calls the app's own code, and a throw is caught where the
+ * record is built.
+ */
+
+/** Counts one listener's deliveries: the billed documents of each, or undefined for a value that is not a snapshot. */
+type BilledDocuments = (value: unknown) => number | undefined;
+
+/** The state of a document as one delivery showed it: whether it existed, and its data. */
+interface DocumentState {
+  readonly exists: boolean;
+  readonly data: unknown;
+}
+
+/** Marks a document snapshot whose data cannot be compared, so the next delivery counts as changed. */
+const UNCOMPARABLE: unique symbol = Symbol('uncomparable');
+
+function methodOf(value: unknown, name: string): ((...args: unknown[]) => unknown) | undefined {
+  const isObject = typeof value === 'object' && value !== null;
+  if (!isObject) return undefined;
+  const method: unknown = Reflect.get(value, name);
+  return typeof method === 'function' ? (method as (...args: unknown[]) => unknown) : undefined;
+}
+
+/** The number of document changes in a query snapshot, or undefined for any other value. */
+function queryChanges(value: unknown): number | undefined {
+  const docChanges = methodOf(value, 'docChanges');
+  if (docChanges === undefined) return undefined;
+  const changes: unknown = Reflect.apply(docChanges, value, []);
+  return Array.isArray(changes) ? changes.length : undefined;
+}
+
+/** What a document snapshot shows, or undefined for any other value. */
+function documentState(value: unknown): DocumentState | undefined {
+  const exists = methodOf(value, 'exists');
+  const data = methodOf(value, 'data');
+  const isDocument = exists !== undefined && data !== undefined;
+  if (!isDocument) return undefined;
+  const converter: unknown = Reflect.get(value as object, '_converter');
+  const hasConverter = converter !== undefined && converter !== null;
+  const shown = Reflect.apply(exists, value, []) === true;
+  if (hasConverter) return { exists: shown, data: UNCOMPARABLE };
+  return { exists: shown, data: Reflect.apply(data, value, []) };
+}
+
+function isPlainObject(value: object): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function sameArrays(left: readonly unknown[], right: readonly unknown[]): boolean {
+  return left.length === right.length && left.every((item, index) => sameValue(item, right[index]));
+}
+
+function sameObjects(left: object, right: object): boolean {
+  const keys = Object.keys(left);
+  const hasSameKeys = keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key));
+  return hasSameKeys && keys.every((key) => sameValue(Reflect.get(left, key), Reflect.get(right, key)));
+}
+
+/** A Firestore value class's own equality: Timestamp, GeoPoint, Bytes, VectorValue. */
+function sameByIsEqual(left: object, right: object): boolean {
+  const isEqual = methodOf(left, 'isEqual');
+  const isSameClass = Object.getPrototypeOf(left) === Object.getPrototypeOf(right);
+  return isEqual !== undefined && isSameClass && Reflect.apply(isEqual, left, [right]) === true;
+}
+
+/** Whether two document values are equal; false whenever that cannot be shown. */
+function sameValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  const areObjects = typeof left === 'object' && left !== null && typeof right === 'object' && right !== null;
+  if (!areObjects) return false;
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) && sameArrays(left, right);
+  const arePlain = isPlainObject(left) && isPlainObject(right);
+  if (arePlain) return sameObjects(left, right);
+  return sameByIsEqual(left, right);
+}
+
+function sameState(previous: DocumentState | undefined, next: DocumentState): boolean {
+  const isComparable = previous !== undefined && previous.data !== UNCOMPARABLE && next.data !== UNCOMPARABLE;
+  return isComparable && previous.exists === next.exists && sameValue(previous.data, next.data);
+}
+
+/** A fresh count for one listener. */
+function billedDocuments(): BilledDocuments {
+  let isFirst = true;
+  let previous: DocumentState | undefined;
+  const firstAtLeastOne = (count: number): number => {
+    const billed = isFirst ? Math.max(count, 1) : count;
+    isFirst = false;
+    return billed;
+  };
+  return (value) => {
+    const changes = queryChanges(value);
+    if (changes !== undefined) return firstAtLeastOne(changes);
+    const state = documentState(value);
+    if (state === undefined) return undefined;
+    const isMetadataOnly = sameState(previous, state);
+    previous = state;
+    return firstAtLeastOne(isMetadataOnly ? 0 : 1);
+  };
 }
 
 /** Calls the real function as the app called it, records the outcome, and returns or throws what it did. */
@@ -273,6 +413,7 @@ function recordingArguments(site: ObservedSite, args: unknown[]): unknown[] {
 export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args);
-    return callReal(callSite, real, this, recordingArguments(callSite, args));
+    const listenerSite = { ...callSite, billing: billedDocuments() };
+    return callReal(callSite, real, this, recordingArguments(listenerSite, args));
   };
 }
