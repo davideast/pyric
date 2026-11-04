@@ -93,6 +93,8 @@ beforeAll(() => {
   symlinkSync(realFirebaseDir, join(projectDir, 'node_modules/firebase'));
   symlinkSync(viteDir, join(projectDir, 'node_modules/vite'));
   writeFileSync(join(projectDir, 'package.json'), JSON.stringify({ name: 'live-guard', private: true, type: 'module' }));
+  // The Firebase project live mode names; every live start refuses without one.
+  writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'live-guard' } }));
   writeFileSync(join(projectDir, 'index.html'), '<p>live</p>');
   writeFileSync(join(projectDir, 'scenario.mjs'), SCENARIO);
 });
