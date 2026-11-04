@@ -91,6 +91,10 @@ export {
   OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
   type ProductionVerdict,
 } from './observed-call.js';
+export {
+  billedCallKind, billedCallSummary, createBilledCallCounter, liveLabel, readLiveHostStatus,
+  type BilledCallCount, type BilledCallCounter, type BilledCallKind, type LiveHostStatus,
+} from './live-status.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {
   provenanceForOperationContext,
