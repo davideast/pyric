@@ -33,7 +33,7 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
 });
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId']);
+const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'billedDocuments']);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
 /** SDK function names: `getDoc`, `onSnapshot`, `signInWithEmailAndPassword`. */
 const METHOD_PATTERN = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
@@ -62,6 +62,10 @@ function requireOnly(value: Fields, allowed: ReadonlySet<string>, prefix: string
 
 function isBoundedString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength;
+}
+
+function isDocumentCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isTime(value: unknown): value is number {
@@ -128,6 +132,10 @@ export function readObservedCall(value: unknown): ObservedCall {
   if (value.projectId !== undefined) {
     requireField(typeof value.projectId === 'string' && PROJECT_ID_PATTERN.test(value.projectId), 'projectId');
     call.projectId = value.projectId;
+  }
+  if (value.billedDocuments !== undefined) {
+    requireField(isDocumentCount(value.billedDocuments), 'billedDocuments');
+    call.billedDocuments = value.billedDocuments;
   }
   return call;
 }

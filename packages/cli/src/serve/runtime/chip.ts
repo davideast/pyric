@@ -491,7 +491,7 @@ function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean
 }
 
 const LIVE_TITLE = 'Live mode: rows marked Production went to your real Firebase project. Rows marked Sandbox were served by the local sandbox.';
-const BILLED_TITLE = 'Successful Firestore reads, writes and listener deliveries the host has counted, from every client.';
+const BILLED_TITLE = 'Successful Firestore reads and writes, and documents delivered to listeners, that the host has counted from every client.';
 
 /** The collapsed chip's live line; its title carries the mismatch warning when there is one. */
 function liveChipHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {

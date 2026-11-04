@@ -21,6 +21,9 @@ if (backend) {
 
 const failure = (error) => error.code ?? String(error);
 const snapshots = [];
+// The documents production billed the listener for: each document a snapshot
+// changed, at least one for the first, none for a metadata-only snapshot.
+let billedDocuments = 0;
 let listening = null;
 
 window.signIn = () =>
@@ -37,6 +40,8 @@ window.listenToOpenRooms = () => {
     // or one holding a write still on its way.
     onSnapshot(query(collection(db, "rooms"), where("open", "==", true)), { includeMetadataChanges: true }, (snapshot) => {
       const rooms = snapshot.docs.map((room) => room.id);
+      const changed = snapshot.docChanges().length;
+      billedDocuments += snapshots.length === 0 ? Math.max(changed, 1) : changed;
       snapshots.push(rooms);
       document.querySelector("#rooms").innerHTML = rooms.map((room) => `<li>${room}</li>`).join("");
       const fromServer = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
@@ -49,7 +54,7 @@ window.listenToOpenRooms = () => {
 window.openGarden = () => setDoc(doc(db, "rooms/garden"), { name: "Garden", open: true }).then(() => "written", failure);
 
 window.openRooms = () => snapshots.at(-1) ?? [];
-window.snapshotCount = () => snapshots.length;
+window.billedDocumentCount = () => billedDocuments;
 
 /** What each call live mode refuses does: its error, or what it returned. */
 const refusedOutcome = (error) => `${error.code}: ${error.message}`;

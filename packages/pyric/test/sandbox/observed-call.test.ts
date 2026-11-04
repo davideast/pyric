@@ -29,6 +29,10 @@ describe('readObservedCall', () => {
     expect(readObservedCall(DENIED_READ)).toEqual(DENIED_READ);
     const signedOut = { service: 'auth', method: 'signInAnonymously', at: 1, outcome: { status: 'ok' } };
     expect(readObservedCall(signedOut)).toEqual(signedOut as ObservedCall);
+    for (const billedDocuments of [0, 3]) {
+      const delivery = { service: 'firestore', method: 'onSnapshot', at: 1, outcome: { status: 'ok' }, billedDocuments };
+      expect(readObservedCall(delivery)).toEqual(delivery as ObservedCall);
+    }
   });
 
   it('refuses a malformed record and names the field', () => {
@@ -56,6 +60,9 @@ describe('readObservedCall', () => {
       [{ ...DENIED_READ, projectId: 'Has Spaces' }, 'projectId'],
       [{ ...DENIED_READ, projectId: 'a'.repeat(64) }, 'projectId'],
       [{ ...DENIED_READ, projectId: 7 }, 'projectId'],
+      [{ ...DENIED_READ, billedDocuments: -1 }, 'billedDocuments'],
+      [{ ...DENIED_READ, billedDocuments: 1.5 }, 'billedDocuments'],
+      [{ ...DENIED_READ, billedDocuments: '2' }, 'billedDocuments'],
     ];
     for (const [record, field] of cases) {
       const read = () => readObservedCall(record);

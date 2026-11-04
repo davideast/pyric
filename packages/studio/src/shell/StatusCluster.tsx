@@ -43,7 +43,7 @@ import { billedCallSummary, liveLabel, liveMismatchLine } from 'pyric/sandbox/in
 import { useLiveHost, useLiveStatusRefresh } from './live-status.js';
 
 const LIVE_TITLE = 'Live mode: rows marked Production went to your real Firebase project. Rows marked Sandbox were served by the local sandbox.';
-const BILLED_TITLE = 'Successful Firestore reads, writes and listener deliveries the host has counted, from every client.';
+const BILLED_TITLE = 'Successful Firestore reads and writes, and documents delivered to listeners, that the host has counted from every client.';
 
 const EMPTY_WORKER_RUNTIME = {
   servedEpoch: null,

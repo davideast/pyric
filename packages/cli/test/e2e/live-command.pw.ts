@@ -207,7 +207,7 @@ test.describe('pyric-live', () => {
     await chip.locator('[data-expand]').click();
     await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText(`Live: ${PROJECT_ID}`);
     // The host's count: the listener's delivery; the failed read and the Auth call are not billed.
-    await expect(chip.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 listener delivery');
+    await expect(chip.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 document delivered to listeners');
     await expect(chip.locator('[data-chip-live-mismatch]')).toHaveCount(0);
     expect((await healthOf(url))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
     await chip.locator('[data-chip-tab=traffic]').click();
