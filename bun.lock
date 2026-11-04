@@ -231,12 +231,25 @@
     },
     "packages/live": {
       "name": "@pyric/live",
-      "version": "0.0.1",
+      "version": "0.1.0-alpha.33",
+      "bin": {
+        "pyric-live": "./dist/cli.js",
+      },
+      "dependencies": {
+        "@pyric/cli": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "1.3.14",
         "firebase": "^12.19.0",
         "typescript": "^5.7.0",
       },
+      "peerDependencies": {
+        "firebase": "^12.12.0",
+        "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0",
+      },
+      "optionalPeers": [
+        "vite",
+      ],
     },
     "packages/playground": {
       "name": "@pyric/playground",

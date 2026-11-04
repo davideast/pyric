@@ -32,6 +32,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/pyric-packaging-test-XXXXXX")"
 NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 RELEASE_CONTRACT="$ROOT/scripts/fixtures/cli-release-contract.json"
+LIVE_RELEASE_CONTRACT="$ROOT/scripts/fixtures/live-release-contract.json"
 
 PACKAGES_DIR=""
 while [ "$#" -gt 0 ]; do
@@ -47,12 +48,14 @@ done
 # - create-pyric is standalone (scaffolder; no Firebase SDK deps)
 # - @pyric/cli depends on pyric + pyric-admin + create-pyric
 # - @pyric/ui peer-depends on pyric
+# - @pyric/live depends on @pyric/cli and peer-depends on firebase
 PACKAGES=(
   "packages/pyric"         # pyric
   "packages/pyric-admin"   # pyric-admin
   "packages/create-pyric"  # create-pyric (bin: create-pyric)
   "packages/cli"           # @pyric/cli (bin: pyric)
   "packages/ui"            # @pyric/ui
+  "packages/live"          # @pyric/live (bin: pyric-live)
 )
 
 # Subpath exports per package — used to assert every advertised entry resolves.
@@ -132,6 +135,7 @@ TARBALL_PYRIC_ADMIN=$(tarball_of packages/pyric-admin)
 TARBALL_CREATE_PYRIC=$(tarball_of packages/create-pyric)
 TARBALL_PYRIC_CLI=$(tarball_of packages/cli)
 TARBALL_UI=$(tarball_of packages/ui)
+TARBALL_LIVE=$(tarball_of packages/live)
 
 # ─── Phase 2: static manifest gate on the tarballs ─────────────────────
 # publint + attw (types resolution) on each tarball, and exports↔dist drift.
@@ -154,6 +158,7 @@ assert_no_sdk_runtime_deps() {
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC" "pyric"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_ADMIN" "pyric-admin"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_CLI" "@pyric/cli"
+assert_no_sdk_runtime_deps "$TARBALL_LIVE" "@pyric/live"
 
 # A published .d.ts that imports a package missing from dependencies and
 # peerDependencies fails to type-check in a consumer that lacks that package,
@@ -170,6 +175,7 @@ assert_declaration_deps_declared "$TARBALL_PYRIC"
 assert_declaration_deps_declared "$TARBALL_PYRIC_ADMIN"
 assert_declaration_deps_declared "$TARBALL_PYRIC_CLI"
 assert_declaration_deps_declared "$TARBALL_UI"
+assert_declaration_deps_declared "$TARBALL_LIVE"
 
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
 # Hermetic (NO registry): the tarball is the exact file set npm publishes, so
@@ -224,6 +230,7 @@ packset_check "$TARBALL_PYRIC_ADMIN" pyric-admin
 packset_check "$TARBALL_CREATE_PYRIC" create-pyric
 packset_check "$TARBALL_PYRIC_CLI" @pyric/cli
 packset_check "$TARBALL_UI" @pyric/ui
+packset_check "$TARBALL_LIVE" @pyric/live
 # Load-bearing runtime assets — pass import() but break at first use if dropped.
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$' "pyric ships the Firestore rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
@@ -235,6 +242,11 @@ assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/README\.md$' "cre
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/\.env\.example$' "create-pyric ships the chat environment example"
 assert_tar_lacks "$TARBALL_CREATE_PYRIC" 'package/templates/chat/dist/' "create-pyric excludes the built chat dist/ tree"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
+assert_tar_has "$TARBALL_LIVE" 'package/dist/cli\.js$' "@pyric/live ships the pyric-live bin"
+# @pyric/live's packed manifest against its release contract: its exports and
+# bin, its dependencies and firebase peer range, and a file set of dist/ and
+# the package files.
+node "$ROOT/scripts/lib/check-live-release.mjs" "$TARBALL_LIVE" "$LIVE_RELEASE_CONTRACT"
 # The Vite plugin's `ui` option + `pyric sandbox --ui` resolve Studio and docs from
 # one Astro tree at dist/serve/site-ui. The plugin's firebase swap resolves the
 # entries from dist/serve/entries. Both are `files:["dist"]`-whitelisted assets that
@@ -908,8 +920,8 @@ echo "━━━ Phase 6: cleanup ━━━"
 if [ -n "${PYRIC_PACKAGING_ARTIFACT_DIR:-}" ]; then
   mkdir -p "$PYRIC_PACKAGING_ARTIFACT_DIR"
   cp "$TARBALL_PYRIC" "$TARBALL_PYRIC_ADMIN" "$TARBALL_CREATE_PYRIC" \
-    "$TARBALL_PYRIC_CLI" "$TARBALL_UI" "$PYRIC_PACKAGING_ARTIFACT_DIR/"
-  echo "  ✓ exported the five proven tarballs to $PYRIC_PACKAGING_ARTIFACT_DIR"
+    "$TARBALL_PYRIC_CLI" "$TARBALL_UI" "$TARBALL_LIVE" "$PYRIC_PACKAGING_ARTIFACT_DIR/"
+  echo "  ✓ exported the six proven tarballs to $PYRIC_PACKAGING_ARTIFACT_DIR"
 fi
 rm -rf "$WORK"
 
