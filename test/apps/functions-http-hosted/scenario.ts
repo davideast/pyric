@@ -4,7 +4,9 @@
 // a deployed function does. The function writes Firestore through
 // firebase-admin, and a registered Node process finds each document in the
 // host's store. A page on another site, or one that rebinds its hostname to
-// 127.0.0.1, reaches neither function.
+// 127.0.0.1, reaches none of the functions, and no other site reaches the two
+// that production limits to IAM callers: invoker 'private', and invoker set
+// to a service account.
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { scenario } from '../driver.ts';
@@ -49,7 +51,7 @@ export default scenario(async (app) => {
     const child = app.pyricProcess(['sandbox', '--hosted', '--no-open', '--no-run', '--no-capture', '--host', '127.0.0.1', '--port', String(port)], {
       env: { PYRIC_NO_UPDATE_CHECK: '1' },
     });
-    await child.waitForLog(/functions 2 onRequest functions:/, { timeoutMs: 60_000 });
+    await child.waitForLog(/functions 3 onRequest functions:/, { timeoutMs: 60_000 });
     return child;
   });
 
@@ -84,11 +86,26 @@ export default scenario(async (app) => {
     assert.equal(linked.status, 403, await linked.text());
   });
 
+  await app.step("the service-account function refuses another site's Origin and answers a caller with none", async () => {
+    const target = `${url}/${PROJECT}/us-central1/nightly`;
+    const foreign = await fetch(target, { method: 'POST', headers: { origin: 'https://attacker.example', 'content-type': 'text/plain' }, body: 'x' });
+    const refusal = await foreign.text();
+    assert.equal(foreign.status, 403, refusal);
+    assert.ok(refusal.includes("nightly, which sets an invoker other than 'public'"), refusal);
+    const server = await fetch(target, { method: 'POST' });
+    assert.equal(server.status, 200, await server.text());
+  });
+
+  await app.step('the startup log warns about both functions production limits to IAM callers', async () => {
+    await sandbox.waitForLog(/functions export reset sets an invoker other than 'public'/, { timeoutMs: 5_000 });
+    await sandbox.waitForLog(/functions export nightly sets an invoker other than 'public'/, { timeoutMs: 5_000 });
+  });
+
   await app.step('a POST to an unknown function name gets 404 naming the functions that exist', async () => {
     const typo = await fetch(`${url}/${PROJECT}/us-central1/apii`, { method: 'POST' });
     const body = await typo.text();
     assert.equal(typo.status, 404, body);
-    assert.equal(body, 'Function us-central1-apii does not exist, valid functions are: us-central1-api, us-central1-reset');
+    assert.equal(body, 'Function us-central1-apii does not exist, valid functions are: us-central1-api, us-central1-reset, us-central1-nightly');
   });
 
   await app.step("a registered Node process reads both documents from the host's store", async () => {

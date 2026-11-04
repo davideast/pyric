@@ -1,8 +1,9 @@
 /**
- * Production refuses an `invoker: 'private'` function to any caller without
- * an IAM identity. pyric serves it without one (functions-http#15), so it
- * keeps to the next best line: a browser page may call it only from the app's
- * own origin. A cross-origin page could otherwise POST to it with no
+ * Production refuses a function whose invoker is not 'public', such as
+ * `invoker: 'private'` or a service account, to any caller without an IAM
+ * identity that it names. pyric serves it without one (functions-http#15), so
+ * it keeps to the next best line: a browser page may call it only from the
+ * app's own origin. A cross-origin page could otherwise POST to it with no
  * preflight and run whatever it trusts its caller to run. A browser leaves
  * the Origin off some requests, such as a cross-site GET from a link or an
  * image, but it always sets `Sec-Fetch-Site`, which a page cannot change; a
@@ -40,8 +41,8 @@ export function refuseForeignOrigin(
   if (!isForeignCaller) return false;
   const caller = req.headers.origin ?? `a ${String(req.headers['sec-fetch-site'])} page`;
   res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
-    `pyric: refused a request from ${caller} to ${fn.exportName}, which sets invoker: 'private'. ` +
-      'pyric serves private functions only to the app\'s own pages and to callers that are not browser pages, such as curl or server code.',
+    `pyric: refused a request from ${caller} to ${fn.exportName}, which sets an invoker other than 'public', such as invoker: 'private' or a service account. ` +
+      'pyric serves such functions only to the app\'s own pages and to callers that are not browser pages, such as curl or server code.',
   );
   return true;
 }

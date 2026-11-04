@@ -15,8 +15,9 @@ export function httpFunctionLines(http: FunctionsChildHttpReady, serveUrl: strin
 }
 
 /**
- * Warns once per function, across reloads, that an `invoker: 'private'`
- * function is served without authentication (functions-http#15).
+ * Warns once per function, across reloads, that a function production limits
+ * to IAM callers (`invoker: 'private'` or a service account) is served
+ * without authentication (functions-http#15).
  */
 export function createPrivateInvokerWarnings(): (http: FunctionsChildHttpReady) => string[] {
   const warned = new Set<string>();
@@ -24,7 +25,7 @@ export function createPrivateInvokerWarnings(): (http: FunctionsChildHttpReady) 
     .filter((fn) => fn.privateInvoker && !warned.has(fn.exportName))
     .map((fn) => {
       warned.add(fn.exportName);
-      return `functions export ${fn.exportName} sets invoker: 'private'; production refuses unauthenticated calls with 403, and pyric serves it without authentication to the app's own pages and to callers that are not browser pages, such as curl or server code.`;
+      return `functions export ${fn.exportName} sets an invoker other than 'public', such as invoker: 'private' or a service account; production refuses unauthenticated calls with 403, and pyric serves it without authentication to the app's own pages and to callers that are not browser pages, such as curl or server code.`;
     });
 }
 

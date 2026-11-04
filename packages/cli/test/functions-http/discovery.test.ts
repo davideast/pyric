@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { httpFunctionInfo, inspectOnRequest } from '../../src/functions/http/discovery.js';
+import { createPrivateInvokerWarnings } from '../../src/functions/http/report.js';
 import { findUnsupportedTriggers } from '../../src/functions/unsupported.js';
 import { rtdbCreatedFamily } from '../../src/functions/rtdb/discovery.js';
 import { httpOnRequestFamily } from '../../src/functions/http/discovery.js';
@@ -39,6 +40,39 @@ describe('inspectOnRequest', () => {
       { exportName: 'legacy', regions: ['us-central1'], platform: 'gcfv1', privateInvoker: false, timeoutSeconds: null },
       { exportName: 'legacyRegional', regions: ['europe-west3'], platform: 'gcfv1', privateInvoker: false, timeoutSeconds: null },
     ]);
+  });
+
+  // firebase-tools binds an invoker list as IAM members, and adds allUsers only for 'public'.
+  test('a function is public only with no invoker, or an invoker list that names public', () => {
+    const exported = {
+      open: https.onRequest(handler),
+      declaredPublic: https.onRequest({ invoker: 'public' }, handler),
+      locked: https.onRequest({ invoker: 'private' }, handler),
+      backend: https.onRequest({ invoker: 'backend@' }, handler),
+      accounts: https.onRequest({ invoker: ['backend@demo.iam.gserviceaccount.com', 'jobs@demo.iam.gserviceaccount.com'] }, handler),
+      legacyAccounts: v1.runWith({ invoker: ['backend@demo.iam.gserviceaccount.com'] }).https.onRequest(handler),
+      legacyPublic: v1.runWith({ invoker: 'public' }).https.onRequest(handler),
+    };
+    expect(inspectOnRequest(exported).map((fn) => [fn.exportName, fn.privateInvoker])).toEqual([
+      ['open', false],
+      ['declaredPublic', false],
+      ['locked', true],
+      ['backend', true],
+      ['accounts', true],
+      ['legacyAccounts', true],
+      ['legacyPublic', false],
+    ]);
+  });
+
+  test('the startup warning names a function only service accounts may invoke', () => {
+    const exported = {
+      open: https.onRequest(handler),
+      backend: https.onRequest({ invoker: 'backend@' }, handler),
+    };
+    const functions = inspectOnRequest(exported).map(httpFunctionInfo);
+    const lines = createPrivateInvokerWarnings()({ port: 0, token: 't', functions });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toStartWith('functions export backend sets an invoker other than \'public\'');
   });
 
   test('onCall endpoints are not onRequest functions', () => {
