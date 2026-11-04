@@ -12,7 +12,7 @@ import * as realApp from 'firebase/app';
 import * as realAppCheck from 'firebase/app-check';
 import * as realAuth from 'firebase/auth';
 import * as realFirestore from 'firebase/firestore';
-import { SDK_MODULES, swappedFirebaseEntries } from '../../cli/src/serve/firebase-module-swap.js';
+import { SDK_MODULES, swappedFirebaseEntries } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_MODULES, LIVE_ROWS, liveFirebaseEntries, liveModuleFor, type LiveCallRecord, type LiveObserver } from '../src/index.js';
 
 /** A loopback port nothing listens on: the system hands one out, and the server is closed again. */

@@ -2,16 +2,14 @@
  * The live row set: the Firebase specifiers live mode serves from the app's
  * own installed SDK, each to the wrapped module that serves it. It is
  * supplied to `@pyric/cli`'s one swap table rather than kept as a second
- * table, so every plane that reads the table reads these rows the same way.
+ * table, so every plane that reads the table reads these rows the same way
+ * (`swap-table.ts`). The page plane serves them through `@pyric/live/vite`
+ * and refuses every other served specifier.
  *
- * No plane selects the set yet. The specifiers it leaves out keep the
- * sandbox rows until live mode refuses them.
+ * This file is loaded in the page too, so it imports only types from
+ * `@pyric/cli`.
  */
-import {
-  swappedFirebaseEntries,
-  type FirebaseRowSet,
-  type ServedFirebaseSpecifier,
-} from '../../cli/src/serve/firebase-module-swap.js';
+import type { ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
 import { wrapLiveModule, type LiveModuleKey } from './modules.js';
 import type { LiveObserver } from './observe.js';
 
@@ -21,12 +19,6 @@ export const LIVE_ROWS: ReadonlyMap<ServedFirebaseSpecifier, LiveModuleKey> = ne
   ['firebase/firestore', 'live-firestore'],
   ['firebase/app-check', 'live-app-check'],
 ]);
-
-/** The swap table with the live rows applied over sandbox mode. */
-export function liveFirebaseEntries(): ReadonlyMap<ServedFirebaseSpecifier, string> {
-  const rows: FirebaseRowSet = LIVE_ROWS;
-  return swappedFirebaseEntries('sandbox', rows);
-}
 
 /**
  * The module a plane serves for `specifier` under live mode: the app's own
