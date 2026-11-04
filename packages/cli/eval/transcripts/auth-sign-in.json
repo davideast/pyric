@@ -50,7 +50,7 @@
       "tool": "auth",
       "args": {
         "method": "signInWithCustomToken",
-        "args": { "token": "eyJ1aWQiOiJkYW5hIiwiY2xhaW1zIjp7InBsYW4iOiJwcm8ifX0" }
+        "args": { "token": "<token>" }
       }
     },
     { "tool": "auth", "args": { "method": "useAppSession", "args": {} } },

@@ -91,6 +91,8 @@ beforeAll(async () => {
   symlinkSync(liveDir, join(nm, '@pyric/live'));
   symlinkSync(realFirebaseDir, join(nm, 'firebase'));
   writeFileSync(join(projectDir, 'package.json'), JSON.stringify({ name: 'live-refusals-fixture', type: 'module' }));
+  // The Firebase project live mode names; every live start refuses without one.
+  writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'live-refusals' } }));
   writeFileSync(join(projectDir, 'tls-recorder.mjs'), TLS_RECORDER);
   counter = createServer((socket) => {
     counted += 1;

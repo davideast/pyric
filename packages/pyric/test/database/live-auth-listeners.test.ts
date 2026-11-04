@@ -8,6 +8,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import { deleteApp } from '../../src/app/index.js';
 import { getAuth, signInWithCustomToken, signOut } from '../../src/auth/index.js';
+import { mintCustomTokenFor } from '../../src/auth/internal.js';
 import {
   getDatabase, limitToFirst, onChildAdded, onValue, orderByKey, query, ref, set,
   sandbox as rtdbSandbox,
@@ -30,7 +31,7 @@ test('an identity change that keeps a listener readable delivers nothing', async
     expect(events).toEqual(['value {"a":1}', 'query {"a":1}', 'added a', 'query added a']);
 
     const auth = getAuth(app);
-    await signInWithCustomToken(auth, JSON.stringify({ uid: 'alice' }));
+    await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'alice'));
     await signOut(auth);
     await settle();
     expect(events).toEqual(['value {"a":1}', 'query {"a":1}', 'added a', 'query added a']);
@@ -51,7 +52,7 @@ test('an identity change that denies a listener cancels it', async () => {
     const db = getDatabase(app);
     rtdbSandbox.setRules(db, { rules: { '.read': 'auth != null', '.write': true } });
     const auth = getAuth(app);
-    await signInWithCustomToken(auth, JSON.stringify({ uid: 'alice' }));
+    await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'alice'));
     const events: string[] = [];
     onValue(ref(db, 'items'), () => events.push('value'), (error) => events.push(`cancel ${(error as { code?: string }).code}`));
     await signOut(auth);

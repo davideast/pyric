@@ -32,6 +32,10 @@ import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { liveHostPageImportMap } from '../serve/live-host-pages.js';
+import { requireLiveProject } from '../serve/live-project.js';
+import { createLiveHostState } from '../serve/live-host-state.js';
+import { refuseOwnWrite, type PyricWriteRefusal } from '../serve/hosted/own-writes.js';
 import { workerInitPayload } from '../serve/runtime/hosted-target.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
@@ -254,8 +258,24 @@ async function startServeRuntime(opts: {
   functionsHandler?: FunctionsHttpGateway['handle'];
   /** A child command runs beside the server and resolves `firebase` itself. */
   hasChildCommand?: boolean;
+  /** Set only by `@pyric/live`'s seam (`serve/live-host.ts`): the host reports its status as live. */
+  liveHost?: LiveServeStart;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
+  const firebaseProject = opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project });
+  const liveStart = opts.liveHost;
+  const isLive = liveStart !== undefined;
+  const liveHost = isLive
+    ? createLiveHostState({
+      configProjectId: requireLiveProject(liveStart.project, opts.cwd),
+      configSource: liveStart.project.source,
+      optionName: '--project',
+      warn: (line) => logger.note(line),
+    })
+    : undefined;
+  // A live host makes none of pyric's own writes, the seed file's among them (`hosted/own-writes.ts`).
+  const seedsLiveHost = isLive && opts.seed !== undefined;
+  if (seedsLiveHost) refuseOwnWrite(liveStart.writeRefusal, { action: `seed ${opts.seed}`, writer: 'seed' });
 
   // Handshake beacons from pyric-launched children, plus the per-launch secret
   // that authorizes one. Both live here because the route does.
@@ -416,6 +436,7 @@ async function startServeRuntime(opts: {
         project: opts.project,
         projectKey: opts.cwd,
         disableAuditLog: opts.disableAuditLog,
+        liveHost,
         upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
         learnsProxyPorts: true,
         appPorts,
@@ -481,7 +502,7 @@ async function startServeRuntime(opts: {
         logger.note(formatBeaconReceipt(report));
       },
       permissive: opts.permissive,
-      project: opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project }),
+      project: firebaseProject,
       hosted: opts.hosted,
       hostInstanceId: () => mount?.instanceId,
       deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
@@ -513,6 +534,8 @@ async function startServeRuntime(opts: {
   }
   const payload = session.payload;
   const hosted = usesHostedSandbox ? { projectKey: opts.cwd } : undefined;
+  // The live host serves its pages no Firebase SDK (`live-host-pages.ts`).
+  const pageImportMap = isLive ? liveHostPageImportMap() : undefined;
   // Learn before any guard runs: a page's first request may be a guarded write.
   const namespaceHandler: SandboxSession['handle'] = async (req, res, url) => {
     appPorts.learn(req);
@@ -543,7 +566,7 @@ async function startServeRuntime(opts: {
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode, owners }),
+      transformHtml: (html) => injectServeTags(html, { workerVersion, hosted, aiMode, owners, importMap: pageImportMap }),
       allowedHosts: opts.allowedHosts,
       logger,
     });
@@ -559,7 +582,13 @@ async function startServeRuntime(opts: {
   // sandbox session is released.
   let bridgeAttachment;
   try {
-    if (usesHostedSandbox) await mount?.startHostedSandbox(session.payload(), handle.url, { logger, persistence: session.hostedPersistence });
+    if (usesHostedSandbox) {
+      await mount?.startHostedSandbox(session.payload(), handle.url, {
+        logger,
+        persistence: session.hostedPersistence,
+        ownWriteRefusal: liveStart?.writeRefusal,
+      });
+    }
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,
       lifecycleServer: handle.server,
@@ -947,7 +976,24 @@ function resolveExplicitCommand(parsed: ParsedArgs): string[] | null {
 }
 
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
-export async function runServe(parsed: ParsedArgs): Promise<number> {
+/** How a live host's clients reach it, in place of the sandbox's export block. */
+const LIVE_HOST_CLIENTS =
+  '\n  To show a Node process\'s calls here, start it in this project with:\n' +
+  '    node --import @pyric/live/register server.js\n' +
+  '  For a Vite app, add pyricLive() from @pyric/live/vite: its dev server is the live host.\n';
+
+/** What only `@pyric/live`'s seam (`serve/live-host.ts`) sets on a run: the project it resolved, and where from. */
+export interface LiveServeStart {
+  project: FirebaseProjectResolution;
+  /** The installed `@pyric/live`'s refusal of pyric's own writes: Studio's, an MCP tool's, a command's, the seed file's. */
+  writeRefusal: PyricWriteRefusal;
+}
+
+export interface ServeRunHost {
+  liveHost?: LiveServeStart;
+}
+
+export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): Promise<number> {
   const cwd = process.cwd();
   let pyricConfig: PyricConfig = {};
   try {
@@ -1079,6 +1125,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       firebaseProject,
       functionsHandler: functionsGateway?.handle,
       hasChildCommand: plan !== null,
+      liveHost: runHost.liveHost,
     });
   } catch (e) {
     const message = serveErrorMessage(e);
@@ -1339,6 +1386,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       isAlive: () => devChild !== null && devChild.child.exitCode === null,
       warn: (line) => void process.stderr.write(`${line}\n`),
     });
+  } else if (usesHumanOutput && runHost.liveHost !== undefined) {
+    process.stdout.write(LIVE_HOST_CLIENTS);
   } else if (usesHumanOutput) {
     process.stdout.write(
       formatStartupEnvExport({

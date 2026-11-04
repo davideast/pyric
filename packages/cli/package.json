@@ -87,6 +87,13 @@
         "import": "./dist/serve/vite-supplied-entry.js"
       }
     },
+    "./serve/internal/live-host": {
+      "types": "./dist/serve/live-host.d.ts",
+      "node": {
+        "types": "./dist/serve/live-host.d.ts",
+        "import": "./dist/serve/live-host.js"
+      }
+    },
     "./vite/ssr-loader": {
       "types": "./dist/serve/vite-ssr-loader.d.ts",
       "node": {
