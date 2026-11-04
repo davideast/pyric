@@ -9,7 +9,7 @@
 // enforces it, and the sandbox always does (#1291), on every plane: the Node host,
 // the SharedWorker, the in-page sandbox and a registered Node process. An app
 // that never initialized App Check, or initialized it after getAI, gets
-// production's 403; one that initialized it first answers, with or without
+// an enforced project's 401; one that initialized it first answers, with or without
 // the debug provider, and with limited-use tokens. Pyric's guidance prints in
 // the dev server terminal and the browser console beside the error, on every
 // plane, including a page whose only Firebase services are App Check and AI
@@ -21,7 +21,7 @@
 // With no debug token set, production calls an app's CustomProvider and sends
 // the token it returns, and so does the sandbox (#1642): a provider backed by
 // a server that mints with firebase-admin's createToken answers, and one that
-// returns a token that is not an App Check token, or rejects, gets the 403.
+// returns a token that is not an App Check token, or rejects, gets the 401.
 // With limited-use tokens a rejecting provider sends no request: the call
 // fails with the SDK's `Error fetching from <url>: <message>` wrapper.
 //
@@ -56,7 +56,8 @@ function loggedJson(output: string, label: string): unknown {
   return JSON.parse(line[1]!);
 }
 
-const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
+/** An enforced project's refusal (capture `app-check-ai-gate-wire`, #1300). */
+const GATE_MESSAGE = 'Firebase App Check token is invalid.';
 /**
  * Apps `runAiChecks` leaves refused: one with no App Check on each backend,
  * one that called getAI before initializeAppCheck, and the two whose
@@ -96,8 +97,8 @@ function requestUrl(op: string, location?: string): string {
 function refusal(op: string, location?: string) {
   return {
     code: 'fetch-error',
-    status: 403,
-    message: `AI: Error fetching from ${requestUrl(op, location)}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
+    status: 401,
+    message: `AI: Error fetching from ${requestUrl(op, location)}: [401 Unauthorized] ${GATE_MESSAGE} (AI/fetch-error)`,
   };
 }
 
@@ -196,7 +197,7 @@ export default scenario(async (app) => {
     });
   });
 
-  await app.step('Node host: AI Logic without App Check gets production\'s 403, with App Check it answers', async () => {
+  await app.step('Node host: AI Logic without App Check gets production\'s 401, with App Check it answers', async () => {
     const since = host.process.mark();
     const result = await page.evaluate((url) => runAiChecks('node-host', url), tokenUrl);
     assert.deepEqual(result, expected('transport'));

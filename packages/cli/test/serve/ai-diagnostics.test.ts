@@ -173,8 +173,8 @@ describe('AI broker request_rejected → dev terminal', () => {
 
     expect(notes.length).toBe(1);
     const lines = notes[0]!.split('\n');
-    expect(lines[0]).toContain('ai request rejected: Firebase AI Logic has been deactivated in this project.');
-    expect(lines).toContainEqual(expect.stringContaining('PERMISSION_DENIED (403)'));
+    expect(lines[0]).toContain('ai request rejected: Firebase App Check token is invalid.');
+    expect(lines).toContainEqual(expect.stringContaining('UNAUTHENTICATED (401)'));
     expect(lines.at(-1)).toContain('Call initializeAppCheck(app, { provider }) before getAI(app).');
     expect(lines.at(-1)).toContain('In production, enforcement is set per project');
     expect(lines.at(-1)).toContain('FIREBASE_APPCHECK_DEBUG_TOKEN');

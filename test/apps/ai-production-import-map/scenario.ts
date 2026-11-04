@@ -6,7 +6,7 @@
 // register planes.
 //
 // Nothing leaves the machine. A Playwright route answers Google the way AI
-// Logic does (403 without a token, in earlier-captures/ai-logic-refusal-unenforced.json) and
+// Logic does (401 without a token while enforced, in observations/app-check/app-check-ai-gate-wire.json) and
 // aborts every other external request the page makes. The sandbox process
 // runs with its HTTP proxy set to a local trap that refuses and records every
 // request, and the scenario asserts the trap saw none.
@@ -16,9 +16,9 @@ import { scenario } from '../driver.ts';
 
 const DENIED = {
   error: {
-    code: 403,
-    message: 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check',
-    status: 'PERMISSION_DENIED',
+    code: 401,
+    message: 'Firebase App Check token is invalid.',
+    status: 'UNAUTHENTICATED',
   },
 };
 
@@ -80,7 +80,7 @@ export default scenario(async (app) => {
         }
         const header = route.request().headers()['x-firebase-appcheck'] ?? null;
         aiHeaders.push(header);
-        if (header === null) return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify(DENIED) });
+        if (header === null) return route.fulfill({ status: DENIED.error.code, contentType: 'application/json', body: JSON.stringify(DENIED) });
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -121,7 +121,7 @@ export default scenario(async (app) => {
       const outcome = await page.evaluate(() => runAppCheckAfterAi());
       assert.deepEqual(aiHeaders, [null]);
       assert.equal(outcome.ok, false);
-      assert.match(outcome.error ?? '', /you must enforce Firebase App Check/);
+      assert.match(outcome.error ?? '', /\[401 Unauthorized\] Firebase App Check token is invalid\./);
     });
 
     await app.step("the page never loads Pyric's App Check mirror or AI broker", () => {

@@ -281,8 +281,8 @@ export class AiBroker {
 
   /**
    * AI Logic's App Check gate (`app-check-gate.ts`), before any engine runs:
-   * a request whose claim has no valid sandbox token is refused with
-   * production's 403 envelope. A request with no claim comes from a handle
+   * a request whose claim has no valid sandbox token is refused with the
+   * 401 envelope an enforced project answers. A request with no claim comes from a handle
    * with no app, which production has no counterpart for, and passes.
    */
   async admitAppCheck(model: string, appCheck: AppCheckClaim | undefined): Promise<void> {

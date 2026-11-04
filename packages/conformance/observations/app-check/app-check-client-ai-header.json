@@ -9,9 +9,10 @@
     "ai#sandbox-app-check-required"
   ],
   "description": "The X-Firebase-AppCheck header the real firebase/ai SDK attaches to generateContent (GoogleAI backend, observed with a Playwright route and continued unchanged, enforcement off): with App Check initialized, on a second app whose getAI options set useLimitedUseAppCheckTokens (compared with that app's cached getToken token), and on an app that never initialized App Check. Each request records the production response status and, when not 200, the error body.",
-  "observedAt": "2026-11-02T19:35:35.622Z",
+  "observedAt": "2026-11-03T23:22:25.615Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "appCheckInitialized": {
       "requestSeen": true,
@@ -161,16 +162,22 @@
       "appCheckHeaderPresent": false,
       "appCheckHeaderShape": null,
       "appCheckHeaderIsSdkDummyToken": false,
-      "responseStatus": 200,
+      "responseStatus": 401,
       "responseBody": {
-        "ok": true
+        "error": {
+          "code": 401,
+          "message": "Firebase App Check token is invalid.",
+          "status": "UNAUTHENTICATED"
+        }
       },
       "appCheckHeaderEquals": {},
       "generation": {
-        "threw": false,
-        "value": {
-          "finishReason": "STOP"
-        }
+        "threw": true,
+        "name": "FirebaseError",
+        "code": "fetch-error",
+        "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent: [401 Unauthorized] Firebase App Check token is invalid. (AI/fetch-error)",
+        "customDataKeys": [],
+        "customData": null
       }
     }
   }

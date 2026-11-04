@@ -2,19 +2,21 @@
  * Child-process fixture for `ai#app-check-attestation-failure`: the Firebase
  * App Check SDK in debug mode (a module-wide setting, hence its own process)
  * through the served App Check bridge, with an unregistered debug token. `fetch`
- * answers the debug exchange and AI Logic with the captured 403 envelopes
- * (`app-check-exchange-debug-token-wire`, `earlier-captures/ai-logic-refusal-unenforced.json`), so nothing
- * reaches Google. Prints one JSON line.
+ * answers the debug exchange with its captured 403 (`app-check-exchange-debug-token-wire`)
+ * and AI Logic with the 401 an enforced project answered (`app-check-ai-gate-wire`),
+ * so nothing reaches Google. Prints one JSON line.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const OBS = join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'app-check');
-const behavior = (name: string) => (JSON.parse(readFileSync(join(OBS, `${name}.json`), 'utf8')) as { behavior: Record<string, any> }).behavior;
+type Capture = { projectId: string; behavior: Record<string, any> };
+const capture = (name: string) => JSON.parse(readFileSync(join(OBS, `${name}.json`), 'utf8')) as Capture;
+const behavior = (name: string) => capture(name).behavior;
 const exchangeDenied = behavior('app-check-exchange-debug-token-wire').unregistered.body;
-const earlier = JSON.parse(readFileSync(join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'earlier-captures', 'ai-logic-refusal-unenforced.json'), 'utf8')) as { captures: Record<string, Record<string, any>> };
-const aiDenied = earlier.captures['app-check-ai-gate-wire']!.noHeader.raw;
-const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: 'genkit-idx' };
+const aiDenied = behavior('app-check-ai-gate-wire').noHeader.raw as { error: { code: number } };
+// The request URL in the SDK's error names the project, so the app uses the capture's.
+const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: capture('app-check-client-invalid-debug-token').projectId };
 const MODEL = 'gemini-flash-lite-latest';
 
 (globalThis as { self?: unknown }).self ??= globalThis;
@@ -23,12 +25,12 @@ const MODEL = 'gemini-flash-lite-latest';
 const aiRequests: (string | null)[] = [];
 globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
   const href = String(url);
-  // The capture's response line read `403 Forbidden`; the SDK puts the status text in its message.
-  const json = (body: unknown, status: number) =>
-    new Response(JSON.stringify(body), { status, statusText: 'Forbidden', headers: { 'content-type': 'application/json' } });
-  if (href.includes('firebaseappcheck.googleapis.com')) return json(exchangeDenied, 403);
+  // The captures' response lines read `403 Forbidden` and `401 Unauthorized`; the SDK puts the status text in its message.
+  const json = (body: unknown, status: number, statusText: string) =>
+    new Response(JSON.stringify(body), { status, statusText, headers: { 'content-type': 'application/json' } });
+  if (href.includes('firebaseappcheck.googleapis.com')) return json(exchangeDenied, 403, 'Forbidden');
   aiRequests.push(new Headers(init?.headers).get('x-firebase-appcheck'));
-  return json(aiDenied, 403);
+  return json(aiDenied, aiDenied.error.code, 'Unauthorized');
 }) as typeof fetch;
 
 const { shadowedAppRegistry } = await import('../../../src/register/app-bridge-shadow.js');

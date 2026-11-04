@@ -79,7 +79,7 @@ test('served AI uses only the SharedWorker broker and emits one authoritative ev
   });
 });
 
-test('the SharedWorker broker refuses AI requests from an app without App Check with a 403', async ({ page }) => {
+test('the SharedWorker broker refuses AI requests from an app without App Check with a 401', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => document.querySelector('#status')?.textContent !== 'loading');
 
@@ -97,6 +97,6 @@ test('the SharedWorker broker refuses AI requests from an app without App Check 
     }
   });
 
-  expect(refusal).toMatchObject({ code: 'fetch-error', status: 403 });
-  expect(refusal?.message).toContain('[403 Forbidden] Firebase AI Logic has been deactivated in this project.');
+  expect(refusal).toMatchObject({ code: 'fetch-error', status: 401 });
+  expect(refusal?.message).toContain('[401 Unauthorized] Firebase App Check token is invalid.');
 });

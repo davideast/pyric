@@ -4,12 +4,14 @@
  * What AI Logic answers a request without a valid App Check token depends on
  * the project. Enforcement is required from a date each project can set, up to
  * January 21, 2027, and an unenforced project may answer 200 until then. The
- * sandbox always refuses, so an app finds the missing token before production
- * does: a request with no `X-Firebase-AppCheck` header, a malformed one, the web
- * SDK's placeholder token, or a token whose signature fails gets HTTP 403
- * `PERMISSION_DENIED`, the envelope captured from another unenforced project
- * (`earlier-captures/ai-logic-refusal-unenforced.json`), before any engine runs.
- * A valid token answers. See #1300.
+ * sandbox always refuses, as an enforced project does, so an app finds the
+ * missing token before production does: a request with no `X-Firebase-AppCheck`
+ * header, a malformed one, the web SDK's placeholder token, or a token whose
+ * signature fails gets HTTP 401 `UNAUTHENTICATED`, the envelope an enforced
+ * project answered (capture `app-check-ai-gate-wire`, enforcement `ENFORCED`),
+ * before any engine runs. A valid token answers. The 403 `PERMISSION_DENIED`
+ * the sandbox sent before came from an unenforced project and is kept in
+ * `earlier-captures/ai-logic-refusal-unenforced.json`. See #1300.
  *
  * The App Check claim a request carries comes from the handle: `getAI(app)`
  * reads the app's App Check activation when it builds the handle, as the SDK's
@@ -34,9 +36,12 @@ import { APP_CHECK_PLACEHOLDER_TOKEN, checkAppCheckToken } from '../sandbox/inte
 import type { AppCheckClaim, WireErrorEnvelope } from './broker/types.js';
 import { RequestHeadersFailure } from './errors.js';
 
-/** Production's message for a refused request (`earlier-captures/ai-logic-refusal-unenforced.json`), verbatim. */
-export const APP_CHECK_REQUIRED_MESSAGE =
-  'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
+/** An enforced project's message for a refused request (capture `app-check-ai-gate-wire`), verbatim. */
+export const APP_CHECK_REQUIRED_MESSAGE = 'Firebase App Check token is invalid.';
+
+/** An enforced project's HTTP status and status for a refused request (capture `app-check-ai-gate-wire`). */
+const APP_CHECK_REQUIRED_CODE = 401;
+const APP_CHECK_REQUIRED_STATUS = 'UNAUTHENTICATED';
 
 /**
  * The refusal sentence both hints open with. Enforcement is a per-project
@@ -46,7 +51,7 @@ export const APP_CHECK_REQUIRED_MESSAGE =
  * {@link APP_CHECK_HINT} must fit whole.
  */
 export const APP_CHECK_REFUSAL_NOTE =
-  'The sandbox refuses AI Logic requests without an App Check token with a 403, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.';
+  'The sandbox refuses AI Logic requests without an App Check token with a 401, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.';
 
 /** Pyric's guidance for a page, printed beside production's error, never in place of it. */
 export const APP_CHECK_HINT =
@@ -70,9 +75,9 @@ function appCheckHintForThisRealm(): string {
   return APP_CHECK_SERVER_HINT;
 }
 
-/** The captured refusal envelope (`earlier-captures/ai-logic-refusal-unenforced.json`). */
+/** The refusal envelope an enforced project answered (capture `app-check-ai-gate-wire`). */
 export function appCheckRequired(): WireErrorEnvelope {
-  return { error: { code: 403, message: APP_CHECK_REQUIRED_MESSAGE, status: 'PERMISSION_DENIED' } };
+  return { error: { code: APP_CHECK_REQUIRED_CODE, message: APP_CHECK_REQUIRED_MESSAGE, status: APP_CHECK_REQUIRED_STATUS } };
 }
 
 function expiresAfter(claims: Readonly<Record<string, unknown>>, nowMillis: number): boolean {
@@ -97,10 +102,10 @@ export async function admitsAppCheckToken(token: string | null, nowMillis: numbe
 /** Whether an error is this gate's refusal, as the broker throws it or the SDK error it becomes. */
 export function isAppCheckRefusal(error: unknown): boolean {
   const envelope = (error as { envelope?: WireErrorEnvelope } | null)?.envelope;
-  const isBrokerRefusal = envelope?.error.code === 403 && envelope.error.message === APP_CHECK_REQUIRED_MESSAGE;
+  const isBrokerRefusal = envelope?.error.code === APP_CHECK_REQUIRED_CODE && envelope.error.message === APP_CHECK_REQUIRED_MESSAGE;
   if (isBrokerRefusal) return true;
   const sdkError = error as { customErrorData?: { status?: unknown }; message?: unknown } | null;
-  const isSdkRefusal = sdkError?.customErrorData?.status === 403
+  const isSdkRefusal = sdkError?.customErrorData?.status === APP_CHECK_REQUIRED_CODE
     && typeof sdkError.message === 'string'
     && sdkError.message.includes(APP_CHECK_REQUIRED_MESSAGE);
   return isSdkRefusal;

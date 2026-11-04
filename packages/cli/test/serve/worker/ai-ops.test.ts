@@ -379,12 +379,13 @@ describe('client round trip (worker client fns over a fake port pair)', () => {
 
   // App Check in sandbox AI mode (rows ai#sandbox-app-check-*): the claim an
   // app-backed handle attaches crosses the port, and the worker broker plays
-  // AI Logic's gate with production's 403 envelope.
+  // AI Logic's gate with the 401 envelope an enforced project answers
+  // (capture `app-check-ai-gate-wire`, #1300).
   const APP_CHECK_REFUSAL = {
     error: {
-      code: 403,
-      message: 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check',
-      status: 'PERMISSION_DENIED',
+      code: 401,
+      message: 'Firebase App Check token is invalid.',
+      status: 'UNAUTHENTICATED',
     },
   };
 
@@ -415,7 +416,7 @@ describe('client round trip (worker client fns over a fake port pair)', () => {
     const { client, db } = await wire();
     const appCheck = { token: null };
     const unary = await refusalOf(() => client.aiGenerateContent(db, { model: MODEL, request: genRequest('no token'), appCheck }));
-    expect(unary.code).toBe('ai/PERMISSION_DENIED');
+    expect(unary.code).toBe('ai/UNAUTHENTICATED');
     expect(unary.aiEnvelope).toEqual(APP_CHECK_REFUSAL);
     const counted = await refusalOf(() => client.aiCountTokens(db, { model: MODEL, request: genRequest('no token'), appCheck }));
     expect(counted.aiEnvelope).toEqual(APP_CHECK_REFUSAL);
