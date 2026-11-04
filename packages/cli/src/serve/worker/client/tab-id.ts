@@ -12,8 +12,23 @@ const TAB_ID_KEY = 'pyric.tabId';
 
 let realmTabId: string | undefined;
 
+/** 16 random bytes as hex. An id, not a secret: `Math.random` serves where `crypto` is missing. */
+function randomHex(): string {
+  const bytes = new Uint8Array(16);
+  const random = globalThis.crypto;
+  const hasCrypto = random !== undefined && typeof random.getRandomValues === 'function';
+  if (hasCrypto) random.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * A new tab id. `crypto.randomUUID` exists only in a secure context; a page
+ * served over plain http from a non-loopback address still has
+ * `crypto.getRandomValues`, so that is what mints it.
+ */
 function mintTabId(): string {
-  return `tab-${globalThis.crypto.randomUUID()}`;
+  return `tab-${randomHex()}`;
 }
 
 /** The id minted once for this realm, for a tab whose `sessionStorage` cannot keep one. */
