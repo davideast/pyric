@@ -28,6 +28,7 @@
 
 import { afterEach, describe, it, expect } from 'bun:test';
 import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
+import { idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { getDatabase as getModularDatabase, sandbox as databaseSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
@@ -551,9 +552,29 @@ describe('pyric-admin remote dispatch — Auth', () => {
     const auth = getAuth(app);
     const token = await auth.createCustomToken('alice', { role: 'admin' });
     expect(token.startsWith('pyric-sandbox-custom:')).toBe(true);
-    const decoded = await auth.verifyIdToken(token);
+    // A custom token is not an ID token: production refuses it (#1949).
+    await expect(auth.verifyIdToken(token)).rejects.toMatchObject({ code: 'auth/argument-error' });
+    // An ID token pyric's Auth mints for the app's project verifies.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const idToken = mintIdToken({
+      ...idTokenAudience(SANDBOX_PROJECT_ID), sub: 'alice', role: 'admin', iat: nowSec, auth_time: nowSec, exp: nowSec + 3600,
+    });
+    const decoded = await auth.verifyIdToken(idToken);
     expect(decoded.uid).toBe('alice');
     expect((decoded as Record<string, unknown>).role).toBe('admin');
+  });
+
+  it('verifyIdToken checks the project the remote app names', async () => {
+    const { remote } = makeStack();
+    const auth = getAuth(initializeApp({ sandbox: remote, projectId: 'demo-remote' }, 'remote-project'));
+    const nowSec = Math.floor(Date.now() / 1000);
+    const claims = { sub: 'alice', iat: nowSec, auth_time: nowSec, exp: nowSec + 3600 };
+    await expect(auth.verifyIdToken(mintIdToken({ ...claims, ...idTokenAudience('demo-remote') }))).resolves.toMatchObject({ uid: 'alice' });
+    await expect(auth.verifyIdToken(mintIdToken({ ...claims, ...idTokenAudience(SANDBOX_PROJECT_ID) }))).rejects.toMatchObject({
+      code: 'auth/argument-error',
+    });
+    const expired = mintIdToken({ ...claims, ...idTokenAudience('demo-remote'), exp: nowSec - 60 });
+    await expect(auth.verifyIdToken(expired)).rejects.toMatchObject({ code: 'auth/id-token-expired' });
   });
 
   it('unmodeled surface throws the canonical remote "not implemented" error', () => {
