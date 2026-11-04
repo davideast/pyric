@@ -272,16 +272,47 @@ function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUr
 }
 
 /**
+ * The Google server SDKs that reach a live row host on their own connection:
+ * `@google-cloud/firestore` speaks gRPC to `firestore.googleapis.com`, as the
+ * live rows' Firestore does, so the network guard cannot tell its sockets
+ * from the rows' (`live-net-guard.ts`). Other Google client libraries reach
+ * hosts the guard refuses by host.
+ */
+const LIVE_HOST_SERVER_SDKS: ReadonlySet<string> = new Set(['@google-cloud/firestore']);
+
+/** The stop's message for a server SDK under live rows: it would reach production unobserved. */
+function serverSdkStopMessage(load: ResolvedLoad, packageName: string): string {
+  return [
+    `${LIVE_LOG_PREFIX}: stopped loading ${packageName}`,
+    `  import '${load.specifier}'`,
+    `  from   ${load.importer ?? 'the entry point'}`,
+    `  found  ${load.url}`,
+    "In live mode, only the installed Firebase SDK reaches production, through @pyric/live's rows, so pyric sees each call. " +
+      `${packageName} would reach Cloud Firestore on its own gRPC connection, which pyric neither observes nor can tell from the rows'.`,
+    'Fix: import firebase/firestore, which live mode serves to a Node process, or move this code to a process without @pyric/live/register.',
+    `code: ${REAL_SDK_STOPPED_CODE}`,
+  ].join('\n');
+}
+
+function serverSdkStop(load: ResolvedLoad, packageName: string): Error {
+  const error = new Error(serverSdkStopMessage(load, packageName));
+  return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
+}
+
+/**
  * The stop under live rows (`supplied-rows.ts`): the error that stops this
  * load, or `null` when it may go ahead. The client SDK loads only for a row
  * module's own ESM import of its specifier, and then for the packages those
- * files import ({@link isAllowedLiveRowLoad}); `firebase-admin` never loads.
+ * files import ({@link isAllowedLiveRowLoad}); `firebase-admin` and the
+ * server SDKs in {@link LIVE_HOST_SERVER_SDKS} never load.
  * An allowed load joins `allowedUrls`. The swap table and AI mode play no
  * part: live rows replace the swap.
  */
 export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>, grant: SuppliedRowsGrant): Error | null {
   if (!isInstalledFile(load.url)) return null;
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
+  const isServerSdk = packageName !== null && LIVE_HOST_SERVER_SDKS.has(packageName);
+  if (isServerSdk) return serverSdkStop(load, packageName);
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
   if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;

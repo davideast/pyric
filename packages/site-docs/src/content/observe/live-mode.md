@@ -82,6 +82,29 @@ Each refusal throws an error with the code `PYRIC_LIVE_REFUSED` before any reque
 
 To use any of these, run the app without `@pyric/live`. It gets the sandbox again.
 
+## Calls that skip your Firebase SDK
+
+Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore` or `firebase/app-check`. Live mode refuses these other routes to production, so none of them reaches your project unseen:
+
+- **`@google-cloud/firestore`** in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` instead.
+- **Your own requests to Firestore, Auth or App Check** from a Node process, with the global `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`, and the terminal names the host.
+- **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
+
+## What live mode can't see
+
+Some requests from a page never reach the dev server, so live mode can't refuse or show them:
+
+- **The exact URL of an SDK file the page already loaded.** The browser answers `import()` of that URL from its own module cache, so the page gets the SDK without pyric in between.
+- **That URL with a fragment added**, such as `#copy`. The browser keeps the fragment to itself, so the dev server sees the URL it already served, and the page gets a second copy of the SDK.
+- **The page's own `fetch` to the Firestore REST API**, or to Auth or App Check. The browser sends it straight to Google.
+
+In a Node process, live mode lets these through without showing them, because each looks the same as your Firebase SDK's own traffic:
+
+- A connection your code opens itself to `firestore.googleapis.com` with `http2`, `tls`, `@grpc/grpc-js` or the `undici` package. Only the global `fetch` is checked.
+- An `http.request` that opens a `CONNECT` tunnel through a proxy. The Firebase SDK's gRPC connection uses one when a proxy is set.
+
+None of these calls shows in traffic, and production still bills them.
+
 ## Count billed calls
 
 The chip and Studio show a running count of your app's Firestore reads, writes and listener deliveries in production. Reads and writes are counted per call, not per document, so a query counts once however many documents production bills for it. Listener deliveries count the documents delivered to listeners. An HMR reload that restarts a listener reads its documents again.

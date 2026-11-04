@@ -18,11 +18,14 @@
  * Each call live mode refuses (Cloud Storage, a named database, the Admin
  * SDK, an `@firebase/*` package, pyric's own writes from MCP or a pyric
  * command on the `pyric-live` host) throws pyric's refusal, and the replay
- * server receives nothing for it. Like every app scenario this runs offline,
+ * server receives nothing for it. So does app code that would skip the live
+ * rows: the page importing the SDK file the rows loaded under a cache-busting
+ * query, and the server job loading `@google-cloud/firestore` or sending its
+ * own `https.request` to Firestore. Like every app scenario this runs offline,
  * and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
 import { scenario, sleep, type App } from '../driver.ts';
@@ -50,7 +53,9 @@ declare function listenToOpenRooms(): Promise<string[]>;
 declare function openGarden(): Promise<string>;
 declare function openRooms(): string[];
 declare function billedDocumentCount(): number;
-declare const refused: Record<'storage' | 'sdkPackage' | 'namedDatabase', () => Promise<string> | string>;
+declare const refused: Record<'storage' | 'sdkPackage' | 'namedDatabase', () => Promise<string> | string> & {
+  cacheBusted(variant: 't' | 'amp' | 'encodedName' | 'absolute' | 'absoluteQuery' | 'id' | 'idQuery', root?: string): Promise<string>;
+};
 
 interface Recorded {
   /** The project the recording was made in: the app's config and `.firebaserc` name it, as a recorded app's would. */
@@ -265,10 +270,23 @@ export default scenario(async (app) => {
       storage: await page.evaluate(() => refused.storage()),
       sdkPackage: await page.evaluate(() => refused.sdkPackage()),
       namedDatabase: await page.evaluate(() => refused.namedDatabase()),
+      cacheBusted: await page.evaluate(() => refused.cacheBusted('t')),
+      trailingAmpersand: await page.evaluate(() => refused.cacheBusted('amp')),
+      encodedQueryName: await page.evaluate(() => refused.cacheBusted('encodedName')),
+      absolutePath: await page.evaluate((root) => refused.cacheBusted('absolute', root), realpathSync(app.dir)),
+      absolutePathQuery: await page.evaluate((root) => refused.cacheBusted('absoluteQuery', root), realpathSync(app.dir)),
+      idPath: await page.evaluate((root) => refused.cacheBusted('id', root), realpathSync(app.dir)),
+      idPathQuery: await page.evaluate((root) => refused.cacheBusted('idQuery', root), realpathSync(app.dir)),
     }));
     assert.match(outcomes.storage, new RegExp(`^${REFUSED}: @pyric/live: firebase/storage \\(Cloud Storage\\) is refused in live mode`));
     assert.match(outcomes.sdkPackage, new RegExp(`^${REFUSED}: @pyric/live: @firebase/firestore \\(a Firebase SDK package; apps import firebase/firestore\\) is refused in live mode`));
     assert.match(outcomes.namedDatabase, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a page`));
+    // The SDK file the rows loaded, imported again under another URL Vite would serve it at: a second, unwrapped copy.
+    const bustedForms = [outcomes.cacheBusted, outcomes.trailingAmpersand, outcomes.encodedQueryName, outcomes.absolutePath, outcomes.absolutePathQuery, outcomes.idPath, outcomes.idPathQuery];
+    for (const busted of bustedForms) {
+      assert.match(busted, new RegExp(`^${REFUSED}: @pyric/live: @firebase/firestore \\(a Firebase SDK package; apps import firebase/firestore\\) is refused in live mode`));
+      assert.match(busted, /under another URL, which gives the page a second copy of the SDK without the live rows' wrapper/);
+    }
   });
 
   await app.step('each call the server job makes that live mode refuses throws its refusal and sends nothing', async () => {
@@ -278,6 +296,11 @@ export default scenario(async (app) => {
     assert.match(outcomes.storage!, new RegExp(`^${REFUSED}: @pyric/live: firebase/storage \\(Cloud Storage\\) is refused in live mode`));
     assert.match(outcomes.admin!, new RegExp(`^${REFUSED}: @pyric/live: firebase-admin/firestore \\(the Admin SDK\\) is refused in live mode`));
     assert.match(outcomes.namedDatabase!, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a Node process`));
+    // Google's server Firestore client stops at import, and a raw request to a live row host never opens a socket.
+    assert.match(outcomes.cloudFirestore!, /^PYRIC_REAL_SDK_STOPPED: @pyric\/live\/register: stopped loading @google-cloud\/firestore/);
+    assert.match(outcomes.cloudFirestore!, /only the installed Firebase SDK reaches production, through @pyric\/live's rows/);
+    assert.match(outcomes.httpsRequest!, /^PYRIC_GUARD_BLOCKED: pyric net-guard blocked socket egress to firestore\.googleapis\.com \(Cloud Firestore\): in live mode only the installed Firebase SDK, wrapped by @pyric\/live's rows, reaches this host/);
+    assert.match(run.output, /@pyric\/live\/register: net-guard BLOCK firestore\.googleapis\.com \(Cloud Firestore\) via socket/);
   });
 
   await app.step('stop the dev server', async () => {

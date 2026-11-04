@@ -59,6 +59,7 @@ import { createViteModuleContext, createViteModuleSwap } from './vite-module-swa
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { installViteNetGuard } from './vite-net-guard.js';
+import { attachLiveSdkRequestGate } from './vite-live-sdk-requests.js';
 import { installViteProcessStop } from './vite-process-stop.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
@@ -408,6 +409,8 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
       // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
       attachViteRealPathDeny(server, projectDir);
+      // Before Vite's too, which drops a `t=` query: a loaded SDK file under another URL is an unwrapped copy.
+      if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
       const stateScope = generationStateScope(options);
       const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
