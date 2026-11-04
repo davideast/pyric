@@ -12,7 +12,9 @@
  * {@link importMapFirebaseEntries}) and the Vite resolver
  * (`vite-module-swap.ts`). Every front door resolves the mode with
  * {@link resolveAiMode}. One table and one precedence rule, so the planes
- * cannot disagree about what production mode means. It imports only Node
+ * cannot disagree about what production mode means. Another workspace
+ * package adds its own rows through {@link FirebaseRowSet} rather than a
+ * second table. It imports only Node
  * built-ins, so the Node register hook reads the same rule.
  */
 import { realpathSync } from 'node:fs';
@@ -61,11 +63,24 @@ function defaultEntryKey(specifier: ServedFirebaseSpecifier): string {
 }
 
 /**
- * Served Firebase specifier to Pyric entry key (`defaultSdkEntries()` key and
- * `/__pyric/sdk/<key>.js` bundle name) for one AI mode. A specifier absent
- * from the result is not swapped and resolves to the Firebase SDK.
+ * Rows another workspace package supplies to the swap: served specifier to
+ * the key of the module that package serves for it. Each row replaces the
+ * mode's row for its specifier; specifiers it leaves out keep theirs.
  */
-export function swappedFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebaseSpecifier, string> {
+export type FirebaseRowSet = ReadonlyMap<ServedFirebaseSpecifier, string>;
+
+const NO_SUPPLIED_ROWS: FirebaseRowSet = new Map();
+
+/**
+ * Served Firebase specifier to Pyric entry key (`defaultSdkEntries()` key and
+ * `/__pyric/sdk/<key>.js` bundle name) for one AI mode, with any `supplied`
+ * rows applied last. A specifier absent from the result is not swapped and
+ * resolves to the Firebase SDK.
+ */
+export function swappedFirebaseEntries(
+  mode: AiMode,
+  supplied: FirebaseRowSet = NO_SUPPLIED_ROWS,
+): ReadonlyMap<ServedFirebaseSpecifier, string> {
   const swapped = new Map<ServedFirebaseSpecifier, string>();
   for (const specifier of SDK_MODULES) {
     swapped.set(specifier, defaultEntryKey(specifier));
@@ -76,6 +91,7 @@ export function swappedFirebaseEntries(mode: AiMode): ReadonlyMap<ServedFirebase
     // The Firebase App Check SDK, attached to the same shadow app as firebase/ai.
     swapped.set('firebase/app-check', 'app-ai-passthrough-app-check');
   }
+  for (const [specifier, key] of supplied) swapped.set(specifier, key);
   return swapped;
 }
 

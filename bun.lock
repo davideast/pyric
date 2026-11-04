@@ -229,6 +229,15 @@
         "firebase-functions": "^6.0.0",
       },
     },
+    "packages/live": {
+      "name": "@pyric/live",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@types/bun": "1.3.14",
+        "firebase": "^12.19.0",
+        "typescript": "^5.7.0",
+      },
+    },
     "packages/playground": {
       "name": "@pyric/playground",
       "version": "0.0.1",
@@ -1156,6 +1165,8 @@
     "@pyric/cli": ["@pyric/cli@workspace:packages/cli"],
 
     "@pyric/conformance": ["@pyric/conformance@workspace:packages/conformance"],
+
+    "@pyric/live": ["@pyric/live@workspace:packages/live"],
 
     "@pyric/playground": ["@pyric/playground@workspace:packages/playground"],
 

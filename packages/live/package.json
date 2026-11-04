@@ -1,0 +1,19 @@
+{
+  "name": "@pyric/live",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Live mode: the app's own Firebase SDK, observed as it talks to a real project. Private until live mode is complete.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "firebase": "^12.19.0",
+    "typescript": "^5.7.0"
+  }
+}
