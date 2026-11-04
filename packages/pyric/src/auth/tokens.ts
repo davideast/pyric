@@ -7,6 +7,7 @@
 import { makeAuthError } from './auth-errors.js';
 import { requireSandboxTarget } from './action-codes.js';
 import { getClock, mintCustomToken, readCustomToken, type SandboxCustomToken } from 'pyric/sandbox/internal';
+import { SandboxBackend } from './sandbox-backend.js';
 import { targetOf, type SandboxTarget } from './target.js';
 import type { Auth, User, UserCredential } from './types.js';
 
@@ -96,7 +97,7 @@ function invalidCustomToken(): Error {
 
 /** A signed custom token's subject and claims, after its project and expiry pass. */
 function checkedSignedToken(target: SandboxTarget, token: SandboxCustomToken): CustomTokenPayload {
-  const isOtherProject = token.projectId !== target.backend.tokenProjectId();
+  const isOtherProject = token.projectId !== SandboxBackend.tokenProjectId(target.backend);
   if (isOtherProject) {
     throw makeAuthError('auth/custom-token-mismatch', 'The custom token corresponds to a different audience.');
   }
@@ -124,7 +125,7 @@ function exchangeCustomToken(target: SandboxTarget, token: string): CustomTokenP
 export function mintCustomTokenFor(auth: Auth, uid: string, claims?: Record<string, unknown>): string {
   const target = targetOf(auth);
   return mintCustomToken({
-    uid, claims, projectId: target.backend.tokenProjectId(), nowMs: getClock(target.sandbox).now(),
+    uid, claims, projectId: SandboxBackend.tokenProjectId(target.backend), nowMs: getClock(target.sandbox).now(),
   });
 }
 

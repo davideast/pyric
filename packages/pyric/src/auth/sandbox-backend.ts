@@ -323,9 +323,12 @@ export class SandboxBackend {
     this.projectStore.projectId = source;
   }
 
-  /** The project minted ID tokens name, which a custom token must name too. */
-  tokenProjectId(): string {
-    return this.projectStore.projectId() ?? SANDBOX_PROJECT_ID;
+  /**
+   * The project a backend's minted ID tokens name, which a custom token must
+   * name too. Static, so the frozen prototype surface stays as it is.
+   */
+  static tokenProjectId(backend: SandboxBackend): string {
+    return backend.projectStore.projectId() ?? SANDBOX_PROJECT_ID;
   }
 
   /** Read `Auth.tenantId`. */
