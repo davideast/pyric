@@ -9,7 +9,7 @@ import type { DecodedIdToken } from './types.js';
 import { checkClientIdToken, type IdTokenFailureCode } from './token-decoders.js';
 
 /** The codes `checkRevoked` and `revokeRefreshTokens` add to a token check's. */
-type AccountFailureCode = 'user-not-found' | 'user-disabled' | 'id-token-revoked';
+type AccountFailureCode = 'user-not-found' | 'user-disabled' | 'id-token-revoked' | 'invalid-uid';
 
 /** firebase-admin's FirebaseAuthError: a PrefixedFirebaseError with prefix `auth`. */
 export class FirebaseAuthError extends PrefixedFirebaseError {
@@ -43,6 +43,16 @@ export function verifySandboxIdToken(idToken: string, expected: IdTokenExpectati
     if (!verdict.ok) throw new FirebaseAuthError(verdict.code, verdict.message);
     return verdict.token;
   });
+}
+
+/**
+ * firebase-admin's answer for a uid that is not a non-empty string of at most
+ * 128 characters (13.10.0 `validator.isUid`), checked before any request.
+ */
+export function invalidUid(uid: unknown): FirebaseAuthError | null {
+  const isUid = typeof uid === 'string' && uid.length > 0 && uid.length <= 128;
+  if (isUid) return null;
+  return new FirebaseAuthError('invalid-uid', 'The uid must be a non-empty string with at most 128 characters.');
 }
 
 /** firebase-admin's `getUser` answer for a uid with no record. */

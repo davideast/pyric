@@ -103,7 +103,7 @@ import type {
   UserRecord,
 } from './types.js';
 import { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
-import { assertNotRevokedOrDisabled, userNotFound, verifySandboxIdToken } from './verify-token.js';
+import { assertNotRevokedOrDisabled, invalidUid, userNotFound, verifySandboxIdToken } from './verify-token.js';
 
 export * from './types.js';
 export { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
@@ -439,10 +439,13 @@ function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
     },
     /**
      * Revoke the client account's refresh tokens at the sandbox clock's now,
-     * through the shared foundation's account table. A uid with no client
-     * record rejects `auth/user-not-found`, as production's does.
+     * through the shared foundation's account table. A uid that is not a
+     * non-empty string of at most 128 characters rejects `auth/invalid-uid`,
+     * and a uid with no client record `auth/user-not-found`, as production's do.
      */
     revokeRefreshTokens(uid: string): Promise<void> {
+      const uidError = invalidUid(uid);
+      if (uidError !== null) return Promise.reject(uidError);
       const standing = clientAccountStanding(sandbox, uid);
       const hasRecord = standing.kind === 'active' || standing.kind === 'disabled';
       if (!hasRecord) return Promise.reject(userNotFound());
@@ -616,9 +619,10 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
     },
 
     /**
-     * Stateless check — the local arm's, for the app's project; needs no
-     * relay. Expiry is read on the wall clock, which the worker's sandbox
-     * clock can be moved away from.
+     * The local arm's token check, for the app's project. Expiry is read on
+     * the wall clock, which the worker's sandbox clock can be moved away from.
+     * With `checkRevoked`, the account's standing is relayed from the worker's
+     * user pool ({@link relayedStanding}).
      */
     verifyIdToken(idToken: string, checkRevoked = false): Promise<DecodedIdToken> {
       const verified = verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: Date.now() });
@@ -730,7 +734,9 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
     importUsers(): Promise<unknown> {
       return Promise.reject(notImplemented('importUsers'));
     },
-    revokeRefreshTokens(): Promise<void> {
+    revokeRefreshTokens(uid: string): Promise<void> {
+      const uidError = invalidUid(uid);
+      if (uidError !== null) return Promise.reject(uidError);
       return Promise.reject(notImplemented('revokeRefreshTokens'));
     },
     createSessionCookie(): Promise<string> {

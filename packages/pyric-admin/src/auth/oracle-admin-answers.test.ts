@@ -137,4 +137,14 @@ describe('pyric-admin auth answers as the production Admin SDK does', () => {
     getClientAuth(sandbox);
     expect(await outcome(() => admin.revokeRefreshTokens('oracle-missing'))).toBe('rejects auth/user-not-found');
   });
+
+  it('revokeRefreshTokens rejects auth/invalid-uid for an empty or overlong uid before looking it up', async () => {
+    const sandbox = initializeSandbox();
+    const admin = getAuth(initializeApp({ sandbox }, 'oracle-admin-revoke-invalid-uid'));
+    getClientAuth(sandbox);
+    expect(await outcome(() => admin.revokeRefreshTokens(''))).toBe('rejects auth/invalid-uid');
+    expect(await outcome(() => admin.revokeRefreshTokens('u'.repeat(129)))).toBe('rejects auth/invalid-uid');
+    const message = await admin.revokeRefreshTokens('').catch((e: Error) => e.message);
+    expect(message).toBe('The uid must be a non-empty string with at most 128 characters.');
+  });
 });
