@@ -28,7 +28,8 @@ export function requiredFailures(input: RequiredInput): string[] {
     ...CHECK_SET_JOBS[input.checkSet],
     ...(input.requirePackaging ? ['packaging', 'install-matrix', 'standalone', 'release-contract'] : []),
     ...(input.requireRtdbDifferential ? ['rtdb-differential'] : []),
-    ...(input.requireAppScenarios ? ['app-scenarios'] : []),
+    // The Node 24.16 stop job runs with the app scenarios, on the same tarballs.
+    ...(input.requireAppScenarios ? ['app-scenarios', 'node-24-stop'] : []),
     ...(input.requireDeletionGuard ? ['deletion-guard'] : []),
   ];
   // The app scenarios and the packaging gate test the tarballs the one pack
