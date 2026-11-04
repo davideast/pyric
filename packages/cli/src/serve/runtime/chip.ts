@@ -1,4 +1,5 @@
 import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
+import { billedCallSummary, createBilledCallCounter, liveLabel, readLiveHostStatus, type LiveHostStatus } from 'pyric/sandbox/internal';
 import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
@@ -124,6 +125,12 @@ export interface PyricRuntimeChipOptions {
    * source has nothing to outline.
    */
   listeners?: (onChange: (outlines: readonly ListenerOutline[]) => void) => ListenerMode;
+  /**
+   * Reads whether the page's host is live, once the page is on a hosted
+   * runtime. Defaults to the host's `/__pyric/health` report: only a host
+   * `@pyric/live` started names a live project there.
+   */
+  liveStatus?: () => Promise<LiveHostStatus | null>;
 }
 
 export interface PyricRuntimeChip {
@@ -178,13 +185,16 @@ const styles = `
   .chip:hover { background: #292d36; }
   .chip.error { border-color: var(--pyric-error); }
   .chip.warning { border-color: var(--pyric-warning); }
+  .chip.live { width: auto; gap: var(--space-2); padding: 0 var(--space-3); }
+  .live-label { color: var(--pyric-warning); font-weight: 600; font-size: 12px; }
+  .live-count { flex-basis: 100%; color: var(--pyric-muted); font-size: 12px; font-weight: 400; }
 
   /* Zero-size outer tracks turn gaps into insets. The shell, section frames,
      and records all use this same construction, with no additive spacing. */
   .panel { display: grid; width: 440px; height: 568px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); background: var(--pyric-bg); border: 1px solid var(--pyric-border); border-radius: 12px; box-shadow: 0 18px 60px #0007; overflow: hidden; }
   .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
   .panel-header, .bar { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto 0; align-items: center; column-gap: var(--content-inset); overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
-  .brand { display: flex; align-items: center; gap: var(--space-2); grid-column: 2; }
+  .brand { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-2); grid-column: 2; min-width: 0; }
   .panel-name { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
   .panel-header > .actions { grid-column: 3; }
   .actions { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; }
@@ -476,6 +486,30 @@ function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean
 }
 
 /** Mount the framework-independent runtime chip in an isolated shadow root. */
+/** The live status in the page host's `/__pyric/health` report, or null for a sandbox host. */
+async function healthLiveStatus(documentLike: Document): Promise<LiveHostStatus | null> {
+  const fetchHealth = documentLike.defaultView?.fetch?.bind(documentLike.defaultView);
+  if (fetchHealth === undefined) return null;
+  const response = await fetchHealth('/__pyric/health');
+  if (!response.ok) return null;
+  return readLiveHostStatus(await response.json());
+}
+
+const LIVE_TITLE = 'Live mode: every row is from production, your real Firebase project.';
+const BILLED_TITLE = 'Successful Firestore reads, writes and listener deliveries the host has reported, from every client.';
+
+/** The collapsed chip's live line. */
+function liveChipHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
+  if (live === null) return '';
+  return `<span class="live-label" data-chip-live title="${escape(LIVE_TITLE)}">${escape(liveLabel(live.projectId))}</span>`;
+}
+
+/** The panel header's live line and billed-call count. */
+function liveHeaderHtml(live: LiveHostStatus | null, count: Parameters<typeof billedCallSummary>[0], escape: (value: string) => string): string {
+  if (live === null) return '';
+  return `${liveChipHtml(live, escape)}<span class="live-count" data-chip-billed title="${escape(BILLED_TITLE)}">Billed calls: ${escape(billedCallSummary(count))}</span>`;
+}
+
 export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRuntimeChip {
   const documentLike = options.document ?? document;
   const existingHost = documentLike.querySelector<HTMLElement>(
@@ -505,6 +539,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl);
   let snapshot = options.runtime.getSnapshot();
+  // Live mode: the project the host names, read once the page is on a hosted
+  // runtime, and the running count of billed calls from every client.
+  const readLiveStatus = options.liveStatus ?? (() => healthLiveStatus(documentLike));
+  let liveStatus: LiveHostStatus | null = null;
+  let liveStatusRequested = false;
+  const billedCalls = createBilledCallCounter();
+  let billedCallsChanged = false;
 
   const getLensFn = options.getLens ?? defaultGetLens;
   const setLensFn = options.setLens ?? defaultSetLens;
@@ -663,6 +704,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? createTrafficFeed({
       subscribeEvents: sandboxEvents,
       onRequest: (request, event) => {
+        const countsBilledCall = billedCalls.add([event]);
+        if (countsBilledCall) billedCallsChanged = true;
         const showsDenials = mounted && isPageRequest(request) && dataView?.mode()?.enabled() === true;
         if (showsDenials) denials.show(request, event);
       },
@@ -671,7 +714,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         const isHydrating = !mounted;
         if (isHydrating) return;
         const showsRequestEvidence = tab === 'sandbox' || (tab === 'traffic' && trafficDisplay === 'requests');
-        const needsRender = !open || showsRequestEvidence;
+        // The live header's count runs on every tab.
+        const showsBilledCount = billedCallsChanged && liveStatus !== null;
+        billedCallsChanged = false;
+        const needsRender = !open || showsRequestEvidence || showsBilledCount;
         if (needsRender) render();
       },
     })
@@ -1084,8 +1130,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
   documentLike.addEventListener('pointerup', finishPointer);
   documentLike.addEventListener('pointercancel', finishPointer);
+  const requestLiveStatus = (current: typeof snapshot): void => {
+    const isHosted = current.mode === 'hosted';
+    if (liveStatusRequested || !isHosted) return;
+    liveStatusRequested = true;
+    void readLiveStatus().then((status) => {
+      liveStatus = status;
+      if (status !== null) render();
+    }, () => undefined);
+  };
   const render = (next = snapshot): void => {
     if (pointerActive) { snapshot = next; deferredRender = true; return; }
+    requestLiveStatus(next);
     indexTargets.clear();
     const menuOpen = root.querySelector<HTMLDetailsElement>('.rate-menu')?.open;
     const openRateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes][open]')?.dataset.rateNotes;
@@ -1202,14 +1258,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const markup = open
       ? `<section class="panel" role="dialog" aria-label="pyric"><div class="panel-column">
         <header class="panel-header">
-          <span class="brand"><span class="panel-name">pyric</span></span>
+          <span class="brand"><span class="panel-name">pyric</span>${liveHeaderHtml(liveStatus, billedCalls.count(), escapeAttribute)}</span>
           <span class="actions">${studioHtml}<button class="btn icon-button" type="button" data-collapse title="Minimize pyric" aria-label="Minimize pyric">${iconHtml('minimize')}<span class="sr-only">Close</span></button></span>
         </header>
         <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
         <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}"><div class="view-content">${built.body}</div></div>
         ${built.bar}
       </div></section>`
-      : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
+      : `<button class="chip${chipTone}${liveStatus === null ? '' : ' live'}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric${liveChipHtml(liveStatus, escapeAttribute)}</button>`;
 
     const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;

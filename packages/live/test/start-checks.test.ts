@@ -118,6 +118,6 @@ describe('the start refusal', () => {
     expect(refusal).toContain(join(root, 'node_modules/@firebase/app'));
     expect(refusal).toContain(nested);
     expect(refusal).toContain('npm dedupe');
-    expect(refusal).not.toContain('—');
+    expect(refusal).not.toContain('\u2014');
   });
 });

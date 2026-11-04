@@ -18,6 +18,8 @@ export function createViteGenerationBridge(input: {
   server: ViteDevServer;
   projectDir: string;
   hosted?: boolean;
+  /** Set only on a generation `@pyric/live` started. */
+  live?: { projectId: string };
   options: Omit<BridgeMountOptions, 'upgradeGuard'> | null;
   functionsProject: FunctionsProject | null;
   functionsProjectId: string | null;
@@ -36,6 +38,7 @@ export function createViteGenerationBridge(input: {
     projectKey: input.hosted ? input.projectDir : undefined,
     project,
     disableAuditLog,
+    live: input.live,
     upgradeGuard: {
       boundHost,
       allowedHosts,

@@ -133,6 +133,8 @@ beforeAll(() => {
   symlinkSync(realAdminDir, join(nm, 'firebase-admin'));
   symlinkSync(storageDir, join(nm, '@firebase/storage'));
   writeFileSync(join(projectDir, 'package.json'), JSON.stringify({ name: 'live-stop-fixture', type: 'module' }));
+  // The Firebase project live mode names, from the app's own Firebase config.
+  writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'live-stop-fixture' } }));
   writeFileSync(join(projectDir, 'observer.mjs'), OBSERVER);
   writeFileSync(join(projectDir, 'probe.mjs'), PROBE);
   otherDir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-stop-other-')));
@@ -275,7 +277,9 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.statu
     expect(result.status, result.stderr).toBe(0);
     expect(outcome.status, outcome.stderr).toBe('0');
     expect(outcome.stdout).toBe('CHILD function');
-    expect(outcome.stderr).toContain('@pyric/live/register: live mode.');
+    // The first process prints the start line; a child opens the same rows quietly.
+    expect(result.stderr).toContain('@pyric/live/register: live mode for the Firebase project live-stop-fixture.');
+    expect(outcome.stderr).not.toContain('@pyric/live/register: live mode');
   }, 60_000);
 
   it('refuses to start in a project without @pyric/live, and nothing loads', () => {

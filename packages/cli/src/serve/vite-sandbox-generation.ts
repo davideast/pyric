@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
 import { resolveFirebaseProject } from '../cli/firebase-project.js';
+import { requireLiveProject } from './live-project.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
   discoverFunctionsProject,
@@ -60,6 +61,8 @@ export interface ViteSandboxGenerationOptions {
   avatars: PyricAvatarsOptions | undefined;
   /** The plugin's `project` option: the first source `resolveFirebaseProject` tries. */
   project?: string;
+  /** Set only through `@pyric/live`'s seam: the host reports its project as live (`live-project.ts`). */
+  live?: boolean;
 }
 
 export interface ViteSandboxGenerationInput {
@@ -209,10 +212,13 @@ export async function createViteSandboxGeneration(
       discover: dependencies.discoverFunctionsProject,
       firebaseProject,
     });
+    const isLive = options.live === true;
+    const live = isLive ? { projectId: requireLiveProject(firebaseProject, cwd) } : undefined;
     const bridgeInput = {
       server,
       projectDir: cwd,
       hosted: usesHostedSandbox,
+      live,
       options: options.bridge,
       functionsProject: functions.project,
       functionsProjectId: functions.projectId,

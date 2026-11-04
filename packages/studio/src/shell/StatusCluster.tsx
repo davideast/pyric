@@ -39,6 +39,11 @@ import { useBridgeRemoteConsumers } from './bridge-presence.js';
 import { RemoteClientsPopover } from './RemoteClientsPopover.js';
 import { useStudioDataSource } from './studio-data.js';
 import { hrefFor, pushPath } from './router.js';
+import { billedCallSummary, liveLabel } from 'pyric/sandbox/internal';
+import { useBilledCallCount, useLiveHost } from './live-status.js';
+
+const LIVE_TITLE = 'Live mode: every row is from production, your real Firebase project.';
+const BILLED_TITLE = 'Successful Firestore reads, writes and listener deliveries the host has reported, from every client.';
 
 const EMPTY_WORKER_RUNTIME = {
   servedEpoch: null,
@@ -62,6 +67,8 @@ export function StatusCluster() {
     if (unhealthy) setPersistenceFailed(true);
   }, [reportedPersistenceFailure, startedUnhealthy]);
   const bridgeAvailability = useBridgeAvailability();
+  const liveHost = useLiveHost();
+  const billedCalls = useBilledCallCount(liveHost !== null);
   const presence = usePresenceView();
   const [presenceOpen, setPresenceOpen] = useState(false);
   const presenceTriggerRef = useRef<HTMLButtonElement>(null);
@@ -138,6 +145,17 @@ export function StatusCluster() {
 
   return (
     <div className="studio__status" aria-label="Studio status">
+      {liveHost !== null && (
+        <>
+          <span className="studio-chip studio-chip--warn" data-studio-live title={LIVE_TITLE}>
+            <span className="studio-chip__dot" aria-hidden="true" />
+            {liveLabel(liveHost.projectId)}
+          </span>
+          <span className="studio-chip" data-studio-billed title={BILLED_TITLE}>
+            Billed calls: {billedCallSummary(billedCalls)}
+          </span>
+        </>
+      )}
       {hasWorkerUpdate && (
         <button
           type="button"

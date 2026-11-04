@@ -42,6 +42,7 @@ function setup(options: {
   clipboard?: Pick<Clipboard, 'writeText'>;
   useRealClient?: boolean;
   manifest?: PyricRuntimeManifest;
+  liveStatus?: PyricRuntimeChipOptions['liveStatus'];
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus(options.manifest ?? manifest);
@@ -95,6 +96,7 @@ function setup(options: {
   if ('studioUrl' in options) {
     chipOptions.studioUrl = options.studioUrl;
   }
+  if (options.liveStatus) chipOptions.liveStatus = options.liveStatus;
   if (options.clipboard) {
     chipOptions.clipboard = options.clipboard;
   }
@@ -672,6 +674,48 @@ describe('the Traffic view', () => {
     expect(facts).toContain('Served byProduction');
     expect(facts).toContain('Denied in production (permission-denied)');
     expect(facts).toContain('Pyric observed it and did not check it against local rules.');
+  });
+
+  it('names the live project and counts billed calls from every client while a live host runs', async () => {
+    const asked: string[] = [];
+    const { root, push, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatus: async () => { asked.push('live'); return { projectId: 'my-project' }; },
+    });
+    // A sandbox page never asks: only a hosted page can be on a live host.
+    expect(asked).toEqual([]);
+    runtime.setWorker({ mode: 'hosted' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(asked).toEqual(['live']);
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
+    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 0 reads, 0 writes, 0 listener deliveries');
+    const now = Date.now();
+    const call = (method: string, status: 'ok' | 'error' = 'ok') => observedCallEvent({
+      service: 'firestore', method, at: now, outcome: status === 'ok' ? { status } : { status, code: 'permission-denied' },
+    });
+    const read = call('getDoc');
+    push([
+      { ...read, caller: { kind: 'node' } } as SandboxEvent,
+      { ...call('setDoc'), caller: { kind: 'page', pageId: 'tab-2' } } as SandboxEvent,
+      call('onSnapshot'),
+      call('getDoc', 'error'),
+    ], { history: true, pageId: 'tab-1' });
+    push([read]);
+    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 1 read, 1 write, 1 listener delivery');
+    root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(root.querySelector('[data-expand] [data-chip-live]')!.textContent).toBe('Live: my-project');
+    expect(asked).toEqual(['live']);
+  });
+
+  it('shows no live line on a hosted sandbox host', async () => {
+    const { root, runtime } = setup({ initiallyOpen: true, withSandboxEvents: true, liveStatus: async () => null });
+    runtime.setWorker({ mode: 'hosted' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(root.querySelector('[data-chip-live]')).toBeNull();
+    expect(root.querySelector('[data-chip-billed]')).toBeNull();
   });
 
   it('leaves out the hosted note when the sandbox is hosted', () => {

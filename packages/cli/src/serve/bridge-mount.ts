@@ -85,6 +85,8 @@ export interface BridgeMountOptions {
    *  that passes them teaches them from each request, so the mount does not.
    *  Absent, the mount keeps its own and learns when `learnsProxyPorts`. */
   appPorts?: AppPorts;
+  /** Set only by a host `@pyric/live` started (`live-host.ts`): the project its live clients talk to. */
+  live?: { projectId: string };
 }
 
 export interface BridgeMount {
@@ -165,6 +167,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     project,
     projectKey: opts.projectKey,
     version: BRIDGE_VERSION,
+    live: opts.live,
     onToolEvent: recordsAudit ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
   });
 

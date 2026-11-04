@@ -10,7 +10,6 @@
  * path of every copy. Nothing here loads the SDK; it reads package.json files.
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 
 /** The `firebase` versions live mode supports: the range pyric tests against. */
@@ -44,13 +43,21 @@ function readVersion(packageJson: string): string | null {
   }
 }
 
-/** The folder of `name` as a module in `fromDir` resolves it, or null when it does not resolve. */
+/**
+ * The folder of package `name` as a module in `fromDir` finds it: the first
+ * `node_modules/<name>` from `fromDir` up, by real path, or null. This is
+ * Node's lookup for a bare specifier, done on the file system so a resolve
+ * hook (the live register's own) never answers it.
+ */
 function resolvedPackageDir(name: string, fromDir: string): string | null {
-  try {
-    const require = createRequire(join(fromDir, 'package.json'));
-    return realpathSync(dirname(require.resolve(`${name}/package.json`)));
-  } catch {
-    return null;
+  let dir = fromDir;
+  for (;;) {
+    const candidate = join(dir, 'node_modules', name);
+    const isInstalled = existsSync(join(candidate, 'package.json'));
+    if (isInstalled) return realpathSync(candidate);
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 

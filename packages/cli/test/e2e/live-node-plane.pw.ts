@@ -91,6 +91,8 @@ test('a Node process under @pyric/live/register reports its Firestore and Auth c
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
     mkdirSync(join(root, 'public'));
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'live-node-plane', private: true, type: 'module' }));
+    // The Firebase project live mode names, from the app's own Firebase config.
+    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'live-node-plane' } }));
     writeFileSync(join(root, 'firebase.json'), JSON.stringify({ firestore: { rules: 'firestore.rules' }, hosting: { public: 'public' } }));
     writeFileSync(join(root, 'firestore.rules'), "rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read, write: if false; } } }\n");
     writeFileSync(join(root, 'public/index.html'), '<!doctype html><html><body><p id="status">ready</p></body></html>');
