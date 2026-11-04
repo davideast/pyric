@@ -84,9 +84,9 @@ To use any of these, run the app without `@pyric/live`. It gets the sandbox agai
 
 ## Count billed calls
 
-The chip and Studio show a running count of the documents your app read, wrote and had delivered to its listeners in production. Every one of these is billed, and an HMR reload that restarts a listener reads its documents again.
+The chip and Studio show a running count of your app's Firestore reads, writes and listener deliveries in production. Reads and writes are counted per call, not per document, so a query counts once however many documents production bills for it. Listener deliveries count the documents delivered to listeners. An HMR reload that restarts a listener reads its documents again.
 
-The count is an estimate from the calls pyric observed. It is not your bill, and it doesn't cap anything. Your project's usage in the Firebase console is the number production charges.
+The count is an estimate from the calls pyric observed, and it understates the bill for large queries. It doesn't cap anything. Your project's usage in the Firebase console is the number production charges.
 
 ## Related
 

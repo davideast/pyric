@@ -61,7 +61,9 @@ describe('@pyric/live publishes', () => {
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([...contract.dependencies].sort());
     expect(manifest.peerDependencies).toEqual(contract.peerDependencies);
     const check = await liveReleaseProblems();
-    expect(check({ ...manifest, dependencies: { '@pyric/cli': '^0.1.0-alpha.33' } }, PACKED_FILES, contract)).toEqual([]);
+    // As the pack writes it: workspace:* becomes a caret range on @pyric/cli's version.
+    const packed = { ...manifest, dependencies: { '@pyric/cli': `^${cliManifest.version}` } };
+    expect(check(packed, PACKED_FILES, contract)).toEqual([]);
   });
 
   test('with @pyric/cli as a workspace dependency, which the pack rewrites to a caret range', () => {
