@@ -136,4 +136,4 @@ In live mode, pyric's tools connect to a real Firebase project and its data flow
 
 **Now:**
 - Label every sandbox event with its source, and add a This page / All sandbox traffic toggle to the chip's traffic view
-- The first live slice: the local app on the Node host talks to production with Firestore and Auth, and the chip, Studio, and the terminal show every request with production's answer. Only a `live` entry in `pyric.json` turns it on
+- The first live slice ships as its own package, `@pyric/live`, with its own command and imports, so using it is unmistakable; nothing in `pyric` or `@pyric/cli` turns it on. The local app on the Node host talks to production with Firestore and Auth, and the chip, Studio, and the terminal show every request with production's answer
