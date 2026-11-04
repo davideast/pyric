@@ -14,6 +14,7 @@ import { initializeSandbox, toOperationRecord, type EventCaller, type SandboxEve
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { markPortConnection } from '../../../../src/serve/worker/host/caller.js';
+import { pageTabId } from '../../../../src/serve/worker/client/tab-id.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../../src/serve/worker/protocol.js';
 import { setRules } from 'pyric/sandbox/firestore';
@@ -111,6 +112,27 @@ describe('host: each event names the connection that sent its operation', () => 
     await handleMessage(ctx, reloaded, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: 'tab-1' } as InboundMessage);
     const afterReload = await callersOf(events, () => send(ctx, reloaded, { t: 'op', method: 'rtdb.set', path: '/tabs/one', value: 2 }));
     expect(afterReload).toContainEqual({ kind: 'page', pageId: 'tab-1' });
+  });
+
+  it("names a tab without sessionStorage by one id across its app and control ports", async () => {
+    const stored = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+    Reflect.deleteProperty(globalThis, 'sessionStorage');
+    try {
+      const { ctx, events } = makeCtx();
+      const appPort = fakePort();
+      const controlPort = fakePort();
+      // The frames the page's clients send: each reads the tab id when it opens its port.
+      await handleMessage(ctx, appPort, { t: 'appConfig', options: { projectId: 'demo-app' }, tabId: pageTabId() } as InboundMessage);
+      await handleMessage(ctx, controlPort, { t: 'sub', subId: 'events-no-storage', target: 'events', tabId: pageTabId() } as InboundMessage);
+      const batch = controlPort.messages.find((message) => message.t === 'event');
+      const viewerId = batch?.t === 'event' ? batch.pageId : undefined;
+      expect(viewerId).toBeString();
+      const callers = await callersOf(events, () => send(ctx, appPort, { t: 'op', method: 'rtdb.set', path: '/tabs/no-storage', value: 1 }));
+      expect(callers.length).toBeGreaterThan(0);
+      for (const caller of callers) expect(caller).toEqual({ kind: 'page', pageId: viewerId });
+    } finally {
+      if (stored) Object.defineProperty(globalThis, 'sessionStorage', stored);
+    }
   });
 
   it('stamps a bridge relay as admin, whether it arrives as a remote frame or a client session', async () => {

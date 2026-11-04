@@ -78,10 +78,7 @@ class SharedEventStream {
   open(first: EventSubscriber): void {
     this.subscribers.add(first);
     sharedStreams.set(this.port, this);
-    const tabId = pageTabId();
-    const message = {
-      t: 'sub', subId: this.subId, target: 'events', ...(tabId === undefined ? {} : { tabId }),
-    } satisfies InboundMessage;
+    const message = { t: 'sub', subId: this.subId, target: 'events', tabId: pageTabId() } satisfies InboundMessage;
     // A closed port reports to `first` through `fail` and leaves no stream behind.
     openEventSubscription(
       this.port,

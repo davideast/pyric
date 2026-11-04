@@ -5,20 +5,37 @@
  * across reloads, so a page's earlier requests stay its own after a reload.
  *
  * A context without `sessionStorage` (a Node process, a worker) or one that
- * refuses it sends none, and the host names the port instead.
+ * refuses it keeps an id minted once in memory instead, so its ports still
+ * agree; only a reload then reads as a new tab.
  */
 const TAB_ID_KEY = 'pyric.tabId';
 
-export function pageTabId(): string | undefined {
+let realmTabId: string | undefined;
+
+function mintTabId(): string {
+  return `tab-${globalThis.crypto.randomUUID()}`;
+}
+
+/** The id minted once for this realm, for a tab whose `sessionStorage` cannot keep one. */
+function inMemoryTabId(): string {
+  realmTabId ??= mintTabId();
+  return realmTabId;
+}
+
+function storedTabId(): string | undefined {
   try {
     const storage = globalThis.sessionStorage;
     if (storage === undefined) return undefined;
     const stored = storage.getItem(TAB_ID_KEY);
     if (stored !== null) return stored;
-    const minted = `tab-${globalThis.crypto.randomUUID()}`;
+    const minted = mintTabId();
     storage.setItem(TAB_ID_KEY, minted);
     return minted;
   } catch {
     return undefined;
   }
+}
+
+export function pageTabId(): string {
+  return storedTabId() ?? inMemoryTabId();
 }

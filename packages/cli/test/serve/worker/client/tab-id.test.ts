@@ -1,7 +1,8 @@
 /**
- * A tab's id: minted once into `sessionStorage`, read back on every later
- * call and after a reload, and absent where there is no `sessionStorage` or
- * it refuses access, so the host names the port instead.
+ * A tab's id: minted once into `sessionStorage` and read back on every later
+ * call and after a reload. Where there is no `sessionStorage`, or it refuses
+ * access, the id is minted once in memory, so every port of the tab still
+ * sends the same one.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { pageTabId } from '../../../../src/serve/worker/client/tab-id.js';
@@ -33,16 +34,21 @@ describe("a tab's id", () => {
     expect(pageTabId()).toBe(first);
   });
 
-  it('is absent where there is no sessionStorage', () => {
+  it('is one id kept in memory where there is no sessionStorage', () => {
     Reflect.deleteProperty(globalThis, 'sessionStorage');
-    expect(pageTabId()).toBeUndefined();
+    const first = pageTabId();
+    expect(first).toMatch(/^tab-[0-9a-f-]{36}$/);
+    expect(pageTabId()).toBe(first);
   });
 
-  it('is absent where sessionStorage refuses access', () => {
+  it('is the same in-memory id where sessionStorage refuses access', () => {
+    Reflect.deleteProperty(globalThis, 'sessionStorage');
+    const inMemory = pageTabId();
     setSessionStorage({
       getItem() { throw new Error('SecurityError'); },
       setItem() { throw new Error('SecurityError'); },
     });
-    expect(pageTabId()).toBeUndefined();
+    expect(pageTabId()).toBe(inMemory);
+    expect(pageTabId()).toBe(inMemory);
   });
 });

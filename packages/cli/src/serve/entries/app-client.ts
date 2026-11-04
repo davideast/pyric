@@ -24,7 +24,7 @@ export function workerClientForApp(app: FirebaseApp): ClientDb {
     t: 'appConfig',
     options: app.options as Record<string, unknown>,
     ...pageOriginScope(),
-    ...pageTabScope(),
+    tabId: pageTabId(),
   } satisfies InboundMessage);
   clients.set(app, client);
   return client;
@@ -33,9 +33,4 @@ export function workerClientForApp(app: FirebaseApp): ClientDb {
 function pageOriginScope(): { origin?: string } {
   const origin = realmOrigin();
   return origin === null ? {} : { origin };
-}
-
-function pageTabScope(): { tabId?: string } {
-  const tabId = pageTabId();
-  return tabId === undefined ? {} : { tabId };
 }
