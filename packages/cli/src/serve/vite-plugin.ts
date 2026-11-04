@@ -234,7 +234,7 @@ async function readOwners(projectDir: string, overrides: OwnersConfig | undefine
  * configuration (`firebase.json`) resides in an ancestor workspace directory,
  * this ascends to locate the authoritative configuration root.
  */
-function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): string {
+export function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): string {
   const hasExplicitRoot = explicitRoot !== undefined && explicitRoot.length > 0;
   if (hasExplicitRoot) return explicitRoot as string;
   let current = resolve(defaultRoot);
@@ -430,6 +430,8 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         avatars: options.avatars,
         flow: options.flow,
         project: options.project,
+        // Rows supplied through `@pyric/live`'s seam make this host live.
+        liveHost: supplied !== undefined,
         ownWriteRefusal: ownWriteRefusalOf(supplied),
       };
       const generationInput: ViteSandboxGenerationInput = {

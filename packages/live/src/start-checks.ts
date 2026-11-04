@@ -1,0 +1,186 @@
+/**
+ * The checks every live mode start runs, from the `pyric-live` command, the
+ * Vite entry and the register entry alike:
+ *
+ * - the app's installed `firebase` is in the range live mode supports, and
+ * - one copy of `@firebase/app` is installed, so the app object Firestore,
+ *   Auth and App Check read is the one the app made.
+ *
+ * Either failure refuses the start with the reason: the version found, or the
+ * path of every copy. Nothing here loads the SDK; it reads package.json files.
+ */
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+/** The `firebase` versions live mode supports: the range pyric tests against. */
+export const SUPPORTED_FIREBASE_RANGE = '^12.12.0';
+
+const SUPPORTED_MAJOR = 12;
+const LOWEST_MINOR = 12;
+const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/** The `@firebase/*` packages a live row loads, each of which resolves its own `@firebase/app`. */
+const ROW_PACKAGES = ['@firebase/app', '@firebase/auth', '@firebase/firestore', '@firebase/app-check'];
+
+/** How deep the walk follows nested `node_modules` folders. */
+const MAX_NESTING = 8;
+
+/** Whether `version` is a release in {@link SUPPORTED_FIREBASE_RANGE}. A prerelease is not. */
+export function isSupportedFirebaseVersion(version: string): boolean {
+  const parts = RELEASE_VERSION.exec(version);
+  if (parts === null) return false;
+  const major = Number(parts[1]);
+  const minor = Number(parts[2]);
+  return major === SUPPORTED_MAJOR && minor >= LOWEST_MINOR;
+}
+
+function readVersion(packageJson: string): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(packageJson, 'utf8')) as { version?: unknown };
+    return typeof parsed.version === 'string' ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The folder of package `name` as a module in `fromDir` finds it: the first
+ * `node_modules/<name>` from `fromDir` up, by real path, or null. This is
+ * Node's lookup for a bare specifier, done on the file system so a resolve
+ * hook (the live register's own) never answers it.
+ */
+function resolvedPackageDir(name: string, fromDir: string): string | null {
+  let dir = fromDir;
+  for (;;) {
+    const candidate = join(dir, 'node_modules', name);
+    const isInstalled = existsSync(join(candidate, 'package.json'));
+    if (isInstalled) return realpathSync(candidate);
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** The version of the `firebase` the project root resolves, or null when it has none. */
+export function installedFirebaseVersion(projectRoot: string): string | null {
+  const dir = resolvedPackageDir('firebase', projectRoot);
+  if (dir === null) return null;
+  return readVersion(join(dir, 'package.json'));
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function entriesOf(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/** Walks one `node_modules` folder and every one nested in it, adding each `@firebase/app` found. */
+function walkNodeModules(dir: string, depth: number, visited: Set<string>, found: Set<string>): void {
+  const isTooDeep = depth > MAX_NESTING;
+  if (isTooDeep || !isDirectory(dir)) return;
+  const real = realpathSync(dir);
+  if (visited.has(real)) return;
+  visited.add(real);
+  for (const entry of entriesOf(dir)) {
+    if (entry === '.bin') continue;
+    const isPnpmStore = entry === '.pnpm';
+    if (isPnpmStore) {
+      for (const stored of entriesOf(join(dir, entry))) walkNodeModules(join(dir, entry, stored, 'node_modules'), depth + 1, visited, found);
+      continue;
+    }
+    const isScope = entry.startsWith('@');
+    const packageDirs = isScope ? entriesOf(join(dir, entry)).map((name) => join(dir, entry, name)) : [join(dir, entry)];
+    for (const packageDir of packageDirs) {
+      const isAppCopy = packageDir === join(dir, '@firebase', 'app') && existsSync(join(packageDir, 'package.json'));
+      if (isAppCopy) found.add(realpathSync(packageDir));
+      walkNodeModules(join(packageDir, 'node_modules'), depth + 1, visited, found);
+    }
+  }
+}
+
+function declaresWorkspaces(dir: string): boolean {
+  const hasPnpmWorkspace = existsSync(join(dir, 'pnpm-workspace.yaml'));
+  if (hasPnpmWorkspace) return true;
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { workspaces?: unknown };
+    return parsed.workspaces !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The folders whose `node_modules` the project's modules resolve from: the
+ * project root, and each folder above it up to the workspace root (a
+ * `package.json` with `workspaces`, or a `pnpm-workspace.yaml`). Outside a
+ * workspace, the project root alone.
+ */
+export function resolutionRoots(projectRoot: string): string[] {
+  const roots: string[] = [];
+  let dir = projectRoot;
+  for (;;) {
+    roots.push(dir);
+    if (declaresWorkspaces(dir)) return roots;
+    const parent = dirname(dir);
+    if (parent === dir) return [projectRoot];
+    dir = parent;
+  }
+}
+
+/**
+ * Every installed copy of `@firebase/app`, by real path, sorted: each one in
+ * the `node_modules` tree of the project and of every folder above it up to
+ * the workspace root (nested and pnpm-stored copies too), and the one each
+ * live row's package resolves from the installed `firebase`.
+ */
+export function firebaseAppCopies(projectRoot: string): string[] {
+  const found = new Set<string>();
+  const visited = new Set<string>();
+  for (const root of resolutionRoots(projectRoot)) walkNodeModules(join(root, 'node_modules'), 0, visited, found);
+  const firebaseDir = resolvedPackageDir('firebase', projectRoot);
+  if (firebaseDir !== null) {
+    for (const name of ROW_PACKAGES) {
+      const packageDir = resolvedPackageDir(name, firebaseDir);
+      if (packageDir === null) continue;
+      const appDir = name === '@firebase/app' ? packageDir : resolvedPackageDir('@firebase/app', packageDir);
+      if (appDir !== null) found.add(appDir);
+    }
+  }
+  return [...found].sort();
+}
+
+const NOT_STARTED = 'Live mode did not start.';
+const INSTALL = `Install a supported version with: npm install firebase@${SUPPORTED_FIREBASE_RANGE}`;
+
+function versionRefusal(version: string | null): string | null {
+  const isSupported = version !== null && isSupportedFirebaseVersion(version);
+  if (isSupported) return null;
+  const found = version === null ? 'This project has no firebase installed.' : `This project has firebase ${version} installed.`;
+  return `${NOT_STARTED} @pyric/live needs firebase ${SUPPORTED_FIREBASE_RANGE}. ${found} ${INSTALL}`;
+}
+
+function copiesRefusal(copies: readonly string[]): string | null {
+  const hasExtraCopies = copies.length > 1;
+  if (!hasExtraCopies) return null;
+  return [
+    `${NOT_STARTED} @pyric/live needs one copy of @firebase/app, so that Firestore, Auth and App Check read the app object your app made.`,
+    `This project has ${copies.length} copies of @firebase/app installed:`,
+    ...copies.map((copy) => `  ${copy}`),
+    'Remove the extra copies, for example with npm dedupe, then start again.',
+  ].join('\n');
+}
+
+/** Why live mode refuses to start in `projectRoot`, or null when both checks pass. */
+export function liveStartRefusal(projectRoot: string): string | null {
+  return versionRefusal(installedFirebaseVersion(projectRoot)) ?? copiesRefusal(firebaseAppCopies(projectRoot));
+}

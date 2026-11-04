@@ -1,4 +1,6 @@
 import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
+import { billedCallSummary, createLiveStatusPoller, liveLabel, liveMismatchLine, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
+import { healthLiveStatus } from './chip-live-status.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
@@ -124,6 +126,15 @@ export interface PyricRuntimeChipOptions {
    * source has nothing to outline.
    */
   listeners?: (onChange: (outlines: readonly ListenerOutline[]) => void) => ListenerMode;
+  /**
+   * Reads the page host's live status, once the page is on a hosted runtime,
+   * and again while it is live (`chip-live-status.ts`). Defaults to the
+   * host's `/__pyric/health` report: only a host `@pyric/live` started holds
+   * a live status there.
+   */
+  liveStatus?: ReadLiveStatus;
+  /** Timers for those reads; tests pass their own. */
+  liveStatusTimers?: LiveStatusTimers;
 }
 
 export interface PyricRuntimeChip {
@@ -178,13 +189,17 @@ const styles = `
   .chip:hover { background: #292d36; }
   .chip.error { border-color: var(--pyric-error); }
   .chip.warning { border-color: var(--pyric-warning); }
+  .chip.live { width: auto; gap: var(--space-2); padding: 0 var(--space-3); }
+  .live-label { color: var(--pyric-warning); font-weight: 600; font-size: 12px; }
+  .live-count { flex-basis: 100%; color: var(--pyric-muted); font-size: 12px; font-weight: 400; }
+  .live-warning { flex-basis: 100%; color: var(--pyric-warning); font-size: 12px; font-weight: 400; }
 
   /* Zero-size outer tracks turn gaps into insets. The shell, section frames,
      and records all use this same construction, with no additive spacing. */
   .panel { display: grid; width: 440px; height: 568px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); background: var(--pyric-bg); border: 1px solid var(--pyric-border); border-radius: 12px; box-shadow: 0 18px 60px #0007; overflow: hidden; }
   .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
   .panel-header, .bar { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto 0; align-items: center; column-gap: var(--content-inset); overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
-  .brand { display: flex; align-items: center; gap: var(--space-2); grid-column: 2; }
+  .brand { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-2); grid-column: 2; min-width: 0; }
   .panel-name { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
   .panel-header > .actions { grid-column: 3; }
   .actions { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; }
@@ -475,7 +490,26 @@ function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean
   return `<span class="verdict ${badge.tone}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
 }
 
+const LIVE_TITLE = 'Live mode: rows marked Production went to your real Firebase project. Rows marked Sandbox were served by the local sandbox.';
+const BILLED_TITLE = 'Successful Firestore reads, writes and listener deliveries the host has counted, from every client.';
+
+/** The collapsed chip's live line; its title carries the mismatch warning when there is one. */
+function liveChipHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
+  if (live === null) return '';
+  const title = [LIVE_TITLE, liveMismatchLine(live)].filter(Boolean).join(' ');
+  return `<span class="live-label" data-chip-live title="${escape(title)}">${escape(liveLabel(live.projectId))}</span>`;
+}
+
+/** The panel header's live line, the mismatch warning, and the host's billed-call count. */
+function liveHeaderHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
+  if (live === null) return '';
+  const mismatch = liveMismatchLine(live);
+  const warning = mismatch === null ? '' : `<span class="live-warning" data-chip-live-mismatch role="status">${escape(mismatch)}</span>`;
+  return `${liveChipHtml(live, escape)}${warning}<span class="live-count" data-chip-billed title="${escape(BILLED_TITLE)}">Billed calls: ${escape(billedCallSummary(live.billed))}</span>`;
+}
+
 /** Mount the framework-independent runtime chip in an isolated shadow root. */
+
 export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRuntimeChip {
   const documentLike = options.document ?? document;
   const existingHost = documentLike.querySelector<HTMLElement>(
@@ -505,6 +539,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl);
   let snapshot = options.runtime.getSnapshot();
+  // Live mode: the host's live status, read once the page is on a hosted
+  // runtime and again while the host is live.
+  const liveStatusPoller = createLiveStatusPoller(
+    options.liveStatus ?? healthLiveStatus(documentLike),
+    () => render(),
+    options.liveStatusTimers,
+  );
 
   const getLensFn = options.getLens ?? defaultGetLens;
   const setLensFn = options.setLens ?? defaultSetLens;
@@ -663,6 +704,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? createTrafficFeed({
       subscribeEvents: sandboxEvents,
       onRequest: (request, event) => {
+        liveStatusPoller.refreshSoon();
         const showsDenials = mounted && isPageRequest(request) && dataView?.mode()?.enabled() === true;
         if (showsDenials) denials.show(request, event);
       },
@@ -941,6 +983,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
       let identityFact = '';
       if (request.production) identityFact = fact('Served by', 'Production', 's2');
+      // On a live host, a row the sandbox served says so: only Production rows went to the real project.
+      const isSandboxRowOnLiveHost = !request.production && liveStatusPoller.current() !== null;
+      if (isSandboxRowOnLiveHost) identityFact = fact('Served by', 'Sandbox', 's2');
       if (request.source) identityFact += fact('Source', CALLER_SOURCE_LABELS[request.source], 's2');
       if (request.identity) identityFact += fact('Identity', request.identity, 's2');
       let evidenceDetails = '';
@@ -984,8 +1029,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const rowSource = request.source ?? 'page';
       const sourceLabel = trafficScope === 'all' ? CALLER_SOURCE_LABELS[rowSource] : '';
       const source = sourceLabel ? `<span class="traffic-source" data-traffic-row-source="${rowSource}">${sourceLabel}</span> · ` : '';
-      const productionLabel = request.production ? 'Production' : '';
-      const production = productionLabel ? `<span class="traffic-production" data-traffic-row-production>${productionLabel}</span> · ` : '';
+      const isSandboxRowOnLiveHost = !request.production && liveStatusPoller.current() !== null;
+      const servedLabel = isSandboxRowOnLiveHost ? 'Sandbox' : '';
+      const productionLabel = request.production ? 'Production' : servedLabel;
+      const servedBy = request.production ? 'data-traffic-row-production' : 'data-traffic-row-sandbox';
+      const production = productionLabel ? `<span class="traffic-production" ${servedBy}>${productionLabel}</span> · ` : '';
       return buttonRowHtml({
         c1: production + source + escapeAttribute(call),
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
@@ -995,7 +1043,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
         title: [productionLabel, sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
-        label: `Inspect ${productionLabel ? 'production ' : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}`,
+        label: `Inspect ${productionLabel ? `${productionLabel.toLowerCase()} ` : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}`,
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
@@ -1086,6 +1134,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   documentLike.addEventListener('pointercancel', finishPointer);
   const render = (next = snapshot): void => {
     if (pointerActive) { snapshot = next; deferredRender = true; return; }
+    if (next.mode === 'hosted') liveStatusPoller.start();
+    const liveStatus = liveStatusPoller.current();
     indexTargets.clear();
     const menuOpen = root.querySelector<HTMLDetailsElement>('.rate-menu')?.open;
     const openRateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes][open]')?.dataset.rateNotes;
@@ -1202,14 +1252,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const markup = open
       ? `<section class="panel" role="dialog" aria-label="pyric"><div class="panel-column">
         <header class="panel-header">
-          <span class="brand"><span class="panel-name">pyric</span></span>
+          <span class="brand"><span class="panel-name">pyric</span>${liveHeaderHtml(liveStatus, escapeAttribute)}</span>
           <span class="actions">${studioHtml}<button class="btn icon-button" type="button" data-collapse title="Minimize pyric" aria-label="Minimize pyric">${iconHtml('minimize')}<span class="sr-only">Close</span></button></span>
         </header>
         <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
         <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}"><div class="view-content">${built.body}</div></div>
         ${built.bar}
       </div></section>`
-      : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
+      : `<button class="chip${chipTone}${liveStatus === null ? '' : ' live'}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric${liveChipHtml(liveStatus, escapeAttribute)}</button>`;
 
     const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
@@ -1668,6 +1718,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       themeDialogController?.dispose();
       trafficFeed?.dispose();
+      liveStatusPoller.dispose();
       indexInspector.dispose();
       thresholdSettings.dispose();
       denials.dispose();
