@@ -29,6 +29,7 @@ export function parseRestBody(text: string): JsonObject | undefined {
 
 /** Status and JSON body for one Auth REST call. */
 export function answerAuth(state: ReplayState, request: AuthRequest): { status: number; body: JsonObject } {
+  state.received.push({ rpc: 'auth', as: null, message: { method: request.method, host: request.host, path: request.path, body: request.body ?? null } });
   const exchange = state.recordings
     .flatMap((recording) => recording.exchanges)
     .find((candidate): candidate is AuthExchange => candidate.kind === 'auth' && fits(candidate, request));
