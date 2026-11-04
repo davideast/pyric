@@ -63,11 +63,12 @@ import { installViteProcessStop } from './vite-process-stop.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
+import type { SuppliedRows } from './vite-supplied-rows.js';
 import { pyricFsDeny } from './vite-state-deny.js';
 import { attachViteRealPathDeny } from './vite-real-path-deny.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
-interface EnvironmentHooks {
+export interface EnvironmentHooks {
   configEnvironment(name: string, config: { consumer?: string }): { resolve: { external: string[] } } | null;
 }
 
@@ -254,6 +255,15 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  *   export default defineConfig({ plugins: [pyric()] });
  */
 export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
+  return createPyricPlugin(options);
+}
+
+/**
+ * The plugin, with `supplied` rows serving pages in place of the swap
+ * (`vite-supplied-rows.ts`). `pyric()` passes none; only the internal
+ * `@pyric/cli/vite/internal/supplied-rows` entry passes them.
+ */
+export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows): Plugin & EnvironmentHooks {
   const moduleContext = createViteModuleContext();
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
@@ -269,6 +279,7 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
   let serviceWorkerContext: ServiceWorkerWiringContext = { root: process.cwd(), devServer: false };
   const moduleSwap = createViteModuleSwap(moduleContext, {
     getAiMode: () => pageRuntime.ai().mode,
+    supplied,
   });
 
   // Normalize the public bridge shorthand once. The active generation owns the

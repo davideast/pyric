@@ -80,6 +80,13 @@
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
+    "./vite/internal/supplied-rows": {
+      "types": "./dist/serve/vite-supplied-entry.d.ts",
+      "node": {
+        "types": "./dist/serve/vite-supplied-entry.d.ts",
+        "import": "./dist/serve/vite-supplied-entry.js"
+      }
+    },
     "./vite/ssr-loader": {
       "types": "./dist/serve/vite-ssr-loader.d.ts",
       "node": {

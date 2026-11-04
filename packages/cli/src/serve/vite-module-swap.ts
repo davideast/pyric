@@ -17,6 +17,7 @@ import {
   type AiMode,
   type ServedFirebaseSpecifier,
 } from './firebase-module-swap.js';
+import { suppliedRowsResolution, type SuppliedRows } from './vite-supplied-rows.js';
 import {
   STOP_PREFIX,
   loadRoutedModule,
@@ -120,6 +121,11 @@ export interface ViteModuleSwapOptions {
   /** The resolved AI mode. Read on each resolution, since Vite resolves the
    *  mode from its env files after the plugin is constructed. */
   getAiMode?: () => AiMode;
+  /**
+   * Rows another workspace package serves on this plane in place of the
+   * swap (`vite-supplied-rows.ts`). Absent for every `pyric()` plugin.
+   */
+  supplied?: SuppliedRows;
 }
 
 /** Own the Vite and optimizer forms of the Firebase-module swap. */
@@ -202,10 +208,34 @@ export function createViteModuleSwap(
     return id;
   }
 
+  /**
+   * The id of a module that throws `error` when it loads, for a served
+   * specifier the supplied rows refuse. It declares the real module's export
+   * names, as a stop module does, so the importer sees the refusal rather
+   * than a missing export.
+   */
+  function refusalIdFor(specifier: string, plane: 'page' | 'server', error: Error): string {
+    const id = `${STOP_PREFIX}refused:${plane}:${specifier}`;
+    const isKnown = stops.has(id);
+    if (!isKnown) stops.set(id, { error, specifier, resolveDir: root });
+    return id;
+  }
+
+  /** The supplied rows' answer for a `firebase/*` import on the page plane. */
+  function resolveSupplied(supplied: SuppliedRows, source: string, importer: string | undefined): string | null {
+    const resolution = suppliedRowsResolution(supplied, source, importer);
+    if (resolution.kind === 'module') return resolution.id;
+    if (resolution.kind === 'installed-sdk') return null;
+    if (resolution.kind === 'refused') return refusalIdFor(source, 'page', resolution.error);
+    return stopIdFor(source, importer);
+  }
+
   function resolveId(source: string, importer: string | undefined): string | null {
     if (isBypassedBridgeImport(source, importer)) return null;
 
     const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
+    const supplied = options?.supplied;
+    if (isFirebaseSpecifier && supplied !== undefined) return resolveSupplied(supplied, source, importer);
     if (isFirebaseSpecifier) {
       const swapped = swappedFirebaseEntries(aiMode());
       const key = swapped.get(source as ServedFirebaseSpecifier);
@@ -233,6 +263,9 @@ export function createViteModuleSwap(
     const isServer = environment === undefined
       ? resolveOptions?.ssr === true
       : environment.config.consumer === 'server';
+    // Supplied rows serve pages only: server code gets no row of either kind.
+    const supplied = options?.supplied;
+    if (isServer && supplied !== undefined) return refusalIdFor(original, 'server', supplied.refusal(original, 'server'));
     const routed = isServer
       ? routeServerImport({
         specifier: original,
@@ -244,6 +277,9 @@ export function createViteModuleSwap(
       : resolveId(original, importer);
     const isRouted = routed !== null;
     if (isRouted) return routed;
+    const isRowModuleOwnImport = supplied !== undefined &&
+      suppliedRowsResolution(supplied, original, importer).kind === 'installed-sdk';
+    if (isRowModuleOwnImport) return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
     // Not swapped here. firebase-admin in browser code, and any other load of
     // the real SDK the swap does not choose, gets the stop module.
     const stopId = stopIdFor(original, importer);
