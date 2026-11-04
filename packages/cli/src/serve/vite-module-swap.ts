@@ -21,6 +21,7 @@ import {
   OBSERVER_MODULE_ID,
   OBSERVER_SPECIFIER,
   isLiveModuleId,
+  isSuppliedRowsImport,
   suppliedRowsResolution,
   type SuppliedRows,
 } from './vite-supplied-rows.js';
@@ -260,13 +261,12 @@ export function createViteModuleSwap(
     return id;
   }
 
-  /** The supplied rows' answer for a `firebase/*` import on the page plane. */
+  /** The supplied rows' answer for a Firebase or `firebase-admin` import on the page plane. */
   function resolveSupplied(supplied: SuppliedRows, source: string, importer: string | undefined): string | null {
     const resolution = suppliedRowsResolution(supplied, source, importer);
     if (resolution.kind === 'module') return resolution.id;
-    if (resolution.kind === 'installed-sdk') return null;
     if (resolution.kind === 'refused') return refusalIdFor(source, 'page', resolution.error);
-    return stopIdFor(source, importer);
+    return null;
   }
 
   /** A row module's import of the one observer module, while the rows are open. */
@@ -287,9 +287,10 @@ export function createViteModuleSwap(
     if (isBypassedBridgeImport(source, importer)) return null;
     if (isObserverImport(source, importer)) return OBSERVER_MODULE_ID;
 
-    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     const supplied = options?.supplied;
-    if (isFirebaseSpecifier && supplied !== undefined) return resolveSupplied(supplied, source, importer);
+    const isSuppliedImport = supplied !== undefined && isSuppliedRowsImport(source);
+    if (isSuppliedImport) return resolveSupplied(supplied, source, importer);
+    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     if (isFirebaseSpecifier) {
       const swapped = swappedFirebaseEntries(aiMode());
       const key = swapped.get(source as ServedFirebaseSpecifier);

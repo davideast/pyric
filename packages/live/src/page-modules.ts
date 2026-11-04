@@ -7,7 +7,9 @@
  * the observer by its virtual specifier.
  *
  * Every live module hands its records to one observer module, which sends
- * them to the Node host on the page's own connection.
+ * them to the Node host on the page's own connection. It also exports the
+ * refusal the host in the dev server gives pyric's own writes
+ * (`liveWriteRefusal`).
  */
 import { fileURLToPath } from 'node:url';
 import {
@@ -17,6 +19,7 @@ import {
   type ServedFirebaseSpecifier,
 } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_ROWS } from './rows.js';
+export { liveWriteRefusal } from './refusal.js';
 import { observerModuleSource, rowModuleSource, type RowImports } from './row-source.js';
 
 /** The live row a module id serves, or undefined for any other id. */
@@ -33,7 +36,7 @@ function servedFile(name: string): string {
   return `/@fs${fileURLToPath(new URL(`./${name}.ts`, import.meta.url))}`;
 }
 
-const PAGE_IMPORTS: RowImports = { file: servedFile, observer: OBSERVER_SPECIFIER };
+const PAGE_IMPORTS: RowImports = { file: servedFile, observer: OBSERVER_SPECIFIER, client: 'page' };
 
 /**
  * The source of a module this plugin serves, or null for any other id.

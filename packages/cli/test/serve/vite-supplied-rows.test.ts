@@ -38,6 +38,7 @@ const refusal = (specifier: string, plane: SuppliedRowsPlane): Error =>
 const fakePackage: RowModulePackage = {
   root: '/app/node_modules/@pyric/live',
   moduleSource: (id) => `// live module ${JSON.stringify(id)}\n`,
+  writeRefusal: (write) => Object.assign(new Error(`refused ${write.action} from ${write.writer}`), { code: 'SUPPLIED_REFUSED' }),
 };
 const context = createViteModuleContext();
 const scratch: string[] = [];
@@ -140,11 +141,19 @@ describe('live rows, once opened', () => {
     expect(source).toContain('__pyricStopped as getStorage');
   });
 
-  it('leave a real subpath pyric does not serve to the stop', async () => {
-    const id = swap.resolveId('firebase/installations', userImporter);
-    expect(id).toStartWith(STOP_PREFIX);
-    const error = await thrownBy(await swap.loadPluginModule(id as string));
-    expect(error.code).toBe('PYRIC_REAL_SDK_STOPPED');
+  it('refuse a real subpath pyric does not serve, and firebase-admin, on the page', async () => {
+    for (const specifier of ['firebase/installations', 'firebase/firestore/lite', 'firebase/compat/app', 'firebase-admin']) {
+      const id = swap.resolveId(specifier, userImporter);
+      expect(id).toStartWith(STOP_PREFIX);
+      const error = await thrownBy(await swap.loadPluginModule(id as string));
+      expect(error.code).toBe('SUPPLIED_REFUSED');
+      expect(error.message).toBe(`refused ${specifier} on the page`);
+    }
+  });
+
+  it('leave an import that is not firebase to Vite', () => {
+    expect(swap.resolveId('firebase-tools', userImporter)).toBeNull();
+    expect(swap.resolveId('react', userImporter)).toBeNull();
   });
 
   it("pass a row module's own import through the dev server alias to Vite, never asking the stop", async () => {

@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from '@pyric/cli/register/internal/supplied-rows';
-import { LIVE_MODULES, LIVE_ROWS } from '../src/index.js';
+import { LIVE_ROWS, replacedExports } from '../src/index.js';
 import { liveRefusal as installedRefusal, liveRegisterModuleSource } from '../src/node-modules.js';
 import { LIVE_REFUSED, liveRefusal } from '../src/refusal.js';
 
@@ -23,8 +23,7 @@ describe('the modules a Node process gets for the live rows', () => {
       expect(source).toContain(`export * from ${quoted};`);
       expect(source).toContain(`import { observer } from ${JSON.stringify(REGISTER_OBSERVER_URL)};`);
       expect(source).toMatch(/import \{ liveModuleFor \} from "file:\/\/\/.+\/rows\.js";/);
-      const spec = LIVE_MODULES[key];
-      for (const name of [...spec.calls, ...spec.listeners]) {
+      for (const name of replacedExports(key)) {
         expect(source).toContain(`export const ${name} = __pyricLive.${name};`);
       }
     }

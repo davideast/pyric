@@ -10,8 +10,7 @@
  * `@pyric/cli`.
  */
 import type { ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
-import { wrapLiveModule, type LiveModuleKey } from './modules.js';
-import type { LiveObserver } from './observe.js';
+import { wrapLiveModule, type LiveModuleKey, type LiveModuleSite } from './modules.js';
 
 export const LIVE_ROWS: ReadonlyMap<ServedFirebaseSpecifier, LiveModuleKey> = new Map<ServedFirebaseSpecifier, LiveModuleKey>([
   ['firebase/app', 'live-app'],
@@ -22,17 +21,11 @@ export const LIVE_ROWS: ReadonlyMap<ServedFirebaseSpecifier, LiveModuleKey> = ne
 
 /**
  * The module a plane serves for `specifier` under live mode: the app's own
- * `real` module, wrapped by its live row. `sdkVersion` is the installed
- * `firebase`'s `SDK_VERSION`, as `firebase/app` exports it. Throws for a
- * specifier with no live row.
+ * `real` module, wrapped by its live row for `site`. Throws for a specifier
+ * with no live row.
  */
-export function liveModuleFor<T extends object>(
-  specifier: ServedFirebaseSpecifier,
-  real: T,
-  observer: LiveObserver,
-  sdkVersion: string,
-): T {
+export function liveModuleFor<T extends object>(specifier: ServedFirebaseSpecifier, real: T, site: LiveModuleSite): T {
   const key = LIVE_ROWS.get(specifier);
   if (key === undefined) throw new Error(`@pyric/live has no live row for ${specifier}.`);
-  return wrapLiveModule(key, specifier, real, observer, sdkVersion);
+  return wrapLiveModule(key, specifier, real, site);
 }

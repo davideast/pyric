@@ -45,6 +45,7 @@ import {
 import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 import { claimProjectState, type ProjectStateScope } from './hosted/project-ownership.js';
+import { refuseOwnWrite, type PyricWriteRefusal } from './hosted/own-writes.js';
 
 export interface ViteSandboxGenerationOptions {
   hosted?: boolean;
@@ -60,6 +61,13 @@ export interface ViteSandboxGenerationOptions {
   avatars: PyricAvatarsOptions | undefined;
   /** The plugin's `project` option: the first source `resolveFirebaseProject` tries. */
   project?: string;
+  /**
+   * Live mode's refusal of pyric's own writes, from the installed
+   * `@pyric/live` when the live rows are open (`hosted/own-writes.ts`). With
+   * it, the seed file is refused and the host refuses every write it is
+   * asked for. Absent outside live mode.
+   */
+  ownWriteRefusal?: PyricWriteRefusal;
 }
 
 export interface ViteSandboxGenerationInput {
@@ -161,6 +169,9 @@ export async function createViteSandboxGeneration(
   };
 
   try {
+    // In live mode a seed is one of pyric's own writes, refused before anything starts.
+    const seed = options.seed;
+    if (seed !== undefined) refuseOwnWrite(options.ownWriteRefusal, { action: `seed ${seed}`, writer: 'seed' });
     const usesHostedSandbox = options.hosted === true;
     const lacksHttpServer = usesHostedSandbox && !server.httpServer;
     if (lacksHttpServer) {
@@ -334,6 +345,7 @@ export async function createViteSandboxGeneration(
       await bridge?.startHostedSandbox(session.payload(), baseUrl, {
         proxyUpstream: ai.proxyUpstream, logger: sessionOptions.logger,
         persistence: session.hostedPersistence,
+        ownWriteRefusal: options.ownWriteRefusal,
       });
       server.config.logger.info('  ⓘ [pyric] sandbox runs in this server process (hosted)');
     }
