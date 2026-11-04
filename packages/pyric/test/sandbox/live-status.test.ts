@@ -55,6 +55,14 @@ describe('createBilledCallCounter', () => {
     for (const kind of ['read', 'write', 'delivery', 'delivery'] as const) counter.add(kind);
     expect(counter.count()).toEqual({ reads: 1, writes: 1, deliveries: 2 });
   });
+
+  it('counts a listener delivery once per document it was billed for, and a metadata-only one not at all', () => {
+    const counter = createBilledCallCounter();
+    const deliveries = [3, 1, 0, 1].map((billedDocuments) => ({ ...call('onSnapshot'), billedDocuments }));
+    for (const delivery of [...deliveries, call('onSnapshot'), call('getDoc')]) counter.addCall(delivery);
+    expect(counter.count()).toEqual({ reads: 1, writes: 0, deliveries: 6 });
+    expect(billedCallKind({ ...call('onSnapshot'), billedDocuments: 0 })).toBeNull();
+  });
 });
 
 describe('billedCallSummary', () => {

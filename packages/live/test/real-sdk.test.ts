@@ -283,6 +283,33 @@ describe('a recorder failure never changes what the app sees from the real SDK',
   });
 });
 
+describe('the documents a real SDK listener delivery was billed for', () => {
+  /** Listens with includeMetadataChanges for two deliveries, writing `written` after the first; resolves with their billed documents. */
+  async function billedOver(target: unknown, written: string): Promise<(number | undefined)[]> {
+    const start = records.length;
+    await new Promise<void>((resolve, reject) => {
+      let seen = 0;
+      const unsubscribe = firestore.onSnapshot(target as never, { includeMetadataChanges: true }, () => {
+        seen += 1;
+        // Offline, the write stays pending and never settles; its local delivery is enough.
+        if (seen === 1) void firestore.setDoc(firestore.doc(db, written), { title: 'a' });
+        if (seen < 2) return;
+        unsubscribe();
+        resolve();
+      }, reject);
+    });
+    return records.slice(start).filter((record) => record.outcome === 'delivered').map((record) => record.billedDocuments);
+  }
+
+  test('a query listener counts its first snapshot once and each document a write added', async () => {
+    expect(await billedOver(firestore.query(firestore.collection(db, 'notes')), 'notes/n1')).toEqual([1, 1]);
+  });
+
+  test('a document listener counts its first snapshot once and the write that changed it', async () => {
+    expect(await billedOver(firestore.doc(db, 'notes/n2'), 'notes/n2')).toEqual([1, 1]);
+  });
+});
+
 describe('records name where the call went', () => {
   test("every record names the project the app's Firebase config set, read from the call's own arguments", async () => {
     await firestore.getDocsFromCache(firestore.query(firestore.collection(db, 'rooms'))).catch(() => undefined);

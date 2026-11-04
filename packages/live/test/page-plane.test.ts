@@ -44,6 +44,12 @@ describe('the records a page sends to the host', () => {
     expect(observer({ module: 'firebase/app', name: 'getApp', outcome: 'returned' })).toBeUndefined();
     expect(sent).toEqual([{ service: 'auth', method: 'signOut', at: AT, outcome: { status: 'ok' } }]);
   });
+
+  test('carry the documents a listener delivery was billed for, zero for a metadata-only one', () => {
+    const delivery = (billedDocuments: number): LiveCallRecord => ({ module: 'firebase/firestore', name: 'onSnapshot', outcome: 'delivered', billedDocuments });
+    expect(observedCallOf(delivery(2), AT)).toEqual({ service: 'firestore', method: 'onSnapshot', at: AT, outcome: { status: 'ok' }, billedDocuments: 2 });
+    expect(observedCallOf(delivery(0), AT)?.billedDocuments).toBe(0);
+  });
 });
 
 describe('the modules a page gets for the live rows', () => {
