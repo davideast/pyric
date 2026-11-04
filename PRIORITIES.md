@@ -135,4 +135,5 @@ In live mode, pyric's tools connect to a real Firebase project and its data flow
 **Doesn't count:** forwarding part of a surface without documenting the rest; anything that sends user data off the machine without the user's explicit action; production calls added only to make a comparison possible.
 
 **Now:**
-- Deep research across seven tracks: the parked attempt, where data passes through pyric, what each tool can do live, what production lets a client observe, safety, prior art, and live mode as a conformance source
+- Label every sandbox event with its source, and add a This page / All sandbox traffic toggle to the chip's traffic view
+- The first live slice: the local app on the Node host talks to production with Firestore and Auth, and the chip, Studio, and the terminal show every request with production's answer. Only a `live` entry in `pyric.json` turns it on
