@@ -46,7 +46,9 @@ function sanitizeAuthBody(value: Json, side: 'request' | 'response'): Json {
   const entries: Array<[string, Json]> = [];
   for (const [key, item] of Object.entries(value)) {
     const isTokenString = typeof item === 'string';
-    if (side === 'request' && REQUEST_ANY.has(key)) entries.push([key, placeholder('any')]);
+    // A request's ID token names its account, so two accounts' calls replay apart.
+    if (side === 'request' && key === 'idToken' && isTokenString) entries.push([key, { $: 'idToken', uid: idTokenPlaceholder(item).uid as string }]);
+    else if (side === 'request' && REQUEST_ANY.has(key)) entries.push([key, placeholder('any')]);
     else if (side === 'response' && RESPONSE_DROPPED.has(key)) continue;
     else if (side === 'response' && isTokenString && ['idToken', 'id_token', 'access_token'].includes(key)) entries.push([key, idTokenPlaceholder(item)]);
     else if (side === 'response' && ['refreshToken', 'refresh_token'].includes(key)) entries.push([key, placeholder('refreshToken')]);

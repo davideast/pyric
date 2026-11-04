@@ -97,11 +97,18 @@ function fillPlaceholder(name: string, value: JsonObject, context: FillContext):
   }
 }
 
-/** Whether a request value matches a recorded one, where `{ "$": "any" }` matches everything. */
-export function matches(recorded: Json | undefined, actual: Json | undefined): boolean {
-  if (placeholderName(recorded) === 'any') return actual !== undefined;
+/**
+ * Whether a request value matches a recorded one, where `{ "$": "any" }`
+ * matches everything. With `tokens`, `{ "$": "idToken", "uid": "<uid>" }`
+ * matches an ID token this server minted for that uid, so two accounts'
+ * Auth calls each get their own answer.
+ */
+export function matches(recorded: Json | undefined, actual: Json | undefined, tokens?: ReplayTokens): boolean {
+  const name = placeholderName(recorded);
+  if (name === 'any') return actual !== undefined;
+  if (name === 'idToken' && tokens) return typeof actual === 'string' && tokens.uidOf(actual) === (recorded as JsonObject).uid;
   if (Array.isArray(recorded)) {
-    return Array.isArray(actual) && actual.length === recorded.length && recorded.every((item, index) => matches(item, actual[index]));
+    return Array.isArray(actual) && actual.length === recorded.length && recorded.every((item, index) => matches(item, actual[index], tokens));
   }
   const isObject = typeof recorded === 'object' && recorded !== null;
   if (!isObject) return recorded === actual;
@@ -110,5 +117,5 @@ export function matches(recorded: Json | undefined, actual: Json | undefined): b
   const recordedKeys = Object.keys(recorded).sort();
   const actualKeys = Object.keys(actual).sort();
   const sameKeys = recordedKeys.length === actualKeys.length && recordedKeys.every((key, index) => key === actualKeys[index]);
-  return sameKeys && recordedKeys.every((key) => matches((recorded as JsonObject)[key], (actual as JsonObject)[key]));
+  return sameKeys && recordedKeys.every((key) => matches((recorded as JsonObject)[key], (actual as JsonObject)[key], tokens));
 }

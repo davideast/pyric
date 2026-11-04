@@ -18,13 +18,17 @@ export interface CommandTiming {
 
 const DEFAULT_COMMAND_TIMING: CommandTiming = { exit: DEFAULT_EXIT_TIMING, leftoverTermMs: 1000 };
 
-/** The published packages, in the order scripts/pack-packages.sh packs them. */
+/**
+ * The packages scripts/pack-packages.sh packs, in its order: the published
+ * ones and `@pyric/live`, which stays private until live mode is complete.
+ */
 const PUBLISHED_PACKAGE_DIRS = [
   'packages/pyric',
   'packages/pyric-admin',
   'packages/create-pyric',
   'packages/cli',
   'packages/ui',
+  'packages/live',
 ];
 
 /** Files in an app directory that drive it and are not part of the app. */

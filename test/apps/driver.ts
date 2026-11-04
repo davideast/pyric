@@ -337,6 +337,12 @@ export interface App {
    */
   command(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
   /**
+   * Starts `command` with `args` from `cwd` (relative to the app directory)
+   * with the app's environment and returns at once, as `serverProcess` does,
+   * for a command that runs until stopped, such as `node node_modules/.bin/pyric-live`.
+   */
+  commandProcess(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string> }): AppProcess;
+  /**
    * Installs a project the scenario created inside the app directory, such
    * as one `create-pyric` scaffolded: its Pyric dependencies point at the
    * packed tarballs, as the app's own do, and its tree comes from the
@@ -666,6 +672,21 @@ export class AppRun implements App {
     const result = await this.timedCommand(command, args, options);
     if (result.timedOut) throw new Error(`${[command, ...args].join(' ')} did not exit within ${result.timeoutMs / 1000}s:\n${result.output}`);
     return { code: result.code, output: result.output };
+  }
+
+  commandProcess(command: string, args: string[], options: { cwd?: string; env?: Record<string, string> } = {}): AppProcess {
+    this.scriptCount += 1;
+    const child = new AppProcess(
+      `process ${this.scriptCount} (${[command, ...args].join(' ')})`,
+      command,
+      args,
+      join(this.dir, options.cwd ?? '.'),
+      appEnvironment(this.home, options.env),
+      spawn,
+      this.timing,
+    );
+    this.processes.push(child);
+    return child;
   }
 
   /** Runs a command to exit, or stops it at `timeoutMs` and says so instead of throwing. */
