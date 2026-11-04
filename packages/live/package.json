@@ -7,9 +7,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./vite": "./src/vite.ts",
-    "./page-modules": "./src/page-modules.ts"
+    "./page-modules": "./src/page-modules.ts",
+    "./register": "./dist/register.js",
+    "./node-modules": "./dist/node-modules.js"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

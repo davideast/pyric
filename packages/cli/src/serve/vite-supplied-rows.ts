@@ -40,8 +40,12 @@ export function isLiveModuleId(id: string): boolean {
   return id === OBSERVER_MODULE_ID || [...ROW_MODULE_IDS.values()].includes(id);
 }
 
-/** Where a refused import was made: page code, or server code Vite runs. */
-export type SuppliedRowsPlane = 'page' | 'server';
+/**
+ * Where a refused import was made: page code, server code Vite runs, or a
+ * Node process under a register that serves supplied rows
+ * (`../register/supplied-rows.ts`).
+ */
+export type SuppliedRowsPlane = 'page' | 'server' | 'node';
 
 /** The refusal a supplier gives for a served specifier with no row, and for every server-rendered Firebase import. */
 export type SuppliedRowsRefusal = (specifier: string, plane: SuppliedRowsPlane) => Error;

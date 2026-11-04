@@ -31,6 +31,7 @@
 import { fileURLToPath } from 'node:url';
 import { packageNameOf, pathInPackageOf } from './package-identity.js';
 import { choosesRealFirebase } from './mapping.js';
+import { usesCommonJs } from '../functions/module-loader.js';
 import {
   SDK_MODULES,
   isAdminBridgeFile,
@@ -44,6 +45,8 @@ import {
 export const REAL_SDK_STOPPED_CODE = 'PYRIC_REAL_SDK_STOPPED';
 
 const LOG_PREFIX = '@pyric/cli/register';
+/** The live register reports its stops under its own name. */
+const LIVE_LOG_PREFIX = '@pyric/live/register';
 const REPORT_URL = 'https://github.com/davideast/pyric/issues/new';
 
 /** One resolve the register finished: what was asked, by whom, and where it landed. */
@@ -157,6 +160,41 @@ function stopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string)
   ].join('\n');
 }
 
+/** The stop's message under live rows: only a row module's own import loads the installed SDK. */
+function liveStopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string): string {
+  const isUnservedRequire = isNode22Require(load);
+  const cause = isUnservedRequire
+    ? `CommonJS require() on Node ${process.versions.node} can't be served under live mode, so this load skipped @pyric/live's rows and pyric would not see its calls.`
+    : "In live mode, the installed SDK loads only through @pyric/live's rows. This import didn't, so pyric would not see its calls.";
+  return [
+    `${LIVE_LOG_PREFIX}: stopped loading the real ${packageName}`,
+    `  import '${load.specifier}'`,
+    `  from   ${load.importer ?? 'the entry point'}`,
+    `  found  ${load.url}`,
+    cause,
+    `Fix: ${liveStopFix(family, isUnservedRequire)}. To run the real SDK unobserved, start this process without @pyric/live/register.`,
+    `code: ${REAL_SDK_STOPPED_CODE}`,
+  ].join('\n');
+}
+
+/**
+ * Whether this load comes from a CommonJS file on Node 22. Node 22.15 runs
+ * a CommonJS entry's `require()` outside the sync hooks and imports the file
+ * it found, so live mode cannot serve it its row; Node 23 and later can.
+ */
+function isNode22Require(load: ResolvedLoad): boolean {
+  const isNode22 = Number(process.versions.node.split('.')[0]) < 23;
+  const importer = load.importer;
+  const isFileImporter = importer !== undefined && importer.startsWith('file:');
+  return isNode22 && isFileImporter && usesCommonJs(fileURLToPath(importer));
+}
+
+function liveStopFix(family: SdkFamily, isUnservedRequire: boolean): string {
+  if (family === 'admin') return 'firebase-admin is refused in live mode, so move this code to a process without @pyric/live/register';
+  if (isUnservedRequire) return 'import firebase/app, firebase/auth, firebase/firestore or firebase/app-check from an ES module, or run Node 23 or later';
+  return 'import firebase/app, firebase/auth, firebase/firestore or firebase/app-check by its package name, so its live row loads the installed SDK';
+}
+
 /**
  * Whether this load is Node 22 resolving again a CommonJS file this hook
  * already allowed. Node 22 resolves a CommonJS file imported from ESM a second
@@ -188,6 +226,67 @@ export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | n
     return null;
   }
   const error = new Error(stopMessage(load, family, packageName));
+  return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
+}
+
+/**
+ * The client SDK packages the four live rows' entries load, besides
+ * `firebase` itself: what `firebase/app`, `firebase/auth`,
+ * `firebase/firestore` and `firebase/app-check` import on Node 22 and 24.
+ */
+const LIVE_ROW_SDK_PACKAGES: ReadonlySet<string> = new Set([
+  '@firebase/app',
+  '@firebase/auth',
+  '@firebase/firestore',
+  '@firebase/app-check',
+  '@firebase/component',
+  '@firebase/util',
+  '@firebase/logger',
+  '@firebase/webchannel-wrapper',
+]);
+
+/** How a load under live rows was asked for. */
+export interface SuppliedRowsGrant {
+  /** A row module's own import of its specifier. */
+  readonly isRowImport: boolean;
+  /** Resolved with the `import` condition: an ESM import, which `createRequire` cannot make. */
+  readonly isEsmImport: boolean;
+}
+
+/**
+ * Whether a load under live rows may reach the installed client SDK: an ESM
+ * import, either a row module's own import of `firebase/*`, or an allowed
+ * client SDK file's import of a package the four entries load. A
+ * `createRequire` call can name any file as its importer, but it resolves
+ * with the `require` condition, so it never passes.
+ */
+function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUrls: ReadonlySet<string>, grant: SuppliedRowsGrant): boolean {
+  if (!grant.isEsmImport) return false;
+  if (grant.isRowImport) return packageName === 'firebase';
+  const importer = load.importer;
+  const isFromAllowedFile = importer !== undefined && allowedUrls.has(importer);
+  return isFromAllowedFile && LIVE_ROW_SDK_PACKAGES.has(packageName);
+}
+
+/**
+ * The stop under live rows (`supplied-rows.ts`): the error that stops this
+ * load, or `null` when it may go ahead. The client SDK loads only for a row
+ * module's own ESM import of its specifier, and then for the packages those
+ * files import ({@link isAllowedLiveRowLoad}); `firebase-admin` never loads.
+ * An allowed load joins `allowedUrls`. The swap table and AI mode play no
+ * part: live rows replace the swap.
+ */
+export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>, grant: SuppliedRowsGrant): Error | null {
+  if (!isInstalledFile(load.url)) return null;
+  const packageName = (load.nameOf ?? packageNameOf)(load.url);
+  const family = sdkFamilyOf(packageName);
+  if (family === null || packageName === null) return null;
+  if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;
+  if (family === 'client' && isAllowedLiveRowLoad(load, packageName, allowedUrls, grant)) {
+    allowedUrls.add(load.url);
+    return null;
+  }
+  const error = new Error(liveStopMessage(load, family, packageName));
   return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
 }
 

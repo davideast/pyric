@@ -30,12 +30,20 @@ function serviceOf(specifier: string): string {
 
 const SERVED = 'firebase/app, firebase/auth, firebase/firestore and firebase/app-check';
 
-/** The error for `specifier`, imported from page code or from server code the dev server runs. */
+/** What live mode serves where the import was made. */
+const SERVED_ON: Readonly<Record<SuppliedRowsPlane, string>> = {
+  page: `Live mode serves only ${SERVED} to pages, from your installed Firebase SDK.`,
+  server: 'Live mode serves Firebase to pages only; server code the dev server runs gets no Firebase module yet.',
+  node: `Live mode serves only ${SERVED} to a Node process, from your installed Firebase SDK.`,
+};
+
+/**
+ * The error for `specifier`, imported from page code, from server code the
+ * dev server runs, or from a Node process under `@pyric/live/register`.
+ */
 export function liveRefusal(specifier: string, plane: SuppliedRowsPlane): Error {
   const service = serviceOf(specifier);
-  const where = plane === 'page'
-    ? `Live mode serves only ${SERVED} to pages, from your installed Firebase SDK.`
-    : 'Live mode serves Firebase to pages only; server code the dev server runs gets no Firebase module yet.';
+  const where = SERVED_ON[plane];
   const message = `@pyric/live: ${specifier} (${service}) is refused in live mode. ${where} ` +
     `It is not served from the Pyric sandbox either, so production and sandbox services never share one app. ` +
     'Remove the import, or run the app without @pyric/live to use the sandbox.';

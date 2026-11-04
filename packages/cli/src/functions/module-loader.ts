@@ -14,7 +14,8 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-function usesCommonJs(entry: string): boolean {
+/** Whether `entry` is CommonJS: `.cjs`, or not `.mjs` and under a `package.json` whose `type` is not `module`. */
+export function usesCommonJs(entry: string): boolean {
   const extension = extname(entry);
   if (extension === '.cjs') return true;
   if (extension === '.mjs') return false;
