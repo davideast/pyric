@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
 /**
@@ -38,8 +37,6 @@ const UNRESOLVED_NAMES: Record<string, string> = {
   'packages/site-docs/src/content/secure/read-a-denial.md: lintFirestoreRules from pyric/rules':
     'The ruleset-diff lint (`previousSource`, RULES_WEAKENED) is reachable only through pyric/rules/internal; public `lint(source)` takes no previous source.',
 };
-
-const requireFromCli =createRequire(join(import.meta.dir, '../package.json'));
 
 interface DocImport {
   file: string;
@@ -132,15 +129,45 @@ function collectImports(): DocImport[] {
 
 type ExportTarget = string | { [condition: string]: ExportTarget } | null;
 
+interface WorkspaceManifest {
+  name?: string;
+  exports?: Record<string, ExportTarget>;
+}
+
+/**
+ * Each workspace package's directory, by package name, read from
+ * `packages/<dir>/package.json`. A guide can import a package `@pyric/cli`
+ * does not depend on, such as `@pyric/live`, so the manifest is read by repo
+ * path rather than resolved from the CLI.
+ */
+const WORKSPACE_PACKAGE_DIRS: ReadonlyMap<string, string> = new Map(
+  readdirSync(join(repoRoot, 'packages')).flatMap((dir): [string, string][] => {
+    const file = join(repoRoot, 'packages', dir, 'package.json');
+    let manifest: WorkspaceManifest;
+    try {
+      manifest = JSON.parse(readFileSync(file, 'utf8')) as WorkspaceManifest;
+    } catch {
+      return [];
+    }
+    return manifest.name === undefined ? [] : [[manifest.name, join(repoRoot, 'packages', dir)]];
+  }),
+);
+
+function packageDirOf(packageName: string): string {
+  const dir = WORKSPACE_PACKAGE_DIRS.get(packageName);
+  if (dir === undefined) throw new Error(`${packageName} is not a workspace package under packages/`);
+  return dir;
+}
+
 function exportsOf(packageName: string): Record<string, ExportTarget> {
-  const manifest = requireFromCli(`${packageName}/package.json`) as { exports?: Record<string, ExportTarget> };
+  const manifest = JSON.parse(readFileSync(join(packageDirOf(packageName), 'package.json'), 'utf8')) as WorkspaceManifest;
   return manifest.exports ?? {};
 }
 
 function typesFileOf(packageName: string, subpath: string): string | null {
   const entry = exportsOf(packageName)[subpath];
   if (!entry || typeof entry !== 'object' || typeof entry.types !== 'string') return null;
-  return join(dirname(requireFromCli.resolve(`${packageName}/package.json`)), entry.types);
+  return join(packageDirOf(packageName), entry.types);
 }
 
 const typeExportCache = new Map<string, Set<string>>();

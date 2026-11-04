@@ -34,6 +34,7 @@ The repository is a Bun workspace with these principal packages:
 | `packages/cli` | `@pyric/cli` | `pyric` binary, Vite/Next/Node resolution seams, Node host, bridge, verify, assurance |
 | `packages/create-pyric` | `create-pyric` | `npm create pyric` scaffolder |
 | `packages/ui` | `@pyric/ui` | Headless React components, hooks, and listener-owner attribution |
+| `packages/live` | `@pyric/live` | Live mode: the app's own Firebase SDK against its real project, observed through the Node host (`pyric-live`, `@pyric/live/vite`, `@pyric/live/register`) |
 | `packages/studio` | `@pyric/studio` | Studio console application, mounted by the Astro site and served by `pyric sandbox --ui` |
 | `packages/site-docs` | `@pyric/site-docs` | The one Astro site: documentation plus the Studio shell |
 | `packages/conformance` | `@pyric/conformance` | Private evidence graph: surfaces, registry, observations, probes, rigs, gates |

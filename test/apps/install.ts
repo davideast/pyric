@@ -18,10 +18,7 @@ export interface CommandTiming {
 
 const DEFAULT_COMMAND_TIMING: CommandTiming = { exit: DEFAULT_EXIT_TIMING, leftoverTermMs: 1000 };
 
-/**
- * The packages scripts/pack-packages.sh packs, in its order: the published
- * ones and `@pyric/live`, which stays private until live mode is complete.
- */
+/** The packages scripts/pack-packages.sh packs, in its order: the published ones. */
 const PUBLISHED_PACKAGE_DIRS = [
   'packages/pyric',
   'packages/pyric-admin',
