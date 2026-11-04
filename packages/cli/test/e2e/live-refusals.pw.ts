@@ -47,6 +47,18 @@ async function countingServer(): Promise<Counter> {
   };
 }
 
+/** The installed @firebase/firestore's browser entry, by its real path. */
+const firestoreFile = join(dirname(realpathSync(firebaseDir)), '@firebase/firestore/dist/index.esm.js');
+
+/** A package that only names itself `@firebase/evil` and hands on the real Firestore. */
+const SELF_NAMED_INDEX = "export { initializeFirestore, doc, getDocFromServer } from '@firebase/firestore';\n";
+
+function writeSelfNamedPackage(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: '@firebase/evil', version: '1.0.0', type: 'module', main: 'index.js' }));
+  writeFileSync(join(dir, 'index.js'), SELF_NAMED_INDEX);
+}
+
 function appSource(port: number): string {
   return `
 import { initializeApp } from 'firebase/app';
@@ -75,10 +87,18 @@ const IMPORTS = {
   '@firebase/database': () => import('@firebase/database'),
 };
 window.importRefused = (specifier) => settle(IMPORTS[specifier]());
-// The SDK's own package, imported by name, around the live row.
-window.scopedNamed = async () => {
+// Routes to the installed @firebase/firestore around the live row: each one,
+// served, opens the named database "reports" with no row in the way.
+const AROUND_THE_ROW = {
+  bare: () => import('@firebase/firestore'),
+  relativePath: () => import('./node_modules/@firebase/firestore/dist/index.esm.js'),
+  fsUrl: () => import('/@fs${firestoreFile}'),
+  selfNamedPackage: () => import('evil'),
+  selfNamedPath: () => import('./node_modules/@firebase/evil/index.js'),
+};
+window.aroundTheRow = async (route) => {
   try {
-    const scoped = await import('@firebase/firestore');
+    const scoped = await AROUND_THE_ROW[route]();
     const db = scoped.initializeFirestore(refusedApp, { host: '127.0.0.1:${port}', ssl: false }, 'reports');
     void scoped.getDocFromServer(scoped.doc(db, 'rooms/lobby')).catch(() => undefined);
     return 'served:reports';
@@ -103,6 +123,9 @@ async function liveProject(port: number, extra: Record<string, unknown> = {}): P
   for (const name of ['firestore', 'storage', 'database']) {
     symlinkSync(join(dirname(realpathSync(firebaseDir)), '@firebase', name), join(root, 'node_modules/@firebase', name));
   }
+  // The same self-named package, installed as `evil` and under `@firebase/evil`.
+  writeSelfNamedPackage(join(root, 'node_modules/evil'));
+  writeSelfNamedPackage(join(root, 'node_modules/@firebase/evil'));
   writeFileSync(join(root, 'index.html'), '<output id="status">Starting</output><script type="module" src="/main.js"></script>');
   writeFileSync(join(root, 'main.js'), appSource(port));
   writeFileSync(join(root, 'seed.json'), JSON.stringify({ 'rooms/seeded': { v: 1 } }));
@@ -114,6 +137,8 @@ async function liveProject(port: number, extra: Record<string, unknown> = {}): P
       root, configFile: false, logLevel: 'silent',
       plugins: [pyricLive({ capture: false, ui: false, ...extra }) as PluginOption],
       server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
+      // Pre-bundled at startup, as Vite would discover it, so the page never reloads mid-test.
+      optimizeDeps: { include: ['evil'] },
     });
     await server.listen();
   } catch (error) {
@@ -163,9 +188,13 @@ test("a live page's unserved calls throw before any request leaves, and pyric's 
       expect(named[index]?.startsWith('PYRIC_LIVE_REFUSED: ')).toBe(true);
       expect(named[index]).toContain(`@pyric/live: ${call} with the database "reports" is refused in live mode, from a page`);
     }
-    const scoped = await page.evaluate(() => (Reflect.get(window, 'scopedNamed') as () => Promise<string>)());
-    expect(scoped).toMatch(/^PYRIC_LIVE_REFUSED: /);
-    expect(scoped).toContain('@pyric/live: @firebase/firestore (a Firebase SDK package; apps import firebase/firestore) is refused in live mode');
+    const aroundTheRow = (route: string) =>
+      page.evaluate((name) => (Reflect.get(window, 'aroundTheRow') as (r: string) => Promise<string>)(name), route);
+    const routes = ['bare', 'relativePath', 'fsUrl', 'selfNamedPackage', 'selfNamedPath'];
+    const outcomes = Object.fromEntries(await Promise.all(routes.map(async (route) => [route, await aroundTheRow(route)])));
+    const refused = expect.stringMatching(/^PYRIC_LIVE_REFUSED: @pyric\/live: .* is refused in live mode/);
+    expect(outcomes).toEqual(Object.fromEntries(routes.map((route) => [route, refused])));
+    expect(outcomes.bare).toContain('@firebase/firestore (a Firebase SDK package; apps import firebase/firestore) is refused in live mode');
     await page.waitForTimeout(300);
     expect(counter.connections()).toBe(0);
     await page.evaluate(() => (Reflect.get(window, 'readDefault') as () => string)());

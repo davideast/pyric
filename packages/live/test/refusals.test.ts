@@ -49,6 +49,9 @@ afterAll(async () => {
   await counter.close();
 });
 
+/** The SDK's internal record of the project and database an instance reaches. */
+type DatabaseHolder = { _databaseId: { projectId: string; database: string } };
+
 function thrown(call: () => unknown): Error & { code?: string } {
   try {
     call();
@@ -87,15 +90,16 @@ describe('a named Firestore database', () => {
     const db = firestore.initializeFirestore(controlApp, SETTINGS, '(default)');
     expect(firestore.getFirestore(controlApp)).toBe(db);
     expect(firestore.getFirestore(controlApp, '')).toBe(db);
-    // The SDK reads a string first argument as the database with no fallback:
-    // the real getFirestore('') is a separate instance for the database "", not
-    // (default), so the live row refuses it.
+    // getFirestore('') is its own instance in the SDK, but its DatabaseId reads
+    // '' as (default): it reaches the default database, so the row forwards it.
     const defaultApp = realApp.initializeApp(OPTIONS);
     try {
-      expect(realFirestore.getFirestore('')).not.toBe(realFirestore.getFirestore(defaultApp));
-      const error = thrown(() => firestore.getFirestore(''));
-      expect(error.code).toBe(LIVE_REFUSED);
-      expect(error.message).toContain('getFirestore with the database "" is refused in live mode');
+      const emptyNamed = firestore.getFirestore('') as unknown as DatabaseHolder;
+      expect(emptyNamed._databaseId.database).toBe('(default)');
+      expect(emptyNamed._databaseId.projectId).toBe(OPTIONS.projectId);
+      expect((realFirestore.getFirestore(defaultApp) as unknown as DatabaseHolder)._databaseId.database).toBe('(default)');
+      const named = thrown(() => firestore.getFirestore('reports'));
+      expect(named.code).toBe(LIVE_REFUSED);
     } finally {
       await realApp.deleteApp(defaultApp);
     }

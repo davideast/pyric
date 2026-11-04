@@ -8,14 +8,17 @@
  * package is found. Every other Firebase and `firebase-admin` import is
  * refused, never sent to the sandbox row or the stop, so one app object
  * never mixes the installed SDK with sandbox services. So is every
- * `@firebase/*` import, except one from a file of the installed SDK.
+ * `@firebase/*` import, except one from an SDK file the rows loaded, and
+ * every load of an installed SDK file, by whatever specifier, path or URL,
+ * that the rows did not lead to (`vite-module-swap.ts`), as the Node plane's
+ * stop decides by the resolved file (`../register/swap-or-stop.ts`).
  *
  * `pyric()` supplies no rows. A plugin gets them only through
  * `@pyric/cli/vite/internal/supplied-rows`, which takes no module ids.
  */
-import { isAbsolute, sep } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { packageNameOf } from '../register/package-identity.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import type { RowModulePackage } from './vite-live-package.js';
 
@@ -65,6 +68,12 @@ export interface SuppliedRows {
   package(): RowModulePackage | null;
   /** Opens the rows with the package found from the project root. */
   open(found: RowModulePackage): void;
+  /**
+   * The installed SDK files the rows loaded on the page, as real file URLs,
+   * as the Node plane's stop records them (`suppliedRowsStopFor`). Only these
+   * files may import more of the SDK.
+   */
+  readonly liveSdkUrls: Set<string>;
 }
 
 /** Shut live rows with the supplier's refusal. */
@@ -72,6 +81,7 @@ export function suppliedRows(refusal: SuppliedRowsRefusal): SuppliedRows {
   let found: RowModulePackage | null = null;
   return {
     refusal,
+    liveSdkUrls: new Set(),
     package: () => found,
     open(next) {
       found = next;
@@ -99,24 +109,25 @@ export function isSuppliedRowsImport(source: string): boolean {
   return FIREBASE_IMPORT.test(source) || SDK_PACKAGE_IMPORT.test(source);
 }
 
-/** A Vite importer's file path, without the query or hash Vite may add. */
-function importerFile(importer: string): string {
-  return importer.replace(/[?#].*$/, '');
+/**
+ * The real file URL of a Vite module id, without the query or hash Vite may
+ * add, or null for a virtual id or one that names no file on disk.
+ */
+export function realFileUrlOf(id: string): string | null {
+  const file = id.replace(/[?#].*$/, '');
+  if (!isAbsolute(file)) return null;
+  try {
+    return pathToFileURL(realpathSync(file)).href;
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Whether `importer` is a file of the installed client SDK: `firebase` or a
- * `@firebase/*` package under `node_modules`, read from its own manifest. A
- * live row's installed `firebase/firestore` imports `@firebase/firestore`
- * from there, and the SDK's packages import each other.
- */
-function isInstalledSdkFile(importer: string | undefined): boolean {
+/** Whether `importer` is one of the installed SDK files the rows loaded on the page. */
+function isLoadedSdkFile(rows: SuppliedRows, importer: string | undefined): boolean {
   if (importer === undefined) return false;
-  const file = importerFile(importer);
-  const isInstalled = isAbsolute(file) && file.split(sep).includes('node_modules');
-  if (!isInstalled) return false;
-  const name = packageNameOf(pathToFileURL(file).href);
-  return name === 'firebase' || (name?.startsWith('@firebase/') ?? false);
+  const url = realFileUrlOf(importer);
+  return url !== null && rows.liveSdkUrls.has(url);
 }
 
 /**
@@ -133,7 +144,7 @@ export function suppliedRowsResolution(rows: SuppliedRows, source: string, impor
   const isSdkPackageImport = SDK_PACKAGE_IMPORT.test(source);
   const isOpen = rows.package() !== null;
   if (isSdkPackageImport) {
-    const isSdkOwnImport = isOpen && isInstalledSdkFile(importer);
+    const isSdkOwnImport = isOpen && isLoadedSdkFile(rows, importer);
     return isSdkOwnImport ? { kind: 'unserved' } : { kind: 'refused', error: rows.refusal(source, 'page') };
   }
   const id = ROW_MODULE_IDS.get(source as ServedFirebaseSpecifier);

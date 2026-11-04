@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { join, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'vite';
 import { SDK_MODULES } from '../../src/serve/firebase-module-swap.js';
 import { loadRowModulePackage, type RowModulePackage } from '../../src/serve/vite-live-package.js';
@@ -164,8 +164,47 @@ describe('live rows, once opened', () => {
         expect(error.message).toBe(`refused ${specifier} on the page`);
       }
     }
-    expect(swap.resolveId('@firebase/firestore', sdkFile)).toBeNull();
-    expect(swap.resolveId('@firebase/app', `${sdkFile}?v=1234`)).toBeNull();
+    // An SDK file the rows did not load gets no allowance, whatever its manifest says.
+    expect(swap.resolveId('@firebase/firestore', sdkFile)).toStartWith(STOP_PREFIX);
+    const rows = suppliedRows(refusal);
+    rows.open(fakePackage);
+    const loaded = createViteModuleSwap(context, { supplied: rows });
+    rows.liveSdkUrls.add(pathToFileURL(sdkFile).href);
+    expect(loaded.resolveId('@firebase/firestore', sdkFile)).toBeNull();
+    expect(loaded.resolveId('@firebase/app', `${sdkFile}?v=1234`)).toBeNull();
+  });
+
+  it('decide by the file an import reaches: only the rows, and SDK files they loaded, reach the installed SDK', async () => {
+    const requireHere = createRequire(import.meta.url);
+    const entryFile = realpathSync(requireHere.resolve('firebase/firestore'));
+    const packageFile = realpathSync(createRequire(entryFile).resolve('@firebase/firestore'));
+    const rows = suppliedRows(refusal);
+    rows.open(fakePackage);
+    const gated = createViteModuleSwap(context, { supplied: rows });
+    const reaching = (file: string): SwapResolveContext => ({ environment: clientEnvironment, resolve: async () => ({ id: file }) });
+    const resolveTo = (file: string, source: string, importer: string | undefined) =>
+      gated.resolvePluginId(reaching(file), source, importer);
+
+    // Around the rows: a relative path, a /@fs/ URL, or a browser request, before any row loaded the file.
+    for (const [source, importer] of [['./node_modules/@firebase/firestore/dist/index.esm.js', userImporter], [`/@fs${packageFile}`, userImporter], [packageFile, undefined]] as const) {
+      const id = await resolveTo(packageFile, source, importer);
+      expect(id).toStartWith(STOP_PREFIX);
+      const error = await thrownBy(await gated.loadPluginModule(id as string));
+      expect(error.message).toBe(`refused ${source} on the page`);
+    }
+    expect(rows.liveSdkUrls.size).toBe(0);
+
+    // The row's own import, then that file's import of its package, load and are recorded.
+    expect(await resolveTo(entryFile, aliased('firebase/firestore'), rowId('firebase/firestore'))).toEqual({ id: entryFile });
+    expect(await resolveTo(packageFile, '@firebase/firestore', entryFile)).toEqual({ id: packageFile });
+    expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(entryFile).href, pathToFileURL(packageFile).href]));
+    // The browser's request for a file the rows loaded is that file's own load.
+    expect(await resolveTo(packageFile, `/@fs${packageFile}`, undefined)).toEqual({ id: packageFile });
+    // App code reaching the same, already loaded file by path is still refused.
+    expect(await resolveTo(packageFile, `/@fs${packageFile}`, userImporter)).toStartWith(STOP_PREFIX);
+    expect(await resolveTo(packageFile, './node_modules/@firebase/firestore/dist/index.esm.js', userImporter)).toStartWith(STOP_PREFIX);
+    // A file that is not part of the SDK is left alone.
+    expect(await resolveTo(userImporter, './other.js', userImporter)).toEqual({ id: userImporter });
   });
 
   it('leave an import that is not firebase to Vite', () => {
