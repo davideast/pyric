@@ -35,7 +35,8 @@ export type { SeedUser } from './seed-user.js';
  * `from` names the held session a `uid` or `custom` request mints again:
  * the mint is a refresh-token exchange, refused as one is, and the new
  * session keeps the held session's authentication. `restore` marks a `uid`
- * mint as a reloaded page restoring the session it stored: with the
+ * mint as re-establishing a session the caller names by key (a reloaded page
+ * restoring the session it stored, `updateCurrentUser`, an unlink): with the
  * `sessionKey` of that session ({@link sessionKeyOf}) it resumes with the
  * authentication time it had; without a matching key it has no sign-in time
  * of its own, so any revocation recorded for the uid refuses it.

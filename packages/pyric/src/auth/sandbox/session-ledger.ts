@@ -56,18 +56,20 @@ export class SessionLedger {
     return recordsByUser.get(user)?.authenticatedAtMs ?? this.byUid.get(user.uid);
   }
 
-  /** `user` continues `from`'s session. */
+  /** `user`, a `User` rebuilt for `from`'s session, continues it. A `user` already in a session keeps its own. */
   continue(user: User, from: User): void {
-    const record = recordsByUser.get(from) ?? this.adopt(from);
-    if (record !== undefined) recordsByUser.set(user, record);
+    if (recordsByUser.has(user)) return;
+    recordsByUser.set(user, this.adopt(from));
   }
 
-  /** Put `user` in a session of its own, at the uid's last authentication, unless it is in one. */
-  adopt(user: User): SessionRecord | undefined {
-    const existing = recordsByUser.get(user);
-    if (existing !== undefined) return existing;
-    const at = this.byUid.get(user.uid);
-    return at === undefined ? undefined : this.open(user, at);
+  /**
+   * Put `user` in a session of its own unless it is in one. The new session
+   * has no sign-in time: a `User` no sign-in, remint or key placed in a
+   * session never borrows another session's sign-in, so any revocation
+   * recorded for the uid refuses it.
+   */
+  adopt(user: User): SessionRecord {
+    return recordsByUser.get(user) ?? this.open(user, NO_SIGN_IN);
   }
 
   /** `user` resumes the session `key` names. False when no session of `user`'s uid has that key. */

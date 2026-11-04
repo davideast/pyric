@@ -22,6 +22,7 @@ import {
   signInWithEmailAndPassword,
   signInWithCustomToken,
   signInWithPopup,
+  updateCurrentUser,
   updatePassword,
   type Auth,
   type User,
@@ -756,6 +757,27 @@ describe('a refresh for a disabled or deleted account (#1950)', () => {
       await expect(restored.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
       expect(auth.currentUser).toBe(null);
     }
+  });
+
+  it('updateCurrentUser with a refused session does not borrow a later sign-in of the account', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user: a } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const b = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    await updatePassword(a, 'new-pw-5678');
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    getClock(sandbox).advance(2000);
+    const c = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'new-pw-5678' });
+
+    // With A current, then signed out: B stays B's session either way.
+    await updateCurrentUser(auth, b.user);
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    await updateCurrentUser(auth, null);
+    await updateCurrentUser(auth, b.user);
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(await c.user.getIdToken(true)).toBeString();
   });
 
   it('a restore without a key refreshes while nothing revoked the account', async () => {
