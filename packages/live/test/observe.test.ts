@@ -8,7 +8,8 @@ const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
  * Runs, in a Node process of its own, an app that calls a wrapped `getDoc`
  * whose promise rejects and never handles it. `setup` runs first. Bun's test
  * runner fails a test on any unhandled rejection, so the runtime's own
- * behavior is checked in Node.
+ * behavior is checked in Node. Node 22 strips types from `observe.ts` only
+ * behind `--experimental-strip-types`; Node 24 accepts the flag as well.
  */
 function rejectInNode(setup: string): { status: number | null; stdout: string; stderr: string } {
   const app = [
@@ -17,7 +18,7 @@ function rejectInNode(setup: string): { status: number | null; stdout: string; s
     `const getDoc = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer: () => undefined }, () => Promise.reject(Object.assign(new Error('permission-denied'), { code: 'permission-denied' })));`,
     'getDoc();',
   ].join('\n');
-  const run = spawnSync('node', ['--input-type=module', '--eval', app], { encoding: 'utf8' });
+  const run = spawnSync('node', ['--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', app], { encoding: 'utf8' });
   return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
 
