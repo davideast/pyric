@@ -8,15 +8,17 @@
  * before its plugins see the request, so the check runs here, ahead of
  * Vite's own middleware, on the URL the browser sent.
  *
- * A request for one of those files passes only at the URL Vite itself
- * writes into its importers: the path Vite names the real file by, under
- * the root or `/@fs/`, with the optimizer's `?v=` hash and nothing else.
- * Every other URL for it gets a module that throws the rows' refusal.
+ * A request for one of those files passes only at the exact URL Vite itself
+ * writes into its importers, compared raw: the path Vite names the real file
+ * by, under the root or `/@fs/`, with the optimizer's `?v=` hash and nothing
+ * else. Every other URL for it gets a module that throws the rows' refusal.
  *
  * The exact URL the rows loaded never reaches the dev server again: the
- * browser answers it from its module map, so that route is a known limit of
- * live mode, documented on its page.
+ * browser answers it from its module map. Nor does a fragment, which the
+ * browser keeps to itself. Both are known limits of live mode, documented
+ * on its page.
  */
+import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,20 +33,42 @@ const VERSION_PARAM = 'v';
 type Next = (error?: unknown) => void;
 type GateServer = Pick<ViteDevServer, 'config' | 'middlewares'>;
 
-/** The optimizer hash Vite writes as `?v=` on each SDK file's URL, or null when this Vite does not say. */
+function hashFrom(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/** The hash the client optimizer's metadata file records: Vite 5 keeps its optimizer out of reach of the server object. */
+function metadataFileHash(cacheDir: string | undefined): string | null {
+  if (cacheDir === undefined) return null;
+  try {
+    const metadata = JSON.parse(readFileSync(path.join(cacheDir, 'deps', '_metadata.json'), 'utf8')) as { browserHash?: unknown };
+    return hashFrom(metadata.browserHash);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The optimizer hash Vite writes as `?v=` on each SDK file's URL: the client
+ * environment's (Vite 6 and later), else the one the metadata file records
+ * (Vite 5). Null when neither says, and then only the URL with no query passes.
+ */
 function browserHashOf(server: GateServer): string | null {
   const shaped = server as unknown as {
     environments?: { client?: { depsOptimizer?: { metadata?: { browserHash?: unknown } } } };
-    _depsOptimizer?: { metadata?: { browserHash?: unknown } };
   };
-  const metadata = shaped.environments?.client?.depsOptimizer?.metadata ?? shaped._depsOptimizer?.metadata;
-  const hash = metadata?.browserHash;
-  return typeof hash === 'string' && hash.length > 0 ? hash : null;
+  const inMemory = hashFrom(shaped.environments?.client?.depsOptimizer?.metadata?.browserHash);
+  return inMemory ?? metadataFileHash(server.config.cacheDir);
 }
 
-/** The pathname below Vite's `base`, decoded, or null when it does not decode. */
+/** Vite's `base` as a path with a trailing slash. */
+function basePrefix(base: string): string {
+  return new URL(base, 'http://base.invalid').pathname.replace(/\/?$/, '/');
+}
+
+/** The pathname below Vite's `base`, decoded, to find the file it opens; null when it does not decode. */
 function servedPathname(url: URL, base: string): string | null {
-  const prefix = new URL(base, 'http://base.invalid').pathname.replace(/\/?$/, '/');
+  const prefix = basePrefix(base);
   const isUnderBase = url.pathname.startsWith(prefix);
   const pathname = isUnderBase ? `/${url.pathname.slice(prefix.length)}` : url.pathname;
   try {
@@ -67,16 +91,24 @@ function vitePathnameOf(realFile: string, root: string): string {
   return isUnderRoot ? realFile.slice(root.length) : `${FS_PREFIX.slice(0, -1)}${realFile}`;
 }
 
-/** Whether a query is the one Vite writes on an SDK file's URL: `v=<hash>`, or any `v` when the hash is unknown. */
-function isViteQuery(params: URLSearchParams, hash: string | null): boolean {
-  const keys = [...params.keys()];
-  const hasOnlyVersion = keys.every((key) => key === VERSION_PARAM);
-  if (!hasOnlyVersion) return false;
-  if (hash === null) return true;
-  return keys.length === 1 && params.get(VERSION_PARAM) === hash;
+/**
+ * The URL Vite writes for a real file, as the WHATWG parser spells it, with
+ * nothing decoded: `base`, the file's Vite path, and `?v=<hash>` when the
+ * optimizer has one.
+ */
+function writtenUrlOf(realFile: string, server: GateServer, hash: string | null): string {
+  const pathname = `${basePrefix(server.config.base ?? '/')}${vitePathnameOf(realFile, server.config.root).slice(1)}`;
+  const query = hash === null ? '' : `?${VERSION_PARAM}=${hash}`;
+  const written = new URL(`${pathname}${query}`, 'http://request.invalid');
+  return `${written.pathname}${written.search}`;
 }
 
-/** The real file URL of a loaded SDK file this request names under a URL Vite did not write, or null. */
+/**
+ * The real file URL of a loaded SDK file this request names under a URL Vite
+ * did not write, or null. The request's raw pathname and query must equal
+ * the written URL exactly: Vite normalizes `?v=x&`, `?%76=x` and an encoded
+ * path back to the file, while the browser keys each as its own module.
+ */
 function unwrittenSdkFile(server: GateServer, supplied: SuppliedRows, rawUrl: string | undefined): string | null {
   if (rawUrl === undefined || supplied.package() === null) return null;
   const url = new URL(rawUrl, 'http://request.invalid');
@@ -85,8 +117,8 @@ function unwrittenSdkFile(server: GateServer, supplied: SuppliedRows, rawUrl: st
   const real = realFileUrlOf(fileOf(pathname, server.config.root));
   const isLoadedSdkFile = real !== null && supplied.liveSdkUrls.has(real);
   if (!isLoadedSdkFile) return null;
-  const isVitePath = pathname === vitePathnameOf(fileURLToPath(real), server.config.root);
-  const isWritten = isVitePath && isViteQuery(url.searchParams, browserHashOf(server));
+  const written = writtenUrlOf(fileURLToPath(real), server, browserHashOf(server));
+  const isWritten = `${url.pathname}${url.search}` === written;
   return isWritten ? null : real;
 }
 

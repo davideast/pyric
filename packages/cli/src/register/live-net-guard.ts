@@ -36,7 +36,6 @@
  * Loaded by the live register, so it imports node built-ins and
  * side-effect-free modules only.
  */
-import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { lookupGoogleEndpoint, matchesHostSuffix, normalizeHostname } from '../google-endpoints.js';
 import { findTokenSource, tokenEndpointsFrom } from '../google-token-endpoints.js';
@@ -51,7 +50,7 @@ import {
   type NetGuardHooks,
   type ReporterOptions,
 } from './net-guard.js';
-import { nodeClientRequestPrototypes } from './connect-prototypes.js';
+import { nodeAgentPrototypes, nodeClientRequestPrototypes } from './connect-prototypes.js';
 
 /** The hosts the four live rows' SDK reaches in Node: Firestore, Auth, its token refresh, and App Check. */
 export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
@@ -224,17 +223,6 @@ type AgentPrototype = { addRequest?: unknown };
 /** An `onSocket`-bearing object: `http.ClientRequest.prototype` in production, a stand-in under test. */
 type RequestPrototype = { onSocket?: unknown };
 
-/** The `http.Agent` prototype, whose `addRequest` `https.Agent` inherits. */
-function nodeAgentPrototypes(): AgentPrototype[] {
-  try {
-    const http = createRequire(import.meta.url)('node:http') as { Agent?: { prototype?: AgentPrototype } };
-    const prototype = http.Agent?.prototype;
-    return prototype === undefined ? [] : [prototype];
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Refuses every `http.request` and `https.request` to a live row host. The
  * Agent's `addRequest` is checked first, so a request through an Agent fails
@@ -249,8 +237,10 @@ function guardLiveRowRequests(
   requests: readonly RequestPrototype[],
 ): void {
   for (const prototype of agents) {
+    // `https.Agent` inherits `http.Agent`'s `addRequest`: patch it once, where it is defined.
+    const isOwn = Object.hasOwn(prototype, 'addRequest');
     const original = prototype.addRequest;
-    if (typeof original !== 'function') continue;
+    if (!isOwn || typeof original !== 'function') continue;
     prototype.addRequest = function (this: unknown, request: ClientRequestLike, ...rest: unknown[]): unknown {
       const verdict = liveRowRequestVerdict(request);
       if (verdict === null) return Reflect.apply(original, this, [request, ...rest]);
@@ -274,7 +264,7 @@ export interface LiveNetGuardOptions extends NetGuardHooks {
   readonly isLiveSdkFile: (url: string) => boolean;
   /** Holds `fetch`. Defaults to `globalThis`. */
   readonly fetchScope?: { fetch?: Fetch };
-  /** Prototypes whose `addRequest` is checked. Defaults to the `http.Agent` prototype. */
+  /** Prototypes whose `addRequest` is checked. Defaults to the `http.Agent` and `https.Agent` prototypes. */
   readonly liveAgentPrototypes?: readonly AgentPrototype[];
 }
 

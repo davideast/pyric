@@ -70,13 +70,21 @@ window.refused = {
     }
   },
   // The SDK file the live rows loaded, read back from the page's resource
-  // timings and imported again with an extra query: a second copy of the raw
-  // SDK, which would open a named database the rows refuse.
-  cacheBusted: async () => {
+  // timings and imported again under another URL that reaches the same file:
+  // a second copy of the raw SDK, which would open a named database the rows
+  // refuse. `t` adds a timestamp query, `amp` a trailing `&`, and
+  // `encodedName` spells the `v` query name as `%76`.
+  cacheBusted: async (variant = "t") => {
     const loaded = performance.getEntriesByType("resource").map((entry) => entry.name)
       .find((name) => /\/@firebase\/firestore\/dist\/index\.esm\.js/.test(name));
     if (loaded === undefined) return "no loaded SDK file";
-    const busted = `${loaded}${loaded.includes("?") ? "&" : "?"}t=${Date.now()}`;
+    const [path, query = ""] = loaded.split("?");
+    const urls = {
+      t: `${path}?${query}${query ? "&" : ""}t=${Date.now()}`,
+      amp: `${path}?${query}&`,
+      encodedName: `${path}?${query.replace(/^v=/, "%76=")}`,
+    };
+    const busted = urls[variant];
     try {
       const raw = await import(/* @vite-ignore */ busted);
       raw.initializeFirestore(app, {}, "reports");
