@@ -44,6 +44,7 @@ import {
 } from './host/auth-session-seeder.js';
 import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
 import { getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
+import { sessionKeyOf } from 'pyric/auth/internal';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
@@ -547,10 +548,16 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           ok(port, msg.id, null);
         } else {
           const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
+          // The user's session continues: the one its key names, or this
+          // port's own when it holds the uid. Without either the session has
+          // no sign-in time of its own, so a revocation refuses it (#1950).
+          const held = portSession(ctx, port)?.user;
+          const heldKey = held?.uid === uid ? sessionKeyOf(held) : undefined;
           const freshSession = authSandboxOps.mintSession(auth, {
             kind: 'uid',
             uid,
             tenantId,
+            restore: { sessionKey: msg.sessionKey ?? heldKey },
           });
           setPortSession(ctx, port, freshSession);
           ok(port, msg.id, serializeUser(freshSession.user));

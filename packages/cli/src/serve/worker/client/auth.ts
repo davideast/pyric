@@ -99,6 +99,12 @@ export function clientUserSessionKey(user: ClientUser): string | undefined {
   return (user as { [CLIENT_USER_SESSION_KEY]?: string })[CLIENT_USER_SESSION_KEY];
 }
 
+/** `{ sessionKey }` for a user that carries one, so the worker continues its session. */
+function sessionKeyField(user: ClientUser): { sessionKey?: string } {
+  const sessionKey = clientUserSessionKey(user);
+  return sessionKey === undefined ? {} : { sessionKey };
+}
+
 /** Build a token-capable ClientUser from a wire SerializedUser. */
 function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
   const user: ClientUser = {
@@ -492,6 +498,7 @@ export async function updateCurrentUser(
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
     tenantId: user?.tenantId ?? auth.tenantId ?? null,
+    ...(user === null ? {} : sessionKeyField(user)),
   })) as SerializedUser | null;
   auth.currentUser = toClientUser(auth.port, raw);
 }
