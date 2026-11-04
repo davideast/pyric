@@ -49,7 +49,7 @@ declare function readSecret(): Promise<string>;
 declare function listenToOpenRooms(): Promise<string[]>;
 declare function openGarden(): Promise<string>;
 declare function openRooms(): string[];
-declare function snapshotCount(): number;
+declare function billedDocumentCount(): number;
 declare const refused: Record<'storage' | 'sdkPackage' | 'namedDatabase', () => Promise<string> | string>;
 
 interface Recorded {
@@ -168,6 +168,11 @@ async function expectRow(rows: Locator, call: string, source: 'page' | 'node', a
 
 const LABELS = { page: 'This page', node: 'Server (client SDK)' } as const;
 
+/** The chip's listener part of the billed count. */
+function documentsDelivered(count: number): string {
+  return `${count} ${count === 1 ? 'document' : 'documents'} delivered to listeners`;
+}
+
 async function billedLine(chip: Locator): Promise<string> {
   return (await chip.locator('[data-chip-billed]').first().textContent()) ?? '';
 }
@@ -215,14 +220,14 @@ export default scenario(async (app) => {
     assert.equal(run.code, 0, run.output);
     assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${project}\\.`));
     assert.match(run.output, /@pyric\/live\/register: reporting calls to the live host at /);
-    const { listened, ...calls } = resultOf(run.output) as { listened: string[][] };
+    const { listened, billedDocuments, ...calls } = resultOf(run.output) as { listened: string[][]; billedDocuments: number };
     // Production's first answer lists the garden the page opened; the listener's last delivery adds the patio this job wrote.
     // The deliveries before and between (from the cache, the pending write, metadata) vary from run to run.
     assert.deepEqual(calls, {
       uid: writer, read: { name: 'Lobby', open: true, seats: 12 }, denied: 'permission-denied', answered: ['garden', 'lobby'], wrote: 'written',
     });
     assert.deepEqual(listened.at(-1), ['garden', 'lobby', 'patio']);
-    return { deliveries: listened.length };
+    return { billedDocuments };
   });
 
   await app.step('production answered each client as its own account, and had a recording for every request', async () => {
@@ -237,9 +242,10 @@ export default scenario(async (app) => {
   await app.step('the chip shows Live: <project>, the billed count, and each call as production\'s from its client and account', async () => {
     const chip = await openChip(page);
     assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${project}`);
-    // Each client's ok read and write, and every snapshot its listener got, the cached and pending ones too.
-    const deliveries = await page.evaluate(() => snapshotCount()) + serverJob.deliveries;
-    const expected = `Billed calls: 2 reads, 2 writes, ${deliveries} listener deliveries`;
+    // Each client's ok read and write, and each document its listener's snapshots changed, at least one for the first.
+    // The acknowledgement of each client's write only changes metadata and counts nothing.
+    const delivered = await page.evaluate(() => billedDocumentCount()) + serverJob.billedDocuments;
+    const expected = `Billed calls: 2 reads, 2 writes, ${documentsDelivered(delivered)}`;
     await eventually(() => billedLine(chip), (line) => line === expected, 'the billed count');
     const rows = await trafficRows(chip);
     // The page signed in as the reader and the server job as the writer: each row names its client's account.
@@ -292,12 +298,12 @@ export default scenario(async (app) => {
     const run = await app.command('node', ['--import', '@pyric/live/register', 'server.mjs'], { env: serverJobEnv(replay), timeoutMs: 90_000 });
     assert.equal(run.code, 0, run.output);
     assert.match(run.output, new RegExp(`@pyric/live/register: reporting calls to the live host at ${live.url.replace(/[.]/g, '\\.')}`));
-    const result = resultOf(run.output) as { uid: string; listened: string[][] };
+    const result = resultOf(run.output) as { uid: string; billedDocuments: number };
     assert.equal(result.uid, writer);
     const hosting = await app.page(`${live.url}/`);
     const chip = await openChip(hosting);
     assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${project}`);
-    const expected = `Billed calls: 1 read, 1 write, ${result.listened.length} listener deliveries`;
+    const expected = `Billed calls: 1 read, 1 write, ${documentsDelivered(result.billedDocuments)}`;
     await eventually(() => billedLine(chip), (line) => line === expected, 'the billed count');
     const rows = await trafficRows(chip);
     await expectRow(rows, 'firestore.getDoc', 'node', 'Production succeeded', writer);

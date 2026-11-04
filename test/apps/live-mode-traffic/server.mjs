@@ -29,6 +29,9 @@ result.read = await getDoc(doc(db, "rooms/lobby")).then((snapshot) => snapshot.d
 result.denied = await getDoc(doc(db, "rooms/secret")).then(() => "read", failure);
 
 const listened = [];
+// The documents production billed the listener for: each document a snapshot
+// changed, at least one for the first, none for a metadata-only snapshot.
+let billedDocuments = 0;
 const fromServer = (snapshot) => !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
 let stop = () => {};
 let firstAnswer = () => {};
@@ -40,6 +43,8 @@ const patioListed = new Promise((resolve, reject) => {
   const openRooms = query(collection(db, "rooms"), where("open", "==", true));
   stop = onSnapshot(openRooms, { includeMetadataChanges: true }, (snapshot) => {
     const rooms = snapshot.docs.map((room) => room.id);
+    const changed = snapshot.docChanges().length;
+    billedDocuments += listened.length === 0 ? Math.max(changed, 1) : changed;
     listened.push(rooms);
     if (!fromServer(snapshot)) return;
     firstAnswer(rooms);
@@ -51,6 +56,7 @@ result.wrote = await setDoc(doc(db, "rooms/patio"), { name: "Patio", open: true 
 await patioListed;
 stop();
 result.listened = listened;
+result.billedDocuments = billedDocuments;
 
 await terminate(db);
 await deleteApp(app);
