@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "bin": {
+    "pyric-live": "./dist/cli.js"
+  },
   "description": "Live mode: the app's own Firebase SDK, observed as it talks to a real project. Private until live mode is complete.",
   "exports": {
     ".": "./src/index.ts",

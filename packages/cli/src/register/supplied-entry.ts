@@ -28,6 +28,9 @@ import {
 import { installWorkerGuard } from './worker-guard.js';
 
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
+export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
+export { liveProjectId } from '../serve/live-project.js';
+export { LIVE_PROJECT_ROOT_VARIABLE } from './live-package.js';
 export type { ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 export type { SuppliedRowsPlane, SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
@@ -136,8 +139,4 @@ export async function activateWithSuppliedRows(): Promise<void> {
   installChildProcessGuard(installed.entryUrl);
   registerHooks({ resolve: resolveWithRows(rows, allowedUrls), load: loadWithRows(rows) });
   markLiveRegisterActive();
-  process.stderr.write(
-    `${LOG_PREFIX}: live mode. firebase/app, firebase/auth, firebase/firestore and firebase/app-check are your ` +
-      'installed SDK, talking to your Firebase project, and each call is reported to the Node host.\n',
-  );
 }

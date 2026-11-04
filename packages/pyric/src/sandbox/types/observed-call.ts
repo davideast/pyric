@@ -39,6 +39,12 @@ export interface ObservedCall {
   outcome: ProductionOutcome;
   /** Absent when the call ran signed out. */
   account?: ObservedAccount;
+  /**
+   * The project the app's Firebase config named for this call
+   * (`app.options.projectId`): where the call actually went. Absent when the
+   * recorder could not read it.
+   */
+  projectId?: string;
 }
 
 /**

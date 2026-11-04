@@ -31,6 +31,8 @@ describe('the records a page sends to the host', () => {
 
   test('leave out a synchronous return, and every firebase/app and firebase/app-check record', () => {
     expect(observedCallOf({ module: 'firebase/firestore', name: 'onSnapshot', outcome: 'returned' }, AT)).toBeNull();
+    expect(observedCallOf({ module: 'firebase/firestore', name: 'getDoc', outcome: 'resolved', projectId: 'prod' }, AT))
+      .toEqual({ service: 'firestore', method: 'getDoc', at: AT, outcome: { status: 'ok' }, projectId: 'prod' });
     expect(observedCallOf({ module: 'firebase/app', name: 'initializeApp', outcome: 'returned' }, AT)).toBeNull();
     expect(observedCallOf({ module: 'firebase/app-check', name: 'getToken', outcome: 'resolved' }, AT)).toBeNull();
   });
