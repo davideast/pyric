@@ -14,6 +14,7 @@ import {
   installedFirebaseVersion,
   isSupportedFirebaseVersion,
   liveStartRefusal,
+  resolutionRoots,
 } from '../src/start-checks.js';
 
 const roots: string[] = [];
@@ -131,13 +132,31 @@ describe('the copies of @firebase/app in a workspace', () => {
     expect(liveStartRefusal(app)).toBeNull();
   });
 
-  test('outside a workspace, a folder above the project is not searched', () => {
+  test('finds a copy in a parent folder that declares no workspaces, as Node resolves one', () => {
     const outer = project();
-    installPackage(join(outer, 'node_modules/stray/node_modules/@firebase/app'), '@firebase/app', '0.13.2');
-    const app = join(outer, 'app');
+    mkdirSync(join(outer, '.git'));
+    const stray = installPackage(join(outer, 'node_modules/stray/node_modules/@firebase/app'), '@firebase/app', '0.13.2');
+    const app = join(outer, 'apps/app');
     mkdirSync(app, { recursive: true });
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true }));
     installFirebase(app, '12.19.0');
+    expect(resolutionRoots(app)).toEqual([app, join(outer, 'apps'), outer]);
+    expect(firebaseAppCopies(app)).toEqual([join(app, 'node_modules/@firebase/app'), stray].sort());
+    expect(liveStartRefusal(app)).toContain('This project has 2 copies of @firebase/app installed:');
+  });
+
+  test('stops at the first folder above the project that holds .git', () => {
+    const outer = project();
+    installPackage(join(outer, 'node_modules/stray/node_modules/@firebase/app'), '@firebase/app', '0.13.2');
+    const repository = join(outer, 'repository');
+    mkdirSync(repository, { recursive: true });
+    // A worktree's .git is a file.
+    writeFileSync(join(repository, '.git'), 'gitdir: /elsewhere\n');
+    const app = join(repository, 'app');
+    mkdirSync(app, { recursive: true });
+    writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true }));
+    installFirebase(app, '12.19.0');
+    expect(resolutionRoots(app)).toEqual([app, repository]);
     expect(firebaseAppCopies(app)).toEqual([join(app, 'node_modules/@firebase/app')]);
   });
 });

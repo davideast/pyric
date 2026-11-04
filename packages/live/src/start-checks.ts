@@ -108,31 +108,26 @@ function walkNodeModules(dir: string, depth: number, visited: Set<string>, found
   }
 }
 
-function declaresWorkspaces(dir: string): boolean {
-  const hasPnpmWorkspace = existsSync(join(dir, 'pnpm-workspace.yaml'));
-  if (hasPnpmWorkspace) return true;
-  try {
-    const parsed = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { workspaces?: unknown };
-    return parsed.workspaces !== undefined;
-  } catch {
-    return false;
-  }
+/** Whether `dir` is a repository root: it holds `.git`, a folder or, in a worktree, a file. */
+function isRepositoryRoot(dir: string): boolean {
+  return existsSync(join(dir, '.git'));
 }
 
 /**
- * The folders whose `node_modules` the project's modules resolve from: the
- * project root, and each folder above it up to the workspace root (a
- * `package.json` with `workspaces`, or a `pnpm-workspace.yaml`). Outside a
- * workspace, the project root alone.
+ * The folders whose `node_modules` the project's modules can resolve from:
+ * the project root and each folder above it, as Node's resolution walks, up
+ * to the first one that is a repository root (it holds `.git`) or the
+ * filesystem root. A copy in a parent folder that declares no workspaces
+ * still resolves, so it counts.
  */
 export function resolutionRoots(projectRoot: string): string[] {
   const roots: string[] = [];
   let dir = projectRoot;
   for (;;) {
     roots.push(dir);
-    if (declaresWorkspaces(dir)) return roots;
     const parent = dirname(dir);
-    if (parent === dir) return [projectRoot];
+    const isLast = isRepositoryRoot(dir) || parent === dir;
+    if (isLast) return roots;
     dir = parent;
   }
 }
@@ -140,7 +135,7 @@ export function resolutionRoots(projectRoot: string): string[] {
 /**
  * Every installed copy of `@firebase/app`, by real path, sorted: each one in
  * the `node_modules` tree of the project and of every folder above it up to
- * the workspace root (nested and pnpm-stored copies too), and the one each
+ * the repository root (nested and pnpm-stored copies too), and the one each
  * live row's package resolves from the installed `firebase`.
  */
 export function firebaseAppCopies(projectRoot: string): string[] {
