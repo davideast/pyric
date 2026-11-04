@@ -86,6 +86,62 @@ describe('the installed copies of @firebase/app', () => {
   });
 });
 
+describe('the copies of @firebase/app in a workspace', () => {
+  /** A workspace root with the app at `packages/app`, as npm, yarn and bun lay one out. */
+  function workspace(): { root: string; app: string } {
+    const root = project();
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'ws', private: true, workspaces: ['packages/*'] }));
+    const app = join(root, 'packages/app');
+    mkdirSync(app, { recursive: true });
+    writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true }));
+    return { root, app };
+  }
+
+  test('finds a second copy nested under a package hoisted to the workspace root', () => {
+    const { root, app } = workspace();
+    installFirebase(root, '12.19.0');
+    const nested = installPackage(join(root, 'node_modules/reactfire/node_modules/@firebase/app'), '@firebase/app', '0.13.2');
+    expect(firebaseAppCopies(app)).toEqual([join(root, 'node_modules/@firebase/app'), nested]);
+    expect(liveStartRefusal(app)).toContain('This project has 2 copies of @firebase/app installed:');
+  });
+
+  test('finds a copy in the app folder beside the hoisted one', () => {
+    const { root, app } = workspace();
+    installFirebase(root, '12.19.0');
+    const local = installPackage(join(app, 'node_modules/@firebase/app'), '@firebase/app', '0.13.2');
+    expect(firebaseAppCopies(app)).toEqual([join(root, 'node_modules/@firebase/app'), local].sort());
+  });
+
+  test('finds every copy in the root pnpm store of a pnpm workspace', () => {
+    const root = project();
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+    const app = join(root, 'packages/app');
+    mkdirSync(app, { recursive: true });
+    const first = installPackage(join(root, 'node_modules/.pnpm/@firebase+app@0.14.0/node_modules/@firebase/app'), '@firebase/app', '0.14.0');
+    const second = installPackage(join(root, 'node_modules/.pnpm/@firebase+app@0.13.2/node_modules/@firebase/app'), '@firebase/app', '0.13.2');
+    installPackage(join(root, 'node_modules/.pnpm/firebase@12.19.0/node_modules/firebase'), 'firebase', '12.19.0');
+    mkdirSync(join(app, 'node_modules'), { recursive: true });
+    symlinkSync(join(root, 'node_modules/.pnpm/firebase@12.19.0/node_modules/firebase'), join(app, 'node_modules/firebase'));
+    expect(firebaseAppCopies(app)).toEqual([first, second].sort());
+  });
+
+  test('a single hoisted copy passes', () => {
+    const { root, app } = workspace();
+    installFirebase(root, '12.19.0');
+    expect(liveStartRefusal(app)).toBeNull();
+  });
+
+  test('outside a workspace, a folder above the project is not searched', () => {
+    const outer = project();
+    installPackage(join(outer, 'node_modules/stray/node_modules/@firebase/app'), '@firebase/app', '0.13.2');
+    const app = join(outer, 'app');
+    mkdirSync(app, { recursive: true });
+    writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'app', private: true }));
+    installFirebase(app, '12.19.0');
+    expect(firebaseAppCopies(app)).toEqual([join(app, 'node_modules/@firebase/app')]);
+  });
+});
+
 describe('the start refusal', () => {
   test('is null for a supported firebase with one @firebase/app', () => {
     const root = project();
