@@ -60,6 +60,7 @@ import {
   lensProvenance,
   opProvenance,
 } from './core.js';
+import { bindCaller, callerFor, markPortConnection, setPortTabId } from './caller.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './rules.js';
@@ -198,6 +199,7 @@ export async function handleMessage(
     targetPort = needsRemoteSession
       ? getOrCreateRemoteClientPort(ctx, port, clientSessionId)
       : new RemoteClientPort(port, clientSessionId);
+    markPortConnection(ctx, targetPort, 'relay');
   }
 
   const disconnectsRemoteClient = isDisconnect && isRemoteClient;
@@ -220,6 +222,7 @@ export async function handleMessage(
   const configuresApp = msg.t === 'appConfig';
   if (configuresApp) {
     if (msg.origin !== undefined) setPortOrigin(targetPort, msg.origin);
+    if (msg.tabId !== undefined) setPortTabId(ctx, targetPort, msg.tabId);
     handleAppConfig(ctx, targetPort, msg, stalePort => cleanupPort(ctx, stalePort));
     return;
   }
@@ -253,6 +256,10 @@ export async function handleMessage(
   // provenance EXPLICITLY instead (see `handleOp`'s storage cases). Without the
   // lens on admin ops, `verdictFor` mislabeled a rules BYPASS as ALLOW (the
   // RTDB/Firestore asymmetry the traffic-metrics work flagged).
+  // The connection that sent the frame, read before the relay's port is
+  // swapped in, and bound to the frame so every event its operation emits
+  // names it (`caller.ts`).
+  bindCaller(msg, callerFor(ctx, port, msg));
   const isRemoteRelay = msg.relaySource === 'remote'
     || Boolean(msg.clientSessionId);
   const isOperation = msg.t === 'op';

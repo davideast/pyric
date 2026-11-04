@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'bun:test';
-import type { SandboxEvent } from 'pyric/sandbox';
+import type { EventCaller, SandboxEvent } from 'pyric/sandbox';
 import {
   chipRequestFromEvent,
   createTrafficFeed,
+  isPageRequest,
   isPermissionDeniedCode,
   orderChipRequests,
   RECENT_FAILURE_MS,
+  requestsInScope,
   type ChipRequest,
 } from '../../../src/serve/runtime/chip-traffic.js';
 
@@ -295,5 +297,88 @@ describe('the bounded tail the view reads', () => {
     feed.dispose();
     expect(unsubscribed).toBe(true);
     expect(feed.requests()).toEqual([]);
+  });
+});
+
+function calledBy(event: SandboxEvent, caller: EventCaller): SandboxEvent {
+  return { ...event, caller } as SandboxEvent;
+}
+
+describe("who sent each of Traffic's rows", () => {
+  const VIEWER = 'tab-viewer';
+
+  it('reads each caller as this page, another tab, server code, MCP or Studio', () => {
+    const sourceOf = (caller: EventCaller) => chipRequestFromEvent(calledBy(request('r', 1000, 'allow'), caller), VIEWER)?.source;
+    expect(sourceOf({ kind: 'page', pageId: VIEWER })).toBe('page');
+    expect(sourceOf({ kind: 'page', pageId: 'tab-other' })).toBe('tab');
+    expect(sourceOf({ kind: 'node' })).toBe('node');
+    expect(sourceOf({ kind: 'admin' })).toBe('admin');
+    expect(sourceOf({ kind: 'mcp' })).toBe('mcp');
+    expect(sourceOf({ kind: 'studio' })).toBe('studio');
+  });
+
+  it('leaves the source off a row from an in-page sandbox, and names an unstamped host event unknown', () => {
+    expect(chipRequestFromEvent(request('r', 1000, 'allow'))?.source).toBeUndefined();
+    expect(chipRequestFromEvent(request('r', 1000, 'allow'), VIEWER)?.source).toBe('unknown');
+  });
+
+  it("lists only this page's rows by default and every row in the All view", () => {
+    const rows: ChipRequest[] = [
+      { ...row(1, 'ok'), id: 'mine', source: 'page' },
+      { ...row(2, 'ok'), id: 'in-page' },
+      { ...row(3, 'ok'), id: 'unstamped', source: 'unknown' },
+      { ...row(4, 'ok'), id: 'other-tab', source: 'tab' },
+      { ...row(5, 'ok'), id: 'server', source: 'node' },
+      { ...row(6, 'ok'), id: 'admin', source: 'admin' },
+      { ...row(7, 'ok'), id: 'agent', source: 'mcp' },
+      { ...row(8, 'ok'), id: 'studio', source: 'studio' },
+    ];
+    expect(requestsInScope(rows, 'page').map((entry) => entry.id)).toEqual(['mine', 'in-page', 'unstamped']);
+    expect(requestsInScope(rows, 'all').map((entry) => entry.id)).toEqual(rows.map((entry) => entry.id));
+    expect(rows.filter(isPageRequest)).toHaveLength(3);
+  });
+
+  it('reads sources against the page id the history batch names, and re-reads them when it changes', () => {
+    let deliver: ((events: readonly SandboxEvent[], batch?: { pageId?: string }) => void) | null = null;
+    let changes = 0;
+    const feed = createTrafficFeed({
+      subscribeEvents: (callback) => {
+        deliver = callback;
+        return () => { deliver = null; };
+      },
+      onChange: () => { changes += 1; },
+    });
+    try {
+      deliver!([
+        calledBy(request('a', 1000, 'allow'), { kind: 'page', pageId: 'tab-1' }),
+        calledBy(request('b', 2000, 'allow'), { kind: 'page', pageId: 'tab-2' }),
+        calledBy(request('c', 3000, 'allow'), { kind: 'admin' }),
+      ], { pageId: 'tab-1' });
+      expect(feed.pageId()).toBe('tab-1');
+      expect(feed.requests().map((entry) => [entry.id, entry.source])).toEqual([['a', 'page'], ['b', 'tab'], ['c', 'admin']]);
+      deliver!([], { pageId: 'tab-2' });
+      expect(changes).toBe(2);
+      expect(feed.requests().map((entry) => [entry.id, entry.source])).toEqual([['a', 'tab'], ['b', 'page'], ['c', 'admin']]);
+    } finally { feed.dispose(); }
+  });
+
+  it("counts only this page's failures as a recent failure", () => {
+    let deliver: ((events: readonly SandboxEvent[], batch?: { pageId?: string }) => void) | null = null;
+    const feed = createTrafficFeed({
+      subscribeEvents: (callback) => {
+        deliver = callback;
+        return () => { deliver = null; };
+      },
+    });
+    try {
+      const now = Date.now();
+      deliver!([
+        calledBy(request('tab', now - 1000, 'deny'), { kind: 'page', pageId: 'tab-2' }),
+        calledBy(request('server', now - 1000, 'deny'), { kind: 'node' }),
+      ], { pageId: 'tab-1' });
+      expect(feed.failedRecently(now)).toBe(false);
+      deliver!([calledBy(request('mine', now - 1000, 'deny'), { kind: 'page', pageId: 'tab-1' })]);
+      expect(feed.failedRecently(now)).toBe(true);
+    } finally { feed.dispose(); }
   });
 });

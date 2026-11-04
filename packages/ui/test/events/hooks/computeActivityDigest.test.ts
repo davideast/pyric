@@ -259,14 +259,53 @@ describe('computeActivityDigest — actor / lens / subject attribution', () => {
     expect(d.bands[0].attribution).toBeUndefined();
   });
 
-  it('defaults missing provenance to app / app-session', () => {
-    const d = computeActivityDigest([writeEvent({ actor: undefined, authLens: undefined })], {
-      now: NOW,
-    });
+  it('leaves missing provenance unattributed, never "the app"', () => {
+    const d = computeActivityDigest(
+      [
+        writeEvent({ method: 'create', auth: { uid: 'alice' }, actor: undefined, authLens: undefined }),
+        writeEvent({ method: 'create', auth: { uid: 'bob' }, actor: undefined, authLens: undefined }),
+      ],
+      { now: NOW },
+    );
     const row = d.bands[0].rows[0];
-    expect(row.actor).toEqual({ kind: 'app' });
+    expect(row.actor).toEqual({ kind: 'unattributed' });
     expect(row.authLens).toEqual({ mode: 'app-session' });
     expect(row.lens).toBe('app');
+    expect(row.source).toBe('unknown');
+    expect(row.sourceLabel).toBe('Unknown source');
+    expect(d.bands[0].attribution).toBeUndefined();
+  });
+
+  it('labels each row by the connection its op came from', () => {
+    const d = computeActivityDigest(
+      [
+        writeEvent({ id: 'page', method: 'create', caller: { kind: 'page', pageId: 'tab-1' } }),
+        writeEvent({ id: 'node', method: 'create', caller: { kind: 'node' } }),
+        writeEvent({ id: 'admin', method: 'create', caller: { kind: 'admin' } }),
+        writeEvent({ id: 'mcp', method: 'create', caller: { kind: 'mcp' } }),
+        writeEvent({ id: 'studio', method: 'create', caller: { kind: 'studio' } }),
+      ],
+      { now: NOW },
+    );
+    const labels = new Map(d.bands[0].rows.map((r) => [r.id, r.sourceLabel]));
+    expect(Object.fromEntries(labels)).toEqual({
+      page: 'App page',
+      node: 'Server (client SDK)',
+      admin: 'Server (admin)',
+      mcp: 'MCP',
+      studio: 'Studio',
+    });
+  });
+
+  it('attributes a band to the one connection every row came from', () => {
+    const d = computeActivityDigest(
+      [
+        writeEvent({ method: 'create', auth: { uid: 'alice' }, actor: { kind: 'app' }, caller: { kind: 'admin' } }),
+        writeEvent({ method: 'create', auth: { uid: 'bob' }, actor: { kind: 'app' }, caller: { kind: 'admin' } }),
+      ],
+      { now: NOW },
+    );
+    expect(d.bands[0].attribution).toBe('by Server (admin)');
   });
 
   it('preserves planId on rows when present', () => {

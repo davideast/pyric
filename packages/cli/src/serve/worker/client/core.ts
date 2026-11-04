@@ -74,7 +74,7 @@ export const _snapSubs = new Map<string, {
  */
 export const _eventSubs = new Map<string, {
   port: ClientPort;
-  next: (events: readonly SandboxEvent[]) => void;
+  next: (events: readonly SandboxEvent[], pageId?: string) => void;
   message: InboundMessage;
   error?: (error: Error & { code: string }) => void;
   /** Called when the subscription is sent again; the host replies with its whole history. */
@@ -185,7 +185,7 @@ export function openSnapshotSubscription(
 export function openEventSubscription(
   port: ClientPort,
   subId: string,
-  next: (events: readonly SandboxEvent[]) => void,
+  next: (events: readonly SandboxEvent[], pageId?: string) => void,
   message: InboundMessage,
   error?: (error: Error & { code: string }) => void,
   restored?: () => void,
@@ -638,7 +638,7 @@ export function wirePort(port: ClientPort): void {
       // no rehydration. Deliver the whole batch to the registered subscriber.
       const subscription = _eventSubs.get(msg.subId);
       const ownsSubscription = subscription !== undefined && subscription.port === port;
-      if (ownsSubscription) subscription.next(msg.events);
+      if (ownsSubscription) subscription.next(msg.events, msg.pageId);
     } else if (isRuntimeReload) {
       for (const listener of runtimeReloadListeners) listener(msg);
     } else if (isClock) {

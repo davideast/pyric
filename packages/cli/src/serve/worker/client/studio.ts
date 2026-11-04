@@ -10,6 +10,7 @@ import { EventHistory, OBSERVATION_HISTORY_LIMITS } from 'pyric/sandbox/internal
 import { DOC_VALUE_ENCODING, rehydrateEncodedDocValue } from 'pyric/firestore/internal/value-codec';
 import { closeSubscription, nextId, nextSubId, openEventSubscription, rpc } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
+import { pageTabId } from './tab-id.js';
 
 const RulesPathCtor = (
   rehydrateEncodedDocValue({ __type: 'path', segments: [] }, DOC_VALUE_ENCODING) as {
@@ -38,6 +39,11 @@ const RulesPathCtor = (
  */
 export interface EventBatch {
   readonly history: boolean;
+  /**
+   * The id the host stamps on this page's own events (`caller.pageId`), from
+   * the host's latest history batch. Absent when the host named none.
+   */
+  readonly pageId?: string;
 }
 
 /** A subscriber's view of the stream: batches of events, each marked. */
@@ -64,18 +70,20 @@ class SharedEventStream {
   /** The next batch is the worker's whole history: on the first subscription and after each restore. */
   private isAwaitingHistory = true;
   private hasReceivedHistory = false;
+  /** The page id the host's latest history batch named. */
+  private pageId: string | undefined;
 
   constructor(private readonly port: ClientPort) {}
 
   open(first: EventSubscriber): void {
     this.subscribers.add(first);
     sharedStreams.set(this.port, this);
-    const message = { t: 'sub', subId: this.subId, target: 'events' } satisfies InboundMessage;
+    const message = { t: 'sub', subId: this.subId, target: 'events', tabId: pageTabId() } satisfies InboundMessage;
     // A closed port reports to `first` through `fail` and leaves no stream behind.
     openEventSubscription(
       this.port,
       this.subId,
-      (events) => this.receive(events),
+      (events, pageId) => this.receive(events, pageId),
       message,
       (error) => this.fail(error),
       () => { this.isAwaitingHistory = true; },
@@ -87,7 +95,7 @@ class SharedEventStream {
     if (!this.hasReceivedHistory) return;
     // Replay after the caller returns, as the worker's history batch would arrive.
     queueMicrotask(() => {
-      if (this.subscribers.has(subscriber)) prime(subscriber, this.history.snapshot());
+      if (this.subscribers.has(subscriber)) prime(subscriber, this.history.snapshot(), this.pageId);
     });
   }
 
@@ -99,9 +107,12 @@ class SharedEventStream {
     closeSubscription(this.port, this.subId);
   }
 
-  private receive(events: readonly SandboxEvent[]): void {
+  private receive(events: readonly SandboxEvent[], pageId: string | undefined): void {
     const isHistory = this.isAwaitingHistory;
-    if (isHistory) this.history.clear();
+    if (isHistory) {
+      this.history.clear();
+      this.pageId = pageId;
+    }
     for (const event of events) this.record(event);
     this.isAwaitingHistory = false;
     const isFirstHistory = isHistory && !this.hasReceivedHistory;
@@ -109,8 +120,8 @@ class SharedEventStream {
     for (const subscriber of [...this.subscribers]) {
       const isStillSubscribed = this.subscribers.has(subscriber);
       if (!isStillSubscribed) continue;
-      if (isFirstHistory) prime(subscriber, events);
-      else if (subscriber.isPrimed) deliver(subscriber, events, isHistory);
+      if (isFirstHistory) prime(subscriber, events, this.pageId);
+      else if (subscriber.isPrimed) deliver(subscriber, events, isHistory, this.pageId);
     }
   }
 
@@ -138,18 +149,18 @@ class SharedEventStream {
 const sharedStreams = new WeakMap<ClientPort, SharedEventStream>();
 
 /** Deliver to one subscriber; a throwing consumer does not stop the others. */
-function deliver(subscriber: EventSubscriber, events: readonly SandboxEvent[], history: boolean): void {
+function deliver(subscriber: EventSubscriber, events: readonly SandboxEvent[], history: boolean, pageId: string | undefined): void {
   try {
-    subscriber.callback(events, { history });
+    subscriber.callback(events, pageId === undefined ? { history } : { history, pageId });
   } catch (error) {
     console.error('pyric: Uncaught Error in event subscriber:', error);
   }
 }
 
 /** A subscriber's first delivery is the history; live batches follow it. */
-function prime(subscriber: EventSubscriber, history: readonly SandboxEvent[]): void {
+function prime(subscriber: EventSubscriber, history: readonly SandboxEvent[], pageId: string | undefined): void {
   subscriber.isPrimed = true;
-  deliver(subscriber, history, true);
+  deliver(subscriber, history, true, pageId);
 }
 
 /**

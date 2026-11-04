@@ -190,6 +190,7 @@ function toTrafficEvent(
       operationContext: record.context,
       rulesDisposition: record.rules,
       queryProof: record.queryProof,
+      ...callerOf(e),
     };
   }
   let pathVal = '(service)';
@@ -221,7 +222,13 @@ function toTrafficEvent(
     operationContext: record.context,
     rulesDisposition: record.rules,
     queryProof: record.queryProof,
+    ...callerOf(e),
   };
+}
+
+/** The caller field to carry onto an adapted event, when the host stamped one. */
+function callerOf(e: EventProvenance): Pick<StudioTrafficEvent, 'caller'> {
+  return e.caller === undefined ? {} : { caller: e.caller };
 }
 
 /**
