@@ -4,6 +4,7 @@ import { registerAppCleanup } from 'pyric/app/internal';
 import type { ClientDb } from '../worker/client.js';
 import type { InboundMessage } from '../worker/protocol.js';
 import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
+import { pageTabId } from '../worker/client/tab-id.js';
 import { openWorkerDb } from './worker-runtime.js';
 import { realmOrigin } from 'pyric/sandbox/internal';
 
@@ -23,6 +24,7 @@ export function workerClientForApp(app: FirebaseApp): ClientDb {
     t: 'appConfig',
     options: app.options as Record<string, unknown>,
     ...pageOriginScope(),
+    ...pageTabScope(),
   } satisfies InboundMessage);
   clients.set(app, client);
   return client;
@@ -31,4 +33,9 @@ export function workerClientForApp(app: FirebaseApp): ClientDb {
 function pageOriginScope(): { origin?: string } {
   const origin = realmOrigin();
   return origin === null ? {} : { origin };
+}
+
+function pageTabScope(): { tabId?: string } {
+  const tabId = pageTabId();
+  return tabId === undefined ? {} : { tabId };
 }

@@ -60,6 +60,7 @@ export type {
   ActivityEventProvenance,
   AuthLens,
   EventActor,
+  EventCaller,
   EventProvenance,
   EventService,
   OperationContext,

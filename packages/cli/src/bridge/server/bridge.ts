@@ -794,7 +794,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
       if (isWorkerPortUnavailable) {
         throw workerOpError('unimplemented', 'This sandbox does not support browser worker ports.');
       }
-      peer?.send({ type: 'worker-message', clientSessionId, message });
+      const platform = consumers.get(clientSessionId)?.platform;
+      peer?.send({ type: 'worker-message', clientSessionId, message, ...(platform === undefined ? {} : { platform }) });
     },
     toolNames,
     dispatch,

@@ -19,7 +19,7 @@
  * `Promise<StorageService>` for sandbox handles.
  */
 import { SandboxContextImpl } from 'pyric/sandbox';
-import type { AuthState, EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
+import type { AuthState, EventCaller, EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
 import {
   bindOperationContext,
@@ -79,6 +79,8 @@ export interface SandboxTarget {
    * firebase-admin semantics against the same shared store.
    */
   readonly admin?: boolean;
+  /** The connection an operation-scoped handle serves; see `EventCaller`. */
+  readonly caller?: EventCaller;
 }
 
 export type Target = SandboxTarget;
@@ -711,9 +713,11 @@ export function storageOperationProvenance(
     override,
     provenanceForOperationContext(target.context.operationContext),
   );
+  const caller = override?.caller ?? target.caller;
   return {
     ...override,
     ...provenanceForOperationContext(context),
+    ...(caller === undefined ? {} : { caller }),
     service: 'storage',
   };
 }
@@ -735,6 +739,7 @@ export function bindStorageOperationContext(
   const scopedTarget: SandboxTarget = {
     ...target,
     context: bindOperationContext(target.context, context),
+    ...(provenance.caller === undefined ? {} : { caller: provenance.caller }),
   };
   return Object.freeze({ [TARGET_SYMBOL]: scopedTarget });
 }

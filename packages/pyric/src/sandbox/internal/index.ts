@@ -86,6 +86,7 @@ export {
 } from '../attribution/element-selector.js';
 export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
+export { CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, type CallerSource } from './caller-source.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {
   provenanceForOperationContext,

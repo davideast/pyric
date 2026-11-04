@@ -27,6 +27,7 @@ export type {
   RtdbDenialContext,
   DenialEvent,
   EventActor,
+  EventCaller,
   EventProvenance,
   EventService,
   OperationContext,

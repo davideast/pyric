@@ -11,7 +11,10 @@ export function assertSubscription(message: Record<string, unknown>): void {
   const isNamedTarget = typeof target === 'string';
   if (isNamedTarget) {
     switch (target) {
-      case 'authState': case 'idToken': case 'events':
+      case 'events':
+        requireOptionalString(message.tabId, 'tabId');
+        return;
+      case 'authState': case 'idToken':
       case 'presence':
         return;
       case 'messaging.foreground': case 'messaging.background':

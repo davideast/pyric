@@ -53,6 +53,7 @@ import { serializeDocData } from '../protocol.js';
 import { type HostCtx, type PortLike } from '../host-context.js';
 import { portSession } from '../host-auth.js';
 import { assertQueryStructure } from './query-structure.js';
+import { callerOf } from './caller.js';
 
 // ─── Descriptor → live ref resolution ───────────────────────────────────
 
@@ -325,7 +326,11 @@ export function sessionDb(ctx: HostCtx, port: PortLike): Firestore {
  *     (an agent tool relay's admin op must classify as a rules BYPASS in
  *     Traffic, not a rules allow).
  *
- * Plain served-app operations get provenance from their service handles.
+ *   - `caller`: the connection `handleMessage` bound to the frame
+ *     (`host/caller.ts`), on every op that has one.
+ *
+ * Plain served-app operations get their source and lens from their service
+ * handles, so for them this returns the caller alone.
  * Firestore subscription registration is the exception: listener lifecycle
  * envelopes originate below that handle, so a normal worker subscription is
  * stamped here as app/app-session. Its later unattributed detach can then be
@@ -349,14 +354,17 @@ export function opProvenance(
     && typeof target === 'object'
     && ('__ref' in target || (target as { service?: string }).service === 'rtdb');
   const isAppFirestoreSubscription = isAppSubscription;
+  const caller = callerOf(msg);
+  const bindsCaller = caller === undefined ? {} : { caller };
   if (
     issuer !== 'studio'
     && relaySource !== 'remote'
     && !actAs
     && !isAppFirestoreSubscription
     && activityJourneyId === undefined
-  ) return undefined;
+  ) return caller === undefined ? undefined : { caller };
   return {
+    ...bindsCaller,
     actor: relaySource === 'remote'
       ? { kind: 'unattributed' }
       : issuer === 'studio'

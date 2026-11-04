@@ -220,6 +220,12 @@ export interface WorkerMessageFrame {
   type: 'worker-message';
   clientSessionId?: string;
   message: import('../serve/worker/protocol.js').InboundMessage;
+  /**
+   * Bridge to sandbox peer only: the platform the consumer attached with
+   * (`clientInfo.platform`), so the host can say which connection sent each
+   * event. A consumer's own value here is replaced.
+   */
+  platform?: string;
 }
 
 export interface WorkerMessageResultFrame {
