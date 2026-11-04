@@ -1,5 +1,6 @@
 /** Auth persistence registration: one shared account store, one session per app. */
 import type { Sandbox } from 'pyric/sandbox';
+import { authAccountsFor } from 'pyric/sandbox/internal';
 import type { SandboxBackend, SeedUser } from '../sandbox-backend.js';
 
 type AuthSession = Pick<Sandbox, 'currentUser'>;
@@ -38,6 +39,7 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend): void {
     restore: (data: unknown) => {
       const restored = data as { users?: SeedUser[]; providers?: Record<string, boolean> };
       backend.clearUsers();
+      authAccountsFor(sandbox)?.forgetHistory();
       if (Array.isArray(restored?.users) && restored.users.length > 0) {
         backend.seedUsers(restored.users);
       }
@@ -48,6 +50,7 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend): void {
     // sandbox core's job (reset() clears currentUser before services run).
     reset: () => {
       backend.clearUsers();
+      authAccountsFor(sandbox)?.forgetHistory();
       backend.restoreProviderConfig(undefined);
     },
     subscribe: (onChange) => {

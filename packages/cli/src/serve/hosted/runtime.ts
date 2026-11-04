@@ -335,9 +335,10 @@ export async function createHostedRuntime(
         if (message.name === 'firestore_simulator_create') {
           syncFirestoreActiveRulesFromSandbox();
           restoreFirestoreSubscriptions(ctx);
-        } else if (message.name === 'auth_delete_user') {
-          reconcilePortSessions();
         }
+        // Deleting or disabling a user leaves its signed-in ports alone, as
+        // production leaves a client signed in: the next token refresh is
+        // refused and signs the port out (#1950).
       }
       if (changesState) result = await persistMutationResult(result);
       const isRead = effect === 'read';
@@ -707,9 +708,9 @@ export async function createHostedRuntime(
             syncFirestoreActiveRulesFromSandbox();
             reconcilePortSessions();
             restoreFirestoreSubscriptions(ctx);
-          } else if (key === 'auth.deleteUser') {
-            reconcilePortSessions();
           }
+          // auth.deleteUser and a disable leave signed-in ports alone; their
+          // next refresh is refused and signs them out (#1950).
         }
         if (changesDurableState) outcome = await persistMutationResult(outcome);
         const isRead = method.effect === 'read';

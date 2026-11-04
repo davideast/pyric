@@ -16,7 +16,7 @@
  */
 export { withDatabaseRulesPreservedOnReset } from "../../database/sandbox/backend-for.js";
 export { getInternalEnv } from './sandbox-impl.js';
-export { authAccountsFor, registerAuthAccounts, type AuthAccounts, type AuthAccountStanding } from './auth-accounts.js';
+export { authAccountsFor, refreshRefusal, registerAuthAccounts, type AuthAccounts, type AuthAccountStanding, type RefreshRefusalCode } from './auth-accounts.js';
 export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
 export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';

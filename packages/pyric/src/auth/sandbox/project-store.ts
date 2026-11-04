@@ -6,16 +6,19 @@ export interface AuthProjectStore {
   readonly usersByEmail: Map<string, StoredUser>;
   readonly usersByUid: Map<string, StoredUser>;
   /**
-   * Uids whose record was deleted. Production refuses a deleted account's
-   * refresh token, while a session whose record was never stored here (a
-   * restored session, a mocked popup user) keeps refreshing (#1515), so a
-   * missing record alone does not mean deleted.
+   * Uids whose record was deleted, by `deleteUser` or `clearUsers`.
+   * Production refuses a deleted account's refresh token, while a session
+   * whose record this sandbox never stored (a session restored into a fresh
+   * sandbox) keeps refreshing (#1515), so a missing record alone does not
+   * mean deleted. A reset or a full-state restore forgets them.
    */
   readonly deletedUids: Set<string>;
   /**
    * Production's `tokensValidAfterTime` per uid, in epoch milliseconds on a
    * whole second: a session authenticated before it can no longer refresh.
-   * Set by a password change and by `revokeRefreshTokens`.
+   * Set by a password change, by `revokeRefreshTokens`, and by deleting the
+   * record, so a session held across a delete and a re-create of the uid is
+   * refused, as production's new account starts with a new `validSince`.
    */
   readonly tokensValidAfterMs: Map<string, number>;
   readonly userDbSubscribers: Set<() => void>;
@@ -68,4 +71,16 @@ export function accountStanding(store: AuthProjectStore, uid: string): AuthAccou
  */
 export function revokeTokensAt(store: AuthProjectStore, uid: string, nowMs: number): void {
   store.tokensValidAfterMs.set(uid, Math.floor(nowMs / 1000) * 1000);
+}
+
+/** Record that the uid's record was deleted at `nowMs`. */
+export function recordDeletion(store: AuthProjectStore, uid: string, nowMs: number): void {
+  store.deletedUids.add(uid);
+  revokeTokensAt(store, uid, nowMs);
+}
+
+/** Forget every deletion and revocation, for a reset or a full-state restore. */
+export function forgetAccountHistory(store: AuthProjectStore): void {
+  store.deletedUids.clear();
+  store.tokensValidAfterMs.clear();
 }

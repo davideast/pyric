@@ -30,6 +30,30 @@ export interface AuthAccounts {
   standing(uid: string): AuthAccountStanding;
   /** Revoke the account's refresh tokens at the sandbox clock's now. */
   revokeRefreshTokens(uid: string): void;
+  /** Forget every deletion and revocation: a reset or a full-state restore starts over. */
+  forgetHistory(): void;
+}
+
+/** The code a refused refresh-token exchange answers, as `@firebase/auth` names it. */
+export type RefreshRefusalCode = 'auth/user-disabled' | 'auth/user-token-expired';
+
+/**
+ * Whether production refuses a session's refresh-token exchange, and with
+ * which code: `USER_DISABLED` (`auth/user-disabled`) for a disabled account,
+ * and `USER_NOT_FOUND` or `TOKEN_EXPIRED` (both `auth/user-token-expired` in
+ * `@firebase/auth`) for a deleted account or a session authenticated before
+ * the account's tokens were revoked. `authenticatedAtMs` is the session's
+ * last authentication; compared on a whole second, as production stores the
+ * revocation. An `unrecorded` account, such as a session restored into a
+ * sandbox that never stored its record (#1515), is not refused.
+ */
+export function refreshRefusal(standing: AuthAccountStanding, authenticatedAtMs: number | undefined): RefreshRefusalCode | null {
+  if (standing.kind === 'disabled') return 'auth/user-disabled';
+  if (standing.kind === 'deleted') return 'auth/user-token-expired';
+  const validAfterMs = standing.kind === 'active' ? standing.tokensValidAfterMs : null;
+  const comparable = validAfterMs !== null && authenticatedAtMs !== undefined;
+  const revoked = comparable && Math.floor(authenticatedAtMs / 1000) * 1000 < validAfterMs;
+  return revoked ? 'auth/user-token-expired' : null;
 }
 
 const accountsBySandbox = new WeakMap<object, AuthAccounts>();

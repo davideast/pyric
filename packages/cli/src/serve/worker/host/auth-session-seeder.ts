@@ -82,13 +82,16 @@ export function requireSessionUser(session: MintedSession | null, api: string): 
 /**
  * Refresh a port session from the stored account while retaining its tenant.
  * Session claims may predate an admin change or checkpoint restore; they must
- * never be written back to the account during refresh.
+ * never be written back to the account during refresh. The mint is a
+ * refresh-token exchange, so it is refused for a disabled, deleted or revoked
+ * session, and the new session keeps the held one's authentication.
  */
 export function remintSessionWithClaims(auth: Auth, session: MintedSession): MintedSession {
   return authSandboxOps.mintSession(auth, {
     kind: 'uid',
     uid: session.user.uid,
     tenantId: session.user.tenantId ?? null,
+    from: session.user,
   });
 }
 

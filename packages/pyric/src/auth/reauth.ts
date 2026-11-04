@@ -165,10 +165,13 @@ function completeReauth(
   const claims = stored?.customClaims ?? {};
   // A successful re-auth is a fresh authentication: it restarts the
   // recent-login window and the next token carries the new authTime.
-  target.backend.recordAuthentication(user.uid);
-  target.backend.getIdTokenResultFor(user.uid, claims, true, user.tenantId);
   const hasStoredUser = stored !== undefined;
   const refreshed = hasStoredUser ? target.backend.buildUserFromStored(stored) : user;
+  // Both handles on the session authenticated now, so a revocation before it
+  // no longer refuses their refresh.
+  target.backend.recordAuthentication(user.uid, user);
+  if (refreshed !== user) target.backend.recordAuthentication(user.uid, refreshed);
+  target.backend.getIdTokenResultFor(user.uid, claims, true, user.tenantId, user);
   return {
     user: refreshed,
     providerId,
