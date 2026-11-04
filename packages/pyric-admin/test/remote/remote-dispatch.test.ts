@@ -551,7 +551,9 @@ describe('pyric-admin remote dispatch — Auth', () => {
     void bridge;
     const auth = getAuth(app);
     const token = await auth.createCustomToken('alice', { role: 'admin' });
-    expect(token.startsWith('pyric-sandbox-custom:')).toBe(true);
+    // firebase-admin's custom token shape, the one the local arm mints (#1952).
+    const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as Record<string, unknown>;
+    expect(payload).toMatchObject({ uid: 'alice', claims: { role: 'admin' } });
     // A custom token is not an ID token: production refuses it (#1949).
     await expect(auth.verifyIdToken(token)).rejects.toMatchObject({ code: 'auth/argument-error' });
     // An ID token pyric's Auth mints for the app's project verifies.

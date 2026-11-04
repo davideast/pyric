@@ -25,8 +25,9 @@
  * Surface scope on the sandbox backend (what works):
  *
  *   - {@link getAuth}
- *   - `Auth.createCustomToken(uid, claims?)` — returns a deterministic
- *     `pyric-sandbox-custom:${uid}:${json}` string; no signing.
+ *   - `Auth.createCustomToken(uid, claims?)` — returns a custom token in
+ *     firebase-admin's JWT shape for the app's project, signed by the
+ *     sandbox, which pyric's `signInWithCustomToken` exchanges (#1952).
  *   - `Auth.verifyIdToken(token)` — verifies an ID token pyric's Auth
  *     minted for the app's project (the app's project ID, or
  *     `pyric-sandbox` when it names none), with production's error codes;
@@ -70,7 +71,7 @@ import {
   type Sandbox,
   type SandboxEvent,
 } from 'pyric/sandbox';
-import { assertNoReservedCustomClaims, getClock, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
+import { assertNoReservedCustomClaims, getClock, mintCustomToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 import type {
   AuthUserRecord,
   CreateUserRequest as SandboxCreateUserRequest,
@@ -91,11 +92,9 @@ import type {
   UpdateRequest,
   UserRecord,
 } from './types.js';
-import { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
 import { verifySandboxIdToken } from './verify-token.js';
 
 export * from './types.js';
-export { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
 
 // ─── Sandbox backend ────────────────────────────────────────────────────
 
@@ -178,15 +177,14 @@ function storeFor(sandbox: Sandbox): AuthStore {
 }
 
 /**
- * Mint a deterministic sandbox custom token (the {@link SANDBOX_TOKEN_PREFIX}
- * format). Stateless — shared verbatim by the local and remote sandbox
- * arms. Like production's custom token, it is not an ID token, and
- * `verifyIdToken` refuses it.
+ * Mint a sandbox custom token for the app's project at `nowMs`, in
+ * firebase-admin's shape (`pyric/sandbox/internal` `mintCustomToken`).
+ * Stateless, shared by the local and remote sandbox arms. Like production's
+ * custom token, it is not an ID token, and `verifyIdToken` refuses it.
  */
-function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<string> {
-  const claims = developerClaims ?? {};
-  const token = `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims)}`;
-  return Promise.resolve(token);
+function mintSandboxCustomToken(app: PyricAdminApp, nowMs: number, uid: string, developerClaims?: object): Promise<string> {
+  const claims = developerClaims as Record<string, unknown> | undefined;
+  return Promise.resolve(mintCustomToken({ uid, claims, projectId: idTokenProjectId(app), nowMs }));
 }
 
 /**
@@ -273,13 +271,12 @@ function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
     },
 
     /**
-     * Mint a deterministic sandbox token. Format is fixed at
-     * `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims ?? {})}`.
-     * Not an ID token: {@link verifyIdToken} refuses it, as production
-     * does. Shared implementation: {@link mintSandboxCustomToken}.
+     * Mint a custom token for the app's project on the sandbox clock. Not
+     * an ID token: {@link verifyIdToken} refuses it, as production does.
+     * Shared implementation: {@link mintSandboxCustomToken}.
      */
     createCustomToken(uid: string, developerClaims?: object): Promise<string> {
-      return mintSandboxCustomToken(uid, developerClaims);
+      return mintSandboxCustomToken(app, getClock(sandbox).now(), uid, developerClaims);
     },
 
     /**
@@ -567,9 +564,14 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
       throw notImplemented('auth.app');
     },
 
-    /** Stateless mint — identical to the local arm; needs no relay. */
+    /**
+     * Stateless mint, the local arm's for the app's project; needs no relay.
+     * `iat` and `exp` are read on the wall clock, so after the worker's
+     * sandbox clock moves an hour ahead, the worker refuses the token as
+     * expired.
+     */
     createCustomToken(uid: string, developerClaims?: object): Promise<string> {
-      return mintSandboxCustomToken(uid, developerClaims);
+      return mintSandboxCustomToken(app, Date.now(), uid, developerClaims);
     },
 
     /**

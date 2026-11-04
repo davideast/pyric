@@ -6,7 +6,9 @@
 
 import { makeAuthError } from './auth-errors.js';
 import { requireSandboxTarget } from './action-codes.js';
-import { targetOf } from './target.js';
+import { getClock, mintCustomToken, readCustomToken, type SandboxCustomToken } from 'pyric/sandbox/internal';
+import { SandboxBackend } from './sandbox-backend.js';
+import { targetOf, type SandboxTarget } from './target.js';
 import type { Auth, User, UserCredential } from './types.js';
 
 // ─── signInWithCustomToken ────────────────────────────────────────────
@@ -19,20 +21,26 @@ import type { Auth, User, UserCredential } from './types.js';
  * exchanges it for a session. It is the standard bridge from an existing
  * auth system into Firebase.
  *
- * The sandbox has no service-account key and no signature to verify, so
- * it treats the token as what it structurally is: a claim of identity.
- * It accepts a token in either of two shapes —
+ * pyric-admin `createCustomToken` and the CLI mint the token in
+ * firebase-admin's shape, signed by the sandbox (`pyric/sandbox/internal`
+ * `mintCustomToken`), so a server mints and the client redeems here (#1952).
+ * A JWT for the custom token audience is checked:
  *
- *   1. a JSON object `{"uid": "...", "claims": {...}}` (optionally
- *      base64url-encoded), which is exactly the payload
- *      `admin.auth().createCustomToken(uid, claims)` signs. This is the
- *      shape the pyric-admin mirror mints, so the two sides compose: mint
- *      on the admin side, redeem here.
- *   2. a real three-part JWT, whose middle segment is decoded and read
- *      for `uid` / `claims`. The SIGNATURE IS NOT VERIFIED — the sandbox
- *      has no key and says so rather than pretending.
+ *   - an edited signature, a missing `uid`, or an `exp` on or before the
+ *     sandbox clock's now throws `auth/invalid-custom-token`, the code
+ *     the client SDK maps the server's `INVALID_CUSTOM_TOKEN` to;
+ *   - a token whose issuer names another project throws
+ *     `auth/custom-token-mismatch` (server `CREDENTIAL_MISMATCH`).
  *
- * Anything else throws `auth/invalid-custom-token` — ORACLE-BACKED
+ * A token signed with a real service account key fails that check: the
+ * sandbox has no key to verify it with.
+ *
+ * Two older unsigned shapes are still read, unchecked, for compatibility: a
+ * JSON object `{"uid": "...", "claims": {...}}`, optionally base64url
+ * encoded, and a three-part JWT for any other audience, whose middle segment
+ * carries `uid` or `sub` and `claims`.
+ *
+ * Anything else throws `auth/invalid-custom-token`, ORACLE-BACKED
  * (`auth-signinwithcustomtoken-invalid` captured exactly that code from
  * prod for both a malformed token and the empty string).
  *
@@ -54,14 +62,7 @@ export async function signInWithCustomToken(
 /** Resolve a custom-token account without changing the backend's global session. */
 export function resolveCustomTokenIdentity(auth: Auth, customToken: string): { user: User; isNewUser: boolean } {
   const target = targetOf(auth);
-  const payload = decodeCustomToken(customToken);
-  const invalidToken = payload === null;
-  if (invalidToken) {
-    throw makeAuthError(
-      'auth/invalid-custom-token',
-      'The custom token format is incorrect. Please check the documentation.',
-    );
-  }
+  const payload = exchangeCustomToken(target, customToken);
 
   const existing = target.backend.findByUid(payload.uid);
   const isNewUser = existing === undefined;
@@ -88,8 +89,48 @@ export function resolveCustomTokenIdentity(auth: Auth, customToken: string): { u
   return { user, isNewUser };
 }
 
-/** Read `{uid, claims}` out of a custom token, or `null` if it carries
- *  neither shape the sandbox accepts (see {@link signInWithCustomToken}). */
+type CustomTokenPayload = { uid: string; claims?: Record<string, unknown> };
+
+function invalidCustomToken(): Error {
+  return makeAuthError('auth/invalid-custom-token', 'The custom token format is incorrect. Please check the documentation.');
+}
+
+/** A signed custom token's subject and claims, after its project and expiry pass. */
+function checkedSignedToken(target: SandboxTarget, token: SandboxCustomToken): CustomTokenPayload {
+  const isOtherProject = token.projectId !== SandboxBackend.tokenProjectId(target.backend);
+  if (isOtherProject) {
+    throw makeAuthError('auth/custom-token-mismatch', 'The custom token corresponds to a different audience.');
+  }
+  const nowSec = Math.floor(getClock(target.sandbox).now() / 1000);
+  const hasExpired = nowSec >= token.exp;
+  if (hasExpired) throw invalidCustomToken();
+  return token.claims ? { uid: token.uid, claims: token.claims } : { uid: token.uid };
+}
+
+/** The `{uid, claims}` a custom token asserts, or the error production answers it with. */
+function exchangeCustomToken(target: SandboxTarget, token: string): CustomTokenPayload {
+  const reading = typeof token === 'string' ? readCustomToken(token) : { kind: 'invalid' as const };
+  if (reading.kind === 'invalid') throw invalidCustomToken();
+  if (reading.kind === 'signed') return checkedSignedToken(target, reading);
+  const legacy = decodeCustomToken(token);
+  if (legacy === null) throw invalidCustomToken();
+  return legacy;
+}
+
+/**
+ * Mint the custom token {@link signInWithCustomToken} redeems for this Auth's
+ * project, at the sandbox clock's now, for callers that hold the client Auth
+ * rather than an admin app, such as the CLI's tools.
+ */
+export function mintCustomTokenFor(auth: Auth, uid: string, claims?: Record<string, unknown>): string {
+  const target = targetOf(auth);
+  return mintCustomToken({
+    uid, claims, projectId: SandboxBackend.tokenProjectId(target.backend), nowMs: getClock(target.sandbox).now(),
+  });
+}
+
+/** Read `{uid, claims}` out of an older unsigned custom token, or `null`
+ *  if it carries neither shape (see {@link signInWithCustomToken}). */
 function decodeCustomToken(
   token: string,
 ): { uid: string; claims?: Record<string, unknown> } | null {
