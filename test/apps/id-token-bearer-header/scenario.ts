@@ -24,7 +24,10 @@
 // changes the account the way an administrator would, and the page's forced
 // refresh fails with production's code and its auth listener sees null. A
 // page that changes its own password keeps its session, across a reload too,
-// while the account's session in another browser is refused.
+// while the account's session in another browser is refused. The API, under
+// register, does the same to its own session with firebase-admin. With
+// checkRevoked, the API refuses the token of a disabled or deleted account
+// with firebase-admin's reason.
 //
 // The API refuses what production refuses (#1949): a token whose claims were
 // edited after signing, an expired token, a token for another project, a
@@ -100,8 +103,9 @@ function idTokenClaims(uid: string, projectId: string, issuedAtSec: number): Rec
 }
 
 /** The API's answer to `token` in an `Authorization: Bearer` header. */
-async function whoami(apiUrl: string, token: string): Promise<{ status: number; body: { error?: string } }> {
-  const response = await fetch(`${apiUrl}/whoami`, { headers: { Authorization: `Bearer ${token}` } });
+async function whoami(apiUrl: string, token: string, checkRevoked = false): Promise<{ status: number; body: { error?: string } }> {
+  const path = checkRevoked ? '/whoami?checkRevoked=1' : '/whoami';
+  const response = await fetch(`${apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
   return { status: response.status, body: await response.json() as { error?: string } };
 }
 
@@ -268,6 +272,23 @@ export default scenario(async (app) => {
       assert.deepEqual(refreshed, { code, currentUid: null, lastAuthState: null });
     });
   }
+
+  await app.step('the API under register disables its own account, and its next refresh fails with auth/user-disabled and signs out', async () => {
+    const response = await fetch(`${apiUrl}/self-disabled`);
+    assert.deepEqual(await response.json(), { code: 'auth/user-disabled', currentUid: null });
+  });
+
+  await app.step('with checkRevoked, the API refuses the token of a disabled account, then of a deleted one', async () => {
+    const { uid, idToken } = await page.evaluate(([name, address]) => signInHeld(name, address), ['Builder One', 'checked@example.com'] as const);
+    const accepted = await whoami(apiUrl, idToken, true);
+    assert.equal(accepted.status, 200, JSON.stringify(accepted));
+    const disabled = await app.pyric(['auth', 'updateUser', '--uid', uid, '--disabled']);
+    assert.equal(disabled.code, 0, disabled.output);
+    assertRefused(await whoami(apiUrl, idToken, true), /The user record is disabled/);
+    const deleted = await app.pyric(['auth', 'deleteUser', '--uid', uid]);
+    assert.equal(deleted.code, 0, deleted.output);
+    assertRefused(await whoami(apiUrl, idToken, true), /There is no user record corresponding to the provided identifier/);
+  });
 
   await app.step('a page that changes its own password and reloads keeps refreshing, while another browser signed in to the account is refused', async () => {
     const email = 'own-password@example.com';

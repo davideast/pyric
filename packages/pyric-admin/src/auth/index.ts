@@ -28,11 +28,17 @@
  *   - `Auth.createCustomToken(uid, claims?)` — returns a custom token in
  *     firebase-admin's JWT shape for the app's project, signed by the
  *     sandbox, which pyric's `signInWithCustomToken` exchanges (#1952).
- *   - `Auth.verifyIdToken(token)` — verifies an ID token pyric's Auth
- *     minted for the app's project (the app's project ID, or
+ *   - `Auth.verifyIdToken(token, checkRevoked?)` — verifies an ID token
+ *     pyric's Auth minted for the app's project (the app's project ID, or
  *     `pyric-sandbox` when it names none), with production's error codes;
  *     returns a {@link DecodedIdToken}. A custom token is refused with
- *     `auth/argument-error`, as in production (#1949).
+ *     `auth/argument-error`, as in production (#1949). With
+ *     `checkRevoked`, the client account behind the token must exist
+ *     (`auth/user-not-found`), be enabled (`auth/user-disabled`), and have
+ *     no revocation after the token's `auth_time` (`auth/id-token-revoked`).
+ *   - `Auth.revokeRefreshTokens(uid)` — revokes the client account's
+ *     refresh tokens: its held sessions fail their next refresh, and
+ *     `verifyIdToken(token, true)` refuses tokens authenticated before it.
  *   - `Auth.createUser(properties)` — stores a {@link UserRecord}
  *     in an in-memory `Map<uid, UserRecord>`. Auto-generates a `uid`
  *     when one is not supplied.
@@ -58,7 +64,6 @@
  *     `generateSignInWithEmailLink`, `generateVerifyAndChangeEmailLink`.
  *   - Bulk operations: `listUsers`, `getUsers`, `deleteUsers`,
  *     `importUsers`.
- *   - Revocation: `revokeRefreshTokens`.
  *   - `getUserByPhoneNumber`, `getUserByProviderUid`.
  *   - `updateUser` — not required by the brief.
  *
@@ -71,7 +76,14 @@ import {
   type Sandbox,
   type SandboxEvent,
 } from 'pyric/sandbox';
-import { assertNoReservedCustomClaims, getClock, mintCustomToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
+import {
+  assertNoReservedCustomClaims,
+  authAccountsFor,
+  getClock,
+  mintCustomToken,
+  SANDBOX_PROJECT_ID,
+  type AuthAccountStanding,
+} from 'pyric/sandbox/internal';
 import type {
   AuthUserRecord,
   CreateUserRequest as SandboxCreateUserRequest,
@@ -92,7 +104,7 @@ import type {
   UpdateRequest,
   UserRecord,
 } from './types.js';
-import { verifySandboxIdToken } from './verify-token.js';
+import { assertNotRevokedOrDisabled, invalidUid, userNotFound, verifySandboxIdToken } from './verify-token.js';
 
 export * from './types.js';
 
@@ -211,6 +223,15 @@ function idTokenProjectId(app: PyricAdminApp): string {
   return explicitProjectId(app) ?? SANDBOX_PROJECT_ID;
 }
 
+/**
+ * Where the client account with `uid` stands, from the account table the
+ * sandbox's client sign-ins write to. A sandbox no client Auth has touched
+ * has no accounts.
+ */
+function clientAccountStanding(sandbox: Sandbox, uid: string): AuthAccountStanding {
+  return authAccountsFor(sandbox)?.standing(uid) ?? { kind: 'unrecorded' };
+}
+
 function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
   const store = storeFor(sandbox);
 
@@ -283,8 +304,10 @@ function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
      * Verify an ID token for the app's project, reading `exp` and `nbf` on
      * the sandbox clock. Shared implementation: {@link verifySandboxIdToken}.
      */
-    verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
-      return verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: getClock(sandbox).now() });
+    verifyIdToken(idToken: string, checkRevoked = false): Promise<DecodedIdToken> {
+      const verified = verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: getClock(sandbox).now() });
+      if (!checkRevoked) return verified;
+      return verified.then((decoded) => assertNotRevokedOrDisabled(decoded, clientAccountStanding(sandbox, decoded.sub)));
     },
 
     /**
@@ -412,8 +435,20 @@ function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
     importUsers(): Promise<unknown> {
       return Promise.reject(notImplemented('importUsers'));
     },
-    revokeRefreshTokens(): Promise<void> {
-      return Promise.reject(notImplemented('revokeRefreshTokens'));
+    /**
+     * Revoke the client account's refresh tokens at the sandbox clock's now,
+     * through the shared foundation's account table. A uid that is not a
+     * non-empty string of at most 128 characters rejects `auth/invalid-uid`,
+     * and a uid with no client record `auth/user-not-found`, as production's do.
+     */
+    revokeRefreshTokens(uid: string): Promise<void> {
+      const uidError = invalidUid(uid);
+      if (uidError !== null) return Promise.reject(uidError);
+      const standing = clientAccountStanding(sandbox, uid);
+      const hasRecord = standing.kind === 'active' || standing.kind === 'disabled';
+      if (!hasRecord) return Promise.reject(userNotFound());
+      authAccountsFor(sandbox)?.revokeRefreshTokens(uid);
+      return Promise.resolve();
     },
     createSessionCookie(): Promise<string> {
       return Promise.reject(notImplemented('createSessionCookie'));
@@ -558,6 +593,18 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
   const listRecords = async (): Promise<AuthUserRecord[]> =>
     (await channel.op({ method: 'auth.listUsers' })) as AuthUserRecord[];
 
+  /**
+   * Where the account stands, from the worker's user pool. The worker relays
+   * no revocation time (this arm has no `revokeRefreshTokens`), so a token is
+   * refused here only for a missing or disabled account.
+   */
+  const relayedStanding = async (uid: string): Promise<AuthAccountStanding> => {
+    const record = (await listRecords()).find((u) => u.uid === uid);
+    if (record === undefined) return { kind: 'unrecorded' };
+    if (record.disabled) return { kind: 'disabled' };
+    return { kind: 'active', tokensValidAfterMs: null };
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handle: any = {
     get app() {
@@ -575,12 +622,15 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
     },
 
     /**
-     * Stateless check — the local arm's, for the app's project; needs no
-     * relay. Expiry is read on the wall clock, which the worker's sandbox
-     * clock can be moved away from.
+     * The local arm's token check, for the app's project. Expiry is read on
+     * the wall clock, which the worker's sandbox clock can be moved away from.
+     * With `checkRevoked`, the account's standing is relayed from the worker's
+     * user pool ({@link relayedStanding}).
      */
-    verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
-      return verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: Date.now() });
+    verifyIdToken(idToken: string, checkRevoked = false): Promise<DecodedIdToken> {
+      const verified = verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: Date.now() });
+      if (!checkRevoked) return verified;
+      return verified.then(async (decoded) => assertNotRevokedOrDisabled(decoded, await relayedStanding(decoded.sub)));
     },
 
     /** Relays `auth.adminCreateUser`. Uid conflicts / invalid emails /
@@ -687,7 +737,9 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
     importUsers(): Promise<unknown> {
       return Promise.reject(notImplemented('importUsers'));
     },
-    revokeRefreshTokens(): Promise<void> {
+    revokeRefreshTokens(uid: string): Promise<void> {
+      const uidError = invalidUid(uid);
+      if (uidError !== null) return Promise.reject(uidError);
       return Promise.reject(notImplemented('revokeRefreshTokens'));
     },
     createSessionCookie(): Promise<string> {

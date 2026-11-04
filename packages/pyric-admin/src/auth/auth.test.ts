@@ -504,7 +504,6 @@ describe('sandbox backend — explicitly-not-implemented surface', () => {
     'deleteUsers',
     'listUsers',
     'importUsers',
-    'revokeRefreshTokens',
     'createSessionCookie',
     'verifySessionCookie',
     'generatePasswordResetLink',
