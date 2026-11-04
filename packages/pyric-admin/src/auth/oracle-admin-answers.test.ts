@@ -11,7 +11,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { initializeSandbox } from 'pyric/sandbox';
-import { createUserWithEmailAndPassword, getAuth as getClientAuth, sandbox as clientSandbox } from 'pyric/auth';
+import { getClock } from 'pyric/sandbox/internal';
+import { createUserWithEmailAndPassword, getAuth as getClientAuth, sandbox as clientSandbox, signInWithEmailAndPassword } from 'pyric/auth';
 import { deleteApp, getApps, initializeApp } from '../app/index.js';
 import { getAuth } from './index.js';
 
@@ -59,8 +60,6 @@ const PINS: Record<string, { pyric: string; production: string; finding: string 
   createCustomToken129Uid: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
   createCustomTokenReservedAud: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
   createCustomTokenNullClaims: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
-  verifyIdTokenCheckRevokedDisabled: { pyric: 'resolved', production: 'rejects auth/user-disabled', finding: 'auth-claims AU-10: checkRevoked ignores disabled and deleted users' },
-  verifyIdTokenCheckRevokedDeleted: { pyric: 'resolved', production: 'rejects auth/user-not-found', finding: 'auth-claims AU-10' },
 };
 
 describe('pyric-admin auth answers as the production Admin SDK does', () => {
@@ -109,5 +108,33 @@ describe('pyric-admin auth answers as the production Admin SDK does', () => {
     }
     const pinned = Object.fromEntries(Object.entries(PINS).map(([call, pin]) => [call, { pyric: pin.pyric, production: pin.production }]));
     expect(found).toEqual(pinned);
+  });
+
+  it('verifyIdToken with checkRevoked refuses a token issued before revokeRefreshTokens', async () => {
+    const sandbox = initializeSandbox();
+    const admin = getAuth(initializeApp({ sandbox }, 'oracle-admin-revoked'));
+    const client = getClientAuth(sandbox);
+    const { user } = await createUserWithEmailAndPassword(client, 'revoked@example.com', 'secret-pw');
+    const idToken = await user.getIdToken();
+    // firebase-admin compares whole seconds: a token authenticated in the
+    // revocation's second is still valid.
+    getClock(sandbox).advance(2000);
+    await admin.revokeRefreshTokens(user.uid);
+
+    expect(await outcome(() => admin.verifyIdToken(idToken))).toBe('resolved');
+    expect(await outcome(() => admin.verifyIdToken(idToken, true))).toBe('rejects auth/id-token-revoked');
+    // The held client session's next refresh is refused, and it signs out.
+    expect(await outcome(() => user.getIdToken(true))).toBe('rejects auth/user-token-expired');
+    expect(client.currentUser).toBeNull();
+    // A new sign-in authenticates after the revocation, so its token is valid.
+    const { user: again } = await signInWithEmailAndPassword(client, 'revoked@example.com', 'secret-pw');
+    expect(await outcome(async () => admin.verifyIdToken(await again.getIdToken(), true))).toBe('resolved');
+  });
+
+  it('revokeRefreshTokens rejects auth/user-not-found for a uid with no account', async () => {
+    const sandbox = initializeSandbox();
+    const admin = getAuth(initializeApp({ sandbox }, 'oracle-admin-revoke-missing'));
+    getClientAuth(sandbox);
+    expect(await outcome(() => admin.revokeRefreshTokens('oracle-missing'))).toBe('rejects auth/user-not-found');
   });
 });

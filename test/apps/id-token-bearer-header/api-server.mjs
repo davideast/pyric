@@ -3,6 +3,10 @@
 // on the space, verifies it with firebase-admin, and answers the caller's uid
 // and name. GET /self signs in through firebase/auth from this process and
 // calls /whoami with its own token, as a server-rendered route does.
+// /whoami?checkRevoked=1 verifies with checkRevoked, as a route guarding a
+// sensitive action does. GET /self-disabled signs in from this process,
+// disables that account with firebase-admin, and reports what its own forced
+// refresh answers and whether it is still signed in.
 import { createServer } from "node:http";
 import { initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
@@ -22,8 +26,9 @@ function send(response, status, body) {
 
 async function whoami(request, response) {
   const idToken = (request.headers.authorization ?? "").split(" ")[1] ?? "";
+  const checkRevoked = new URL(request.url, apiUrl).searchParams.get("checkRevoked") === "1";
   try {
-    const decoded = await getAdminAuth().verifyIdToken(idToken);
+    const decoded = await getAdminAuth().verifyIdToken(idToken, checkRevoked);
     send(response, 200, { uid: decoded.uid, name: decoded.name ?? null, aud: decoded.aud, iss: decoded.iss });
   } catch (error) {
     send(response, 401, { error: String(error?.message ?? error) });
@@ -42,6 +47,23 @@ async function self(response) {
   }
 }
 
+async function selfDisabled(response) {
+  const auth = getAuth(clientApp);
+  try {
+    const { user } = await createUserWithEmailAndPassword(auth, "server-disabled@example.com", "secret-pw");
+    await getAdminAuth().updateUser(user.uid, { disabled: true });
+    let code = null;
+    try {
+      await user.getIdToken(true);
+    } catch (error) {
+      code = error?.code ?? String(error);
+    }
+    send(response, 200, { code, currentUid: auth.currentUser?.uid ?? null });
+  } catch (error) {
+    send(response, 200, { threw: String(error?.message ?? error) });
+  }
+}
+
 const server = createServer((request, response) => {
   if (request.method === "OPTIONS") {
     response.writeHead(204, {
@@ -51,7 +73,8 @@ const server = createServer((request, response) => {
     response.end();
     return;
   }
-  if (request.url === "/whoami") return void whoami(request, response);
+  if (request.url?.startsWith("/whoami")) return void whoami(request, response);
+  if (request.url === "/self-disabled") return void selfDisabled(response);
   if (request.url === "/self") return void self(response);
   send(response, 404, { error: "not found" });
 });
