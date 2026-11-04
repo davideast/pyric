@@ -104,6 +104,19 @@ async function waitForHost(host: Started, url: string): Promise<Record<string, u
   }
 }
 
+/**
+ * Waits until the host's output contains `text`. The host prints some lines
+ * after it starts serving, so health answering does not mean they are there.
+ */
+async function waitForOutput(host: Started, text: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!host.output().includes(text)) {
+    if (host.child.exitCode !== null) throw new Error(`the host exited before printing ${JSON.stringify(text)}:\n${host.output()}`);
+    if (Date.now() > deadline) throw new Error(`the host did not print ${JSON.stringify(text)} within ${timeoutMs} ms:\n${host.output()}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 /** The `pyric-live` bin, as `@pyric/live`'s package.json declares it. */
 function liveBin(root: string): string {
   const manifest = JSON.parse(readFileSync(join(liveDir, 'package.json'), 'utf8')) as { bin?: Record<string, string> };
@@ -178,6 +191,8 @@ test.describe('pyric-live', () => {
     const host = started('node', [liveBin(root), '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: home });
     hosts.push(host);
     const health = await waitForHost(host, url);
+    // The host prints how clients reach it after it starts serving.
+    await waitForOutput(host, 'node --import @pyric/live/register server.js');
     expect(health.live).toEqual({
       projectId: PROJECT_ID,
       configProjectId: PROJECT_ID,
