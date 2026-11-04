@@ -35,6 +35,7 @@ import { injectServeTags } from '../serve/html-injection.js';
 import { liveHostPageImportMap } from '../serve/live-host-pages.js';
 import { requireLiveProject } from '../serve/live-project.js';
 import { createLiveHostState } from '../serve/live-host-state.js';
+import { refuseOwnWrite, type PyricWriteRefusal } from '../serve/hosted/own-writes.js';
 import { workerInitPayload } from '../serve/runtime/hosted-target.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
@@ -272,6 +273,9 @@ async function startServeRuntime(opts: {
       warn: (line) => logger.note(line),
     })
     : undefined;
+  // A live host makes none of pyric's own writes, the seed file's among them (`hosted/own-writes.ts`).
+  const seedsLiveHost = isLive && opts.seed !== undefined;
+  if (seedsLiveHost) refuseOwnWrite(liveStart.writeRefusal, { action: `seed ${opts.seed}`, writer: 'seed' });
 
   // Handshake beacons from pyric-launched children, plus the per-launch secret
   // that authorizes one. Both live here because the route does.
@@ -578,7 +582,13 @@ async function startServeRuntime(opts: {
   // sandbox session is released.
   let bridgeAttachment;
   try {
-    if (usesHostedSandbox) await mount?.startHostedSandbox(session.payload(), handle.url, { logger, persistence: session.hostedPersistence });
+    if (usesHostedSandbox) {
+      await mount?.startHostedSandbox(session.payload(), handle.url, {
+        logger,
+        persistence: session.hostedPersistence,
+        ownWriteRefusal: liveStart?.writeRefusal,
+      });
+    }
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,
       lifecycleServer: handle.server,
@@ -975,6 +985,8 @@ const LIVE_HOST_CLIENTS =
 /** What only `@pyric/live`'s seam (`serve/live-host.ts`) sets on a run: the project it resolved, and where from. */
 export interface LiveServeStart {
   project: FirebaseProjectResolution;
+  /** The installed `@pyric/live`'s refusal of pyric's own writes: Studio's, an MCP tool's, a command's, the seed file's. */
+  writeRefusal: PyricWriteRefusal;
 }
 
 export interface ServeRunHost {

@@ -240,6 +240,17 @@ test.describe('pyric-live', () => {
     await expect(chip.locator('[data-chip-live-mismatch]')).toHaveText(warning);
   });
 
+  test('refuses a seed file: a live host makes none of pyric\'s own writes', async () => {
+    const root = project(roots);
+    symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
+    writeFileSync(join(root, 'seed.json'), JSON.stringify({ 'rooms/lobby': { name: 'Lobby' } }));
+    const run = started('node', [liveBin(root), '--no-open', '--seed', 'seed.json', '--port', String(await freeLoopbackPort())], root, { HOME: root });
+    hosts.push(run);
+    const finished = await run.exited;
+    expect(finished.code, finished.output).not.toBe(0);
+    expect(finished.output).toContain('@pyric/live: seed seed.json from the seed file is refused in live mode.');
+  });
+
   test('refuses to start with an unsupported firebase, naming the version found', async () => {
     const root = project(roots);
     mkdirSync(join(root, 'node_modules/firebase'));
