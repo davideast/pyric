@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
-import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
+import type { AuthLens, EventCaller, SandboxEvent } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
 import type { RuntimeIdentityBindings } from '../../../src/serve/runtime/identity.js';
@@ -98,7 +98,7 @@ function setup(options: {
   if (options.clipboard) {
     chipOptions.clipboard = options.clipboard;
   }
-  let pushEvents: ((events: readonly SandboxEvent[]) => void) | null = null;
+  let pushEvents: ((events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string }) => void) | null = null;
   if (options.withSandboxEvents) {
     chipOptions.sandboxEvents = (callback) => {
       pushEvents = callback;
@@ -117,7 +117,7 @@ function setup(options: {
     chip,
     root,
     setLensMock,
-    push: (events: readonly SandboxEvent[]) => pushEvents?.(events),
+    push: (events: readonly SandboxEvent[], batch: { history: boolean; pageId?: string } = { history: false }) => pushEvents?.(events, batch),
     showTab(tab: ChipTab) {
       root.querySelector<HTMLButtonElement>(`[data-chip-tab="${tab}"]`)!.click();
     },
@@ -603,6 +603,55 @@ describe('the Traffic view', () => {
     await Promise.resolve();
     expect(written[0]).toContain('firestore.set  conversations/c1  Denied');
     expect(written[0]).toContain('u9');
+  });
+
+  it("lists this page's own requests by default, and every source with its label in the All view", () => {
+    const { root, showTab, push, runtime } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    const now = Date.now();
+    const from = (event: SandboxEvent, caller: EventCaller): SandboxEvent => ({ ...event, caller } as SandboxEvent);
+    push([
+      from(request('mine', now - 5000, 'notes/mine', 'allow'), { kind: 'page', pageId: 'tab-1' }),
+      from(request('tab', now - 4000, 'notes/tab', 'allow'), { kind: 'page', pageId: 'tab-2' }),
+      from(request('server', now - 3000, 'notes/server', 'allow'), { kind: 'node' }),
+      from(request('admin', now - 2000, 'notes/admin', 'deny'), { kind: 'admin' }),
+      from(request('agent', now - 1000, 'notes/agent', 'allow'), { kind: 'mcp' }),
+    ], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const scope = (value: string) => root.querySelector<HTMLButtonElement>(`[data-traffic-scope="${value}"]`)!;
+    expect(scope('page').getAttribute('aria-pressed')).toBe('true');
+    expect(scope('page').textContent).toBe('This page');
+    expect(scope('all').textContent).toBe('All sandbox traffic');
+    const rowIds = () => [...root.querySelectorAll<HTMLElement>('[data-request-row]')].map((row) => row.dataset.requestRow);
+    expect(rowIds()).toEqual(['mine']);
+    expect(root.querySelector('[data-traffic-row-source]')).toBeNull();
+    expect(root.querySelector('[data-traffic-hosted-note]')).toBeNull();
+
+    scope('all').click();
+    expect(scope('all').getAttribute('aria-pressed')).toBe('true');
+    expect(rowIds().sort()).toEqual(['admin', 'agent', 'mine', 'server', 'tab']);
+    const labelOf = (id: string) => root.querySelector(`[data-request-row="${id}"] [data-traffic-row-source]`)?.textContent;
+    expect(labelOf('mine')).toBe('This page');
+    expect(labelOf('tab')).toBe('Other tab');
+    expect(labelOf('server')).toBe('Server (client SDK)');
+    expect(labelOf('admin')).toBe('Server (admin)');
+    expect(labelOf('agent')).toBe('MCP');
+    const admin = root.querySelector(`[data-request-row="admin"]`)!;
+    expect(admin.querySelector('.slot')!.textContent).toBe('Bypassed');
+    expect(admin.classList.contains('problem')).toBe(false);
+    expect(root.querySelector('[data-traffic-hosted-note]')!.textContent).toContain('pyric sandbox --hosted');
+
+    root.querySelector<HTMLButtonElement>('[data-traffic-denied]')!.click();
+    expect(rowIds()).toEqual([]);
+  });
+
+  it('leaves out the hosted note when the sandbox is hosted', () => {
+    const { root, showTab, push, runtime } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    runtime.setWorker({ mode: 'hosted' });
+    push([request('mine', Date.now(), 'notes/mine', 'allow')], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    root.querySelector<HTMLButtonElement>('[data-traffic-scope="all"]')!.click();
+    expect(root.querySelector('[data-traffic-hosted-note]')).toBeNull();
   });
 
   it('carries the failures that are not requests from the runtime error feed', () => {

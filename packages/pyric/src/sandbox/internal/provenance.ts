@@ -48,6 +48,12 @@ export function stampProvenance<E extends SandboxEvent>(
   if (overrides?.activity !== undefined) {
     out.activity = { ...out.activity, ...overrides.activity };
   }
+  // The connection a host stamped. An event that names its own caller keeps it.
+  // An agent's operation is an MCP tool call even where no host window reached
+  // it: tool handles bind the agent source, which survives the tool's awaits.
+  const agentCall = context.source.kind === 'agent' ? { kind: 'mcp' as const } : undefined;
+  const caller = out.caller ?? overrides?.caller ?? agentCall;
+  if (caller !== undefined) out.caller = caller;
   if (isOperationEvent(out)) {
     out.rulesDisposition = Object.freeze({ ...rulesDispositionFor(out) });
   }

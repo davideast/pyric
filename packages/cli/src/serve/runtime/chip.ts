@@ -1,4 +1,4 @@
-import { requestStatusLabel } from 'pyric/sandbox/internal';
+import { CALLER_SOURCE_LABELS, requestStatusLabel } from 'pyric/sandbox/internal';
 import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
@@ -55,11 +55,14 @@ import {
 import {
   createTrafficFeed,
   aiTrafficRequest,
+  isPageRequest,
   isPermissionDeniedCode,
   orderChipRequests,
   RECENT_FAILURE_MS,
+  requestsInScope,
   type ChipRequest,
   type TrafficFeed,
+  type TrafficScope,
 } from './chip-traffic.js';
 import { createChipDataView, type ChipDataView } from './chip-data-view.js';
 import {
@@ -369,6 +372,9 @@ const styles = `
   .verdict .icon { width: 12px; height: 12px; }
   .verdict.ok { --verdict-border: #586b60; background: #252e2c; color: #c4d2cb; }
   .verdict.ok .verdict-icon { color: #a4c7b5; }
+  .verdict.bypassed { --verdict-border: #5d6478; background: #272a33; color: #c9cedb; }
+  .verdict.bypassed .verdict-icon { color: #aab4cc; }
+  .traffic-source { color: var(--pyric-text); }
   .traffic-row.problem .c1 { color: #d6a7ae; }
   .traffic-row.pending .c1 { color: #d6c096; }
   .empty { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--space-4); border: 1px dashed #454b59; border-radius: 8px; }
@@ -420,8 +426,20 @@ function isTextField(element: Element | null | undefined): element is HTMLInputE
   return element !== null && element !== undefined && element.tagName === 'INPUT';
 }
 
+/**
+ * Whether a row is admin code, which Rules never evaluate. It reads as
+ * bypassed, not allowed or denied; a call that failed for another reason
+ * still reads as failed.
+ */
+function bypassesRules(request: ChipRequest): boolean {
+  return request.source === 'admin' && request.verdict !== 'error';
+}
+
+const BYPASSED_TITLE = 'Rules bypassed for admin access';
+
 /** A shared icon and label track keeps request statuses aligned across rows. */
-function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean): string {
+function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false): string {
+  if (bypassed) return `<span class="verdict bypassed" title="${BYPASSED_TITLE}" aria-label="${BYPASSED_TITLE}"><span class="verdict-icon">${iconHtml('check')}</span><span class="verdict-label">Bypassed</span></span>`;
   const badges = {
     ok: { label: 'Allowed', icon: 'check', tone: 'ok', title: 'Succeeded' },
     denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Denied' },
@@ -552,6 +570,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** Which requests Traffic lists. A page session remembers nothing here: the
    * filter is a way of reading the last minute, not a preference. */
   let trafficFilter: 'all' | 'denied' = 'all';
+  /** Whose requests Traffic lists: this page's own, unless the developer asks for all. */
+  let trafficScope: TrafficScope = 'page';
   let requestPageSize = REQUEST_PAGE_SIZE;
   let requestService = '';
   let pinnedRequestIds: Set<string> | null = null;
@@ -620,7 +640,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? createTrafficFeed({
       subscribeEvents: sandboxEvents,
       onRequest: (request, event) => {
-        const showsDenials = mounted && dataView?.mode()?.enabled() === true;
+        const showsDenials = mounted && isPageRequest(request) && dataView?.mode()?.enabled() === true;
         if (showsDenials) denials.show(request, event);
       },
       onChange: () => {
@@ -665,8 +685,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         identity: null,
       });
     }
-    const ordered = orderChipRequests([...byId.values()], Date.now());
-    const kept = trafficFilter === 'denied' ? ordered.filter((request) => request.verdict !== 'ok') : ordered;
+    const ordered = orderChipRequests(requestsInScope([...byId.values()], trafficScope), Date.now());
+    const kept = trafficFilter === 'denied' ? ordered.filter((request) => request.verdict !== 'ok' && !bypassesRules(request)) : ordered;
     const matching = kept.filter(request => !trafficSource || ((request.service === trafficSource.service || (request.service === 'rtdb' && trafficSource.service === 'database')) && activityDisplayTarget(request.path ?? '').replace(/^\//, '') === trafficSource.target.replace(/^\//, '')));
     return matching.filter(request => !requestService || request.service === requestService);
   };
@@ -847,7 +867,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const trafficToolbar = (): string => {
     const modes = `<div class="paint-switch" role="group" aria-label="Traffic view">${buttonHtml(`data-traffic-display="requests" aria-pressed="${trafficDisplay === 'requests'}"`, 'Requests')}${buttonHtml(`data-traffic-display="rates" aria-pressed="${trafficDisplay === 'rates'}"`, 'Rates')}</div>`;
     let filter = '';
-    if (trafficDisplay === 'requests') filter = buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only');
+    if (trafficDisplay === 'requests') {
+      const scopes = trafficFeed ? `<div class="paint-switch" role="group" aria-label="Traffic source">${buttonHtml(`data-traffic-scope="page" aria-pressed="${trafficScope === 'page'}"`, 'This page')}${buttonHtml(`data-traffic-scope="all" aria-pressed="${trafficScope === 'all'}"`, 'All sandbox traffic')}</div>` : '';
+      filter = scopes + buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only');
+    }
     if (trafficDisplay === 'rates' && isThresholdService(selectedRateService)) {
       if (rateSection === 'capture-rename' || rateSection === 'capture-delete') return barHtml([`<div class="traffic-toolbar"><div class="traffic-view-switch">${buttonHtml('data-capture-edit-cancel', 'Cancel')}</div><div class="traffic-actions">${buttonHtml(`data-capture-edit-save ${captureEditBusy ? 'disabled' : ''}`, rateSection === 'capture-delete' ? 'Delete' : 'Save')}</div></div>`]);
       const frame = currentRateHistory().view(rates.snapshot());
@@ -888,10 +911,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const method = request.method ?? 'Request';
       const target = request.path ?? request.label ?? 'Request';
       const service = serviceLabel(request.service);
-      const outcome = request.aiRequest ? requestStatusLabel(request.aiRequest.status) : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
+      const verdictOutcome = bypassesRules(request) ? 'Rules bypassed' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
+      const outcome = request.aiRequest ? requestStatusLabel(request.aiRequest.status) : verdictOutcome;
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
       let identityFact = '';
-      if (request.identity) identityFact = fact('Identity', request.identity, 's2');
+      if (request.source) identityFact = fact('Source', CALLER_SOURCE_LABELS[request.source], 's2');
+      if (request.identity) identityFact += fact('Identity', request.identity, 's2');
       let evidenceDetails = '';
       let reasonFact = request.indexFailure ? fact('Reason', 'The required index was missing.', '') : '';
       if (request.service === 'firestore') {
@@ -927,16 +952,20 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const named = request.service !== null && request.method !== null;
       const call = named ? `${request.service}.${request.method}` : 'runtime';
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
+      const bypassed = bypassesRules(request);
+      const rowSource = request.source ?? 'page';
+      const sourceLabel = trafficScope === 'all' ? CALLER_SOURCE_LABELS[rowSource] : '';
+      const source = sourceLabel ? `<span class="traffic-source" data-traffic-row-source="${rowSource}">${sourceLabel}</span> · ` : '';
       return buttonRowHtml({
-        c1: escapeAttribute(call),
+        c1: source + escapeAttribute(call),
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
-        slot: request.aiRequest ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing),
-        className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' ? '' : ' problem'}`,
-        title: [call, what, request.identity].filter(Boolean).join(' —'),
+        slot: request.aiRequest ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed),
+        className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
+        title: [sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
-        label: `Inspect ${call}: ${what}. ${request.verdict}`,
+        label: `Inspect ${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}`,
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
@@ -948,7 +977,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const older = browsing.length > shown.length ? '<div class="history-context request-pagination"><button type="button" class="btn" data-request-older>Load older</button></div>' : '';
     const omitted = trafficFeed?.omittedCount() ?? 0;
     const retention = omitted ? `<div class="history-context"><p class="hint request-retention">Older history discarded (${omitted} events). Retention is limited by age and memory.</p></div>` : '';
-    return { body: `${controls}${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} of ${retained.length} retained`, copy)}${older}${retention}`, bar };
+    // A SharedWorker sandbox lives in the browser, where no server process can reach it.
+    const missesServerTraffic = trafficScope === 'all' && snapshot.mode === 'shared-worker';
+    const hostedNote = missesServerTraffic ? '<div class="history-context"><p class="hint" data-traffic-hosted-note>Server code that uses the client SDK reaches this sandbox only when it runs with <span class="mono">pyric sandbox --hosted</span>.</p></div>' : '';
+    const emptyDetail = trafficScope === 'all' ? 'Requests from this page, other tabs, server code and MCP calls appear here.' : 'Use your app to see its data activity here.';
+    return { body: `${controls}${hostedNote}${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', emptyDetail)}`, `${rows.length} of ${retained.length} retained`, copy)}${older}${retention}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
@@ -1073,6 +1106,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-request-back',
       'data-inspect-request',
       'data-traffic-denied',
+      'data-traffic-scope',
       'data-traffic-display',
       'data-inspect-rates',
       'data-rates-back',
@@ -1470,6 +1504,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       trafficFilter = trafficFilter === 'denied' ? 'all' : 'denied';
       render();
     });
+    root.querySelectorAll<HTMLButtonElement>('[data-traffic-scope]').forEach(button => button.addEventListener('click', () => {
+      trafficScope = button.dataset.trafficScope === 'all' ? 'all' : 'page';
+      pinnedRequestIds = null;
+      render();
+    }));
     root.querySelector('[data-copy-response]')?.addEventListener('click', async (event) => {
       if (!clipboard) return;
       const button = event.currentTarget as HTMLButtonElement;

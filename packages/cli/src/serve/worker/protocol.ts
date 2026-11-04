@@ -371,6 +371,8 @@ export interface EventSubMessage {
   t: 'sub';
   subId: string;
   target: 'events';
+  /** The subscribing page's tab id (`AppConfigMessage.tabId`); the history batch answers with `pageId`. */
+  tabId?: string;
 }
 
 export interface RtdbValueSubMessage {
@@ -491,6 +493,12 @@ export interface AppConfigMessage {
   hostVerified?: boolean;
   /** The page's `location.origin`; the host resolves relative photo URLs against it. */
   origin?: string;
+  /**
+   * The page's tab id, kept in `sessionStorage` so it survives a reload. Every
+   * port the tab opens sends the same one, and the host stamps it on the
+   * tab's events as `caller.pageId`. A label, never an authority.
+   */
+  tabId?: string;
 }
 
 /**
@@ -546,6 +554,12 @@ export interface EventStreamMessage {
   t: 'event';
   subId: string;
   events: readonly SandboxEvent[];
+  /**
+   * On the history batch a page's subscription receives first: the id the
+   * host stamps on that page's events (`caller.pageId`), so the page can tell
+   * its own requests from another tab's. Absent for a port that is not a page.
+   */
+  pageId?: string;
 }
 
 export interface RuntimeReloadMessage {

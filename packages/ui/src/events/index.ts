@@ -35,6 +35,7 @@ export type {
   ActivityProvenance,
   ActivityService,
   ActivityActor,
+  ActivityCaller,
   ActivityLens,
   ActivityResult,
   ActivityAuthState,

@@ -16,9 +16,9 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getInternalEnv } from 'pyric/sandbox/internal';
+import { bindOperationContext, getInternalEnv } from 'pyric/sandbox/internal';
 import type { SandboxEvent } from 'pyric/sandbox';
-import { getFirestore, collection, onSnapshot } from 'pyric/firestore';
+import { getFirestore, collection, doc, onSnapshot, setDoc } from 'pyric/firestore';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {
@@ -152,5 +152,40 @@ describe('sandbox.runWithProvenance', () => {
     expect(deferred.length).toBeGreaterThan(0);
     for (const e of deferred) expect(e.actor).toEqual({ kind: 'unattributed' });
     unsub();
+  });
+
+  it('stamps the caller a host names on the events of its window, and an event keeps its own', () => {
+    const { sandbox, env } = makeSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    sandbox.runWithProvenance!({ caller: { kind: 'page', pageId: 'page-1' } }, () => {
+      env.execute({ method: 'set', path: 'notes/c1', auth: null, data: { body: 'hi' } });
+      (sandbox as unknown as { emitEvent(event: SandboxEvent): void }).emitEvent({
+        kind: 'request', id: 'own', at: 1, evalMs: 0, method: 'get', path: 'notes/c1',
+        auth: null, result: 'allow', reasons: [], caller: { kind: 'admin' },
+      } as unknown as SandboxEvent);
+    });
+
+    const own = events.find((e) => e.id === 'own');
+    const stamped = events.filter((e) => e.id !== 'own');
+    expect(stamped.length).toBeGreaterThan(0);
+    for (const e of stamped) expect(e.caller).toEqual({ kind: 'page', pageId: 'page-1' });
+    expect(own?.caller).toEqual({ kind: 'admin' });
+  });
+
+  it("names an agent's operation an MCP call after an await, outside any window", async () => {
+    const { sandbox } = makeSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const anonymous = sandbox.withAuth(null);
+    const agent = bindOperationContext(anonymous, { ...anonymous.operationContext, source: { kind: 'agent', name: 'mcp' } });
+
+    await Promise.resolve();
+    await setDoc(doc(getFirestore(agent), 'notes/agent'), { body: 'from an agent' });
+
+    const writes = events.filter((e) => e.kind === 'request');
+    expect(writes.length).toBeGreaterThan(0);
+    for (const e of writes) expect(e.caller).toEqual({ kind: 'mcp' });
   });
 });

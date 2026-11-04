@@ -29,8 +29,8 @@
 
 import type { ToolHandler } from 'pyric/sandbox/internal';
 import { getFirestore, getAdminFirestore, type As } from 'pyric/firestore';
-import { getInternalEnv } from 'pyric/sandbox/internal';
-import type { AuthLens, LocalSandbox } from 'pyric/sandbox';
+import { bindOperationContext, getInternalEnv } from 'pyric/sandbox/internal';
+import type { AuthLens, LocalSandbox, SandboxContext } from 'pyric/sandbox';
 import { projectIdentity } from '../surface/identity.js';
 import { assertExactToolNames, toolFamilies } from '../tool-families.js';
 import { SANDBOX_HANDLER_FACTORIES, type SandboxBinding } from './tool-family-factories.js';
@@ -55,9 +55,23 @@ export type SandboxDispatch = (
  * tenant and claims projected into the auth token by `projectIdentity`, so
  * `request.auth.token.firebase.tenant` resolves as it does for a held identity.
  */
-function actorDb(sandbox: LocalSandbox, actor: As) {
-  if (actor === 'admin') return getAdminFirestore(sandbox);
-  return getFirestore(sandbox.withAuth(projectIdentity(actor.uid, actor.tenant, actor.claims)));
+function actorDb(agent: SandboxContext, actor: As) {
+  if (actor === 'admin') return getAdminFirestore(agent);
+  return getFirestore(agent.withAuth(projectIdentity(actor.uid, actor.tenant, actor.claims)));
+}
+
+/** The source a tool call's operations name: an agent's MCP call. */
+const MCP_SOURCE = Object.freeze({ kind: 'agent', name: 'mcp' } as const);
+
+/**
+ * The context every Firestore handle a tool opens derives from. Its source is
+ * the agent, so each event a tool's operation emits says it was an MCP call,
+ * including the ones emitted after an await, outside the host's provenance
+ * window. `withAuth` keeps the source.
+ */
+function agentContext(sandbox: LocalSandbox): SandboxContext {
+  const anonymous = sandbox.withAuth(null);
+  return bindOperationContext(anonymous, { ...anonymous.operationContext, source: MCP_SOURCE });
 }
 
 /**
@@ -72,13 +86,13 @@ function actorDb(sandbox: LocalSandbox, actor: As) {
  * handle to that uid, carrying its tenant and custom claims into rules
  * evaluation.
  */
-function callerDb(sandbox: LocalSandbox, caller: AuthLens | undefined) {
+function callerDb(agent: SandboxContext, caller: AuthLens | undefined) {
   if (caller === undefined || caller.mode === 'app-session' || caller.mode === 'admin') {
-    return getAdminFirestore(sandbox);
+    return getAdminFirestore(agent);
   }
-  if (caller.mode === 'anon') return getFirestore(sandbox.withAuth(null));
+  if (caller.mode === 'anon') return getFirestore(agent.withAuth(null));
   return getFirestore(
-    sandbox.withAuth({
+    agent.withAuth({
       uid: caller.uid,
       ...(caller.token !== undefined ? { token: caller.token } : {}),
       ...(caller.tenant !== undefined ? { tenant: caller.tenant } : {}),
@@ -95,12 +109,12 @@ function callerDb(sandbox: LocalSandbox, caller: AuthLens | undefined) {
  * SANDBOX dispatcher, so the admin default is intended; a dispatcher wired to
  * a real backend must reject `'admin'`.
  */
-function buildSandboxHandlers(sandbox: LocalSandbox, caller?: AuthLens): ToolHandler[] {
+function buildSandboxHandlers(sandbox: LocalSandbox, agent: SandboxContext, caller?: AuthLens): ToolHandler[] {
   const binding: SandboxBinding = {
     sandbox,
     env: getInternalEnv(sandbox),
     resolveDb: (actor?: As) =>
-      actor !== undefined ? actorDb(sandbox, actor) : callerDb(sandbox, caller),
+      actor !== undefined ? actorDb(agent, actor) : callerDb(agent, caller),
   };
   return toolFamilies('forwarded').flatMap((family) =>
     SANDBOX_HANDLER_FACTORIES[family.key](binding),
@@ -130,12 +144,14 @@ const IDENTITY_CACHE_LIMIT = 16;
  */
 export function buildSandboxDispatcher(sandbox: LocalSandbox): SandboxDispatch {
   const bindings = new Map<string, Map<string, ToolHandler>>();
+  // One agent context per dispatcher, so the admin handle it opens is cached once.
+  const agent = agentContext(sandbox);
 
   function handlersFor(caller: AuthLens | undefined): Map<string, ToolHandler> {
     const key = identityKey(caller);
     const cached = bindings.get(key);
     if (cached) return cached;
-    const handlers = buildSandboxHandlers(sandbox, caller);
+    const handlers = buildSandboxHandlers(sandbox, agent, caller);
     assertExactToolNames(
       'sandbox dispatcher tools',
       handlers.map((h) => h.name),

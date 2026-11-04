@@ -79,6 +79,10 @@ export interface HostCtx {
   /** Stable worker-lifetime activity identity for each page/app port. */
   activityJourneyIds?: WeakMap<PortLike, string>;
   activityJourneySequence?: number;
+  /** Ports a host admitted as something other than a page; see `host/caller.ts`. */
+  portConnections?: WeakMap<PortLike, 'page' | 'node' | 'relay'>;
+  /** The tab id each page port declared in its `appConfig`; see `host/caller.ts`. */
+  portTabIds?: WeakMap<PortLike, string>;
   /** Stable per-SharedWorker instance id (see {@link INSTANCE_ID_KEY}). Reported
    *  via `getVersion` so the UI can identify which sandbox instance this is. */
   instanceId: string;

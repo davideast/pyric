@@ -3,11 +3,13 @@
  *
  * Surfaces the sandbox's unified cross-service `onEvent`/`history()` stream over
  * the port so Studio's Action Center / traffic / rules-debug denial feed see
- * real activity. Imports only from `./host-context.js` + external packages (no
- * circular imports).
+ * real activity. Imports only from `./host-context.js`, `./host/caller.js`
+ * (which imports only `./host-context.js`) and external packages, so there
+ * are no circular imports.
  */
 
 import { type HostCtx, type PortLike, post } from './host-context.js';
+import { pageIdFor, setPortTabId } from './host/caller.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { EventSubMessage } from './protocol.js';
 
@@ -80,8 +82,11 @@ export function handleEventSub(ctx: HostCtx, port: PortLike, msg: EventSubMessag
   if (subIds.has(msg.subId)) return; // idempotent
   subIds.add(msg.subId);
 
-  // Initial fire: the full history snapshot (a defensive copy from the sandbox).
-  post(port, { t: 'event', subId: msg.subId, events: ctx.sandbox.history() });
+  // Initial fire: the full history snapshot (a defensive copy from the sandbox),
+  // with the id this page's own events carry.
+  if (msg.tabId !== undefined) setPortTabId(ctx, port, msg.tabId);
+  const pageId = pageIdFor(ctx, port);
+  post(port, { t: 'event', subId: msg.subId, events: ctx.sandbox.history(), ...(pageId === undefined ? {} : { pageId }) });
 }
 
 export function handleEventUnsub(ctx: HostCtx, port: PortLike, subId: string): boolean {
