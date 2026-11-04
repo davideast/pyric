@@ -249,12 +249,6 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
   return defaultRoot;
 }
 
-/**
- * The dev-only Vite plugin. Add to `vite.config`:
- *
- *   import { pyric } from '@pyric/cli/vite';
- *   export default defineConfig({ plugins: [pyric()] });
- */
 /** Opens the live rows with the `@pyric/live` the project root resolves, and lets the page load its files. */
 async function openSuppliedRows(supplied: SuppliedRows, resolved: ResolvedConfig): Promise<void> {
   const found = await loadRowModulePackage(resolved.root);
@@ -264,6 +258,12 @@ async function openSuppliedRows(supplied: SuppliedRows, resolved: ResolvedConfig
   if (needsAllowance) allow.push(found.root);
 }
 
+/**
+ * The dev-only Vite plugin. Add to `vite.config`:
+ *
+ *   import { pyric } from '@pyric/cli/vite';
+ *   export default defineConfig({ plugins: [pyric()] });
+ */
 export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
   return createPyricPlugin(options);
 }
