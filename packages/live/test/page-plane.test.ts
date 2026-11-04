@@ -37,6 +37,16 @@ describe('the records a page sends to the host', () => {
     expect(observedCallOf({ module: 'firebase/app-check', name: 'getToken', outcome: 'resolved' }, AT)).toBeNull();
   });
 
+  test('name the account a call ran as: its uid and claim names, as a copy', () => {
+    const claimNames = ['admin', 'sub'];
+    const record: LiveCallRecord = { module: 'firebase/firestore', name: 'getDoc', outcome: 'resolved', account: { uid: 'alice', claimNames } };
+    const call = observedCallOf(record, AT);
+    expect(call).toEqual({ service: 'firestore', method: 'getDoc', at: AT, outcome: { status: 'ok' }, account: { uid: 'alice', claimNames: ['admin', 'sub'] } });
+    expect(call?.account?.claimNames).not.toBe(claimNames);
+    const uidOnly: LiveCallRecord = { module: 'firebase/auth', name: 'signOut', outcome: 'resolved', account: { uid: 'bob' } };
+    expect(observedCallOf(uidOnly, AT)?.account).toEqual({ uid: 'bob' });
+  });
+
   test('are sent once each, with the time they were made', async () => {
     const sent: ObservedCall[] = [];
     const observer = pageObserver(async (call) => { sent.push(call); }, () => AT);

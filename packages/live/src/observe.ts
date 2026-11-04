@@ -8,7 +8,8 @@
  * the observer a record of the call and its outcome.
  *
  * A record names the module, the export and the outcome, plus the error code
- * on a failure. It never carries an argument or a result, so no document
+ * on a failure, the project, and the signed-in account the call ran as
+ * (`account.ts`, which a site supplies). It never carries an argument or a result, so no document
  * value, credential or token reaches it.
  *
  * Recording is isolated from the app: building a record, calling the
@@ -36,6 +37,18 @@ export interface LiveCallRecord {
    * first argument belongs to. Absent when the argument names no app.
    */
   readonly projectId?: string;
+  /**
+   * The signed-in account the call ran as when the record was made: the
+   * current user of the Auth its first argument's app was handed. Absent
+   * when it ran signed out.
+   */
+  readonly account?: LiveAccount;
+}
+
+/** The account a call ran as: the uid and its token's claim names, never the token. */
+export interface LiveAccount {
+  readonly uid: string;
+  readonly claimNames?: readonly string[];
 }
 
 /** The hook a plane supplies to receive records. Its return value is ignored. */
@@ -57,6 +70,10 @@ export interface ObservedSite {
   readonly uncaughtListenerError?: UncaughtListenerError;
   /** The project of the call this site records, read from its arguments. */
   readonly projectId?: string;
+  /** The call's first argument, which names the app whose Auth the call runs as. */
+  readonly subject?: unknown;
+  /** Reads the account a call whose first argument is `subject` runs as. Absent records no account. */
+  readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
 }
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
@@ -77,8 +94,10 @@ function errorCode(error: unknown): string {
 function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, error: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
   const project = site.projectId === undefined ? {} : { projectId: site.projectId };
-  if (!isFailure) return { module: site.module, name: site.name, outcome, ...project };
-  return { module: site.module, name: site.name, outcome, code: errorCode(error), ...project };
+  const account = site.accountOf?.(site.subject);
+  const context = account === undefined ? project : { ...project, account };
+  if (!isFailure) return { module: site.module, name: site.name, outcome, ...context };
+  return { module: site.module, name: site.name, outcome, code: errorCode(error), ...context };
 }
 
 function stringAt(value: unknown, path: readonly string[]): string | undefined {
@@ -114,10 +133,11 @@ function projectOf(args: readonly unknown[]): string | undefined {
   return undefined;
 }
 
-/** The site with the project its call's arguments name. */
+/** The site with the project its call's arguments name, and the argument that names its account. */
 function siteFor(site: ObservedSite, args: readonly unknown[]): ObservedSite {
   const projectId = projectOf(args);
-  return projectId === undefined ? site : { ...site, projectId };
+  const subject = { ...site, subject: args[0] };
+  return projectId === undefined ? subject : { ...subject, projectId };
 }
 
 function ignoreRejection(returned: unknown): void {

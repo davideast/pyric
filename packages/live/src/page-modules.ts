@@ -31,9 +31,15 @@ function rowOf(id: string): ServedFirebaseSpecifier | undefined {
   return undefined;
 }
 
+/**
+ * The extension of this package's modules beside this one: `.js` in the
+ * built files a project installs, `.ts` in the workspace source.
+ */
+const MODULE_EXTENSION = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
+
 /** A module of this package, as the URL a page module imports it by. */
 function servedFile(name: string): string {
-  return `/@fs${fileURLToPath(new URL(`./${name}.ts`, import.meta.url))}`;
+  return `/@fs${fileURLToPath(new URL(`./${name}${MODULE_EXTENSION}`, import.meta.url))}`;
 }
 
 const PAGE_IMPORTS: RowImports = { file: servedFile, observer: OBSERVER_SPECIFIER, client: 'page' };

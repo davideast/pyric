@@ -6,23 +6,41 @@
 //
 // A request names the Google host it was meant for either as the first path
 // segment (`http://127.0.0.1:<port>/firestore.googleapis.com/...`, how
-// `routeFirebaseTo` in seam.ts rewrites it) or in its Host header.
+// `routeFirebaseTo` in seam.ts rewrites it, and the path the Auth SDK's own
+// `connectAuthEmulator` builds) or in its Host header. A Firestore stream path
+// with no host segment (`/google.firestore.v1.Firestore/Listen/channel`) is the
+// one `connectFirestoreEmulator` builds, and is Firestore's.
+//
+// With `grpc`, the same recordings also answer Firestore's streams over gRPC,
+// the Node SDK's transport, from one shared state (`grpc.ts`).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
 import type { Recording } from './format.ts';
-import { ListenStream, ReplayState, WriteStream, type Unmatched } from './firestore.ts';
+import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
+import { startGrpcReplay, type GrpcReplay } from './grpc.ts';
 import { parseForwardBody, WebChannelSession } from './webchannel.ts';
 
 export const FIRESTORE_HOST = 'firestore.googleapis.com';
 export const REPLAYED_HOSTS = [FIRESTORE_HOST, ...AUTH_HOSTS];
+/** The first path segment of a Firestore stream an emulator connector names. */
+const FIRESTORE_SERVICE = 'google.firestore.v1.Firestore';
 
 export interface ReplayServer {
   /** `http://127.0.0.1:<port>`. */
   origin: string;
   /** Every request no recording answered, in arrival order. */
   unmatched: Unmatched[];
+  /** Every request any client sent, answered or not, in arrival order. */
+  received: Received[];
+  /** The gRPC streams, when `startReplayServer` was given `grpc`. */
+  grpc: GrpcReplay | null;
   close(): Promise<void>;
+}
+
+export interface ReplayOptions {
+  /** Also answer Firestore over gRPC, with the `@grpc/grpc-js` and protos of the SDK installed in `projectDir`. */
+  grpc?: { projectDir: string };
 }
 
 /** Where a request was meant to go. */
@@ -37,12 +55,14 @@ export function routeOf(request: IncomingMessage): Route | null {
   const url = new URL(request.url ?? '/', 'http://replay.invalid');
   const [, first, ...rest] = url.pathname.split('/');
   if (first && REPLAYED_HOSTS.includes(first)) return { host: first, path: `/${rest.join('/')}`, url };
+  if (first === FIRESTORE_SERVICE) return { host: FIRESTORE_HOST, path: url.pathname, url };
   const host = (request.headers.host ?? '').replace(/:\d+$/, '');
   return REPLAYED_HOSTS.includes(host) ? { host, path: url.pathname, url } : null;
 }
 
-export async function startReplayServer(recordings: Recording[]): Promise<ReplayServer> {
+export async function startReplayServer(recordings: Recording[], options: ReplayOptions = {}): Promise<ReplayServer> {
   const state = new ReplayState(recordings);
+  const grpc = options.grpc ? await startGrpcReplay(state, options.grpc.projectDir) : null;
   const sessions = new Map<string, WebChannelSession>();
   const server = createServer((request, response) => {
     void handle(state, sessions, request, response).catch((error: unknown) => {
@@ -55,7 +75,12 @@ export async function startReplayServer(recordings: Recording[]): Promise<Replay
   return {
     origin: `http://127.0.0.1:${port}`,
     unmatched: state.unmatched,
-    close: () => closeServer(server, sessions),
+    received: state.received,
+    grpc,
+    close: async () => {
+      grpc?.close();
+      await closeServer(server, sessions);
+    },
   };
 }
 
@@ -73,6 +98,12 @@ async function handle(state: ReplayState, sessions: Map<string, WebChannelSessio
     response.end();
     return;
   }
+  const report = REPORTS[request.url ?? ''];
+  if (request.method === 'GET' && report) {
+    response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify(report(state)));
+    return;
+  }
   const route = routeOf(request);
   const body = await readBody(request);
   if (route?.host === FIRESTORE_HOST) return channel(state, sessions, route, request, response, body);
@@ -86,6 +117,12 @@ async function handle(state: ReplayState, sessions: Map<string, WebChannelSessio
   response.writeHead(404, { 'content-type': 'text/plain' });
   response.end('pyric replay: no recorded host for this request');
 }
+
+/** What the server saw, for a caller in another process (`serve.ts`, `process.ts`). */
+const REPORTS: Record<string, (state: ReplayState) => unknown> = {
+  '/__replay/received': (state) => state.received,
+  '/__replay/unmatched': (state) => state.unmatched,
+};
 
 const CHANNEL_PATH = /^\/google\.firestore\.v1\.Firestore\/(Listen|Write)\/channel$/;
 
