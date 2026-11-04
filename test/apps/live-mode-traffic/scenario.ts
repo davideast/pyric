@@ -216,9 +216,12 @@ export default scenario(async (app) => {
     assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${project}\\.`));
     assert.match(run.output, /@pyric\/live\/register: reporting calls to the live host at /);
     const { listened, ...calls } = resultOf(run.output) as { listened: string[][] };
-    assert.deepEqual(calls, { uid: writer, read: { name: 'Lobby', open: true, seats: 12 }, denied: 'permission-denied', wrote: 'written' });
-    // The SDK may first deliver the lobby from its cache; then production's rooms, then the patio it wrote.
-    assert.deepEqual(listened.slice(-2), [['garden', 'lobby'], ['garden', 'lobby', 'patio']]);
+    // Production's first answer lists the garden the page opened; the listener's last delivery adds the patio this job wrote.
+    // The deliveries before and between (from the cache, the pending write, metadata) vary from run to run.
+    assert.deepEqual(calls, {
+      uid: writer, read: { name: 'Lobby', open: true, seats: 12 }, denied: 'permission-denied', answered: ['garden', 'lobby'], wrote: 'written',
+    });
+    assert.deepEqual(listened.at(-1), ['garden', 'lobby', 'patio']);
     return { deliveries: listened.length };
   });
 

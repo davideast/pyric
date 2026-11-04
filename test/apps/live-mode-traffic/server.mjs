@@ -29,16 +29,24 @@ result.read = await getDoc(doc(db, "rooms/lobby")).then((snapshot) => snapshot.d
 result.denied = await getDoc(doc(db, "rooms/secret")).then(() => "read", failure);
 
 const listened = [];
+const fromServer = (snapshot) => !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
 let stop = () => {};
+let firstAnswer = () => {};
+// Production's first answer, before the write: the SDK may first deliver the
+// lobby from the cache the earlier read filled, and a write made then would
+// reach the listener before production does.
+const answered = new Promise((resolve) => { firstAnswer = resolve; });
 const patioListed = new Promise((resolve, reject) => {
-  stop = onSnapshot(query(collection(db, "rooms"), where("open", "==", true)), (snapshot) => {
+  const openRooms = query(collection(db, "rooms"), where("open", "==", true));
+  stop = onSnapshot(openRooms, { includeMetadataChanges: true }, (snapshot) => {
     const rooms = snapshot.docs.map((room) => room.id);
     listened.push(rooms);
+    if (!fromServer(snapshot)) return;
+    firstAnswer(rooms);
     if (rooms.includes("patio")) resolve();
   }, (error) => reject(failure(error)));
 });
-// The listener's first snapshot, before the write.
-while (listened.length === 0) await new Promise((resolve) => setTimeout(resolve, 20));
+result.answered = await answered;
 result.wrote = await setDoc(doc(db, "rooms/patio"), { name: "Patio", open: true }).then(() => "written", failure);
 await patioListed;
 stop();

@@ -33,11 +33,14 @@ window.readSecret = () => getDoc(doc(db, "rooms/secret")).then(() => "read", fai
 
 window.listenToOpenRooms = () => {
   listening ??= new Promise((resolve, reject) => {
-    onSnapshot(query(collection(db, "rooms"), where("open", "==", true)), (snapshot) => {
+    // Resolves with production's first answer, not a snapshot from the cache
+    // or one holding a write still on its way.
+    onSnapshot(query(collection(db, "rooms"), where("open", "==", true)), { includeMetadataChanges: true }, (snapshot) => {
       const rooms = snapshot.docs.map((room) => room.id);
       snapshots.push(rooms);
       document.querySelector("#rooms").innerHTML = rooms.map((room) => `<li>${room}</li>`).join("");
-      resolve(rooms);
+      const fromServer = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
+      if (fromServer) resolve(rooms);
     }, (error) => reject(failure(error)));
   });
   return listening;
