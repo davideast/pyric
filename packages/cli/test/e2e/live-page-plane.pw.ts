@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import { createServer, type PluginOption, type ViteDevServer } from 'vite';
+import { createLogger, createServer, type PluginOption, type ViteDevServer } from 'vite';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
 const liveDir = fileURLToPath(new URL('../../../live/', import.meta.url));
@@ -36,7 +36,7 @@ function appSource(port: number): string {
   return `
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, signInAnonymously } from 'firebase/auth';
-import { connectFirestoreEmulator, doc, getDocFromCache, getFirestore } from 'firebase/firestore';
+import { connectFirestoreEmulator, doc, getDocFromCache, getFirestore, onSnapshot } from 'firebase/firestore';
 const app = initializeApp({ projectId: 'live-page-plane', apiKey: 'live-page-plane-key', appId: '1:1:web:1' });
 const auth = getAuth(app);
 connectAuthEmulator(auth, 'http://127.0.0.1:${port}', { disableWarnings: true });
@@ -48,6 +48,8 @@ window.run = async () => {
   await signInAnonymously(auth).catch((error) => { codes.auth = error.code; });
   return { codes, oneApp: db.app === app && auth.app === app };
 };
+// The offline SDK delivers the listener its cached snapshot: one listener delivery.
+window.listen = () => new Promise((resolve) => { const stop = onSnapshot(doc(db, 'rooms/listened'), () => { stop(); resolve('delivered'); }, (error) => resolve(error.code)); });
 window.importStorage = () => import('firebase/storage').then(() => 'loaded', (error) => error.message);
 document.querySelector('#status').textContent = 'Ready';
 `;
@@ -68,14 +70,19 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     symlinkSync(cliDir, join(root, 'node_modules/@pyric/cli'));
     symlinkSync(liveDir, join(root, 'node_modules/@pyric/live'));
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
+    // The Firebase project live mode names, from the app's own Firebase config.
+    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'live-page-plane' } }));
     writeFileSync(join(root, 'index.html'), '<output id="status">Starting</output><script type="module" src="/main.js"></script>');
     writeFileSync(join(root, 'main.js'), appSource(await closedLoopbackPort()));
     // The plugin as the app installs it: @pyric/live, resolved from the app's own root.
     const { pyricLive } = await import(createRequire(join(root, 'package.json')).resolve('@pyric/live/vite')) as typeof import('../../../live/src/vite.js');
     page.on('console', (message) => reports.push(message.text()));
     page.on('pageerror', (error) => reports.push(String(error)));
+    // A quiet logger that keeps what the plugin reports, the start line among it.
+    const logger = createLogger('silent');
+    logger.info = (message) => { reports.push(message); };
     server = await createServer({
-      root, configFile: false, logLevel: 'silent',
+      root, configFile: false, customLogger: logger,
       plugins: [pyricLive({ capture: false, ui: false, runtimeChip: { initiallyOpen: true } }) as PluginOption],
       server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
     });
@@ -87,6 +94,13 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
 
     const result = await page.evaluate(() => (Reflect.get(window, 'run') as () => Promise<unknown>)());
     expect(result).toEqual({ codes: { firestore: 'unavailable', auth: 'auth/network-request-failed' }, oneApp: true });
+
+    // The chip names the project for as long as the host runs, and counts billed calls from every client.
+    await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('Live: live-page-plane');
+    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 0 listener deliveries');
+    expect(await page.evaluate(() => (Reflect.get(window, 'listen') as () => Promise<string>)())).toBe('delivered');
+    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 listener delivery');
+    expect(reports.some((line) => line.includes('@pyric/live/vite: live mode for the Firebase project live-page-plane.'))).toBe(true);
 
     await page.locator('[data-chip-tab=traffic]').click();
     await page.locator('[data-traffic-scope=all]').click();

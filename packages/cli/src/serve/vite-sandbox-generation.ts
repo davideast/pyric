@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
 import { resolveFirebaseProject } from '../cli/firebase-project.js';
+import { requireLiveProject } from './live-project.js';
+import { createLiveHostState } from './live-host-state.js';
 import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
   discoverFunctionsProject,
@@ -61,6 +63,8 @@ export interface ViteSandboxGenerationOptions {
   avatars: PyricAvatarsOptions | undefined;
   /** The plugin's `project` option: the first source `resolveFirebaseProject` tries. */
   project?: string;
+  /** Set only through `@pyric/live`'s seam: the host reports its status as live (`live-host-state.ts`). */
+  liveHost?: boolean;
   /**
    * Live mode's refusal of pyric's own writes, from the installed
    * `@pyric/live` when the live rows are open (`hosted/own-writes.ts`). With
@@ -220,10 +224,20 @@ export async function createViteSandboxGeneration(
       discover: dependencies.discoverFunctionsProject,
       firebaseProject,
     });
+    const isLive = options.liveHost === true;
+    const liveHost = isLive
+      ? createLiveHostState({
+        configProjectId: requireLiveProject(firebaseProject, cwd),
+        configSource: firebaseProject.source,
+        optionName: 'the `project` option of pyricLive()',
+        warn: (line) => server.config.logger.warn(line, { timestamp: true }),
+      })
+      : undefined;
     const bridgeInput = {
       server,
       projectDir: cwd,
       hosted: usesHostedSandbox,
+      liveHost,
       options: options.bridge,
       functionsProject: functions.project,
       functionsProjectId: functions.projectId,

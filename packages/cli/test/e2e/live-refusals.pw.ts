@@ -129,6 +129,8 @@ async function liveProject(port: number, extra: Record<string, unknown> = {}): P
   writeFileSync(join(root, 'index.html'), '<output id="status">Starting</output><script type="module" src="/main.js"></script>');
   writeFileSync(join(root, 'main.js'), appSource(port));
   writeFileSync(join(root, 'seed.json'), JSON.stringify({ 'rooms/seeded': { v: 1 } }));
+  // The Firebase project live mode names; every live start refuses without one.
+  writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'live-refusals' } }));
   // The plugin as the app installs it: @pyric/live, resolved from the app's own root.
   const { pyricLive } = await import(createRequire(join(root, 'package.json')).resolve('@pyric/live/vite')) as typeof import('../../../live/src/vite.js');
   let server: ViteDevServer | undefined;

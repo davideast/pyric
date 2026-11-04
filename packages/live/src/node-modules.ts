@@ -3,7 +3,8 @@
  * `@pyric/cli`'s register fixes their ids and loads this file from the
  * `@pyric/live` installed in the project (its `./node-modules` export), so
  * the rows open only where this package is installed. It also exports the
- * refusal those rows give (`refusal.ts`). The row and observer
+ * refusal those rows give, and the refusal of pyric's own writes the
+ * `pyric-live` host gives (`refusal.ts`). The row and observer
  * sources are every plane's (`row-source.ts`); a Node process imports this
  * package's built files and the observer module by file URL.
  *
@@ -16,7 +17,7 @@ import {
   type ServedFirebaseSpecifier,
 } from '@pyric/cli/register/internal/supplied-rows';
 import { LIVE_ROWS } from './rows.js';
-export { liveRefusal } from './refusal.js';
+export { liveRefusal, liveWriteRefusal } from './refusal.js';
 import { observerModuleSource, rowModuleSource, type RowImports } from './row-source.js';
 
 /** The live row a module id serves, or undefined for any other id. */

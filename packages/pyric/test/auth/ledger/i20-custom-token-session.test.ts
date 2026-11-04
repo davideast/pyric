@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { initializeSandbox } from '../../../src/sandbox/index.js';
 import { getAuth, onAuthStateChanged, signInWithCustomToken, getAdditionalUserInfo, sandbox } from '../../../src/auth/index.js';
+import { mintCustomTokenFor } from '../../../src/auth/internal.js';
 
 test('in-page custom-token sign-in transitions global Auth and preserves claim and newness behavior', async () => {
   const auth = getAuth(initializeSandbox());
@@ -9,7 +10,7 @@ test('in-page custom-token sign-in transitions global Auth and preserves claim a
   const stop = onAuthStateChanged(auth, user => transitions.push(user?.uid ?? null));
   try {
     for (const isNewUser of [true, false]) {
-      const credential = await signInWithCustomToken(auth, JSON.stringify({ uid: 'custom-user', claims: { editor: isNewUser } }));
+      const credential = await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'custom-user', { editor: isNewUser }));
       expect(auth.currentUser).toBe(credential.user);
       expect(credential.providerId).toBeNull();
       expect(getAdditionalUserInfo(credential)?.isNewUser).toBe(isNewUser);

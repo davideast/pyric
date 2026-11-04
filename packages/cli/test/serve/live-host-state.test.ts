@@ -1,0 +1,92 @@
+/**
+ * The live status a live host keeps: it counts each observed call the host
+ * accepted, and names the project the app's Firebase config named, with a
+ * warning when that differs from the project the host was started for.
+ */
+import { describe, expect, it } from 'bun:test';
+import type { ObservedCall } from 'pyric/sandbox';
+import type { BridgeMessage } from '../../src/bridge/protocol.js';
+import { createLiveHostState, projectSourceName } from '../../src/serve/live-host-state.js';
+
+function observe(id: string, call: Partial<ObservedCall> & { method: string }, clientSessionId = 'client-1'): BridgeMessage {
+  const full = { service: 'firestore', at: 1, outcome: { status: 'ok' }, ...call };
+  return { type: 'worker-message', clientSessionId, message: { t: 'observe', id, call: full } } as unknown as BridgeMessage;
+}
+
+function reply(id: string, ok: boolean, clientSessionId = 'client-1'): BridgeMessage {
+  const message = ok ? { t: 'res', id, ok: true, value: undefined } : { t: 'res', id, ok: false, error: { code: 'resource-exhausted', message: 'busy' } };
+  return { type: 'worker-message-result', clientSessionId, message } as unknown as BridgeMessage;
+}
+
+function state(configProjectId = 'staging') {
+  const warnings: string[] = [];
+  const live = createLiveHostState({ configProjectId, configSource: 'firebaserc', optionName: '--project', warn: (line) => warnings.push(line) });
+  const call = (id: string, observed: Partial<ObservedCall> & { method: string }, ok = true, clientSessionId = 'client-1') => {
+    live.inbound(observe(id, observed, clientSessionId));
+    live.outbound(reply(id, ok, clientSessionId));
+  };
+  return { live, warnings, call };
+}
+
+describe('the live host state', () => {
+  it('names the host project until a call names the app\'s own', () => {
+    const { live } = state();
+    expect(live.report()).toEqual({
+      projectId: 'staging',
+      configProjectId: 'staging',
+      configSource: '.firebaserc',
+      appProjectIds: [],
+      billed: { reads: 0, writes: 0, deliveries: 0 },
+    });
+  });
+
+  it('counts each call the host accepted, by kind, and leaves out the rest', () => {
+    const { live, call } = state();
+    call('1', { method: 'getDoc' });
+    call('2', { method: 'setDoc' });
+    call('3', { method: 'runTransaction' });
+    call('4', { method: 'onSnapshot' });
+    call('5', { method: 'onSnapshot' }, true, 'client-2');
+    call('6', { method: 'getDocFromCache' });
+    call('7', { method: 'signInAnonymously', service: 'auth' });
+    call('8', { method: 'getDoc', outcome: { status: 'error', code: 'permission-denied' } });
+    // The host refused this one (its budget was full), so production's answer never became a row.
+    call('9', { method: 'getDoc' }, false);
+    expect(live.report().billed).toEqual({ reads: 1, writes: 2, deliveries: 2 });
+  });
+
+  it('counts nothing for a malformed record, a frame of another kind, or a reply to no observed call', () => {
+    const { live } = state();
+    live.inbound({ type: 'worker-message', clientSessionId: 'client-1', message: { t: 'observe', id: '1', call: { method: 'getDoc' } } } as unknown as BridgeMessage);
+    live.outbound(reply('1', true));
+    live.inbound({ type: 'worker-message', clientSessionId: 'client-1', message: { t: 'op', id: '2', op: 'get' } } as unknown as BridgeMessage);
+    live.outbound(reply('2', true));
+    live.outbound(reply('3', true));
+    expect(live.report().billed).toEqual({ reads: 0, writes: 0, deliveries: 0 });
+  });
+
+  it("names the project the app's Firebase config named, and warns once when it differs from the host's", () => {
+    const { live, warnings, call } = state('staging');
+    call('1', { method: 'getDoc', projectId: 'prod' });
+    call('2', { method: 'getDoc', projectId: 'prod' });
+    expect(live.report()).toMatchObject({ projectId: 'prod', configProjectId: 'staging', appProjectIds: ['prod'] });
+    expect(warnings).toEqual([
+      'Live mode: your app\'s calls go to the Firebase project prod, not staging. ' +
+        'Your Firebase config says prod; .firebaserc says staging. The chip and Studio show "Live: prod".',
+    ]);
+  });
+
+  it('warns about nothing when the app calls the host project', () => {
+    const { live, warnings, call } = state('staging');
+    call('1', { method: 'getDoc', projectId: 'staging' });
+    expect(live.report().projectId).toBe('staging');
+    expect(warnings).toEqual([]);
+  });
+
+  it('names each project source as the developer set it', () => {
+    expect(projectSourceName('firebaserc', '--project')).toBe('.firebaserc');
+    expect(projectSourceName('firebase-use', '--project')).toBe('`firebase use`');
+    expect(projectSourceName('option', '--project')).toBe('--project');
+    expect(projectSourceName('PYRIC_PROJECT', '--project')).toBe('PYRIC_PROJECT');
+  });
+});

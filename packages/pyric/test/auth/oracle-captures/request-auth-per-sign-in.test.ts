@@ -37,6 +37,7 @@ import {
   type Auth,
   type User,
 } from '../../../src/auth/index.js';
+import { mintCustomTokenFor } from '../../../src/auth/internal.js';
 import { getClock } from '../../../src/sandbox/internal/index.js';
 import type { Sandbox } from '../../../src/sandbox/index.js';
 
@@ -74,13 +75,13 @@ const KINDS: Record<string, () => Promise<Run>> = {
   passwordVerifiedProfile: () => password({ emailVerified: true, displayName: 'Ada', photoUrl: 'https://example.com/ada.png', phoneNumber: '+16505550100' }),
   customTokenNewUid: async () => {
     const { sandbox, auth } = fresh();
-    const token = JSON.stringify({ uid: 'hunt-ct', claims: { role: 'oracle', level: 5, ratio: 1.5, flag: true, nested: { team: 'a' }, tags: ['x', 'y'] } });
+    const token = mintCustomTokenFor(auth, 'hunt-ct', { role: 'oracle', level: 5, ratio: 1.5, flag: true, nested: { team: 'a' }, tags: ['x', 'y'] });
     return { sandbox, auth, user: (await signInWithCustomToken(auth, token)).user };
   },
   customTokenExistingEmailAccount: async () => {
     const { sandbox, auth } = fresh();
     const record = authSandbox.createUser(auth, { email: 'ada@example.com', password: PASSWORD, emailVerified: true, displayName: 'Ada', photoUrl: 'https://example.com/ada.png', phoneNumber: '+16505550100' });
-    return { sandbox, auth, user: (await signInWithCustomToken(auth, JSON.stringify({ uid: record.uid }))).user };
+    return { sandbox, auth, user: (await signInWithCustomToken(auth, mintCustomTokenFor(auth, record.uid))).user };
   },
   setCustomUserClaimsThenRefresh: async () => {
     const run = await password();
@@ -110,27 +111,27 @@ const KINDS: Record<string, () => Promise<Run>> = {
   customTokenOverStoredClaims: async () => {
     const { sandbox, auth } = fresh();
     const record = authSandbox.createUser(auth, { email: 'ada@example.com', password: PASSWORD, customClaims: { foo: 'api', key1: 'kept', role: 'editor' } });
-    const token = JSON.stringify({ uid: record.uid, claims: { foo: 'token', key2: 'added', admin: true } });
+    const token = mintCustomTokenFor(auth, record.uid, { foo: 'token', key2: 'added', admin: true });
     return { sandbox, auth, user: (await signInWithCustomToken(auth, token)).user };
   },
   passwordAfterCustomToken: async () => {
     const { sandbox, auth } = fresh();
     const record = authSandbox.createUser(auth, { email: 'ada@example.com', password: PASSWORD, customClaims: { foo: 'api', key1: 'kept', role: 'editor' } });
-    await signInWithCustomToken(auth, JSON.stringify({ uid: record.uid, claims: { foo: 'token', key2: 'added', admin: true } }));
+    await signInWithCustomToken(auth, mintCustomTokenFor(auth, record.uid, { foo: 'token', key2: 'added', admin: true }));
     await auth.signOut();
     return { sandbox, auth, user: (await signInWithEmailAndPassword(auth, 'ada@example.com', PASSWORD)).user };
   },
   customTokenReload: async () => {
     const { sandbox, auth } = fresh();
     const record = authSandbox.createUser(auth, { email: 'ada@example.com', password: PASSWORD });
-    const { user } = await signInWithCustomToken(auth, JSON.stringify({ uid: record.uid }));
+    const { user } = await signInWithCustomToken(auth, mintCustomTokenFor(auth, record.uid));
     await reload(user);
     return { sandbox, auth, user };
   },
   customTokenReauthPassword: async () => {
     const { sandbox, auth } = fresh();
     const record = authSandbox.createUser(auth, { email: 'ada@example.com', password: PASSWORD });
-    const { user } = await signInWithCustomToken(auth, JSON.stringify({ uid: record.uid }));
+    const { user } = await signInWithCustomToken(auth, mintCustomTokenFor(auth, record.uid));
     getClock(sandbox).advance(1500);
     await reauthenticateWithCredential(user, EmailAuthProvider.credential('ada@example.com', PASSWORD));
     return { sandbox, auth, user };

@@ -35,7 +35,10 @@
 // the API verifies the ID token that comes back, with the uid and the
 // developer claim (#1952). A custom token minted for another project fails
 // with auth/custom-token-mismatch, and an edited, malformed or expired one
-// with auth/invalid-custom-token, as production answers.
+// with auth/invalid-custom-token, as production answers. An unsigned token,
+// such as the JSON `{uid, claims}` shape the sandbox once read unchecked,
+// fails with auth/invalid-custom-token from the page and from the API's own
+// process (#2009).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { scenario } from '../driver.ts';
@@ -176,6 +179,20 @@ export default scenario(async (app) => {
       const result = await page.evaluate((given) => exchangeGivenToken(given), token);
       assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify({ token, result }));
     }
+  });
+
+  await app.step('the page cannot sign in with an unsigned custom token', async () => {
+    const asserted = JSON.stringify({ uid: 'victim-uid', claims: { admin: true } });
+    const noAudience = `${segment({ alg: 'RS256', typ: 'JWT' })}.${segment({ uid: 'victim-uid', claims: { admin: true } })}.sig`;
+    for (const token of [asserted, Buffer.from(asserted, 'utf8').toString('base64url'), noAudience]) {
+      const result = await page.evaluate((given) => exchangeGivenToken(given), token);
+      assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify({ token, result }));
+    }
+  });
+
+  await app.step('the API cannot sign in from its own process with an unsigned custom token', async () => {
+    const result = await (await fetch(`${apiUrl}/self-unsigned`)).json() as { uid?: string; code?: string };
+    assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify(result));
   });
 
   const held = await app.step('a signed-in page holds a token that lasts one hour', async () => {

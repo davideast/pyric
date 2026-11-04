@@ -191,8 +191,9 @@ export function jwtParts(value: string): { header: Record<string, unknown>; clai
 }
 
 /**
- * Re-encode a redacted token as an unsigned JSON Web Token. The sandbox reads
- * a token's claims and checks no signature, so the token works on replay.
+ * Re-encode a redacted token as an unsigned JSON Web Token. A custom token
+ * the recording redeemed is minted again on replay instead, since the sandbox
+ * redeems only a signed one.
  */
 export function unsignedJwt(redacted: { header: Record<string, unknown>; claims: Record<string, unknown> }): string {
   return `${encodeBase64Url(JSON.stringify(redacted.header))}.${encodeBase64Url(JSON.stringify(redacted.claims))}.`;

@@ -58,6 +58,7 @@ import {
   sandbox as authSandbox,
   type User,
 } from '../../src/auth/index.js';
+import { mintCustomTokenFor } from '../../src/auth/internal.js';
 
 // auth-* observations live under the 'auth' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'auth');
@@ -1095,10 +1096,10 @@ describe('oracle conformance (auth)', () => {
     expect(reservedOutcome({ firebase: {}, iat: 1 })).toEqual(reserved.multiple);
 
     const customAuth = freshAuth();
-    const custom = await signInWithCustomToken(customAuth, JSON.stringify({ uid: 'claims-custom', claims: { role: 'oracle' } }));
+    const custom = await signInWithCustomToken(customAuth, mintCustomTokenFor(customAuth, 'claims-custom', { role: 'oracle' }));
     expect(await armOf(custom.user, false)).toEqual(expected(obs.customTokenNewUid));
 
-    const existing = await signInWithCustomToken(fullAuth, JSON.stringify({ uid: full.user.uid }));
+    const existing = await signInWithCustomToken(fullAuth, mintCustomTokenFor(fullAuth, full.user.uid));
     expect(await armOf(existing.user, false)).toEqual(expected(obs.customTokenExistingEmailAccount));
   });
 

@@ -65,9 +65,11 @@ async function record(directory: string, reproWindow?: number) {
     value(await request('tab-a', { method: 'rtdb.set', instance: 'first', path: 'probe', value: 'again' }));
     assert.deepEqual((value(await request('tab-b', { method: 'rtdb.get', instance: 'second', path: `users/${uid}` })) as { value: unknown }).value, { name: 'b' });
     value(await request('tab-b', { method: 'auth.getIdToken' }));
-    // A signed custom token: the repro keeps its claims and drops its signature.
-    const encode = (part: object) => Buffer.from(JSON.stringify(part)).toString('base64url');
-    const token = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({ uid: 'carol', claims: { role: 'editor' } })}.${Buffer.from('not-a-real-signature-0123456789').toString('base64url')}`;
+    // A signed custom token, minted as `pyric auth createCustomToken` mints one:
+    // the repro keeps its claims and drops its signature.
+    const minted = await runtime.runMethod({ instanceId: runtime.instanceId, projectDir: directory, allowProduction: false,
+      key: 'auth.createCustomToken', args: { uid: 'carol', developerClaims: { role: 'editor' } } }, {});
+    const token = (minted.data as { token: string }).token;
     const carol = value(await request('tab-c', { method: 'auth.signInWithCustomToken', customToken: token })) as { user: { uid: string } };
     assert.equal(carol.user.uid, 'carol');
     value(await request('tab-c', { method: 'rtdb.set', instance: 'second', path: 'users/carol', value: { role: 'editor' } }));
@@ -85,7 +87,8 @@ const { repro, token } = await record(join(root, 'whole'));
 const text = JSON.stringify(repro);
 assert.equal(text.includes(token), false, 'the raw custom token is in the repro');
 assert.equal(text.includes(token.split('.')[2]), false, 'the token signature is in the repro');
-assert.ok(text.includes('"__redactedJwt":{"header":{"alg":"RS256","typ":"JWT"},"claims":{"uid":"carol","claims":{"role":"editor"}}}'));
+const redactedToken = /"__redactedJwt":\{"header":\{"alg":"RS256","typ":"JWT"\},"claims":\{[^}]*"uid":"carol","claims":\{"role":"editor"\}\}\}/;
+assert.match(text, redactedToken);
 const base = repro.base as { rules: { database: Record<string, unknown> }; databaseInstances: Record<string, unknown> };
 assert.equal(repro.truncated, false);
 assert.deepEqual(base.rules.database.first, JSON.parse(OPEN));
