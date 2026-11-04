@@ -52,8 +52,7 @@ import {
   type ProbeResponse,
   type ProbeTargets,
 } from '@pyric/conformance/functions-callable-fixture';
-import { SANDBOX_TOKEN_PREFIX } from 'pyric-admin/auth';
-import { mintIdToken } from 'pyric/sandbox/internal';
+import { mintCustomToken, mintIdToken } from 'pyric/sandbox/internal';
 import { sdkImportMap } from '../../src/serve/html-injection.js';
 import { functionsChildrenOf, isAlive } from '../functions-http/children.js';
 
@@ -67,7 +66,7 @@ const PROJECT_ID = 'demo-functions-callable';
 const REGION = 'us-central1';
 const SERVING_TIMEOUT_MS = 30_000;
 const TEST_USER = 'callable-conformance-user';
-const CUSTOM_TOKEN = `${SANDBOX_TOKEN_PREFIX}:${TEST_USER}:{}`;
+const CUSTOM_TOKEN = mintCustomToken({ uid: TEST_USER, projectId: PROJECT_ID, nowMs: Date.now() });
 const WEB_CONFIG = {
   apiKey: 'pyric-callable-conformance',
   projectId: PROJECT_ID,

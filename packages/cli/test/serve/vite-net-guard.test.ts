@@ -122,6 +122,34 @@ describe('installViteNetGuard', () => {
     installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: off.write, slot: fresh, hooks: fakeSeams().hooks });
     expect(off.lines).toHaveLength(1);
   });
+
+  it('under live rows reads no PYRIC_GUARD: off still refuses, even after an earlier attempt read off', () => {
+    const slot: Record<symbol, unknown> = {};
+    const off = logLines();
+    expect(installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: off.write, slot, hooks: fakeSeams().hooks })).toBeNull();
+
+    const seams = fakeSeams();
+    const log = logLines();
+    const guard = installViteNetGuard({ env: { PYRIC_GUARD: 'off' }, write: log.write, slot, hooks: seams.hooks, fixedMode: true });
+    expect(guard?.mode).toBe('block');
+    expect(slot[NET_GUARD_GLOBAL]).toBe(guard);
+    let refusal: unknown;
+    try {
+      seams.net.connect({ host: 'oauth2.googleapis.com', port: 443 });
+    } catch (error) {
+      refusal = error;
+    }
+    expect((refusal as { code?: string }).code).toBe(GUARD_BLOCKED_CODE);
+    expect(seams.connected).toEqual([]);
+    expect(log.lines.join('')).not.toContain('PYRIC_GUARD=off for it');
+    expect(log.lines.join('')).toContain('Live mode keeps this refusal on, whatever PYRIC_GUARD says');
+
+    const warned = fakeSeams();
+    const warnLog = logLines();
+    const warnGuard = installViteNetGuard({ env: { PYRIC_GUARD: 'warn' }, write: warnLog.write, slot: {}, hooks: warned.hooks, fixedMode: true });
+    expect(warnGuard?.mode).toBe('block');
+    expect(warnLog.lines.join('')).not.toContain('PYRIC_GUARD=warn');
+  });
 });
 
 describe('pyric() installs the guard only for the dev server', () => {

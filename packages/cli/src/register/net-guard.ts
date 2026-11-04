@@ -145,7 +145,7 @@ const REASSERT_INTERVAL_MS = 5_000;
  */
 export type GuardMode = 'warn' | 'block' | 'off';
 
-/** A refused request: which token source it reached. */
+/** A refused request: which token source, or which other endpoint, it reached. */
 export interface EgressVerdict {
   /** Always `block`: the guard reports nothing it lets through. */
   readonly verdict: 'block';
@@ -154,7 +154,14 @@ export interface EgressVerdict {
   readonly host: string;
   /** Human service label, verbatim from the token list. */
   readonly service: string;
+  /** Why it is refused. Defaults to the token-source reason. */
+  readonly reason?: string;
+  /** What the developer can do instead. Defaults to the token-source remedy. */
+  readonly remedy?: string;
 }
+
+/** The verdict a guard reads for one request: a refusal, or null to let it through. */
+export type EgressRule = (hostname: string, path: string | undefined) => EgressVerdict | null;
 
 /** `PYRIC_GUARD` → mode. Unset, empty and unrecognised values mean `block`;
  *  `warn` and `off` take effect only when named. */
@@ -237,6 +244,8 @@ function destinationOf(hostname: string, path: string | undefined): { host: stri
 const REMEDY =
   'To use real Google credentials, run this command outside pyric sandbox, or set PYRIC_GUARD=off for it';
 
+const TOKEN_REASON = "a sandboxed process can't get a server-side Google access token";
+
 /** One stderr line per refused host: structured (fixed leading fields, so it
  *  is greppable) and attributable (service + transport + initiating command).
  *  The request path is deliberately never logged: it carries ids and tokens. */
@@ -244,10 +253,11 @@ export function formatGuardLine(
   verdict: EgressVerdict,
   transport: 'fetch' | 'socket',
   context: string | undefined,
+  prefix: string = LOG_PREFIX,
 ): string {
   let where = `via ${transport}`;
   if (context !== undefined && context.length > 0) where = `${where} from ${context}`;
-  const head = `${LOG_PREFIX} BLOCK ${verdict.host} (${verdict.service}) ${where}:`;
+  const head = `${prefix} BLOCK ${verdict.host} (${verdict.service}) ${where}:`;
   // What the app actually observes differs by seam: undici swallows our throw
   // into the opaque `TypeError: fetch failed`, while a raw socket caller gets
   // the error itself. Say which, or the developer cannot connect the two.
@@ -258,16 +268,16 @@ export function formatGuardLine(
     surfaces = `the caller sees an error with code ${GUARD_BLOCKED_CODE}`;
   }
   return (
-    `${head} a sandboxed process can't get a server-side Google access token; ` +
-    `${surfaces}. ${REMEDY}. Further attempts to this host are not logged.\n`
+    `${head} ${verdict.reason ?? TOKEN_REASON}; ` +
+    `${surfaces}. ${verdict.remedy ?? REMEDY}. Further attempts to this host are not logged.\n`
   );
 }
 
-function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error {
+export function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error {
   return Object.assign(
     new Error(
       `pyric net-guard blocked ${transport} egress to ${verdict.host} (${verdict.service}): ` +
-        `a sandboxed process can't get a server-side Google access token. ${REMEDY}.`,
+        `${verdict.reason ?? TOKEN_REASON}. ${verdict.remedy ?? REMEDY}.`,
     ),
     { code: GUARD_BLOCKED_CODE, host: verdict.host, service: verdict.service },
   );
@@ -282,6 +292,10 @@ export interface ReporterOptions {
   readonly write?: (line: string) => void;
   /** Initiating command, for attribution. Usually `basename(argv[1])`. */
   readonly context?: string;
+  /** The verdict to read in place of the token-source one, as live mode's guard does. */
+  readonly rule?: EgressRule;
+  /** What each logged line starts with. Defaults to the register's `net-guard` prefix. */
+  readonly logPrefix?: string;
   /**
    * The shared "already reported" ledger. `installNetGuard` hands the SAME set
    * to the dispatcher wrapper and the socket backstop, because undici connects
@@ -292,28 +306,35 @@ export interface ReporterOptions {
   readonly reported?: Set<string>;
 }
 
-interface Reporter {
+export interface Reporter {
   /** Logs a refusal at most once per host, and throws it. */
   check(hostname: string | undefined, transport: 'fetch' | 'socket', path?: string): void;
+  /** Logs `verdict` at most once per host, and returns the error to fail the request with. */
+  refuse(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error;
 }
 
-function createReporter(options: ReporterOptions): Reporter {
+export function createReporter(options: ReporterOptions): Reporter {
   const write = options.write ?? ((line: string) => void process.stderr.write(line));
   const reported = options.reported ?? new Set<string>();
   const policy: EgressPolicy = { mode: options.mode, endpoints: options.endpoints ?? tokenEndpointsFrom({ env: {} }) };
+  const rule: EgressRule = options.rule ?? ((hostname, path) => evaluateEgress(hostname, policy, path));
+  const refuse = (verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error => {
+    // A dev server retries relentlessly; one line per host is the signal,
+    // and it also collapses the undici-over-net.connect double report.
+    if (!reported.has(verdict.host)) {
+      reported.add(verdict.host);
+      write(formatGuardLine(verdict, transport, options.context, options.logPrefix));
+    }
+    return blockedError(verdict, transport);
+  };
   return {
     check(hostname, transport, path) {
       if (hostname === undefined) return;
-      const verdict = evaluateEgress(hostname, policy, path);
+      const verdict = rule(hostname, path);
       if (verdict === null) return;
-      // A dev server retries relentlessly; one line per host is the signal,
-      // and it also collapses the undici-over-net.connect double report.
-      if (!reported.has(verdict.host)) {
-        reported.add(verdict.host);
-        write(formatGuardLine(verdict, transport, options.context));
-      }
-      throw blockedError(verdict, transport);
+      throw refuse(verdict, transport);
     },
+    refuse,
   };
 }
 
@@ -401,6 +422,8 @@ export interface NetGuardHooks {
   /** Prototypes whose `onSocket` is patched. Defaults to the
    *  `http.ClientRequest` prototype. */
   requestPrototypes?: readonly RequestPrototype[];
+  /** What a refusal tells the developer to do, in place of the `PYRIC_GUARD=off` remedy. */
+  remedy?: string;
 }
 
 /** An `onSocket`-bearing object: `http.ClientRequest.prototype` in
@@ -442,7 +465,7 @@ export function permitGuardHost(hostOrUrl: string): void {
 }
 
 /** `basename(argv[1])`, the cheapest honest attribution available. */
-function contextFrom(argv: readonly string[] | undefined): string | undefined {
+export function contextFrom(argv: readonly string[] | undefined): string | undefined {
   const entry = argv?.[1];
   if (typeof entry !== 'string' || entry.length === 0) return undefined;
   const parts = entry.split(/[\\/]/);
@@ -494,14 +517,50 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 
   const allow = parseAllowHosts(env.PYRIC_GUARD_ALLOW);
   const context = contextFrom(hooks.argv ?? process.argv);
+  const endpoints = tokenEndpointsFrom({ env });
+  const remedy = hooks.remedy;
+  const rule: EgressRule | undefined = remedy === undefined ? undefined : (hostname, path) => {
+    const verdict = evaluateEgress(hostname, { mode, endpoints }, path);
+    return verdict === null ? null : { ...verdict, remedy };
+  };
   const reporterOptions: ReporterOptions = {
     mode,
-    endpoints: tokenEndpointsFrom({ env }),
+    endpoints,
     write,
     context,
     reported: new Set(),
+    ...(rule === undefined ? {} : { rule }),
   };
+  const installed = installEgressHooks(hooks, reporterOptions);
 
+  return {
+    mode,
+    allow,
+    permit(hostOrUrl: string): void {
+      for (const host of parseAllowHosts(hostOrUrl)) {
+        if (!allow.includes(host)) allow.push(host);
+      }
+    },
+    reassert: installed.reassert,
+    stop: installed.stop,
+  };
+}
+
+/** The installed hooks of one guard. */
+export interface EgressHooks {
+  /** Re-wrap the global dispatcher if something replaced it. */
+  reassert(): void;
+  /** Stop the periodic re-assert. */
+  stop(): void;
+}
+
+/**
+ * Install the guard's hooks with `reporterOptions`: the socket backstop, the
+ * request check and the undici dispatcher wrapper, in that order. The
+ * register's guard and live mode's (`./live-net-guard.ts`) both install
+ * through this, each with its own verdict.
+ */
+export function installEgressHooks(hooks: NetGuardHooks, reporterOptions: ReporterOptions): EgressHooks {
   const scope = hooks.scope ?? (globalThis as unknown as Record<symbol, unknown>);
 
   // ── socket backstop: http.request, gRPC, DB drivers, raw sockets ──
@@ -576,13 +635,6 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   }
 
   return {
-    mode,
-    allow,
-    permit(hostOrUrl: string): void {
-      for (const host of parseAllowHosts(hostOrUrl)) {
-        if (!allow.includes(host)) allow.push(host);
-      }
-    },
     reassert: wrapGlobalDispatcher,
     stop(): void {
       if (timer !== undefined) clearInterval(timer);
