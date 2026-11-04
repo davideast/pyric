@@ -7,9 +7,9 @@
  */
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
-import { getAuth, sandbox as sandboxAuth } from 'pyric/auth';
+import { getAuth, sandbox as sandboxAuth, signInWithCustomToken } from 'pyric/auth';
 import type { ToolHandler } from 'pyric/sandbox/internal';
-import { createAuthUsersTools, mintSandboxCustomToken } from '../../src/auth/users.js';
+import { createAuthUsersTools } from '../../src/auth/users.js';
 
 interface Result {
   ok: boolean;
@@ -273,18 +273,16 @@ describe('auth_set_claims', () => {
 });
 
 describe('auth_custom_token', () => {
-  it('mints a token the sandbox decodes back to uid and claims', async () => {
+  it('mints a token the sandbox signs in as the uid, with the claims', async () => {
     const result = await call('auth_custom_token', { uid: 'ada', claims: { role: 'admin' } });
 
     expect(result.ok).toBe(true);
     const data = result.data as { uid: string; claims: unknown; token: string };
     expect(data.uid).toBe('ada');
     expect(data.claims).toEqual({ role: 'admin' });
-    expect(data.token).toBe(mintSandboxCustomToken('ada', { role: 'admin' }));
-    expect(JSON.parse(atob(data.token.replace(/-/g, '+').replace(/_/g, '/')))).toEqual({
-      uid: 'ada',
-      claims: { role: 'admin' },
-    });
+    const { user } = await signInWithCustomToken(getAuth(sandbox), data.token);
+    expect(user.uid).toBe('ada');
+    expect((await user.getIdTokenResult()).claims.role).toBe('admin');
   });
 
   it('mints without claims and rejects a missing uid or non-object claims', async () => {

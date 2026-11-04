@@ -2,9 +2,10 @@
  * Sign the app session in with a custom token.
  *
  * `auth.createCustomToken` mints the token this redeems, so the two compose the
- * way a backend and a client do: mint on the admin side, redeem here. The
- * sandbox has no signing key, so no signature is checked; the token is read for
- * the identity it asserts and the claims it carries.
+ * way a backend and a client do: mint on the admin side, redeem here. A token
+ * in firebase-admin's shape must carry the sandbox signature, name this
+ * sandbox's project and be unexpired; the older unsigned `{ uid, claims }`
+ * shapes are still read unchecked.
  */
 import { z } from 'zod';
 import { getAuth, signInWithCustomToken } from 'pyric/auth';
@@ -25,7 +26,7 @@ export default {
   signature: 'signInWithCustomToken(token)',
   description: 'Sign the app session in with a minted custom token.',
   args: z.object({
-    token: z.string().describe('The custom token. Its signature is not checked.'),
+    token: z.string().describe('The custom token, from createCustomToken.'),
   }),
   operation: 'signin_auth_token',
   renames: { customToken: 'token', idToken: 'token' },
