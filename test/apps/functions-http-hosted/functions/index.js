@@ -20,3 +20,9 @@ exports.api = onRequest(async (req, res) => {
 exports.reset = onRequest({ invoker: 'private' }, (req, res) => {
   res.status(200).json({ reset: true });
 });
+
+// A job only the app's backend service account may invoke. Production refuses
+// every other caller, so pyric keeps other sites away from it as from reset.
+exports.nightly = onRequest({ invoker: 'backend@' }, (req, res) => {
+  res.status(200).json({ nightly: true });
+});
