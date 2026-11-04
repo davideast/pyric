@@ -17,7 +17,11 @@ export interface HttpFunctionInfo {
   /** Every region the function deploys to; it answers under each. */
   regions: string[];
   platform: 'gcfv1' | 'gcfv2';
-  /** True for `invoker: 'private'`, which pyric serves anyway (functions-http#15). */
+  /**
+   * True when production lets only IAM callers invoke the function:
+   * `invoker: 'private'` or a service account. pyric serves it anyway
+   * (functions-http#15).
+   */
   privateInvoker: boolean;
   /** The declared `timeoutSeconds`, or null for the platform default. */
   timeoutSeconds: number | null;
@@ -39,9 +43,16 @@ function regionsOf(endpoint: FirebaseEndpoint): string[] {
   return declared.length > 0 ? declared : [DEFAULT_REGION];
 }
 
+/**
+ * firebase-tools grants `allUsers` only to a list that contains 'public'
+ * (`getInvokerMembers`); any other list, such as 'private' or a service
+ * account, binds just those members. No invoker leaves the function public.
+ */
 function isPrivateInvoker(endpoint: FirebaseEndpoint): boolean {
   const invoker = endpoint.httpsTrigger?.invoker;
-  return Array.isArray(invoker) && invoker.includes('private');
+  if (!Array.isArray(invoker) || invoker.length === 0) return false;
+  const grantsAllUsers = invoker.includes('public') && !invoker.includes('private');
+  return !grantsAllUsers;
 }
 
 function timeoutOf(endpoint: FirebaseEndpoint): number | null {
