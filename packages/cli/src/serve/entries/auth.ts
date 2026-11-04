@@ -19,8 +19,8 @@ import './init.js';
 import * as ipAuth from 'pyric/auth';
 import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from 'pyric/auth';
 import * as wcRaw from '../worker/client.js';
-import { acceptProviderCredential, restorePortSession, stageSignInResult } from '../worker/client.js';
-import { SERVED_SANDBOX_HOOK, type ServedSandboxHook } from 'pyric/auth/internal';
+import { acceptProviderCredential, clientUserSessionKey, restorePortSession, stageSignInResult, type ClientUser } from '../worker/client.js';
+import { SERVED_SANDBOX_HOOK, sessionKeyOf, type ServedSandboxHook } from 'pyric/auth/internal';
 import { useWorker } from './worker-runtime.js';
 import { sessionStoreForApp } from './app-session-store.js';
 import { helperCustomClaims } from './auth-helper-core.js';
@@ -93,18 +93,18 @@ function wireAppPersistence(
   if (useWorker && stored) {
     // Posting restore before listener registration preserves FIFO ordering on
     // this app's MessagePort, so the initial listener value is the restore.
-    void restorePortSession(auth as never, stored.uid).then((user) => {
+    void restorePortSession(auth as never, stored.uid, undefined, undefined, stored.sessionKey).then((user) => {
       if (!user) store.clear();
     });
   } else if (!useWorker && stored) {
     try {
-      ipAuth.sandbox.restoreSession(auth, stored.uid);
+      ipAuth.sandbox.restoreSession(auth, stored.uid, stored.sessionKey);
     } catch {
       store.clear();
     }
   }
   A.onAuthStateChanged(auth, (user) => {
-    if (user) store.save(user.uid);
+    if (user) store.save(user.uid, storedSessionKey(user));
     else store.clear();
   });
 }
@@ -166,6 +166,12 @@ export const getAuth = ((app?: FirebaseApp) => {
  */
 function toSessionMode(type: 'LOCAL' | 'SESSION' | 'NONE' | 'COOKIE'): SessionMode {
   return type === 'COOKIE' ? 'LOCAL' : type;
+}
+
+/** The session key the signed-in user carries: from the worker on the worker
+ *  path, from the in-page engine otherwise. */
+function storedSessionKey(user: unknown): string | undefined {
+  return useWorker ? clientUserSessionKey(user as ClientUser) : sessionKeyOf(user as ipAuth.User);
 }
 
 /** `setPersistence`: selects which web storage holds THIS TAB's session (and

@@ -122,8 +122,10 @@ export const sandbox = {
     return requireSandbox(auth).backend.exportUsers();
   },
 
-  restoreSession(auth: Auth, uid: string): User {
-    return requireSandbox(auth).backend.restoreSession(uid);
+  /** `sessionKey` resumes the session a reloaded page held, with the
+   *  authentication time it had, as the backend's `restoreSession` does. */
+  restoreSession(auth: Auth, uid: string, sessionKey?: string): User {
+    return requireSandbox(auth).backend.restoreSession(uid, sessionKey);
   },
 
   /** Read `Auth.tenantId` without going through the handle's own property,

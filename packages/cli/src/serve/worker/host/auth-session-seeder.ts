@@ -9,8 +9,14 @@ import {
   type MintedSession,
   type User,
 } from 'pyric/auth';
-import { serializeUser } from '../protocol.js';
+import { sessionKeyOf } from 'pyric/auth/internal';
+import { serializeUser, type SerializedUser } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
+
+/** A session's user in wire form, with the session key a reloaded page hands back (#1950). */
+export function serializeSessionUser(user: User | null): SerializedUser | null {
+  return serializeUser(user, user === null ? undefined : sessionKeyOf(user));
+}
 
 /** Payload describing an OAuth credential submitted for sign-in over the bridge. */
 export interface OAuthCredentialPayload {
@@ -38,7 +44,7 @@ export function credReply(
   isNewUser: boolean = false,
 ) {
   return {
-    user: serializeUser(session.user),
+    user: serializeSessionUser(session.user),
     providerId,
     operationType: 'signIn' as const,
     additionalUserInfo: {

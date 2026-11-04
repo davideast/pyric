@@ -34,13 +34,15 @@ export type { SeedUser } from './seed-user.js';
  * `custom` binds an identity already resolved from a custom token.
  * `from` names the held session a `uid` or `custom` request mints again:
  * the mint is a refresh-token exchange, refused as one is, and the new
- * session keeps the held session's authentication.
+ * session keeps the held session's authentication. `sessionKey` names the
+ * session a reloaded page held ({@link sessionKeyOf}): a `uid` mint with it
+ * resumes that session with the authentication time it had.
  */
 export type MintSessionRequest = TenantScope & PageOriginScope & (
   | { kind: 'anonymous' }
   | { kind: 'password'; email: string; password: string }
   | { kind: 'createPassword'; email: string; password: string }
-  | { kind: 'uid'; uid: string; from?: User }
+  | { kind: 'uid'; uid: string; from?: User; sessionKey?: string }
   | { kind: 'provider'; uid: string; providerId: string }
   | { kind: 'custom'; uid: string; from?: User }
 );

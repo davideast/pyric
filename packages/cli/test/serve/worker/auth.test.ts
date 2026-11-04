@@ -430,6 +430,52 @@ describe('worker auth — a refused refresh signs the port out (#1950)', () => {
     expect((await currentUser(ctx, changing))?.email).toBe('two-ports@example.com');
   });
 
+  it('a port reloaded after changing its own password resumes its session and keeps refreshing; the other port is refused', async () => {
+    const { ctx, port: changing, uid } = await signedInPort('reload-after-change@example.com');
+    const other = fakePort();
+    okValue(await sendOp(ctx, other, {
+      t: 'op', id: id(), method: 'auth.signInEmail', email: 'reload-after-change@example.com', password: 'password123',
+    }));
+    getClock(ctx.sandbox).advance(2000);
+    okValue(await sendOp(ctx, changing, { t: 'op', id: id(), method: 'auth.updatePassword', password: 'changed-password' }));
+    const held = await currentUser(ctx, changing);
+    expect(held?.sessionKey).toBeString();
+
+    // The reload: a new port restores the uid with the key the page stored.
+    const reloaded = fakePort();
+    const restored = okValue<SerializedUser | null>(await sendOp(ctx, reloaded, {
+      t: 'op', id: id(), method: 'auth.restorePortSession', uid, sessionKey: held?.sessionKey,
+    }));
+    expect(restored?.uid).toBe(uid);
+    expect(restored?.sessionKey).toBe(held?.sessionKey);
+    const kept = await sendOp(ctx, reloaded, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(kept.ok).toBe(true);
+    expect((await currentUser(ctx, reloaded))?.uid).toBe(uid);
+
+    const refused = await sendOp(ctx, other, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe('auth/user-token-expired');
+  });
+
+  it('a port restored with the other port\'s key after a password change stays refused', async () => {
+    const { ctx, uid } = await signedInPort('reload-other@example.com');
+    const other = fakePort();
+    okValue(await sendOp(ctx, other, {
+      t: 'op', id: id(), method: 'auth.signInEmail', email: 'reload-other@example.com', password: 'password123',
+    }));
+    const otherKey = (await currentUser(ctx, other))?.sessionKey;
+    getClock(ctx.sandbox).advance(2000);
+    authSandboxOps.updateUser(getAuth(ctx.sandbox), uid, { password: 'changed-password' });
+
+    const reloaded = fakePort();
+    okValue(await sendOp(ctx, reloaded, {
+      t: 'op', id: id(), method: 'auth.restorePortSession', uid, sessionKey: otherKey,
+    }));
+    const refused = await sendOp(ctx, reloaded, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe('auth/user-token-expired');
+  });
+
   it('a rules or state reconcile signs out a port whose refresh is refused', async () => {
     const { ctx, port, uid } = await signedInPort('reconcile@example.com');
     authSandboxOps.updateUser(getAuth(ctx.sandbox), uid, { disabled: true });

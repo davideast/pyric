@@ -22,10 +22,12 @@
 // password, production refuses the held session's next token refresh and the
 // client SDK signs the user out (#1950). The page holds a session, `pyric auth`
 // changes the account the way an administrator would, and the page's forced
-// refresh fails with production's code and its auth listener sees null. The
-// API, under register, does the same to its own session with firebase-admin.
-// With checkRevoked, the API refuses the token of a disabled or deleted
-// account with firebase-admin's reason.
+// refresh fails with production's code and its auth listener sees null. A
+// page that changes its own password keeps its session, across a reload too,
+// while the account's session in another browser is refused. The API, under
+// register, does the same to its own session with firebase-admin. With
+// checkRevoked, the API refuses the token of a disabled or deleted account
+// with firebase-admin's reason.
 //
 // The API refuses what production refuses (#1949): a token whose claims were
 // edited after signing, an expired token, a token for another project, a
@@ -46,6 +48,9 @@ declare function runBearer(apiUrl: string, displayName: string, email: string): 
 declare function signInHeld(displayName: string, email: string): Promise<{ uid: string; idToken: string }>;
 declare function callApiAsCurrentUser(apiUrl: string): Promise<{ idToken: string; answer: Answer }>;
 declare function forceRefresh(): Promise<{ code: string | null; currentUid: string | null; lastAuthState: string | null }>;
+declare function restoredUid(): Promise<string | null>;
+declare function signInExisting(email: string, password: string): Promise<string>;
+declare function changeOwnPassword(newPassword: string): Promise<void>;
 declare function exchangeCustomToken(apiUrl: string, uid: string, project?: string): Promise<{ token: string; uid?: string; answer?: Answer; code?: string }>;
 declare function exchangeGivenToken(token: string): Promise<{ code: string | null }>;
 
@@ -266,5 +271,25 @@ export default scenario(async (app) => {
     const deleted = await app.pyric(['auth', 'deleteUser', '--uid', uid]);
     assert.equal(deleted.code, 0, deleted.output);
     assertRefused(await whoami(apiUrl, idToken, true), /There is no user record corresponding to the provided identifier/);
+  });
+
+  await app.step('a page that changes its own password and reloads keeps refreshing, while another browser signed in to the account is refused', async () => {
+    const email = 'own-password@example.com';
+    const { uid } = await page.evaluate(([name, address]) => signInHeld(name, address), ['Builder One', email] as const);
+    // Another browser, with its own storage, signs in to the same account.
+    const elsewhere = await app.page(host.url);
+    await elsewhere.waitForFunction(() => 'signInExisting' in window);
+    assert.equal(await elsewhere.evaluate(([address]) => signInExisting(address, 'secret-pw'), [email] as const), uid);
+    const tick = await app.pyric(['sandbox', 'advanceClock', '--ms', '2000']);
+    assert.equal(tick.code, 0, tick.output);
+
+    await page.evaluate(() => changeOwnPassword('changed-own-pw'));
+    await page.reload();
+    await page.waitForFunction(() => 'restoredUid' in window);
+    assert.equal(await page.evaluate(() => restoredUid()), uid);
+    assert.deepEqual(await page.evaluate(() => forceRefresh()), { code: null, currentUid: uid, lastAuthState: uid });
+
+    const refused = await elsewhere.evaluate(() => forceRefresh());
+    assert.deepEqual(refused, { code: 'auth/user-token-expired', currentUid: null, lastAuthState: null });
   });
 });

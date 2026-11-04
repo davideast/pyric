@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { authAccountsFor, checkIdToken, getClock } from 'pyric/sandbox/internal';
+import { sessionKeyOf } from '../../src/auth/internal.js';
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -711,6 +712,41 @@ describe('a refresh for a disabled or deleted account (#1950)', () => {
     await updatePassword(user, 'new-pw-5678');
     expect(await user.getIdToken(true)).toBeString();
     expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('a page reloaded after changing its own password resumes its session and keeps refreshing; another session is refused', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const other = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    await updatePassword(user, 'new-pw-5678');
+    const sessionKey = sessionKeyOf(user);
+    expect(sessionKey).toBeString();
+
+    // The reload: the page restores the uid with the key it stored.
+    const restored = authSandbox.restoreSession(auth, 'u1', sessionKey);
+    expect(restored).not.toBe(user);
+    expect(sessionKeyOf(restored)).toBe(sessionKey);
+    expect(await restored.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+
+    await expect(other.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+  });
+
+  it('a restore with the key of another session after a password change stays refused', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const other = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    authSandbox.updateUser(auth, 'u1', { password: 'new-pw-5678' });
+
+    const restored = authSandbox.restoreSession(auth, 'u1', sessionKeyOf(other.user));
+    await expect(restored.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
   });
 
   it('pyric/sandbox/internal reports where each account stands', async () => {
