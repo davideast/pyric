@@ -338,3 +338,62 @@ describe('a listener wrapper', () => {
     expect(records.map((record) => record.outcome)).toEqual(['listener-error', 'returned']);
   });
 });
+
+/** A query snapshot as the SDK hands one to a listener: its changes, and the metadata the SDK raised it for. */
+function querySnapshot(changes: number, hasPendingWrites: boolean): unknown {
+  return { docChanges: () => Array.from({ length: changes }, () => ({ type: 'added' })), metadata: { hasPendingWrites, fromCache: false } };
+}
+
+/** A document snapshot as the SDK hands one to a listener. */
+function documentSnapshot(data: Record<string, unknown> | undefined, hasPendingWrites: boolean): unknown {
+  return { exists: () => data !== undefined, data: () => data, metadata: { hasPendingWrites, fromCache: false } };
+}
+
+describe('the documents a Firestore listener delivery was billed for', () => {
+  test('a query listener with includeMetadataChanges: each changed document, at least one first, none for a metadata-only delivery', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer }, (_target: unknown, _options: unknown, next: unknown) => {
+      const deliver = next as (value: unknown) => void;
+      deliver(querySnapshot(0, false));
+      deliver(querySnapshot(2, true));
+      deliver(querySnapshot(0, false));
+      deliver(querySnapshot(1, false));
+      return () => undefined;
+    });
+    subscribe('query', { includeMetadataChanges: true }, () => undefined);
+    const delivered = records.filter((record) => record.outcome === 'delivered');
+    expect(delivered.map((record) => record.billedDocuments)).toEqual([1, 2, 0, 1]);
+  });
+
+  test('a document listener with includeMetadataChanges: one per change of the document, none when only its metadata changed', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer }, (_target: unknown, _options: unknown, next: unknown) => {
+      const deliver = next as (value: unknown) => void;
+      deliver(documentSnapshot(undefined, false));
+      deliver(documentSnapshot({ title: 'a', tags: ['x'] }, true));
+      deliver(documentSnapshot({ title: 'a', tags: ['x'] }, false));
+      deliver(documentSnapshot({ title: 'b', tags: ['x'] }, false));
+      deliver(documentSnapshot(undefined, false));
+      return () => undefined;
+    });
+    subscribe('ref', { includeMetadataChanges: true }, () => undefined);
+    const delivered = records.filter((record) => record.outcome === 'delivered');
+    expect(delivered.map((record) => record.billedDocuments)).toEqual([1, 1, 0, 1, 1]);
+  });
+
+  test('two listeners keep their own count, and a delivery that is not a snapshot carries none', () => {
+    const { records, observer } = collector();
+    const delivers: ((value: unknown) => void)[] = [];
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer }, (_target: unknown, next: unknown) => {
+      delivers.push(next as (value: unknown) => void);
+      return () => undefined;
+    });
+    subscribe('ref-a', () => undefined);
+    subscribe('ref-b', () => undefined);
+    delivers[0]?.(documentSnapshot({ n: 1 }, false));
+    delivers[1]?.(documentSnapshot({ n: 1 }, false));
+    delivers[0]?.('not a snapshot');
+    const delivered = records.filter((record) => record.outcome === 'delivered');
+    expect(delivered.map((record) => record.billedDocuments)).toEqual([1, 1, undefined]);
+  });
+});

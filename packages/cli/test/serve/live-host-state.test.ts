@@ -55,6 +55,18 @@ describe('the live host state', () => {
     expect(live.report().billed).toEqual({ reads: 1, writes: 2, deliveries: 2 });
   });
 
+  it('counts the documents each listener delivery was billed for, and nothing for a metadata-only one', () => {
+    const { live, call } = state();
+    // A listener with includeMetadataChanges: its first snapshot, a pending write, the write acknowledged, a change from another client.
+    call('1', { method: 'onSnapshot', billedDocuments: 3 });
+    call('2', { method: 'onSnapshot', billedDocuments: 1 });
+    call('3', { method: 'onSnapshot', billedDocuments: 0 });
+    call('4', { method: 'onSnapshot', billedDocuments: 1 });
+    // A client that names no count still counts its delivery once.
+    call('5', { method: 'onSnapshot' });
+    expect(live.report().billed).toEqual({ reads: 0, writes: 0, deliveries: 6 });
+  });
+
   it('counts nothing for a malformed record, a frame of another kind, or a reply to no observed call', () => {
     const { live } = state();
     live.inbound({ type: 'worker-message', clientSessionId: 'client-1', message: { t: 'observe', id: '1', call: { method: 'getDoc' } } } as unknown as BridgeMessage);

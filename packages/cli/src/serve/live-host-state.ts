@@ -15,7 +15,6 @@
  * No public option or type carries it.
  */
 import {
-  billedCallKind,
   createBilledCallCounter,
   liveLabel,
   liveMismatchLine,
@@ -126,8 +125,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
 
   const accept = (call: ObservedCall): void => {
     noteProject(call.projectId);
-    const kind = billedCallKind(call);
-    if (kind !== null) billed.add(kind);
+    billed.addCall(call);
   };
 
   return {

@@ -45,6 +45,14 @@ export interface ObservedCall {
    * recorder could not read it.
    */
   projectId?: string;
+  /**
+   * On a listener delivery: the documents production billed it for, those
+   * added, changed or removed, and at least one on the listener's first
+   * snapshot. Zero for a snapshot only its metadata changed, which production
+   * does not bill. Absent when the recorder could not count them, and then a
+   * delivery counts once.
+   */
+  billedDocuments?: number;
 }
 
 /**

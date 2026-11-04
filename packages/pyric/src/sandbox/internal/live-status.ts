@@ -9,10 +9,13 @@
  * trims its history keeps the count.
  *
  * The count is of calls production answered with success: each Firestore
- * read and write, and each snapshot delivered to a listener. A cache read
- * never reaches production, and Auth calls are not billed per call, so
- * neither is counted. A transaction counts as one write, however many
- * documents it reads and writes.
+ * read and write, and for a listener, each document its deliveries were
+ * billed for (`billedDocuments`): those added, changed or removed, at least
+ * one for its first snapshot, and none for a snapshot only its metadata
+ * changed. A delivery with no count counts once. A cache read never reaches
+ * production, and Auth calls are not billed per call, so neither is counted.
+ * A transaction counts as one write, however many documents it reads and
+ * writes.
  */
 import type { ObservedCall } from '../types/observed-call.js';
 
@@ -120,15 +123,26 @@ const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, Bil
 ]);
 
 /** The billed kind of an observed call, or null for one production did not bill. */
-export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | 'outcome'>): BilledCallKind | null {
+export function billedCallKind(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments'>): BilledCallKind | null {
   const succeeded = call.outcome.status === 'ok';
   const isFirestore = call.service === 'firestore';
   if (!succeeded || !isFirestore) return null;
-  return FIRESTORE_KINDS.get(call.method) ?? null;
+  const kind = FIRESTORE_KINDS.get(call.method) ?? null;
+  const isMetadataOnly = kind === 'delivery' && call.billedDocuments === 0;
+  return isMetadataOnly ? null : kind;
+}
+
+/** How many of its kind a billed call counts: a delivery its billed documents, every other call one. */
+function billedUnits(kind: BilledCallKind, call: Pick<ObservedCall, 'billedDocuments'>): number {
+  const isDelivery = kind === 'delivery';
+  return isDelivery ? call.billedDocuments ?? 1 : 1;
 }
 
 export interface BilledCallCounter {
-  add(kind: BilledCallKind): void;
+  /** Adds `units` of `kind`, one by default. */
+  add(kind: BilledCallKind, units?: number): void;
+  /** Adds what an observed call was billed for, and nothing for a call production did not bill. */
+  addCall(call: Pick<ObservedCall, 'service' | 'method' | 'outcome' | 'billedDocuments'>): void;
   count(): BilledCallCount;
 }
 
@@ -137,11 +151,16 @@ export function createBilledCallCounter(): BilledCallCounter {
   let reads = 0;
   let writes = 0;
   let deliveries = 0;
+  const add = (kind: BilledCallKind, units = 1): void => {
+    if (kind === 'read') reads += units;
+    if (kind === 'write') writes += units;
+    if (kind === 'delivery') deliveries += units;
+  };
   return {
-    add(kind) {
-      if (kind === 'read') reads += 1;
-      if (kind === 'write') writes += 1;
-      if (kind === 'delivery') deliveries += 1;
+    add,
+    addCall(call) {
+      const kind = billedCallKind(call);
+      if (kind !== null) add(kind, billedUnits(kind, call));
     },
     count: () => ({ reads, writes, deliveries }),
   };
@@ -151,11 +170,11 @@ function counted(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-/** The count as every view writes it: `2 reads, 0 writes, 1 listener delivery`. */
+/** The count as every view writes it: `2 reads, 0 writes, 1 document delivered to listeners`. */
 export function billedCallSummary(count: BilledCallCount): string {
   return [
     counted(count.reads, 'read', 'reads'),
     counted(count.writes, 'write', 'writes'),
-    counted(count.deliveries, 'listener delivery', 'listener deliveries'),
+    counted(count.deliveries, 'document delivered to listeners', 'documents delivered to listeners'),
   ].join(', ');
 }

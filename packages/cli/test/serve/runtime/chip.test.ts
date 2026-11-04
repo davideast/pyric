@@ -734,7 +734,7 @@ describe('the Traffic view', () => {
     expect(reads).toBe(1);
     expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
     expect(root.querySelector('[data-chip-live-mismatch]')).toBeNull();
-    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 0 reads, 0 writes, 0 listener deliveries');
+    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners');
 
     const now = Date.now();
     const observed = observedCallEvent({ service: 'firestore', method: 'getDoc', at: now, outcome: { status: 'ok' } });
@@ -745,7 +745,7 @@ describe('the Traffic view', () => {
     await clock.advance(150);
     expect(reads).toBe(2);
     // The count is the host's, so every view shows the same one.
-    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 1 read, 1 write, 1 listener delivery');
+    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 1 read, 1 write, 1 document delivered to listeners');
 
     showTab('traffic');
     const served = root.querySelector('[data-request-row="served"]')!;

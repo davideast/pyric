@@ -48,7 +48,7 @@ window.run = async () => {
   await signInAnonymously(auth).catch((error) => { codes.auth = error.code; });
   return { codes, oneApp: db.app === app && auth.app === app };
 };
-// The offline SDK delivers the listener its cached snapshot: one listener delivery.
+// The offline SDK delivers the listener its cached snapshot: one document delivered to the listener.
 window.listen = () => new Promise((resolve) => { const stop = onSnapshot(doc(db, 'rooms/listened'), () => { stop(); resolve('delivered'); }, (error) => resolve(error.code)); });
 window.importStorage = () => import('firebase/storage').then(() => 'loaded', (error) => error.message);
 document.querySelector('#status').textContent = 'Ready';
@@ -97,9 +97,9 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
 
     // The chip names the project for as long as the host runs, and counts billed calls from every client.
     await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('Live: live-page-plane');
-    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 0 listener deliveries');
+    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners');
     expect(await page.evaluate(() => (Reflect.get(window, 'listen') as () => Promise<string>)())).toBe('delivered');
-    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 listener delivery');
+    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 document delivered to listeners');
     expect(reports.some((line) => line.includes('@pyric/live/vite: live mode for the Firebase project live-page-plane.'))).toBe(true);
 
     await page.locator('[data-chip-tab=traffic]').click();
