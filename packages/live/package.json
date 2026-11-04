@@ -6,11 +6,23 @@
   "bin": {
     "pyric-live": "./dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "description": "Live mode: the app's own Firebase SDK, observed as it talks to a real project. Private until live mode is complete.",
   "exports": {
-    ".": "./src/index.ts",
-    "./vite": "./src/vite.ts",
-    "./page-modules": "./src/page-modules.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    },
+    "./page-modules": {
+      "types": "./dist/page-modules.d.ts",
+      "default": "./dist/page-modules.js"
+    },
     "./register": "./dist/register.js",
     "./node-modules": "./dist/node-modules.js"
   },
