@@ -11,14 +11,25 @@
  * calls `initializeApp` with the test project's web config itself; the
  * recorder never sees or stores a credential beyond what that run sends, and
  * the file it writes holds placeholders in place of every token.
+ *
+ * It refuses in CI (`record-guard.ts`) before it loads the recorder or the
+ * SDK, so no workflow can make a recording run.
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
-import { startRecorder } from './recorder.ts';
-import { routeFirebaseTo } from './seam.ts';
-import { loadSdk, type Sdk } from './sdk.ts';
+import { recordingRefusal } from './record-guard.ts';
+import type { Sdk } from './sdk.ts';
+
+const refusal = recordingRefusal(process.env);
+if (refusal !== null) {
+  console.error(refusal);
+  process.exit(2);
+}
+const { startRecorder } = await import('./recorder.ts');
+const { routeFirebaseTo } = await import('./seam.ts');
+const { loadSdk } = await import('./sdk.ts');
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
