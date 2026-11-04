@@ -223,6 +223,7 @@ function toTrafficEvent(
     rulesDisposition: record.rules,
     queryProof: record.queryProof,
     ...callerOf(e),
+    ...(e.kind === 'operation' && e.production !== undefined ? { production: e.production } : {}),
   };
 }
 

@@ -87,6 +87,10 @@ export {
 export { ClockReading, getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
 export { CALLER_SOURCE_LABELS, callerSource, callerSourceLabelOutsidePage, type CallerSource } from './caller-source.js';
+export {
+  OBSERVED_DISPOSITION, ObservedCallError, isProductionServed, observedCallEvent, productionVerdict, readObservedCall,
+  type ProductionVerdict,
+} from './observed-call.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {
   provenanceForOperationContext,

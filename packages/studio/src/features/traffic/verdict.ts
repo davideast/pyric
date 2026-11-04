@@ -13,8 +13,9 @@
  */
 
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
-import type { EventCaller, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
+import type { EventCaller, ObservedProduction, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
+import { productionVerdict } from 'pyric/sandbox/internal';
 import type { CommandTarget } from '../home/command.js';
 
 /** A traffic event as Studio's adapter emits it: the library shape plus the
@@ -27,6 +28,8 @@ export type StudioTrafficEvent = TrafficEvent & {
   rulesDisposition: RulesDisposition;
   /** The connection the host received the op from; absent when no host stamped one. */
   caller?: EventCaller;
+  /** What production answered, when production served the op and pyric only observed it. */
+  production?: ObservedProduction;
 };
 
 /** Was this op issued by Pyric Studio itself (data viewers/editors, the
@@ -185,4 +188,15 @@ export function queryProofUnsupportedCount(
 export function verdictLabel(verdict: Exclude<TrafficVerdict, null> | 'all'): string {
   if (verdict === 'proof-unsupported') return 'Query proof unsupported';
   return verdict;
+}
+
+/**
+ * The cell text for an op production served: production's answer, never a
+ * local Rules verdict. `permission-denied` reads as denied; any other code
+ * reads as failed and names the code.
+ */
+export function productionLabel(production: ObservedProduction): string {
+  const outcome = production.outcome;
+  if (outcome.status === 'ok') return 'production ok';
+  return productionVerdict(outcome) === 'denied' ? 'production denied' : `production failed: ${outcome.code}`;
 }

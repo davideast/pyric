@@ -1,4 +1,4 @@
-import { callerSource, EventHistory, OBSERVATION_HISTORY_LIMITS } from 'pyric/sandbox/internal';
+import { callerSource, EventHistory, isProductionServed, OBSERVATION_HISTORY_LIMITS, productionVerdict } from 'pyric/sandbox/internal';
 import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal';
 /**
  * The chip's Traffic view: what the page just asked the sandbox for, and what
@@ -15,7 +15,7 @@ import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal'
  * which line went wrong; the full disposition, the rule that matched, and the
  * payload are Studio's job, which is where a row's click goes.
  */
-import type { EventProvenance, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
+import type { EventProvenance, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
 
@@ -52,6 +52,12 @@ export interface ChipRequest {
    * or from the page's own error feed.
    */
   source?: CallerSource;
+  /**
+   * What production answered, on a row production served and pyric only
+   * observed. Absent on every row the sandbox served. On such a row
+   * `verdict` is production's: `denied` for `permission-denied`.
+   */
+  production?: ProductionOutcome;
 }
 
 /** Which requests Traffic lists: this page's own, or everything the sandbox received. */
@@ -122,8 +128,31 @@ export function chipRequestFromEvent(event: SandboxEvent, viewerPageId?: string)
   return request === null ? null : withSource(request, event, viewerPageId);
 }
 
+const OBSERVED_VERDICTS = { ok: 'ok', denied: 'denied', failed: 'error' } as const;
+
+/**
+ * The row for a call production served: production's answer, and the account
+ * it ran as. `null` for every event the sandbox served.
+ */
+function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefined): ChipRequest | null {
+  const isOperation = event.kind === 'operation';
+  if (!isOperation) return null;
+  const outcome = event.production?.outcome;
+  const isObserved = outcome !== undefined && isProductionServed(rules);
+  if (!isObserved) return null;
+  const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
+  return {
+    id: event.id, at: event.at, service: event.service, method: event.method,
+    path: event.path ?? null, verdict,
+    identity: event.auth === null ? 'signed out' : event.auth.uid,
+    production: { ...outcome },
+  };
+}
+
 function projectRequest(event: SandboxEvent): ChipRequest | null {
   const record = toOperationRecord(event);
+  const observed = observedRequest(event, record?.rules);
+  if (observed !== null) return observed;
   if (record !== null) {
     const observation = record.observation;
     if (observation?.ai) {

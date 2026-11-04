@@ -1,4 +1,4 @@
-import { CALLER_SOURCE_LABELS, requestStatusLabel } from 'pyric/sandbox/internal';
+import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
 import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
@@ -375,6 +375,7 @@ const styles = `
   .verdict.bypassed { --verdict-border: #5d6478; background: #272a33; color: #c9cedb; }
   .verdict.bypassed .verdict-icon { color: #aab4cc; }
   .traffic-source { color: var(--pyric-text); }
+  .traffic-production { color: var(--pyric-accent); font-weight: 600; }
   .traffic-row.problem .c1 { color: #d6a7ae; }
   .traffic-row.pending .c1 { color: #d6c096; }
   .empty { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--space-4); border: 1px dashed #454b59; border-radius: 8px; }
@@ -432,13 +433,35 @@ function isTextField(element: Element | null | undefined): element is HTMLInputE
  * still reads as failed.
  */
 function bypassesRules(request: ChipRequest): boolean {
-  return request.source === 'admin' && request.verdict !== 'error';
+  const isServedHere = request.production === undefined;
+  return isServedHere && request.source === 'admin' && request.verdict !== 'error';
 }
 
 const BYPASSED_TITLE = 'Rules bypassed for admin access';
 
+/** Badges for a row production served: production's answer, never a local Rules verdict. */
+const PRODUCTION_BADGES: Record<ChipRequest['verdict'], { label: string; icon: string; tone: string; title: string }> = {
+  ok: { label: 'OK', icon: 'check', tone: 'ok', title: 'Production succeeded' },
+  denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Production denied' },
+  error: { label: 'Failed', icon: 'warning', tone: '', title: 'Production failed' },
+  unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Production failed' },
+};
+
+/** The outcome fact for a row production served, with production's error code. */
+function productionOutcomeText(outcome: NonNullable<ChipRequest['production']>): string {
+  if (outcome.status === 'ok') return 'Succeeded in production';
+  const failure = productionVerdict(outcome) === 'denied' ? 'Denied' : 'Failed';
+  return `${failure} in production (${outcome.code})`;
+}
+
+const PRODUCTION_REASON = 'Production answered this request. Pyric observed it and did not check it against local rules.';
+
 /** A shared icon and label track keeps request statuses aligned across rows. */
-function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false): string {
+function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false): string {
+  if (production) {
+    const badge = PRODUCTION_BADGES[verdict];
+    return `<span class="verdict ${badge.tone}" data-verdict-production title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
+  }
   if (bypassed) return `<span class="verdict bypassed" title="${BYPASSED_TITLE}" aria-label="${BYPASSED_TITLE}"><span class="verdict-icon">${iconHtml('check')}</span><span class="verdict-label">Bypassed</span></span>`;
   const badges = {
     ok: { label: 'Allowed', icon: 'check', tone: 'ok', title: 'Succeeded' },
@@ -912,14 +935,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const target = request.path ?? request.label ?? 'Request';
       const service = serviceLabel(request.service);
       const verdictOutcome = bypassesRules(request) ? 'Rules bypassed' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
-      const outcome = request.aiRequest ? requestStatusLabel(request.aiRequest.status) : verdictOutcome;
+      let outcome = verdictOutcome;
+      if (request.production) outcome = productionOutcomeText(request.production);
+      if (request.aiRequest) outcome = requestStatusLabel(request.aiRequest.status);
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
       let identityFact = '';
-      if (request.source) identityFact = fact('Source', CALLER_SOURCE_LABELS[request.source], 's2');
+      if (request.production) identityFact = fact('Served by', 'Production', 's2');
+      if (request.source) identityFact += fact('Source', CALLER_SOURCE_LABELS[request.source], 's2');
       if (request.identity) identityFact += fact('Identity', request.identity, 's2');
       let evidenceDetails = '';
       let reasonFact = request.indexFailure ? fact('Reason', 'The required index was missing.', '') : '';
-      if (request.service === 'firestore') {
+      if (request.production) {
+        reasonFact = fact('Reason', PRODUCTION_REASON, '');
+      } else if (request.service === 'firestore') {
         reasonFact = fact('Reason', rulesSummary(request), '');
         evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
       }
@@ -956,16 +984,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const rowSource = request.source ?? 'page';
       const sourceLabel = trafficScope === 'all' ? CALLER_SOURCE_LABELS[rowSource] : '';
       const source = sourceLabel ? `<span class="traffic-source" data-traffic-row-source="${rowSource}">${sourceLabel}</span> · ` : '';
+      const productionLabel = request.production ? 'Production' : '';
+      const production = productionLabel ? `<span class="traffic-production" data-traffic-row-production>${productionLabel}</span> · ` : '';
       return buttonRowHtml({
-        c1: source + escapeAttribute(call),
+        c1: production + source + escapeAttribute(call),
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
-        slot: request.aiRequest ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed),
+        slot: request.aiRequest ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing, bypassed, request.production !== undefined),
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' || bypassed ? '' : ' problem'}`,
-        title: [sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
+        title: [productionLabel, sourceLabel, call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
-        label: `Inspect ${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}`,
+        label: `Inspect ${productionLabel ? 'production ' : ''}${sourceLabel ? `${sourceLabel} ` : ''}${call}: ${what}. ${bypassed ? 'bypassed' : request.verdict}`,
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;

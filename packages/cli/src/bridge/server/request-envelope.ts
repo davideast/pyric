@@ -10,6 +10,7 @@ const workerMessageTypes: Record<InboundMessage['t'], true> = {
   appConfig: true,
   'clock-subscribe': true,
   tool: true,
+  observe: true,
 };
 
 function isProtocolRecord(value: unknown): value is Record<string, unknown> {
@@ -22,7 +23,7 @@ function isWorkerMessageEnvelope(message: unknown): boolean {
   const isKnownType = typeof message.t === 'string' && Object.hasOwn(workerMessageTypes, message.t);
   const isUnknownType = !isKnownType;
   if (isUnknownType) return false;
-  const needsRequestId = message.t === 'op' || message.t === 'tool' || message.t === 'disconnect';
+  const needsRequestId = message.t === 'op' || message.t === 'tool' || message.t === 'disconnect' || message.t === 'observe';
   if (needsRequestId) return typeof message.id === 'string';
   const needsSubscriptionId = message.t === 'sub' || message.t === 'unsub';
   if (needsSubscriptionId) return typeof message.subId === 'string';
