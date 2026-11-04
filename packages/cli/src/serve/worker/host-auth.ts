@@ -232,26 +232,37 @@ export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
   const changed = new Set<PortLike>();
   if (!ctx.portSessions || ctx.portSessions.size === 0) return changed;
   const auth = ensureAuth(ctx);
-  const usersByUid = new Map(authSandboxOps.listUsers(auth).map((u) => [u.uid, u]));
   for (const [port, session] of [...ctx.portSessions]) {
     if (session === null) continue;
-    const record = usersByUid.get(session.user.uid);
-    if (!record || record.disabled) {
-      setPortSession(ctx, port, null, { skipResubscribe: true });
-      changed.add(port);
-      continue;
-    }
-    const providerClaim = (session.state.token?.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider;
-    const kind = providerClaim === 'custom' ? 'custom' : 'uid';
-    const refreshed = authSandboxOps.mintSession(auth, {
-      kind,
-      uid: session.user.uid,
-      tenantId: session.user.tenantId ?? null,
-    });
+    const refreshed = reconciledSession(auth, session);
     setPortSession(ctx, port, refreshed, { skipResubscribe: true });
     changed.add(port);
   }
   return changed;
+}
+
+/**
+ * A port session minted again from the account store, or null to sign the
+ * port out. The mint is a refresh-token exchange: a missing account, or one
+ * the refresh check refuses (disabled, deleted, or revoked after the session
+ * authenticated), signs the port out.
+ */
+function reconciledSession(auth: Auth, session: MintedSession): MintedSession | null {
+  const providerClaim = (session.state.token?.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider;
+  const kind = providerClaim === 'custom' ? 'custom' : 'uid';
+  try {
+    return authSandboxOps.mintSession(auth, {
+      kind,
+      uid: session.user.uid,
+      tenantId: session.user.tenantId ?? null,
+      from: session.user,
+    });
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    const signsOut = code === 'auth/user-not-found' || code === 'auth/user-disabled' || code === 'auth/user-token-expired';
+    if (signsOut) return null;
+    throw error;
+  }
 }
 
 /**

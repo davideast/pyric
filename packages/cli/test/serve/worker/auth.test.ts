@@ -25,6 +25,8 @@ import {
   type HostCtx,
   type PortLike,
 } from '../../../src/serve/worker/host.js';
+import { reconcilePortSessions } from '../../../src/serve/worker/host-auth.js';
+import { getClock } from 'pyric/sandbox/internal';
 import type {
   InboundMessage,
   OutboundMessage,
@@ -404,6 +406,35 @@ describe('worker auth — a refused refresh signs the port out (#1950)', () => {
     if (!res.ok) expect(res.error.code).toBe(code);
     expect(await currentUser(ctx, port)).toBeNull();
     expect(lastAuthState(port)).toBeNull();
+  });
+
+  it('a password change on one port refuses the other port\'s refresh and keeps its own', async () => {
+    const { ctx, port: changing } = await signedInPort('two-ports@example.com');
+    const other = fakePort();
+    await handleMessage(ctx, other, { t: 'sub', subId: 'state', target: 'authState' });
+    okValue(await sendOp(ctx, other, {
+      t: 'op', id: id(), method: 'auth.signInEmail', email: 'two-ports@example.com', password: 'password123',
+    }));
+    // Production stores the revocation on a whole second; move past the sign-ins'.
+    getClock(ctx.sandbox).advance(2000);
+
+    okValue(await sendOp(ctx, changing, { t: 'op', id: id(), method: 'auth.updatePassword', password: 'changed-password' }));
+
+    const kept = await sendOp(ctx, changing, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(kept.ok).toBe(true);
+    const refused = await sendOp(ctx, other, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe('auth/user-token-expired');
+    expect(await currentUser(ctx, other)).toBeNull();
+    expect(lastAuthState(other)).toBeNull();
+    expect((await currentUser(ctx, changing))?.email).toBe('two-ports@example.com');
+  });
+
+  it('a rules or state reconcile signs out a port whose refresh is refused', async () => {
+    const { ctx, port, uid } = await signedInPort('reconcile@example.com');
+    authSandboxOps.updateUser(getAuth(ctx.sandbox), uid, { disabled: true });
+    reconcilePortSessions(ctx);
+    expect(await currentUser(ctx, port)).toBeNull();
   });
 });
 

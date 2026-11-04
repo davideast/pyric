@@ -14,6 +14,7 @@ import { getClock, registerAuthAccounts } from 'pyric/sandbox/internal';
 import {
   accountStanding,
   createAuthProjectStore,
+  forgetAccountHistory,
   revokeTokensAt,
   type AuthProjectStore,
 } from './sandbox/project-store.js';
@@ -35,6 +36,7 @@ function projectStoreFor(sandbox: Sandbox): AuthProjectStore {
     registerAuthAccounts(sandbox, {
       standing: (uid) => accountStanding(created, uid),
       revokeRefreshTokens: (uid) => revokeTokensAt(created, uid, getClock(sandbox).now()),
+      forgetHistory: () => forgetAccountHistory(created),
     });
   }
   return store;

@@ -19,6 +19,7 @@ import {
   sandbox as authSandbox,
   signInAnonymously,
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   signInWithPopup,
   updatePassword,
   type Auth,
@@ -627,13 +628,57 @@ describe('a refresh for a disabled or deleted account (#1950)', () => {
     expect(auth.currentUser).toBe(null);
   });
 
-  it('an account created again under a deleted uid refreshes', async () => {
+  it('an account created again under a deleted uid refreshes a new sign-in', async () => {
     const { auth } = await signedIn();
     authSandbox.deleteUser(auth, 'u1');
     authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
     const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
     expect(await user.getIdToken(true)).toBeString();
     expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('re-creating a deleted uid does not revive the session held across the delete', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    getClock(sandbox).advance(2000);
+    authSandbox.deleteUser(auth, 'u1');
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('clearUsers does not revive a disabled account\'s session', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.updateUser(auth, 'u1', { disabled: true });
+    authSandbox.clearUsers(auth);
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('a custom-token sign-in that re-creates a deleted uid does not revive the held session', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user: held } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    getClock(sandbox).advance(2000);
+    authSandbox.deleteUser(auth, 'u1');
+    const { user: fresh } = await signInWithCustomToken(auth, JSON.stringify({ uid: 'u1' }));
+    await expect(held.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    // The refusal belongs to the held session; the new sign-in stays.
+    expect(auth.currentUser?.uid).toBe('u1');
+    expect(await fresh.getIdToken(true)).toBeString();
+  });
+
+  it('resetAll forgets deletions and revocations', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u2', email: 'u2@x.com' });
+    authSandbox.deleteUser(auth, 'u2');
+    expect(authAccountsFor(sandbox)?.standing('u2')).toEqual({ kind: 'deleted' });
+    await sandbox.resetAll();
+    expect(authAccountsFor(sandbox)?.standing('u2')).toEqual({ kind: 'unrecorded' });
   });
 
   it('a non-forced read of a deleted account answers the held token', async () => {
@@ -685,18 +730,18 @@ describe('a refresh for a disabled or deleted account (#1950)', () => {
     expect(accounts?.standing('on')).toEqual({ kind: 'active', tokensValidAfterMs: Date.parse('2026-11-04T12:00:00.000Z') });
   });
 
-  it('a session whose record was never stored still refreshes', async () => {
-    const auth = freshAuth();
-    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
-    authSandbox.mockSignInResult(auth, {
-      user: mockUser('popup-unstored', 'p@x.com'),
-      providerId: 'google.com',
-      operationType: 'signIn',
-    });
-    await signInWithPopup(auth, new GoogleAuthProvider());
-    authSandbox.clearUsers(auth);
-    expect(await auth.currentUser?.getIdToken(true)).toBeString();
-    expect(auth.currentUser?.uid).toBe('popup-unstored');
+  it('a session restored into a sandbox that never stored its record still refreshes (#1515)', async () => {
+    // #1515: sign in on one sandbox, copy currentUser into a fresh one, refresh.
+    const first = initializeSandbox();
+    const firstAuth = getAuth(first);
+    authSandbox.createUser(firstAuth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    await signInWithEmailAndPassword(firstAuth, 'u1@x.com', 'pw1234');
+    const fresh = initializeSandbox();
+    const freshAuthHandle = getAuth(fresh);
+    fresh.currentUser = first.currentUser;
+    expect(freshAuthHandle.currentUser?.uid).toBe('u1');
+    expect(await freshAuthHandle.currentUser?.getIdToken(true)).toBeString();
+    expect(freshAuthHandle.currentUser?.uid).toBe('u1');
   });
 });
 
