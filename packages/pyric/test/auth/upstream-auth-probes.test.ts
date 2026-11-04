@@ -26,10 +26,7 @@ import {
   signOut,
   updateProfile,
 } from '../../src/auth/index.js';
-
-function customToken(uid: string, claims?: Record<string, unknown>): string {
-  return JSON.stringify(claims ? { uid, claims } : { uid });
-}
+import { mintCustomTokenFor } from '../../src/auth/internal.js';
 
 describe('A1 getAdditionalUserInfo (upstream auth probes)', () => {
   it('createUserWithEmailAndPassword → isNewUser true', async () => {
@@ -53,14 +50,14 @@ describe('A1 getAdditionalUserInfo (upstream auth probes)', () => {
 
   it('first custom-token sign-in → isNewUser true; return → false', async () => {
     const auth = getAuth(initializeSandbox());
-    const first = await signInWithCustomToken(auth, customToken('custom-1', { role: 'admin' }));
+    const first = await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'custom-1', { role: 'admin' }));
     expect(getAdditionalUserInfo(first)!.isNewUser).toBe(true);
     expect(getAdditionalUserInfo(first)!.providerId).toBeNull();
     const claims = (await getIdTokenResult(first.user)).claims;
     expect(claims['role']).toBe('admin');
 
     await signOut(auth);
-    const again = await signInWithCustomToken(auth, customToken('custom-1', { role: 'admin' }));
+    const again = await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'custom-1', { role: 'admin' }));
     expect(getAdditionalUserInfo(again)!.isNewUser).toBe(false);
     expect(getAdditionalUserInfo(again)!.providerId).toBeNull();
   });
@@ -100,18 +97,18 @@ describe('A6 beforeAuthStateChanged × custom token (upstream auth probes)', () 
     beforeAuthStateChanged(auth, (u) => {
       gated.push(u?.uid ?? null);
     });
-    const cred = await signInWithCustomToken(auth, customToken('gated-ok'));
+    const cred = await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'gated-ok'));
     expect(gated).toEqual(['gated-ok']);
     expect(auth.currentUser?.uid).toBe(cred.user.uid);
   });
 
   it('blocking gate aborts custom-token sign-in and keeps prior user', async () => {
     const auth = getAuth(initializeSandbox());
-    const prior = await signInWithCustomToken(auth, customToken('prior-user'));
+    const prior = await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'prior-user'));
     beforeAuthStateChanged(auth, () => {
       throw new Error('blocked');
     });
-    await expect(signInWithCustomToken(auth, customToken('blocked-user'))).rejects.toMatchObject({
+    await expect(signInWithCustomToken(auth, mintCustomTokenFor(auth, 'blocked-user'))).rejects.toMatchObject({
       code: 'auth/login-blocked',
     });
     expect(auth.currentUser?.uid).toBe(prior.user.uid);

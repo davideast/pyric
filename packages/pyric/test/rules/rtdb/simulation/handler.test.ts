@@ -4,6 +4,7 @@ import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
 import { compileRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 import { initializeSandbox } from '../../../../src/sandbox/index.js';
 import { getAuth, signInWithCustomToken } from '../../../../src/auth/index.js';
+import { mintCustomTokenFor } from '../../../../src/auth/internal.js';
 import { getDatabase, ref, set, get, query, orderByPriority } from '../../../../src/database/index.js';
 import { setRules } from '../../../../src/database/sandbox-controls.js';
 
@@ -1571,7 +1572,7 @@ describe('SimulateHandler evaluation errors in rules', () => {
   test('COV-3 & MET-1 full lifecycle: sandbox signInWithCustomToken -> RTDB rules context -> plain read and orderByPriority() query', async () => {
     const sandbox = initializeSandbox({ projectId: 'cov3-met1-lifecycle' });
     const auth = getAuth(sandbox);
-    await signInWithCustomToken(auth, JSON.stringify({ uid: 'custom-user-1', claims: { role: 'member' } }));
+    await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'custom-user-1', { role: 'member' }));
 
     const db = getDatabase(sandbox);
     await setRules(db, {
