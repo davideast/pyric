@@ -99,6 +99,13 @@ describe('a request for an SDK file the live rows loaded', () => {
     'another v=': `${PATH}?v=other`,
     'no query': PATH,
     'the /@fs/ path': `/@fs${sdkFile}?v=abc123`,
+    'the absolute filesystem path': sdkFile,
+    'the absolute filesystem path with a query': `${sdkFile}?z=1`,
+    'the absolute filesystem path with the written query': `${sdkFile}?v=abc123`,
+    'an /@id/ absolute path': `/@id${sdkFile}`,
+    'an /@id/ absolute path with a query': `/@id${sdkFile}?q=1`,
+    'an /@id/ path with a doubled slash': `/@id/${sdkFile}?v=abc123`,
+    'an /@id/ root path': `/@id${PATH}?v=abc123`,
   };
   for (const [name, url] of Object.entries(refused)) {
     it(`is refused under ${name}`, async () => {

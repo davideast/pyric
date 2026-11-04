@@ -32,6 +32,7 @@ import { stopModule, stopModuleExports } from './vite-ssr-routing.js';
 import { realFileUrlOf, type SuppliedRows } from './vite-supplied-rows.js';
 
 const FS_PREFIX = '/@fs/';
+const ID_PREFIX = '/@id/';
 const ORIGIN = 'http://request.invalid';
 
 type Next = (error?: unknown) => void;
@@ -71,10 +72,28 @@ function servedPathname(url: URL, base: string): string | null {
   }
 }
 
-/** The file a served pathname opens: an `/@fs/` path names it, any other is under the root. */
-function fileOf(pathname: string, root: string): string {
+/**
+ * The files Vite could serve a pathname as: an `/@fs/` path names one; any
+ * other path is tried as an absolute filesystem path and under the root, as
+ * Vite tries it. An `/@id/` path is unwrapped first, so the id it carries is
+ * tried the same way.
+ */
+function candidateFiles(pathname: string, root: string): string[] {
+  const isIdPath = pathname.startsWith(ID_PREFIX);
+  if (isIdPath) return candidateFiles(`/${pathname.slice(ID_PREFIX.length).replace(/^\/+/, '')}`, root);
   const isFsPath = pathname.startsWith(FS_PREFIX);
-  return isFsPath ? pathname.slice(FS_PREFIX.length - 1) : path.join(root, pathname);
+  if (isFsPath) return [pathname.slice(FS_PREFIX.length - 1)];
+  return [pathname, path.join(root, pathname)];
+}
+
+/** The real file URL of the loaded SDK file a pathname reaches, or null when it reaches none. */
+function loadedSdkFileOf(pathname: string, root: string, supplied: SuppliedRows): string | null {
+  for (const file of candidateFiles(pathname, root)) {
+    const real = realFileUrlOf(file);
+    const isLoadedSdkFile = real !== null && supplied.liveSdkUrls.has(real);
+    if (isLoadedSdkFile) return real;
+  }
+  return null;
 }
 
 /** A module graph URL as the browser requests it: under `base`, spelled by the WHATWG parser, nothing decoded. */
@@ -122,9 +141,8 @@ function unwrittenSdkFile(server: GateServer, supplied: SuppliedRows, rawUrl: st
   const url = new URL(rawUrl, ORIGIN);
   const pathname = servedPathname(url, server.config.base ?? '/');
   if (pathname === null) return null;
-  const real = realFileUrlOf(fileOf(pathname, server.config.root));
-  const isLoadedSdkFile = real !== null && supplied.liveSdkUrls.has(real);
-  if (!isLoadedSdkFile) return null;
+  const real = loadedSdkFileOf(pathname, server.config.root, supplied);
+  if (real === null) return null;
   const isWritten = writtenUrlsOf(server, fileURLToPath(real)).has(`${url.pathname}${url.search}`);
   return isWritten ? null : real;
 }

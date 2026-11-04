@@ -25,7 +25,7 @@
  * and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
 import { scenario, sleep, type App } from '../driver.ts';
@@ -54,7 +54,7 @@ declare function openGarden(): Promise<string>;
 declare function openRooms(): string[];
 declare function billedDocumentCount(): number;
 declare const refused: Record<'storage' | 'sdkPackage' | 'namedDatabase', () => Promise<string> | string> & {
-  cacheBusted(variant: 't' | 'amp' | 'encodedName'): Promise<string>;
+  cacheBusted(variant: 't' | 'amp' | 'encodedName' | 'absolute' | 'absoluteQuery' | 'id' | 'idQuery', root?: string): Promise<string>;
 };
 
 interface Recorded {
@@ -273,12 +273,17 @@ export default scenario(async (app) => {
       cacheBusted: await page.evaluate(() => refused.cacheBusted('t')),
       trailingAmpersand: await page.evaluate(() => refused.cacheBusted('amp')),
       encodedQueryName: await page.evaluate(() => refused.cacheBusted('encodedName')),
+      absolutePath: await page.evaluate((root) => refused.cacheBusted('absolute', root), realpathSync(app.dir)),
+      absolutePathQuery: await page.evaluate((root) => refused.cacheBusted('absoluteQuery', root), realpathSync(app.dir)),
+      idPath: await page.evaluate((root) => refused.cacheBusted('id', root), realpathSync(app.dir)),
+      idPathQuery: await page.evaluate((root) => refused.cacheBusted('idQuery', root), realpathSync(app.dir)),
     }));
     assert.match(outcomes.storage, new RegExp(`^${REFUSED}: @pyric/live: firebase/storage \\(Cloud Storage\\) is refused in live mode`));
     assert.match(outcomes.sdkPackage, new RegExp(`^${REFUSED}: @pyric/live: @firebase/firestore \\(a Firebase SDK package; apps import firebase/firestore\\) is refused in live mode`));
     assert.match(outcomes.namedDatabase, new RegExp(`^${REFUSED}: @pyric/live: getFirestore with the database "reports" is refused in live mode, from a page`));
     // The SDK file the rows loaded, imported again under another URL Vite would serve it at: a second, unwrapped copy.
-    for (const busted of [outcomes.cacheBusted, outcomes.trailingAmpersand, outcomes.encodedQueryName]) {
+    const bustedForms = [outcomes.cacheBusted, outcomes.trailingAmpersand, outcomes.encodedQueryName, outcomes.absolutePath, outcomes.absolutePathQuery, outcomes.idPath, outcomes.idPathQuery];
+    for (const busted of bustedForms) {
       assert.match(busted, new RegExp(`^${REFUSED}: @pyric/live: @firebase/firestore \\(a Firebase SDK package; apps import firebase/firestore\\) is refused in live mode`));
       assert.match(busted, /under another URL, which gives the page a second copy of the SDK without the live rows' wrapper/);
     }
