@@ -8,17 +8,21 @@
  * before its plugins see the request, so the check runs here, ahead of
  * Vite's own middleware, on the URL the browser sent.
  *
- * A request for one of those files passes only at the exact URL Vite itself
- * writes into its importers, compared raw: the path Vite names the real file
- * by, under the root or `/@fs/`, with the optimizer's `?v=` hash and nothing
- * else. Every other URL for it gets a module that throws the rows' refusal.
+ * A request for one of those files passes only at a URL Vite itself wrote
+ * into an importer, compared raw. Vite records each one in the client
+ * module graph when it rewrites the importer's imports, before the importer
+ * reaches the browser: the path, the `?v=` hash that importer was given, and
+ * `t=` once the file has an HMR timestamp. Reading the URLs back from there,
+ * rather than rebuilding them from the optimizer's current hash, keeps the
+ * gate right when Vite reruns the optimizer without a reload and keeps the
+ * hash it already wrote. Every other URL for the file gets a module that
+ * throws the rows' refusal.
  *
  * The exact URL the rows loaded never reaches the dev server again: the
  * browser answers it from its module map. Nor does a fragment, which the
  * browser keeps to itself. Both are known limits of live mode, documented
  * on its page.
  */
-import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,37 +32,26 @@ import { stopModule, stopModuleExports } from './vite-ssr-routing.js';
 import { realFileUrlOf, type SuppliedRows } from './vite-supplied-rows.js';
 
 const FS_PREFIX = '/@fs/';
-const VERSION_PARAM = 'v';
+const ORIGIN = 'http://request.invalid';
 
 type Next = (error?: unknown) => void;
 type GateServer = Pick<ViteDevServer, 'config' | 'middlewares'>;
 
-function hashFrom(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
+/** The parts of a Vite module node the gate reads. */
+interface GraphNode {
+  readonly url?: unknown;
+  readonly lastHMRTimestamp?: unknown;
 }
 
-/** The hash the client optimizer's metadata file records: Vite 5 keeps its optimizer out of reach of the server object. */
-function metadataFileHash(cacheDir: string | undefined): string | null {
-  if (cacheDir === undefined) return null;
-  try {
-    const metadata = JSON.parse(readFileSync(path.join(cacheDir, 'deps', '_metadata.json'), 'utf8')) as { browserHash?: unknown };
-    return hashFrom(metadata.browserHash);
-  } catch {
-    return null;
-  }
+/** The parts of a Vite client module graph the gate reads: Vite 5's `server.moduleGraph`, or Vite 6's client environment's. */
+interface ClientGraph {
+  readonly urlToModuleMap?: ReadonlyMap<string, GraphNode>;
+  getModulesByFile?(file: string): ReadonlySet<GraphNode> | undefined;
 }
 
-/**
- * The optimizer hash Vite writes as `?v=` on each SDK file's URL: the client
- * environment's (Vite 6 and later), else the one the metadata file records
- * (Vite 5). Null when neither says, and then only the URL with no query passes.
- */
-function browserHashOf(server: GateServer): string | null {
-  const shaped = server as unknown as {
-    environments?: { client?: { depsOptimizer?: { metadata?: { browserHash?: unknown } } } };
-  };
-  const inMemory = hashFrom(shaped.environments?.client?.depsOptimizer?.metadata?.browserHash);
-  return inMemory ?? metadataFileHash(server.config.cacheDir);
+function clientGraphOf(server: GateServer): ClientGraph | null {
+  const shaped = server as unknown as { environments?: { client?: { moduleGraph?: ClientGraph } }; moduleGraph?: ClientGraph };
+  return shaped.environments?.client?.moduleGraph ?? shaped.moduleGraph ?? null;
 }
 
 /** Vite's `base` as a path with a trailing slash. */
@@ -84,41 +77,55 @@ function fileOf(pathname: string, root: string): string {
   return isFsPath ? pathname.slice(FS_PREFIX.length - 1) : path.join(root, pathname);
 }
 
-/** The pathname Vite names a real file by: below the root, else under `/@fs/`. */
-function vitePathnameOf(realFile: string, root: string): string {
-  const rootPrefix = root.endsWith('/') ? root : `${root}/`;
-  const isUnderRoot = realFile.startsWith(rootPrefix);
-  return isUnderRoot ? realFile.slice(root.length) : `${FS_PREFIX.slice(0, -1)}${realFile}`;
+/** A module graph URL as the browser requests it: under `base`, spelled by the WHATWG parser, nothing decoded. */
+function requestSpelling(graphUrl: string, base: string): string {
+  const parsed = new URL(`${basePrefix(base)}${graphUrl.replace(/^\//, '')}`, ORIGIN);
+  return `${parsed.pathname}${parsed.search}`;
 }
 
-/**
- * The URL Vite writes for a real file, as the WHATWG parser spells it, with
- * nothing decoded: `base`, the file's Vite path, and `?v=<hash>` when the
- * optimizer has one.
- */
-function writtenUrlOf(realFile: string, server: GateServer, hash: string | null): string {
-  const pathname = `${basePrefix(server.config.base ?? '/')}${vitePathnameOf(realFile, server.config.root).slice(1)}`;
-  const query = hash === null ? '' : `?${VERSION_PARAM}=${hash}`;
-  const written = new URL(`${pathname}${query}`, 'http://request.invalid');
-  return `${written.pathname}${written.search}`;
+/** A graph URL with the `t=` Vite puts first in the query of a file with an HMR timestamp. */
+function withTimestamp(graphUrl: string, timestamp: number): string {
+  const [pathname, query] = graphUrl.split('?', 2);
+  return `${pathname}?t=${timestamp}${query === undefined ? '' : `&${query}`}`;
+}
+
+/** The graph URLs one module node is written under: its own, with `t=` too once it has an HMR timestamp. */
+function nodeUrls(graphUrl: string, node: GraphNode): string[] {
+  const timestamp = node.lastHMRTimestamp;
+  const hasTimestamp = typeof timestamp === 'number' && timestamp > 0;
+  return hasTimestamp ? [graphUrl, withTimestamp(graphUrl, timestamp)] : [graphUrl];
+}
+
+/** Every URL Vite wrote for `realFile` into an importer, as the browser requests it. */
+function writtenUrlsOf(server: GateServer, realFile: string): Set<string> {
+  const graph = clientGraphOf(server);
+  const nodes = graph?.getModulesByFile?.(realFile) ?? new Set<GraphNode>();
+  const graphUrls: Array<[string, GraphNode]> = [];
+  for (const node of nodes) {
+    if (typeof node.url === 'string') graphUrls.push([node.url, node]);
+  }
+  for (const [url, node] of graph?.urlToModuleMap ?? new Map<string, GraphNode>()) {
+    if (nodes.has(node)) graphUrls.push([url, node]);
+  }
+  const base = server.config.base ?? '/';
+  return new Set(graphUrls.flatMap(([url, node]) => nodeUrls(url, node).map((each) => requestSpelling(each, base))));
 }
 
 /**
  * The real file URL of a loaded SDK file this request names under a URL Vite
- * did not write, or null. The request's raw pathname and query must equal
- * the written URL exactly: Vite normalizes `?v=x&`, `?%76=x` and an encoded
- * path back to the file, while the browser keys each as its own module.
+ * did not write, or null. The request's raw pathname and query must equal a
+ * written URL exactly: Vite normalizes `?v=x&`, `?%76=x` and an encoded path
+ * back to the file, while the browser keys each as its own module.
  */
 function unwrittenSdkFile(server: GateServer, supplied: SuppliedRows, rawUrl: string | undefined): string | null {
   if (rawUrl === undefined || supplied.package() === null) return null;
-  const url = new URL(rawUrl, 'http://request.invalid');
+  const url = new URL(rawUrl, ORIGIN);
   const pathname = servedPathname(url, server.config.base ?? '/');
   if (pathname === null) return null;
   const real = realFileUrlOf(fileOf(pathname, server.config.root));
   const isLoadedSdkFile = real !== null && supplied.liveSdkUrls.has(real);
   if (!isLoadedSdkFile) return null;
-  const written = writtenUrlOf(fileURLToPath(real), server, browserHashOf(server));
-  const isWritten = `${url.pathname}${url.search}` === written;
+  const isWritten = writtenUrlsOf(server, fileURLToPath(real)).has(`${url.pathname}${url.search}`);
   return isWritten ? null : real;
 }
 
