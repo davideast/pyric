@@ -9,7 +9,8 @@
 // ?project=other it mints from an admin app for another project. GET /claims
 // verifies a Bearer token and answers its uid and role claim. GET
 // /self-custom exchanges a custom token from this process and verifies the
-// ID token it gets back.
+// ID token it gets back. GET /self-unsigned tries an unsigned `{uid, claims}`
+// token from this process and answers the code it fails with (#2009).
 import { createServer } from "node:http";
 import { initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
@@ -69,6 +70,17 @@ async function selfCustom(response) {
   }
 }
 
+async function selfUnsigned(response) {
+  try {
+    const auth = getAuth(clientApp);
+    await signOut(auth);
+    const { user } = await signInWithCustomToken(auth, JSON.stringify({ uid: "victim-uid", claims: { admin: true } }));
+    send(response, 200, { uid: user.uid });
+  } catch (error) {
+    send(response, 200, { code: error?.code ?? String(error) });
+  }
+}
+
 async function self(response) {
   try {
     const { user } = await createUserWithEmailAndPassword(getAuth(clientApp), "server@example.com", "secret-pw");
@@ -93,6 +105,7 @@ const server = createServer((request, response) => {
   if (request.url === "/whoami") return void whoami(request, response);
   if (request.url === "/self") return void self(response);
   if (request.url === "/self-custom") return void selfCustom(response);
+  if (request.url === "/self-unsigned") return void selfUnsigned(response);
   if (request.url === "/claims") return void claims(request, response);
   if (request.url.startsWith("/custom-token")) return void customToken(request, response);
   send(response, 404, { error: "not found" });

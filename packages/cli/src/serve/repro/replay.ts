@@ -21,7 +21,7 @@ import type { InitPayload } from '../init-payload.js';
 import type { InboundMessage, OutboundMessage } from '../worker/protocol.js';
 import type { PortLike } from '../worker/host-context.js';
 import { IdBindings, matchRecorded, canonical } from './compare.js';
-import { parseRepro, redactSecrets, restoreRedactedTokens, type ReproBase, type ReproEntry, type ReproFile } from './format.js';
+import { jwtParts, parseRepro, redactSecrets, restoreRedactedTokens, type ReproBase, type ReproEntry, type ReproFile } from './format.js';
 
 export type ReplayPlaneName = 'node' | 'worker';
 
@@ -91,6 +91,8 @@ interface Plane {
   clearActiveFirestoreRules(): void;
   disconnectClient(session: string, event: 'disconnect' | 'interrupted'): Promise<void>;
   stageUpload(uploadId: string, partIndex: number, offset: number, bytes: Uint8Array): Promise<void>;
+  /** A custom token for `uid`, minted the way `createCustomToken` mints one, for this plane's project and clock. */
+  mintCustomToken(uid: string, claims?: Record<string, unknown>): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -165,6 +167,7 @@ async function startNodePlane(base: ReproBase): Promise<Plane> {
     rmSync(directory, { recursive: true, force: true });
     throw error;
   }
+  const mintConnection = {};
   return {
     send(session, frame) {
       runtime.receive({ type: 'worker-message', clientSessionId: session, message: frame });
@@ -188,6 +191,15 @@ async function startNodePlane(base: ReproBase): Promise<Plane> {
       if (progress === undefined) return;
       await persistence.storage.appendUpload(uploadId, offset, bytes);
     },
+    async mintCustomToken(uid, claims) {
+      const minted = await runtime.runMethod({
+        instanceId: runtime.instanceId, projectDir: directory, allowProduction: false,
+        key: 'auth.createCustomToken', args: { uid, ...(claims ? { developerClaims: claims } : {}) },
+      }, mintConnection);
+      const token = (minted.data as { token?: unknown } | undefined)?.token;
+      if (!minted.ok || typeof token !== 'string') throw new Error(`Replay could not mint a custom token: ${minted.summary}`);
+      return token;
+    },
     async close() {
       try {
         await runtime.close();
@@ -209,6 +221,8 @@ async function startWorkerPlane(base: ReproBase): Promise<Plane> {
     { createMemoryBackend },
     { getStorageSandbox },
     { getStorageService, replaceStorageRules },
+    { getAuth },
+    { mintCustomTokenFor },
   ] = await Promise.all([
     import('../worker/serve-init.js'),
     import('../worker/host.js'),
@@ -217,6 +231,8 @@ async function startWorkerPlane(base: ReproBase): Promise<Plane> {
     import('pyric/sandbox'),
     import('pyric/storage'),
     import('pyric/storage/internal'),
+    import('pyric/auth'),
+    import('pyric/auth/internal'),
   ]);
   const payload = payloadFor(base, `pyric-repro-${crypto.randomUUID()}`, false);
   const fetchInit = (async (input: Parameters<typeof fetch>[0]) => {
@@ -281,6 +297,9 @@ async function startWorkerPlane(base: ReproBase): Promise<Plane> {
         // Orphaned upload chunks from before a window rollover have no open upload on replay.
       }
     },
+    async mintCustomToken(uid, claims) {
+      return mintCustomTokenFor(getAuth(ctx.sandbox), uid, claims);
+    },
     async close() {
       ctx.sandbox.dispose();
     },
@@ -333,10 +352,7 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
     if (identity.signInProvider === 'custom') {
       await setup(session, {
         method: 'auth.signInWithCustomToken',
-        customToken: JSON.stringify({
-          uid: identity.uid,
-          ...(identity.customClaims ? { claims: identity.customClaims } : {}),
-        }),
+        customToken: await plane.mintCustomToken(identity.uid, identity.customClaims),
         ...(identity.tenantId !== null ? { tenantId: identity.tenantId } : {}),
       });
     } else {
@@ -382,6 +398,35 @@ interface PlaneRun {
   observed: Map<number, unknown>;
 }
 
+/** The `session\u0000id` of every recorded operation that succeeded. */
+function succeededOperations(entries: ReproEntry[]): Set<string> {
+  const succeeded = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind !== 'out' || entry.frame.t !== 'res') continue;
+    if (entry.frame.ok) succeeded.add(`${entry.session}\u0000${entry.frame.id}`);
+  }
+  return succeeded;
+}
+
+/**
+ * The frame to send for a recorded one. A recording keeps a custom token's
+ * claims and drops its signature, and the sandbox redeems only a signed
+ * token, so a custom token the recording redeemed is minted again on the
+ * plane for the same uid and claims. One the recording refused is sent
+ * unsigned, and is refused again.
+ */
+async function replayFrame(plane: Plane, frame: InboundMessage, redeemed: boolean): Promise<InboundMessage> {
+  const isCustomTokenSignIn = frame.t === 'op' && frame.method === 'auth.signInWithCustomToken';
+  if (!isCustomTokenSignIn || !redeemed) return frame;
+  const asserted = jwtParts(frame.customToken)?.claims;
+  const uid = asserted?.uid;
+  if (typeof uid !== 'string') return frame;
+  const claims = asserted?.claims;
+  const hasClaims = typeof claims === 'object' && claims !== null && !Array.isArray(claims);
+  const customToken = await plane.mintCustomToken(uid, hasClaims ? claims as Record<string, unknown> : undefined);
+  return { ...frame, customToken };
+}
+
 async function replayOn(name: ReplayPlaneName, file: ReproFile, timeoutMs: number): Promise<PlaneRun> {
   const plane = name === 'node' ? await startNodePlane(file.base) : await startWorkerPlane(file.base);
   const divergences: ReplayDivergence[] = [];
@@ -408,6 +453,7 @@ async function replayOn(name: ReplayPlaneName, file: ReproFile, timeoutMs: numbe
       for (const frame of subs) if (frame.t === 'sub') subscriptionFrames.set(`${session}\u0000${frame.subId}`, frame);
     }
     const eventsSeen = new Map<string, number>();
+    const succeeded = succeededOperations(file.entries);
     for (const [index, entry] of file.entries.entries()) {
       if (entry.kind === 'rules') {
         await plane.deployRules(entry.service, entry.source, entry.instance);
@@ -425,7 +471,9 @@ async function replayOn(name: ReplayPlaneName, file: ReproFile, timeoutMs: numbe
       if (entry.kind === 'external') continue;
       if (entry.kind === 'in') {
         offsetOf(entry.session);
-        const frame = restoreRedactedTokens(bindings.toReplay(entry.frame)) as InboundMessage;
+        const restored = restoreRedactedTokens(bindings.toReplay(entry.frame)) as InboundMessage;
+        const redeemed = 'id' in entry.frame && succeeded.has(`${entry.session}\u0000${entry.frame.id}`);
+        const frame = await replayFrame(plane, restored, redeemed);
         if ('id' in entry.frame) sentById.set(`${entry.session}\u0000${entry.frame.id}`, entry.frame);
         if (entry.frame.t === 'sub') subscriptionFrames.set(`${entry.session}\u0000${entry.frame.subId}`, entry.frame);
         await sendAndWait(plane, entry.session, frame, timeoutMs);

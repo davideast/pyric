@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { mintCustomToken } from 'pyric/sandbox/internal';
 import { pyric } from '../../dist/vite.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
@@ -17,8 +18,8 @@ const auth = getAuth(initializeApp(config));
 auth.tenantId = 'red';
 const otherAuth = getAuth(initializeApp(config, 'other'));
 const other = await signInAnonymously(otherAuth);
-window.runTokenFlow = async () => {
-  const first = await signInWithCustomToken(auth, JSON.stringify({ uid: 'custom-user', claims: { role: 'editor' } }));
+window.runTokenFlow = async ({ editor, reader }) => {
+  const first = await signInWithCustomToken(auth, editor);
   const firstInfo = getAdditionalUserInfo(first);
   const token = await getIdToken(first.user, true);
   const claims = (await first.user.getIdTokenResult()).claims;
@@ -26,7 +27,7 @@ window.runTokenFlow = async () => {
   const owned = doc(getFirestore(), 'owned/custom-user');
   await setDoc(owned, { secret: 'owned' });
   const readable = (await getDoc(owned)).data();
-  const second = await signInWithCustomToken(auth, JSON.stringify({ uid: 'custom-user', claims: { role: 'reader' } }));
+  const second = await signInWithCustomToken(auth, reader);
   let denied;
   try { await getDoc(owned); } catch (error) { denied = error.code; }
   let invalid;
@@ -67,7 +68,10 @@ for (const hosted of [false, true]) {
       if (missingUrl) throw new Error('Vite did not expose a URL');
       await page.goto(url);
       await expect(page.locator('#status')).toHaveText('Ready');
-      const result = await page.evaluate(() => Reflect.get(window, 'runTokenFlow')());
+      // Minted as createCustomToken mints them, for the page's project.
+      const mint = (role: string) => mintCustomToken({ uid: 'custom-user', claims: { role }, projectId: 'served-token', nowMs: Date.now() });
+      const tokens = { editor: mint('editor'), reader: mint('reader') };
+      const result = await page.evaluate((given) => Reflect.get(window, 'runTokenFlow')(given), tokens);
       expect(result).toMatchObject({ firstUid: 'custom-user', firstTenant: 'red', sameToken: true,
         claims: { role: 'editor', firebase: { tenant: 'red', sign_in_provider: 'custom' } },
         firstInfo: { isNewUser: true, providerId: null }, secondInfo: { isNewUser: false, providerId: null },

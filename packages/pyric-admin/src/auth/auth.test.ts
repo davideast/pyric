@@ -139,7 +139,7 @@ describe('sandbox backend — verifyIdToken verifies ID tokens only', () => {
   it('verifies the ID token a client gets from a custom-token sign-in, with the claims', async () => {
     const { getAuth: getClientAuth, signInWithCustomToken } = await import('pyric/auth');
     const { sandbox, auth } = sandboxAuth();
-    const customToken = JSON.stringify({ uid: 'alice', claims: { role: 'admin', tier: 2 } });
+    const customToken = await auth.createCustomToken('alice', { role: 'admin', tier: 2 });
     const { user } = await signInWithCustomToken(getClientAuth(sandbox), customToken);
     const decoded = await auth.verifyIdToken(await user.getIdToken());
     expect(decoded.uid).toBe('alice');
@@ -443,8 +443,7 @@ describe('sandbox backend — setCustomUserClaims persistence', () => {
     const stored = await auth.getUser('alice');
     const customToken = await auth.createCustomToken(stored.uid, stored.customClaims ?? {});
     await expect(auth.verifyIdToken(customToken)).rejects.toMatchObject({ code: 'auth/argument-error' });
-    const exchange = JSON.stringify({ uid: stored.uid, claims: stored.customClaims ?? {} });
-    const { user } = await signInWithCustomToken(getClientAuth(sandbox), exchange);
+    const { user } = await signInWithCustomToken(getClientAuth(sandbox), customToken);
     const decoded = await auth.verifyIdToken(await user.getIdToken());
     expect(decoded.uid).toBe('alice');
     expect(decoded.role).toBe('admin');

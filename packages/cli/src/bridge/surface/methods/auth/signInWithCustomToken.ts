@@ -2,10 +2,9 @@
  * Sign the app session in with a custom token.
  *
  * `auth.createCustomToken` mints the token this redeems, so the two compose the
- * way a backend and a client do: mint on the admin side, redeem here. A token
- * in firebase-admin's shape must carry the sandbox signature, name this
- * sandbox's project and be unexpired; the older unsigned `{ uid, claims }`
- * shapes are still read unchecked.
+ * way a backend and a client do: mint on the admin side, redeem here. The
+ * token must carry the sandbox signature, name this sandbox's project and be
+ * unexpired; an unsigned one is refused with `auth/invalid-custom-token`.
  */
 import { z } from 'zod';
 import { getAuth, signInWithCustomToken } from 'pyric/auth';
@@ -30,7 +29,7 @@ export default {
   }),
   operation: 'signin_auth_token',
   renames: { customToken: 'token', idToken: 'token' },
-  example: { token: 'eyJ1aWQiOiJhbGljZSJ9' },
+  example: { token: '<the token auth.createCustomToken returned>' },
   async handler(args, ctx) {
     const token = String(args.token);
     scopeToStoredTenant(ctx.sandbox, { uid: customTokenSubject(token) });
