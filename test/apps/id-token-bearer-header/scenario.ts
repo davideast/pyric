@@ -17,7 +17,13 @@
 // The page runs on the hosted dev server. The API is a
 // `node --import @pyric/cli/register` process, which also signs in through
 // firebase/auth itself and sends its own token.
+//
+// The API refuses what production refuses (#1949): a token whose claims were
+// edited after signing, an expired token, a token for another project, and a
+// plain string such as a sandbox custom token each get 401, with
+// firebase-admin's reason.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { scenario } from '../driver.ts';
 
 interface Answer { status?: number; body?: Record<string, unknown>; threw?: string }
@@ -37,6 +43,48 @@ const SIXTY_ONE_MINUTES_MS = 61 * 60 * 1000;
 function tokenTimes(token: string): { iat: number; exp: number } {
   const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { iat: number; exp: number };
   return { iat: payload.iat, exp: payload.exp };
+}
+
+function segment(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+/**
+ * An ID token signed as pyric's Auth signs one (packages/pyric/src/sandbox/
+ * internal/sandbox-jwt.ts and id-token.ts): eight SHA-256 blocks over the
+ * signing input and the ID token key. The sandbox signer is not a security
+ * boundary, so a test can sign the expired and wrong-project tokens a real
+ * client never would, and only the claim under test is wrong.
+ */
+function signedIdToken(claims: Record<string, unknown>): string {
+  const input = `${segment({ alg: 'RS256', kid: 'pyric-sandbox', typ: 'JWT' })}.${segment(claims)}`;
+  const blocks = Array.from({ length: 8 }, (_, block) =>
+    createHash('sha256').update(`${block}.pyric-sandbox-id-token-signing-key.${input}`, 'utf8').digest());
+  return `${input}.${Buffer.concat(blocks).toString('base64url')}`;
+}
+
+function idTokenClaims(uid: string, projectId: string, issuedAtSec: number): Record<string, unknown> {
+  return {
+    iss: `https://securetoken.google.com/${projectId}`,
+    aud: projectId,
+    sub: uid,
+    user_id: uid,
+    auth_time: issuedAtSec,
+    iat: issuedAtSec,
+    exp: issuedAtSec + 3600,
+    firebase: { identities: {}, sign_in_provider: 'custom' },
+  };
+}
+
+/** The API's answer to `token` in an `Authorization: Bearer` header. */
+async function whoami(apiUrl: string, token: string): Promise<{ status: number; body: { error?: string } }> {
+  const response = await fetch(`${apiUrl}/whoami`, { headers: { Authorization: `Bearer ${token}` } });
+  return { status: response.status, body: await response.json() as { error?: string } };
+}
+
+function assertRefused(answer: { status: number; body: { error?: string } }, reason: RegExp): void {
+  assert.equal(answer.status, 401, JSON.stringify(answer));
+  assert.match(answer.body.error ?? '', reason, JSON.stringify(answer));
 }
 
 const USERS = [
@@ -82,6 +130,34 @@ export default scenario(async (app) => {
     const times = tokenTimes(signedIn.idToken);
     assert.equal(times.exp - times.iat, 3600, JSON.stringify(times));
     return signedIn;
+  });
+
+  await app.step('the API refuses a forged token, whose claims were edited after signing', async () => {
+    const [header, , signature] = held.idToken.split('.');
+    const nowSec = Math.floor(Date.now() / 1000);
+    const forgedClaims = { ...idTokenClaims('victim-uid', PROJECT, nowSec), admin: true };
+    assertRefused(await whoami(apiUrl, `${header}.${segment(forgedClaims)}.${signature}`), /has invalid signature/);
+  });
+
+  await app.step('the API verifies a token signed for its project, so the refusals below are for the claim under test', async () => {
+    const answer = await whoami(apiUrl, signedIdToken(idTokenClaims('signed-uid', PROJECT, Math.floor(Date.now() / 1000))));
+    assert.equal(answer.status, 200, JSON.stringify(answer));
+  });
+
+  await app.step('the API refuses an expired token', async () => {
+    const twoHoursAgoSec = Math.floor(Date.now() / 1000) - 2 * 60 * 60;
+    assertRefused(await whoami(apiUrl, signedIdToken(idTokenClaims('signed-uid', PROJECT, twoHoursAgoSec))), /has expired/);
+  });
+
+  await app.step('the API refuses a token for another project', async () => {
+    const other = signedIdToken(idTokenClaims('signed-uid', 'demo-other-project', Math.floor(Date.now() / 1000)));
+    assertRefused(await whoami(apiUrl, other), /incorrect "aud" \(audience\) claim/);
+  });
+
+  await app.step('the API refuses a plain string, such as a sandbox custom token', async () => {
+    for (const token of ['pyric-sandbox-custom:victim-uid:{"admin":true}', 'not-a-token']) {
+      assertRefused(await whoami(apiUrl, token), /Decoding Firebase ID token failed/);
+    }
   });
 
   await app.step('pyric sandbox advanceClock moves the clock 61 minutes', async () => {

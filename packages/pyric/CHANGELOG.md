@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Behavior changes
+
+#### Auth
+
+- `pyric-admin` `verifyIdToken` on a custom token from `createCustomToken`, or on any plain string: before, resolved with the uid and claims the string named. Now, rejects with `auth/argument-error`, as production does. A custom token must be exchanged with `signInWithCustomToken` first, and the ID token the client gets verifies (#1949).
+- `verifyIdToken` on an ID token: before, any token that decoded verified. Now, it checks as firebase-admin 13.10 does. A token whose signature fails, whose `kid` or `alg` is not the sandbox's, or whose `aud`, `iss` or `sub` is wrong rejects with `auth/argument-error`, and an expired token rejects with `auth/id-token-expired`. The project is the admin app's project ID, or `pyric-sandbox` when it names none. A token that is not a string throws `auth/argument-error` synchronously (#1949).
+- The client ID token shape alpha.33 and earlier mint (`sandbox-id-token-<uid>-<n>:<claims>`): before, `verifyIdToken` decoded it. Now, rejects with `auth/argument-error`. The client now mints a JWT, which verifies (#1836, #1949).
+
 ## 0.1.0-alpha.33
 
 pyric 0.1.0-alpha.33 is on the `exp` dist-tag. `latest` stays at alpha.30.2. No other dist-tag moves, and this release carries no `fb` compatibility tag.

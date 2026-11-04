@@ -5,9 +5,10 @@
  * `app` argument is the branded handle from `pyric-admin/app`
  * ({@link PyricAdminApp}); only sandbox-branded apps enter this package.
  * The local sandbox path uses an in-memory store keyed off `app.sandbox`
- * and implements the core user-management subset below. Tokens are NOT
- * real JWTs — they are deterministic strings parsed by the same sandbox
- * backend. This is enough to exercise agent code paths that use
+ * and implements the core user-management subset below. Custom tokens are
+ * NOT real JWTs — they are deterministic strings. `verifyIdToken` checks the
+ * ID token JWTs pyric's Auth mints, as firebase-admin checks an ID token.
+ * This is enough to exercise agent code paths that use
  * `createUser` / `getUser` / `setCustomUserClaims` /
  * `createCustomToken` / `verifyIdToken`, not enough to model a real
  * identity platform.
@@ -26,9 +27,11 @@
  *   - {@link getAuth}
  *   - `Auth.createCustomToken(uid, claims?)` — returns a deterministic
  *     `pyric-sandbox-custom:${uid}:${json}` string; no signing.
- *   - `Auth.verifyIdToken(token)` — parses tokens minted by
- *     `createCustomToken`; returns a {@link DecodedIdToken}-shaped
- *     object.
+ *   - `Auth.verifyIdToken(token)` — verifies an ID token pyric's Auth
+ *     minted for the app's project (the app's project ID, or
+ *     `pyric-sandbox` when it names none), with production's error codes;
+ *     returns a {@link DecodedIdToken}. A custom token is refused with
+ *     `auth/argument-error`, as in production (#1949).
  *   - `Auth.createUser(properties)` — stores a {@link UserRecord}
  *     in an in-memory `Map<uid, UserRecord>`. Auto-generates a `uid`
  *     when one is not supplied.
@@ -67,7 +70,7 @@ import {
   type Sandbox,
   type SandboxEvent,
 } from 'pyric/sandbox';
-import { assertNoReservedCustomClaims } from 'pyric/sandbox/internal';
+import { assertNoReservedCustomClaims, getClock, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 import type {
   AuthUserRecord,
   CreateUserRequest as SandboxCreateUserRequest,
@@ -79,6 +82,7 @@ import {
   type PyricAdminApp,
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { explicitProjectId } from '../app/project-id.js';
 import type {
   Auth,
   CreateRequest,
@@ -98,8 +102,8 @@ export { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
 /**
  * Per-sandbox in-memory store. One instance per `Sandbox` (tracked in
  * the {@link sandboxStores} WeakMap below). Holds the user table; the
- * token format is stateless (`createCustomToken` mints, `verifyIdToken`
- * parses) so it doesn't need to live here.
+ * tokens are stateless (`createCustomToken` mints, `verifyIdToken`
+ * checks) so they don't need to live here.
  *
  * `usersByUid` is the canonical index. `getUserByEmail` does a linear
  * scan over its values — the sandbox is for development and agent test
@@ -174,10 +178,10 @@ function storeFor(sandbox: Sandbox): AuthStore {
 }
 
 /**
- * Mint a deterministic sandbox token (the {@link SANDBOX_TOKEN_PREFIX}
+ * Mint a deterministic sandbox custom token (the {@link SANDBOX_TOKEN_PREFIX}
  * format). Stateless — shared verbatim by the local and remote sandbox
- * arms, so a token minted against either round-trips through
- * verifySandboxIdToken on the other.
+ * arms. Like production's custom token, it is not an ID token, and
+ * `verifyIdToken` refuses it.
  */
 function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<string> {
   const claims = developerClaims ?? {};
@@ -199,7 +203,17 @@ function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<
  * cast acknowledges the divergence in one place and lets the rest of
  * the file focus on the methods that actually work.
  */
-function makeSandboxAuth(sandbox: Sandbox): Auth {
+/**
+ * The project an ID token must name for `app`: firebase-admin's explicit
+ * project ID, or `pyric-sandbox`, which pyric's Auth mints for when it knows
+ * no project. Production throws `auth/invalid-credential` with no project;
+ * the sandbox checks against `pyric-sandbox` instead, by design.
+ */
+function idTokenProjectId(app: PyricAdminApp): string {
+  return explicitProjectId(app) ?? SANDBOX_PROJECT_ID;
+}
+
+function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
   const store = storeFor(sandbox);
 
   /** Canonical "not implemented" error for surface that the sandbox
@@ -261,20 +275,19 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
     /**
      * Mint a deterministic sandbox token. Format is fixed at
      * `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims ?? {})}`.
-     * Round-trips through {@link verifyIdToken} on the same sandbox
-     * backend; rejected by every other token verifier. Shared
-     * implementation: {@link mintSandboxCustomToken}.
+     * Not an ID token: {@link verifyIdToken} refuses it, as production
+     * does. Shared implementation: {@link mintSandboxCustomToken}.
      */
     createCustomToken(uid: string, developerClaims?: object): Promise<string> {
       return mintSandboxCustomToken(uid, developerClaims);
     },
 
     /**
-     * Parse a token minted by {@link createCustomToken}. Shared
-     * implementation: {@link verifySandboxIdToken}.
+     * Verify an ID token for the app's project, reading `exp` and `nbf` on
+     * the sandbox clock. Shared implementation: {@link verifySandboxIdToken}.
      */
     verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
-      return verifySandboxIdToken(idToken);
+      return verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: getClock(sandbox).now() });
     },
 
     /**
@@ -466,9 +479,11 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
 // scale (per the design spike — add an op if it ever matters).
 //
 // Tokens stay stateless and local: `createCustomToken` / `verifyIdToken`
-// are the same string transforms as the local arm
-// ({@link mintSandboxCustomToken} / {@link verifySandboxIdToken}), so a
-// token minted server-side verifies against any pyric-admin backend.
+// are the same transforms as the local arm
+// ({@link mintSandboxCustomToken} / {@link verifySandboxIdToken}). The
+// remote arm reads expiry on this process's wall clock, not the worker's
+// sandbox clock, so after `advanceClock` the two arms can disagree about
+// whether a token has expired.
 
 /** Map a firebase-admin `CreateRequest` onto the worker's sandbox
  *  create-user request. `null`s (upstream "clear") become "unset" — a
@@ -535,7 +550,7 @@ function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
  *   - User mutations emit auth `SandboxEvent`s in the worker (visible to
  *     Studio/agents) and are visible to the browser app immediately.
  */
-function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
+function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
   const channel = sandbox.channel;
 
   const notImplemented = (method: string): Error =>
@@ -557,9 +572,13 @@ function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
       return mintSandboxCustomToken(uid, developerClaims);
     },
 
-    /** Stateless parse — identical to the local arm; needs no relay. */
+    /**
+     * Stateless check — the local arm's, for the app's project; needs no
+     * relay. Expiry is read on the wall clock, which the worker's sandbox
+     * clock can be moved away from.
+     */
     verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
-      return verifySandboxIdToken(idToken);
+      return verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: Date.now() });
     },
 
     /** Relays `auth.adminCreateUser`. Uid conflicts / invalid emails /
@@ -732,9 +751,11 @@ function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
  * const auth = getAuth(app);
  *
  * const user = await auth.createUser({ uid: 'alice', email: 'a@e.com' });
- * const token = await auth.createCustomToken(user.uid, { role: 'admin' });
- * const decoded = await auth.verifyIdToken(token);
- * console.log(decoded.uid, decoded.role); // 'alice' 'admin'
+ * await auth.setCustomUserClaims(user.uid, { role: 'admin' });
+ *
+ * // An ID token from a client signed in on the same sandbox.
+ * const decoded = await auth.verifyIdToken(idTokenFromTheClient);
+ * console.log(decoded.uid);
  * ```
  */
 export function getAuth(app?: PyricAdminApp): Auth {
@@ -755,6 +776,6 @@ export function getAuth(app?: PyricAdminApp): Auth {
     throw new TypeError('pyric-admin/auth: getAuth expected a sandbox admin app.');
   }
   return isRemoteSandbox(app.sandbox)
-    ? makeRemoteAuth(app.sandbox)
-    : makeSandboxAuth(app.sandbox);
+    ? makeRemoteAuth(app, app.sandbox)
+    : makeSandboxAuth(app, app.sandbox);
 }

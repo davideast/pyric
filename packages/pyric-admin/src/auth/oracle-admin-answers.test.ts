@@ -59,7 +59,6 @@ const PINS: Record<string, { pyric: string; production: string; finding: string 
   createCustomToken129Uid: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
   createCustomTokenReservedAud: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
   createCustomTokenNullClaims: { pyric: 'resolved', production: 'throws auth/argument-error', finding: 'auth-claims AU-4' },
-  verifyIdTokenOfCustomToken: { pyric: 'resolved', production: 'rejects auth/argument-error', finding: 'auth-claims AU-9: verifyIdToken accepts a custom token' },
   verifyIdTokenCheckRevokedDisabled: { pyric: 'resolved', production: 'rejects auth/user-disabled', finding: 'auth-claims AU-10: checkRevoked ignores disabled and deleted users' },
   verifyIdTokenCheckRevokedDeleted: { pyric: 'resolved', production: 'rejects auth/user-not-found', finding: 'auth-claims AU-10' },
 };
