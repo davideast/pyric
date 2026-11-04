@@ -93,3 +93,22 @@ The dev server port comes from the command line, which overrides any `server.por
 `process.stop()` sends SIGTERM to the process group, then SIGKILL after 5 seconds. A process that still has not closed 5 seconds after that, such as one whose pipes another process holds open, is recorded as gone with a note in its log, so a step and the run's teardown never wait on it longer. When a spawn fails with `EBADF` before the process writes any output, which Bun's `spawn` does now and then under concurrency (#997), the driver starts it once more and says so in its log.
 
 A page request that a `/__pyric/` route answers with a 4xx or 5xx status fails the app after its scenario finishes, even when every step passed. A user sees those errors in the browser console on every page load, so a scenario that triggers one on purpose, such as a download URL with the wrong token, declares it with `app.expectHostError` just before the request.
+
+## Recorded production (`replay/`)
+
+`replay/` plays production Firebase for the real `firebase` web SDK, so a scenario can run an app as if it talked to production while nothing reaches Google. It holds harness code only, no scenario.
+
+| File | What it does |
+|---|---|
+| `server.ts` | `startReplayServer(recordings)` answers Firestore's Listen and Write streams over WebChannel and the Auth REST calls a sign-in makes, on `127.0.0.1`. A request no recording answers is refused (a listener or write fails with `failed-precondition` naming it, Auth answers `PYRIC_REPLAY_NO_RECORDING`) and listed in `server.unmatched`. |
+| `seam.ts` | `routeFirebaseTo(origin)` wraps `globalThis.fetch` so requests for `firestore.googleapis.com`, `identitytoolkit.googleapis.com` and `securetoken.googleapis.com` go to the server, and refuses every other host that is not loopback. Install it before the SDK loads. The app's code does not change. |
+| `format.ts` | The recorded-exchange file (`pyric-replay/1`). Server-issued values (ID and refresh tokens, read and commit times, resume tokens, target ids) are `{ "$": "<name>" }` placeholders the server fills in; `{ "$": "any" }` matches any request value. `readRecording` refuses a file with a JWT, an API key, a real read time, or a document outside its project. |
+| `recorder.ts`, `record.ts` | A forwarder that relays a real run unchanged and returns what it saw as a recording. `bun test/apps/replay/record.ts --project <test-project> --out <file> <run.ts>` is the only entry point that reaches Google: run it by hand, against a test project only. |
+| `sdk.ts` | Loads `firebase/app`, `firebase/auth`, and Firestore's browser build, which uses the same WebChannel transport in Node as in a page. |
+| `fixtures/rooms.json` | Hand-written from the SDK's wire format: a sign-in, a read, a denied read, a query listener that a write updates, a write and a denied write. |
+
+The tests drive the real SDK through all of it with the network off:
+
+```sh
+unshare -rn sh -c 'ip link set lo up && bun test test/apps/replay'
+```
