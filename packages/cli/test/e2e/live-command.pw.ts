@@ -133,6 +133,23 @@ function project(roots: string[], rcProject = PROJECT_ID, appProject = PROJECT_I
   return root;
 }
 
+/** One JSON-RPC request to the host's MCP route, keeping the session it opened. */
+function mcpClient(base: string) {
+  let sessionId: string | null = null;
+  return async (id: number | null, method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> => {
+    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    if (sessionId !== null) headers['mcp-session-id'] = sessionId;
+    const body: Record<string, unknown> = { jsonrpc: '2.0', method, params };
+    if (id !== null) body.id = id;
+    const response = await fetch(`${base}/__pyric/mcp`, { method: 'POST', headers, body: JSON.stringify(body) });
+    sessionId = response.headers.get('mcp-session-id') ?? sessionId;
+    const text = await response.text();
+    if (text.length === 0) return null;
+    const line = text.split('\n').find((entry) => entry.startsWith('data:')) ?? text;
+    return JSON.parse(line.replace(/^data:\s*/, '')) as Record<string, unknown>;
+  };
+}
+
 async function openChip(page: Page): Promise<ReturnType<Page['locator']>> {
   const chip = page.locator('[data-pyric-runtime-chip-host]');
   await chip.waitFor({ state: 'attached', timeout: 30_000 });
@@ -249,6 +266,33 @@ test.describe('pyric-live', () => {
     const finished = await run.exited;
     expect(finished.code, finished.output).not.toBe(0);
     expect(finished.output).toContain('@pyric/live: seed seed.json from the seed file is refused in live mode.');
+  });
+
+  test("refuses pyric's own writes on the running host: an MCP tool's and a pyric command's", async () => {
+    test.setTimeout(120_000);
+    const root = project(roots);
+    symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
+    const port = await freeLoopbackPort();
+    const url = `http://127.0.0.1:${port}`;
+    const host = started('node', [liveBin(root), '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: root });
+    hosts.push(host);
+    const health = await waitForHost(host, url) as { instanceId: string };
+
+    const mcp = mcpClient(url);
+    await mcp(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'live-command', version: '0' } });
+    await mcp(null, 'notifications/initialized');
+    const call = await mcp(2, 'tools/call', { name: 'firestore_create_document', arguments: { path: 'rooms/agent', data: { v: 1 } } });
+    expect(JSON.stringify(call)).toContain('firestore_create_document from an MCP tool is refused in live mode');
+
+    const method = await fetch(`${url}/__pyric/hosted/method`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ instanceId: health.instanceId, projectDir: root, key: 'firestore.setDoc', args: { path: 'rooms/cli', data: { v: 1 } } }),
+    });
+    const result = await method.json() as { ok: boolean; summary: string; data?: { code?: string } };
+    expect(result.ok).toBe(false);
+    expect(result.data?.code).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.summary).toContain('firestore.setDoc from a pyric command is refused in live mode');
   });
 
   test('refuses to start with an unsupported firebase, naming the version found', async () => {
