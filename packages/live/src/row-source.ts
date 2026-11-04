@@ -7,13 +7,15 @@
  *
  * A row module imports the app's own installed module for its specifier
  * (each plane sends a row's own import of its specifier to the installed
- * SDK), re-exports every export of it, and replaces the observed exports
- * with the wrapped ones `liveModuleFor` returns. A named export takes
- * precedence over the same name from `export *`, so the app sees the
- * wrapper; every other export is the SDK's own binding.
+ * SDK), re-exports every export of it, and replaces the observed and the
+ * guarded exports with the ones `liveModuleFor` returns. A named export
+ * takes precedence over the same name from `export *`, so the app sees the
+ * wrapper; every other export is the SDK's own binding. The row names its
+ * client, so a refusal says where the call was made.
  */
 import type { ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
-import { LIVE_MODULES } from './modules.js';
+import { replacedExports } from './modules.js';
+import type { LiveClient } from './refusal.js';
 import { LIVE_ROWS } from './rows.js';
 
 /** How a plane's modules import this package's files and the observer module. */
@@ -22,6 +24,8 @@ export interface RowImports {
   file(name: string): string;
   /** The specifier the row modules import the observer module by. */
   readonly observer: string;
+  /** The client the rows run in, which a refusal names. */
+  readonly client: LiveClient;
 }
 
 /** Where a live module reads the installed SDK's version: `firebase/app` itself, or the live app row. */
@@ -35,8 +39,8 @@ function sdkVersionImport(specifier: ServedFirebaseSpecifier): string {
 export function rowModuleSource(specifier: ServedFirebaseSpecifier, imports: RowImports): string {
   const key = LIVE_ROWS.get(specifier);
   if (key === undefined) throw new Error(`@pyric/live has no live row for ${specifier}.`);
-  const spec = LIVE_MODULES[key];
-  const names = [...spec.calls, ...spec.listeners];
+  const names = replacedExports(key);
+  const site = `{ observer, sdkVersion: SDK_VERSION, client: ${JSON.stringify(imports.client)} }`;
   const quoted = JSON.stringify(specifier);
   return [
     `import * as __pyricReal from ${quoted};`,
@@ -44,7 +48,7 @@ export function rowModuleSource(specifier: ServedFirebaseSpecifier, imports: Row
     `import { liveModuleFor } from ${JSON.stringify(imports.file('rows'))};`,
     `import { observer } from ${JSON.stringify(imports.observer)};`,
     `export * from ${quoted};`,
-    `const __pyricLive = liveModuleFor(${quoted}, __pyricReal, observer, SDK_VERSION);`,
+    `const __pyricLive = liveModuleFor(${quoted}, __pyricReal, ${site});`,
     ...names.map((name) => `export const ${name} = __pyricLive.${name};`),
     '',
   ].join('\n');

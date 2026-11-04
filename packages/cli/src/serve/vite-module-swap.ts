@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DepOptimizationOptions, ResolvedConfig, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import {
@@ -20,7 +20,10 @@ import {
 import {
   OBSERVER_MODULE_ID,
   OBSERVER_SPECIFIER,
+  ROW_MODULE_IDS,
   isLiveModuleId,
+  isSuppliedRowsImport,
+  realFileUrlOf,
   suppliedRowsResolution,
   type SuppliedRows,
 } from './vite-supplied-rows.js';
@@ -34,12 +37,12 @@ import {
   unaliasedSpecifier,
 } from './vite-ssr-routing.js';
 import { loadServerTarget } from './vite-ssr-loader.js';
-import { stopFor } from '../register/swap-or-stop.js';
+import { LIVE_ROW_SDK_PACKAGES, isFirebaseSdkName, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
+import { packageNameOf } from '../register/package-identity.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
+const SDK_PACKAGE_SPECIFIER = /^@firebase\//;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
-/** The installed SDK packages live rows load beside the excluded ones. */
-const LIVE_SDK_PACKAGES = ['@firebase/auth', '@firebase/firestore'];
 /** The SDK package the served entries import; one instance per page. */
 const PYRIC_PACKAGE = 'pyric';
 /**
@@ -260,13 +263,12 @@ export function createViteModuleSwap(
     return id;
   }
 
-  /** The supplied rows' answer for a `firebase/*` import on the page plane. */
+  /** The supplied rows' answer for a Firebase or `firebase-admin` import on the page plane. */
   function resolveSupplied(supplied: SuppliedRows, source: string, importer: string | undefined): string | null {
     const resolution = suppliedRowsResolution(supplied, source, importer);
     if (resolution.kind === 'module') return resolution.id;
-    if (resolution.kind === 'installed-sdk') return null;
     if (resolution.kind === 'refused') return refusalIdFor(source, 'page', resolution.error);
-    return stopIdFor(source, importer);
+    return null;
   }
 
   /** A row module's import of the one observer module, while the rows are open. */
@@ -287,9 +289,10 @@ export function createViteModuleSwap(
     if (isBypassedBridgeImport(source, importer)) return null;
     if (isObserverImport(source, importer)) return OBSERVER_MODULE_ID;
 
-    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     const supplied = options?.supplied;
-    if (isFirebaseSpecifier && supplied !== undefined) return resolveSupplied(supplied, source, importer);
+    const isSuppliedImport = supplied !== undefined && isSuppliedRowsImport(source);
+    if (isSuppliedImport) return resolveSupplied(supplied, source, importer);
+    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     if (isFirebaseSpecifier) {
       const swapped = swappedFirebaseEntries(aiMode());
       const key = swapped.get(source as ServedFirebaseSpecifier);
@@ -304,7 +307,77 @@ export function createViteModuleSwap(
     return shouldShimNodeBuiltin ? NODE_SHIM_PREFIX + nodeMatch[2] : null;
   }
 
+  /** The row specifier a row module id serves, or null for any other importer. */
+  function rowSpecifierOf(importer: string | undefined): string | null {
+    for (const [specifier, id] of ROW_MODULE_IDS) {
+      if (id === importer) return specifier;
+    }
+    return null;
+  }
+
+  /** The id of the module that refuses one installed SDK file reached by `specifier`, with that file's export names. */
+  function refusedFileIdFor(specifier: string, file: string, error: Error): string {
+    const id = `${STOP_PREFIX}refused:page-file:${JSON.stringify([specifier, file])}`;
+    const isKnown = stops.has(id);
+    if (!isKnown) stops.set(id, { error, specifier: file, resolveDir: path.dirname(file) });
+    return id;
+  }
+
+  /**
+   * Under open live rows, the page's resolution of `source` checked against
+   * the file it reaches, as the Node plane's stop checks a load
+   * (`suppliedRowsStopFor`): an installed client SDK file loads only for a
+   * row module's own import of its specifier, or for an import made by an SDK
+   * file the rows already loaded. Every other route to one, a bare
+   * `@firebase/*` import, a relative path, a `/@fs/` URL, or a package that
+   * only names itself `@firebase/*`, gets the refusal. A browser request for
+   * a file the rows loaded (no importer) is that file's own load.
+   */
+  async function gateLiveSdkFile(
+    context: SwapResolveContext,
+    supplied: SuppliedRows,
+    source: string,
+    importer: string | undefined,
+    resolveOptions: { ssr?: boolean } | undefined,
+    routed: string | { id: string } | null,
+  ): Promise<string | { id: string } | null> {
+    const isModuleId = typeof routed === 'string';
+    if (isModuleId) return routed;
+    const target = routed ?? await context.resolve(source, importer, { ...resolveOptions, skipSelf: true });
+    if (target === null) return null;
+    const url = realFileUrlOf(target.id);
+    if (url === null) return target;
+    const isLoadedFile = importer === undefined && supplied.liveSdkUrls.has(url);
+    if (isLoadedFile) return target;
+    const specifier = unaliasedSpecifier(source) ?? source;
+    const importerUrl = importer === undefined ? undefined : realFileUrlOf(importer) ?? importer;
+    const isRowImport = rowSpecifierOf(importer) === specifier;
+    const load = { specifier, importer: importerUrl, url };
+    const stopped = suppliedRowsStopFor(load, supplied.liveSdkUrls, { isRowImport, isEsmImport: true });
+    if (stopped === null) return target;
+    return refusedFileIdFor(specifier, fileURLToPath(url), supplied.refusal(specifier, 'page'));
+  }
+
+  /** Whether this resolution is for server code Vite runs, not the page. */
+  function isServerResolve(context: SwapResolveContext, resolveOptions?: { ssr?: boolean }): boolean {
+    const environment = context.environment;
+    return environment === undefined ? resolveOptions?.ssr === true : environment.config.consumer === 'server';
+  }
+
   async function resolvePluginId(
+    context: SwapResolveContext,
+    source: string,
+    importer: string | undefined,
+    resolveOptions?: { ssr?: boolean },
+  ): Promise<string | { id: string } | null> {
+    const routed = await routePluginId(context, source, importer, resolveOptions);
+    const supplied = options?.supplied;
+    const isOpenOnPage = supplied !== undefined && supplied.package() !== null && !isServerResolve(context, resolveOptions);
+    if (!isOpenOnPage) return routed;
+    return gateLiveSdkFile(context, supplied, source, importer, resolveOptions, routed);
+  }
+
+  async function routePluginId(
     context: SwapResolveContext,
     source: string,
     importer: string | undefined,
@@ -366,6 +439,23 @@ export function createViteModuleSwap(
     return shimFor(id.slice(NODE_SHIM_PREFIX.length));
   }
 
+  /**
+   * Under live rows, what the pre-bundle holds in place of an installed
+   * Firebase SDK file: its refusal. Every package the rows load is kept out
+   * of the pre-bundle, so an SDK file reaches it only through a dependency's
+   * own path to one, which the page would otherwise never see.
+   */
+  async function preBundledSdkRefusal(file: string): Promise<string | null> {
+    const supplied = options?.supplied;
+    if (supplied === undefined) return null;
+    const url = realFileUrlOf(file);
+    const isInstalled = url !== null && url.includes('/node_modules/');
+    if (!isInstalled) return null;
+    const name = packageNameOf(url);
+    if (name === null || !isFirebaseSdkName(name)) return null;
+    return stopModule(supplied.refusal(name, 'page'), await stopModuleExports(file, path.dirname(file)));
+  }
+
   // Keep Firebase specifiers external so Vite resolves them through the same
   // hook as direct application imports, including the same module URL.
   const rolldownMirror = {
@@ -377,17 +467,22 @@ export function createViteModuleSwap(
       const isNodeShim = id.startsWith(NODE_SHIM_PREFIX);
       return isNodeShim ? id : { id: source, external: true };
     },
-    load,
+    async load(id: string) {
+      return (await preBundledSdkRefusal(id)) ?? load(id);
+    },
   };
 
   const optimizerMirror: OptimizerPlugin = {
     name: 'pyric-sandbox-optimizer',
     setup(build) {
-      build.onResolve({ filter: FIREBASE_SPECIFIER }, (args) => {
+      const keepFirebaseExternal = (args: { path: string; importer: string }) => {
         const id = resolveId(args.path, args.importer);
         const isUnchanged = id === null;
         return isUnchanged ? null : { path: args.path, external: true };
-      });
+      };
+      build.onResolve({ filter: FIREBASE_SPECIFIER }, keepFirebaseExternal);
+      // Under live rows a dependency's `@firebase/*` import stays external too, so the page refuses it.
+      build.onResolve({ filter: SDK_PACKAGE_SPECIFIER }, keepFirebaseExternal);
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
         const isForeignImporter = !isOurCode(args.importer);
         if (isForeignImporter) {
@@ -396,6 +491,12 @@ export function createViteModuleSwap(
         const shimPath = args.path.replace(/^node:/, '');
         return { path: shimPath, namespace: 'pyric-node-shim' };
       });
+      if (options?.supplied !== undefined) {
+        build.onLoad({ filter: /.*/, namespace: 'file' }, async (args) => {
+          const contents = await preBundledSdkRefusal(args.path);
+          return contents === null ? null : { contents, loader: 'js' };
+        });
+      }
       build.onLoad({ filter: /.*/, namespace: 'pyric-node-shim' }, (args) => {
         const content = NODE_BUILTIN_SHIMS[args.path];
         const hasContent = content !== undefined;
@@ -427,8 +528,9 @@ export function createViteModuleSwap(
         // covers every subpath.
         PYRIC_PACKAGE,
         // Live rows load the installed Auth and Firestore, which import the
-        // excluded @firebase/app: kept out too, so the page has one registry.
-        ...(options?.supplied === undefined ? [] : LIVE_SDK_PACKAGES),
+        // excluded @firebase/app: every package the rows load is kept out too,
+        // so the page has one registry and the pre-bundle holds no SDK file.
+        ...(options?.supplied === undefined ? [] : [...LIVE_ROW_SDK_PACKAGES]),
       ];
       const usesRolldown = Number(viteVersion.split('.')[0]) >= 8;
       const optimizer = usesRolldown

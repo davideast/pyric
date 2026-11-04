@@ -5,14 +5,21 @@
  * from the `@pyric/live` package installed in the project
  * (`vite-live-package.ts`). The swap's real-SDK stop opens only for one of
  * those virtual modules' own import of its specifier, and only once that
- * package is found. Every other served specifier is refused, never sent to
- * the sandbox row, so one app object never mixes the installed SDK with
- * sandbox services.
+ * package is found. Every other Firebase and `firebase-admin` import is
+ * refused, never sent to the sandbox row or the stop, so one app object
+ * never mixes the installed SDK with sandbox services. So is every
+ * `@firebase/*` import, except one from an SDK file the rows loaded, and
+ * every load of an installed SDK file, by whatever specifier, path or URL,
+ * that the rows did not lead to (`vite-module-swap.ts`), as the Node plane's
+ * stop decides by the resolved file (`../register/swap-or-stop.ts`).
  *
  * `pyric()` supplies no rows. A plugin gets them only through
  * `@pyric/cli/vite/internal/supplied-rows`, which takes no module ids.
  */
-import { SDK_MODULES, type ServedFirebaseSpecifier } from './firebase-module-swap.js';
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import type { RowModulePackage } from './vite-live-package.js';
 
 /** The served specifiers a live row serves from the app's installed SDK. */
@@ -61,6 +68,12 @@ export interface SuppliedRows {
   package(): RowModulePackage | null;
   /** Opens the rows with the package found from the project root. */
   open(found: RowModulePackage): void;
+  /**
+   * The installed SDK files the rows loaded on the page, as real file URLs,
+   * as the Node plane's stop records them (`suppliedRowsStopFor`). Only these
+   * files may import more of the SDK.
+   */
+  readonly liveSdkUrls: Set<string>;
 }
 
 /** Shut live rows with the supplier's refusal. */
@@ -68,6 +81,7 @@ export function suppliedRows(refusal: SuppliedRowsRefusal): SuppliedRows {
   let found: RowModulePackage | null = null;
   return {
     refusal,
+    liveSdkUrls: new Set(),
     package: () => found,
     open(next) {
       found = next;
@@ -81,21 +95,60 @@ export type SuppliedRowsResolution =
   | { readonly kind: 'refused'; readonly error: Error }
   | { readonly kind: 'unserved' };
 
-const SERVED: ReadonlySet<string> = new Set(SDK_MODULES);
+/** `firebase`, `firebase/*`, `firebase-admin` and `firebase-admin/*`, as an app names them. */
+const FIREBASE_IMPORT = /^firebase(-admin)?(\/.+)?$/;
+
+/** `@firebase/*`: the SDK's own packages, which `firebase/*` imports. */
+const SDK_PACKAGE_IMPORT = /^@firebase\/[^/]+(\/.+)?$/;
 
 /**
- * What a page-plane `firebase/*` import gets under live rows: the row's
- * module; the installed SDK, when that row module imports its own
- * specifier; the refusal, for any other served specifier and for every
- * served specifier while the rows are shut; or `unserved`, which the swap's
- * stop answers as it does without rows.
+ * Whether the live rows answer this import on the page plane: every Firebase,
+ * `firebase-admin` and `@firebase/*` import.
+ */
+export function isSuppliedRowsImport(source: string): boolean {
+  return FIREBASE_IMPORT.test(source) || SDK_PACKAGE_IMPORT.test(source);
+}
+
+/**
+ * The real file URL of a Vite module id, without the query or hash Vite may
+ * add, or null for a virtual id or one that names no file on disk.
+ */
+export function realFileUrlOf(id: string): string | null {
+  const file = id.replace(/[?#].*$/, '');
+  if (!isAbsolute(file)) return null;
+  try {
+    return pathToFileURL(realpathSync(file)).href;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `importer` is one of the installed SDK files the rows loaded on the page. */
+function isLoadedSdkFile(rows: SuppliedRows, importer: string | undefined): boolean {
+  if (importer === undefined) return false;
+  const url = realFileUrlOf(importer);
+  return url !== null && rows.liveSdkUrls.has(url);
+}
+
+/**
+ * What a page-plane Firebase import gets under live rows: the row's module;
+ * the installed SDK, when that row module imports its own specifier; the
+ * refusal, for every other `firebase`, `firebase/*` and `firebase-admin`
+ * import, served by pyric or not, and for every one while the rows are shut,
+ * as the Node register refuses them (`../register/supplied-rows.ts`); or
+ * `unserved` for anything else.
  */
 export function suppliedRowsResolution(rows: SuppliedRows, source: string, importer: string | undefined): SuppliedRowsResolution {
-  const isServed = SERVED.has(source);
-  if (!isServed) return { kind: 'unserved' };
-  const specifier = source as ServedFirebaseSpecifier;
-  const id = ROW_MODULE_IDS.get(specifier);
+  const isFirebaseImport = isSuppliedRowsImport(source);
+  if (!isFirebaseImport) return { kind: 'unserved' };
+  const isSdkPackageImport = SDK_PACKAGE_IMPORT.test(source);
+  const isOpen = rows.package() !== null;
+  if (isSdkPackageImport) {
+    const isSdkOwnImport = isOpen && isLoadedSdkFile(rows, importer);
+    return isSdkOwnImport ? { kind: 'unserved' } : { kind: 'refused', error: rows.refusal(source, 'page') };
+  }
+  const id = ROW_MODULE_IDS.get(source as ServedFirebaseSpecifier);
   const isShut = rows.package() === null;
-  if (id === undefined || isShut) return { kind: 'refused', error: rows.refusal(specifier, 'page') };
+  if (id === undefined || isShut) return { kind: 'refused', error: rows.refusal(source, 'page') };
   return importer === id ? { kind: 'installed-sdk' } : { kind: 'module', id };
 }

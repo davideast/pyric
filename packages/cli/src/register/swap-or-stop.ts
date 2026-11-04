@@ -233,8 +233,11 @@ export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | n
  * The client SDK packages the four live rows' entries load, besides
  * `firebase` itself: what `firebase/app`, `firebase/auth`,
  * `firebase/firestore` and `firebase/app-check` import on Node 22 and 24.
+ * `live-row-sdk-packages.test.ts` derives this set again from the installed
+ * SDK, so an SDK that loads one more package fails that test rather than
+ * stopping at run time.
  */
-const LIVE_ROW_SDK_PACKAGES: ReadonlySet<string> = new Set([
+export const LIVE_ROW_SDK_PACKAGES: ReadonlySet<string> = new Set([
   '@firebase/app',
   '@firebase/auth',
   '@firebase/firestore',

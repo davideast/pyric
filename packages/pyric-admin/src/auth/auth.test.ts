@@ -17,6 +17,7 @@
 import { afterEach, describe, it, expect } from 'bun:test';
 
 import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 
 import { initializeApp, deleteApp, getApps, ADMIN_APP_TARGET } from '../app/index.js';
 import { getAuth, SANDBOX_TOKEN_PREFIX } from './index.js';
@@ -78,7 +79,7 @@ describe('getAuth — Phase 3 dispatch', () => {
   });
 });
 
-describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () => {
+describe('sandbox backend — createCustomToken', () => {
   it('mints a deterministic token with the documented prefix', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));
@@ -86,56 +87,205 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
     expect(token.startsWith(`${SANDBOX_TOKEN_PREFIX}:`)).toBe(true);
     expect(token).toBe(`${SANDBOX_TOKEN_PREFIX}:alice:{}`);
   });
+});
 
-  it('round-trips uid + claims through verifyIdToken', async () => {
-    const sandbox = initializeSandbox();
-    const auth = getAuth(initializeApp({ sandbox }));
-    const token = await auth.createCustomToken('alice', { role: 'admin', tier: 2 });
-    const decoded = await auth.verifyIdToken(token);
+// #1949: verifyIdToken checks a token as firebase-admin 13.10.0 does
+// (lib/auth/token-verifier.js verifyJWT, verifyContent, verifySignature):
+// the argument's type synchronously, then decoding, `kid`, `alg`, `aud`,
+// `iss`, `sub`, the signature, and last `nbf` and `exp`.
+const DOCS = ' See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token.';
+const PROJECT_MATCH = ' Make sure the ID token comes from the same Firebase project as the service account used to authenticate this SDK.';
+const DECODE_FAILED = `Decoding Firebase ID token failed. Make sure you passed the entire string JWT which represents an ID token.${DOCS}`;
+const BAD_SIGNATURE = `Firebase ID token has invalid signature.${DOCS}`;
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+/** The claims of an ID token pyric's Auth mints for `projectId`, with `overrides` on top. */
+function idTokenClaims(overrides: Record<string, unknown> = {}, projectId = SANDBOX_PROJECT_ID): Record<string, unknown> {
+  const now = nowSeconds();
+  return {
+    ...idTokenAudience(projectId),
+    sub: 'alice',
+    user_id: 'alice',
+    iat: now,
+    auth_time: now,
+    exp: now + 3600,
+    firebase: { identities: {}, sign_in_provider: 'custom' },
+    ...overrides,
+  };
+}
+
+function segment(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+/** A JWT with any header and claims and no valid signature. */
+function unsignedJwt(header: Record<string, unknown>, claims: Record<string, unknown>): string {
+  return `${segment(header)}.${segment(claims)}.c2lnbmF0dXJl`;
+}
+
+function sandboxAuth(projectId?: string) {
+  const sandbox = initializeSandbox();
+  const options = projectId === undefined ? { sandbox } : { sandbox, projectId };
+  return { sandbox, auth: getAuth(initializeApp(options)) };
+}
+
+function argumentError(message: string) {
+  return { code: 'auth/argument-error', message };
+}
+
+describe('sandbox backend — verifyIdToken verifies ID tokens only', () => {
+  it('verifies the ID token a client gets from a custom-token sign-in, with the claims', async () => {
+    const { getAuth: getClientAuth, signInWithCustomToken } = await import('pyric/auth');
+    const { sandbox, auth } = sandboxAuth();
+    const customToken = JSON.stringify({ uid: 'alice', claims: { role: 'admin', tier: 2 } });
+    const { user } = await signInWithCustomToken(getClientAuth(sandbox), customToken);
+    const decoded = await auth.verifyIdToken(await user.getIdToken());
     expect(decoded.uid).toBe('alice');
     expect(decoded.sub).toBe('alice');
     expect(decoded.role).toBe('admin');
     expect(decoded.tier).toBe(2);
-    // Required DecodedIdToken fields are populated with the unnamed sandbox project.
     expect(decoded.iss).toBe('https://securetoken.google.com/pyric-sandbox');
     expect(decoded.aud).toBe('pyric-sandbox');
     expect(decoded.firebase.sign_in_provider).toBe('custom');
   });
 
-  it('rejects tokens in no sandbox format', async () => {
-    const sandbox = initializeSandbox();
-    const auth = getAuth(initializeApp({ sandbox }));
-    await expect(auth.verifyIdToken('not a token')).rejects.toThrow(
-      /sandbox.*createCustomToken/,
-    );
+  it("verifies an ID token minted for the admin app's own project", async () => {
+    const { auth } = sandboxAuth('demo-verify');
+    const decoded = await auth.verifyIdToken(mintIdToken(idTokenClaims({}, 'demo-verify')));
+    expect(decoded.uid).toBe('alice');
+    expect(decoded.aud).toBe('demo-verify');
+  });
+
+  it('rejects a custom token with auth/argument-error, as production does', async () => {
+    const { auth } = sandboxAuth();
+    const customToken = await auth.createCustomToken('victim', { admin: true });
+    await expect(auth.verifyIdToken(customToken)).rejects.toMatchObject(argumentError(DECODE_FAILED));
+  });
+
+  it('rejects a plain string with auth/argument-error', async () => {
+    const { auth } = sandboxAuth();
+    for (const token of ['not a token', 'pyric-sandbox-custom:victim-uid:{"admin":true}', 'sandbox-id-token-bob-1:{"sub":"bob"}', '']) {
+      await expect(auth.verifyIdToken(token)).rejects.toMatchObject(argumentError(DECODE_FAILED));
+    }
   });
 
   it('rejects a JWT whose header and payload do not decode as JSON', async () => {
-    const sandbox = initializeSandbox();
-    const auth = getAuth(initializeApp({ sandbox }));
-    // Three base64url segments, cut off mid-JSON.
-    await expect(auth.verifyIdToken('eyJhbGciOi.eyJzdWIiOi.signature')).rejects.toThrow(/malformed client ID token/);
+    const { auth } = sandboxAuth();
+    await expect(auth.verifyIdToken('eyJhbGciOi.eyJzdWIiOi.signature')).rejects.toMatchObject(argumentError(DECODE_FAILED));
   });
 
-  it('rejects tokens with malformed claim JSON', async () => {
-    const sandbox = initializeSandbox();
-    const auth = getAuth(initializeApp({ sandbox }));
-    const badToken = `${SANDBOX_TOKEN_PREFIX}:alice:not-json`;
-    await expect(auth.verifyIdToken(badToken)).rejects.toThrow(/JSON/);
+  it('throws auth/argument-error synchronously when the token is not a string', () => {
+    const { auth } = sandboxAuth();
+    let thrown: unknown;
+    try {
+      void auth.verifyIdToken(42 as never);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject(argumentError('First argument to verifyIdToken() must be a Firebase ID token string.'));
   });
 
-  it('still decodes client ID tokens in the shape before JWTs', async () => {
-    const sandbox = initializeSandbox();
-    const auth = getAuth(initializeApp({ sandbox }));
-    const clientClaims = { sub: 'bob', role: 'editor', firebase: { sign_in_provider: 'google.com' } };
-    const clientToken = `sandbox-id-token-bob-1:${JSON.stringify(clientClaims)}`;
-    const decoded = await auth.verifyIdToken(clientToken);
-    expect(decoded.uid).toBe('bob');
-    expect(decoded.sub).toBe('bob');
-    expect(decoded.role).toBe('editor');
-    expect(decoded.firebase.sign_in_provider).toBe('google.com');
-    expect(decoded.iss).toBe('https://securetoken.google.com/pyric-sandbox');
-    expect(decoded.aud).toBe('pyric-sandbox');
+  it('rejects a forged token, whose claims were edited after signing', async () => {
+    const { auth } = sandboxAuth();
+    const [header, , signature] = mintIdToken(idTokenClaims()).split('.');
+    const forged = `${header}.${segment(idTokenClaims({ sub: 'victim', user_id: 'victim', admin: true }))}.${signature}`;
+    await expect(auth.verifyIdToken(forged)).rejects.toMatchObject(argumentError(BAD_SIGNATURE));
+  });
+
+  it('rejects a token with no signature', async () => {
+    const { auth } = sandboxAuth();
+    const [header, payload] = mintIdToken(idTokenClaims()).split('.');
+    await expect(auth.verifyIdToken(`${header}.${payload}.`)).rejects.toMatchObject(argumentError(BAD_SIGNATURE));
+  });
+
+  it('rejects an expired token with auth/id-token-expired', async () => {
+    const { auth } = sandboxAuth();
+    const expired = mintIdToken(idTokenClaims({ iat: nowSeconds() - 7200, exp: nowSeconds() - 3600 }));
+    await expect(auth.verifyIdToken(expired)).rejects.toMatchObject({
+      code: 'auth/id-token-expired',
+      message: `Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired).${DOCS}`,
+    });
+  });
+
+  it('reads expiry on the sandbox clock', async () => {
+    const { sandbox, auth } = sandboxAuth();
+    const token = mintIdToken(idTokenClaims());
+    await expect(auth.verifyIdToken(token)).resolves.toMatchObject({ uid: 'alice' });
+    getClock(sandbox).advance(61 * 60 * 1000);
+    await expect(auth.verifyIdToken(token)).rejects.toMatchObject({ code: 'auth/id-token-expired' });
+  });
+
+  it('rejects a token that is not yet valid', async () => {
+    const { auth } = sandboxAuth();
+    const early = mintIdToken(idTokenClaims({ nbf: nowSeconds() + 3600 }));
+    await expect(auth.verifyIdToken(early)).rejects.toMatchObject(argumentError(BAD_SIGNATURE));
+  });
+
+  it('rejects a token for another project', async () => {
+    const { auth } = sandboxAuth('demo-verify');
+    const other = mintIdToken(idTokenClaims({}, 'demo-other'));
+    await expect(auth.verifyIdToken(other)).rejects.toMatchObject(
+      argumentError(`Firebase ID token has incorrect "aud" (audience) claim. Expected "demo-verify" but got "demo-other".${PROJECT_MATCH}${DOCS}`),
+    );
+  });
+
+  it('checks the project against pyric-sandbox when the admin app names none', async () => {
+    const { auth } = sandboxAuth();
+    const other = mintIdToken(idTokenClaims({}, 'demo-other'));
+    await expect(auth.verifyIdToken(other)).rejects.toMatchObject({ code: 'auth/argument-error' });
+  });
+
+  it('rejects a token whose issuer names another project', async () => {
+    const { auth } = sandboxAuth('demo-verify');
+    const token = mintIdToken(idTokenClaims({ iss: 'https://securetoken.google.com/demo-other' }, 'demo-verify'));
+    await expect(auth.verifyIdToken(token)).rejects.toMatchObject(
+      argumentError(`Firebase ID token has incorrect "iss" (issuer) claim. Expected "https://securetoken.google.com/demo-verify" but got "https://securetoken.google.com/demo-other".${PROJECT_MATCH}${DOCS}`),
+    );
+  });
+
+  it('rejects a token with a missing, empty or over-long subject', async () => {
+    const { auth } = sandboxAuth();
+    const cases: Array<[unknown, string]> = [
+      [undefined, `Firebase ID token has no "sub" (subject) claim.${DOCS}`],
+      ['', `Firebase ID token has an empty "sub" (subject) claim.${DOCS}`],
+      ['x'.repeat(129), `Firebase ID token has a "sub" (subject) claim longer than 128 characters.${DOCS}`],
+    ];
+    for (const [sub, message] of cases) {
+      await expect(auth.verifyIdToken(mintIdToken(idTokenClaims({ sub })))).rejects.toMatchObject(argumentError(message));
+    }
+    await expect(auth.verifyIdToken(mintIdToken(idTokenClaims({ sub: 'x'.repeat(128) })))).resolves.toMatchObject({ uid: 'x'.repeat(128) });
+  });
+
+  it('rejects a token whose algorithm is not RS256', async () => {
+    const { auth } = sandboxAuth();
+    for (const alg of ['none', 'HS256']) {
+      const token = unsignedJwt({ alg, kid: 'pyric-sandbox', typ: 'JWT' }, idTokenClaims());
+      await expect(auth.verifyIdToken(token)).rejects.toMatchObject(
+        argumentError(`Firebase ID token has incorrect algorithm. Expected "RS256" but got "${alg}".${DOCS}`),
+      );
+    }
+  });
+
+  it('rejects a token whose kid names no sandbox key', async () => {
+    const { auth } = sandboxAuth();
+    const token = unsignedJwt({ alg: 'RS256', kid: 'another-key', typ: 'JWT' }, idTokenClaims());
+    await expect(auth.verifyIdToken(token)).rejects.toMatchObject(
+      argumentError('Firebase ID token has "kid" claim which does not correspond to a known public key. Most likely the ID token is expired, so get a fresh token from your client app and try again.'),
+    );
+  });
+
+  it('rejects a token with no kid, naming a custom token when it is one', async () => {
+    const { auth } = sandboxAuth();
+    const noKid = unsignedJwt({ alg: 'RS256', typ: 'JWT' }, idTokenClaims());
+    await expect(auth.verifyIdToken(noKid)).rejects.toMatchObject(argumentError(`Firebase ID token has no "kid" claim.${DOCS}`));
+    const customAudience = 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
+    const jwtCustomToken = unsignedJwt({ alg: 'RS256', typ: 'JWT' }, { aud: customAudience, uid: 'victim', sub: 'svc', iss: 'svc' });
+    await expect(auth.verifyIdToken(jwtCustomToken)).rejects.toMatchObject(
+      argumentError(`verifyIdToken() expects an ID token, but was given a custom token.${DOCS}`),
+    );
   });
 
   // #1836: a display name with a space or outside Latin-1 used to reach the token text.
@@ -181,13 +331,6 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
       message: 'Developer claims "iat", "firebase" are reserved and cannot be specified.',
     });
     await expect(auth.setCustomUserClaims(user.uid, { name: 'allowed' })).resolves.toBeUndefined();
-  });
-
-  it('rejects client ID tokens with malformed claim JSON', async () => {
-    const sandbox = initializeSandbox();
-    const auth = getAuth(initializeApp({ sandbox }));
-    const badToken = 'sandbox-id-token-bob-1:not-json';
-    await expect(auth.verifyIdToken(badToken)).rejects.toThrow(/JSON/);
   });
 });
 
@@ -287,21 +430,22 @@ describe('sandbox backend — setCustomUserClaims persistence', () => {
     expect(fetched.customClaims).toBeUndefined();
   });
 
-  it('claims minted via setCustomUserClaims surface through createCustomToken + verifyIdToken', async () => {
-    // The token format is stateless (claims are baked in at mint time
-    // by the caller, not pulled from the store), so this test is
-    // really asserting the caller's pattern: read claims off the
-    // UserRecord, pass them through to createCustomToken.
+  it('claims read off the UserRecord reach verifyIdToken through the ID token a custom-token sign-in gets', async () => {
+    // As in production, a custom token is exchanged for an ID token first,
+    // and only the ID token verifies (#1949). The caller's pattern: read
+    // claims off the UserRecord, put them in the custom token, sign in.
+    const { getAuth: getClientAuth, signInWithCustomToken } = await import('pyric/auth');
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));
     await auth.createUser({ uid: 'alice' });
     await auth.setCustomUserClaims('alice', { role: 'admin' });
     const stored = await auth.getUser('alice');
-    const token = await auth.createCustomToken(
-      stored.uid,
-      stored.customClaims ?? {},
-    );
-    const decoded = await auth.verifyIdToken(token);
+    const customToken = await auth.createCustomToken(stored.uid, stored.customClaims ?? {});
+    await expect(auth.verifyIdToken(customToken)).rejects.toMatchObject({ code: 'auth/argument-error' });
+    const exchange = JSON.stringify({ uid: stored.uid, claims: stored.customClaims ?? {} });
+    const { user } = await signInWithCustomToken(getClientAuth(sandbox), exchange);
+    const decoded = await auth.verifyIdToken(await user.getIdToken());
+    expect(decoded.uid).toBe('alice');
     expect(decoded.role).toBe('admin');
   });
 

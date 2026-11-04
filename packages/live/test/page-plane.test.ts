@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { OBSERVER_MODULE_ID, ROW_MODULE_IDS, SDK_MODULES, type ObservedCall, type ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
-import { LIVE_MODULES, LIVE_ROWS, type LiveCallRecord } from '../src/index.js';
+import { LIVE_ROWS, replacedExports, type LiveCallRecord } from '../src/index.js';
 import { observedCallOf, pageObserver } from '../src/page-observer.js';
 import { liveModuleSource } from '../src/page-modules.js';
 
@@ -53,9 +53,8 @@ describe('the modules a page gets for the live rows', () => {
       const quoted = JSON.stringify(specifier);
       expect(source).toContain(`import * as __pyricReal from ${quoted};`);
       expect(source).toContain(`export * from ${quoted};`);
-      expect(source).toContain(`liveModuleFor(${quoted}, __pyricReal, observer, SDK_VERSION)`);
-      const spec = LIVE_MODULES[key];
-      for (const name of [...spec.calls, ...spec.listeners]) {
+      expect(source).toContain(`liveModuleFor(${quoted}, __pyricReal, { observer, sdkVersion: SDK_VERSION, client: "page" })`);
+      for (const name of replacedExports(key)) {
         expect(source).toContain(`export const ${name} = __pyricLive.${name};`);
       }
     }

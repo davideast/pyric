@@ -33,7 +33,7 @@ function builtFile(name: string): string {
   return new URL(`./${name}.js`, import.meta.url).href;
 }
 
-const NODE_IMPORTS: RowImports = { file: builtFile, observer: REGISTER_OBSERVER_URL };
+const NODE_IMPORTS: RowImports = { file: builtFile, observer: REGISTER_OBSERVER_URL, client: 'node' };
 
 /**
  * The source of a module the register serves, or null for any other id.

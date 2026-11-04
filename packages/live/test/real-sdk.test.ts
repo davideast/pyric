@@ -13,7 +13,7 @@ import * as realAppCheck from 'firebase/app-check';
 import * as realAuth from 'firebase/auth';
 import * as realFirestore from 'firebase/firestore';
 import { SDK_MODULES, swappedFirebaseEntries } from '@pyric/cli/vite/internal/supplied-rows';
-import { LIVE_MODULES, LIVE_ROWS, liveFirebaseEntries, liveModuleFor, type LiveCallRecord, type LiveObserver } from '../src/index.js';
+import { LIVE_MODULES, LIVE_ROWS, liveFirebaseEntries, liveModuleFor, replacedExports, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
 
 /** A loopback port nothing listens on: the system hands one out, and the server is closed again. */
 async function closedLoopbackPort(): Promise<number> {
@@ -35,10 +35,11 @@ const observer: LiveObserver = (record) => {
   records.push(record);
 };
 
-const app = liveModuleFor('firebase/app', realApp, observer, SDK_VERSION);
-const auth = liveModuleFor('firebase/auth', realAuth, observer, SDK_VERSION);
-const firestore = liveModuleFor('firebase/firestore', realFirestore, observer, SDK_VERSION);
-const appCheck = liveModuleFor('firebase/app-check', realAppCheck, observer, SDK_VERSION);
+const site: LiveModuleSite = { observer, sdkVersion: SDK_VERSION, client: 'node' };
+const app = liveModuleFor('firebase/app', realApp, site);
+const auth = liveModuleFor('firebase/auth', realAuth, site);
+const firestore = liveModuleFor('firebase/firestore', realFirestore, site);
+const appCheck = liveModuleFor('firebase/app-check', realAppCheck, site);
 
 const OPTIONS = { apiKey: 'demo-api-key', projectId: 'demo-live', appId: '1:123456789012:web:0a1b2c3d4e5f6071' };
 const REAL_MODULES: Record<string, object> = {
@@ -69,11 +70,11 @@ function outcomesOf(name: string): string[] {
   return records.filter((record) => record.name === name).map((record) => record.outcome);
 }
 
+/** The exports a live row replaces: the observed ones and the guarded ones. */
 function observedNames(specifier: string): string[] {
   const key = LIVE_ROWS.get(specifier as never);
   if (key === undefined) return [];
-  const spec = LIVE_MODULES[key];
-  return [...spec.calls, ...spec.listeners];
+  return replacedExports(key);
 }
 
 describe('the live row set', () => {
@@ -94,7 +95,7 @@ describe('the live row set', () => {
   });
 
   test('has no row for a specifier it does not serve', () => {
-    expect(() => liveModuleFor('firebase/database', {}, observer, SDK_VERSION)).toThrow('no live row for firebase/database');
+    expect(() => liveModuleFor('firebase/database', {}, site)).toThrow('no live row for firebase/database');
   });
 });
 

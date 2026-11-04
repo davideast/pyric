@@ -11,7 +11,9 @@
  *
  * It installs the register's guard (`../register/net-guard.ts`) rather than a
  * copy. The activator is the plugin running under `vite dev`, not
- * `PYRIC_SANDBOX`; `PYRIC_GUARD` selects the mode as it does there.
+ * `PYRIC_SANDBOX`; `PYRIC_GUARD` selects the mode as it does there, except
+ * under live rows (`fixedMode`): there `PYRIC_GUARD` is not read, so nothing
+ * in the environment turns the guard off or weakens it.
  *
  * A process launched under `pyric sandbox` already has the register's guard;
  * that one is kept as it is.
@@ -35,6 +37,21 @@ export interface ViteNetGuardInput {
   slot?: GuardSlot;
   /** Stand-ins for the hooked Node seams, for tests. */
   hooks?: Omit<NetGuardHooks, 'env' | 'write'>;
+  /**
+   * The dev server serves live rows: `PYRIC_GUARD` is not read, so the guard
+   * always refuses, and it installs even where an earlier attempt read
+   * `PYRIC_GUARD=off`.
+   */
+  fixedMode?: boolean;
+}
+
+/** Under live rows `PYRIC_GUARD=off` is not read, so the refusal names the one way out. */
+const LIVE_REMEDY = 'Live mode keeps this refusal on, whatever PYRIC_GUARD says; make this request from a process that is not the live dev server';
+
+/** The env with no `PYRIC_GUARD`, so the guard takes its default mode, `block`. */
+function withoutGuardMode(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const { PYRIC_GUARD: _ignored, ...rest } = env;
+  return rest;
 }
 
 /** The env the guard installs under: activated by the plugin when no `PYRIC_SANDBOX` is set. */
@@ -46,18 +63,21 @@ export function viteGuardEnv(env: Record<string, string | undefined>): Record<st
 /**
  * Install the guard in this process once, and publish it so the plugin's AI
  * upstreams can be permitted (`permitGuardHost`). Returns the guard in force,
- * or `null` when `PYRIC_GUARD=off`.
+ * or `null` when `PYRIC_GUARD=off` without `fixedMode`.
  */
 export function installViteNetGuard(input: ViteNetGuardInput = {}): NetGuard | null {
   const slot = input.slot ?? (globalThis as unknown as GuardSlot);
   const existing = slot[NET_GUARD_GLOBAL] as NetGuard | undefined;
   if (existing !== undefined) return existing;
+  const fixedMode = input.fixedMode === true;
   const alreadyAttempted = slot[VITE_GUARD_ATTEMPTED] === true;
-  if (alreadyAttempted) return null;
+  if (alreadyAttempted && !fixedMode) return null;
   slot[VITE_GUARD_ATTEMPTED] = true;
+  const env = input.env ?? process.env;
   const guard = installNetGuard({
     ...input.hooks,
-    env: viteGuardEnv(input.env ?? process.env),
+    env: viteGuardEnv(fixedMode ? withoutGuardMode(env) : env),
+    ...(fixedMode ? { remedy: LIVE_REMEDY } : {}),
     write: input.write,
   });
   if (guard !== null) slot[NET_GUARD_GLOBAL] = guard;
