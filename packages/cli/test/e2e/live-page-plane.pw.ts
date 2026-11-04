@@ -17,9 +17,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { createServer, type PluginOption, type ViteDevServer } from 'vite';
-import { pyricLive } from '../../../live/src/vite.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
+const liveDir = fileURLToPath(new URL('../../../live/', import.meta.url));
 const require = createRequire(import.meta.url);
 const firebaseDir = dirname(require.resolve('firebase/package.json'));
 
@@ -56,15 +56,27 @@ document.querySelector('#status').textContent = 'Ready';
 test('a live page reports its Firestore and Auth calls to the Node host as production rows', async ({ page }) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-page-')));
   let server: ViteDevServer | undefined;
+  // Every line the page and the dev server process report, so a stop report anywhere fails the test.
+  const reports: string[] = [];
+  const writeStderr = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: never[]) => {
+    reports.push(String(chunk));
+    return writeStderr(chunk, ...rest);
+  }) as typeof process.stderr.write;
   try {
     mkdirSync(join(root, 'node_modules/@pyric'), { recursive: true });
     symlinkSync(cliDir, join(root, 'node_modules/@pyric/cli'));
+    symlinkSync(liveDir, join(root, 'node_modules/@pyric/live'));
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
     writeFileSync(join(root, 'index.html'), '<output id="status">Starting</output><script type="module" src="/main.js"></script>');
     writeFileSync(join(root, 'main.js'), appSource(await closedLoopbackPort()));
+    // The plugin as the app installs it: @pyric/live, resolved from the app's own root.
+    const { pyricLive } = await import(createRequire(join(root, 'package.json')).resolve('@pyric/live/vite')) as typeof import('../../../live/src/vite.js');
+    page.on('console', (message) => reports.push(message.text()));
+    page.on('pageerror', (error) => reports.push(String(error)));
     server = await createServer({
       root, configFile: false, logLevel: 'silent',
-      plugins: pyricLive({ capture: false, ui: false, runtimeChip: { initiallyOpen: true } }) as PluginOption[],
+      plugins: [pyricLive({ capture: false, ui: false, runtimeChip: { initiallyOpen: true } }) as PluginOption],
       server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
     });
     await server.listen();
@@ -90,7 +102,9 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
 
     const refusal = await page.evaluate(() => (Reflect.get(window, 'importStorage') as () => Promise<string>)());
     expect(refusal).toContain('firebase/storage (Cloud Storage) is refused in live mode');
+    expect(reports.filter((line) => line.includes('PYRIC_REAL_SDK_STOPPED') || line.includes('stopped loading the real'))).toEqual([]);
   } finally {
+    process.stderr.write = writeStderr;
     await page.close();
     await server?.close();
     rmSync(root, { recursive: true, force: true });

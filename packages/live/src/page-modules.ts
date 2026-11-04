@@ -1,5 +1,8 @@
 /**
- * The modules `@pyric/live/vite` serves a page for the four live rows. Each
+ * The source of the modules a page gets for the four live rows. `@pyric/cli`
+ * fixes their ids and loads this file from the `@pyric/live` installed in
+ * the project (its `./page-modules` export), so the rows open only where
+ * this package is installed. Each
  * one imports the app's own installed module for its specifier (the swap
  * sends a row's own import of its specifier to the installed SDK), re-exports
  * every export of it, and replaces the observed exports with the wrapped
@@ -11,38 +14,27 @@
  * them to the Node host on the page's own connection.
  */
 import { fileURLToPath } from 'node:url';
-import type { ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
+import {
+  OBSERVER_MODULE_ID,
+  OBSERVER_SPECIFIER,
+  ROW_MODULE_IDS,
+  type ServedFirebaseSpecifier,
+} from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_MODULES } from './modules.js';
 import { LIVE_ROWS } from './rows.js';
 
-/** The prefix of every module id this plugin serves; `\0` keeps other plugins off it. */
-const LIVE_MODULE_PREFIX = '\0pyric-live:';
-
-/** The id of the page's one observer module, and the specifier the live modules import it by. */
-export const LIVE_OBSERVER_ID = `${LIVE_MODULE_PREFIX}observer`;
-export const LIVE_OBSERVER_SPECIFIER = 'virtual:pyric-live-observer';
-
-/** The page module id for a live row. */
-export function liveModuleId(specifier: ServedFirebaseSpecifier): string {
-  return `${LIVE_MODULE_PREFIX}${specifier}`;
-}
-
 /** The live row a module id serves, or undefined for any other id. */
 function rowOf(id: string): ServedFirebaseSpecifier | undefined {
-  const isLive = id.startsWith(LIVE_MODULE_PREFIX);
-  if (!isLive) return undefined;
-  const specifier = id.slice(LIVE_MODULE_PREFIX.length) as ServedFirebaseSpecifier;
-  return LIVE_ROWS.has(specifier) ? specifier : undefined;
+  for (const [specifier, rowId] of ROW_MODULE_IDS) {
+    const isRow = rowId === id && LIVE_ROWS.has(specifier);
+    if (isRow) return specifier;
+  }
+  return undefined;
 }
 
 /** A file of this package, as the URL a page module imports it by. */
 function servedFile(name: string): string {
   return `/@fs${fileURLToPath(new URL(`./${name}`, import.meta.url))}`;
-}
-
-/** This package's source folder, which the dev server must let the page load. */
-export function liveSourceDir(): string {
-  return fileURLToPath(new URL('./', import.meta.url));
 }
 
 /** Where a live module reads the installed SDK's version: `firebase/app` itself, or the live app row. */
@@ -62,7 +54,7 @@ function rowModule(specifier: ServedFirebaseSpecifier): string {
     `import * as __pyricReal from ${quoted};`,
     sdkVersionImport(specifier),
     `import { liveModuleFor } from ${JSON.stringify(servedFile('rows.ts'))};`,
-    `import { observer } from ${JSON.stringify(LIVE_OBSERVER_SPECIFIER)};`,
+    `import { observer } from ${JSON.stringify(OBSERVER_SPECIFIER)};`,
     `export * from ${quoted};`,
     `const __pyricLive = liveModuleFor(${quoted}, __pyricReal, observer, SDK_VERSION);`,
     ...names.map((name) => `export const ${name} = __pyricLive.${name};`),
@@ -84,7 +76,7 @@ function observerModule(senderFile: string): string {
  * `senderFile` is `@pyric/cli`'s observed-call sender, on disk.
  */
 export function liveModuleSource(id: string, senderFile: string): string | null {
-  if (id === LIVE_OBSERVER_ID) return observerModule(senderFile);
+  if (id === OBSERVER_MODULE_ID) return observerModule(senderFile);
   const specifier = rowOf(id);
   return specifier === undefined ? null : rowModule(specifier);
 }

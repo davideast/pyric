@@ -4,10 +4,12 @@
  * refusal of every other served specifier. `test/e2e` drives them in a page.
  */
 import { describe, expect, test } from 'bun:test';
-import { SDK_MODULES, type ObservedCall } from '@pyric/cli/vite/internal/supplied-rows';
+import { OBSERVER_MODULE_ID, ROW_MODULE_IDS, SDK_MODULES, type ObservedCall, type ServedFirebaseSpecifier } from '@pyric/cli/vite/internal/supplied-rows';
 import { LIVE_MODULES, LIVE_ROWS, type LiveCallRecord } from '../src/index.js';
 import { observedCallOf, pageObserver } from '../src/page-observer.js';
-import { LIVE_OBSERVER_ID, liveModuleId, liveModuleSource } from '../src/page-modules.js';
+import { liveModuleSource } from '../src/page-modules.js';
+
+const rowId = (specifier: ServedFirebaseSpecifier): string => ROW_MODULE_IDS.get(specifier) ?? `\0pyric-live:${specifier}`;
 import { LIVE_REFUSED, liveRefusal } from '../src/refusal.js';
 
 const AT = 1_762_000_000_000;
@@ -45,7 +47,7 @@ describe('the records a page sends to the host', () => {
 describe('the modules a page gets for the live rows', () => {
   test("import the installed module, re-export all of it, and export each observed name from the row's wrapper", () => {
     for (const [specifier, key] of LIVE_ROWS) {
-      const source = liveModuleSource(liveModuleId(specifier), '/cli/observed-call-sender.js') as string;
+      const source = liveModuleSource(rowId(specifier), '/cli/observed-call-sender.js') as string;
       const quoted = JSON.stringify(specifier);
       expect(source).toContain(`import * as __pyricReal from ${quoted};`);
       expect(source).toContain(`export * from ${quoted};`);
@@ -58,13 +60,13 @@ describe('the modules a page gets for the live rows', () => {
   });
 
   test('share one observer that sends through the sender beside the page runtime', () => {
-    const source = liveModuleSource(LIVE_OBSERVER_ID, '/cli/dist/serve/entries/observed-call-sender.js') as string;
+    const source = liveModuleSource(OBSERVER_MODULE_ID, '/cli/dist/serve/entries/observed-call-sender.js') as string;
     expect(source).toContain('import { sendObservedCall } from "/@fs/cli/dist/serve/entries/observed-call-sender.js";');
     expect(source).toContain('pageObserver(sendObservedCall)');
   });
 
   test('exist only for the four rows', () => {
-    expect(liveModuleSource(liveModuleId('firebase/storage'), '/sender.js')).toBeNull();
+    expect(liveModuleSource(rowId('firebase/storage'), '/sender.js')).toBeNull();
     expect(liveModuleSource('/src/main.ts', '/sender.js')).toBeNull();
   });
 });

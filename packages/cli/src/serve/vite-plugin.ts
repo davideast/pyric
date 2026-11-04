@@ -39,7 +39,7 @@ import type { FlowConfig } from './flow-config.js';
  * the same `/__pyric/*` routes. If the worker bundle fails, the plugin falls back
  * to the in-page sandbox (single-tab, ephemeral).
  */
-import type { Plugin, UserConfig } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
@@ -64,6 +64,7 @@ import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
 import type { SuppliedRows } from './vite-supplied-rows.js';
+import { loadRowModulePackage } from './vite-live-package.js';
 import { pyricFsDeny } from './vite-state-deny.js';
 import { attachViteRealPathDeny } from './vite-real-path-deny.js';
 
@@ -254,14 +255,25 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  *   import { pyric } from '@pyric/cli/vite';
  *   export default defineConfig({ plugins: [pyric()] });
  */
+/** Opens the live rows with the `@pyric/live` the project root resolves, and lets the page load its files. */
+async function openSuppliedRows(supplied: SuppliedRows, resolved: ResolvedConfig): Promise<void> {
+  const found = await loadRowModulePackage(resolved.root);
+  supplied.open(found);
+  const allow = resolved.server?.fs?.allow;
+  const needsAllowance = Array.isArray(allow) && !allow.includes(found.root);
+  if (needsAllowance) allow.push(found.root);
+}
+
 export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
   return createPyricPlugin(options);
 }
 
 /**
- * The plugin, with `supplied` rows serving pages in place of the swap
+ * The plugin, with the live rows serving pages in place of the swap
  * (`vite-supplied-rows.ts`). `pyric()` passes none; only the internal
- * `@pyric/cli/vite/internal/supplied-rows` entry passes them.
+ * `@pyric/cli/vite/internal/supplied-rows` entry passes them. They open in
+ * `configResolved`, from the `@pyric/live` installed in the project root,
+ * and the dev server refuses to start without it.
  */
 export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows): Plugin & EnvironmentHooks {
   const moduleContext = createViteModuleContext();
@@ -342,6 +354,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     async configResolved(resolved) {
       pageRuntime.configResolved(resolved);
       moduleSwap.configResolved(resolved);
+      if (supplied !== undefined) await openSuppliedRows(supplied, resolved);
       serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
       // A sandbox build stamps pages without a dev server, so configureServer
       // never reads pyric.json for it.

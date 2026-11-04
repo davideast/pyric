@@ -14,6 +14,7 @@ import { SDK_MODULES } from '../../src/serve/firebase-module-swap.js';
 import { createViteModuleContext, createViteModuleSwap, type SwapEnvironment } from '../../src/serve/vite-module-swap.js';
 import { viteProcessStopHook } from '../../src/serve/vite-process-stop.js';
 import { SSR_SWAP_PREFIX } from '../../src/serve/vite-ssr-routing.js';
+import { ROW_MODULE_IDS } from '../../src/serve/vite-supplied-rows.js';
 
 const require = createRequire(import.meta.url);
 const STOP_PREFIX = '\0pyric-stop:';
@@ -42,8 +43,8 @@ const firebaseSpecifiers = exportedSpecifiers('firebase', require.resolve('fireb
 const adminSpecifiers = exportedSpecifiers('firebase-admin', packageJsonOf('firebase-admin'));
 const clientEnvironment: SwapEnvironment = { name: 'client', config: { consumer: 'client' } };
 
-/** The id a row module of `@pyric/live` would have; a plain app gives it no special handling. */
-const suppliedLookingImporter = '\0pyric-live:firebase/firestore';
+/** The fixed live row module ids; a plain app gives an import from them no special handling. */
+const rowModuleImporters = [...ROW_MODULE_IDS.values()];
 
 describe('a plain pyric() Vite app keeps the real-SDK stop', () => {
   const swap = createViteModuleSwap(context);
@@ -56,7 +57,7 @@ describe('a plain pyric() Vite app keeps the real-SDK stop', () => {
   });
 
   it('gives every firebase/* import on the page a pyric entry or the stop, from any importer', () => {
-    for (const importer of [userImporter, '/app/node_modules/a-library/index.js', suppliedLookingImporter]) {
+    for (const importer of [userImporter, '/app/node_modules/a-library/index.js', ...rowModuleImporters]) {
       for (const specifier of firebaseSpecifiers) {
         const id = swap.resolveId(specifier, importer);
         const isServed = served.has(specifier);

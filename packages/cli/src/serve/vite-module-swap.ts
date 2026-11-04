@@ -17,7 +17,13 @@ import {
   type AiMode,
   type ServedFirebaseSpecifier,
 } from './firebase-module-swap.js';
-import { suppliedRowsResolution, type SuppliedRows } from './vite-supplied-rows.js';
+import {
+  OBSERVER_MODULE_ID,
+  OBSERVER_SPECIFIER,
+  isLiveModuleId,
+  suppliedRowsResolution,
+  type SuppliedRows,
+} from './vite-supplied-rows.js';
 import {
   STOP_PREFIX,
   loadRoutedModule,
@@ -32,6 +38,8 @@ import { stopFor } from '../register/swap-or-stop.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
+/** The installed SDK packages live rows load beside the excluded ones. */
+const LIVE_SDK_PACKAGES = ['@firebase/auth', '@firebase/firestore'];
 /** The SDK package the served entries import; one instance per page. */
 const PYRIC_PACKAGE = 'pyric';
 type OptimizerOptions = NonNullable<DepOptimizationOptions['esbuildOptions']>;
@@ -122,8 +130,9 @@ export interface ViteModuleSwapOptions {
    *  mode from its env files after the plugin is constructed. */
   getAiMode?: () => AiMode;
   /**
-   * Rows another workspace package serves on this plane in place of the
-   * swap (`vite-supplied-rows.ts`). Absent for every `pyric()` plugin.
+   * The live rows, served on this plane in place of the swap once the
+   * installed `@pyric/live` opens them (`vite-supplied-rows.ts`). Absent for
+   * every `pyric()` plugin.
    */
   supplied?: SuppliedRows;
 }
@@ -230,8 +239,23 @@ export function createViteModuleSwap(
     return stopIdFor(source, importer);
   }
 
+  /** A row module's import of the one observer module, while the rows are open. */
+  function isObserverImport(source: string, importer: string | undefined): boolean {
+    const supplied = options?.supplied;
+    const isOpen = supplied !== undefined && supplied.package() !== null;
+    return isOpen && source === OBSERVER_SPECIFIER && importer !== undefined && isLiveModuleId(importer);
+  }
+
+  /** The source of a fixed live module, from the installed `@pyric/live`. Throws while the rows are shut. */
+  function loadLiveModule(supplied: SuppliedRows, id: string): string | null {
+    const found = supplied.package();
+    if (found === null) throw new Error(`pyric: ${JSON.stringify(id)} is a live row module, and @pyric/live has not opened the rows.`);
+    return found.moduleSource(id);
+  }
+
   function resolveId(source: string, importer: string | undefined): string | null {
     if (isBypassedBridgeImport(source, importer)) return null;
+    if (isObserverImport(source, importer)) return OBSERVER_MODULE_ID;
 
     const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
     const supplied = options?.supplied;
@@ -295,6 +319,9 @@ export function createViteModuleSwap(
   }
 
   function loadPluginModule(id: string): Promise<string | null> {
+    const supplied = options?.supplied;
+    const isLiveModule = supplied !== undefined && isLiveModuleId(id);
+    if (isLiveModule) return Promise.resolve().then(() => loadLiveModule(supplied, id));
     const stop = stops.get(id);
     if (stop !== undefined) return loadStopModule(stop);
     const shim = load(id);
@@ -369,6 +396,9 @@ export function createViteModuleSwap(
         // one pyric `initializeApp` registers apps in (#1506). The bare name
         // covers every subpath.
         PYRIC_PACKAGE,
+        // Live rows load the installed Auth and Firestore, which import the
+        // excluded @firebase/app: kept out too, so the page has one registry.
+        ...(options?.supplied === undefined ? [] : LIVE_SDK_PACKAGES),
       ];
       const usesRolldown = Number(viteVersion.split('.')[0]) >= 8;
       const optimizer = usesRolldown
