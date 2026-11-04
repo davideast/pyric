@@ -30,16 +30,17 @@ export function liveFirebaseEntries(): ReadonlyMap<ServedFirebaseSpecifier, stri
 
 /**
  * The module a plane serves for `specifier` under live mode: the app's own
- * `real` module, wrapped by the live row the swap table holds for it.
- * Throws for a specifier with no live row.
+ * `real` module, wrapped by its live row. `sdkVersion` is the installed
+ * `firebase`'s `SDK_VERSION`, as `firebase/app` exports it. Throws for a
+ * specifier with no live row.
  */
 export function liveModuleFor<T extends object>(
   specifier: ServedFirebaseSpecifier,
   real: T,
   observer: LiveObserver,
+  sdkVersion: string,
 ): T {
   const key = LIVE_ROWS.get(specifier);
-  const isLiveRow = key !== undefined && liveFirebaseEntries().get(specifier) === key;
-  if (!isLiveRow) throw new Error(`@pyric/live has no live row for ${specifier}.`);
-  return wrapLiveModule(key, specifier, real, observer);
+  if (key === undefined) throw new Error(`@pyric/live has no live row for ${specifier}.`);
+  return wrapLiveModule(key, specifier, real, observer, sdkVersion);
 }

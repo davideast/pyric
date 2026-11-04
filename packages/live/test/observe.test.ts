@@ -1,5 +1,25 @@
+import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'bun:test';
 import { observedCall, observedListener, type LiveCallRecord, type LiveObserver } from '../src/observe.js';
+
+const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
+
+/**
+ * Runs, in a Node process of its own, an app that calls a wrapped `getDoc`
+ * whose promise rejects and never handles it. `setup` runs first. Bun's test
+ * runner fails a test on any unhandled rejection, so the runtime's own
+ * behavior is checked in Node.
+ */
+function rejectInNode(setup: string): { status: number | null; stdout: string; stderr: string } {
+  const app = [
+    setup,
+    `const { observedCall } = await import(${JSON.stringify(OBSERVE_URL)});`,
+    `const getDoc = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer: () => undefined }, () => Promise.reject(Object.assign(new Error('permission-denied'), { code: 'permission-denied' })));`,
+    'getDoc();',
+  ].join('\n');
+  const run = spawnSync('node', ['--input-type=module', '--eval', app], { encoding: 'utf8' });
+  return { status: run.status, stdout: run.stdout, stderr: run.stderr };
+}
 
 function collector(): { records: LiveCallRecord[]; observer: LiveObserver } {
   const records: LiveCallRecord[] = [];
@@ -46,24 +66,33 @@ describe('a one-shot wrapper', () => {
     expect(seen[2]).toBe(2);
   });
 
-  test('returns the same promise and records its resolution', async () => {
+  test('returns a promise that resolves with the real value, and records the resolution first', async () => {
     const { records, observer } = collector();
-    const promise = Promise.resolve('snapshot');
-    const wrapped = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer }, () => promise);
-    expect(wrapped()).toBe(promise);
-    await tick();
+    const snapshot = { value: 'snapshot' };
+    const wrapped = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer }, () => Promise.resolve(snapshot));
+    expect(await wrapped()).toBe(snapshot);
     expect(records.map((record) => record.outcome)).toEqual(['resolved']);
   });
 
-  test('returns the same rejected promise and records the rejection with its code', async () => {
+  test('returns a promise that rejects with the real reason, and records the rejection with its code first', async () => {
     const { records, observer } = collector();
     const error = new CodedError('permission-denied');
-    const promise = Promise.reject(error);
-    const wrapped = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer }, () => promise);
+    const wrapped = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer }, () => Promise.reject(error));
     const returned = wrapped() as Promise<unknown>;
-    expect(returned).toBe(promise);
     expect(await returned.catch((reason: unknown) => reason)).toBe(error);
     expect(records).toEqual([{ module: 'firebase/firestore', name: 'getDoc', outcome: 'rejected', code: 'permission-denied' }]);
+  });
+
+  test('a rejection the app never handles still reaches Node\'s unhandledRejection event', () => {
+    const run = rejectInNode(`process.on('unhandledRejection', (reason) => console.log('unhandled', reason.code));`);
+    expect(run.stdout.trim()).toBe('unhandled permission-denied');
+    expect(run.status).toBe(0);
+  });
+
+  test('a rejection the app never handles still ends a Node process, as it does without live mode', () => {
+    const run = rejectInNode('');
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('permission-denied');
   });
 
   test('throws the real error and records it', () => {
@@ -89,11 +118,10 @@ describe('a recorder failure never changes what the app sees', () => {
     test(`an observer that ${label}: results, rejections and throws pass through`, async () => {
       const value = { value: 1 };
       expect(observedCall({ module: 'm', name: 'n', observer }, () => value)()).toBe(value);
-      const resolved = Promise.resolve(value);
-      expect(observedCall({ module: 'm', name: 'n', observer }, () => resolved)()).toBe(resolved);
+      const resolved = observedCall({ module: 'm', name: 'n', observer }, () => Promise.resolve(value))() as Promise<unknown>;
+      expect(await resolved).toBe(value);
       const error = new CodedError('unavailable');
-      const rejected = Promise.reject(error);
-      const returned = observedCall({ module: 'm', name: 'n', observer }, () => rejected)() as Promise<unknown>;
+      const returned = observedCall({ module: 'm', name: 'n', observer }, () => Promise.reject(error))() as Promise<unknown>;
       expect(await returned.catch((reason: unknown) => reason)).toBe(error);
       const thrower = observedCall({ module: 'm', name: 'n', observer }, () => {
         throw error;
@@ -204,5 +232,81 @@ describe('a listener wrapper', () => {
       throw thrown;
     });
     expect(caught).toBe(thrown);
+  });
+
+  test('with an error callback, records the error, hands it to the app and does nothing else', () => {
+    const { records, observer } = collector();
+    const uncaught: unknown[] = [];
+    const error = new CodedError('permission-denied');
+    const subscribe = observedListener(
+      { module: 'firebase/firestore', name: 'onSnapshot', observer, uncaughtListenerError: (reason) => uncaught.push(reason) },
+      (_target: unknown, _next: unknown, onError: unknown) => (onError as (reason: unknown) => void)(error),
+    );
+    const delivered: unknown[] = [];
+    subscribe('ref', () => undefined, (reason: unknown) => delivered.push(reason));
+    expect(delivered).toEqual([error]);
+    expect(uncaught).toEqual([]);
+    expect(records.map((record) => [record.outcome, record.code])).toEqual([['listener-error', 'permission-denied'], ['returned', undefined]]);
+  });
+
+  for (const [label, passed] of [['an omitted', []], ['an undefined', [undefined]], ['a null', [null]]] as const) {
+    test(`with ${label} error callback, records the error, then does what the SDK does without one`, () => {
+      const { records, observer } = collector();
+      const uncaught: unknown[] = [];
+      const error = new CodedError('permission-denied');
+      const seenArgs: unknown[][] = [];
+      const subscribe = observedListener(
+        { module: 'firebase/firestore', name: 'onSnapshot', observer, uncaughtListenerError: (reason) => uncaught.push(reason) },
+        (...args: unknown[]) => {
+          seenArgs.push(args);
+          (args[3] as (reason: unknown) => void)(error);
+        },
+      );
+      subscribe('ref', { includeMetadataChanges: true }, () => undefined, ...passed);
+      expect(seenArgs[0]![1]).toEqual({ includeMetadataChanges: true });
+      expect(uncaught).toEqual([error]);
+      expect(records.map((record) => [record.outcome, record.code])).toEqual([['listener-error', 'permission-denied'], ['returned', undefined]]);
+    });
+  }
+
+  test('with no error callback and an SDK that drops such errors, records the error and does nothing else', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener({ module: 'firebase/app-check', name: 'onTokenChanged', observer }, (_target: unknown, _next: unknown, onError: unknown) => {
+      expect(() => (onError as (reason: unknown) => void)(new CodedError('appCheck/fetch-status-error'))).not.toThrow();
+    });
+    subscribe('app-check', () => undefined);
+    expect(records.map((record) => [record.outcome, record.code])).toEqual([['listener-error', 'appCheck/fetch-status-error'], ['returned', undefined]]);
+  });
+
+  test('an observer object with no error method gets one that records, then does what the SDK does without one', () => {
+    const { records, observer } = collector();
+    const uncaught: unknown[] = [];
+    const error = new CodedError('permission-denied');
+    const subscribe = observedListener(
+      { module: 'firebase/firestore', name: 'onSnapshot', observer, uncaughtListenerError: (reason) => uncaught.push(reason) },
+      (_target: unknown, listener: unknown) => (listener as { error: (reason: unknown) => void }).error(error),
+    );
+    subscribe('ref', { next: () => undefined });
+    expect(uncaught).toEqual([error]);
+    expect(records.map((record) => record.outcome)).toEqual(['listener-error', 'returned']);
+  });
+
+  test('a failure while doing what the SDK does without an error callback never reaches the SDK', () => {
+    const { records, observer } = collector();
+    const subscribe = observedListener(
+      {
+        module: 'firebase/firestore',
+        name: 'onSnapshot',
+        observer,
+        uncaughtListenerError: () => {
+          throw new Error('log down');
+        },
+      },
+      (_target: unknown, _next: unknown, onError: unknown) => {
+        expect(() => (onError as (reason: unknown) => void)(new CodedError('unavailable'))).not.toThrow();
+      },
+    );
+    subscribe('ref', () => undefined);
+    expect(records.map((record) => record.outcome)).toEqual(['listener-error', 'returned']);
   });
 });
