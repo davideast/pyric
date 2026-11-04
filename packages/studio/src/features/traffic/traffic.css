@@ -791,6 +791,27 @@
   color: var(--accent);
 }
 
+/* ── Production: an op production served and pyric only observed ──── */
+.traffic__production {
+  align-self: center;
+  flex-shrink: 0;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 18px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.traffic__production[data-production='error'] {
+  border-color: var(--deny);
+  color: var(--deny-ink);
+  background: var(--deny);
+}
+
 /* ── Source: the connection the op came from ───────────────────────── */
 .traffic__source {
   align-self: center;

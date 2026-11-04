@@ -10,6 +10,7 @@ import {
   filterStudioTraffic,
   isStudioTraffic,
   opensRulesInspector,
+  productionLabel,
   subjectTarget,
   verdictFor,
   verdictLabel,
@@ -207,4 +208,16 @@ it('counts proof limitations separately within the metrics time window', () => {
   const events = [proof, denied, {...proof, at: 20}];
   expect(rulesDecisionEvents(events)).toEqual([denied]);
   expect(queryProofUnsupportedCount(events, {start: 10, end: 20})).toBe(1);
+});
+
+describe('productionLabel', () => {
+  it("reads production's answer, not a Rules verdict", () => {
+    expect(productionLabel({ outcome: { status: 'ok' } })).toBe('production ok');
+    expect(productionLabel({ outcome: { status: 'error', code: 'permission-denied' } })).toBe('production denied');
+    expect(productionLabel({ outcome: { status: 'error', code: 'unavailable' } })).toBe('production failed: unavailable');
+  });
+
+  it('leaves an observed op without a Rules verdict', () => {
+    expect(verdictFor({ rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' } })).toBeNull();
+  });
 });

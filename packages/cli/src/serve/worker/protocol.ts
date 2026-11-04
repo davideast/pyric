@@ -35,6 +35,7 @@ import type {
   SandboxClockState,
   SandboxEvent,
   AnyDenialContext,
+  ObservedCall,
 } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
 import type {
@@ -522,6 +523,19 @@ export interface ToolMessage {
   actAs?: AuthLens;
 }
 
+/**
+ * A call the app made to production, as a recorder beside the app observed it
+ * (`ObservedCall` in `pyric/sandbox`). The host checks the record, writes it
+ * to the event stream with the caller it stamps from this connection, and
+ * answers `res`. A malformed record is refused with `invalid-argument`.
+ * Nothing in pyric sends this frame.
+ */
+export interface ObserveMessage {
+  t: 'observe';
+  id: string;
+  call: ObservedCall;
+}
+
 export type InboundMessage = (
   | OpMessage
   | SubMessage
@@ -530,6 +544,7 @@ export type InboundMessage = (
   | AppConfigMessage
   | ClockSubscribeMessage
   | ToolMessage
+  | ObserveMessage
 ) & {
   clientSessionId?: string;
   resumeSession?: boolean;
