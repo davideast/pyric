@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Live mode: the app's own Firebase SDK, observed as it talks to a real project. Private until live mode is complete.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./vite": "./src/vite.ts",
+    "./page-modules": "./src/page-modules.ts"
   },
   "scripts": {
     "test": "bun test",

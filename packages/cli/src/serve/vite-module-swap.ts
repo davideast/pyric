@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import Module, { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DepOptimizationOptions, ResolvedConfig, UserConfig } from 'vite';
@@ -18,6 +18,13 @@ import {
   type ServedFirebaseSpecifier,
 } from './firebase-module-swap.js';
 import {
+  OBSERVER_MODULE_ID,
+  OBSERVER_SPECIFIER,
+  isLiveModuleId,
+  suppliedRowsResolution,
+  type SuppliedRows,
+} from './vite-supplied-rows.js';
+import {
   STOP_PREFIX,
   loadRoutedModule,
   routeServerImport,
@@ -31,8 +38,20 @@ import { stopFor } from '../register/swap-or-stop.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
+/** The installed SDK packages live rows load beside the excluded ones. */
+const LIVE_SDK_PACKAGES = ['@firebase/auth', '@firebase/firestore'];
 /** The SDK package the served entries import; one instance per page. */
 const PYRIC_PACKAGE = 'pyric';
+/**
+ * Node's CommonJS resolver, typed locally: the repo's ambient Node types
+ * leave out these internals.
+ */
+interface CommonJsResolver {
+  _resolveFilename?: (request: string, parent: unknown, isMain: boolean) => string;
+  _nodeModulePaths?: (from: string) => string[];
+}
+type ModuleConstructor = new (id: string) => { filename: string; paths: string[] };
+const moduleApi = Module as unknown as CommonJsResolver & ModuleConstructor;
 type OptimizerOptions = NonNullable<DepOptimizationOptions['esbuildOptions']>;
 type OptimizerPlugin = NonNullable<OptimizerOptions['plugins']>[number];
 
@@ -42,6 +61,26 @@ function packageRootOf(file: string): string {
     dir = path.dirname(dir);
   }
   return dir;
+}
+
+/**
+ * The file Node resolves `specifier` to from `base`, without running the
+ * process's `module.registerHooks` resolve hooks. From Node 24.16 those hooks
+ * also run for `require.resolve`: pyric's own stop hook throws there, which
+ * read as "not installed", and the register maps `firebase-admin` to
+ * `pyric-admin`, which read as "not the real SDK", so the stop was skipped
+ * (#1906). `Module._resolveFilename` runs below the hooks on Node 22.15 and
+ * 24.16. Falls back to `createRequire` on a runtime without it.
+ */
+function resolveUnhooked(specifier: string, base: string): string {
+  const resolveFilename = moduleApi._resolveFilename;
+  const nodeModulePaths = moduleApi._nodeModulePaths;
+  const hasInternals = typeof resolveFilename === 'function' && typeof nodeModulePaths === 'function';
+  if (!hasInternals) return createRequire(base).resolve(specifier);
+  const parent = new moduleApi(base);
+  parent.filename = base;
+  parent.paths = nodeModulePaths.call(Module, path.dirname(base));
+  return resolveFilename.call(Module, specifier, parent, false);
 }
 
 export interface ViteModuleContext {
@@ -120,6 +159,12 @@ export interface ViteModuleSwapOptions {
   /** The resolved AI mode. Read on each resolution, since Vite resolves the
    *  mode from its env files after the plugin is constructed. */
   getAiMode?: () => AiMode;
+  /**
+   * The live rows, served on this plane in place of the swap once the
+   * installed `@pyric/live` opens them (`vite-supplied-rows.ts`). Absent for
+   * every `pyric()` plugin.
+   */
+  supplied?: SuppliedRows;
 }
 
 /** Own the Vite and optimizer forms of the Firebase-module swap. */
@@ -169,7 +214,7 @@ export function createViteModuleSwap(
   function installedFileOf(specifier: string, importer: string | undefined): { url: string; base: string } | null {
     for (const base of resolveBases(importer)) {
       try {
-        return { url: pathToFileURL(createRequire(base).resolve(specifier)).href, base };
+        return { url: pathToFileURL(resolveUnhooked(specifier, base)).href, base };
       } catch {
         // Not installed where this base looks; try the next one.
       }
@@ -202,10 +247,49 @@ export function createViteModuleSwap(
     return id;
   }
 
+  /**
+   * The id of a module that throws `error` when it loads, for a served
+   * specifier the supplied rows refuse. It declares the real module's export
+   * names, as a stop module does, so the importer sees the refusal rather
+   * than a missing export.
+   */
+  function refusalIdFor(specifier: string, plane: 'page' | 'server', error: Error): string {
+    const id = `${STOP_PREFIX}refused:${plane}:${specifier}`;
+    const isKnown = stops.has(id);
+    if (!isKnown) stops.set(id, { error, specifier, resolveDir: root });
+    return id;
+  }
+
+  /** The supplied rows' answer for a `firebase/*` import on the page plane. */
+  function resolveSupplied(supplied: SuppliedRows, source: string, importer: string | undefined): string | null {
+    const resolution = suppliedRowsResolution(supplied, source, importer);
+    if (resolution.kind === 'module') return resolution.id;
+    if (resolution.kind === 'installed-sdk') return null;
+    if (resolution.kind === 'refused') return refusalIdFor(source, 'page', resolution.error);
+    return stopIdFor(source, importer);
+  }
+
+  /** A row module's import of the one observer module, while the rows are open. */
+  function isObserverImport(source: string, importer: string | undefined): boolean {
+    const supplied = options?.supplied;
+    const isOpen = supplied !== undefined && supplied.package() !== null;
+    return isOpen && source === OBSERVER_SPECIFIER && importer !== undefined && isLiveModuleId(importer);
+  }
+
+  /** The source of a fixed live module, from the installed `@pyric/live`. Throws while the rows are shut. */
+  function loadLiveModule(supplied: SuppliedRows, id: string): string | null {
+    const found = supplied.package();
+    if (found === null) throw new Error(`pyric: ${JSON.stringify(id)} is a live row module, and @pyric/live has not opened the rows.`);
+    return found.moduleSource(id);
+  }
+
   function resolveId(source: string, importer: string | undefined): string | null {
     if (isBypassedBridgeImport(source, importer)) return null;
+    if (isObserverImport(source, importer)) return OBSERVER_MODULE_ID;
 
     const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
+    const supplied = options?.supplied;
+    if (isFirebaseSpecifier && supplied !== undefined) return resolveSupplied(supplied, source, importer);
     if (isFirebaseSpecifier) {
       const swapped = swappedFirebaseEntries(aiMode());
       const key = swapped.get(source as ServedFirebaseSpecifier);
@@ -233,6 +317,9 @@ export function createViteModuleSwap(
     const isServer = environment === undefined
       ? resolveOptions?.ssr === true
       : environment.config.consumer === 'server';
+    // Supplied rows serve pages only: server code gets no row of either kind.
+    const supplied = options?.supplied;
+    if (isServer && supplied !== undefined) return refusalIdFor(original, 'server', supplied.refusal(original, 'server'));
     const routed = isServer
       ? routeServerImport({
         specifier: original,
@@ -244,6 +331,9 @@ export function createViteModuleSwap(
       : resolveId(original, importer);
     const isRouted = routed !== null;
     if (isRouted) return routed;
+    const isRowModuleOwnImport = supplied !== undefined &&
+      suppliedRowsResolution(supplied, original, importer).kind === 'installed-sdk';
+    if (isRowModuleOwnImport) return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
     // Not swapped here. firebase-admin in browser code, and any other load of
     // the real SDK the swap does not choose, gets the stop module.
     const stopId = stopIdFor(original, importer);
@@ -259,6 +349,9 @@ export function createViteModuleSwap(
   }
 
   function loadPluginModule(id: string): Promise<string | null> {
+    const supplied = options?.supplied;
+    const isLiveModule = supplied !== undefined && isLiveModuleId(id);
+    if (isLiveModule) return Promise.resolve().then(() => loadLiveModule(supplied, id));
     const stop = stops.get(id);
     if (stop !== undefined) return loadStopModule(stop);
     const shim = load(id);
@@ -333,6 +426,9 @@ export function createViteModuleSwap(
         // one pyric `initializeApp` registers apps in (#1506). The bare name
         // covers every subpath.
         PYRIC_PACKAGE,
+        // Live rows load the installed Auth and Firestore, which import the
+        // excluded @firebase/app: kept out too, so the page has one registry.
+        ...(options?.supplied === undefined ? [] : LIVE_SDK_PACKAGES),
       ];
       const usesRolldown = Number(viteVersion.split('.')[0]) >= 8;
       const optimizer = usesRolldown
