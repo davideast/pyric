@@ -4,7 +4,8 @@
 #   bash scripts/publish-alpha.sh 0.1.0-alpha.9
 #   bash scripts/publish-alpha.sh --dry-run 0.1.0-alpha.9
 #
-# Steps: `bun run test` → pack once (full rebuild) → the packaging gate, the
+# Steps: check the npm credentials can publish every package (read-only) →
+# `bun run test` → pack once (full rebuild) → the packaging gate, the
 # release smoke and the app scenarios (test/apps), all on those packed
 # tarballs → publish the same tarballs under the `alpha` dist-tag → point
 # `latest` at the same version → run `compat:check` against the pinned
@@ -78,8 +79,18 @@ node "$ROOT/scripts/lib/check-publish-version.mjs" "$V" "$ROOT"
 
 cd "$ROOT"
 
-# The six tarballs the publish uploads, by npm's flattened name.
+# The six tarballs the publish uploads, by npm's flattened name, and the
+# packages they publish, in the same order.
 TARBALLS=(pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live)
+PACKAGES=(pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live)
+
+# Uploads run in order and can't be taken back, so a token that can publish
+# five of the six would leave a partial release (#2029). Before any gate,
+# check with read-only requests that the account can publish every package.
+# A package not on the registry yet needs a token that can write across its
+# scope, which only the owner can state: PYRIC_PUBLISH_SCOPE_WRITE=@pyric.
+echo "━━━ npm publish access (read-only) ━━━"
+node "$ROOT/scripts/lib/check-publish-access.mjs" "${PACKAGES[@]}"
 
 # A run that proves anything starts unproven: if it fails before the stamp,
 # no earlier stamp is left for a gate-skipping rerun to trust.
@@ -177,7 +188,7 @@ fi
 
 # Only a latest release moves latest and alpha. `next` and any other channel
 # (for example `exp`) move only their own tag.
-for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
+for p in "${PACKAGES[@]}"; do
   npm dist-tag add "${p}@${V}" "${PUBLISH_TAG}"
   if [ "${PUBLISH_TAG}" = "latest" ]; then
     npm dist-tag add "${p}@${V}" alpha
@@ -186,7 +197,7 @@ done
 
 # An experimental channel carries no compatibility certificate.
 if [ "${PUBLISH_TAG}" != "latest" ] && [ "${PUBLISH_TAG}" != "next" ]; then
-  for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
+  for p in "${PACKAGES[@]}"; do
     echo "== ${p}"; npm dist-tag ls "${p}"
   done
   echo ""
@@ -212,7 +223,7 @@ else
   exit 1
 fi
 
-for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
+for p in "${PACKAGES[@]}"; do
   echo "== ${p}"; npm dist-tag ls "${p}"
 done
 

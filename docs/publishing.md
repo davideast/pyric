@@ -18,7 +18,9 @@ You need:
   read/write access to those six packages and bypass 2FA enabled. The first
   release that includes `@pyric/live` creates that package on npm, so a token
   limited to the five existing packages can't publish it: give it read/write
-  access to the `@pyric` scope, or to all packages, for that release;
+  access to the `@pyric` scope, or to all packages, for that release, and set
+  `PYRIC_PUBLISH_SCOPE_WRITE=@pyric` for the preflight and the publish (see
+  [Publish access is checked first](#publish-access-is-checked-first));
 - `bun`, `node`, `npm`, `git`, and an authenticated GitHub CLI (`gh`); and
 - a clean working tree with all release changes already merged to `main`.
 
@@ -32,6 +34,41 @@ stat -c '%a %U %n' "$HOME/.npmrc"
 
 The npm config should be owned by your user and have mode `600`. Never copy it
 into the repository or paste its token into a command.
+
+### Publish access is checked first
+
+npm uploads can't be taken back, so the preflight and the publish both start
+by checking that the account can publish every package in the release, before
+any gate runs. `scripts/lib/check-publish-access.mjs` makes three read-only
+requests:
+
+```bash
+npm whoami                                       # the account
+npm access list packages <account> --json        # {"pyric": "read-write", ...}
+npm view <package> name                          # E404: not on the registry yet
+```
+
+It refuses, naming each package, when a package the registry already has is
+missing from the account's list or listed as `read-only`.
+
+A package not on the registry yet has no permission to list: the release
+creates it, which takes a token with read-write access to its scope (or to all
+packages, for an unscoped name). No read-only request can prove a token has
+that, so the check refuses unless you state it:
+
+```bash
+PYRIC_PUBLISH_SCOPE_WRITE=@pyric bun run release:preflight "$RELEASE_VERSION"
+PYRIC_PUBLISH_SCOPE_WRITE=@pyric bash scripts/publish-alpha.sh "$RELEASE_VERSION"
+```
+
+Set it only after you've given the token read-write access to the whole
+`@pyric` scope. It covers only packages not on the registry yet; it never
+lets through an existing package the account can't write.
+
+The listing reports the account's access. Whether npm narrows it to a
+granular token's package selection isn't documented, so a token limited to
+fewer packages than the account owns can still pass for existing packages.
+Give the token every package in the release.
 
 This token flow is a short-term bridge, not the permanent release design. npm
 expects bypass-2FA granular access tokens to lose direct-publish capability
@@ -101,20 +138,22 @@ bun run release:preflight "$RELEASE_VERSION"
 
 The preflight:
 
-1. runs the complete test suite;
-2. builds and packs the release tarballs into `dist/packages/`, the one pack
+1. checks that the npm account can publish all six packages, with read-only
+   requests (see [Publish access is checked first](#publish-access-is-checked-first));
+2. runs the complete test suite;
+3. builds and packs the release tarballs into `dist/packages/`, the one pack
    of the run, recording each tarball's sha256 and the commit and clean state
    it packed in `manifest.json`;
-3. runs the packaging gate on those tarballs, which lints them and installs
+4. runs the packaging gate on those tarballs, which lints them and installs
    them in a fresh consumer;
-4. runs the installed-tarball behaviour smoke and the app scenarios on the
+5. runs the installed-tarball behaviour smoke and the app scenarios on the
    same tarballs, then stamps them in `dist/packages/proven.json`, but only if
    they're still the bytes the pack wrote, on the tree it packed;
-5. copies the six tarballs into a directory of its own and verifies the
+6. copies the six tarballs into a directory of its own and verifies the
    copies against the stamp;
-6. verifies npm authentication with a read-only `npm whoami` request, and runs
+7. verifies npm authentication with a read-only `npm whoami` request, and runs
    `npm publish --dry-run` for each of the six copies; and
-7. runs the full compatibility check and calculates the `fb<major>.<minor>`
+8. runs the full compatibility check and calculates the `fb<major>.<minor>`
    compatibility tag.
 
 The preflight branch exits before the real publish loop and never invokes
