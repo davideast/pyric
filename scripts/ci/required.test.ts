@@ -82,12 +82,27 @@ describe('required CI result', () => {
     })).toEqual([]);
     expect(requiredFailures({
       checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
-      results: { ...success, 'pack-packages': 'success', 'app-scenarios': 'failure' },
+      results: { ...success, 'pack-packages': 'success', 'app-scenarios': 'failure', 'node-24-stop': 'success' },
     })).toEqual(['app-scenarios: failure']);
     expect(requiredFailures({
       checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
-      results: { ...success, 'pack-packages': 'success', 'app-scenarios': 'success' },
+      results: { ...success, 'pack-packages': 'success', 'app-scenarios': 'success', 'node-24-stop': 'success' },
     })).toEqual([]);
+  });
+
+  test('requires the Node 24.16 stop job with the app scenarios (#1906)', () => {
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireAppScenarios: false,
+      results: { ...success, 'node-24-stop': 'skipped' },
+    })).toEqual([]);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
+      results: { ...success, 'pack-packages': 'success', 'app-scenarios': 'success', 'node-24-stop': 'skipped' },
+    })).toEqual(['node-24-stop: skipped']);
+    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const requiredJob = workflow.slice(workflow.indexOf('\n  required:'));
+    const needsLine = requiredJob.match(/\n    needs: \[([^\]]+)\]/)?.[1] ?? '';
+    expect(needsLine.split(',').map((job) => job.trim())).toContain('node-24-stop');
   });
 
   test('requires the one pack whenever the app scenarios or the packaging proof are selected', () => {
@@ -97,7 +112,7 @@ describe('required CI result', () => {
     })).toEqual([]);
     expect(requiredFailures({
       checkSet: 'full', requirePackaging: false, requireAppScenarios: true,
-      results: { ...success, 'pack-packages': 'failure', 'app-scenarios': 'success' },
+      results: { ...success, 'pack-packages': 'failure', 'app-scenarios': 'success', 'node-24-stop': 'success' },
     })).toEqual(['pack-packages: failure']);
     const packaged = { ...success, packaging: 'success', 'install-matrix': 'success', standalone: 'success', 'release-contract': 'success' };
     expect(requiredFailures({
@@ -125,7 +140,7 @@ describe('required CI result', () => {
     expect(needsOf('required')).toContain('pack-packages');
     expect(needsOf('app-scenarios')).toContain('pack-packages');
     expect(needsOf('packaging')).toContain('pack-packages');
-    for (const job of ['app-scenarios', 'packaging', 'install-matrix']) {
+    for (const job of ['app-scenarios', 'node-24-stop', 'packaging', 'install-matrix']) {
       const steps = workflow.jobs[job]?.steps ?? [];
       const download = steps.findIndex((step) => step.uses?.startsWith('actions/download-artifact') && step.with?.name === 'packed-packages');
       const check = steps.findIndex((step) => step.run === CHECK);
@@ -167,7 +182,7 @@ describe('required CI result', () => {
     // One pin: every job reads the versions from the workflow env.
     const raw = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
     for (const line of raw.split('\n').filter((text) => /^\s+(bun|node)-version:/.test(text))) {
-      expect(line).toMatch(/: \$\{\{ env\.(BUN|NODE)_VERSION \}\}$/);
+      expect(line).toMatch(/: \$\{\{ env\.(BUN|NODE|NODE_24)_VERSION \}\}$/);
     }
     const studioKeys = action.match(/key: dist-studio-.*$/gm) ?? [];
     expect(studioKeys).toHaveLength(2);
