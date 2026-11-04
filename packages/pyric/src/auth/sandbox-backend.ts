@@ -45,7 +45,9 @@ import type { SandboxTarget } from './target.js';
 import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 import {
+  accountStanding,
   createAuthProjectStore,
+  revokeTokensAt,
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
@@ -1843,6 +1845,8 @@ export class SandboxBackend {
     if (update.password !== undefined) {
       validatePasswordStrength(update.password);
       stored.password = update.password;
+      // A password change revokes the account's refresh tokens, as in production.
+      revokeTokensAt(this.projectStore, uid, this.now().getTime());
       // Setting a password links the password provider — matches the
       // Identity Toolkit (an account gains providerUserInfo entry
       // when a password is set on it).
@@ -1871,7 +1875,8 @@ export class SandboxBackend {
 
   /** Admin user deletion. The active session (if it's this user) is
    *  NOT terminated — matches prod, where admin deletion doesn't kill
-   *  live client sessions until the token is revoked/refreshed. */
+   *  live client sessions until their next token refresh, which is
+   *  refused with `auth/user-token-expired` and signs the user out. */
   deleteUser(uid: string): void {
     const stored = this.usersByUid.get(uid);
     if (!stored) {
@@ -1879,10 +1884,13 @@ export class SandboxBackend {
     }
     const before = this.toRecord(stored);
     this.usersByUid.delete(uid);
+    // A held session's next refresh is refused, as production's is.
+    this.projectStore.deletedUids.add(uid);
     if (stored.email && this.usersByEmail.get(stored.email.toLowerCase()) === stored) {
       this.usersByEmail.delete(stored.email.toLowerCase());
     }
-    this.tokenCache.delete(uid);
+    // The held ID token stays cached: production's client keeps answering
+    // getIdToken() with it until its refresh point, and the refresh is refused.
     this.signInProviderByUid.delete(uid);
     this.photoOriginByUid.delete(uid);
     this.authenticatedAtByUid.delete(uid);
@@ -2204,6 +2212,8 @@ export class SandboxBackend {
     // A cached token past its refresh point is minted again on read and fires
     // onIdTokenChanged, as `@firebase/auth` `getIdToken` does on expiry.
     const cachedTokenExpired = hasCachedToken && isPastIdTokenRefreshPoint(cached.result.claims, this.now().getTime());
+    const exchangesRefreshToken = forceRefresh || cachedTokenExpired || !hasCachedToken;
+    if (exchangesRefreshToken) assertRefreshAllowed(this.projectStore, uid, this.authenticatedAtByUid.get(uid));
     if (forceRefresh || cachedTokenExpired) {
       const fresh = this.mintToken(uid, claims, tenantId);
       const current = this.session.currentUser;
@@ -2279,6 +2289,12 @@ export class SandboxBackend {
         photoURL,
         providerId: p.providerId,
       }));
+    // Production signs the user out only when the invalidated user is the
+    // Auth instance's current user.
+    const signOutIfCurrent = async (): Promise<void> => {
+      const isCurrentUser = this.cachedUser?.uid === args.uid;
+      if (isCurrentUser) await this.transitionCurrentUser(null);
+    };
     const user: User = {
       uid: args.uid,
       email: args.email,
@@ -2296,10 +2312,10 @@ export class SandboxBackend {
       // `getIdToken(true)` (AUTH-B10) — same propagation story as prod.
       // Falls back to the closed-over claims for users not in the DB
       // (anonymous / popup), matching how they were minted.
-      getIdToken: async (forceRefresh?: boolean) =>
-        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
-      getIdTokenResult: async (forceRefresh?: boolean) =>
-        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
+      getIdToken: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
+        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId)),
+      getIdTokenResult: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
+        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId)),
     };
     // Stamp the backend-dispatch hook non-enumerably so the top-level
     // `updateProfile(user, …)` free function can update THIS user (and the
@@ -2324,10 +2340,9 @@ export class SandboxBackend {
           this.updatePasswordFor(user, newPassword);
           return Promise.resolve();
         },
-        reload: () => {
+        reload: () => logoutIfInvalidated(signOutIfCurrent, () => {
           this.reloadFor(user);
-          return Promise.resolve();
-        },
+        }),
         // Routing rides on the user — see UserInternal.target. Built here
         // rather than injected because the backend predates the target
         // object that wraps it (`getAuth` constructs the target FROM the
@@ -2523,6 +2538,9 @@ export class SandboxBackend {
   updatePasswordFor(user: User, newPassword: string): void {
     this.assertRecentLogin(user.uid);
     this.updateUser(user.uid, { password: newPassword });
+    // The change revokes the account's other sessions, and production answers
+    // it with fresh tokens, so the session that changed the password goes on.
+    this.recordAuthentication(user.uid);
   }
 
   /**
@@ -2543,6 +2561,8 @@ export class SandboxBackend {
         "The user's credential is no longer valid. The user must sign in again.",
       );
     }
+    // `accounts:lookup` answers USER_DISABLED for a disabled account.
+    this.assertUserEnabled(stored);
     this.applyStoredToUser(user, stored);
     if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
       this.applyStoredToUser(this.cachedUser, stored);
@@ -2623,6 +2643,47 @@ export class SandboxBackend {
       );
     }
     return stored;
+  }
+}
+
+const DISABLED_MESSAGE = 'The user account has been disabled by an administrator.';
+const TOKEN_EXPIRED_MESSAGE = "The user's credential is no longer valid. The user must sign in again.";
+
+/**
+ * Refuse a refresh-token exchange production refuses: `USER_DISABLED`
+ * (`auth/user-disabled`) for a disabled account, and `USER_NOT_FOUND` or
+ * `TOKEN_EXPIRED` (both `auth/user-token-expired` in `@firebase/auth`) for a
+ * deleted account or a session authenticated before the account's tokens
+ * were revoked. A session whose record was never stored keeps refreshing
+ * (#1515). `authenticatedAtMs` is the session's last authentication.
+ */
+function assertRefreshAllowed(store: AuthProjectStore, uid: string, authenticatedAtMs: number | undefined): void {
+  const standing = accountStanding(store, uid);
+  if (standing.kind === 'disabled') throw makeAuthError('auth/user-disabled', DISABLED_MESSAGE);
+  const deleted = standing.kind === 'deleted';
+  const revoked = standing.kind === 'active' && authenticatedBefore(authenticatedAtMs, standing.tokensValidAfterMs);
+  if (deleted || revoked) throw makeAuthError('auth/user-token-expired', TOKEN_EXPIRED_MESSAGE);
+}
+
+/** Whether an authentication instant, on a whole second, is before `validAfterMs`. */
+function authenticatedBefore(authenticatedAtMs: number | undefined, validAfterMs: number | null): boolean {
+  const comparable = validAfterMs !== null && authenticatedAtMs !== undefined;
+  return comparable && Math.floor(authenticatedAtMs / 1000) * 1000 < validAfterMs;
+}
+
+/**
+ * `@firebase/auth`'s `_logoutIfInvalidated`: when a call fails with
+ * `auth/user-disabled` or `auth/user-token-expired`, sign the user out, then
+ * rethrow.
+ */
+async function logoutIfInvalidated<T>(signOut: () => Promise<void>, call: () => T): Promise<T> {
+  try {
+    return call();
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    const invalidated = code === 'auth/user-disabled' || code === 'auth/user-token-expired';
+    if (invalidated) await signOut();
+    throw error;
   }
 }
 

@@ -22,6 +22,7 @@ import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush, clearRtdb
 import {
   deleteUser,
   getAuth,
+  reload,
   sandbox as authSandboxOps,
   updateEmail,
   updatePassword,
@@ -210,6 +211,19 @@ function setPortSession(
 
 export { setPortSession };
 
+/**
+ * `@firebase/auth`'s `_logoutIfInvalidated` for one port: a refresh or an
+ * account lookup refused with `auth/user-disabled` or `auth/user-token-expired`
+ * signs the port's user out, so the page's auth listeners see null, before
+ * the error reaches the caller.
+ */
+function signOutPortIfInvalidated(ctx: HostCtx, port: PortLike, error: unknown): void {
+  const code = (error as { code?: unknown } | null)?.code;
+  const invalidated = code === 'auth/user-disabled' || code === 'auth/user-token-expired';
+  const hasSession = portSession(ctx, port) !== null;
+  if (invalidated && hasSession) setPortSession(ctx, port, null);
+}
+
 /** Reconcile every connected port's session with `ctx.auth` after a full-state reset, import, or restore. */
 export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
   ctx.sessionDbs?.clear();
@@ -377,7 +391,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
         if (refreshesClaims) refreshPortAuthorization(ctx, port, session, result.claims);
         ok(port, msg.id, result.token);
-      } catch (e) { fail(port, msg.id, e); }
+      } catch (e) {
+        signOutPortIfInvalidated(ctx, port, e);
+        fail(port, msg.id, e);
+      }
       break;
     }
 
@@ -396,7 +413,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           authTime: r.authTime,
           signInProvider: r.signInProvider ?? null,
         });
-      } catch (e) { fail(port, msg.id, e); }
+      } catch (e) {
+        signOutPortIfInvalidated(ctx, port, e);
+        fail(port, msg.id, e);
+      }
       break;
     }
 
@@ -449,10 +469,16 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.reload': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'reload');
+        // The account lookup answers a deleted or disabled account as the
+        // engine's reload does, before the session is minted again.
+        await reload(session.user);
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         ok(port, msg.id, serializeUser(freshSession.user));
-      } catch (e) { fail(port, msg.id, e); }
+      } catch (e) {
+        signOutPortIfInvalidated(ctx, port, e);
+        fail(port, msg.id, e);
+      }
       break;
     }
 

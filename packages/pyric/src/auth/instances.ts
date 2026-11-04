@@ -8,7 +8,15 @@ import {
 } from '../sandbox/internal/client-app.js';
 import { SandboxBackend } from './sandbox-backend.js';
 import { registerAuthPersistence } from './sandbox/persistence.js';
-import { createAuthProjectStore, type AuthProjectStore } from './sandbox/project-store.js';
+// The package specifier, as the backend imports it, so the registry is the
+// one module instance `pyric-admin` reads.
+import { getClock, registerAuthAccounts } from 'pyric/sandbox/internal';
+import {
+  accountStanding,
+  createAuthProjectStore,
+  revokeTokensAt,
+  type AuthProjectStore,
+} from './sandbox/project-store.js';
 import { signOut } from './sign-in.js';
 import { targetOf, type SandboxTarget, type Target } from './target.js';
 import { TARGET_SYMBOL, type AppAuth, type Auth, type User } from './types.js';
@@ -20,8 +28,14 @@ const sandboxHandles = new WeakMap<Sandbox, Auth>();
 function projectStoreFor(sandbox: Sandbox): AuthProjectStore {
   let store = projectStores.get(sandbox);
   if (!store) {
-    store = createAuthProjectStore();
-    projectStores.set(sandbox, store);
+    const created = createAuthProjectStore();
+    store = created;
+    projectStores.set(sandbox, created);
+    // Admin adapters answer about these accounts through the shared foundation.
+    registerAuthAccounts(sandbox, {
+      standing: (uid) => accountStanding(created, uid),
+      revokeRefreshTokens: (uid) => revokeTokensAt(created, uid, getClock(sandbox).now()),
+    });
   }
   return store;
 }

@@ -10,15 +10,17 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { checkIdToken } from 'pyric/sandbox/internal';
+import { authAccountsFor, checkIdToken, getClock } from 'pyric/sandbox/internal';
 import {
   createUserWithEmailAndPassword,
   getAuth,
   GoogleAuthProvider,
+  reload,
   sandbox as authSandbox,
   signInAnonymously,
   signInWithEmailAndPassword,
   signInWithPopup,
+  updatePassword,
   type Auth,
   type User,
 } from '../../src/auth/index.js';
@@ -584,6 +586,117 @@ describe('disabled users (A3)', () => {
     await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
     authSandbox.updateUser(auth, 'u1', { disabled: true });
     expect(auth.currentUser?.uid).toBe('u1');
+  });
+});
+
+// ─── #1950: a refresh for an invalidated account signs the user out ───
+
+describe('a refresh for a disabled or deleted account (#1950)', () => {
+  async function signedIn(): Promise<{ auth: Auth; user: User }> {
+    const auth = freshAuth();
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    return { auth, user };
+  }
+
+  it('a forced refresh of a disabled account rejects auth/user-disabled and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.updateUser(auth, 'u1', { disabled: true });
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-disabled' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('a forced refresh of a deleted account rejects auth/user-token-expired and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.deleteUser(auth, 'u1');
+    await expect(user.getIdTokenResult(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('reload of a disabled account rejects auth/user-disabled and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.updateUser(auth, 'u1', { disabled: true });
+    await expect(reload(user)).rejects.toMatchObject({ code: 'auth/user-disabled' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('reload of a deleted account rejects auth/user-token-expired and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.deleteUser(auth, 'u1');
+    await expect(reload(user)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('an account created again under a deleted uid refreshes', async () => {
+    const { auth } = await signedIn();
+    authSandbox.deleteUser(auth, 'u1');
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    expect(await user.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('a non-forced read of a deleted account answers the held token', async () => {
+    const { auth, user } = await signedIn();
+    const held = await user.getIdToken();
+    authSandbox.deleteUser(auth, 'u1');
+    expect(await user.getIdToken()).toBe(held);
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('an admin password change refuses the held session refresh and signs out', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    // Production stores the revocation on a whole second, so a session
+    // authenticated in the same second stays valid.
+    getClock(sandbox).advance(2000);
+    authSandbox.updateUser(auth, 'u1', { password: 'new-pw-5678' });
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('the session that changes its own password keeps refreshing', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    getClock(sandbox).advance(2000);
+    await updatePassword(user, 'new-pw-5678');
+    expect(await user.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('pyric/sandbox/internal reports where each account stands', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'on', email: 'on@x.com' });
+    authSandbox.createUser(auth, { uid: 'off', email: 'off@x.com', disabled: true });
+    authSandbox.createUser(auth, { uid: 'gone', email: 'gone@x.com' });
+    authSandbox.deleteUser(auth, 'gone');
+    const accounts = authAccountsFor(sandbox);
+    expect(accounts?.standing('on')).toEqual({ kind: 'active', tokensValidAfterMs: null });
+    expect(accounts?.standing('off')).toEqual({ kind: 'disabled' });
+    expect(accounts?.standing('gone')).toEqual({ kind: 'deleted' });
+    expect(accounts?.standing('never')).toEqual({ kind: 'unrecorded' });
+    getClock(sandbox).set(Date.parse('2026-11-04T12:00:00.750Z'));
+    accounts?.revokeRefreshTokens('on');
+    expect(accounts?.standing('on')).toEqual({ kind: 'active', tokensValidAfterMs: Date.parse('2026-11-04T12:00:00.000Z') });
+  });
+
+  it('a session whose record was never stored still refreshes', async () => {
+    const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    authSandbox.mockSignInResult(auth, {
+      user: mockUser('popup-unstored', 'p@x.com'),
+      providerId: 'google.com',
+      operationType: 'signIn',
+    });
+    await signInWithPopup(auth, new GoogleAuthProvider());
+    authSandbox.clearUsers(auth);
+    expect(await auth.currentUser?.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('popup-unstored');
   });
 });
 

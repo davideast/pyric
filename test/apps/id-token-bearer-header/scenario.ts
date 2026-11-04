@@ -18,6 +18,12 @@
 // `node --import @pyric/cli/register` process, which also signs in through
 // firebase/auth itself and sends its own token.
 //
+// When an administrator disables or deletes an account, or changes its
+// password, production refuses the held session's next token refresh and the
+// client SDK signs the user out (#1950). The page holds a session, `pyric auth`
+// changes the account the way an administrator would, and the page's forced
+// refresh fails with production's code and its auth listener sees null.
+//
 // The API refuses what production refuses (#1949): a token whose claims were
 // edited after signing, an expired token, a token for another project, and a
 // plain string such as a sandbox custom token each get 401, with
@@ -30,6 +36,7 @@ interface Answer { status?: number; body?: Record<string, unknown>; threw?: stri
 declare function runBearer(apiUrl: string, displayName: string, email: string): Promise<{ uid: string; answer: Answer }>;
 declare function signInHeld(displayName: string, email: string): Promise<{ uid: string; idToken: string }>;
 declare function callApiAsCurrentUser(apiUrl: string): Promise<{ idToken: string; answer: Answer }>;
+declare function forceRefresh(): Promise<{ code: string | null; currentUid: string | null; lastAuthState: string | null }>;
 
 const PROJECT = 'demo-bearer';
 
@@ -174,4 +181,23 @@ export default scenario(async (app) => {
     assert.equal(after.exp - after.iat, 3600, JSON.stringify(after));
     assert.deepEqual(answer, verified(held.uid, 'Builder One'), JSON.stringify(answer));
   });
+
+  const ACCOUNT_CHANGES = [
+    { change: 'disables', email: 'disabled@example.com', args: (uid: string) => ['auth', 'updateUser', '--uid', uid, '--disabled'], code: 'auth/user-disabled' },
+    { change: 'deletes', email: 'deleted@example.com', args: (uid: string) => ['auth', 'deleteUser', '--uid', uid], code: 'auth/user-token-expired' },
+    { change: 'changes the password of', email: 'password@example.com', args: (uid: string) => ['auth', 'updateUser', '--uid', uid, '--password', 'changed-secret-pw'], code: 'auth/user-token-expired' },
+  ];
+  for (const { change, email, args, code } of ACCOUNT_CHANGES) {
+    await app.step(`pyric auth ${change} a signed-in account, and the page's next refresh fails with ${code} and signs out`, async () => {
+      const { uid } = await page.evaluate(([name, address]) => signInHeld(name, address), ['Builder One', email] as const);
+      // Production revokes on a whole second, so a session authenticated in
+      // the second of the change keeps refreshing; move past it.
+      const tick = await app.pyric(['sandbox', 'advanceClock', '--ms', '2000']);
+      assert.equal(tick.code, 0, tick.output);
+      const result = await app.pyric(args(uid));
+      assert.equal(result.code, 0, result.output);
+      const refreshed = await page.evaluate(() => forceRefresh());
+      assert.deepEqual(refreshed, { code, currentUid: null, lastAuthState: null });
+    });
+  }
 });

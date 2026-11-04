@@ -368,6 +368,45 @@ describe('worker auth — token accessors (port session)', () => {
   });
 });
 
+// ─── #1950: an invalidated account is signed out on this port ─────────────
+
+describe('worker auth — a refused refresh signs the port out (#1950)', () => {
+  async function signedInPort(email: string): Promise<{ ctx: HostCtx; port: FakePort; uid: string }> {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser', email, password: 'password123',
+    }));
+    await handleMessage(ctx, port, { t: 'sub', subId: 'state', target: 'authState' });
+    return { ctx, port, uid: cred.user.uid };
+  }
+
+  function lastAuthState(port: FakePort): unknown {
+    return port.snapMessages.filter((m) => m.subId === 'state').at(-1)?.value;
+  }
+
+  it.each([
+    ['auth.getIdToken', 'disabled', 'auth/user-disabled'],
+    ['auth.getIdTokenResult', 'disabled', 'auth/user-disabled'],
+    ['auth.reload', 'disabled', 'auth/user-disabled'],
+    ['auth.getIdToken', 'deleted', 'auth/user-token-expired'],
+    ['auth.getIdTokenResult', 'deleted', 'auth/user-token-expired'],
+    ['auth.reload', 'deleted', 'auth/user-token-expired'],
+  ] as const)('%s for a %s account rejects %s and the port signs out', async (method, change, code) => {
+    const { ctx, port, uid } = await signedInPort(`${method}-${change}@example.com`);
+    const auth = getAuth(ctx.sandbox);
+    if (change === 'disabled') authSandboxOps.updateUser(auth, uid, { disabled: true });
+    else authSandboxOps.deleteUser(auth, uid);
+
+    const res = await sendOp(ctx, port, { t: 'op', id: id(), method, forceRefresh: true } as InboundMessage);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe(code);
+    expect(await currentUser(ctx, port)).toBeNull();
+    expect(lastAuthState(port)).toBeNull();
+  });
+});
+
 // ─── Errors serialize with `.code` ────────────────────────────────────────
 
 describe('worker auth — error serialization', () => {
