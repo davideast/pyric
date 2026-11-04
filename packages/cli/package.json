@@ -136,6 +136,13 @@
         "import": "./dist/register/app-bridge-app-check.js"
       }
     },
+    "./register/internal/supplied-rows": {
+      "types": "./dist/register/supplied-entry.d.ts",
+      "node": {
+        "types": "./dist/register/supplied-entry.d.ts",
+        "import": "./dist/register/supplied-entry.js"
+      }
+    },
     "./register/client/app": {
       "types": "./dist/register/client/app.d.ts",
       "node": {

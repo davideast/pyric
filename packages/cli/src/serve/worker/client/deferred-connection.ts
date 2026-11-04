@@ -6,9 +6,13 @@ import { closeSendOrder } from './send-order.js';
 
 type TransportChoice = Promise<(port: ClientPort) => ClientDb>;
 
-/** Whether a frame needs the transport: an operation or a subscription, not app configuration or the clock. */
+/**
+ * Whether a frame needs the transport: an operation, a subscription or an
+ * observed call (a Node process under live mode), not app configuration or
+ * the clock.
+ */
 function needsTransport(message: InboundMessage): boolean {
-  return message.t === 'op' || message.t === 'sub';
+  return message.t === 'op' || message.t === 'sub' || message.t === 'observe';
 }
 
 /** A transport that refuses with its own code keeps it (a Node process off the Node host, #1082). */

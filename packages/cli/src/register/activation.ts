@@ -24,3 +24,20 @@ export function markRegisterActive(): void {
 export function isRegisterActive(): boolean {
   return (globalThis as unknown as MarkedGlobal)[REGISTER_ACTIVE] === true;
 }
+
+/**
+ * Set by `@pyric/live/register` once its hooks are in place. Live mode is
+ * not the register's sandbox: code that reads {@link isRegisterActive} to
+ * learn that Firebase resolves to the sandbox never sees it.
+ */
+const LIVE_REGISTER_ACTIVE = Symbol.for('pyric.register.live.active');
+
+/** Called by the live register at the end of activation. */
+export function markLiveRegisterActive(): void {
+  (globalThis as unknown as MarkedGlobal)[LIVE_REGISTER_ACTIVE] = true;
+}
+
+/** Whether `@pyric/live/register` activated in this thread. */
+export function isLiveRegisterActive(): boolean {
+  return (globalThis as unknown as MarkedGlobal)[LIVE_REGISTER_ACTIVE] === true;
+}

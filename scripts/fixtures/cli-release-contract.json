@@ -160,6 +160,7 @@
     "./register",
     "./register/app-bridge",
     "./register/app-bridge-app-check",
+    "./register/internal/supplied-rows",
     "./register/client/app",
     "./register/client/app-bridge",
     "./register/client/auth",

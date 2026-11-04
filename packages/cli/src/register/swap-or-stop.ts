@@ -44,6 +44,8 @@ import {
 export const REAL_SDK_STOPPED_CODE = 'PYRIC_REAL_SDK_STOPPED';
 
 const LOG_PREFIX = '@pyric/cli/register';
+/** The live register reports its stops under its own name. */
+const LIVE_LOG_PREFIX = '@pyric/live/register';
 const REPORT_URL = 'https://github.com/davideast/pyric/issues/new';
 
 /** One resolve the register finished: what was asked, by whom, and where it landed. */
@@ -157,6 +159,22 @@ function stopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string)
   ].join('\n');
 }
 
+/** The stop's message under live rows: only a row module's own import loads the installed SDK. */
+function liveStopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string): string {
+  const fix = family === 'admin'
+    ? 'firebase-admin is refused in live mode, so move this code to a process without @pyric/live/register'
+    : "import firebase/app, firebase/auth, firebase/firestore or firebase/app-check by its package name, so its live row loads the installed SDK";
+  return [
+    `${LIVE_LOG_PREFIX}: stopped loading the real ${packageName}`,
+    `  import '${load.specifier}'`,
+    `  from   ${load.importer ?? 'the entry point'}`,
+    `  found  ${load.url}`,
+    "In live mode, the installed SDK loads only through @pyric/live's rows. This import didn't, so pyric would not see its calls.",
+    `Fix: ${fix}. To run the real SDK unobserved, start this process without @pyric/live/register.`,
+    `code: ${REAL_SDK_STOPPED_CODE}`,
+  ].join('\n');
+}
+
 /**
  * Whether this load is Node 22 resolving again a CommonJS file this hook
  * already allowed. Node 22 resolves a CommonJS file imported from ESM a second
@@ -188,6 +206,32 @@ export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | n
     return null;
   }
   const error = new Error(stopMessage(load, family, packageName));
+  return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
+}
+
+/**
+ * The stop under live rows (`supplied-rows.ts`): the error that stops this
+ * load, or `null` when it may go ahead. The client SDK loads only for a row
+ * module's own import of its specifier (`isRowImport`), and then for what
+ * those files import from the client SDK; `firebase-admin` never loads. An
+ * allowed load joins `allowedUrls`. The swap table and AI mode play no part:
+ * live rows replace the swap.
+ */
+export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>, isRowImport: boolean): Error | null {
+  if (!isInstalledFile(load.url)) return null;
+  const nameOf = load.nameOf ?? packageNameOf;
+  const packageName = nameOf(load.url);
+  const family = sdkFamilyOf(packageName);
+  if (family === null || packageName === null) return null;
+  if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;
+  const importer = load.importer;
+  const isFromAllowedClientFile = importer !== undefined && allowedUrls.has(importer) && sdkFamilyOf(nameOf(importer)) === 'client';
+  const isAllowed = family === 'client' && (isRowImport || isFromAllowedClientFile);
+  if (isAllowed) {
+    allowedUrls.add(load.url);
+    return null;
+  }
+  const error = new Error(liveStopMessage(load, family, packageName));
   return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
 }
 
