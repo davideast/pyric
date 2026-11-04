@@ -383,7 +383,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           // A reload hands back the key of the session the page held, which
           // resumes it with the authentication time it had (#1950).
           session = authSandboxOps.mintSession(auth, {
-            kind: 'uid', uid: msg.uid, tenantId, sessionKey: msg.sessionKey, ...portOriginScope(port),
+            kind: 'uid', uid: msg.uid, tenantId, restore: { sessionKey: msg.sessionKey }, ...portOriginScope(port),
           });
         } catch {
           session = null;

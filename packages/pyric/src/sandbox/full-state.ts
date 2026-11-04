@@ -50,6 +50,7 @@ import {
   type StorageStateRecord,
 } from '../storage/internal.js';
 import { getInternalEnv } from './internal/sandbox-impl.js';
+import { authAccountsFor } from 'pyric/sandbox/internal';
 import { assertInlineStorageFits, base64DecodedLength, type InlineStorageDocument } from './internal/inline-storage-limit.js';
 import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
@@ -372,10 +373,15 @@ function applyDatabase(sandbox: LocalSandbox, state: FullSandboxState): void {
   backend.setRules(structuredClone(state.rules.database));
 }
 
-/** Replace the target's auth account store with exactly the accounts the state holds. */
+/**
+ * Replace the target's auth account store with exactly the accounts the state
+ * holds. Clearing records a deletion for each account; a checkpoint restore is
+ * not a deletion, so the history is forgotten and held sessions keep refreshing.
+ */
 function applyAuth(sandbox: LocalSandbox, accounts: AuthAccountsState): void {
   const auth = authFor(sandbox);
   authSandbox.clearUsers(auth);
+  authAccountsFor(sandbox)?.forgetHistory();
   if (accounts.users.length > 0) authSandbox.seedUsers(auth, structuredClone(accounts.users));
   authSandbox.restoreProviderConfig(auth, { ...accounts.providers });
 }

@@ -970,8 +970,9 @@ export class SandboxBackend {
    *
    * `sessionKey` is the key of the session the page held ({@link sessionKeyOf}).
    * When it names a session of `uid`, the restore resumes it with the
-   * authentication time it had, as a page reload keeps its refresh token;
-   * otherwise the restore counts as a new sign-in.
+   * authentication time it had, as a page reload keeps its refresh token.
+   * Otherwise the restored session has no sign-in time of its own, so any
+   * revocation recorded for the uid refuses its next refresh.
    */
   restoreSession(uid: string, sessionKey?: string): User {
     const stored = this.usersByUid.get(uid);
@@ -992,6 +993,7 @@ export class SandboxBackend {
     } finally {
       this.resumingSession = null;
     }
+    if (!resumes) this.sessions.withoutSignIn(user);
     return user;
   }
 
@@ -2087,11 +2089,16 @@ export class SandboxBackend {
         const user = this.buildUserFromStored(stored);
         if (remintsSession) this.sessions.continue(user, from);
         // A page reload hands back the key of the session it held, and resumes
-        // it with the authentication time it had.
-        const sessionKey = request.kind === 'uid' ? request.sessionKey : undefined;
+        // it with the authentication time it had. A restore no key matches has
+        // no sign-in time of its own.
+        const restore = request.kind === 'uid' ? request.restore : undefined;
+        const sessionKey = restore?.sessionKey;
         const resumesSession = !remintsSession && sessionKey !== undefined && this.sessions.resume(user, sessionKey);
         const continues = remintsSession || resumesSession;
-        return this.establishDetachedSession(user, providerId, tenantId, authenticates && !continues, request.origin);
+        const minted = this.establishDetachedSession(user, providerId, tenantId, authenticates && !continues, request.origin);
+        const restoresWithoutKey = restore !== undefined && !resumesSession;
+        if (restoresWithoutKey) this.sessions.withoutSignIn(user);
+        return minted;
       }
     }
   }
@@ -2351,7 +2358,7 @@ export class SandboxBackend {
     const signOutIfCurrent = async (): Promise<void> => {
       const cached = this.cachedUser;
       const isCurrentSession = cached !== null && cached.uid === args.uid
-        && this.sessions.authenticatedAt(cached) === this.sessions.authenticatedAt(user);
+        && this.sessions.sameSession(cached, user);
       if (isCurrentSession) await this.transitionCurrentUser(null);
     };
     const user: User = {

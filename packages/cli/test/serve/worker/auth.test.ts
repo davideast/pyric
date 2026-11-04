@@ -43,6 +43,7 @@ import {
   type PersistenceBackend,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { applyFullState, captureFullState } from 'pyric/sandbox';
 import { getAuth, sandbox as authSandboxOps, type SeedUser } from 'pyric/auth';
 import { defaultAvatarDataUri } from 'pyric/auth/internal';
 
@@ -474,6 +475,58 @@ describe('worker auth — a refused refresh signs the port out (#1950)', () => {
     const refused = await sendOp(ctx, reloaded, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
     expect(refused.ok).toBe(false);
     if (!refused.ok) expect(refused.error.code).toBe('auth/user-token-expired');
+  });
+
+  it('a port restored without a matching key does not borrow a later sign-in of the account', async () => {
+    const { ctx, port: changing, uid } = await signedInPort('borrow@example.com');
+    const refusedPort = fakePort();
+    okValue(await sendOp(ctx, refusedPort, {
+      t: 'op', id: id(), method: 'auth.signInEmail', email: 'borrow@example.com', password: 'password123',
+    }));
+    getClock(ctx.sandbox).advance(2000);
+    okValue(await sendOp(ctx, changing, { t: 'op', id: id(), method: 'auth.updatePassword', password: 'changed-password' }));
+    const refused = await sendOp(ctx, refusedPort, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(refused.ok).toBe(false);
+    // A later sign-in to the account, on a third port.
+    getClock(ctx.sandbox).advance(2000);
+    const later = fakePort();
+    okValue(await sendOp(ctx, later, {
+      t: 'op', id: id(), method: 'auth.signInEmail', email: 'borrow@example.com', password: 'changed-password',
+    }));
+
+    for (const sessionKey of [undefined, 'bogus']) {
+      const restored = fakePort();
+      okValue(await sendOp(ctx, restored, {
+        t: 'op', id: id(), method: 'auth.restorePortSession', uid, ...(sessionKey === undefined ? {} : { sessionKey }),
+      }));
+      const answer = await sendOp(ctx, restored, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+      expect(answer.ok).toBe(false);
+      if (!answer.ok) expect(answer.error.code).toBe('auth/user-token-expired');
+      expect(await currentUser(ctx, restored)).toBeNull();
+    }
+    const kept = await sendOp(ctx, later, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(kept.ok).toBe(true);
+  });
+
+  it('a port restored without a key refreshes while nothing revoked the account', async () => {
+    const { ctx, uid } = await signedInPort('restore-unrevoked@example.com');
+    getClock(ctx.sandbox).advance(2000);
+    const restored = fakePort();
+    okValue(await sendOp(ctx, restored, { t: 'op', id: id(), method: 'auth.restorePortSession', uid }));
+    const answer = await sendOp(ctx, restored, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(answer.ok).toBe(true);
+  });
+
+  it('a checkpoint restore and its reconcile keep a held port signed in and refreshing', async () => {
+    const { ctx, port } = await signedInPort('checkpoint@example.com');
+    // The state carries the clock, so capture it after the sign-in's second.
+    getClock(ctx.sandbox).advance(2000);
+    const state = await captureFullState(ctx.sandbox);
+    await applyFullState(ctx.sandbox, state);
+    reconcilePortSessions(ctx);
+    expect((await currentUser(ctx, port))?.email).toBe('checkpoint@example.com');
+    const answer = await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(answer.ok).toBe(true);
   });
 
   it('a rules or state reconcile signs out a port whose refresh is refused', async () => {
