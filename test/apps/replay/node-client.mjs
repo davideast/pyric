@@ -5,7 +5,7 @@
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import {
-  collection, connectFirestoreEmulator, doc, getDoc, getFirestore, onSnapshot, query, setDoc, setLogLevel, where,
+  collection, connectFirestoreEmulator, doc, getCountFromServer, getDoc, getFirestore, onSnapshot, query, setDoc, setLogLevel, where,
 } from 'firebase/firestore';
 
 const [authOrigin, firestoreHost] = process.argv.slice(2);
@@ -38,5 +38,7 @@ await updated;
 stop();
 result.listened = seen;
 result.deniedWrite = await setDoc(doc(db, 'rooms/secret'), { name: 'Secret' }).then(() => 'written', (error) => error.code);
+// No recording holds a count, so the server refuses it and lists it as unmatched.
+result.counted = await getCountFromServer(collection(db, 'rooms')).then(() => 'counted', (error) => error.code);
 console.log(`RESULT ${JSON.stringify(result)}`);
 process.exit(0);

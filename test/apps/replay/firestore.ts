@@ -28,8 +28,11 @@ export interface Received {
 
 /** A request the recordings do not answer. The replay server lists each one. */
 export interface Unmatched {
-  /** The stream or REST surface, or `http` for a host or path this harness does not replay. */
-  rpc: 'Listen' | 'Write' | 'auth' | 'http';
+  /**
+   * The stream or REST surface, `http` for a host or path this harness does
+   * not replay, or `grpc` for a Firestore RPC other than Listen and Write.
+   */
+  rpc: 'Listen' | 'Write' | 'auth' | 'http' | 'grpc';
   as: string | null;
   request: Json;
 }

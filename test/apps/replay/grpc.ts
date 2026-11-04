@@ -27,7 +27,7 @@ interface Grpc {
   ServerCredentials: { createInsecure(): unknown };
 }
 interface GrpcServer {
-  addService(service: Record<string, MethodDefinition>, handlers: Record<string, (call: DuplexCall) => void>): void;
+  addService(service: Record<string, MethodDefinition>, handlers: Record<string, GrpcHandler>): void;
   bindAsync(address: string, credentials: unknown, done: (error: Error | null, port: number) => void): void;
   forceShutdown(): void;
   /** Required before serving by grpc-js before 1.10, deprecated after. */
@@ -50,6 +50,10 @@ interface DuplexCall {
   end(): void;
   emit(event: 'error', status: { code: number; details: string }): boolean;
 }
+
+/** A unary call's callback: this server only ever answers with an error status. */
+type UnaryCallback = (status: { code: number; details: string }) => void;
+type GrpcHandler = (call: DuplexCall, callback?: UnaryCallback) => void;
 
 /** The parts of protobufjs this server uses. */
 interface ProtoType {
@@ -244,6 +248,57 @@ function serve(state: ReplayState, rpc: 'Listen' | 'Write', call: DuplexCall): v
   call.on('error', close);
 }
 
+/**
+ * The Firestore v1 RPCs other than Listen and Write, and whether each streams
+ * its answers. The SDK's Node build sends some (Commit for a transaction,
+ * RunAggregationQuery for a count, BatchGetDocuments and RunQuery in a
+ * transaction); no recording holds them, so each is answered UNIMPLEMENTED
+ * and listed in `unmatched`, where a scenario's last check finds it.
+ */
+const OTHER_RPCS: Readonly<Record<string, boolean>> = {
+  BatchGetDocuments: true,
+  RunQuery: true,
+  RunAggregationQuery: true,
+  PartitionQuery: false,
+  Commit: false,
+  BeginTransaction: false,
+  Rollback: false,
+  BatchWrite: false,
+  GetDocument: false,
+  ListDocuments: false,
+  CreateDocument: false,
+  UpdateDocument: false,
+  DeleteDocument: false,
+  ListCollectionIds: false,
+};
+
+const UNIMPLEMENTED = 12;
+const asBytes = (value: unknown): Buffer => (Buffer.isBuffer(value) ? value : Buffer.alloc(0));
+
+/** The other RPCs' definitions, which read no message, and handlers that list each call and refuse it. */
+function otherRpcs(state: ReplayState): { definitions: Record<string, MethodDefinition>; handlers: Record<string, GrpcHandler> } {
+  const definitions: Record<string, MethodDefinition> = {};
+  const handlers: Record<string, GrpcHandler> = {};
+  for (const [name, streams] of Object.entries(OTHER_RPCS)) {
+    definitions[name] = {
+      path: `/google.firestore.v1.Firestore/${name}`,
+      requestStream: false,
+      responseStream: streams,
+      requestSerialize: asBytes,
+      requestDeserialize: (bytes) => bytes,
+      responseSerialize: asBytes,
+      responseDeserialize: (bytes) => bytes,
+    };
+    handlers[name] = (call, callback) => {
+      state.unmatched.push({ rpc: 'grpc', as: uidOf(state, call), request: { method: name } });
+      const status = { code: UNIMPLEMENTED, details: `replay: no recording answers ${name}` };
+      if (callback) callback(status);
+      else call.emit('error', status);
+    };
+  }
+  return { definitions, handlers };
+}
+
 /** grpc-js before 1.10 serves only after `start()`; later versions start on bind and only warn. */
 function startServing(server: GrpcServer): void {
   try {
@@ -258,9 +313,10 @@ export async function startGrpcReplay(state: ReplayState, projectDir: string): P
   const sdk = installedSdk(projectDir);
   const root = sdk.protobuf.Root.fromJSON(sdk.protos);
   const server = new sdk.grpc.Server();
+  const others = otherRpcs(state);
   server.addService(
-    { Listen: method(root, 'Listen'), Write: method(root, 'Write') },
-    { Listen: (call) => serve(state, 'Listen', call), Write: (call) => serve(state, 'Write', call) },
+    { Listen: method(root, 'Listen'), Write: method(root, 'Write'), ...others.definitions },
+    { Listen: (call) => serve(state, 'Listen', call), Write: (call) => serve(state, 'Write', call), ...others.handlers },
   );
   const port = await new Promise<number>((resolve, reject) => {
     server.bindAsync('127.0.0.1:0', sdk.grpc.ServerCredentials.createInsecure(), (error, bound) => (error ? reject(error) : resolve(bound)));

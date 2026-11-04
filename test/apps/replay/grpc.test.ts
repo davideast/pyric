@@ -43,7 +43,7 @@ function runNode(args: string[]): Promise<{ stdout: string; stderr: string }> {
   });
 }
 
-test('the Node SDK reads, is denied, listens and writes over gRPC as the signed-in account', async () => {
+test('the Node SDK reads, is denied, listens and writes over gRPC as the signed-in account, and an RPC no recording holds is unmatched', async () => {
   const run = await runNode([join(import.meta.dir, 'node-client.mjs'), server.origin, server.grpc!]);
   const line = run.stdout.split('\n').find((entry) => entry.startsWith('RESULT '));
   expect(line, `${run.stdout}\n${run.stderr}`).toBeDefined();
@@ -53,8 +53,9 @@ test('the Node SDK reads, is denied, listens and writes over gRPC as the signed-
     denied: 'permission-denied',
     listened: [['lobby'], ['garden', 'lobby']],
     deniedWrite: 'permission-denied',
+    counted: 'unimplemented',
   });
-  expect(await unmatchedBy(server.origin)).toEqual([]);
+  expect(await unmatchedBy(server.origin)).toEqual([{ rpc: 'grpc', as: 'user-reader', request: { method: 'RunAggregationQuery' } }]);
   const streams = (await receivedBy(server.origin)).filter((entry) => entry.rpc !== 'auth');
   expect(streams.length).toBeGreaterThan(0);
   expect(streams.every((entry) => entry.as === 'user-reader')).toBe(true);
