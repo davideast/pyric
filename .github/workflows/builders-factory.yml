@@ -37,7 +37,8 @@ env:
 
 jobs:
   factory-unit:
-    runs-on: ubuntu-latest
+    # ubuntu-26.04 refuses namespace netlink (RTNETLINK) that the bwrap sandbox tests need.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
