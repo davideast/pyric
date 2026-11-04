@@ -44,6 +44,7 @@ import {
   filterByVerdict,
   filterStudioTraffic,
   opensRulesInspector,
+  productionLabel,
   subjectTarget,
   verdictFor,
   verdictLabel,
@@ -161,8 +162,25 @@ function SourceCell({ event }: { event: StudioTrafficEvent }) {
   );
 }
 
+/** What production answered an op it served; stands in for the Rules verdict. */
+function ProductionCell({ production }: { production: NonNullable<StudioTrafficEvent['production']> }) {
+  return (
+    <span className="traffic__production" data-production={production.outcome.status}>
+      {productionLabel(production)}
+    </span>
+  );
+}
+
 /** The per-row source and verdict cells (the verdict is blank for non-rule ops). */
 function VerdictCell({ event }: { event: StudioTrafficEvent }) {
+  if (event.production !== undefined) {
+    return (
+      <>
+        <SourceCell event={event} />
+        <ProductionCell production={event.production} />
+      </>
+    );
+  }
   const v = verdictFor(event);
   return (
     <>

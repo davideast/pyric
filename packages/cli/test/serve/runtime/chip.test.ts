@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom';
-import { createSdkActivityJournal, createSdkRateMonitor } from 'pyric/sandbox/internal';
+import { createSdkActivityJournal, createSdkRateMonitor, observedCallEvent } from 'pyric/sandbox/internal';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
@@ -643,6 +643,35 @@ describe('the Traffic view', () => {
 
     root.querySelector<HTMLButtonElement>('[data-traffic-denied]')!.click();
     expect(rowIds()).toEqual([]);
+  });
+
+  it('marks a call production served apart from the calls the sandbox served', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    const observed = observedCallEvent({
+      service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: now - 1000,
+      outcome: { status: 'error', code: 'permission-denied' }, account: { uid: 'alice' },
+    });
+    push([
+      request('served', now - 2000, 'rooms/r2', 'allow'),
+      { ...observed, caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent,
+    ], { history: true, pageId: 'tab-1' });
+    showTab('traffic');
+    const served = root.querySelector(`[data-request-row="served"]`)!;
+    expect(served.querySelector('[data-traffic-row-production]')).toBeNull();
+    expect(served.querySelector('.slot')!.textContent).toBe('Allowed');
+    const row = root.querySelector(`[data-request-row="${observed.id}"]`)!;
+    expect(row.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
+    expect(row.querySelector('.c1')!.textContent).toBe('Production · firestore.getDoc');
+    expect(row.querySelector('.s2')!.textContent).toBe('alice');
+    expect(row.querySelector('[data-verdict-production]')!.getAttribute('title')).toBe('Production denied');
+    expect(row.querySelector('.slot')!.textContent).toBe('Denied');
+
+    root.querySelector<HTMLButtonElement>(`[data-request-row="${observed.id}"]`)!.click();
+    const facts = root.querySelector<HTMLElement>('[data-traffic-detail]')!.textContent!;
+    expect(facts).toContain('Served byProduction');
+    expect(facts).toContain('Denied in production (permission-denied)');
+    expect(facts).toContain('Pyric observed it and did not check it against local rules.');
   });
 
   it('leaves out the hosted note when the sandbox is hosted', () => {

@@ -435,7 +435,8 @@ export async function createHostedRuntime(
     const owned = portFor(clientSessionId, transport);
     markPortConnection(ctx, owned.port, portConnection(transport, platform));
     let releaseOperation: (() => void) | undefined;
-    const isOperation = incoming.t === 'op' || incoming.t === 'tool';
+    // An observed call is charged like an operation, so a client cannot queue them without bound.
+    const isOperation = incoming.t === 'op' || incoming.t === 'tool' || incoming.t === 'observe';
     if (isOperation) {
       const reservation = owned.budget.reserve(incoming);
       const isRefused = !reservation.accepted;

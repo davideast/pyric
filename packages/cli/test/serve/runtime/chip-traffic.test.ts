@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import type { EventCaller, SandboxEvent } from 'pyric/sandbox';
+import type { EventCaller, ObservedCall, SandboxEvent } from 'pyric/sandbox';
+import { observedCallEvent } from 'pyric/sandbox/internal';
 import {
   chipRequestFromEvent,
   createTrafficFeed,
@@ -380,5 +381,39 @@ describe("who sent each of Traffic's rows", () => {
       deliver!([calledBy(request('mine', now - 1000, 'deny'), { kind: 'page', pageId: 'tab-1' })]);
       expect(feed.failedRecently(now)).toBe(true);
     } finally { feed.dispose(); }
+  });
+});
+
+describe('a call production served', () => {
+  const observed = (call: Partial<ObservedCall>, caller?: EventCaller): SandboxEvent => {
+    const event = observedCallEvent({ service: 'firestore', method: 'getDoc', path: 'rooms/r1', at: 1000, outcome: { status: 'ok' }, ...call });
+    return (caller === undefined ? event : { ...event, caller }) as SandboxEvent;
+  };
+
+  it("reads as production's answer with the account it ran as", () => {
+    expect(chipRequestFromEvent(observed({ account: { uid: 'alice' } }, { kind: 'node' }), 'tab-1')).toEqual({
+      id: expect.any(String),
+      at: 1000,
+      service: 'firestore',
+      method: 'getDoc',
+      path: 'rooms/r1',
+      verdict: 'ok',
+      identity: 'alice',
+      production: { status: 'ok' },
+      source: 'node',
+    });
+  });
+
+  it("reads production's permission-denied as denied and any other code as failed", () => {
+    const denied = chipRequestFromEvent(observed({ outcome: { status: 'error', code: 'permission-denied' } }));
+    expect(denied).toMatchObject({ verdict: 'denied', identity: 'signed out', production: { status: 'error', code: 'permission-denied' } });
+    const failed = chipRequestFromEvent(observed({ service: 'auth', method: 'signInWithEmailAndPassword', path: undefined, outcome: { status: 'error', code: 'auth/wrong-password' } }));
+    expect(failed).toMatchObject({ verdict: 'error', service: 'auth', path: null });
+  });
+
+  it('leaves a sandbox-served operation without a production answer', () => {
+    expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
+    const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;
+    expect(chipRequestFromEvent(unmarked)?.production).toBeUndefined();
   });
 });
