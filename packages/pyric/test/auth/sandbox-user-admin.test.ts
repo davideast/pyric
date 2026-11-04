@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { authAccountsFor, checkIdToken, getClock } from 'pyric/sandbox/internal';
-import { sessionKeyOf } from '../../src/auth/internal.js';
+import { mintCustomTokenFor, sessionKeyOf } from '../../src/auth/internal.js';
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -665,7 +665,7 @@ describe('a refresh for a disabled or deleted account (#1950)', () => {
     const { user: held } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
     getClock(sandbox).advance(2000);
     authSandbox.deleteUser(auth, 'u1');
-    const { user: fresh } = await signInWithCustomToken(auth, JSON.stringify({ uid: 'u1' }));
+    const { user: fresh } = await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'u1'));
     await expect(held.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
     // The refusal belongs to the held session; the new sign-in stays.
     expect(auth.currentUser?.uid).toBe('u1');
@@ -723,7 +723,10 @@ describe('a refresh for a disabled or deleted account (#1950)', () => {
     getClock(sandbox).advance(2000);
     await updatePassword(user, 'new-pw-5678');
     const sessionKey = sessionKeyOf(user);
-    expect(sessionKey).toBeString();
+    // 16 random bytes, hex-encoded, and distinct per session.
+    expect(sessionKey).toMatch(/^[0-9a-f]{32}$/);
+    expect(sessionKeyOf(other.user)).toMatch(/^[0-9a-f]{32}$/);
+    expect(sessionKeyOf(other.user)).not.toBe(sessionKey);
 
     // The reload: the page restores the uid with the key it stored.
     const restored = authSandbox.restoreSession(auth, 'u1', sessionKey);
@@ -733,6 +736,36 @@ describe('a refresh for a disabled or deleted account (#1950)', () => {
     expect(auth.currentUser?.uid).toBe('u1');
 
     await expect(other.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+  });
+
+  it('a restore without a matching key does not borrow a later sign-in of the account', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user: a } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const b = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    await updatePassword(a, 'new-pw-5678');
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    getClock(sandbox).advance(2000);
+    const c = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'new-pw-5678' });
+    expect(await c.user.getIdToken(true)).toBeString();
+
+    for (const sessionKey of [undefined, 'bogus']) {
+      const restored = authSandbox.restoreSession(auth, 'u1', sessionKey);
+      await expect(restored.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+      expect(auth.currentUser).toBe(null);
+    }
+  });
+
+  it('a restore without a key refreshes while nothing revoked the account', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    const restored = authSandbox.restoreSession(auth, 'u1');
+    expect(await restored.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
   });
 
   it('a restore with the key of another session after a password change stays refused', async () => {

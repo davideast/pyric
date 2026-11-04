@@ -10,7 +10,9 @@
  *
  * Each record has a key, the sandbox's stand-in for a refresh token: a page
  * stores it with the uid, and a reload that hands it back resumes the session
- * with the time it had, instead of the uid's last sign-in.
+ * with the time it had. A restore without a matching key has no sign-in time
+ * of its own, so any revocation recorded for the uid refuses it; it never
+ * borrows another session's sign-in.
  */
 import type { User } from '../types.js';
 
@@ -21,7 +23,15 @@ interface SessionRecord {
 }
 
 const recordsByUser = new WeakMap<User, SessionRecord>();
-let issued = 0;
+
+/** The sign-in time of a restored session no key matched: before any revocation. */
+const NO_SIGN_IN = Number.NEGATIVE_INFINITY;
+
+/** 16 random bytes, hex-encoded. `crypto.getRandomValues` exists on insecure http pages too, unlike `randomUUID`. */
+function newSessionKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 /** The key of the session `user` belongs to, or undefined for a `User` outside any session. */
 export function sessionKeyOf(user: User): string | undefined {
@@ -68,11 +78,22 @@ export class SessionLedger {
     return matches;
   }
 
+  /** `user` is a restored session no key matched: it keeps its key but has no sign-in time of its own. */
+  withoutSignIn(user: User): void {
+    const record = recordsByUser.get(user) ?? this.open(user, NO_SIGN_IN);
+    record.authenticatedAtMs = NO_SIGN_IN;
+  }
+
+  /** Whether `a` and `b` belong to one session. */
+  sameSession(a: User, b: User): boolean {
+    const record = recordsByUser.get(a);
+    if (record !== undefined) return record === recordsByUser.get(b);
+    return !recordsByUser.has(b) && this.byUid.get(a.uid) === this.byUid.get(b.uid);
+  }
+
   private open(user: User, atMs: number): SessionRecord {
-    issued += 1;
-    const key = `session-${issued.toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    const record: SessionRecord = { key, uid: user.uid, authenticatedAtMs: atMs };
-    this.byKey.set(key, record);
+    const record: SessionRecord = { key: newSessionKey(), uid: user.uid, authenticatedAtMs: atMs };
+    this.byKey.set(record.key, record);
     recordsByUser.set(user, record);
     return record;
   }
