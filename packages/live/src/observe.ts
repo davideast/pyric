@@ -8,9 +8,10 @@
  * the observer a record of the call and its outcome.
  *
  * A record names the module, the export and the outcome, plus the error code
- * on a failure and, on a Firestore snapshot, the documents production billed
- * it for. It never carries an argument or a result, so no document value,
- * credential or token reaches it.
+ * on a failure, the project, the signed-in account the call ran as
+ * (`account.ts`, which a site supplies) and, on a Firestore snapshot, the
+ * documents production billed it for. It never carries an argument or a
+ * result, so no document value, credential or token reaches it.
  *
  * Recording is isolated from the app: building a record, calling the
  * observer and a rejection from an async observer are each caught, so an
@@ -39,10 +40,23 @@ export interface LiveCallRecord {
   readonly projectId?: string;
   /**
    * On a delivered Firestore snapshot: the documents production billed it
-   * for, zero for a snapshot only its metadata changed (`billed-documents.ts`).
-   * Absent on any other record, and when the snapshot could not be read.
+   * for, zero for a snapshot only its metadata changed (`billedDocuments`
+   * below). Absent on any other record, and when the snapshot could not be
+   * read.
    */
   readonly billedDocuments?: number;
+  /**
+   * The signed-in account the call ran as when the record was made: the
+   * current user of the Auth its first argument's app was handed. Absent
+   * when it ran signed out.
+   */
+  readonly account?: LiveAccount;
+}
+
+/** The account a call ran as: the uid and its token's claim names, never the token. */
+export interface LiveAccount {
+  readonly uid: string;
+  readonly claimNames?: readonly string[];
 }
 
 /** The hook a plane supplies to receive records. Its return value is ignored. */
@@ -66,6 +80,10 @@ export interface ObservedSite {
   readonly projectId?: string;
   /** For one listener: counts the documents each delivery was billed for. */
   readonly billing?: BilledDocuments;
+  /** The call's first argument, which names the app whose Auth the call runs as. */
+  readonly subject?: unknown;
+  /** Reads the account a call whose first argument is `subject` runs as. Absent records no account. */
+  readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
 }
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
@@ -99,10 +117,12 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
 function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, value: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
   const project = site.projectId === undefined ? {} : { projectId: site.projectId };
-  if (isFailure) return { module: site.module, name: site.name, outcome, code: errorCode(value), ...project };
+  const account = site.accountOf?.(site.subject);
+  const context = account === undefined ? project : { ...project, account };
+  if (isFailure) return { module: site.module, name: site.name, outcome, code: errorCode(value), ...context };
   const billedDocuments = billedOf(site, outcome, value);
   const billed = billedDocuments === undefined ? {} : { billedDocuments };
-  return { module: site.module, name: site.name, outcome, ...project, ...billed };
+  return { module: site.module, name: site.name, outcome, ...context, ...billed };
 }
 
 function stringAt(value: unknown, path: readonly string[]): string | undefined {
@@ -138,10 +158,11 @@ function projectOf(args: readonly unknown[]): string | undefined {
   return undefined;
 }
 
-/** The site with the project its call's arguments name. */
+/** The site with the project its call's arguments name, and the argument that names its account. */
 function siteFor(site: ObservedSite, args: readonly unknown[]): ObservedSite {
   const projectId = projectOf(args);
-  return projectId === undefined ? site : { ...site, projectId };
+  const subject = { ...site, subject: args[0] };
+  return projectId === undefined ? subject : { ...subject, projectId };
 }
 
 function ignoreRejection(returned: unknown): void {

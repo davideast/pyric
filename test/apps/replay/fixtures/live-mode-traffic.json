@@ -1,0 +1,731 @@
+{
+  "format": "pyric-replay/1",
+  "project": "demo-live-traffic",
+  "source": "hand-written from the firebase 12.12.0 SDK wire format: Auth REST v1, and Firestore Listen and Write as a page sends them over WebChannel and the Node build over gRPC. Not captured from production yet: re-record with live-mode-traffic.run.ts.",
+  "exchanges": [
+    {
+      "kind": "auth",
+      "id": "sign-in-reader",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:signInWithPassword",
+        "body": {
+          "returnSecureToken": true,
+          "email": "reader@example.com",
+          "password": {
+            "$": "any"
+          },
+          "clientType": "CLIENT_TYPE_WEB"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#VerifyPasswordResponse",
+          "localId": "user-reader",
+          "email": "reader@example.com",
+          "displayName": "",
+          "idToken": {
+            "$": "idToken",
+            "uid": "user-reader",
+            "email": "reader@example.com",
+            "provider": "password"
+          },
+          "registered": true,
+          "refreshToken": {
+            "$": "refreshToken"
+          },
+          "expiresIn": "3600"
+        }
+      }
+    },
+    {
+      "kind": "auth",
+      "id": "lookup-reader",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:lookup",
+        "body": {
+          "idToken": {
+            "$": "idToken",
+            "uid": "user-reader"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#GetAccountInfoResponse",
+          "users": [
+            {
+              "localId": "user-reader",
+              "email": "reader@example.com",
+              "emailVerified": false,
+              "passwordUpdatedAt": 1793520000000,
+              "providerUserInfo": [
+                {
+                  "providerId": "password",
+                  "federatedId": "reader@example.com",
+                  "email": "reader@example.com",
+                  "rawId": "reader@example.com"
+                }
+              ],
+              "validSince": "1793520000",
+              "lastLoginAt": "1793520000000",
+              "createdAt": "1793520000000",
+              "lastRefreshAt": "2026-11-01T08:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "auth",
+      "id": "sign-in-writer",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:signInWithPassword",
+        "body": {
+          "returnSecureToken": true,
+          "email": "writer@example.com",
+          "password": {
+            "$": "any"
+          },
+          "clientType": "CLIENT_TYPE_WEB"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#VerifyPasswordResponse",
+          "localId": "user-writer",
+          "email": "writer@example.com",
+          "displayName": "",
+          "idToken": {
+            "$": "idToken",
+            "uid": "user-writer",
+            "email": "writer@example.com",
+            "provider": "password"
+          },
+          "registered": true,
+          "refreshToken": {
+            "$": "refreshToken"
+          },
+          "expiresIn": "3600"
+        }
+      }
+    },
+    {
+      "kind": "auth",
+      "id": "lookup-writer",
+      "request": {
+        "method": "POST",
+        "host": "identitytoolkit.googleapis.com",
+        "path": "/v1/accounts:lookup",
+        "body": {
+          "idToken": {
+            "$": "idToken",
+            "uid": "user-writer"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "kind": "identitytoolkit#GetAccountInfoResponse",
+          "users": [
+            {
+              "localId": "user-writer",
+              "email": "writer@example.com",
+              "emailVerified": false,
+              "passwordUpdatedAt": 1793520000000,
+              "providerUserInfo": [
+                {
+                  "providerId": "password",
+                  "federatedId": "writer@example.com",
+                  "email": "writer@example.com",
+                  "rawId": "writer@example.com"
+                }
+              ],
+              "validSince": "1793520000",
+              "lastLoginAt": "1793520000000",
+              "createdAt": "1793520000000",
+              "lastRefreshAt": "2026-11-01T08:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "listen",
+      "id": "read-lobby-reader",
+      "as": "user-reader",
+      "target": {
+        "documents": {
+          "documents": [
+            "projects/demo-live-traffic/databases/(default)/documents/rooms/lobby"
+          ]
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "ADD",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/lobby",
+                  "fields": {
+                    "name": {
+                      "stringValue": "Lobby"
+                    },
+                    "open": {
+                      "booleanValue": true
+                    },
+                    "seats": {
+                      "integerValue": "12"
+                    }
+                  },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "targetChange": {
+                "targetChangeType": "CURRENT",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "resumeToken": {
+                  "$": "resumeToken"
+                },
+                "readTime": {
+                  "$": "readTime"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
+      "id": "read-secret-denied-reader",
+      "as": "user-reader",
+      "target": {
+        "documents": {
+          "documents": [
+            "projects/demo-live-traffic/databases/(default)/documents/rooms/secret"
+          ]
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "REMOVE",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "cause": {
+                  "code": 7,
+                  "message": "Missing or insufficient permissions."
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
+      "id": "listen-open-rooms-reader",
+      "as": "user-reader",
+      "target": {
+        "query": {
+          "structuredQuery": {
+            "from": [
+              {
+                "collectionId": "rooms"
+              }
+            ],
+            "where": {
+              "fieldFilter": {
+                "field": {
+                  "fieldPath": "open"
+                },
+                "op": "EQUAL",
+                "value": {
+                  "booleanValue": true
+                }
+              }
+            },
+            "orderBy": [
+              {
+                "field": {
+                  "fieldPath": "__name__"
+                },
+                "direction": "ASCENDING"
+              }
+            ]
+          },
+          "parent": "projects/demo-live-traffic/databases/(default)/documents"
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "ADD",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/lobby",
+                  "fields": {
+                    "name": {
+                      "stringValue": "Lobby"
+                    },
+                    "open": {
+                      "booleanValue": true
+                    },
+                    "seats": {
+                      "integerValue": "12"
+                    }
+                  },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "targetChange": {
+                "targetChangeType": "CURRENT",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "resumeToken": {
+                  "$": "resumeToken"
+                },
+                "readTime": {
+                  "$": "readTime"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "after": "write-garden",
+          "messages": [
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/garden",
+                  "fields": {
+                    "name": {
+                      "stringValue": "Garden"
+                    },
+                    "open": {
+                      "booleanValue": true
+                    }
+                  },
+                  "createTime": {
+                    "$": "commitTime"
+                  },
+                  "updateTime": {
+                    "$": "commitTime"
+                  }
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "targetChange": {
+                "targetChangeType": "NO_CHANGE",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "resumeToken": {
+                  "$": "resumeToken"
+                },
+                "readTime": {
+                  "$": "readTime"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "write",
+      "id": "write-garden",
+      "as": "user-reader",
+      "writes": [
+        {
+          "update": {
+            "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/garden",
+            "fields": {
+              "name": {
+                "stringValue": "Garden"
+              },
+              "open": {
+                "booleanValue": true
+              }
+            }
+          }
+        }
+      ],
+      "response": {
+        "writeResults": [
+          {
+            "updateTime": {
+              "$": "commitTime"
+            }
+          }
+        ],
+        "commitTime": {
+          "$": "commitTime"
+        }
+      }
+    },
+    {
+      "kind": "listen",
+      "id": "read-lobby-writer",
+      "as": "user-writer",
+      "target": {
+        "documents": {
+          "documents": [
+            "projects/demo-live-traffic/databases/(default)/documents/rooms/lobby"
+          ]
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "ADD",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/lobby",
+                  "fields": {
+                    "name": {
+                      "stringValue": "Lobby"
+                    },
+                    "open": {
+                      "booleanValue": true
+                    },
+                    "seats": {
+                      "integerValue": "12"
+                    }
+                  },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "targetChange": {
+                "targetChangeType": "CURRENT",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "resumeToken": {
+                  "$": "resumeToken"
+                },
+                "readTime": {
+                  "$": "readTime"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
+      "id": "read-secret-denied-writer",
+      "as": "user-writer",
+      "target": {
+        "documents": {
+          "documents": [
+            "projects/demo-live-traffic/databases/(default)/documents/rooms/secret"
+          ]
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "REMOVE",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "cause": {
+                  "code": 7,
+                  "message": "Missing or insufficient permissions."
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "listen",
+      "id": "listen-open-rooms-writer",
+      "as": "user-writer",
+      "target": {
+        "query": {
+          "structuredQuery": {
+            "from": [
+              {
+                "collectionId": "rooms"
+              }
+            ],
+            "where": {
+              "fieldFilter": {
+                "field": {
+                  "fieldPath": "open"
+                },
+                "op": "EQUAL",
+                "value": {
+                  "booleanValue": true
+                }
+              }
+            },
+            "orderBy": [
+              {
+                "field": {
+                  "fieldPath": "__name__"
+                },
+                "direction": "ASCENDING"
+              }
+            ]
+          },
+          "parent": "projects/demo-live-traffic/databases/(default)/documents"
+        }
+      },
+      "batches": [
+        {
+          "messages": [
+            {
+              "targetChange": {
+                "targetChangeType": "ADD",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/garden",
+                  "fields": {
+                    "name": {
+                      "stringValue": "Garden"
+                    },
+                    "open": {
+                      "booleanValue": true
+                    }
+                  },
+                  "createTime": "2026-11-01T08:05:00.000000Z",
+                  "updateTime": "2026-11-01T08:05:00.000000Z"
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/lobby",
+                  "fields": {
+                    "name": {
+                      "stringValue": "Lobby"
+                    },
+                    "open": {
+                      "booleanValue": true
+                    },
+                    "seats": {
+                      "integerValue": "12"
+                    }
+                  },
+                  "createTime": "2026-11-01T08:00:00.000000Z",
+                  "updateTime": "2026-11-01T08:00:00.000000Z"
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "targetChange": {
+                "targetChangeType": "CURRENT",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "resumeToken": {
+                  "$": "resumeToken"
+                },
+                "readTime": {
+                  "$": "readTime"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "after": "write-patio",
+          "messages": [
+            {
+              "documentChange": {
+                "document": {
+                  "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/patio",
+                  "fields": {
+                    "name": {
+                      "stringValue": "Patio"
+                    },
+                    "open": {
+                      "booleanValue": true
+                    }
+                  },
+                  "createTime": {
+                    "$": "commitTime"
+                  },
+                  "updateTime": {
+                    "$": "commitTime"
+                  }
+                },
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ]
+              }
+            },
+            {
+              "targetChange": {
+                "targetChangeType": "NO_CHANGE",
+                "targetIds": [
+                  {
+                    "$": "targetId"
+                  }
+                ],
+                "resumeToken": {
+                  "$": "resumeToken"
+                },
+                "readTime": {
+                  "$": "readTime"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "write",
+      "id": "write-patio",
+      "as": "user-writer",
+      "writes": [
+        {
+          "update": {
+            "name": "projects/demo-live-traffic/databases/(default)/documents/rooms/patio",
+            "fields": {
+              "name": {
+                "stringValue": "Patio"
+              },
+              "open": {
+                "booleanValue": true
+              }
+            }
+          }
+        }
+      ],
+      "response": {
+        "writeResults": [
+          {
+            "updateTime": {
+              "$": "commitTime"
+            }
+          }
+        ],
+        "commitTime": {
+          "$": "commitTime"
+        }
+      }
+    }
+  ]
+}

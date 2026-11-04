@@ -4,7 +4,8 @@
  * production's answer. Records of `firebase/app` and `firebase/app-check`
  * calls stay in the page: the host's observed calls name Firestore and Auth
  * only. A call that returned synchronously, such as a listener's subscribe,
- * has no production answer and is not sent.
+ * has no production answer and is not sent. A call that ran signed in names
+ * its account: the uid and claim names, never the token.
  *
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
@@ -27,6 +28,14 @@ function productionOutcome(record: LiveCallRecord): ProductionOutcome | null {
   return { status: 'error', code: record.code ?? 'unknown' };
 }
 
+/** The record's account as the host takes it: a fresh copy, or nothing for a call that ran signed out. */
+function accountOf(record: LiveCallRecord): Pick<ObservedCall, 'account'> {
+  const account = record.account;
+  if (account === undefined) return {};
+  const claims = account.claimNames === undefined ? {} : { claimNames: [...account.claimNames] };
+  return { account: { uid: account.uid, ...claims } };
+}
+
 /** The observed call for a record made at `at`, or null when the host takes no row for it. */
 export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall | null {
   const service = SERVICES.get(record.module);
@@ -34,8 +43,9 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const outcome = productionOutcome(record);
   if (outcome === null) return null;
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
+  const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
-  return { service, method: record.name, at, outcome, ...project, ...billed };
+  return { service, method: record.name, at, outcome, ...project, ...account, ...billed };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */

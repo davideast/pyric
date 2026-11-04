@@ -80,6 +80,9 @@ PACKAGES=(
   "packages/create-pyric"
   "packages/cli"
   "packages/ui"
+  # Private until live mode is complete: packed for the app scenarios, never
+  # published (publish-alpha.sh uploads only the tarballs it names).
+  "packages/live"
 )
 
 # ─── Phase 0: optional rebuild ─────────────────────────────────────────
@@ -191,7 +194,7 @@ echo ""
 ls -lh "$OUT_DIR" | tail -n +2 | awk '{print "  " $9 "  " $5}'
 
 echo ""
-echo "✓ All 5 publishable packages packed into $OUT_DIR/"
+echo "✓ All ${#PACKAGES[@]} packages packed into $OUT_DIR/ (5 publishable, @pyric/live private)"
 echo ""
 echo "See $OUT_DIR/manifest.json for exact tarball filenames."
 

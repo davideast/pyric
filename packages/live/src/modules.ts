@@ -4,8 +4,11 @@
  * observed ones as wrappers that call the real function, the guarded ones
  * (`getFirestore` and `initializeFirestore`, which refuse a named database)
  * as wrappers that throw live mode's refusal or call the real function, and
- * every other one (classes, constants, `doc`, `query`, `getAuth`) as the
- * real value itself, so `instanceof` and identity checks see the SDK's own.
+ * the noted ones (`getAuth` and `initializeAuth`) as wrappers that note the
+ * Auth they return so a call's record can name its account (`account.ts`),
+ * and every other one (classes, constants, `doc`, `query`) as the real value
+ * itself, so `instanceof` and identity checks see the SDK's own. Every
+ * wrapper returns the SDK's own result.
  *
  * The real module is passed in. A plane loads it from the app's own installed
  * `firebase`, so the app object, Auth, Firestore and App Check all come from
@@ -17,6 +20,7 @@
  *
  * This file imports no Firebase SDK, so nothing here adds a dependency on it.
  */
+import { accountOf, noteAuth } from './account.js';
 import { observedCall, observedListener, type LiveObserver, type ObservedSite, type UncaughtListenerError } from './observe.js';
 import { liveCallRefusal, type LiveClient, type RefusedCall } from './refusal.js';
 
@@ -40,6 +44,12 @@ export interface LiveModuleSpec {
    * no request leaves. A call the check passes is the SDK's own, unrecorded.
    */
   readonly refused?: Readonly<Record<string, RefusalCheck>>;
+  /**
+   * Exports that hand the app its Auth instance. Each is called as the app
+   * called it, unrecorded, and the instance it returns is noted, so later
+   * records name the account its current user is.
+   */
+  readonly noted?: readonly string[];
 }
 
 /** The call an export's arguments make when live mode refuses it, or null when it serves them. */
@@ -122,6 +132,7 @@ export const LIVE_MODULES: Readonly<Record<LiveModuleKey, LiveModuleSpec>> = {
       'getIdTokenResult',
     ],
     listeners: ['onAuthStateChanged', 'onIdTokenChanged'],
+    noted: ['getAuth', 'initializeAuth'],
   },
   'live-firestore': {
     calls: [
@@ -183,6 +194,19 @@ function guardExports(wrapped: Record<string, unknown>, checks: Readonly<Record<
   }
 }
 
+/** Replaces each noted export with one that calls the SDK and notes the Auth it returns. */
+function noteExports(wrapped: Record<string, unknown>, names: readonly string[]): void {
+  for (const name of names) {
+    const real = wrapped[name];
+    if (typeof real !== 'function') continue;
+    wrapped[name] = function noted(this: unknown, ...args: unknown[]): unknown {
+      const auth = Reflect.apply(real as Callback, this, args);
+      noteAuth(auth);
+      return auth;
+    };
+  }
+}
+
 /** Where a wrapped module runs: who receives its records, the installed SDK's version, and the client. */
 export interface LiveModuleSite {
   readonly observer: LiveObserver;
@@ -200,16 +224,17 @@ export interface LiveModuleSite {
 export function wrapLiveModule<T extends object>(key: LiveModuleKey, specifier: string, real: T, site: LiveModuleSite): T {
   const spec = LIVE_MODULES[key];
   const wrapped: Record<string, unknown> = { ...(real as Record<string, unknown>) };
-  const observedSite = { module: specifier, observer: site.observer };
+  const observedSite = { module: specifier, observer: site.observer, accountOf };
   wrapExports(wrapped, spec.calls, observedCall, observedSite);
   const uncaughtListenerError = spec.uncaughtListenerError?.(site.sdkVersion);
   wrapExports(wrapped, spec.listeners, observedListener, { ...observedSite, uncaughtListenerError });
   guardExports(wrapped, spec.refused ?? {}, site.client);
+  noteExports(wrapped, spec.noted ?? []);
   return wrapped as T;
 }
 
-/** Every export a live module replaces: the observed ones and the refused ones. */
+/** Every export a live module replaces: the observed, the refused and the noted ones. */
 export function replacedExports(key: LiveModuleKey): string[] {
   const spec = LIVE_MODULES[key];
-  return [...spec.calls, ...spec.listeners, ...Object.keys(spec.refused ?? {})];
+  return [...spec.calls, ...spec.listeners, ...Object.keys(spec.refused ?? {}), ...(spec.noted ?? [])];
 }

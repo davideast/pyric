@@ -16,10 +16,23 @@ import type { Json, JsonObject, ListenExchange, Recording, WriteExchange } from 
 import { fill, matches, ReplayClock, ReplayTokens, type FillContext } from './values.ts';
 import type { StreamHandler, WebChannelSession } from './webchannel.ts';
 
+/** Where a stream's answers go: a WebChannel session or a gRPC call. */
+export type StreamSession = Pick<WebChannelSession, 'send' | 'fail'>;
+
+/** One request a client sent: a stream message or an Auth REST call, matched or not. */
+export interface Received {
+  rpc: 'Listen' | 'Write' | 'auth';
+  as: string | null;
+  message: Json;
+}
+
 /** A request the recordings do not answer. The replay server lists each one. */
 export interface Unmatched {
-  /** The stream or REST surface, or `http` for a host or path this harness does not replay. */
-  rpc: 'Listen' | 'Write' | 'auth' | 'http';
+  /**
+   * The stream or REST surface, `http` for a host or path this harness does
+   * not replay, or `grpc` for a Firestore RPC other than Listen and Write.
+   */
+  rpc: 'Listen' | 'Write' | 'auth' | 'http' | 'grpc';
   as: string | null;
   request: Json;
 }
@@ -36,6 +49,8 @@ export class ReplayState {
   readonly clock = new ReplayClock();
   readonly tokens = new ReplayTokens();
   readonly unmatched: Unmatched[] = [];
+  /** Every request any client sent, in arrival order, so a caller can show that a call sent none. */
+  readonly received: Received[] = [];
   /** Emits `answered` with a write exchange id and its commit time. */
   readonly writes = new EventEmitter();
   private readonly used = new Set<string>();
@@ -73,9 +88,10 @@ const NO_RECORDING = (what: string) => ({
 export class ListenStream implements StreamHandler {
   private readonly active = new Map<number, () => void>();
 
-  constructor(private readonly session: WebChannelSession, private readonly state: ReplayState, private readonly as: string | null) {}
+  constructor(private readonly session: StreamSession, private readonly state: ReplayState, private readonly as: string | null) {}
 
   onMessage(message: JsonObject): void {
+    this.state.received.push({ rpc: 'Listen', as: this.as, message });
     const addTarget = message.addTarget as JsonObject | undefined;
     if (addTarget) this.add(addTarget);
     if (typeof message.removeTarget === 'number') this.remove(message.removeTarget);
@@ -122,9 +138,10 @@ export class ListenStream implements StreamHandler {
 export class WriteStream implements StreamHandler {
   private handshaken = false;
 
-  constructor(private readonly session: WebChannelSession, private readonly state: ReplayState, private readonly as: string | null) {}
+  constructor(private readonly session: StreamSession, private readonly state: ReplayState, private readonly as: string | null) {}
 
   onMessage(message: JsonObject): void {
+    this.state.received.push({ rpc: 'Write', as: this.as, message });
     const writes = (message.writes as Json[] | undefined) ?? [];
     const isHandshake = !this.handshaken;
     if (isHandshake) {

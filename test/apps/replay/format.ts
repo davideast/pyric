@@ -13,7 +13,8 @@ export type JsonObject = { [key: string]: Json };
 /**
  * A value the replay server fills in when it answers, written as
  * `{ "$": "<name>" }`. `any` matches every request value. `idToken` is minted
- * from its `uid`, `email` and `provider` fields.
+ * from its `uid`, `email` and `provider` fields; in an Auth request it matches
+ * a token this server minted for its `uid`.
  */
 export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
