@@ -173,7 +173,7 @@ describe('@pyric/live/register', () => {
     expect(result.stdout).toContain('to a Node process');
   }, 60_000);
 
-  it('stops the real SDK reached by any route but a live row: a file URL, an @firebase/* import, or a forged row import', async () => {
+  it('stops the real SDK reached by any route but a live row: a file URL or an @firebase/* import', async () => {
     const res = run([LIVE_REGISTER], [realStorageFile, '@firebase/storage', realAdminFile]);
     expect(res.status, res.stderr).toBe(0);
     expect(res.outcome).toEqual({
@@ -187,6 +187,47 @@ describe('@pyric/live/register', () => {
     const firestoreRow = await rowUrl('firebase/firestore');
     const direct = run([LIVE_REGISTER], [firestoreRow]);
     expect(direct.outcome[firestoreRow]).toBe('loaded');
+  }, 60_000);
+
+  it('gives a createRequire forged from a row the row again, and stops one forged from an allowed SDK file', async () => {
+    const firestoreRow = await rowUrl('firebase/firestore');
+    const script = `import { createRequire } from 'node:module';
+const row = await import('firebase/firestore');
+const loaded = globalThis[Symbol.for('live.stop.loaded')];
+const allowedFile = loaded.find((url) => /\\/node_modules\\/firebase\\/firestore\\/dist\\/.+\\.mjs$/.test(url));
+const attempt = (fromUrl, specifier) => {
+  try {
+    const required = createRequire(fromUrl)(specifier);
+    return required === row ? 'row' : 'loaded ' + Object.keys(required).length;
+  } catch (error) {
+    return error?.code ?? 'threw: ' + String(error?.message ?? error).split('\\n')[0];
+  }
+};
+const before = loaded.length;
+const outcome = { allowedFile: allowedFile ?? 'none', fromRow: attempt(${JSON.stringify(firestoreRow)}, 'firebase/firestore') };
+for (const specifier of ['@firebase/storage', '@firebase/database', '@firebase/functions', '@firebase/firestore', 'firebase/storage']) {
+  outcome[specifier] = attempt(allowedFile, specifier);
+}
+const isSdkFile = (url) => /\\/node_modules\\/(firebase|firebase-admin|@firebase\\/[^/]+)\\//.test(url);
+console.log('OUTCOME ' + JSON.stringify({ outcome, sdkFiles: loaded.slice(before).filter(isSdkFile) }));
+`;
+    writeFileSync(join(projectDir, 'forge.mjs'), script);
+    const imports = ['--import', pathToFileURL(join(projectDir, 'observer.mjs')).href, '--import', LIVE_REGISTER];
+    const result = spawnSync('node', [...imports, join(projectDir, 'forge.mjs')], {
+      cwd: projectDir, encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH, HOME: projectDir },
+    });
+    const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME ')) ?? 'OUTCOME {"outcome":{},"sdkFiles":[]}';
+    const { outcome, sdkFiles } = JSON.parse(line.slice('OUTCOME '.length)) as { outcome: Record<string, string>; sdkFiles: string[] };
+    expect(result.status, result.stderr).toBe(0);
+    expect(outcome.allowedFile, result.stderr).not.toBe('none');
+    // The row's own URL as importer, through require: the row again, never the unobserved Firestore.
+    expect(outcome.fromRow, result.stderr).toBe('row');
+    // An allowed client SDK file as importer, through require: stopped, whatever package it names.
+    for (const specifier of ['@firebase/storage', '@firebase/database', '@firebase/functions', '@firebase/firestore']) {
+      expect(outcome[specifier], specifier).toBe('PYRIC_REAL_SDK_STOPPED');
+    }
+    expect(outcome['firebase/storage']).toBe('PYRIC_LIVE_REFUSED');
+    expect(sdkFiles).toEqual([]);
   }, 60_000);
 
   it("serves require() the live row, or stops it where Node's require skips the hooks; firebase-admin never loads", () => {
@@ -214,7 +255,27 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { ...outcome, node: process.v
     } else {
       expect(outcome['firebase/firestore']).toBe('PYRIC_REAL_SDK_STOPPED');
       expect(['PYRIC_LIVE_REFUSED', 'PYRIC_REAL_SDK_STOPPED']).toContain(outcome['firebase-admin']);
+      expect(result.stderr).toContain(`CommonJS require() on Node ${outcome.node} can't be served under live mode`);
+      expect(result.stderr).toContain('from an ES module, or run Node 23 or later');
     }
+  }, 60_000);
+
+  it("opens the parent's project rows in a child process started in a directory without @pyric/live", () => {
+    const child = `import('firebase/firestore').then((m) => console.log('CHILD ' + typeof m.getFirestore), (e) => console.log('CHILD ' + (e?.code ?? e)));`;
+    const script = `import { spawnSync } from 'node:child_process';
+const result = spawnSync(process.execPath, ['-e', ${JSON.stringify(child)}], { cwd: ${JSON.stringify(otherDir)}, encoding: 'utf8' });
+console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.status), stdout: result.stdout.trim(), stderr: result.stderr }, sdkFiles: [] }));
+`;
+    writeFileSync(join(projectDir, 'parent.mjs'), script);
+    const result = spawnSync('node', ['--import', LIVE_REGISTER, join(projectDir, 'parent.mjs')], {
+      cwd: projectDir, encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH, HOME: projectDir },
+    });
+    const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME ')) ?? 'OUTCOME {"outcome":{}}';
+    const { outcome } = JSON.parse(line.slice('OUTCOME '.length)) as { outcome: Record<string, string> };
+    expect(result.status, result.stderr).toBe(0);
+    expect(outcome.status, outcome.stderr).toBe('0');
+    expect(outcome.stdout).toBe('CHILD function');
+    expect(outcome.stderr).toContain('@pyric/live/register: live mode.');
   }, 60_000);
 
   it('refuses to start in a project without @pyric/live, and nothing loads', () => {

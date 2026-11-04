@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'bun:test';
 import { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from '@pyric/cli/register/internal/supplied-rows';
 import { LIVE_MODULES, LIVE_ROWS } from '../src/index.js';
-import { liveRegisterModuleSource } from '../src/node-modules.js';
+import { liveRefusal as installedRefusal, liveRegisterModuleSource } from '../src/node-modules.js';
 import { LIVE_REFUSED, liveRefusal } from '../src/refusal.js';
 
 const SENDER = 'file:///cli/dist/register/observed-call-sender.js';
@@ -47,5 +47,7 @@ describe('the refusal a Node process gets', () => {
     expect(error.message).toContain('firebase/database (Realtime Database) is refused in live mode');
     expect(error.message).toContain('to a Node process, from your installed Firebase SDK');
     expect(liveRefusal('firebase-admin', 'node').message).toContain('firebase-admin (the Admin SDK) is refused in live mode');
+    // The register loads the refusal from this package's node-modules export, never from its caller.
+    expect(installedRefusal).toBe(liveRefusal);
   });
 });

@@ -12,12 +12,11 @@
  * (`refusal.ts`).
  *
  * It is `@pyric/cli`'s register hooks with the live rows, through the one
- * internal seam. The seam opens the rows only for this file as the project
- * installs it, and loads the row modules' source from this package
- * (`node-modules.ts`), so nothing in `pyric` or `@pyric/cli` opens them
- * without it.
+ * internal seam. The seam takes nothing from this file: it opens the rows
+ * only when `@pyric/live` is installed in the project, and loads the row
+ * modules' source and the refusal from that installed package
+ * (`node-modules.ts`).
  */
 import { activateWithSuppliedRows } from '@pyric/cli/register/internal/supplied-rows';
-import { liveRefusal } from './refusal.js';
 
-await activateWithSuppliedRows({ refusal: liveRefusal, entryUrl: import.meta.url });
+await activateWithSuppliedRows();

@@ -2,38 +2,32 @@
  * `@pyric/cli/register/internal/supplied-rows`: the one seam through which
  * `@pyric/live/register` serves its rows to a Node process, over this
  * package's resolve hooks, stop, worker and child-process guards. It takes
- * no module ids: the row modules are fixed (`supplied-rows.ts`), and their
- * source comes from the `@pyric/live` installed in the project, which opens
- * them only for its own register entry (`live-package.ts`). Without that
- * package the register refuses to start. `@pyric/cli/register` never reads
- * this module, and no option, flag or environment variable reaches it.
+ * nothing from its caller: the row modules' ids are fixed (`live-row.ts`),
+ * and their source, the refusal and the register entry children load all
+ * come from the `@pyric/live` installed in the project (`live-package.ts`).
+ * The gate is that installed package: without it the register refuses to
+ * start. `@pyric/cli/register` never reads this module, and no option, flag
+ * or environment variable turns live mode on.
  */
 import Module from 'node:module';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
 import { installChildProcessGuard } from './child-process-guard.js';
-import { loadRegisterRowPackage } from './live-package.js';
+import { LIVE_PROJECT_ROOT_VARIABLE, liveProjectRoot, loadInstalledLiveRegister } from './live-package.js';
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
 import { isRegisterLiveModule } from './live-row.js';
 import {
+  isImportCondition,
   registerLiveModuleSource,
   registerRows,
   registerRowsResolution,
   type RegisterRows,
 } from './supplied-rows.js';
 import { installWorkerGuard } from './worker-guard.js';
-import type { SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export type { ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 export type { SuppliedRowsPlane, SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
-
-/** What the supplier gives: the error for a refused import, and the URL of its own register entry. */
-export interface SuppliedRegisterInput {
-  readonly refusal: SuppliedRowsRefusal;
-  /** `import.meta.url` of the register entry calling this; it must be the installed `@pyric/live/register`. */
-  readonly entryUrl: string;
-}
 
 interface ResolveContext {
   parentURL?: string;
@@ -66,7 +60,8 @@ function resolveWithRows(rows: RegisterRows): Resolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
   const allowedUrls = new Set<string>();
   return (specifier, context, nextResolve) => {
-    const resolution = registerRowsResolution(rows, specifier, context.parentURL);
+    const request = { specifier, importer: context.parentURL, conditions: context.conditions };
+    const resolution = registerRowsResolution(rows, request);
     if (resolution.kind === 'refused') throw resolution.error;
     if (resolution.kind === 'module') return { url: resolution.url, format: 'module', shortCircuit: true };
     const isRowImport = resolution.kind === 'installed-sdk';
@@ -74,7 +69,9 @@ function resolveWithRows(rows: RegisterRows): Resolve {
     const result = isRowImport
       ? nextResolve(specifier, { ...context, parentURL: resolution.projectUrl })
       : nextResolve(specifier, context);
-    const stop = suppliedRowsStopFor({ specifier, importer: context.parentURL, url: result.url }, allowedUrls, isRowImport);
+    const isEsmImport = isImportCondition(context.conditions);
+    const load = { specifier, importer: context.parentURL, url: result.url };
+    const stop = suppliedRowsStopFor(load, allowedUrls, { isRowImport, isEsmImport });
     if (stop === null) return result;
     report(stop);
     throw stop;
@@ -97,12 +94,12 @@ function isRefusedInProduction(): boolean {
 /**
  * Starts the live rows in this thread: the installed `@pyric/live` opens
  * them, then the hooks go in, and every worker thread and child process this
- * process starts loads the same entry. Throws, leaving the process
- * unhooked, when the rows cannot open: `@pyric/live` not installed in the
- * project, the entry not its register, Node without `module.registerHooks`,
- * or `@pyric/cli/register` already active.
+ * process starts loads the installed register, for the same project root.
+ * Throws, leaving the process unhooked, when the rows cannot open:
+ * `@pyric/live` not installed in the project, Node without
+ * `module.registerHooks`, or `@pyric/cli/register` already active.
  */
-export async function activateWithSuppliedRows(input: SuppliedRegisterInput): Promise<void> {
+export async function activateWithSuppliedRows(): Promise<void> {
   if (isLiveRegisterActive()) return;
   if (isRefusedInProduction()) {
     process.stderr.write(
@@ -120,10 +117,13 @@ export async function activateWithSuppliedRows(input: SuppliedRegisterInput): Pr
         'Start the process with one of the two.',
     );
   }
-  const rows = registerRows(input.refusal);
-  rows.open(await loadRegisterRowPackage(process.cwd(), input.entryUrl));
-  installWorkerGuard(input.entryUrl);
-  installChildProcessGuard(input.entryUrl);
+  const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()));
+  const rows = registerRows();
+  rows.open(installed.rows);
+  // Children and workers open the rows for this process's project, wherever they start.
+  process.env[LIVE_PROJECT_ROOT_VARIABLE] = installed.projectRoot;
+  installWorkerGuard(installed.entryUrl);
+  installChildProcessGuard(installed.entryUrl);
   registerHooks({ resolve: resolveWithRows(rows), load: loadWithRows(rows) });
   markLiveRegisterActive();
   process.stderr.write(

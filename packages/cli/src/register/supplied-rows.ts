@@ -3,8 +3,9 @@
  * serves from the app's installed Firebase SDK, as the Vite page plane does
  * (`../serve/vite-supplied-rows.ts`). The row modules' ids are fixed, one
  * per specifier (`live-row.ts`), and their source comes from the
- * `@pyric/live` installed in the project (`live-package.ts`). The real-SDK
- * stop opens only for one of those modules' own import of its specifier.
+ * `@pyric/live` installed in the project (`live-package.ts`), as does the
+ * refusal. The real-SDK stop opens only for one of those modules' own ESM
+ * import of its specifier.
  * Every other Firebase import, served or not, and every `firebase-admin`
  * import is refused, never sent to a sandbox mirror, so one app object never
  * mixes the installed SDK with sandbox services.
@@ -19,6 +20,8 @@ import { REGISTER_ROW_URLS, isRegisterLiveModule } from './live-row.js';
 export interface RegisterRowPackage {
   /** The file URL every row module resolves its own specifier from: the project's `package.json`. */
   readonly projectUrl: string;
+  /** The error for a refused import. */
+  readonly refusal: SuppliedRowsRefusal;
   /** The source of a fixed live module id, or null for any other id. */
   moduleSource(url: string): string | null;
 }
@@ -28,17 +31,21 @@ export interface RegisterRowPackage {
  * import, until {@link RegisterRows.open} is given the installed `@pyric/live`.
  */
 export interface RegisterRows {
-  readonly refusal: SuppliedRowsRefusal;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RegisterRowPackage | null;
   open(found: RegisterRowPackage): void;
 }
 
-/** Shut live rows with the supplier's refusal. */
-export function registerRows(refusal: SuppliedRowsRefusal): RegisterRows {
+/** The refusal while the rows are shut, before the installed `@pyric/live` gives its own. */
+function shutRefusal(specifier: string): Error {
+  const error = new Error(`pyric: ${specifier} is refused, because the live rows are shut until @pyric/live opens them.`);
+  return Object.assign(error, { code: 'PYRIC_LIVE_REFUSED' });
+}
+
+/** Shut live rows. */
+export function registerRows(): RegisterRows {
   let found: RegisterRowPackage | null = null;
   return {
-    refusal,
     package: () => found,
     open(next) {
       found = next;
@@ -55,6 +62,34 @@ export type RegisterRowsResolution =
 /** `firebase`, `firebase/*`, `firebase-admin` and `firebase-admin/*`, as an app names them. */
 const FIREBASE_IMPORT = /^firebase(-admin)?(\/.+)?$/;
 
+/** How an import names its module: the specifier, the importer's URL, and the resolve conditions. */
+export interface RegisterRowsImport {
+  readonly specifier: string;
+  readonly importer: string | undefined;
+  /** An array on an ESM import; Node 22 passes a `require()` other shapes, or none. */
+  readonly conditions: unknown;
+}
+
+/** Whether a resolve hook's conditions name `import`: an ESM import, never a `require()`. */
+export function isImportCondition(conditions: unknown): boolean {
+  const isList = Array.isArray(conditions) || conditions instanceof Set;
+  if (!isList) return false;
+  return [...(conditions as Iterable<unknown>)].includes('import');
+}
+
+/**
+ * Whether the import is the row module's own: its ESM import of its
+ * specifier. Rows are ES modules, so their import resolves with the `import`
+ * condition. A `createRequire` call can name the row's URL as its importer,
+ * but it resolves with `require`, so it gets the row again, never the
+ * installed SDK behind it.
+ */
+function isOwnRowImport(rowUrl: string, request: RegisterRowsImport): boolean {
+  const isFromRow = request.importer === rowUrl;
+  const isEsmImport = isImportCondition(request.conditions);
+  return isFromRow && isEsmImport;
+}
+
 /**
  * What an import gets under live rows: the row's module; the installed SDK,
  * when that row module imports its own specifier; the refusal, for every
@@ -62,15 +97,17 @@ const FIREBASE_IMPORT = /^firebase(-admin)?(\/.+)?$/;
  * are shut; or `unserved` for anything else, which resolves as Node resolves
  * it and still meets the stop.
  */
-export function registerRowsResolution(rows: RegisterRows, specifier: string, importer: string | undefined): RegisterRowsResolution {
+export function registerRowsResolution(rows: RegisterRows, request: RegisterRowsImport): RegisterRowsResolution {
+  const specifier = request.specifier;
   const isLiveModule = isRegisterLiveModule(specifier);
   const found = rows.package();
   if (isLiveModule && found !== null) return { kind: 'module', url: specifier };
   const isFirebaseImport = FIREBASE_IMPORT.test(specifier);
   if (!isFirebaseImport) return { kind: 'unserved' };
   const url = REGISTER_ROW_URLS.get(specifier as ServedFirebaseSpecifier);
-  if (url === undefined || found === null) return { kind: 'refused', error: rows.refusal(specifier, 'node') };
-  return importer === url ? { kind: 'installed-sdk', projectUrl: found.projectUrl } : { kind: 'module', url };
+  if (found === null) return { kind: 'refused', error: shutRefusal(specifier) };
+  if (url === undefined) return { kind: 'refused', error: found.refusal(specifier, 'node') };
+  return isOwnRowImport(url, request) ? { kind: 'installed-sdk', projectUrl: found.projectUrl } : { kind: 'module', url };
 }
 
 /** The source the load hook serves for a fixed live module. Throws while the rows are shut. */
