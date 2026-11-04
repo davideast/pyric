@@ -5,7 +5,7 @@
     "app-check-admin#create-token-ttl"
   ],
   "description": "createToken ttlMillis option: 30 minutes is honored (ttlMillis and exp minus iat), and the errors for 29 minutes and for 7 days plus one second.",
-  "observedAt": "2026-11-02T19:34:20.115Z",
+  "observedAt": "2026-11-03T23:22:16.031Z",
   "fbSdkVersion": "12.19.0",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",

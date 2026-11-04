@@ -5,9 +5,10 @@
     "app-check#get-token-concurrent"
   ],
   "description": "Debug mode only (registered debug token): two getToken calls started together with no cached token, then two getToken(appCheck, true) calls started together, with a listener registered before the first pair. Records whether each pair resolved to one token, whether the forced pair differs from the first, and the listener call count read 300 ms after each pair.",
-  "observedAt": "2026-11-02T19:35:27.861Z",
+  "observedAt": "2026-11-03T23:22:19.683Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "customProviderCalls": 0,
     "first": {
