@@ -47,7 +47,7 @@ import type { DatabaseRulesDestination, InitPayload } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { ensureAuth, setPortSession } from '../worker/host-auth.js';
-import { markPortConnection, type PortConnection } from '../worker/host/caller.js';
+import { callerFor, markPortConnection, type PortConnection } from '../worker/host/caller.js';
 import { restoreFirestoreSubscriptions } from '../worker/host/subscriptions.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { hostDatabaseInstances } from '../worker/host/rtdb-instance-catalog.js';
@@ -55,6 +55,7 @@ import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
+import { refuseOwnWrite, type PyricWriteRefusal } from './own-writes.js';
 import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
 import { createReproRecorder, type ReproRecorder } from '../repro/recorder.js';
 import { buildReproFile, captureReproBase } from '../repro/capture.js';
@@ -96,6 +97,19 @@ export interface HostedRuntimeOptions {
   record?: boolean;
   /** Entries one repro log window holds; see `createReproRecorder`. */
   reproWindow?: number;
+  /**
+   * Live mode's refusal of pyric's own writes (`own-writes.ts`). With it, the
+   * host refuses every write it is asked for, from a connection, an MCP tool
+   * or a direct command, before it runs. Absent outside live mode.
+   */
+  ownWriteRefusal?: PyricWriteRefusal;
+}
+
+/** The write a port's frame asks for: a durable operation or a write tool, named for the refusal. Null for anything else. */
+function portWriteOf(message: InboundMessage): string | null {
+  if (message.t === 'op') return requiresHealthyPersistence(message) ? message.method : null;
+  if (message.t === 'tool') return sandboxToolEffect(message.name) === 'write' ? message.name : null;
+  return null;
 }
 
 /** One Node-owned sandbox; each admitted consumer owns its ordered work. */
@@ -324,6 +338,7 @@ export async function createHostedRuntime(
     try {
       const effect = sandboxToolEffect(message.name);
       const changesState = effect === 'write';
+      if (changesState) refuseOwnWrite(ai.ownWriteRefusal, { action: message.name, writer: 'mcp' });
       if (changesState) requireHealthyPersistence();
       // The window names the call's synchronous events; the tool's Firestore
       // handles name the rest (`bridge/client/dispatch.ts`).
@@ -431,6 +446,15 @@ export async function createHostedRuntime(
     return owned;
   }
 
+  /** In live mode, refuses a port's write with the caller its events would name. */
+  function refusePortWrite(port: PortLike, message: InboundMessage): void {
+    const refusal = ai.ownWriteRefusal;
+    if (refusal === undefined) return;
+    const action = portWriteOf(message);
+    if (action === null) return;
+    refuseOwnWrite(refusal, { action, writer: callerFor(ctx, port, message).kind });
+  }
+
   function enqueue(clientSessionId: string, incoming: InboundMessage, transport: HostedTransport, platform?: string): void {
     const owned = portFor(clientSessionId, transport);
     markPortConnection(ctx, owned.port, portConnection(transport, platform));
@@ -454,6 +478,7 @@ export async function createHostedRuntime(
       owned.transport = transport;
       if (message.resumeSession === true) ctx.disconnectedPorts?.delete(owned.port);
       await recorder?.inbound(clientSessionId, message);
+      refusePortWrite(owned.port, message);
       const changesDurableState = message.t === 'op' && requiresHealthyPersistence(message);
       if (changesDurableState) requireHealthyPersistence();
       return handleMessage(ctx, owned.port, message);
@@ -546,6 +571,17 @@ export async function createHostedRuntime(
       finish: sessionId => finishUploadSession(ctx, sessionId),
     },
   });
+
+  /** In live mode, the result that refuses a direct command's write; null otherwise. */
+  function ownWriteRefusalOf(key: string): OperationResult | null {
+    try {
+      refuseOwnWrite(ai.ownWriteRefusal, { action: key, writer: 'command' });
+      return null;
+    } catch (error) {
+      const serialized = serializeError(error);
+      return { ok: false, summary: serialized.message, data: { code: serialized.code } };
+    }
+  }
 
   return {
     /** The HTTP byte route; resolves false for any other path. */
@@ -661,6 +697,14 @@ export async function createHostedRuntime(
         // Switching the held identity is a memory-only control.
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
         const changesDurableState = hasMutationEffect && !changesHeldIdentity;
+        // In live mode pyric reaches no production project and acts as no one
+        // on its own: a production effect (storage.status, storage.provision,
+        // assurance.testRulesHosted) and an identity switch are refused with
+        // every write.
+        const reachesProduction = method.effect === 'production';
+        const isPyricOwnAction = hasMutationEffect || reachesProduction;
+        const refusal = isPyricOwnAction ? ownWriteRefusalOf(key) : null;
+        if (refusal !== null) return refusal;
         if (changesDurableState) requireHealthyPersistence();
         if (changesDurableState && key !== 'rules.set') {
           recorder?.note({ kind: 'external', at: Date.now(), source: 'command', name: key });

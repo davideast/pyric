@@ -64,6 +64,7 @@ import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
 import type { SuppliedRows } from './vite-supplied-rows.js';
+import type { PyricWriteRefusal } from './hosted/own-writes.js';
 import { loadRowModulePackage } from './vite-live-package.js';
 import { pyricFsDeny } from './vite-state-deny.js';
 import { attachViteRealPathDeny } from './vite-real-path-deny.js';
@@ -259,6 +260,18 @@ async function openSuppliedRows(supplied: SuppliedRows, resolved: ResolvedConfig
 }
 
 /**
+ * Live mode's refusal of pyric's own writes, for a plugin with live rows; none
+ * for `pyric()`. The rows opened in `configResolved`, so shut rows here mean
+ * the host must not start.
+ */
+function ownWriteRefusalOf(supplied: SuppliedRows | undefined): PyricWriteRefusal | undefined {
+  if (supplied === undefined) return undefined;
+  const found = supplied.package();
+  if (found === null) throw new Error('pyric: the live rows are shut, so the dev server does not start its host.');
+  return found.writeRefusal;
+}
+
+/**
  * The dev-only Vite plugin. Add to `vite.config`:
  *
  *   import { pyric } from '@pyric/cli/vite';
@@ -327,7 +340,8 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       // an externalized package that imports firebase-admin (ADR 0022).
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       if (isDevServer) {
-        installViteNetGuard();
+        // Under live rows PYRIC_GUARD is not read: nothing in the environment turns the guard off.
+        installViteNetGuard({ fixedMode: supplied !== undefined });
         installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
       }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
@@ -416,6 +430,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         avatars: options.avatars,
         flow: options.flow,
         project: options.project,
+        ownWriteRefusal: ownWriteRefusalOf(supplied),
       };
       const generationInput: ViteSandboxGenerationInput = {
         server,
