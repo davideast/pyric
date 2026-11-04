@@ -5,14 +5,12 @@
  * an error: the plugin refuses to start, and the stop stays shut.
  */
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { createViteModuleContext } from './vite-module-swap.js';
+import { loadInstalledLiveExport } from './installed-live-package.js';
 
-const LIVE_PACKAGE = '@pyric/live';
 /** The `@pyric/live` export that builds a row module's source. */
-const PAGE_MODULES_EXPORT = `${LIVE_PACKAGE}/page-modules`;
+const PAGE_MODULES_SUBPATH = 'page-modules';
 
 /** What the plugin reads from the installed `@pyric/live`. */
 export interface RowModulePackage {
@@ -34,39 +32,18 @@ export function observedCallSenderEntry(): string {
   return existsSync(js) ? js : join(entriesDir, 'observed-call-sender.ts');
 }
 
-function notInstalled(projectRoot: string): Error {
-  return new Error(
-    `pyric: live rows need ${LIVE_PACKAGE} installed in the project, and it does not resolve from ${projectRoot}. ` +
-      'Every served firebase/* import stays on the sandbox stop.',
-  );
-}
-
-/** Where `@pyric/live`'s page-modules export resolves from the project root, or null when it is not installed. */
-function pageModulesFile(projectRoot: string): string | null {
-  try {
-    return createRequire(join(projectRoot, 'package.json')).resolve(PAGE_MODULES_EXPORT);
-  } catch {
-    return null;
-  }
-}
-
-/** The package folder holding `file`: the nearest folder above it with a package.json. */
-function packageRootOf(file: string): string {
-  let dir = dirname(file);
-  while (dir !== dirname(dir) && !existsSync(join(dir, 'package.json'))) dir = dirname(dir);
-  return dir;
-}
-
 /** Loads the installed `@pyric/live` from the project root. Throws when it is not installed. */
 export async function loadRowModulePackage(projectRoot: string): Promise<RowModulePackage> {
-  const file = pageModulesFile(projectRoot);
-  if (file === null) throw notInstalled(projectRoot);
-  const loaded = (await import(pathToFileURL(file).href)) as { liveModuleSource?: unknown };
-  const source = loaded.liveModuleSource;
-  if (typeof source !== 'function') throw new Error(`pyric: ${PAGE_MODULES_EXPORT} does not export liveModuleSource.`);
+  const found = await loadInstalledLiveExport(
+    projectRoot,
+    PAGE_MODULES_SUBPATH,
+    'liveModuleSource',
+    'Every served firebase/* import stays on the sandbox stop.',
+  );
+  const source = found.fn as unknown as ModuleSource;
   const senderFile = observedCallSenderEntry();
   return {
-    root: packageRootOf(file),
-    moduleSource: (id) => (source as ModuleSource)(id, senderFile),
+    root: found.root,
+    moduleSource: (id) => source(id, senderFile),
   };
 }

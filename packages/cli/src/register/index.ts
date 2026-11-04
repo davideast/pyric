@@ -43,7 +43,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
 import { resolvesIntoPackage } from './package-identity.js';
-import { markRegisterActive } from './activation.js';
+import { isLiveRegisterActive, markRegisterActive } from './activation.js';
 import { createStopReporter, stopFor } from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
@@ -303,7 +303,14 @@ function installedGuardMode(guard: { mode: GuardMode } | null): GuardMode {
 export let active = false;
 
 if (process.env.PYRIC_SANDBOX) {
-  if (process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1') {
+  if (isLiveRegisterActive()) {
+    // Live mode already resolves Firebase to the installed SDK in this
+    // process; a second set of hooks would send it to the sandbox instead.
+    process.stderr.write(
+      '@pyric/cli/register: not activating, because @pyric/live/register is active in this process. ' +
+        'Start it with one of the two.\n',
+    );
+  } else if (process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1') {
     process.stderr.write(
       '@pyric/cli/register: refusing to activate under NODE_ENV=production — ' +
         'firebase-admin/firebase imports are NOT rewritten. ' +
