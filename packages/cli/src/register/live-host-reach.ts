@@ -10,7 +10,7 @@ import { parsePyricSandbox, readLiveHostStatus } from 'pyric/sandbox/internal';
 import { resolveRemoteHost } from '../remote/resolve-host.js';
 
 export type LiveHostReach =
-  /** A live host answers: its url and the project it names. */
+  /** A live host answers: its url and the project it was started for. */
   | { readonly kind: 'live'; readonly url: string; readonly projectId: string }
   /** A host answers, but a sandbox one: it would show the calls among sandbox traffic. */
   | { readonly kind: 'sandbox'; readonly url: string }
@@ -33,7 +33,8 @@ export async function reachLiveHost(projectRoot: string, env: NodeJS.ProcessEnv 
     const host = await resolveRemoteHost({ cwd: projectRoot, configuredUrl, instanceId: env.PYRIC_SANDBOX_INSTANCE, warn: () => {} });
     const live = readLiveHostStatus(await healthOf(host.wsBase));
     if (live === null) return { kind: 'sandbox', url: host.serveUrl };
-    return { kind: 'live', url: host.serveUrl, projectId: live.projectId };
+    // The project the host was started for, which this process's own start resolves the same way.
+    return { kind: 'live', url: host.serveUrl, projectId: live.configProjectId };
   } catch {
     return { kind: 'none' };
   }

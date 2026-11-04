@@ -417,7 +417,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         flow: options.flow,
         project: options.project,
         // Rows supplied through `@pyric/live`'s seam make this host live.
-        live: supplied !== undefined,
+        liveHost: supplied !== undefined,
       };
       const generationInput: ViteSandboxGenerationInput = {
         server,

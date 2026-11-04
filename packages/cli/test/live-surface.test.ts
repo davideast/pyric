@@ -8,11 +8,15 @@
  * sandbox host.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { parseArgs } from '../src/cli/parse-args.js';
+// Imported here, before any test changes the working directory: the serve
+// modules it loads read the working directory once, as they load.
+import { LiveProjectMissingError, liveHostProject, runLiveHost } from '../src/serve/live-host.js';
 
 const cliDir = fileURLToPath(new URL('../', import.meta.url));
 const pyricDir = fileURLToPath(new URL('../../pyric/', import.meta.url));
@@ -45,6 +49,92 @@ function sourceFiles(dir: string): string[] {
   return files;
 }
 
+/** A field name that would switch live mode on: `live`, `liveHost`, `liveStatus`; not `liveness`. */
+const LIVE_FIELD = /^live($|[A-Z_])/;
+
+/** The source file each public export of `@pyric/cli` builds from; the live seams are left out. */
+function publicEntrySources(): string[] {
+  const sources = new Set<string>();
+  const collect = (key: string, value: unknown): void => {
+    if (typeof value === 'string') {
+      const isScript = value.startsWith('./dist/') && value.endsWith('.js');
+      if (!isScript) return;
+      const source = join(cliDir, value.replace('./dist/', 'src/').replace(/\.js$/, '.ts'));
+      if (existsSync(source)) sources.add(source);
+      return;
+    }
+    if (typeof value === 'object' && value !== null) for (const nested of Object.values(value)) collect(key, nested);
+  };
+  for (const [key, value] of Object.entries(manifest(cliDir).exports ?? {})) {
+    if (LIVE_SEAMS.includes(key)) continue;
+    collect(key, value);
+  }
+  return [...sources];
+}
+
+/**
+ * Every field named like a live switch on a type a public export reaches:
+ * its exported types, its functions' parameters and results, and the fields
+ * of each, to a few levels down. Types from dependencies are not walked.
+ */
+function liveFieldsOnPublicTypes(): string[] {
+  const entries = publicEntrySources();
+  const program = ts.createProgram(entries, {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ES2022,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    skipLibCheck: true,
+    noEmit: true,
+    types: [],
+  });
+  const checker = program.getTypeChecker();
+  const found = new Set<string>();
+  const seen = new Set<ts.Type>();
+  const isOwnSymbol = (symbol: ts.Symbol | undefined): boolean => {
+    const file = symbol?.declarations?.[0]?.getSourceFile().fileName ?? '';
+    return file.includes('/packages/cli/src/');
+  };
+  const visit = (type: ts.Type, where: string, depth: number): void => {
+    if (depth > 5 || seen.has(type)) return;
+    seen.add(type);
+    if (type.isUnionOrIntersection()) {
+      for (const part of type.types) visit(part, where, depth);
+      return;
+    }
+    for (const signature of [...type.getCallSignatures(), ...type.getConstructSignatures()]) {
+      for (const parameter of signature.getParameters()) {
+        const declaration = parameter.valueDeclaration ?? parameter.declarations?.[0];
+        if (declaration !== undefined) visit(checker.getTypeOfSymbolAtLocation(parameter, declaration), `${where}(${parameter.name})`, depth + 1);
+      }
+      visit(signature.getReturnType(), `${where}()`, depth + 1);
+    }
+    const ownType = isOwnSymbol(type.getSymbol() ?? type.aliasSymbol);
+    if (!ownType) return;
+    for (const property of type.getProperties()) {
+      if (LIVE_FIELD.test(property.name)) found.add(`${where}.${property.name}`);
+      const declaration = property.valueDeclaration ?? property.declarations?.[0];
+      if (declaration !== undefined) visit(checker.getTypeOfSymbolAtLocation(property, declaration), `${where}.${property.name}`, depth + 1);
+    }
+  };
+  for (const entry of entries) {
+    const source = program.getSourceFile(entry);
+    const moduleSymbol = source === undefined ? undefined : checker.getSymbolAtLocation(source);
+    if (moduleSymbol === undefined) continue;
+    for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+      const symbol = exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
+      const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+      if (declaration === undefined) continue;
+      const where = `${entry.replace(cliDir, '')}:${exported.name}`;
+      if (LIVE_FIELD.test(exported.name)) found.add(where);
+      const isTypeOnly = (symbol.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias)) !== 0 && symbol.valueDeclaration === undefined;
+      const type = isTypeOnly ? checker.getDeclaredTypeOfSymbol(symbol) : checker.getTypeOfSymbolAtLocation(symbol, declaration);
+      visit(type, where, 0);
+    }
+  }
+  return [...found].sort();
+}
+
 const roots: string[] = [];
 const startDir = process.cwd();
 afterEach(() => {
@@ -64,6 +154,10 @@ describe('pyric and @pyric/cli expose nothing live', () => {
     const pyricLive = Object.keys(manifest(pyricDir).exports ?? {}).filter((key) => /live/i.test(key));
     expect(pyricLive).toEqual([]);
   });
+
+  it('declare no live field on any option or type a public export reaches', () => {
+    expect(liveFieldsOnPublicTypes()).toEqual([]);
+  }, 120_000);
 
   it('parse no live flag: `--live` is an unknown flag pyric sandbox never reads', () => {
     const parsed = parseArgs(['sandbox', '--hosted', '--live']);
@@ -96,12 +190,10 @@ describe('the live host seam', () => {
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'no-live', private: true }));
     writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'no-live' } }));
     process.chdir(root);
-    const { runLiveHost } = await import('../src/serve/live-host.js');
     await expect(runLiveHost(['--no-open'])).rejects.toThrow('live rows need @pyric/live installed in the project');
   });
 
-  it('names the project the app\'s Firebase config sets, and refuses to start without one', async () => {
-    const { liveHostProject, LiveProjectMissingError } = await import('../src/serve/live-host.js');
+  it('names the project the app\'s Firebase config sets, and refuses to start without one', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-project-')));
     roots.push(root);
     expect(() => liveHostProject([], root)).toThrow(LiveProjectMissingError);

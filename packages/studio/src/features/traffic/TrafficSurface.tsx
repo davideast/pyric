@@ -39,6 +39,7 @@ import {
 } from '@pyric/ui/traffic';
 import { callerSource, callerSourceLabelOutsidePage } from 'pyric/sandbox/internal';
 import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
+import { useLiveHost } from '../../shell/live-status.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
   filterByVerdict,
@@ -171,8 +172,18 @@ function ProductionCell({ production }: { production: NonNullable<StudioTrafficE
   );
 }
 
+/** On a live host, marks a row the local sandbox served: only Production rows went to the real project. */
+function SandboxServedCell() {
+  return (
+    <span className="traffic__production" data-sandbox-served title="Served by the local sandbox, not your Firebase project">
+      Sandbox
+    </span>
+  );
+}
+
 /** The per-row source and verdict cells (the verdict is blank for non-rule ops). */
 function VerdictCell({ event }: { event: StudioTrafficEvent }) {
+  const isLiveHost = useLiveHost() !== null;
   if (event.production !== undefined) {
     return (
       <>
@@ -184,6 +195,7 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   const v = verdictFor(event);
   return (
     <>
+      {isLiveHost ? <SandboxServedCell /> : null}
       <SourceCell event={event} />
       {v ? (
         <span className="traffic__verdict" data-verdict={v}>

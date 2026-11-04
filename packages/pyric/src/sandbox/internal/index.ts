@@ -92,9 +92,13 @@ export {
   type ProductionVerdict,
 } from './observed-call.js';
 export {
-  billedCallKind, billedCallSummary, createBilledCallCounter, liveLabel, readLiveHostStatus,
+  billedCallKind, billedCallSummary, createBilledCallCounter, liveLabel, liveMismatchLine, liveProjectOf, readLiveHostStatus,
   type BilledCallCount, type BilledCallCounter, type BilledCallKind, type LiveHostStatus,
 } from './live-status.js';
+export {
+  LIVE_REFRESH_MS, LIVE_RETRY_MS, LIVE_TRAFFIC_REFRESH_MS, createLiveStatusPoller,
+  type LiveStatusPoller, type LiveStatusTimers, type ReadLiveStatus,
+} from './live-status-poller.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {
   provenanceForOperationContext,

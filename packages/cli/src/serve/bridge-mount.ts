@@ -34,6 +34,8 @@ import { pyricVersion } from './standalone-assets.js';
 import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade, isLocalPeer } from './server.js';
 import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
+import type { BridgeMessage } from '../bridge/protocol.js';
+import type { LiveHostState } from './live-host-state.js';
 import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { DatabaseRulesDestination, InitPayload } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
@@ -85,8 +87,8 @@ export interface BridgeMountOptions {
    *  that passes them teaches them from each request, so the mount does not.
    *  Absent, the mount keeps its own and learns when `learnsProxyPorts`. */
   appPorts?: AppPorts;
-  /** Set only by a host `@pyric/live` started (`live-host.ts`): the project its live clients talk to. */
-  live?: { projectId: string };
+  /** Held only by a host a live seam started (`live-host-state.ts`): its status joins the health report. */
+  liveHost?: LiveHostState;
 }
 
 export interface BridgeMount {
@@ -167,7 +169,6 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     project,
     projectKey: opts.projectKey,
     version: BRIDGE_VERSION,
-    live: opts.live,
     onToolEvent: recordsAudit ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
   });
 
@@ -317,10 +318,20 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (alreadyStarted) throw new Error('The Node sandbox is already running.');
       const starting = (async () => {
         const { createHostedRuntime } = await import('./hosted/runtime.js');
-        hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd(), ai);
+        const liveHost = opts.liveHost;
+        const fromSandbox = (message: BridgeMessage): void => {
+          liveHost?.outbound(message);
+          bridge.handleSandboxMessage(message);
+        };
+        hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), ai);
         if (closed) throw new Error('The hosted sandbox closed during startup.');
+        const receive = hostedRuntime.receive;
+        const toSandbox = liveHost === undefined ? receive : (message: BridgeMessage): void => {
+          liveHost.inbound(message);
+          receive(message);
+        };
         disconnectHosted = bridge.registerSandboxPeer(
-          hostedRuntime.receive,
+          toSandbox,
           [...hostedRuntime.toolNames],
           hostedRuntime.instanceId,
           [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY, STORAGE_BYTE_ROUTE_CAPABILITY],
@@ -359,7 +370,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         return true;
       }
       if (isHealthRequest) {
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(bridge.health()));
+        const live = opts.liveHost === undefined ? {} : { live: opts.liveHost.report() };
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...bridge.health(), ...live }));
         return true;
       }
       const requiresControlGuard = isMcpRequest || isHostedMethod;

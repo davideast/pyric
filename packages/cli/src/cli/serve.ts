@@ -34,6 +34,7 @@ import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { liveHostPageImportMap } from '../serve/live-host-pages.js';
 import { requireLiveProject } from '../serve/live-project.js';
+import { createLiveHostState } from '../serve/live-host-state.js';
 import { workerInitPayload } from '../serve/runtime/hosted-target.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
@@ -256,13 +257,21 @@ async function startServeRuntime(opts: {
   functionsHandler?: FunctionsHttpGateway['handle'];
   /** A child command runs beside the server and resolves `firebase` itself. */
   hasChildCommand?: boolean;
-  /** Set only by `@pyric/live`'s seam (`serve/live-host.ts`): the host reports its project as live. */
-  live?: boolean;
+  /** Set only by `@pyric/live`'s seam (`serve/live-host.ts`): the host reports its status as live. */
+  liveHost?: LiveServeStart;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
   const firebaseProject = opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project });
-  const isLive = opts.live === true;
-  const live = isLive ? { projectId: requireLiveProject(firebaseProject, opts.cwd) } : undefined;
+  const liveStart = opts.liveHost;
+  const isLive = liveStart !== undefined;
+  const liveHost = isLive
+    ? createLiveHostState({
+      configProjectId: requireLiveProject(liveStart.project, opts.cwd),
+      configSource: liveStart.project.source,
+      optionName: '--project',
+      warn: (line) => logger.note(line),
+    })
+    : undefined;
 
   // Handshake beacons from pyric-launched children, plus the per-launch secret
   // that authorizes one. Both live here because the route does.
@@ -423,7 +432,7 @@ async function startServeRuntime(opts: {
         project: opts.project,
         projectKey: opts.cwd,
         disableAuditLog: opts.disableAuditLog,
-        live,
+        liveHost,
         upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
         learnsProxyPorts: true,
         appPorts,
@@ -963,9 +972,13 @@ const LIVE_HOST_CLIENTS =
   '    node --import @pyric/live/register server.js\n' +
   '  For a Vite app, add pyricLive() from @pyric/live/vite: its dev server is the live host.\n';
 
-/** What only `@pyric/live`'s seam (`serve/live-host.ts`) sets on a run. */
+/** What only `@pyric/live`'s seam (`serve/live-host.ts`) sets on a run: the project it resolved, and where from. */
+export interface LiveServeStart {
+  project: FirebaseProjectResolution;
+}
+
 export interface ServeRunHost {
-  live?: boolean;
+  liveHost?: LiveServeStart;
 }
 
 export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): Promise<number> {
@@ -1100,7 +1113,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       firebaseProject,
       functionsHandler: functionsGateway?.handle,
       hasChildCommand: plan !== null,
-      live: runHost.live,
+      liveHost: runHost.liveHost,
     });
   } catch (e) {
     const message = serveErrorMessage(e);
@@ -1361,7 +1374,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       isAlive: () => devChild !== null && devChild.child.exitCode === null,
       warn: (line) => void process.stderr.write(`${line}\n`),
     });
-  } else if (usesHumanOutput && runHost.live === true) {
+  } else if (usesHumanOutput && runHost.liveHost !== undefined) {
     process.stdout.write(LIVE_HOST_CLIENTS);
   } else if (usesHumanOutput) {
     process.stdout.write(

@@ -43,6 +43,7 @@ function setup(options: {
   useRealClient?: boolean;
   manifest?: PyricRuntimeManifest;
   liveStatus?: PyricRuntimeChipOptions['liveStatus'];
+  liveStatusTimers?: PyricRuntimeChipOptions['liveStatusTimers'];
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus(options.manifest ?? manifest);
@@ -97,6 +98,7 @@ function setup(options: {
     chipOptions.studioUrl = options.studioUrl;
   }
   if (options.liveStatus) chipOptions.liveStatus = options.liveStatus;
+  if (options.liveStatusTimers) chipOptions.liveStatusTimers = options.liveStatusTimers;
   if (options.clipboard) {
     chipOptions.clipboard = options.clipboard;
   }
@@ -676,46 +678,142 @@ describe('the Traffic view', () => {
     expect(facts).toContain('Pyric observed it and did not check it against local rules.');
   });
 
-  it('names the live project and counts billed calls from every client while a live host runs', async () => {
-    const asked: string[] = [];
-    const { root, push, runtime } = setup({
+  /** Timers the test runs by hand, and a clock that moves with them. */
+  function manualTimers() {
+    let clock = 0;
+    let next = 0;
+    const due = new Map<number, { at: number; run: () => void }>();
+    return {
+      timers: {
+        setTimeout: (run: () => void, ms: number) => { next += 1; due.set(next, { at: clock + ms, run }); return next; },
+        clearTimeout: (handle: unknown) => { due.delete(handle as number); },
+        now: () => clock,
+      },
+      async advance(ms: number) {
+        clock += ms;
+        for (const [handle, timer] of [...due]) {
+          if (timer.at > clock) continue;
+          due.delete(handle);
+          timer.run();
+        }
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      },
+      pending: () => due.size,
+    };
+  }
+
+  const settle = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };
+
+  function liveStatus(billed: { reads: number; writes: number; deliveries: number }, appProjectIds: string[] = ['my-project']) {
+    return {
+      projectId: appProjectIds.join(', ') || 'my-project',
+      configProjectId: 'my-project',
+      configSource: '.firebaserc',
+      appProjectIds,
+      billed,
+    };
+  }
+
+  it("shows the host's live line and billed count, and reads the count again after traffic", async () => {
+    const clock = manualTimers();
+    const statuses = [
+      liveStatus({ reads: 0, writes: 0, deliveries: 0 }),
+      liveStatus({ reads: 1, writes: 1, deliveries: 1 }),
+    ];
+    let reads = 0;
+    const { root, push, runtime, showTab } = setup({
       initiallyOpen: true,
       withSandboxEvents: true,
-      liveStatus: async () => { asked.push('live'); return { projectId: 'my-project' }; },
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => statuses[Math.min(reads++, statuses.length - 1)]!,
     });
     // A sandbox page never asks: only a hosted page can be on a live host.
-    expect(asked).toEqual([]);
+    expect(reads).toBe(0);
     runtime.setWorker({ mode: 'hosted' });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(asked).toEqual(['live']);
+    await settle();
+    expect(reads).toBe(1);
     expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
+    expect(root.querySelector('[data-chip-live-mismatch]')).toBeNull();
     expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 0 reads, 0 writes, 0 listener deliveries');
+
     const now = Date.now();
-    const call = (method: string, status: 'ok' | 'error' = 'ok') => observedCallEvent({
-      service: 'firestore', method, at: now, outcome: status === 'ok' ? { status } : { status, code: 'permission-denied' },
-    });
-    const read = call('getDoc');
+    const observed = observedCallEvent({ service: 'firestore', method: 'getDoc', at: now, outcome: { status: 'ok' } });
     push([
-      { ...read, caller: { kind: 'node' } } as SandboxEvent,
-      { ...call('setDoc'), caller: { kind: 'page', pageId: 'tab-2' } } as SandboxEvent,
-      call('onSnapshot'),
-      call('getDoc', 'error'),
+      { ...observed, caller: { kind: 'page', pageId: 'tab-1' } } as SandboxEvent,
+      request('served', now - 1000, 'rooms/r2', 'allow'),
     ], { history: true, pageId: 'tab-1' });
-    push([read]);
+    await clock.advance(150);
+    expect(reads).toBe(2);
+    // The count is the host's, so every view shows the same one.
     expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 1 read, 1 write, 1 listener delivery');
+
+    showTab('traffic');
+    const served = root.querySelector('[data-request-row="served"]')!;
+    expect(served.querySelector('[data-traffic-row-sandbox]')!.textContent).toBe('Sandbox');
+    expect(served.querySelector('[data-traffic-row-production]')).toBeNull();
+    const production = root.querySelector(`[data-request-row="${observed.id}"]`)!;
+    expect(production.querySelector('[data-traffic-row-production]')!.textContent).toBe('Production');
+    root.querySelector<HTMLButtonElement>('[data-request-row="served"]')!.click();
+    expect(root.querySelector('[data-traffic-detail]')!.textContent).toContain('Served bySandbox');
+
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
     expect(root.querySelector('[data-expand] [data-chip-live]')!.textContent).toBe('Live: my-project');
-    expect(asked).toEqual(['live']);
   });
 
-  it('shows no live line on a hosted sandbox host', async () => {
-    const { root, runtime } = setup({ initiallyOpen: true, withSandboxEvents: true, liveStatus: async () => null });
+  it("names the project the app's Firebase config names, and warns that the host's settings name another", async () => {
+    const clock = manualTimers();
+    const { root, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => ({ ...liveStatus({ reads: 0, writes: 0, deliveries: 0 }, ['prod']), projectId: 'prod', configProjectId: 'staging' }),
+    });
     runtime.setWorker({ mode: 'hosted' });
-    await Promise.resolve();
-    await Promise.resolve();
+    await settle();
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: prod');
+    expect(root.querySelector('[data-chip-live-mismatch]')!.textContent).toBe('Your Firebase config says prod; .firebaserc says staging.');
+    root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(root.querySelector('[data-expand] [data-chip-live]')!.getAttribute('title')).toContain('Your Firebase config says prod; .firebaserc says staging.');
+  });
+
+  it('reads the live status again after a failed read, until one succeeds', async () => {
+    const clock = manualTimers();
+    let reads = 0;
+    const { root, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => {
+        reads += 1;
+        if (reads < 3) throw new Error('host restarting');
+        return liveStatus({ reads: 0, writes: 0, deliveries: 0 });
+      },
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    expect(root.querySelector('[data-chip-live]')).toBeNull();
+    await clock.advance(250);
+    await clock.advance(500);
+    expect(reads).toBe(3);
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
+  });
+
+  it('shows no live line on a hosted sandbox host, and stops reading', async () => {
+    const clock = manualTimers();
+    let reads = 0;
+    const { root, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => { reads += 1; return null; },
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
     expect(root.querySelector('[data-chip-live]')).toBeNull();
     expect(root.querySelector('[data-chip-billed]')).toBeNull();
+    await clock.advance(10_000);
+    expect(reads).toBe(1);
+    expect(clock.pending()).toBe(0);
   });
 
   it('leaves out the hosted note when the sandbox is hosted', () => {

@@ -6,6 +6,9 @@
  * process's rows as production's. The SDK points at a closed loopback port,
  * so nothing reaches a Firebase backend.
  *
+ * When the app's Firebase config names another project than `.firebaserc`,
+ * the host names the app's and warns in the terminal and the chip.
+ *
  * Also: each start check refuses the command with its reason, the register
  * says when no host is reachable, and `pyric sandbox --hosted` with every
  * flag, config key and environment variable a developer might try stays a
@@ -38,13 +41,17 @@ async function freeLoopbackPort(): Promise<number> {
   return address.port;
 }
 
-/** The server code, as an app writes it: the client SDK pointed at a closed port. */
-const SERVER_SOURCE = `
+/**
+ * The server code, as an app writes it: the client SDK pointed at a closed
+ * port, its app config naming `projectId`. The listener's first delivery
+ * comes from the SDK's cache, so it is a delivery the count includes.
+ */
+const serverSource = (projectId: string) => `
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, signInAnonymously } from 'firebase/auth';
-import { connectFirestoreEmulator, doc, getDocFromCache, getFirestore } from 'firebase/firestore';
+import { connectFirestoreEmulator, doc, getDocFromCache, getFirestore, onSnapshot } from 'firebase/firestore';
 const port = Number(process.env.CLOSED_PORT);
-const app = initializeApp({ projectId: '${PROJECT_ID}', apiKey: 'live-command-key', appId: '1:1:web:1' });
+const app = initializeApp({ projectId: '${projectId}', apiKey: 'live-command-key', appId: '1:1:web:1' });
 const auth = getAuth(app);
 connectAuthEmulator(auth, 'http://127.0.0.1:' + port, { disableWarnings: true });
 const db = getFirestore(app);
@@ -52,6 +59,7 @@ connectFirestoreEmulator(db, '127.0.0.1', port);
 const codes = {};
 await getDocFromCache(doc(db, 'rooms/lobby')).catch((error) => { codes.firestore = error.code; });
 await signInAnonymously(auth).catch((error) => { codes.auth = error.code; });
+await new Promise((resolve) => { const stop = onSnapshot(doc(db, 'rooms/lobby'), () => { stop(); resolve(); }, resolve); });
 console.log('RESULT ' + JSON.stringify({ codes }));
 `;
 
@@ -104,8 +112,12 @@ function liveBin(root: string): string {
   return join(root, 'node_modules/@pyric/live', bin);
 }
 
-/** A project with @pyric/cli, @pyric/live and firebase installed, a Hosting site and a Firebase project. */
-function project(roots: string[]): string {
+/**
+ * A project with @pyric/cli, @pyric/live and firebase installed, a Hosting
+ * site, `.firebaserc` naming `rcProject`, and server code whose app config
+ * names `appProject`.
+ */
+function project(roots: string[], rcProject = PROJECT_ID, appProject = PROJECT_ID): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-command-')));
   roots.push(root);
   mkdirSync(join(root, 'node_modules/@pyric'), { recursive: true });
@@ -113,11 +125,11 @@ function project(roots: string[]): string {
   symlinkSync(liveDir, join(root, 'node_modules/@pyric/live'));
   mkdirSync(join(root, 'public'));
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'live-command', private: true, type: 'module' }));
-  writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: PROJECT_ID } }));
+  writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: rcProject } }));
   writeFileSync(join(root, 'firebase.json'), JSON.stringify({ firestore: { rules: 'firestore.rules' }, hosting: { public: 'public' } }));
   writeFileSync(join(root, 'firestore.rules'), "rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read, write: if false; } } }\n");
   writeFileSync(join(root, 'public/index.html'), PAGE);
-  writeFileSync(join(root, 'server.mjs'), SERVER_SOURCE);
+  writeFileSync(join(root, 'server.mjs'), serverSource(appProject));
   return root;
 }
 
@@ -149,7 +161,13 @@ test.describe('pyric-live', () => {
     const host = started('node', [liveBin(root), '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: home });
     hosts.push(host);
     const health = await waitForHost(host, url);
-    expect(health.live).toEqual({ projectId: PROJECT_ID });
+    expect(health.live).toEqual({
+      projectId: PROJECT_ID,
+      configProjectId: PROJECT_ID,
+      configSource: '.firebaserc',
+      appProjectIds: [],
+      billed: { reads: 0, writes: 0, deliveries: 0 },
+    });
     expect(host.output()).toContain(`pyric-live: live mode for the Firebase project ${PROJECT_ID}.`);
     expect(host.output()).toContain(`The chip and Studio show "Live: ${PROJECT_ID}" while it runs.`);
     expect(host.output()).toContain('node --import @pyric/live/register server.js');
@@ -171,11 +189,14 @@ test.describe('pyric-live', () => {
     await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveText(`Live: ${PROJECT_ID}`);
     await chip.locator('[data-expand]').click();
     await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText(`Live: ${PROJECT_ID}`);
-    await expect(chip.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 0 listener deliveries');
+    // The host's count: the listener's delivery; the failed read and the Auth call are not billed.
+    await expect(chip.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 listener delivery');
+    await expect(chip.locator('[data-chip-live-mismatch]')).toHaveCount(0);
+    expect((await healthOf(url))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
     await chip.locator('[data-chip-tab=traffic]').click();
     await chip.locator('[data-traffic-scope=all]').click();
     const rows = chip.locator('[data-traffic-rows] [data-request-row]');
-    for (const method of ['firestore.getDocFromCache', 'auth.signInAnonymously']) {
+    for (const method of ['firestore.getDocFromCache', 'auth.signInAnonymously', 'firestore.onSnapshot']) {
       const row = rows.filter({ hasText: method });
       await expect(row).toHaveCount(1);
       await expect(row.locator('[data-traffic-row-production]')).toHaveText('Production');
@@ -190,6 +211,33 @@ test.describe('pyric-live', () => {
     expect(aloneFinished.code, aloneFinished.output).toBe(0);
     expect(aloneFinished.output).toContain("@pyric/live/register: no host is reachable, so this process's calls are not shown in the chip or Studio.");
     expect(aloneFinished.output).toContain(`Start one in ${root} with npx pyric-live, or vite dev with pyricLive() from @pyric/live/vite.`);
+  });
+
+  test("names the project the app's Firebase config names, and warns in the terminal and the chip when .firebaserc names another", async ({ page }) => {
+    test.setTimeout(150_000);
+    const root = project(roots, 'staging-demo', 'prod-demo');
+    symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
+    const port = await freeLoopbackPort();
+    const url = `http://127.0.0.1:${port}`;
+    const host = started('node', [liveBin(root), '--no-open', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: root });
+    hosts.push(host);
+    await waitForHost(host, url);
+    expect(host.output()).toContain('pyric-live: live mode for the Firebase project staging-demo.');
+
+    const server = started('node', ['--import', '@pyric/live/register', 'server.mjs'], root, { HOME: root, CLOSED_PORT: String(await freeLoopbackPort()) });
+    const finished = await server.exited;
+    expect(finished.code, finished.output).toBe(0);
+
+    const warning = 'Your Firebase config says prod-demo; .firebaserc says staging-demo.';
+    expect(host.output()).toContain(`Live mode: your app's calls go to the Firebase project prod-demo, not staging-demo. ${warning}`);
+    expect((await healthOf(url))?.live).toMatchObject({ projectId: 'prod-demo', configProjectId: 'staging-demo', appProjectIds: ['prod-demo'] });
+
+    await page.goto(`${url}/`);
+    const chip = await openChip(page);
+    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveText('Live: prod-demo');
+    await chip.locator('[data-expand]').click();
+    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText('Live: prod-demo');
+    await expect(chip.locator('[data-chip-live-mismatch]')).toHaveText(warning);
   });
 
   test('refuses to start with an unsupported firebase, naming the version found', async () => {

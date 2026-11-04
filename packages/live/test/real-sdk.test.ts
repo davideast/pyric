@@ -162,7 +162,7 @@ describe('results are the real SDK classes, recorded as they settle', () => {
     expect(reason).toBeInstanceOf(realApp.FirebaseError);
     expect((reason as realApp.FirebaseError).code).toBe('unavailable');
     expect(records.filter((record) => record.name === 'getDocFromCache')).toEqual([
-      { module: 'firebase/firestore', name: 'getDocFromCache', outcome: 'rejected', code: 'unavailable' },
+      { module: 'firebase/firestore', name: 'getDocFromCache', outcome: 'rejected', code: 'unavailable', projectId: 'demo-live' },
     ]);
   });
 
@@ -279,5 +279,15 @@ describe('a recorder failure never changes what the app sees from the real SDK',
     } finally {
       recorderFails = false;
     }
+  });
+});
+
+describe('records name where the call went', () => {
+  test("every record names the project the app's Firebase config set, read from the call's own arguments", async () => {
+    await firestore.getDocsFromCache(firestore.query(firestore.collection(db, 'rooms'))).catch(() => undefined);
+    await auth.signOut(auth.getAuth(liveApp));
+    const named = records.filter((record) => record.name === 'getDocsFromCache' || record.name === 'signOut');
+    expect(named.length).toBeGreaterThan(1);
+    for (const record of named) expect(record.projectId, record.name).toBe(OPTIONS.projectId);
   });
 });

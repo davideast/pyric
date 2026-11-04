@@ -42,11 +42,6 @@ export interface HealthReport {
    * alone can't tell them apart. (Not `version` — that's hardcoded.)
    */
   instanceId: string;
-  /**
-   * Present only on a host `@pyric/live` started: the Firebase project its
-   * live clients talk to. The chip and Studio show it as "Live: <project-id>".
-   */
-  live?: { projectId: string };
 }
 
 /** Default port the standalone bridge binds to. */

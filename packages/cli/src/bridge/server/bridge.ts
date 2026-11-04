@@ -65,8 +65,6 @@ export interface BridgeOptions {
    * The bridge does not own audit-log persistence.
    */
   onToolEvent?: (event: BridgeToolEvent) => void;
-  /** Set only by a host `@pyric/live` started: the project its live clients talk to, for /health. */
-  live?: { projectId: string };
 }
 
 /**
@@ -761,7 +759,6 @@ export function createBridge(opts: BridgeOptions): Bridge {
       version,
       startedAt,
       instanceId,
-      ...(opts.live === undefined ? {} : { live: { projectId: opts.live.projectId } }),
     };
   }
 

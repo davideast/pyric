@@ -12,7 +12,8 @@
 import { parseArgs } from '../cli/parse-args.js';
 import { runServe } from '../cli/serve.js';
 import { installedLiveFile, liveNotInstalled } from './installed-live-package.js';
-import { liveProjectId } from './live-project.js';
+import { resolveFirebaseProject, type FirebaseProjectResolution } from '../cli/firebase-project.js';
+import { requireLiveProject } from './live-project.js';
 
 export { LiveProjectMissingError, liveProjectId } from './live-project.js';
 
@@ -22,10 +23,14 @@ const LIVE_COMMAND_SUBPATH = 'register';
 const CHILD_COMMAND_REFUSAL =
   'pyric-live starts no command after --. Start your server in another terminal with: node --import @pyric/live/register server.js';
 
+function liveHostResolution(argv: readonly string[], projectRoot: string): FirebaseProjectResolution {
+  const flag = parseArgs(['sandbox', ...argv]).flags.get('project');
+  return resolveFirebaseProject({ projectDir: projectRoot, option: typeof flag === 'string' ? flag : undefined });
+}
+
 /** The project a `pyric-live` run with `argv` names: `--project`, else the app's Firebase config. */
 export function liveHostProject(argv: readonly string[], projectRoot: string): string {
-  const flag = parseArgs(['sandbox', ...argv]).flags.get('project');
-  return liveProjectId(projectRoot, typeof flag === 'string' ? flag : undefined);
+  return requireLiveProject(liveHostResolution(argv, projectRoot), projectRoot);
 }
 
 /**
@@ -43,7 +48,8 @@ export async function runLiveHost(argv: readonly string[]): Promise<number> {
   // A child command would get the sandbox register, so the live host starts none.
   parsed.flags.set('no-run', true);
   // The host names the project every live entry resolves, so the start line and the chip agree.
-  parsed.flags.set('project', liveHostProject(argv, projectRoot));
+  const project = liveHostResolution(argv, projectRoot);
+  parsed.flags.set('project', requireLiveProject(project, projectRoot));
   parsed.flags.set('hosted', true);
-  return runServe(parsed, { live: true });
+  return runServe(parsed, { liveHost: { project } });
 }
