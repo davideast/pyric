@@ -69,6 +69,36 @@ window.refused = {
       return refusedOutcome(error);
     }
   },
+  // The SDK file the live rows loaded, read back from the page's resource
+  // timings and imported again under another URL that reaches the same file:
+  // a second copy of the raw SDK, which would open a named database the rows
+  // refuse. `t` adds a timestamp query, `amp` a trailing `&`, and
+  // `encodedName` spells the `v` query name as `%76`. `absolute` and `id`
+  // name the file by its absolute path under `root`, the app's directory, as
+  // itself and behind `/@id/`; their `Query` forms add a query.
+  cacheBusted: async (variant = "t", root = "") => {
+    const loaded = performance.getEntriesByType("resource").map((entry) => entry.name)
+      .find((name) => /\/@firebase\/firestore\/dist\/index\.esm\.js/.test(name));
+    if (loaded === undefined) return "no loaded SDK file";
+    const [path, query = ""] = loaded.split("?");
+    const urls = {
+      t: `${path}?${query}${query ? "&" : ""}t=${Date.now()}`,
+      amp: `${path}?${query}&`,
+      encodedName: `${path}?${query.replace(/^v=/, "%76=")}`,
+      absolute: `${root}${new URL(path).pathname}`,
+      absoluteQuery: `${root}${new URL(path).pathname}?z=1`,
+      id: `/@id${root}${new URL(path).pathname}`,
+      idQuery: `/@id${root}${new URL(path).pathname}?q=1`,
+    };
+    const busted = urls[variant];
+    try {
+      const raw = await import(/* @vite-ignore */ busted);
+      raw.initializeFirestore(app, {}, "reports");
+      return "opened";
+    } catch (error) {
+      return refusedOutcome(error);
+    }
+  },
 };
 
 document.querySelector("#status").textContent = "Ready";

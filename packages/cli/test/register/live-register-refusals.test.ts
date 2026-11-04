@@ -30,6 +30,12 @@ const liveDir = join(repoRoot, 'packages/live');
 const liveRegisterFile = join(liveDir, 'dist/register.js');
 const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
 const realFirebaseDir = realpathSync(dirname(requireFromRepo.resolve('firebase/package.json')));
+const realAdminDir = realpathSync(dirname(requireFromRepo.resolve('firebase-admin/package.json')));
+/** `@google-cloud/firestore`, the server SDK `firebase-admin` installs beside it. */
+const realCloudFirestoreDir = (() => {
+  const entry = createRequire(join(realAdminDir, 'package.json')).resolve('@google-cloud/firestore');
+  return entry.slice(0, entry.lastIndexOf('/node_modules/@google-cloud/firestore/') + '/node_modules/@google-cloud/firestore'.length);
+})();
 
 /**
  * Loaded before the register: records the host of every TLS connection that
@@ -90,6 +96,8 @@ beforeAll(async () => {
   symlinkSync(cliDir, join(nm, '@pyric/cli'));
   symlinkSync(liveDir, join(nm, '@pyric/live'));
   symlinkSync(realFirebaseDir, join(nm, 'firebase'));
+  mkdirSync(join(nm, '@google-cloud'), { recursive: true });
+  symlinkSync(realCloudFirestoreDir, join(nm, '@google-cloud/firestore'));
   writeFileSync(join(projectDir, 'package.json'), JSON.stringify({ name: 'live-refusals-fixture', type: 'module' }));
   // The Firebase project live mode names; every live start refuses without one.
   writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'live-refusals' } }));
@@ -232,5 +240,56 @@ console.log('OUTCOME ' + JSON.stringify(outcome));
     expect(res.status, res.stderr).toBe(0);
     expect(res.outcome.local).not.toBe('PYRIC_GUARD_BLOCKED');
     expect(counted).toBeGreaterThan(before);
+  }, 60_000);
+});
+
+describe("app code that skips the live rows' SDK, under @pyric/live/register", () => {
+  it('refuses a raw https.request to a live row host, naming live mode and the wrapped SDK', async () => {
+    const script = `import https from 'node:https';
+const reached = globalThis[Symbol.for('live.refusals.reached')];
+const send = (url, method) => new Promise((resolve) => {
+  try {
+    const request = https.request(url, { method, headers: { 'content-type': 'application/json' } }, () => resolve('sent'));
+    request.on('error', (error) => resolve(error.code ?? String(error)));
+    request.end('{}');
+  } catch (error) {
+    resolve(error.code ?? String(error));
+  }
+});
+const outcome = {};
+outcome.firestore = await send('https://firestore.googleapis.com/v1/projects/live-refusals/databases/(default)/documents/rooms/lobby', 'PATCH');
+outcome.auth = await send('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=k', 'POST');
+outcome.appCheck = await send('https://content-firebaseappcheck.googleapis.com/v1/projects/live-refusals/apps/1:1:web:1:exchangeDebugToken', 'POST');
+outcome.reachedByApp = [...reached];
+console.log('OUTCOME ' + JSON.stringify(outcome));
+process.exit(0);
+`;
+    const res = await runLive('raw-https.mjs', script);
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.outcome.firestore).toBe('PYRIC_GUARD_BLOCKED');
+    expect(res.outcome.auth).toBe('PYRIC_GUARD_BLOCKED');
+    expect(res.outcome.appCheck).toBe('PYRIC_GUARD_BLOCKED');
+    expect(res.outcome.reachedByApp).toEqual([]);
+    expect(res.stderr).toContain('@pyric/live/register: net-guard BLOCK firestore.googleapis.com (Cloud Firestore) via socket');
+    expect(res.stderr).toContain("in live mode only the installed Firebase SDK, wrapped by @pyric/live's rows, reaches this host");
+  }, 60_000);
+
+  it('refuses @google-cloud/firestore at import, before it loads', async () => {
+    const script = `const outcome = {};
+try {
+  await import('@google-cloud/firestore');
+  outcome.cloudFirestore = 'loaded';
+} catch (error) {
+  outcome.cloudFirestore = error.code ?? String(error);
+  outcome.message = error.message;
+}
+console.log('OUTCOME ' + JSON.stringify(outcome));
+process.exit(0);
+`;
+    const res = await runLive('cloud-firestore.mjs', script);
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.outcome.cloudFirestore).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(res.outcome.message).toContain('@pyric/live/register: stopped loading @google-cloud/firestore');
+    expect(res.outcome.message).toContain("In live mode, only the installed Firebase SDK reaches production, through @pyric/live's rows");
   }, 60_000);
 });
