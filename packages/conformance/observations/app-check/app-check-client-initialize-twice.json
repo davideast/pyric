@@ -7,9 +7,10 @@
     "app-check#initialize-twice-same-options"
   ],
   "description": "initializeAppCheck called a second time on the same app: with identical options (same provider instance), with a new provider instance built from the same factory, and with a different isTokenAutoRefreshEnabled.",
-  "observedAt": "2026-11-02T19:35:26.829Z",
+  "observedAt": "2026-11-03T23:22:18.648Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "sameOptions": {
       "threw": false,

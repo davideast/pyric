@@ -6,9 +6,10 @@
     "app-check#attestation-failure"
   ],
   "description": "getToken and getLimitedUseToken in debug mode with a random, unregistered debug token: whether each resolves or rejects, the error code and customData, the shape of any placeholder token, and the X-Firebase-AppCheck header firebase/ai then sends (normal model, and a second app whose getAI options set useLimitedUseAppCheckTokens), with the production response status and error body.",
-  "observedAt": "2026-11-02T19:35:35.620Z",
+  "observedAt": "2026-11-03T23:22:25.614Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "customProviderCalls": 0,
     "getToken": {
@@ -36,10 +37,12 @@
       }
     },
     "aiGeneration": {
-      "threw": false,
-      "value": {
-        "finishReason": "STOP"
-      }
+      "threw": true,
+      "name": "FirebaseError",
+      "code": "fetch-error",
+      "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/digame-mas/models/gemini-flash-lite-latest:generateContent: [401 Unauthorized] Firebase App Check token is invalid. (AI/fetch-error)",
+      "customDataKeys": [],
+      "customData": null
     },
     "aiRequest": {
       "requestSeen": true,
@@ -65,9 +68,13 @@
         "isJwt": false
       },
       "appCheckHeaderIsSdkDummyToken": true,
-      "responseStatus": 200,
+      "responseStatus": 401,
       "responseBody": {
-        "ok": true
+        "error": {
+          "code": 401,
+          "message": "Firebase App Check token is invalid.",
+          "status": "UNAUTHENTICATED"
+        }
       },
       "appCheckHeaderEquals": {
         "getTokenResult": false

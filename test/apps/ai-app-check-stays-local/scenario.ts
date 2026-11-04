@@ -5,8 +5,8 @@
 // - With App Check initialized before getAI (the debug provider under
 //   import.meta.env.DEV), generateContent answers and generateContentStream
 //   delivers its reply in chunks.
-// - Without App Check, the same calls get the 403 a refusing project returns
-//   (earlier-captures/ai-logic-refusal-unenforced.json), and the
+// - Without App Check, the same calls get the 401 an enforced project returns
+//   (observations/app-check/app-check-ai-gate-wire.json, #1300), and the
 //   dev server terminal prints pyric's hint (#1535).
 // - Every request the page makes goes to the local machine. Playwright's
 //   routes don't see a SharedWorker's requests, so the scenario watches the
@@ -31,14 +31,14 @@ const CHUNKS = ['Requests stay ', 'on this machine, ', 'chunk by chunk.'];
 const HINT = /Call initializeAppCheck\(app, \{ provider \}\) before getAI\(app\)\./;
 const CONTROL_URL = 'https://egress-control.invalid/ai-app-check-stays-local';
 
-interface EarlierCaptures { captures: { 'app-check-ai-gate-wire': { noHeader: { httpStatus: number; messageText: string } } } }
+interface GateCapture { behavior: { noHeader: { httpStatus: number; messageText: string } } }
 
-function gateCapture(): EarlierCaptures['captures']['app-check-ai-gate-wire']['noHeader'] {
-  const file = join(OBSERVATIONS, '..', '..', 'earlier-captures', 'ai-logic-refusal-unenforced.json');
-  return (JSON.parse(readFileSync(file, 'utf8')) as EarlierCaptures).captures['app-check-ai-gate-wire'].noHeader;
+function gateCapture(): GateCapture['behavior']['noHeader'] {
+  const file = join(OBSERVATIONS, 'app-check-ai-gate-wire.json');
+  return (JSON.parse(readFileSync(file, 'utf8')) as GateCapture).behavior.noHeader;
 }
 
-/** The AIError the Firebase SDK throws for AI Logic's 403. A stream's URL carries `?alt=sse`, as the SDK builds it (#1640). */
+/** The AIError the Firebase SDK throws for AI Logic's 401. A stream's URL carries `?alt=sse`, as the SDK builds it (#1640). */
 function refusal(op: string) {
   const gate = gateCapture();
   const isStream = op === 'streamGenerateContent';
@@ -48,8 +48,8 @@ function refusal(op: string) {
     name: 'FirebaseError',
     code: 'fetch-error',
     status: gate.httpStatus,
-    statusText: 'Forbidden',
-    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}${query}: [${gate.httpStatus} Forbidden] ${gate.messageText} (AI/fetch-error)`,
+    statusText: 'Unauthorized',
+    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}${query}: [${gate.httpStatus} Unauthorized] ${gate.messageText} (AI/fetch-error)`,
   };
 }
 
@@ -172,7 +172,7 @@ export default scenario(async (app) => {
       });
     });
 
-    await app.step('without App Check, the same calls get production\'s 403 and the terminal prints the hint', async () => {
+    await app.step('without App Check, the same calls get production\'s 401 and the terminal prints the hint', async () => {
       const since = host.process.mark();
       const result = await page.evaluate(() => runWithoutAppCheck());
       assert.deepEqual(result, {

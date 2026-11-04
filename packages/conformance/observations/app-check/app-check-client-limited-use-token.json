@@ -5,9 +5,10 @@
     "app-check#limited-use-token"
   ],
   "description": "getLimitedUseToken in debug mode: result key set and token shape, whether it differs from the cached getToken token, and whether two calls return distinct tokens.",
-  "observedAt": "2026-11-02T19:35:34.080Z",
+  "observedAt": "2026-11-03T23:22:24.714Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "limited": {
       "keySet": [

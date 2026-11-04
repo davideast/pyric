@@ -1,5 +1,5 @@
 {
-  "description": "AI Logic's 403 refusal, as captured on 2026-10-22 from a project whose enforcement mode read UNENFORCED, on firebase 12.13.0. This is not a capture of ENFORCED mode. Later re-captures of these observations ran on a project that answers 200, so the sandbox's refusal is pinned here. Copied unchanged from the observations at sourceCommit. Lives outside observations/ because the version guard requires those to name the installed SDK. See #1300.",
+  "description": "AI Logic's 403 refusal, as captured on 2026-10-22 from a project whose enforcement mode read UNENFORCED, on firebase 12.13.0. This is not a capture of ENFORCED mode. The sandbox replayed this refusal until the 2026-11-03 capture of an enforced project, which answers 401 UNAUTHENTICATED; it is kept as evidence of what an unenforced project can answer. Copied unchanged from the observations at sourceCommit. Lives outside observations/ because the version guard requires those to name the installed SDK. See #1300.",
   "observedAt": "2026-10-22",
   "fbSdkVersion": "12.13.0",
   "appCheckEnforcementModeAtCapture": "UNENFORCED",

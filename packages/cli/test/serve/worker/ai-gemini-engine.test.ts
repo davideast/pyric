@@ -76,7 +76,7 @@ describe('the gemini engine in a browser worker', () => {
     const ctx = ctxWith({ aiRunsInBrowser: true, aiEngine: { kind: 'gemini' } });
     const res = await sendOp(ctx, { t: 'op', id: 'g2', method: 'ai.generateContent', model: MODEL, request, appCheck: { token: null } });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error.aiEnvelope?.error).toMatchObject({ code: 403, status: 'PERMISSION_DENIED' });
+    if (!res.ok) expect(res.error.aiEnvelope?.error).toMatchObject({ code: 401, status: 'UNAUTHENTICATED', message: 'Firebase App Check token is invalid.' });
     expect(sent).toEqual([]);
   });
 

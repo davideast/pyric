@@ -1,6 +1,6 @@
 // The Firebase AI Logic calls an app makes, with and without App Check, shared
 // by the page (main.js) and the registered Node process (ai-server.mjs).
-// The sandbox refuses AI Logic requests without an App Check token with a 403.
+// The sandbox refuses AI Logic requests without an App Check token with a 401, as an enforced project does.
 // Firebase enforces App Check for AI Logic from November 2, 2026, and a project
 // can delay enforcement up to January 21, 2027.
 import { initializeApp } from "firebase/app";

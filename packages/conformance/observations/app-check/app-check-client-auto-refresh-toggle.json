@@ -5,9 +5,10 @@
     "app-check#set-auto-refresh"
   ],
   "description": "setTokenAutoRefreshEnabled(appCheck, false) and (appCheck, true) on an instance initialized with isTokenAutoRefreshEnabled false: whether each throws and what it returns, and that getToken still resolves the cached token afterwards. Background refresh timing is not observed.",
-  "observedAt": "2026-11-02T19:35:34.084Z",
+  "observedAt": "2026-11-03T23:22:24.714Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
+  "appCheckEnforcementModeAtCapture": "ENFORCED",
   "behavior": {
     "offThrew": false,
     "offReturn": "undefined",
