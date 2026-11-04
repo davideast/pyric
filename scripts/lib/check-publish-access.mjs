@@ -11,7 +11,12 @@
 //  - `npm access list packages <account> --json` prints each package the
 //    account can reach as `read-write` or `read-only`;
 //  - `npm view <package> name` tells a package not on the registry yet (E404)
-//    from one the account can't reach.
+//    from one the account can't reach;
+//  - `npm access list collaborators <package> --json` prints each account
+//    with access to one package. When the account listing fails (the org
+//    endpoint can answer E403, and libnpmaccess falls back to the user
+//    endpoint only on E404) or leaves an existing package out, the package
+//    passes only if the account is a `read-write` collaborator on it.
 //
 // A package not on the registry yet has no permission to read: publishing it
 // creates it, which needs a token with read-write access across its scope (or
@@ -37,10 +42,13 @@ function acknowledged(name, acks) {
 
 /**
  * Sorts each package into what the account can publish and what it can't.
- * `access` is the parsed access listing; `onRegistry(name)` is true, false
- * (an E404), or a string saying why the registry couldn't answer.
+ * `access` is the parsed account listing ({} when it failed);
+ * `onRegistry(name)` is true, false (an E404), or a string saying why the
+ * registry couldn't answer; `collaborator(name)` is the account's permission
+ * on that package (`read-write`, `read-only`, or undefined when unlisted), or
+ * `{ error }` when the request failed.
  */
-export function judgePublishAccess(packages, access, onRegistry, acks) {
+export function judgePublishAccess(packages, access, onRegistry, collaborator, acks) {
   const refusals = [];
   const acknowledgedNew = [];
   for (const name of packages) {
@@ -54,7 +62,8 @@ export function judgePublishAccess(packages, access, onRegistry, acks) {
     if (typeof exists === 'string') {
       refusals.push(`${name}: not in the account's package list, and the registry lookup failed (${exists})`);
     } else if (exists) {
-      refusals.push(`${name}: on the registry, but not in the account's package list; grant the account and token read-write access to it`);
+      const refusal = collaboratorRefusal(name, collaborator(name));
+      if (refusal) refusals.push(refusal);
     } else if (acknowledged(name, acks)) {
       acknowledgedNew.push(name);
     } else {
@@ -68,6 +77,24 @@ export function judgePublishAccess(packages, access, onRegistry, acks) {
     }
   }
   return { refusals, acknowledgedNew };
+}
+
+function collaboratorRefusal(name, permission) {
+  if (permission === 'read-write') return null;
+  if (permission !== null && typeof permission === 'object') {
+    return `${name}: not in the account's package list, and its collaborator list failed (${permission.error})`;
+  }
+  const held = permission === undefined ? 'no access' : `${permission} access`;
+  return `${name}: on the registry, and the account has ${held} as a collaborator; grant the account and token read-write access to it`;
+}
+
+function parseObject(text) {
+  try {
+    const value = JSON.parse(text || '{}');
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function npm(args) {
@@ -104,17 +131,28 @@ function main() {
   const account = whoami.stdout?.trim();
   if (whoami.status !== 0 || !account) refuse([`npm whoami failed: ${failure(whoami)}`]);
 
+  // A failed listing isn't a refusal yet: each package falls back to its
+  // collaborator list. A listing that answers with something other than an
+  // object is.
   const listing = npm(['access', 'list', 'packages', account, '--json']);
-  if (listing.status !== 0) refuse([`npm access list packages ${account} failed: ${failure(listing)}`]);
-  let access;
-  try {
-    access = JSON.parse(listing.stdout || '{}');
-  } catch {
-    refuse([`npm access list packages ${account} did not print JSON`]);
+  let access = {};
+  if (listing.status === 0) {
+    access = parseObject(listing.stdout);
+    if (access === null) refuse([`npm access list packages ${account} did not print JSON`]);
+  } else {
+    console.log(`npm access list packages ${account} failed (${failure(listing)}); checking each package's collaborators.`);
   }
 
+  const collaborator = (name) => {
+    const run = npm(['access', 'list', 'collaborators', name, '--json']);
+    if (run.status !== 0) return { error: failure(run) };
+    const collaborators = parseObject(run.stdout);
+    if (collaborators === null) return { error: 'did not print JSON' };
+    return collaborators[account];
+  };
+
   const acks = (process.env[ACK_ENV] ?? '').split(/[\s,]+/).filter(Boolean);
-  const { refusals, acknowledgedNew } = judgePublishAccess(packages, access, lookup, acks);
+  const { refusals, acknowledgedNew } = judgePublishAccess(packages, access, lookup, collaborator, acks);
   if (refusals.length > 0) refuse(refusals);
 
   console.log(`npm publish access: ${account} can publish ${packages.length - acknowledgedNew.length} existing packages read-write.`);

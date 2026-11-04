@@ -39,17 +39,22 @@ into the repository or paste its token into a command.
 
 npm uploads can't be taken back, so the preflight and the publish both start
 by checking that the account can publish every package in the release, before
-any gate runs. `scripts/lib/check-publish-access.mjs` makes three read-only
+any gate runs. `scripts/lib/check-publish-access.mjs` makes read-only
 requests:
 
 ```bash
 npm whoami                                       # the account
 npm access list packages <account> --json        # {"pyric": "read-write", ...}
 npm view <package> name                          # E404: not on the registry yet
+npm access list collaborators <package> --json   # {"<account>": "read-write", ...}
 ```
 
-It refuses, naming each package, when a package the registry already has is
-missing from the account's list or listed as `read-only`.
+The collaborator list is the fallback: when the account listing fails, or
+leaves out a package the registry already has, that package passes only if
+the account is a `read-write` collaborator on it. The check refuses, naming
+each package, when a package is listed `read-only`, when the account isn't a
+`read-write` collaborator, when both lists fail, or when the registry lookup
+fails for a reason other than a 404.
 
 A package not on the registry yet has no permission to list: the release
 creates it, which takes a token with read-write access to its scope (or to all
@@ -64,6 +69,10 @@ PYRIC_PUBLISH_SCOPE_WRITE=@pyric bash scripts/publish-alpha.sh "$RELEASE_VERSION
 Set it only after you've given the token read-write access to the whole
 `@pyric` scope. It covers only packages not on the registry yet; it never
 lets through an existing package the account can't write.
+
+Set it on the command, as above, and never in `.env`: `bun run` loads `.env`,
+so a value left there would acknowledge every new package of every later
+release without anyone checking the token.
 
 The listing reports the account's access. Whether npm narrows it to a
 granular token's package selection isn't documented, so a token limited to

@@ -412,8 +412,16 @@ function publishForReal(repo: string, env: Record<string, string> = {}) {
   const stubs: Record<string, string> = {
     npm: `echo "npm $*" >> "${log}"
 if [ "$1" = whoami ]; then echo releaser; exit 0; fi
-if [ "$1 $2 $3" = "access list packages" ]; then printf '%s\\n' "$ACCESS_JSON"; exit 0; fi
+if [ "$1 $2 $3" = "access list packages" ]; then
+  if [ "\${LISTING_FAILS:-}" = 1 ]; then echo "npm error code E403" >&2; exit 1; fi
+  printf '%s\\n' "$ACCESS_JSON"; exit 0
+fi
+if [ "$1 $2 $3" = "access list collaborators" ]; then
+  if [ "\${COLLABORATORS_FAIL:-}" = 1 ]; then echo "npm error code E403" >&2; exit 1; fi
+  printf '%s\\n' "$COLLABORATORS_JSON"; exit 0
+fi
 if [ "$1" = view ]; then
+  if [ "\${VIEW_FAILS:-}" = "$2" ]; then echo "npm error code ECONNRESET" >&2; exit 1; fi
   case " \${NEW_PACKAGES:-} " in *" $2 "*) echo "npm error code E404" >&2; echo "npm error 404 Not Found - GET https://registry.npmjs.org/$2" >&2; exit 1;; esac
   echo "$2"; exit 0
 fi
@@ -440,7 +448,7 @@ fi`,
   const result = spawnSync('/bin/bash', [join(repo, 'scripts/publish-alpha.sh'), '--dry-run', '0.1.0-alpha.9'], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, ACCESS_JSON: ALL_READ_WRITE, ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
+    env: { ...process.env, ACCESS_JSON: ALL_READ_WRITE, COLLABORATORS_JSON: '{}', ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
   });
   const commands = readFileSync(log, 'utf8').split('\n');
   const uploads = commands.filter((line) => line.startsWith('uploaded '));
@@ -531,6 +539,48 @@ describe('publish access is checked for every package before any gate or upload 
     const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: access });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('@pyric/ui');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a failed account listing falls back to each package\'s collaborators, and passes a read-write account', () => {
+    const { result, uploads, commands } = publishForReal(realStampRepo(), {
+      LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-write', someone: 'read-only' }),
+    });
+    expect(result.status).toBe(0);
+    expect(commands).toContain('npm access list collaborators @pyric/live --json');
+    expect(uploads).toEqual(PACKED_UPLOADS);
+  });
+
+  test('a failed account listing whose collaborators fallback fails too is refused', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), { LISTING_FAILS: '1', COLLABORATORS_FAIL: '1' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('collaborator list failed (npm error code E403)');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a collaborator list that holds the account read-only is refused', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), {
+      LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-only' }),
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('read-only access as a collaborator');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a listing that prints null is refused, not a crash', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: 'null' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('npm access list packages releaser did not print JSON');
+    expect(result.stderr).not.toContain('TypeError');
+    expect(uploads).toEqual([]);
+  });
+
+  test('a registry lookup that fails for a reason other than E404 is refused, even with the acknowledgement', () => {
+    const { result, uploads } = publishForReal(realStampRepo(), {
+      ACCESS_JSON: FIVE_EXISTING, VIEW_FAILS: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('@pyric/live: not in the account\'s package list, and the registry lookup failed (npm error code ECONNRESET)');
     expect(uploads).toEqual([]);
   });
 
