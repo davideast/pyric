@@ -82,6 +82,23 @@ Each refusal throws an error with the code `PYRIC_LIVE_REFUSED` before any reque
 
 To use any of these, run the app without `@pyric/live`. It gets the sandbox again.
 
+## Calls that skip your Firebase SDK
+
+Pyric sees a call only when it goes through your app's `firebase/app`, `firebase/auth`, `firebase/firestore` or `firebase/app-check`. Live mode refuses these other routes to production, so none of them reaches your project unseen:
+
+- **`@google-cloud/firestore`** in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` instead.
+- **Your own requests to Firestore, Auth or App Check** from a Node process, with `fetch`, `http.request` or `https.request`. Each fails with `PYRIC_GUARD_BLOCKED`, and the terminal names the host.
+- **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
+
+## What live mode can't see
+
+Some requests from a page never reach the dev server, so live mode can't refuse or show them:
+
+- **The exact URL of an SDK file the page already loaded.** The browser answers `import()` of that URL from its own module cache, so the page gets the SDK without pyric in between.
+- **The page's own `fetch` to the Firestore REST API**, or to Auth or App Check. The browser sends it straight to Google.
+
+In a Node process, a connection your code opens itself with `http2`, `tls` or `@grpc/grpc-js` to `firestore.googleapis.com` looks the same as your Firebase SDK's own, so live mode lets it through without showing it. None of these calls shows in traffic, and production still bills them.
+
 ## Count billed calls
 
 The chip and Studio show a running count of your app's Firestore reads, writes and listener deliveries in production. Reads and writes are counted per call, not per document, so a query counts once however many documents production bills for it. Listener deliveries count the documents delivered to listeners. An HMR reload that restarts a listener reads its documents again.

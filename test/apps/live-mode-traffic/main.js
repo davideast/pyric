@@ -69,6 +69,22 @@ window.refused = {
       return refusedOutcome(error);
     }
   },
+  // The SDK file the live rows loaded, read back from the page's resource
+  // timings and imported again with an extra query: a second copy of the raw
+  // SDK, which would open a named database the rows refuse.
+  cacheBusted: async () => {
+    const loaded = performance.getEntriesByType("resource").map((entry) => entry.name)
+      .find((name) => /\/@firebase\/firestore\/dist\/index\.esm\.js/.test(name));
+    if (loaded === undefined) return "no loaded SDK file";
+    const busted = `${loaded}${loaded.includes("?") ? "&" : "?"}t=${Date.now()}`;
+    try {
+      const raw = await import(/* @vite-ignore */ busted);
+      raw.initializeFirestore(app, {}, "reports");
+      return "opened";
+    } catch (error) {
+      return refusedOutcome(error);
+    }
+  },
 };
 
 document.querySelector("#status").textContent = "Ready";
