@@ -45,16 +45,20 @@ import type { SandboxTarget } from './target.js';
 import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 import {
+  accountStanding,
   createAuthProjectStore,
+  recordDeletion,
+  revokeTokensAt,
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
+import { SessionLedger } from './sandbox/session-ledger.js';
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
   absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, idTokenAudience, makeServiceMutationEvent,
   realmOrigin, providerVerifiesEmail, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken,
-  ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint,
+  ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, refreshRefusal,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -245,6 +249,13 @@ export class SandboxBackend {
    * recent-login gate ({@link assertRecentLogin}).
    */
   private readonly authenticatedAtByUid = new Map<string, number>();
+
+  /** Each session's last authentication, read by the refresh check. */
+  private readonly sessions = new SessionLedger(this.authenticatedAtByUid);
+
+  /** The `User` {@link restoreSession} resumes a held session for: its
+   *  {@link setCurrentUser} is not an authentication. */
+  private resumingSession: User | null = null;
 
   /**
    * Sign-in provider enablement — mirrors a real Firebase project's
@@ -956,8 +967,14 @@ export class SandboxBackend {
    * like a real restored session. Throws `auth/user-not-found` for
    * unknown uids and `auth/user-disabled` for disabled accounts (a
    * restore is a sign-in).
+   *
+   * `sessionKey` is the key of the session the page held ({@link sessionKeyOf}).
+   * When it names a session of `uid`, the restore resumes it with the
+   * authentication time it had, as a page reload keeps its refresh token.
+   * Otherwise the restored session has no sign-in time of its own, so any
+   * revocation recorded for the uid refuses its next refresh.
    */
-  restoreSession(uid: string): User {
+  restoreSession(uid: string, sessionKey?: string): User {
     const stored = this.usersByUid.get(uid);
     if (!stored) {
       throw makeAuthError('auth/user-not-found', `restoreSession: no identity with uid ${uid}.`);
@@ -969,7 +986,14 @@ export class SandboxBackend {
       ? 'anonymous'
       : (stored.providerUserInfo[0]?.providerId ?? 'password');
     const user = this.buildUserFromStored(stored);
-    this.setCurrentUser(user, providerId);
+    const resumes = sessionKey !== undefined && this.sessions.resume(user, sessionKey);
+    this.resumingSession = resumes ? user : null;
+    try {
+      this.setCurrentUser(user, providerId);
+    } finally {
+      this.resumingSession = null;
+    }
+    if (!resumes) this.sessions.withoutSignIn(user);
     return user;
   }
 
@@ -1464,8 +1488,13 @@ export class SandboxBackend {
     // A sign-in authenticates; so does the first session the test driver
     // establishes for a uid. A same-uid update that is not a sign-in (an
     // unlink, a profile write) keeps the earlier authentication instant.
-    const authenticates = isSignIn || !this.authenticatedAtByUid.has(user.uid);
-    if (authenticates) this.recordAuthentication(user.uid);
+    const resumesSession = this.resumingSession === user;
+    const authenticates = !resumesSession && (isSignIn || !this.authenticatedAtByUid.has(user.uid));
+    const previous = this.cachedUser;
+    const continuesSession = !authenticates && !resumesSession && previous !== null && previous.uid === user.uid;
+    if (authenticates) this.recordAuthentication(user.uid, user);
+    else if (continuesSession) this.sessions.continue(user, previous);
+    this.sessions.adopt(user);
 
     // Look up custom claims for this uid (if we know them). Falls
     // back to the empty claims map for anonymous / freshly-minted
@@ -1851,6 +1880,8 @@ export class SandboxBackend {
     if (update.password !== undefined) {
       validatePasswordStrength(update.password);
       stored.password = update.password;
+      // A password change revokes the account's refresh tokens, as in production.
+      revokeTokensAt(this.projectStore, uid, this.now().getTime());
       // Setting a password links the password provider — matches the
       // Identity Toolkit (an account gains providerUserInfo entry
       // when a password is set on it).
@@ -1879,7 +1910,8 @@ export class SandboxBackend {
 
   /** Admin user deletion. The active session (if it's this user) is
    *  NOT terminated — matches prod, where admin deletion doesn't kill
-   *  live client sessions until the token is revoked/refreshed. */
+   *  live client sessions until their next token refresh, which is
+   *  refused with `auth/user-token-expired` and signs the user out. */
   deleteUser(uid: string): void {
     const stored = this.usersByUid.get(uid);
     if (!stored) {
@@ -1887,10 +1919,14 @@ export class SandboxBackend {
     }
     const before = this.toRecord(stored);
     this.usersByUid.delete(uid);
+    // A held session's next refresh is refused, as production's is, even
+    // after the uid is created again.
+    recordDeletion(this.projectStore, uid, this.now().getTime());
     if (stored.email && this.usersByEmail.get(stored.email.toLowerCase()) === stored) {
       this.usersByEmail.delete(stored.email.toLowerCase());
     }
-    this.tokenCache.delete(uid);
+    // The held ID token stays cached: production's client keeps answering
+    // getIdToken() with it until its refresh point, and the refresh is refused.
     this.signInProviderByUid.delete(uid);
     this.photoOriginByUid.delete(uid);
     this.authenticatedAtByUid.delete(uid);
@@ -1899,10 +1935,14 @@ export class SandboxBackend {
   }
 
   /** Drop every user record (the emulator's "delete all accounts").
-   *  Active sessions are untouched, like {@link deleteUser}. */
+   *  Active sessions are untouched, like {@link deleteUser}, until their
+   *  next refresh, which is refused. */
   clearUsers(): void {
     if (this.usersByUid.size === 0 && this.usersByEmail.size === 0) return;
     const count = this.usersByUid.size;
+    // Every held session's next refresh is refused, as a delete's is.
+    const now = this.now().getTime();
+    for (const uid of this.usersByUid.keys()) recordDeletion(this.projectStore, uid, now);
     this.usersByUid.clear();
     this.usersByEmail.clear();
     this.notifyUsersChanged();
@@ -2039,7 +2079,26 @@ export class SandboxBackend {
         // update). It is not an authentication, so it keeps the recorded
         // instant the recent-login gate reads.
         const authenticates = request.kind !== 'uid' || !this.authenticatedAtByUid.has(request.uid);
-        return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId, authenticates, request.origin);
+        // Minting a held session again is a refresh-token exchange: refused as
+        // one is, and the new `User` keeps the held session's authentication.
+        const from = 'from' in request ? request.from : undefined;
+        const remintsSession = from !== undefined;
+        if (remintsSession) {
+          assertRefreshAllowed(this.projectStore, request.uid, this.sessions.authenticatedAt(from));
+        }
+        const user = this.buildUserFromStored(stored);
+        if (remintsSession) this.sessions.continue(user, from);
+        // A page reload hands back the key of the session it held, and resumes
+        // it with the authentication time it had. A restore no key matches has
+        // no sign-in time of its own.
+        const restore = request.kind === 'uid' ? request.restore : undefined;
+        const sessionKey = restore?.sessionKey;
+        const resumesSession = !remintsSession && sessionKey !== undefined && this.sessions.resume(user, sessionKey);
+        const continues = remintsSession || resumesSession;
+        const minted = this.establishDetachedSession(user, providerId, tenantId, authenticates && !continues, request.origin);
+        const restoresWithoutKey = restore !== undefined && !resumesSession;
+        if (restoresWithoutKey) this.sessions.withoutSignIn(user);
+        return minted;
       }
     }
   }
@@ -2056,7 +2115,8 @@ export class SandboxBackend {
   ): MintedSession {
     this.signInProviderByUid.set(user.uid, signInProvider);
     if (origin !== undefined) this.photoOriginByUid.set(user.uid, origin);
-    if (authenticates) this.recordAuthentication(user.uid);
+    if (authenticates) this.recordAuthentication(user.uid, user);
+    this.sessions.adopt(user);
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
     const hasStoredUser = stored !== undefined;
@@ -2195,8 +2255,9 @@ export class SandboxBackend {
     claims: Record<string, unknown>,
     forceRefresh: boolean,
     tenantId: string | null = null,
+    session?: User,
   ): string {
-    return this.getIdTokenResultFor(uid, claims, forceRefresh, tenantId).token;
+    return this.getIdTokenResultFor(uid, claims, forceRefresh, tenantId, session).token;
   }
 
   /** {@link getIdTokenFor} variant returning the full IdTokenResult.
@@ -2206,12 +2267,16 @@ export class SandboxBackend {
     claims: Record<string, unknown>,
     forceRefresh: boolean,
     tenantId: string | null = null,
+    session?: User,
   ): IdTokenResult {
     const cached = this.tokenCache.get(uid)?.get(tenantId);
     const hasCachedToken = cached !== undefined;
     // A cached token past its refresh point is minted again on read and fires
     // onIdTokenChanged, as `@firebase/auth` `getIdToken` does on expiry.
     const cachedTokenExpired = hasCachedToken && isPastIdTokenRefreshPoint(cached.result.claims, this.now().getTime());
+    const exchangesRefreshToken = forceRefresh || cachedTokenExpired || !hasCachedToken;
+    const authenticatedAtMs = session === undefined ? this.authenticatedAtByUid.get(uid) : this.sessions.authenticatedAt(session);
+    if (exchangesRefreshToken) assertRefreshAllowed(this.projectStore, uid, authenticatedAtMs);
     if (forceRefresh || cachedTokenExpired) {
       const fresh = this.mintToken(uid, claims, tenantId);
       const current = this.session.currentUser;
@@ -2287,6 +2352,15 @@ export class SandboxBackend {
         photoURL,
         providerId: p.providerId,
       }));
+    // Production signs the user out only when the invalidated user is the
+    // Auth instance's current user: the same account in the same session,
+    // not a newer sign-in to the uid.
+    const signOutIfCurrent = async (): Promise<void> => {
+      const cached = this.cachedUser;
+      const isCurrentSession = cached !== null && cached.uid === args.uid
+        && this.sessions.sameSession(cached, user);
+      if (isCurrentSession) await this.transitionCurrentUser(null);
+    };
     const user: User = {
       uid: args.uid,
       email: args.email,
@@ -2304,10 +2378,10 @@ export class SandboxBackend {
       // `getIdToken(true)` (AUTH-B10) — same propagation story as prod.
       // Falls back to the closed-over claims for users not in the DB
       // (anonymous / popup), matching how they were minted.
-      getIdToken: async (forceRefresh?: boolean) =>
-        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
-      getIdTokenResult: async (forceRefresh?: boolean) =>
-        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
+      getIdToken: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
+        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId, user)),
+      getIdTokenResult: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
+        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId, user)),
     };
     // Stamp the backend-dispatch hook non-enumerably so the top-level
     // `updateProfile(user, …)` free function can update THIS user (and the
@@ -2332,10 +2406,9 @@ export class SandboxBackend {
           this.updatePasswordFor(user, newPassword);
           return Promise.resolve();
         },
-        reload: () => {
+        reload: () => logoutIfInvalidated(signOutIfCurrent, () => {
           this.reloadFor(user);
-          return Promise.resolve();
-        },
+        }),
         // Routing rides on the user — see UserInternal.target. Built here
         // rather than injected because the backend predates the target
         // object that wraps it (`getAuth` constructs the target FROM the
@@ -2446,9 +2519,11 @@ export class SandboxBackend {
     return after;
   }
 
-  /** Mark `uid` as having just authenticated, at the sandbox clock's now. */
-  recordAuthentication(uid: string): void {
-    this.authenticatedAtByUid.set(uid, this.now().getTime());
+  /** Mark `uid`, and the `session` when given, as having just authenticated, at the sandbox clock's now. */
+  recordAuthentication(uid: string, session?: User): void {
+    const now = this.now().getTime();
+    this.authenticatedAtByUid.set(uid, now);
+    if (session !== undefined) this.sessions.authenticate(session, now);
   }
 
   /**
@@ -2531,6 +2606,14 @@ export class SandboxBackend {
   updatePasswordFor(user: User, newPassword: string): void {
     this.assertRecentLogin(user.uid);
     this.updateUser(user.uid, { password: newPassword });
+    // The change revokes the account's sessions, and production answers it
+    // with fresh tokens for this one, so only this session goes on. Its
+    // `auth_time` and the recent-login gate stay at its sign-in.
+    const now = this.now().getTime();
+    this.sessions.authenticate(user, now);
+    const cached = this.cachedUser;
+    const isHeldAsCurrent = cached !== null && cached !== user && cached.uid === user.uid;
+    if (isHeldAsCurrent) this.sessions.authenticate(cached, now);
   }
 
   /**
@@ -2551,6 +2634,8 @@ export class SandboxBackend {
         "The user's credential is no longer valid. The user must sign in again.",
       );
     }
+    // `accounts:lookup` answers USER_DISABLED for a disabled account.
+    this.assertUserEnabled(stored);
     this.applyStoredToUser(user, stored);
     if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
       this.applyStoredToUser(this.cachedUser, stored);
@@ -2631,6 +2716,36 @@ export class SandboxBackend {
       );
     }
     return stored;
+  }
+}
+
+const DISABLED_MESSAGE = 'The user account has been disabled by an administrator.';
+const TOKEN_EXPIRED_MESSAGE = "The user's credential is no longer valid. The user must sign in again.";
+
+/**
+ * Refuse a refresh-token exchange production refuses, with the code
+ * `@firebase/auth` gives it ({@link refreshRefusal}). `authenticatedAtMs` is
+ * the session's last authentication.
+ */
+function assertRefreshAllowed(store: AuthProjectStore, uid: string, authenticatedAtMs: number | undefined): void {
+  const refusal = refreshRefusal(accountStanding(store, uid), authenticatedAtMs);
+  if (refusal === 'auth/user-disabled') throw makeAuthError(refusal, DISABLED_MESSAGE);
+  if (refusal === 'auth/user-token-expired') throw makeAuthError(refusal, TOKEN_EXPIRED_MESSAGE);
+}
+
+/**
+ * `@firebase/auth`'s `_logoutIfInvalidated`: when a call fails with
+ * `auth/user-disabled` or `auth/user-token-expired`, sign the user out, then
+ * rethrow.
+ */
+async function logoutIfInvalidated<T>(signOut: () => Promise<void>, call: () => T): Promise<T> {
+  try {
+    return call();
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    const invalidated = code === 'auth/user-disabled' || code === 'auth/user-token-expired';
+    if (invalidated) await signOut();
+    throw error;
   }
 }
 

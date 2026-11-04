@@ -9,8 +9,14 @@ import {
   type MintedSession,
   type User,
 } from 'pyric/auth';
-import { serializeUser } from '../protocol.js';
+import { sessionKeyOf } from 'pyric/auth/internal';
+import { serializeUser, type SerializedUser } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
+
+/** A session's user in wire form, with the session key a reloaded page hands back (#1950). */
+export function serializeSessionUser(user: User | null): SerializedUser | null {
+  return serializeUser(user, user === null ? undefined : sessionKeyOf(user));
+}
 
 /** Payload describing an OAuth credential submitted for sign-in over the bridge. */
 export interface OAuthCredentialPayload {
@@ -38,7 +44,7 @@ export function credReply(
   isNewUser: boolean = false,
 ) {
   return {
-    user: serializeUser(session.user),
+    user: serializeSessionUser(session.user),
     providerId,
     operationType: 'signIn' as const,
     additionalUserInfo: {
@@ -82,13 +88,16 @@ export function requireSessionUser(session: MintedSession | null, api: string): 
 /**
  * Refresh a port session from the stored account while retaining its tenant.
  * Session claims may predate an admin change or checkpoint restore; they must
- * never be written back to the account during refresh.
+ * never be written back to the account during refresh. The mint is a
+ * refresh-token exchange, so it is refused for a disabled, deleted or revoked
+ * session, and the new session keeps the held one's authentication.
  */
 export function remintSessionWithClaims(auth: Auth, session: MintedSession): MintedSession {
   return authSandboxOps.mintSession(auth, {
     kind: 'uid',
     uid: session.user.uid,
     tenantId: session.user.tenantId ?? null,
+    from: session.user,
   });
 }
 

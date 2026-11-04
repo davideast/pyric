@@ -1,5 +1,6 @@
 import { FirebaseError } from 'pyric/app';
 import { AuthCredential, linkWithCredential, unlink, sandbox, type Auth, type MintedSession } from 'pyric/auth';
+import { sessionKeyOf } from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
 import { requireMatchingPortSession } from './auth-session-seeder.js';
 
@@ -23,5 +24,8 @@ export async function linkSessionProvider(
     });
   }
   await unlink(session.user, message.providerId);
-  return sandbox.mintSession(auth, { kind: 'uid', uid: message.uid, tenantId: message.tenantId });
+  // The unlinked session continues with the sign-in time it had (#1950).
+  return sandbox.mintSession(auth, {
+    kind: 'uid', uid: message.uid, tenantId: message.tenantId, restore: { sessionKey: sessionKeyOf(session.user) },
+  });
 }
