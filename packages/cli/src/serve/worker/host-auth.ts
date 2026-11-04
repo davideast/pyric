@@ -30,7 +30,6 @@ import {
   type MintedSession,
 } from 'pyric/auth';
 import {
-  serializeUser,
   type OpMessage,
   type AuthSubMessage,
 } from './protocol.js';
@@ -41,6 +40,7 @@ import {
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
+  serializeSessionUser as serializeUser,
 } from './host/auth-session-seeder.js';
 import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
 import { getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
@@ -380,8 +380,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         let session: MintedSession | null = null;
         try {
+          // A reload hands back the key of the session the page held, which
+          // resumes it with the authentication time it had (#1950).
           session = authSandboxOps.mintSession(auth, {
-            kind: 'uid', uid: msg.uid, tenantId, ...portOriginScope(port),
+            kind: 'uid', uid: msg.uid, tenantId, sessionKey: msg.sessionKey, ...portOriginScope(port),
           });
         } catch {
           session = null;

@@ -52,6 +52,7 @@ import {
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
+import { SessionLedger } from './sandbox/session-ledger.js';
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
@@ -248,6 +249,13 @@ export class SandboxBackend {
    * recent-login gate ({@link assertRecentLogin}).
    */
   private readonly authenticatedAtByUid = new Map<string, number>();
+
+  /** Each session's last authentication, read by the refresh check. */
+  private readonly sessions = new SessionLedger(this.authenticatedAtByUid);
+
+  /** The `User` {@link restoreSession} resumes a held session for: its
+   *  {@link setCurrentUser} is not an authentication. */
+  private resumingSession: User | null = null;
 
   /**
    * Sign-in provider enablement — mirrors a real Firebase project's
@@ -959,8 +967,13 @@ export class SandboxBackend {
    * like a real restored session. Throws `auth/user-not-found` for
    * unknown uids and `auth/user-disabled` for disabled accounts (a
    * restore is a sign-in).
+   *
+   * `sessionKey` is the key of the session the page held ({@link sessionKeyOf}).
+   * When it names a session of `uid`, the restore resumes it with the
+   * authentication time it had, as a page reload keeps its refresh token;
+   * otherwise the restore counts as a new sign-in.
    */
-  restoreSession(uid: string): User {
+  restoreSession(uid: string, sessionKey?: string): User {
     const stored = this.usersByUid.get(uid);
     if (!stored) {
       throw makeAuthError('auth/user-not-found', `restoreSession: no identity with uid ${uid}.`);
@@ -972,7 +985,13 @@ export class SandboxBackend {
       ? 'anonymous'
       : (stored.providerUserInfo[0]?.providerId ?? 'password');
     const user = this.buildUserFromStored(stored);
-    this.setCurrentUser(user, providerId);
+    const resumes = sessionKey !== undefined && this.sessions.resume(user, sessionKey);
+    this.resumingSession = resumes ? user : null;
+    try {
+      this.setCurrentUser(user, providerId);
+    } finally {
+      this.resumingSession = null;
+    }
     return user;
   }
 
@@ -1467,11 +1486,13 @@ export class SandboxBackend {
     // A sign-in authenticates; so does the first session the test driver
     // establishes for a uid. A same-uid update that is not a sign-in (an
     // unlink, a profile write) keeps the earlier authentication instant.
-    const authenticates = isSignIn || !this.authenticatedAtByUid.has(user.uid);
+    const resumesSession = this.resumingSession === user;
+    const authenticates = !resumesSession && (isSignIn || !this.authenticatedAtByUid.has(user.uid));
     const previous = this.cachedUser;
-    const continuesSession = !authenticates && previous !== null && previous.uid === user.uid;
+    const continuesSession = !authenticates && !resumesSession && previous !== null && previous.uid === user.uid;
     if (authenticates) this.recordAuthentication(user.uid, user);
-    else if (continuesSession) inheritAuthentication(this.authenticatedAtByUid, user, previous);
+    else if (continuesSession) this.sessions.continue(user, previous);
+    this.sessions.adopt(user);
 
     // Look up custom claims for this uid (if we know them). Falls
     // back to the empty claims map for anonymous / freshly-minted
@@ -2061,11 +2082,16 @@ export class SandboxBackend {
         const from = 'from' in request ? request.from : undefined;
         const remintsSession = from !== undefined;
         if (remintsSession) {
-          assertRefreshAllowed(this.projectStore, request.uid, sessionAuthenticatedAtFor(this.authenticatedAtByUid, from));
+          assertRefreshAllowed(this.projectStore, request.uid, this.sessions.authenticatedAt(from));
         }
         const user = this.buildUserFromStored(stored);
-        if (remintsSession) inheritAuthentication(this.authenticatedAtByUid, user, from);
-        return this.establishDetachedSession(user, providerId, tenantId, authenticates && !remintsSession, request.origin);
+        if (remintsSession) this.sessions.continue(user, from);
+        // A page reload hands back the key of the session it held, and resumes
+        // it with the authentication time it had.
+        const sessionKey = request.kind === 'uid' ? request.sessionKey : undefined;
+        const resumesSession = !remintsSession && sessionKey !== undefined && this.sessions.resume(user, sessionKey);
+        const continues = remintsSession || resumesSession;
+        return this.establishDetachedSession(user, providerId, tenantId, authenticates && !continues, request.origin);
       }
     }
   }
@@ -2083,6 +2109,7 @@ export class SandboxBackend {
     this.signInProviderByUid.set(user.uid, signInProvider);
     if (origin !== undefined) this.photoOriginByUid.set(user.uid, origin);
     if (authenticates) this.recordAuthentication(user.uid, user);
+    this.sessions.adopt(user);
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
     const hasStoredUser = stored !== undefined;
@@ -2241,7 +2268,7 @@ export class SandboxBackend {
     // onIdTokenChanged, as `@firebase/auth` `getIdToken` does on expiry.
     const cachedTokenExpired = hasCachedToken && isPastIdTokenRefreshPoint(cached.result.claims, this.now().getTime());
     const exchangesRefreshToken = forceRefresh || cachedTokenExpired || !hasCachedToken;
-    const authenticatedAtMs = session === undefined ? this.authenticatedAtByUid.get(uid) : sessionAuthenticatedAtFor(this.authenticatedAtByUid, session);
+    const authenticatedAtMs = session === undefined ? this.authenticatedAtByUid.get(uid) : this.sessions.authenticatedAt(session);
     if (exchangesRefreshToken) assertRefreshAllowed(this.projectStore, uid, authenticatedAtMs);
     if (forceRefresh || cachedTokenExpired) {
       const fresh = this.mintToken(uid, claims, tenantId);
@@ -2324,7 +2351,7 @@ export class SandboxBackend {
     const signOutIfCurrent = async (): Promise<void> => {
       const cached = this.cachedUser;
       const isCurrentSession = cached !== null && cached.uid === args.uid
-        && sessionAuthenticatedAtFor(this.authenticatedAtByUid, cached) === sessionAuthenticatedAtFor(this.authenticatedAtByUid, user);
+        && this.sessions.authenticatedAt(cached) === this.sessions.authenticatedAt(user);
       if (isCurrentSession) await this.transitionCurrentUser(null);
     };
     const user: User = {
@@ -2489,7 +2516,7 @@ export class SandboxBackend {
   recordAuthentication(uid: string, session?: User): void {
     const now = this.now().getTime();
     this.authenticatedAtByUid.set(uid, now);
-    if (session !== undefined) sessionAuthenticatedAt.set(session, now);
+    if (session !== undefined) this.sessions.authenticate(session, now);
   }
 
   /**
@@ -2576,10 +2603,10 @@ export class SandboxBackend {
     // with fresh tokens for this one, so only this session goes on. Its
     // `auth_time` and the recent-login gate stay at its sign-in.
     const now = this.now().getTime();
-    sessionAuthenticatedAt.set(user, now);
+    this.sessions.authenticate(user, now);
     const cached = this.cachedUser;
     const isHeldAsCurrent = cached !== null && cached !== user && cached.uid === user.uid;
-    if (isHeldAsCurrent) sessionAuthenticatedAt.set(cached, now);
+    if (isHeldAsCurrent) this.sessions.authenticate(cached, now);
   }
 
   /**
@@ -2683,26 +2710,6 @@ export class SandboxBackend {
     }
     return stored;
   }
-}
-
-/**
- * When each session last authenticated, keyed by the session's `User`.
- * A revocation refuses every session authenticated before it, so this is per
- * session: the session that changes its own password keeps refreshing while
- * the account's other sessions (other tabs, other worker ports) are refused.
- * A `User` with no entry reads its backend's last authentication of the uid.
- */
-const sessionAuthenticatedAt = new WeakMap<User, number>();
-
-/** When `session` last authenticated, or the uid's last authentication for a session with no entry of its own. */
-function sessionAuthenticatedAtFor(byUid: ReadonlyMap<string, number>, session: User): number | undefined {
-  return sessionAuthenticatedAt.get(session) ?? byUid.get(session.uid);
-}
-
-/** A `User` rebuilt for a held session keeps that session's authentication. */
-function inheritAuthentication(byUid: ReadonlyMap<string, number>, user: User, from: User): void {
-  const at = sessionAuthenticatedAtFor(byUid, from);
-  if (at !== undefined) sessionAuthenticatedAt.set(user, at);
 }
 
 const DISABLED_MESSAGE = 'The user account has been disabled by an administrator.';

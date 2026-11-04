@@ -6,7 +6,7 @@
 // signInWithCustomToken, and sends the ID token it gets back to the API's
 // /claims, or answers the code the exchange failed with.
 import { initializeApp } from "firebase/app";
-import { createUserWithEmailAndPassword, getAuth, onAuthStateChanged, signInWithCustomToken, signOut, updateProfile } from "firebase/auth";
+import { createUserWithEmailAndPassword, getAuth, onAuthStateChanged, signInWithCustomToken, signInWithEmailAndPassword, signOut, updatePassword, updateProfile } from "firebase/auth";
 
 const app = initializeApp({ apiKey: "demo", appId: "demo", projectId: "demo-bearer" });
 const auth = getAuth(app);
@@ -14,6 +14,24 @@ const auth = getAuth(app);
 // Every auth state the page's listener saw, as uids (null when signed out).
 const authStates = [];
 onAuthStateChanged(auth, (user) => authStates.push(user?.uid ?? null));
+
+// The first auth state after the page loads: the restored session, or null.
+window.restoredUid = () => new Promise((resolve) => {
+  const stop = onAuthStateChanged(auth, (user) => {
+    stop();
+    resolve(user?.uid ?? null);
+  });
+});
+
+window.signInExisting = async (email, password) => {
+  const { user } = await signInWithEmailAndPassword(auth, email, password);
+  return user.uid;
+};
+
+// The signed-in user changes their own password, as an account settings page does.
+window.changeOwnPassword = async (newPassword) => {
+  await updatePassword(auth.currentUser, newPassword);
+};
 
 async function callApi(apiUrl, idToken) {
   try {

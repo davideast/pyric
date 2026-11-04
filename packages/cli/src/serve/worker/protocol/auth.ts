@@ -40,6 +40,13 @@ export interface SerializedUser {
     readonly providerId: string;
     readonly uid: string;
   }>;
+  /**
+   * The key of the worker session this user belongs to, the sandbox's stand-in
+   * for a refresh token. The page stores it with the uid, and a reload hands it
+   * back to `auth.restorePortSession` to resume the session with the
+   * authentication time it had (#1950). Absent outside a session.
+   */
+  readonly sessionKey?: string;
 }
 
 /**
@@ -97,6 +104,7 @@ export interface SerializedIdTokenResult {
 /**
  * Flatten a live `pyric/auth` `User` (or `null`) into its wire form.
  * Methods are dropped; only the structured fields cross the port.
+ * `sessionKey`, when given, is the user's session key.
  */
 export function serializeUser(
   user: {
@@ -118,6 +126,7 @@ export function serializeUser(
       uid: string;
     }>;
   } | null,
+  sessionKey?: string,
 ): SerializedUser | null {
   if (!user) return null;
   return {
@@ -138,6 +147,7 @@ export function serializeUser(
       providerId: p.providerId,
       uid: p.uid,
     })),
+    ...(sessionKey === undefined ? {} : { sessionKey }),
   };
 }
 
