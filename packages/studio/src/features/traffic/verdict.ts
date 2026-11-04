@@ -13,7 +13,7 @@
  */
 
 import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
-import type { RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
+import type { EventCaller, RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
 import type { CommandTarget } from '../home/command.js';
 
@@ -25,6 +25,8 @@ export type StudioTrafficEvent = TrafficEvent & {
   queryProof?: RequestEvent['queryProof'];
   operationContext: OperationContext;
   rulesDisposition: RulesDisposition;
+  /** The connection the host received the op from; absent when no host stamped one. */
+  caller?: EventCaller;
 };
 
 /** Was this op issued by Pyric Studio itself (data viewers/editors, the

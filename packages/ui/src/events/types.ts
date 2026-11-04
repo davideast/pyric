@@ -21,12 +21,23 @@
 /** Which sandbox service emitted an event. Absent ⇒ `'firestore'`. */
 export type ActivityService = 'firestore' | 'auth' | 'storage' | 'rtdb';
 
-/** Who initiated the op behind an event. Absent ⇒ the served app. */
+/** Who initiated the op behind an event. Absent ⇒ unattributed. */
 export type ActivityActor =
   | { kind: 'app' }
   | { kind: 'studio' }
   | { kind: 'agent'; name: string }
-  | { kind: 'app-builder' };
+  | { kind: 'app-builder' }
+  | { kind: 'unattributed' };
+
+/**
+ * The connection a host received the op from: a page (with its tab id),
+ * server code using the client SDK (`node`), admin code, an MCP tool call,
+ * or Studio. Absent on an event no host stamped.
+ */
+export interface ActivityCaller {
+  kind: 'page' | 'node' | 'admin' | 'mcp' | 'studio';
+  pageId?: string;
+}
 
 /**
  * The auth lens an op ran under. `admin` bypasses rules, `as` evaluates
@@ -54,6 +65,8 @@ export interface ActivityProvenance {
   authLens?: ActivityLens;
   /** Set when the op is part of an agent plan (dry-run / accept). */
   planId?: string;
+  /** The connection the host received the op from. */
+  caller?: ActivityCaller;
 }
 
 /** Firestore op outcome — present on `request` events only. */

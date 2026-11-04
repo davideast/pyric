@@ -37,6 +37,7 @@ import {
   defaultFormatTime,
   type TimeWindow,
 } from '@pyric/ui/traffic';
+import { callerSource, callerSourceLabelOutsidePage } from 'pyric/sandbox/internal';
 import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
@@ -150,14 +151,28 @@ function timelineRangeLabel(window: TimeWindow): string {
   return `${defaultFormatTime(window.start)}–${defaultFormatTime(window.end)}`;
 }
 
-/** The per-row verdict cell (blank for non-rule ops). */
+/** Which connection sent the row's op: a page, server code, admin code, MCP or Studio. */
+function SourceCell({ event }: { event: StudioTrafficEvent }) {
+  const source = callerSource(event.caller);
+  return (
+    <span className="traffic__source" data-source={source}>
+      {callerSourceLabelOutsidePage(source)}
+    </span>
+  );
+}
+
+/** The per-row source and verdict cells (the verdict is blank for non-rule ops). */
 function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   const v = verdictFor(event);
-  if (!v) return null;
   return (
-    <span className="traffic__verdict" data-verdict={v}>
-      {verdictLabel(v)}
-    </span>
+    <>
+      <SourceCell event={event} />
+      {v ? (
+        <span className="traffic__verdict" data-verdict={v}>
+          {verdictLabel(v)}
+        </span>
+      ) : null}
+    </>
   );
 }
 
