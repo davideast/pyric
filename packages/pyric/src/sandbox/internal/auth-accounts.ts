@@ -24,14 +24,41 @@ export type AuthAccountStanding =
   | { readonly kind: 'deleted' }
   | { readonly kind: 'unrecorded' };
 
+/**
+ * What production keeps on its accounts that restoring other data cannot
+ * undo: each account's `tokensValidAfterTime` (epoch milliseconds on a whole
+ * second), and the uids whose record was deleted. Plain JSON, so it travels
+ * in a captured sandbox state and in persisted state (#2018, #2021).
+ */
+export interface AuthAccountHistory {
+  tokensValidAfterMs: Record<string, number>;
+  deletedUids: string[];
+}
+
+/** Whether `value` is an {@link AuthAccountHistory}. */
+export function isAuthAccountHistory(value: unknown): value is AuthAccountHistory {
+  const history = value as Partial<AuthAccountHistory> | null;
+  const isObject = typeof history === 'object' && history !== null;
+  if (!isObject) return false;
+  const times = history.tokensValidAfterMs;
+  const timesValid = typeof times === 'object' && times !== null && !Array.isArray(times)
+    && Object.values(times).every((ms) => typeof ms === 'number' && Number.isFinite(ms));
+  const uidsValid = Array.isArray(history.deletedUids) && history.deletedUids.every((uid) => typeof uid === 'string');
+  return timesValid && uidsValid;
+}
+
 /** One sandbox's Auth account table, as `pyric/auth` exposes it. */
 export interface AuthAccounts {
   /** Where the account with `uid` stands. */
   standing(uid: string): AuthAccountStanding;
   /** Revoke the account's refresh tokens at the sandbox clock's now. */
   revokeRefreshTokens(uid: string): void;
-  /** Forget every deletion and revocation: a reset or a full-state restore starts over. */
+  /** Forget every deletion and revocation: a reset starts over. */
   forgetHistory(): void;
+  /** Each account's revocation time and the deleted uids. */
+  history(): AuthAccountHistory;
+  /** Replace every deletion and revocation with `history`'s: a restore of state that carries them. */
+  replayHistory(history: AuthAccountHistory): void;
 }
 
 /** The code a refused refresh-token exchange answers, as `@firebase/auth` names it. */

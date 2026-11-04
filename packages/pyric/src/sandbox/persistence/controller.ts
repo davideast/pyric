@@ -38,6 +38,13 @@ const DEFAULT_FLUSH_INTERVAL_MS = 250;
  */
 const SESSION_STORAGE_KEY = 'pyric:sandbox:auth-session';
 
+/** A signed-in session as web storage keeps it: its uid, the slot it came from, and its session key when saved with one. */
+interface StoredSession {
+  uid: string;
+  mode: 'LOCAL' | 'SESSION';
+  sessionKey?: string;
+}
+
 function sessionStorageKey(serviceName: string): string {
   return serviceName === 'auth' || serviceName === 'auth-session:[DEFAULT]'
     ? SESSION_STORAGE_KEY
@@ -257,7 +264,7 @@ export async function attachPersistence(
   // keeps named Firebase app sessions independent while their service state
   // remains in one shared sandbox persistence blob.
   const sessionUnsubs = new Map<string, () => void>();
-  const pendingSessions = new Map<string, { uid: string; mode: 'LOCAL' | 'SESSION' }>();
+  const pendingSessions = new Map<string, StoredSession>();
 
   const saveSession = (
     name: string,
@@ -273,7 +280,8 @@ export async function attachPersistence(
       session.removeItem(key);
       return;
     }
-    const payload = JSON.stringify({ uid });
+    const sessionKey = sessionHooks.sessionKey?.();
+    const payload = JSON.stringify(sessionKey === undefined ? { uid } : { uid, sessionKey });
     if (mode === 'LOCAL') {
       session.removeItem(key);
       local.setItem(key, payload);
@@ -285,7 +293,7 @@ export async function attachPersistence(
 
   const loadStoredSession = (
     name: string,
-  ): { uid: string; mode: 'LOCAL' | 'SESSION' } | null => {
+  ): StoredSession | null => {
     if (!options.sessionStorage) return null;
     const key = sessionStorageKey(name);
     for (const [mode, store] of [
@@ -295,8 +303,10 @@ export async function attachPersistence(
       const raw = store.getItem(key);
       if (!raw) continue;
       try {
-        const parsed = JSON.parse(raw) as { uid?: unknown };
-        if (typeof parsed?.uid === 'string') return { uid: parsed.uid, mode };
+        const parsed = JSON.parse(raw) as { uid?: unknown; sessionKey?: unknown };
+        if (typeof parsed?.uid !== 'string') continue;
+        const sessionKey = typeof parsed.sessionKey === 'string' ? parsed.sessionKey : undefined;
+        return { uid: parsed.uid, mode, sessionKey };
       } catch {
         store.removeItem(key);
       }
@@ -313,12 +323,12 @@ export async function attachPersistence(
 
   const tryRestoreSession = (
     name: string,
-    stored: { uid: string; mode: 'LOCAL' | 'SESSION' },
+    stored: StoredSession,
     hooks: PersistableService,
   ): void => {
     if (!hooks.session) return;
     try {
-      hooks.session.restore(stored.uid, stored.mode);
+      hooks.session.restore(stored.uid, stored.mode, stored.sessionKey);
       pendingSessions.delete(name);
     } catch (error) {
       console.warn(
