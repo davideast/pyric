@@ -340,7 +340,8 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       // an externalized package that imports firebase-admin (ADR 0022).
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       if (isDevServer) {
-        installViteNetGuard();
+        // Under live rows PYRIC_GUARD is not read: nothing in the environment turns the guard off.
+        installViteNetGuard({ fixedMode: supplied !== undefined });
         installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
       }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };

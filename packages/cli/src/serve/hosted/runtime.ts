@@ -697,7 +697,13 @@ export async function createHostedRuntime(
         // Switching the held identity is a memory-only control.
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
         const changesDurableState = hasMutationEffect && !changesHeldIdentity;
-        const refusal = changesDurableState ? ownWriteRefusalOf(key) : null;
+        // In live mode pyric reaches no production project and acts as no one
+        // on its own: a production effect (storage.status, storage.provision,
+        // assurance.testRulesHosted) and an identity switch are refused with
+        // every write.
+        const reachesProduction = method.effect === 'production';
+        const isPyricOwnAction = hasMutationEffect || reachesProduction;
+        const refusal = isPyricOwnAction ? ownWriteRefusalOf(key) : null;
         if (refusal !== null) return refusal;
         if (changesDurableState) requireHealthyPersistence();
         if (changesDurableState && key !== 'rules.set') {

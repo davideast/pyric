@@ -60,9 +60,11 @@ function namedDatabaseCall(call: string, databaseId: unknown): RefusedCall | nul
 }
 
 /**
- * `getFirestore(databaseId)` or `getFirestore(app, databaseId)`: the SDK reads
- * a string first argument as the database, and an absent or empty second one
- * as `(default)`.
+ * `getFirestore(databaseId)` or `getFirestore(app, databaseId)`, read as the
+ * SDK reads them: a string first argument is the database as written, with no
+ * fallback, so `getFirestore('')` opens a separate instance for the database
+ * `""`, not `(default)`, and is refused. An absent or empty second argument is
+ * `(default)`.
  */
 function getFirestoreDatabase(args: readonly unknown[]): RefusedCall | null {
   const first = args[0];

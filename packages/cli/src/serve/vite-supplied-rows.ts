@@ -7,11 +7,15 @@
  * those virtual modules' own import of its specifier, and only once that
  * package is found. Every other Firebase and `firebase-admin` import is
  * refused, never sent to the sandbox row or the stop, so one app object
- * never mixes the installed SDK with sandbox services.
+ * never mixes the installed SDK with sandbox services. So is every
+ * `@firebase/*` import, except one from a file of the installed SDK.
  *
  * `pyric()` supplies no rows. A plugin gets them only through
  * `@pyric/cli/vite/internal/supplied-rows`, which takes no module ids.
  */
+import { isAbsolute, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { packageNameOf } from '../register/package-identity.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import type { RowModulePackage } from './vite-live-package.js';
 
@@ -84,9 +88,35 @@ export type SuppliedRowsResolution =
 /** `firebase`, `firebase/*`, `firebase-admin` and `firebase-admin/*`, as an app names them. */
 const FIREBASE_IMPORT = /^firebase(-admin)?(\/.+)?$/;
 
-/** Whether the live rows answer this import on the page plane: every Firebase and `firebase-admin` import. */
+/** `@firebase/*`: the SDK's own packages, which `firebase/*` imports. */
+const SDK_PACKAGE_IMPORT = /^@firebase\/[^/]+(\/.+)?$/;
+
+/**
+ * Whether the live rows answer this import on the page plane: every Firebase,
+ * `firebase-admin` and `@firebase/*` import.
+ */
 export function isSuppliedRowsImport(source: string): boolean {
-  return FIREBASE_IMPORT.test(source);
+  return FIREBASE_IMPORT.test(source) || SDK_PACKAGE_IMPORT.test(source);
+}
+
+/** A Vite importer's file path, without the query or hash Vite may add. */
+function importerFile(importer: string): string {
+  return importer.replace(/[?#].*$/, '');
+}
+
+/**
+ * Whether `importer` is a file of the installed client SDK: `firebase` or a
+ * `@firebase/*` package under `node_modules`, read from its own manifest. A
+ * live row's installed `firebase/firestore` imports `@firebase/firestore`
+ * from there, and the SDK's packages import each other.
+ */
+function isInstalledSdkFile(importer: string | undefined): boolean {
+  if (importer === undefined) return false;
+  const file = importerFile(importer);
+  const isInstalled = isAbsolute(file) && file.split(sep).includes('node_modules');
+  if (!isInstalled) return false;
+  const name = packageNameOf(pathToFileURL(file).href);
+  return name === 'firebase' || (name?.startsWith('@firebase/') ?? false);
 }
 
 /**
@@ -100,6 +130,12 @@ export function isSuppliedRowsImport(source: string): boolean {
 export function suppliedRowsResolution(rows: SuppliedRows, source: string, importer: string | undefined): SuppliedRowsResolution {
   const isFirebaseImport = isSuppliedRowsImport(source);
   if (!isFirebaseImport) return { kind: 'unserved' };
+  const isSdkPackageImport = SDK_PACKAGE_IMPORT.test(source);
+  const isOpen = rows.package() !== null;
+  if (isSdkPackageImport) {
+    const isSdkOwnImport = isOpen && isInstalledSdkFile(importer);
+    return isSdkOwnImport ? { kind: 'unserved' } : { kind: 'refused', error: rows.refusal(source, 'page') };
+  }
   const id = ROW_MODULE_IDS.get(source as ServedFirebaseSpecifier);
   const isShut = rows.package() === null;
   if (id === undefined || isShut) return { kind: 'refused', error: rows.refusal(source, 'page') };

@@ -422,6 +422,8 @@ export interface NetGuardHooks {
   /** Prototypes whose `onSocket` is patched. Defaults to the
    *  `http.ClientRequest` prototype. */
   requestPrototypes?: readonly RequestPrototype[];
+  /** What a refusal tells the developer to do, in place of the `PYRIC_GUARD=off` remedy. */
+  remedy?: string;
 }
 
 /** An `onSocket`-bearing object: `http.ClientRequest.prototype` in
@@ -515,12 +517,19 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 
   const allow = parseAllowHosts(env.PYRIC_GUARD_ALLOW);
   const context = contextFrom(hooks.argv ?? process.argv);
+  const endpoints = tokenEndpointsFrom({ env });
+  const remedy = hooks.remedy;
+  const rule: EgressRule | undefined = remedy === undefined ? undefined : (hostname, path) => {
+    const verdict = evaluateEgress(hostname, { mode, endpoints }, path);
+    return verdict === null ? null : { ...verdict, remedy };
+  };
   const reporterOptions: ReporterOptions = {
     mode,
-    endpoints: tokenEndpointsFrom({ env }),
+    endpoints,
     write,
     context,
     reported: new Set(),
+    ...(rule === undefined ? {} : { rule }),
   };
   const installed = installEgressHooks(hooks, reporterOptions);
 

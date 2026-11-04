@@ -7,7 +7,8 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { SDK_MODULES } from '../../src/serve/firebase-module-swap.js';
@@ -151,6 +152,22 @@ describe('live rows, once opened', () => {
     }
   });
 
+  it("refuse an @firebase/* import from app code, and leave the installed SDK's own to Vite", async () => {
+    const sdkFile = realpathSync(createRequire(import.meta.url).resolve('firebase/firestore'));
+    expect(sdkFile).toContain(`${sep}node_modules${sep}`);
+    for (const specifier of ['@firebase/firestore', '@firebase/storage', '@firebase/database', '@firebase/app']) {
+      for (const importer of [userImporter, undefined, `${userImporter}?import`]) {
+        const id = swap.resolveId(specifier, importer);
+        expect(id).toStartWith(STOP_PREFIX);
+        const error = await thrownBy(await swap.loadPluginModule(id as string));
+        expect(error.code).toBe('SUPPLIED_REFUSED');
+        expect(error.message).toBe(`refused ${specifier} on the page`);
+      }
+    }
+    expect(swap.resolveId('@firebase/firestore', sdkFile)).toBeNull();
+    expect(swap.resolveId('@firebase/app', `${sdkFile}?v=1234`)).toBeNull();
+  });
+
   it('leave an import that is not firebase to Vite', () => {
     expect(swap.resolveId('firebase-tools', userImporter)).toBeNull();
     expect(swap.resolveId('react', userImporter)).toBeNull();
@@ -187,6 +204,11 @@ describe('live rows that are still shut', () => {
       }
     }
     expect(fake.passedOn).toEqual([]);
+  });
+
+  it("refuse @firebase/* even from the installed SDK's own files", () => {
+    const sdkFile = realpathSync(createRequire(import.meta.url).resolve('firebase/firestore'));
+    expect(swap.resolveId('@firebase/firestore', sdkFile)).toStartWith(STOP_PREFIX);
   });
 
   it('serve no row module source', async () => {

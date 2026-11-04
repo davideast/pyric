@@ -87,6 +87,18 @@ describe('a named Firestore database', () => {
     const db = firestore.initializeFirestore(controlApp, SETTINGS, '(default)');
     expect(firestore.getFirestore(controlApp)).toBe(db);
     expect(firestore.getFirestore(controlApp, '')).toBe(db);
+    // The SDK reads a string first argument as the database with no fallback:
+    // the real getFirestore('') is a separate instance for the database "", not
+    // (default), so the live row refuses it.
+    const defaultApp = realApp.initializeApp(OPTIONS);
+    try {
+      expect(realFirestore.getFirestore('')).not.toBe(realFirestore.getFirestore(defaultApp));
+      const error = thrown(() => firestore.getFirestore(''));
+      expect(error.code).toBe(LIVE_REFUSED);
+      expect(error.message).toContain('getFirestore with the database "" is refused in live mode');
+    } finally {
+      await realApp.deleteApp(defaultApp);
+    }
     void firestore.getDocFromServer(firestore.doc(db, 'rooms/lobby')).catch(() => undefined);
     await waitFor(() => counter.connections() > 0, 10_000);
     expect(counter.connections()).toBeGreaterThan(0);

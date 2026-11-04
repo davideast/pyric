@@ -3,8 +3,9 @@
  * Chromium. The page's own calls that live mode does not serve throw
  * `PYRIC_LIVE_REFUSED` before any request leaves: a named Firestore database
  * (Firestore points at a local server that counts every connection, and the
- * default database's read shows the counter works), and the `firebase/*`
- * subpaths with no live row. pyric's own writes are refused on the Node
+ * default database's read shows the counter works), the `firebase/*`
+ * subpaths with no live row, and the SDK's own `@firebase/*` packages named
+ * by app code, which would go around the rows. pyric's own writes are refused on the Node
  * host: an MCP tool's write, a pyric command's write over the hosted method
  * route, and a seed file at startup.
  *
@@ -69,8 +70,22 @@ const IMPORTS = {
   'firebase/firestore/lite': () => import('firebase/firestore/lite'),
   'firebase/installations': () => import('firebase/installations'),
   'firebase/compat/app': () => import('firebase/compat/app'),
+  '@firebase/firestore': () => import('@firebase/firestore'),
+  '@firebase/storage': () => import('@firebase/storage'),
+  '@firebase/database': () => import('@firebase/database'),
 };
 window.importRefused = (specifier) => settle(IMPORTS[specifier]());
+// The SDK's own package, imported by name, around the live row.
+window.scopedNamed = async () => {
+  try {
+    const scoped = await import('@firebase/firestore');
+    const db = scoped.initializeFirestore(refusedApp, { host: '127.0.0.1:${port}', ssl: false }, 'reports');
+    void scoped.getDocFromServer(scoped.doc(db, 'rooms/lobby')).catch(() => undefined);
+    return 'served:reports';
+  } catch (error) {
+    return error.code + ': ' + error.message;
+  }
+};
 document.querySelector('#status').textContent = 'Ready';
 `;
 }
@@ -83,6 +98,11 @@ async function liveProject(port: number, extra: Record<string, unknown> = {}): P
   symlinkSync(cliDir, join(root, 'node_modules/@pyric/cli'));
   symlinkSync(liveDir, join(root, 'node_modules/@pyric/live'));
   symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
+  // The SDK's own packages at the top level, as a hoisted install puts them, so an app can name them.
+  mkdirSync(join(root, 'node_modules/@firebase'));
+  for (const name of ['firestore', 'storage', 'database']) {
+    symlinkSync(join(dirname(realpathSync(firebaseDir)), '@firebase', name), join(root, 'node_modules/@firebase', name));
+  }
   writeFileSync(join(root, 'index.html'), '<output id="status">Starting</output><script type="module" src="/main.js"></script>');
   writeFileSync(join(root, 'main.js'), appSource(port));
   writeFileSync(join(root, 'seed.json'), JSON.stringify({ 'rooms/seeded': { v: 1 } }));
@@ -143,6 +163,9 @@ test("a live page's unserved calls throw before any request leaves, and pyric's 
       expect(named[index]?.startsWith('PYRIC_LIVE_REFUSED: ')).toBe(true);
       expect(named[index]).toContain(`@pyric/live: ${call} with the database "reports" is refused in live mode, from a page`);
     }
+    const scoped = await page.evaluate(() => (Reflect.get(window, 'scopedNamed') as () => Promise<string>)());
+    expect(scoped).toMatch(/^PYRIC_LIVE_REFUSED: /);
+    expect(scoped).toContain('@pyric/live: @firebase/firestore (a Firebase SDK package; apps import firebase/firestore) is refused in live mode');
     await page.waitForTimeout(300);
     expect(counter.connections()).toBe(0);
     await page.evaluate(() => (Reflect.get(window, 'readDefault') as () => string)());
@@ -150,7 +173,11 @@ test("a live page's unserved calls throw before any request leaves, and pyric's 
 
     const importRefused = (specifier: string) =>
       page.evaluate((name) => (Reflect.get(window, 'importRefused') as (s: string) => Promise<string>)(name), specifier);
-    for (const specifier of ['firebase/firestore/lite', 'firebase/installations', 'firebase/compat/app']) {
+    const refusedImports = [
+      'firebase/firestore/lite', 'firebase/installations', 'firebase/compat/app',
+      '@firebase/firestore', '@firebase/storage', '@firebase/database',
+    ];
+    for (const specifier of refusedImports) {
       expect(await importRefused(specifier)).toContain(`${specifier} `);
       expect(await importRefused(specifier)).toContain('is refused in live mode');
     }

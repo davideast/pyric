@@ -38,6 +38,7 @@ import { loadServerTarget } from './vite-ssr-loader.js';
 import { stopFor } from '../register/swap-or-stop.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
+const SDK_PACKAGE_SPECIFIER = /^@firebase\//;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 /** The installed SDK packages live rows load beside the excluded ones. */
 const LIVE_SDK_PACKAGES = ['@firebase/auth', '@firebase/firestore'];
@@ -384,11 +385,14 @@ export function createViteModuleSwap(
   const optimizerMirror: OptimizerPlugin = {
     name: 'pyric-sandbox-optimizer',
     setup(build) {
-      build.onResolve({ filter: FIREBASE_SPECIFIER }, (args) => {
+      const keepFirebaseExternal = (args: { path: string; importer: string }) => {
         const id = resolveId(args.path, args.importer);
         const isUnchanged = id === null;
         return isUnchanged ? null : { path: args.path, external: true };
-      });
+      };
+      build.onResolve({ filter: FIREBASE_SPECIFIER }, keepFirebaseExternal);
+      // Under live rows a dependency's `@firebase/*` import stays external too, so the page refuses it.
+      build.onResolve({ filter: SDK_PACKAGE_SPECIFIER }, keepFirebaseExternal);
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
         const isForeignImporter = !isOurCode(args.importer);
         if (isForeignImporter) {

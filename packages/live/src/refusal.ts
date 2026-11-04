@@ -33,9 +33,20 @@ const SERVICE_NAMES: Readonly<Record<string, string>> = {
   'firebase/storage': 'Cloud Storage',
 };
 
+const SDK_PACKAGE_PREFIX = '@firebase/';
+
+/** `@firebase/firestore` → `firebase/firestore`, the import an app writes for that package. */
+function packageImportOf(specifier: string): string | null {
+  if (!specifier.startsWith(SDK_PACKAGE_PREFIX)) return null;
+  const packageName = specifier.slice(SDK_PACKAGE_PREFIX.length).split('/')[0];
+  return `firebase/${packageName}`;
+}
+
 function serviceOf(specifier: string): string {
   const isAdmin = specifier === 'firebase-admin' || specifier.startsWith('firebase-admin/');
   if (isAdmin) return 'the Admin SDK';
+  const packageImport = packageImportOf(specifier);
+  if (packageImport !== null) return `a Firebase SDK package; apps import ${packageImport}`;
   return SERVICE_NAMES[specifier] ?? specifier;
 }
 

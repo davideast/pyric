@@ -57,7 +57,8 @@ async function host(live) {
     runtime.receive({ type: 'tool-call', callerId: 'agent', id, name, args });
     return waitFor((m) => m.type === 'tool-result' && m.id === id);
   };
-  const command = (key, args) => runtime.runMethod({ instanceId: runtime.instanceId, projectDir: dir, key, args, allowProduction: false }, {});
+  const command = (key, args, allowProduction = false) =>
+    runtime.runMethod({ instanceId: runtime.instanceId, projectDir: dir, key, args, allowProduction }, {});
   const close = async () => { await runtime.close(); rmSync(dir, { recursive: true, force: true }); };
   return { op, tool, command, close };
 }
@@ -71,6 +72,11 @@ for (const live of [true, false]) {
   const toolWrite = await h.tool('firestore_create_document', { path: 'rooms/c', data: { v: 1 } });
   const commandWrite = await h.command('firestore.setDoc', { path: 'rooms/d', data: { v: 1 } });
   const userWrite = await h.op('page-1', { method: 'auth.adminCreateUser', request: { uid: 'alice', email: 'alice@example.com' } });
+  const impersonate = await h.command('auth.impersonate', { uid: 'alice' });
+  // Only on the live host: without the refusal it would reach Google with whatever credentials this machine has.
+  const provision = live
+    ? await h.command('storage.provision', { bucket: 'demo.firebasestorage.app', confirm: true }, true)
+    : { data: { code: 'not-sent' } };
   const reads = [];
   for (const path of ['rooms/a', 'rooms/b', 'rooms/c', 'rooms/d']) reads.push(await h.op('page-1', { method: 'getDoc', path }));
   const failedRead = reads.find((entry) => !entry.ok);
@@ -81,6 +87,8 @@ for (const live of [true, false]) {
     toolWrite: toolWrite.ok && toolWrite.result.ok ? 'ok' : (toolWrite.error?.code ?? 'tool-failed') + ': ' + (toolWrite.error?.message ?? toolWrite.result?.summary),
     commandWrite: commandWrite.ok ? 'ok' : commandWrite.data?.code + ': ' + commandWrite.summary,
     userWrite: userWrite.ok ? 'ok' : userWrite.error.code + ': ' + userWrite.error.message,
+    impersonate: impersonate.ok ? 'ok' : impersonate.data?.code + ': ' + impersonate.summary,
+    provision: provision.data?.code + ': ' + (provision.summary ?? ''),
     read: read.ok ? 'ok' : read.error.code,
     documents: read.ok ? read.value.docs.length : -1,
   };
@@ -108,11 +116,14 @@ describe('a Node host in live mode', () => {
       expect(live.toolWrite).toStartWith('PYRIC_LIVE_REFUSED: @pyric/live: firestore_create_document from an MCP tool is refused in live mode.');
       expect(live.commandWrite).toStartWith('PYRIC_LIVE_REFUSED: @pyric/live: firestore.setDoc from a pyric command is refused in live mode.');
       expect(live.userWrite).toStartWith("PYRIC_LIVE_REFUSED: @pyric/live: auth.adminCreateUser from a page's pyric runtime is refused");
+      expect(live.impersonate).toStartWith('PYRIC_LIVE_REFUSED: @pyric/live: auth.impersonate from a pyric command is refused in live mode.');
+      expect(live.provision).toStartWith('PYRIC_LIVE_REFUSED: @pyric/live: storage.provision from a pyric command is refused in live mode.');
       expect(live.read).toBe('ok');
       expect(live.documents).toBe(0);
-      // Without the refusal, the same host makes every one of those writes.
+      // Without the refusal, the same host makes every one of those writes and switches identity.
       expect(outcome.sandbox).toEqual({
-        pageWrite: 'ok', studioWrite: 'ok', toolWrite: 'ok', commandWrite: 'ok', userWrite: 'ok', read: 'ok', documents: 4,
+        pageWrite: 'ok', studioWrite: 'ok', toolWrite: 'ok', commandWrite: 'ok', userWrite: 'ok',
+        impersonate: 'ok', provision: 'not-sent: ', read: 'ok', documents: 4,
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
