@@ -556,9 +556,11 @@ service cloud.firestore {
         request: { uid: 'carol', email: 'carol@example.com', customClaims: { role: 'service' } },
       })).ok, true);
 
+      const minted = await runtime.runMethod({ instanceId: runtime.instanceId, projectDir: dir, allowProduction: false,
+        key: 'auth.createCustomToken', args: { uid: 'carol', developerClaims: { role: 'service' } } }, {});
       assert.equal((await sendOp('tab-custom', {
         method: 'auth.signInWithCustomToken',
-        customToken: JSON.stringify({ uid: 'carol', claims: { role: 'service' } }),
+        customToken: (minted.data as { token: string }).token,
       })).ok, true);
 
       for (let i = 0; i < 6; i++) {

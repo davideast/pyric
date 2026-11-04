@@ -20,6 +20,12 @@ export const FAKE_PLAN_FILE = 'fake-plan.json';
  */
 export const NEXT_CURSOR = '<nextCursor>';
 
+/**
+ * The placeholder for the most recent `token` a call returned, which is how a
+ * transcript redeems a custom token minted on the run's clock.
+ */
+export const MINTED_TOKEN = '<token>';
+
 /** One canned call. The tool name is whatever the variant under test renders. */
 export interface FakeCall {
   tool: string;

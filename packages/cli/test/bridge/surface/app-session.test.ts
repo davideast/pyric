@@ -12,6 +12,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from 'pyric/auth';
+import { mintCustomTokenFor } from 'pyric/auth/internal';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 
 import { describeAppSession, readAppSession } from '../../../src/bridge/surface/app-session.js';
@@ -142,7 +143,7 @@ describe('the provider a session signed in through', () => {
     const sandbox = seeded();
     const ctx = createSurfaceContext(sandbox);
     const result = await signInWithCustomToken.handler(
-      { token: JSON.stringify({ uid: 'riley' }) },
+      { token: mintCustomTokenFor(getAuth(sandbox), 'riley') },
       ctx,
     );
 

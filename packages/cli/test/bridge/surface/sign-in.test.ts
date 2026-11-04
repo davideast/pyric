@@ -169,12 +169,13 @@ describe('customTokenSubject', () => {
     expect(customTokenSubject(token)).toBe('riley');
   });
 
-  it('reads the subject out of the middle segment of a three-part token', () => {
+  it('reads nothing out of an unsigned token, which the sign-in refuses', () => {
     const payload = btoa(JSON.stringify({ sub: 'sam' }))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '');
-    expect(customTokenSubject(`header.${payload}.signature`)).toBe('sam');
+    expect(customTokenSubject(`header.${payload}.signature`)).toBeUndefined();
+    expect(customTokenSubject(JSON.stringify({ uid: 'sam' }))).toBeUndefined();
   });
 
   it('reads nothing out of a token that asserts no identity', () => {

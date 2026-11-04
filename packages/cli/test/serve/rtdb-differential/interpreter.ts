@@ -7,8 +7,10 @@
  * surface, so each plane hands it its own modules: `pyric/database` for the
  * in-page sandbox, and the served entries for the SharedWorker and Node hosts.
  */
+import { mintCustomToken } from 'pyric/sandbox/internal';
 import {
   INSTANCE_URLS,
+  PROJECT_ID,
   RULES_POOL,
   type JsonValue,
   type QuerySpec,
@@ -237,7 +239,8 @@ export async function runSequence(sequence: Sequence, session: PlaneSession): Pr
         return snapshot.exportVal();
       }
       case 'signIn': {
-        const token = JSON.stringify(step.claims === undefined ? { uid: step.uid } : { uid: step.uid, claims: step.claims });
+        // Minted as createCustomToken mints one, for every plane's project, on the real clock the planes run.
+        const token = mintCustomToken({ uid: step.uid, claims: step.claims, projectId: PROJECT_ID, nowMs: Date.now() });
         const credential = await authModule.signInWithCustomToken(auth, token);
         uid = credential.user.uid;
         return uid;

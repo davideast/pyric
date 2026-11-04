@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { mintCustomTokenFor } from 'pyric/auth/internal';
 import { handleMessage, cleanupPort, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { portSession } from '../../../../src/serve/worker/host-auth.js';
 import { requiresHealthyPersistence } from '../../../../src/serve/hosted/persistence-admission.js';
@@ -27,8 +28,8 @@ test('custom-token redemption persists claims and binds only the requesting conn
     const otherSession = portSession(context, other);
     const before = flushes;
     expect(requiresHealthyPersistence({ t: 'op', id: 'admission', method: 'auth.signInWithCustomToken',
-      customToken: JSON.stringify({ uid: 'custom-user' }), tenantId: 'red' })).toBe(true);
-    expect(await redeem(JSON.stringify({ uid: 'custom-user', claims: { role: 'editor' } })))
+      customToken: mintCustomTokenFor(getAuth(sandbox), 'custom-user'), tenantId: 'red' })).toBe(true);
+    expect(await redeem(mintCustomTokenFor(getAuth(sandbox), 'custom-user', { role: 'editor' })))
       .toMatchObject({ ok: true, value: { user: { uid: 'custom-user', tenantId: 'red' }, providerId: null,
         operationType: 'signIn', additionalUserInfo: { isNewUser: true } } });
     expect(flushes).toBe(before + 1);
@@ -36,7 +37,7 @@ test('custom-token redemption persists claims and binds only the requesting conn
     expect(await session?.user.getIdTokenResult()).toMatchObject({ claims: { role: 'editor', firebase: {
       tenant: 'red', sign_in_provider: 'custom',
     } } });
-    expect(await redeem(JSON.stringify({ uid: 'custom-user', claims: { role: 'reader' } })))
+    expect(await redeem(mintCustomTokenFor(getAuth(sandbox), 'custom-user', { role: 'reader' })))
       .toMatchObject({ ok: true, value: { additionalUserInfo: { isNewUser: false } } });
     expect(portSession(context, port)?.state.token).toMatchObject({ role: 'reader' });
     expect(portSession(context, other)).toBe(otherSession);
@@ -45,7 +46,7 @@ test('custom-token redemption persists claims and binds only the requesting conn
     expect(await redeem('invalid')).toMatchObject({ ok: false, error: { code: 'auth/invalid-custom-token' } });
     expect(portSession(context, port)).toBe(beforeInvalid);
     authSandbox.updateUser(getAuth(sandbox), 'custom-user', { disabled: true });
-    expect(await redeem(JSON.stringify({ uid: 'custom-user' })))
+    expect(await redeem(mintCustomTokenFor(getAuth(sandbox), 'custom-user')))
       .toMatchObject({ ok: false, error: { code: 'auth/user-disabled' } });
   } finally { await cleanupPort(context, port); await cleanupPort(context, other); }
 });
