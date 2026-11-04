@@ -34,7 +34,10 @@ import {
   setPersistence,
   signInWithEmailAndPassword,
   signOut,
+  updatePassword,
 } from '../../src/auth/index.js';
+import { authAccountsFor } from 'pyric/sandbox/internal';
+import { getClock } from '../../src/sandbox/clock.js';
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 
@@ -630,5 +633,84 @@ describe('session persistence — late registration', () => {
 
     const restoredUser = await waitForUser(auth2);
     expect(restoredUser.email).toBe('nina@example.com');
+  });
+});
+
+// ─── Revocations survive a reload (#2018) ───────────────────────────────
+
+describe('session persistence: a revoked session stays refused after a reload (#2018)', () => {
+  /** Sandboxes over one backend and one pair of storages: each `open` is a page load. */
+  function reloadable(key: string) {
+    const backend = createMemoryBackend();
+    const local = makeStorage();
+    const session = makeStorage();
+    return async () => {
+      const sandbox = initializeSandbox();
+      await sandbox.enablePersistence({ key, injectedBackend: backend, sessionStorage: { local, session } });
+      return { sandbox, auth: getAuth(sandbox) };
+    };
+  }
+
+  it('a session revoked by an administrator\'s password change is refused after the reload', async () => {
+    const open = reloadable('sess:revoked-password');
+    const before = await open();
+    const { user } = await createUserWithEmailAndPassword(before.auth, 'olga@example.com', 'password1');
+    // Production stores the revocation on a whole second; move past the sign-in's.
+    getClock(before.sandbox).advance(2000);
+    authSandbox.updateUser(before.auth, user.uid, { password: 'changed-pw' });
+    await before.sandbox.flush();
+
+    const after = await open();
+    const restored = await waitForUser(after.auth);
+    expect(restored.email).toBe('olga@example.com');
+    await expect(after.auth.currentUser!.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(after.auth.currentUser).toBeNull();
+  });
+
+  it('a session revoked with revokeRefreshTokens is refused after the reload', async () => {
+    const open = reloadable('sess:revoked-admin');
+    const before = await open();
+    const { user } = await createUserWithEmailAndPassword(before.auth, 'pia@example.com', 'password1');
+    getClock(before.sandbox).advance(2000);
+    authAccountsFor(before.sandbox)?.revokeRefreshTokens(user.uid);
+    await before.sandbox.flush();
+
+    const after = await open();
+    await waitForUser(after.auth);
+    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual(authAccountsFor(before.sandbox)?.standing(user.uid)!);
+    await expect(after.auth.currentUser!.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+  });
+
+  it('the session that changed its own password keeps refreshing after the reload', async () => {
+    const open = reloadable('sess:own-password');
+    const before = await open();
+    const { user } = await createUserWithEmailAndPassword(before.auth, 'quinn@example.com', 'password1');
+    getClock(before.sandbox).advance(2000);
+    await updatePassword(user, 'changed-pw');
+    await before.sandbox.flush();
+
+    const after = await open();
+    await waitForUser(after.auth);
+    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual(authAccountsFor(before.sandbox)?.standing(user.uid)!);
+    expect(await after.auth.currentUser!.getIdToken(true)).toBeString();
+    expect(after.auth.currentUser?.email).toBe('quinn@example.com');
+  });
+
+  it('a session signed in after the revocation keeps refreshing after the reload', async () => {
+    const open = reloadable('sess:after-revocation');
+    const before = await open();
+    const { user } = await createUserWithEmailAndPassword(before.auth, 'rosa@example.com', 'password1');
+    getClock(before.sandbox).advance(2000);
+    authSandbox.updateUser(before.auth, user.uid, { password: 'changed-pw' });
+    getClock(before.sandbox).advance(2000);
+    await signInWithEmailAndPassword(before.auth, 'rosa@example.com', 'changed-pw');
+    await before.sandbox.flush();
+
+    const after = await open();
+    await waitForUser(after.auth);
+    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual(authAccountsFor(before.sandbox)?.standing(user.uid)!);
+    // The reloaded sandbox's clock is the wall clock again: the session's
+    // stored sign-in time, not the clock, is what the revocation is compared with.
+    expect(await after.auth.currentUser!.getIdToken(true)).toBeString();
   });
 });

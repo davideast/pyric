@@ -27,7 +27,9 @@
 // while the account's session in another browser is refused. The API, under
 // register, does the same to its own session with firebase-admin. With
 // checkRevoked, the API refuses the token of a disabled or deleted account
-// with firebase-admin's reason.
+// with firebase-admin's reason. Production keeps a revocation on the account,
+// so restoring a checkpoint taken after one does not bring the session back
+// (#2021): `pyric sandbox restore` leaves the revoked page signed out.
 //
 // The API refuses what production refuses (#1949): a token whose claims were
 // edited after signing, an expired token, a token for another project, a
@@ -308,5 +310,24 @@ export default scenario(async (app) => {
 
     const refused = await elsewhere.evaluate(() => forceRefresh());
     assert.deepEqual(refused, { code: 'auth/user-token-expired', currentUid: null, lastAuthState: null });
+  });
+
+  await app.step('a session revoked before a checkpoint stays signed out after pyric sandbox restore puts the checkpoint back', async () => {
+    const { uid } = await page.evaluate(([name, address]) => signInHeld(name, address), ['Builder One', 'checkpoint@example.com'] as const);
+    const tick = await app.pyric(['sandbox', 'advanceClock', '--ms', '2000']);
+    assert.equal(tick.code, 0, tick.output);
+    const revoked = await app.pyric(['auth', 'updateUser', '--uid', uid, '--password', 'changed-secret-pw']);
+    assert.equal(revoked.code, 0, revoked.output);
+    const saved = await app.pyric(['sandbox', 'checkpoint', '--name', 'after-revoke']);
+    assert.equal(saved.code, 0, saved.output);
+
+    const restored = await app.pyric(['sandbox', 'restore', '--name', 'after-revoke', '--confirm']);
+    assert.equal(restored.code, 0, restored.output);
+
+    // The restore's reconcile is a refresh-token exchange for each held
+    // session, so the revoked page is signed out, or its next refresh is refused.
+    const refreshed = await page.evaluate(() => forceRefresh());
+    assert.notEqual(refreshed.code, null, `the restored session refreshed: ${JSON.stringify(refreshed)}`);
+    assert.deepEqual({ currentUid: refreshed.currentUid, lastAuthState: refreshed.lastAuthState }, { currentUid: null, lastAuthState: null });
   });
 });
