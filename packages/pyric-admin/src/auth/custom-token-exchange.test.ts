@@ -8,6 +8,7 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getClock } from 'pyric/sandbox/internal';
 import { getAuth as getClientAuth, signInWithCustomToken } from 'pyric/auth';
 import { deleteApp, getApps, initializeApp } from '../app/index.js';
 import { getAuth } from './index.js';
@@ -77,6 +78,16 @@ describe('createCustomToken then signInWithCustomToken then verifyIdToken', () =
     const customToken = await admin.createCustomToken('ada');
     await expect(signInWithCustomToken(getClientAuth(sandbox), customToken)).rejects.toMatchObject({
       code: 'auth/custom-token-mismatch',
+    });
+  });
+
+  it('refuses a custom token an hour after it was minted, with the code the client SDK maps INVALID_CUSTOM_TOKEN to', async () => {
+    const sandbox = initializeSandbox();
+    const admin = getAuth(initializeApp({ sandbox }, 'custom-token-expired'));
+    const customToken = await admin.createCustomToken('ada');
+    getClock(sandbox).advance(60 * 60 * 1000);
+    await expect(signInWithCustomToken(getClientAuth(sandbox), customToken)).rejects.toMatchObject({
+      code: 'auth/invalid-custom-token',
     });
   });
 

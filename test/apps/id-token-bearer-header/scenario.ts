@@ -26,8 +26,8 @@
 // signInWithCustomToken, from the page and from the API's own process, and
 // the API verifies the ID token that comes back, with the uid and the
 // developer claim (#1952). A custom token minted for another project fails
-// with auth/custom-token-mismatch, and an edited or malformed one with
-// auth/invalid-custom-token, as production answers.
+// with auth/custom-token-mismatch, and an edited, malformed or expired one
+// with auth/invalid-custom-token, as production answers.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { scenario } from '../driver.ts';
@@ -204,6 +204,11 @@ export default scenario(async (app) => {
   await app.step('pyric sandbox advanceClock moves the clock 61 minutes', async () => {
     const result = await app.pyric(['sandbox', 'advanceClock', '--ms', String(SIXTY_ONE_MINUTES_MS)]);
     assert.equal(result.code, 0, result.output);
+  });
+
+  await app.step('the page cannot exchange the custom token minted over an hour ago on the sandbox clock', async () => {
+    const result = await page.evaluate((given) => exchangeGivenToken(given), minted);
+    assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify(result));
   });
 
   await app.step("the page's next getIdToken() returns a new token, and the API verifies it", async () => {

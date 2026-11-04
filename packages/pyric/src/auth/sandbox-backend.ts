@@ -323,6 +323,11 @@ export class SandboxBackend {
     this.projectStore.projectId = source;
   }
 
+  /** The project minted ID tokens name, which a custom token must name too. */
+  tokenProjectId(): string {
+    return this.projectStore.projectId() ?? SANDBOX_PROJECT_ID;
+  }
+
   /** Read `Auth.tenantId`. */
   getTenantId(): string | null {
     return this.tenantId;
