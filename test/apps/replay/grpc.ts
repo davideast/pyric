@@ -100,22 +100,26 @@ function installedSdk(projectDir: string): InstalledSdk {
   };
 }
 
-const PROTOS_START = 'const options = {\n\tsyntax: "proto3"\n};\nconst nested = ';
-const PROTOS_END = '\nvar protos = {';
+/** Where the bundle's protos object starts: `var protos = { [options: options,] nested: nested };`. */
+const PROTOS_OBJECT = '\nvar protos = {';
+/** The proto tree the protos object names, declared just before it. */
+const NESTED = '\nconst nested = ';
 
 /**
  * The proto definitions the Firestore Node build loads with
- * `protoLoader.fromJSON`, read from that build's own file: an object literal
- * the bundle inlines and does not export.
+ * `protoLoader.fromJSON`, read from that build's own file: the `nested`
+ * object literal the bundle inlines and does not export. Builds since
+ * `@firebase/firestore` 4.17 also declare `options` (`syntax: "proto3"`),
+ * which protobufjs does not need.
  */
 export function firestoreProtos(distDir: string): unknown {
   for (const file of readdirSync(distDir).filter((name) => name.endsWith('.node.mjs'))) {
     const text = readFileSync(join(distDir, file), 'utf8');
-    const start = text.indexOf(PROTOS_START);
+    const end = text.indexOf(PROTOS_OBJECT);
+    const start = end === -1 ? -1 : text.lastIndexOf(NESTED, end);
     if (start === -1) continue;
-    const end = text.indexOf(PROTOS_END, start);
-    const literal = text.slice(start, end);
-    return runInNewContext(`${literal}\n({ options, nested });`);
+    const literal = text.slice(start + NESTED.length, end).trim().replace(/;$/, '');
+    return { nested: runInNewContext(`(${literal})`) };
   }
   throw new Error(`replay: no Firestore protos in the Node build in ${distDir}`);
 }
