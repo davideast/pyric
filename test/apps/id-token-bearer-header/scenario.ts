@@ -28,9 +28,15 @@
 // account with firebase-admin's reason.
 //
 // The API refuses what production refuses (#1949): a token whose claims were
-// edited after signing, an expired token, a token for another project, and a
-// plain string such as a sandbox custom token each get 401, with
-// firebase-admin's reason.
+// edited after signing, an expired token, a token for another project, a
+// custom token, and a plain string each get 401, with firebase-admin's reason.
+//
+// A custom token the API mints with createCustomToken is exchanged with
+// signInWithCustomToken, from the page and from the API's own process, and
+// the API verifies the ID token that comes back, with the uid and the
+// developer claim (#1952). A custom token minted for another project fails
+// with auth/custom-token-mismatch, and an edited, malformed or expired one
+// with auth/invalid-custom-token, as production answers.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { scenario } from '../driver.ts';
@@ -40,6 +46,8 @@ declare function runBearer(apiUrl: string, displayName: string, email: string): 
 declare function signInHeld(displayName: string, email: string): Promise<{ uid: string; idToken: string }>;
 declare function callApiAsCurrentUser(apiUrl: string): Promise<{ idToken: string; answer: Answer }>;
 declare function forceRefresh(): Promise<{ code: string | null; currentUid: string | null; lastAuthState: string | null }>;
+declare function exchangeCustomToken(apiUrl: string, uid: string, project?: string): Promise<{ token: string; uid?: string; answer?: Answer; code?: string }>;
+declare function exchangeGivenToken(token: string): Promise<{ code: string | null }>;
 
 const PROJECT = 'demo-bearer';
 
@@ -136,6 +144,39 @@ export default scenario(async (app) => {
     assert.deepEqual(result.answer, verified(result.uid ?? '', 'Builder One'), JSON.stringify(result));
   });
 
+  const minted = await app.step('the page exchanges a custom token the API mints, and the API verifies the ID token it gets back', async () => {
+    const result = await page.evaluate(([url]) => exchangeCustomToken(url, 'custom-uid'), [apiUrl] as const);
+    assert.equal(result.code, undefined, JSON.stringify(result));
+    assert.equal(result.uid, 'custom-uid', JSON.stringify(result));
+    assert.deepEqual(result.answer, { status: 200, body: { uid: 'custom-uid', role: 'editor', provider: 'custom' } }, JSON.stringify(result));
+    return result.token;
+  });
+
+  await app.step('the API exchanges a custom token from its own process, and verifies the ID token it gets back', async () => {
+    const result = await (await fetch(`${apiUrl}/self-custom`)).json() as { uid?: string; answer?: Answer; threw?: string };
+    assert.equal(result.threw, undefined, JSON.stringify(result));
+    assert.deepEqual(result.answer, { status: 200, body: { uid: 'server-custom-uid', role: 'editor', provider: 'custom' } }, JSON.stringify(result));
+  });
+
+  await app.step('the API refuses the custom token itself as an ID token', async () => {
+    assertRefused(await whoami(apiUrl, minted), /was given a custom token/);
+  });
+
+  await app.step('the page cannot exchange a custom token minted for another project', async () => {
+    const result = await page.evaluate(([url]) => exchangeCustomToken(url, 'custom-uid', 'other'), [apiUrl] as const);
+    assert.equal(result.code, 'auth/custom-token-mismatch', JSON.stringify(result));
+  });
+
+  await app.step('the page cannot exchange a custom token whose claims were edited after signing', async () => {
+    const [header, payload, signature] = minted.split('.');
+    const claims = JSON.parse(Buffer.from(payload ?? '', 'base64url').toString('utf8')) as Record<string, unknown>;
+    const forged = `${header}.${segment({ ...claims, uid: 'victim-uid', claims: { admin: true } })}.${signature}`;
+    for (const token of [forged, 'not-a-token']) {
+      const result = await page.evaluate((given) => exchangeGivenToken(given), token);
+      assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify({ token, result }));
+    }
+  });
+
   const held = await app.step('a signed-in page holds a token that lasts one hour', async () => {
     const signedIn = await page.evaluate(([name, address]) => signInHeld(name, address), ['Builder One', 'held@example.com'] as const);
     const times = tokenTimes(signedIn.idToken);
@@ -165,7 +206,7 @@ export default scenario(async (app) => {
     assertRefused(await whoami(apiUrl, other), /incorrect "aud" \(audience\) claim/);
   });
 
-  await app.step('the API refuses a plain string, such as a sandbox custom token', async () => {
+  await app.step('the API refuses a plain string', async () => {
     for (const token of ['pyric-sandbox-custom:victim-uid:{"admin":true}', 'not-a-token']) {
       assertRefused(await whoami(apiUrl, token), /Decoding Firebase ID token failed/);
     }
@@ -174,6 +215,11 @@ export default scenario(async (app) => {
   await app.step('pyric sandbox advanceClock moves the clock 61 minutes', async () => {
     const result = await app.pyric(['sandbox', 'advanceClock', '--ms', String(SIXTY_ONE_MINUTES_MS)]);
     assert.equal(result.code, 0, result.output);
+  });
+
+  await app.step('the page cannot exchange the custom token minted over an hour ago on the sandbox clock', async () => {
+    const result = await page.evaluate((given) => exchangeGivenToken(given), minted);
+    assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify(result));
   });
 
   await app.step("the page's next getIdToken() returns a new token, and the API verifies it", async () => {

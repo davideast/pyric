@@ -290,6 +290,10 @@ export {
   TOKEN_REFRESH_BUFFER_MS, type IdTokenCheck,
 } from './id-token.js';
 export {
+  CUSTOM_TOKEN_AUDIENCE, CUSTOM_TOKEN_LIFETIME_SEC, customTokenIssuer, mintCustomToken, readCustomToken,
+  type CustomTokenReading, type CustomTokenRequest, type SandboxCustomToken,
+} from './custom-token.js';
+export {
   appCheckActivationOf,
   appCheckTokenFor,
   recordAppCheckActivation,

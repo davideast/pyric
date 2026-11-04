@@ -20,7 +20,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getClock, idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 
 import { initializeApp, deleteApp, getApps, ADMIN_APP_TARGET } from '../app/index.js';
-import { getAuth, SANDBOX_TOKEN_PREFIX } from './index.js';
+import { getAuth } from './index.js';
 
 // The app registry is module-global (mirror of firebase-admin's
 // defaultAppStore) — deregister every app after each test so unnamed
@@ -80,12 +80,11 @@ describe('getAuth — Phase 3 dispatch', () => {
 });
 
 describe('sandbox backend — createCustomToken', () => {
-  it('mints a deterministic token with the documented prefix', async () => {
+  // The token's shape and its exchange: custom-token-exchange.test.ts (#1952).
+  it('mints the same token for the same uid, claims and sandbox time', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));
-    const token = await auth.createCustomToken('alice');
-    expect(token.startsWith(`${SANDBOX_TOKEN_PREFIX}:`)).toBe(true);
-    expect(token).toBe(`${SANDBOX_TOKEN_PREFIX}:alice:{}`);
+    expect(await auth.createCustomToken('alice')).toBe(await auth.createCustomToken('alice'));
   });
 });
 
@@ -162,7 +161,9 @@ describe('sandbox backend — verifyIdToken verifies ID tokens only', () => {
   it('rejects a custom token with auth/argument-error, as production does', async () => {
     const { auth } = sandboxAuth();
     const customToken = await auth.createCustomToken('victim', { admin: true });
-    await expect(auth.verifyIdToken(customToken)).rejects.toMatchObject(argumentError(DECODE_FAILED));
+    await expect(auth.verifyIdToken(customToken)).rejects.toMatchObject(
+      argumentError(`verifyIdToken() expects an ID token, but was given a custom token.${DOCS}`),
+    );
   });
 
   it('rejects a plain string with auth/argument-error', async () => {
