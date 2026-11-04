@@ -324,10 +324,16 @@ export default scenario(async (app) => {
     const restored = await app.pyric(['sandbox', 'restore', '--name', 'after-revoke', '--confirm']);
     assert.equal(restored.code, 0, restored.output);
 
-    // The restore's reconcile is a refresh-token exchange for each held
-    // session, so the revoked page is signed out, or its next refresh is refused.
-    const refreshed = await page.evaluate(() => forceRefresh());
-    assert.notEqual(refreshed.code, null, `the restored session refreshed: ${JSON.stringify(refreshed)}`);
-    assert.deepEqual({ currentUid: refreshed.currentUid, lastAuthState: refreshed.lastAuthState }, { currentUid: null, lastAuthState: null });
+    // The restore re-checks each held session as a refresh-token exchange, so
+    // the revoked page is signed out at the restore, before any refresh of its
+    // own. Production keeps the user until its next refresh fails.
+    let authState = await page.evaluate(() => restoredUid());
+    for (let tries = 0; authState !== null && tries < 40; tries++) {
+      await page.waitForTimeout(250);
+      authState = await page.evaluate(() => restoredUid());
+    }
+    assert.equal(authState, null, 'the page is still signed in after the restore');
+    const signedOut = await page.evaluate(() => forceRefresh());
+    assert.deepEqual({ currentUid: signedOut.currentUid, lastAuthState: signedOut.lastAuthState }, { currentUid: null, lastAuthState: null });
   });
 });

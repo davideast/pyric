@@ -35,6 +35,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
 } from '../../src/auth/index.js';
 import { authAccountsFor } from 'pyric/sandbox/internal';
 import { getClock } from '../../src/sandbox/clock.js';
@@ -677,7 +679,8 @@ describe('session persistence: a revoked session stays refused after a reload (#
 
     const after = await open();
     await waitForUser(after.auth);
-    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual(authAccountsFor(before.sandbox)?.standing(user.uid)!);
+    // The saved times load moved onto the reloaded clock, so compare the kind.
+    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual({ kind: 'active', tokensValidAfterMs: expect.any(Number) });
     await expect(after.auth.currentUser!.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
   });
 
@@ -691,7 +694,8 @@ describe('session persistence: a revoked session stays refused after a reload (#
 
     const after = await open();
     await waitForUser(after.auth);
-    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual(authAccountsFor(before.sandbox)?.standing(user.uid)!);
+    // The saved times load moved onto the reloaded clock, so compare the kind.
+    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual({ kind: 'active', tokensValidAfterMs: expect.any(Number) });
     expect(await after.auth.currentUser!.getIdToken(true)).toBeString();
     expect(after.auth.currentUser?.email).toBe('quinn@example.com');
   });
@@ -708,9 +712,44 @@ describe('session persistence: a revoked session stays refused after a reload (#
 
     const after = await open();
     await waitForUser(after.auth);
-    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual(authAccountsFor(before.sandbox)?.standing(user.uid)!);
+    // The saved times load moved onto the reloaded clock, so compare the kind.
+    expect(authAccountsFor(after.sandbox)?.standing(user.uid)).toEqual({ kind: 'active', tokensValidAfterMs: expect.any(Number) });
     // The reloaded sandbox's clock is the wall clock again: the session's
     // stored sign-in time, not the clock, is what the revocation is compared with.
+    expect(await after.auth.currentUser!.getIdToken(true)).toBeString();
+  });
+
+  it('a sign-in after the reload refreshes when the revocation was made on an advanced clock', async () => {
+    const open = reloadable('sess:advanced-clock');
+    const before = await open();
+    const { user } = await createUserWithEmailAndPassword(before.auth, 'sam@example.com', 'password1');
+    getClock(before.sandbox).advance(61 * 60_000);
+    authSandbox.updateUser(before.auth, user.uid, { password: 'changed-pw' });
+    await before.sandbox.flush();
+
+    // The reload starts on the wall clock, an hour behind the revocation.
+    const after = await open();
+    await waitForUser(after.auth);
+    await expect(after.auth.currentUser!.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    await signOut(after.auth);
+    await signInWithEmailAndPassword(after.auth, 'sam@example.com', 'changed-pw');
+    expect(await after.auth.currentUser!.getIdToken(true)).toBeString();
+  });
+
+  it('a session that reauthenticates after a revocation keeps refreshing after the reload', async () => {
+    const open = reloadable('sess:reauth');
+    const before = await open();
+    const { user } = await createUserWithEmailAndPassword(before.auth, 'tess@example.com', 'password1');
+    getClock(before.sandbox).advance(2000);
+    authSandbox.updateUser(before.auth, user.uid, { password: 'changed-pw' });
+    await before.sandbox.flush();
+    getClock(before.sandbox).advance(2000);
+    await reauthenticateWithCredential(before.auth.currentUser!, EmailAuthProvider.credential('tess@example.com', 'changed-pw'));
+    expect(await before.auth.currentUser!.getIdToken(true)).toBeString();
+    await before.sandbox.flush();
+
+    const after = await open();
+    await waitForUser(after.auth);
     expect(await after.auth.currentUser!.getIdToken(true)).toBeString();
   });
 });

@@ -1,12 +1,16 @@
 // A page with two Firebase apps signed in to one account, standing in for two
 // devices: the user changes their password on the phone, which signs the
 // laptop out, as an account settings page promises ("signs you out of your
-// other devices").
+// other devices"). The page also uses Firestore, as most apps do; an in-page
+// page that imports only firebase/auth does not load the saved state.
 import { initializeApp } from "firebase/app";
 import { createUserWithEmailAndPassword, getAuth, onAuthStateChanged, signInWithEmailAndPassword, updatePassword } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
 const config = { apiKey: "demo", appId: "demo", projectId: "demo-revocation" };
-const laptop = getAuth(initializeApp(config));
+const laptopApp = initializeApp(config);
+getFirestore(laptopApp);
+const laptop = getAuth(laptopApp);
 const phone = getAuth(initializeApp(config, "phone"));
 
 /** The first auth state after the page loads: the restored session's uid, or null. */

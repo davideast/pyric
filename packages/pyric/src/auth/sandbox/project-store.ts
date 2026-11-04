@@ -141,12 +141,39 @@ function isPersistedSession(value: unknown): value is PersistedSession {
     && typeof session.authenticatedAtMs === 'number' && Number.isFinite(session.authenticatedAtMs);
 }
 
-/** Add the saved sessions a reload hands back. A session already held keeps its own record. */
-export function restorePersistedSessions(store: AuthProjectStore, sessions: unknown): void {
+/**
+ * Add the saved sessions a reload hands back, each sign-in time moved by
+ * `shiftMs` ({@link persistedTimeShift}). A session already held keeps its
+ * own record.
+ */
+export function restorePersistedSessions(store: AuthProjectStore, sessions: unknown, shiftMs = 0): void {
   if (!Array.isArray(sessions)) return;
   for (const session of sessions) {
     const restorable = isPersistedSession(session) && !store.sessionRecords.has(session.key);
     if (!restorable) continue;
-    store.sessionRecords.set(session.key, { key: session.key, uid: session.uid, authenticatedAtMs: session.authenticatedAtMs });
+    const authenticatedAtMs = session.authenticatedAtMs + shiftMs;
+    store.sessionRecords.set(session.key, { key: session.key, uid: session.uid, authenticatedAtMs });
   }
+}
+
+/**
+ * How far to move the saved times when they load onto a clock that is not
+ * the one they were read on: a reload starts the sandbox on the wall clock,
+ * and the saved state may have been written on a clock advanced past it.
+ * Moving every saved time by the same whole seconds keeps their order against
+ * each other and against new sign-ins, and keeps revocations on a whole
+ * second. Zero when the save carries no clock reading.
+ */
+export function persistedTimeShift(savedClockMs: unknown, nowMs: number): number {
+  const hasReading = typeof savedClockMs === 'number' && Number.isFinite(savedClockMs);
+  if (!hasReading) return 0;
+  return Math.floor((nowMs - savedClockMs) / 1000) * 1000;
+}
+
+/** `history` with every revocation time moved by `shiftMs`. */
+export function shiftedHistory(history: AuthAccountHistory, shiftMs: number): AuthAccountHistory {
+  const tokensValidAfterMs = Object.fromEntries(
+    Object.entries(history.tokensValidAfterMs).map(([uid, validAfterMs]) => [uid, validAfterMs + shiftMs]),
+  );
+  return { tokensValidAfterMs, deletedUids: [...history.deletedUids] };
 }

@@ -44,9 +44,10 @@ export default scenario(async (app) => {
 
   await app.step('the phone changes the password, and the state is saved', async () => {
     await page.waitForTimeout(PAST_THE_SIGN_IN_SECOND_MS);
-    const saved = page.waitForResponse((response) => response.url().includes('/__pyric/state') && response.request().method() === 'POST');
+    // The sandbox's saved state, Auth's included, is the `firestore` section.
+    const saved = page.waitForResponse((response) => response.url().includes('/__pyric/state?section=firestore') && response.request().method() === 'POST');
     await page.evaluate(() => devices.changePasswordOnPhone('changed-secret-pw'));
-    assert.equal((await saved).status(), 200);
+    assert.ok((await saved).ok(), 'the state save failed');
   });
 
   await app.step('after a reload, both apps restore their sessions', async () => {

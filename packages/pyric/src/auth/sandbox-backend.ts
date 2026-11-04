@@ -2525,6 +2525,9 @@ export class SandboxBackend {
     const now = this.now().getTime();
     this.authenticatedAtByUid.set(uid, now);
     if (session !== undefined) this.sessions.authenticate(session, now);
+    // A session's sign-in time is saved state: persistence saves it, so a
+    // reload after a reauthentication keeps the session refreshing (#2018).
+    if (session !== undefined) this.notifyUsersChanged();
   }
 
   /**

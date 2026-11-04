@@ -1,9 +1,15 @@
 /** Auth persistence registration: one shared account store, one session per app. */
 import type { Sandbox } from 'pyric/sandbox';
-import { authAccountsFor } from 'pyric/sandbox/internal';
+import { authAccountsFor, getClock } from 'pyric/sandbox/internal';
 import { isAuthAccountHistory } from '../../sandbox/internal/auth-accounts.js';
 import type { SandboxBackend, SeedUser } from '../sandbox-backend.js';
-import { persistedSessions, restorePersistedSessions, type AuthProjectStore } from './project-store.js';
+import {
+  persistedSessions,
+  persistedTimeShift,
+  restorePersistedSessions,
+  shiftedHistory,
+  type AuthProjectStore,
+} from './project-store.js';
 import { sessionKeyOf } from './session-ledger.js';
 
 type AuthSession = Pick<Sandbox, 'currentUser'>;
@@ -38,12 +44,14 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend, store: 
   sandbox.registerPersistableService('auth', {
     // Each account's revocation time, the deleted uids, and the sessions'
     // sign-in times persist with the accounts, so a reload does not bring
-    // a revoked session back (#2018).
+    // a revoked session back (#2018). `clockMs` is the sandbox clock's
+    // reading the times were taken on; the clock itself is not saved.
     snapshot: () => ({
       users: backend.exportUsers(),
       providers: backend.exportProviderConfig(),
       history: authAccountsFor(sandbox)?.history(),
       sessions: persistedSessions(store),
+      clockMs: getClock(sandbox).now(),
     }),
     restore: (data: unknown) => {
       const restored = data as {
@@ -51,6 +59,7 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend, store: 
         providers?: Record<string, boolean>;
         history?: unknown;
         sessions?: unknown;
+        clockMs?: unknown;
       };
       backend.clearUsers();
       const accounts = authAccountsFor(sandbox);
@@ -60,8 +69,9 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend, store: 
       }
       backend.restoreProviderConfig(restored?.providers);
       // Persisted state written before the history restores as before.
-      if (isAuthAccountHistory(restored?.history)) accounts?.replayHistory(restored.history);
-      restorePersistedSessions(store, restored?.sessions);
+      const shiftMs = persistedTimeShift(restored?.clockMs, getClock(sandbox).now());
+      if (isAuthAccountHistory(restored?.history)) accounts?.replayHistory(shiftedHistory(restored.history, shiftMs));
+      restorePersistedSessions(store, restored?.sessions, shiftMs);
     },
     // Sandbox.resetAll: wipe the user DB + provider config back to defaults —
     // identical to restoring an empty snapshot. The signed-in session is the
