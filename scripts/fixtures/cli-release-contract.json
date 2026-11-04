@@ -153,6 +153,7 @@
     "./vite",
     "./vite/ssr-loader",
     "./vite/internal/supplied-rows",
+    "./serve/internal/live-host",
     "./next",
     "./bundler",
     "./serve/worker",

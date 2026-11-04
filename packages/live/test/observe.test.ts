@@ -45,6 +45,33 @@ class CodedError extends Error {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('a one-shot wrapper', () => {
+  test("records the project of the app its first argument belongs to, and nothing else of the argument's", () => {
+    const { records, observer } = collector();
+    const app = { options: { projectId: 'prod', apiKey: 'key' } };
+    const wrapped = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer }, () => undefined);
+    wrapped({ firestore: { app }, path: 'rooms/r1' });
+    wrapped({ app });
+    wrapped(app);
+    wrapped({ path: 'no-app' });
+    wrapped();
+    const hostile = new Proxy({}, { get: () => { throw new Error('no reads'); } });
+    wrapped(hostile);
+    expect(records.map((record) => record.projectId)).toEqual(['prod', 'prod', 'prod', undefined, undefined, undefined]);
+    expect(records[0]).toEqual({ module: 'firebase/firestore', name: 'getDoc', outcome: 'returned', projectId: 'prod' });
+  });
+
+  test("a listener's deliveries name the project its target's app names", () => {
+    const { records, observer } = collector();
+    let deliver: (value: unknown) => void = () => undefined;
+    const listen = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer }, (_target: unknown, next: unknown) => {
+      deliver = next as (value: unknown) => void;
+      return () => undefined;
+    });
+    listen({ firestore: { app: { options: { projectId: 'prod' } } } }, () => undefined);
+    deliver({});
+    expect(records.map((record) => [record.outcome, record.projectId])).toEqual([['returned', 'prod'], ['delivered', 'prod']]);
+  });
+
   test('returns the real result and records the return', () => {
     const { records, observer } = collector();
     const result = { value: 1 };

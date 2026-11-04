@@ -31,6 +31,11 @@ export interface LiveCallRecord {
   readonly outcome: LiveCallOutcome;
   /** On `threw`, `rejected` and `listener-error`: the error's `code`, such as `permission-denied`, or its name. */
   readonly code?: string;
+  /**
+   * The project the call went to: `app.options.projectId` of the app its
+   * first argument belongs to. Absent when the argument names no app.
+   */
+  readonly projectId?: string;
 }
 
 /** The hook a plane supplies to receive records. Its return value is ignored. */
@@ -50,6 +55,8 @@ export interface ObservedSite {
    * nothing, as Auth and App Check do.
    */
   readonly uncaughtListenerError?: UncaughtListenerError;
+  /** The project of the call this site records, read from its arguments. */
+  readonly projectId?: string;
 }
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
@@ -69,8 +76,48 @@ function errorCode(error: unknown): string {
 
 function buildRecord(site: ObservedSite, outcome: LiveCallOutcome, error: unknown): LiveCallRecord {
   const isFailure = FAILURE_OUTCOMES.has(outcome);
-  if (!isFailure) return { module: site.module, name: site.name, outcome };
-  return { module: site.module, name: site.name, outcome, code: errorCode(error) };
+  const project = site.projectId === undefined ? {} : { projectId: site.projectId };
+  if (!isFailure) return { module: site.module, name: site.name, outcome, ...project };
+  return { module: site.module, name: site.name, outcome, code: errorCode(error), ...project };
+}
+
+function stringAt(value: unknown, path: readonly string[]): string | undefined {
+  let current = value;
+  for (const key of path) {
+    const isObject = (typeof current === 'object' || typeof current === 'function') && current !== null;
+    if (!isObject) return undefined;
+    current = Reflect.get(current as object, key);
+  }
+  return typeof current === 'string' && current !== '' ? current : undefined;
+}
+
+/**
+ * Where the app's own objects keep the project: a reference or query's
+ * `firestore.app`, a Firestore or Auth instance's `app`, or the app itself.
+ */
+const PROJECT_PATHS = [
+  ['firestore', 'app', 'options', 'projectId'],
+  ['app', 'options', 'projectId'],
+  ['options', 'projectId'],
+] as const;
+
+/** The project the first argument's app names, read without calling anything of the app's. */
+function projectOf(args: readonly unknown[]): string | undefined {
+  try {
+    for (const path of PROJECT_PATHS) {
+      const projectId = stringAt(args[0], path);
+      if (projectId !== undefined) return projectId;
+    }
+  } catch {
+    // An argument that throws on read names no project; the call is still recorded.
+  }
+  return undefined;
+}
+
+/** The site with the project its call's arguments name. */
+function siteFor(site: ObservedSite, args: readonly unknown[]): ObservedSite {
+  const projectId = projectOf(args);
+  return projectId === undefined ? site : { ...site, projectId };
 }
 
 function ignoreRejection(returned: unknown): void {
@@ -129,7 +176,7 @@ function callReal(site: ObservedSite, real: Callback, self: unknown, args: unkno
 /** A wrapper for a one-shot export: reads, writes, sign-in and token calls. */
 export function observedCall(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
-    return callReal(site, real, this, args);
+    return callReal(siteFor(site, args), real, this, args);
   };
 }
 
@@ -225,6 +272,7 @@ function recordingArguments(site: ObservedSite, args: unknown[]): unknown[] {
 /** A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`, `onTokenChanged`. */
 export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
-    return callReal(site, real, this, recordingArguments(site, args));
+    const callSite = siteFor(site, args);
+    return callReal(callSite, real, this, recordingArguments(callSite, args));
   };
 }

@@ -33,12 +33,14 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
 });
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account']);
+const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId']);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
 /** SDK function names: `getDoc`, `onSnapshot`, `signInWithEmailAndPassword`. */
 const METHOD_PATTERN = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
 /** Firebase error codes, with or without a service prefix: `permission-denied`, `auth/user-not-found`. */
 const CODE_PATTERN = /^[a-z0-9_/-]{1,100}$/i;
+/** Firebase project ids: lowercase letters, digits and hyphens, as Google Cloud names them. */
+const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const MAX_PATH_LENGTH = 1500;
 const MAX_UID_LENGTH = 128;
 const MAX_CLAIM_NAMES = 64;
@@ -123,6 +125,10 @@ export function readObservedCall(value: unknown): ObservedCall {
     call.durationMs = value.durationMs;
   }
   if (value.account !== undefined) call.account = readAccount(value.account);
+  if (value.projectId !== undefined) {
+    requireField(typeof value.projectId === 'string' && PROJECT_ID_PATTERN.test(value.projectId), 'projectId');
+    call.projectId = value.projectId;
+  }
   return call;
 }
 

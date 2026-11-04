@@ -21,6 +21,7 @@ const DENIED_READ: ObservedCall = {
   durationMs: 42,
   outcome: { status: 'error', code: 'permission-denied' },
   account: { uid: 'alice', claimNames: ['admin', 'email'] },
+  projectId: 'my-project',
 };
 
 describe('readObservedCall', () => {
@@ -51,6 +52,10 @@ describe('readObservedCall', () => {
       [{ ...DENIED_READ, account: { uid: 'alice', claimNames: [7] } }, 'account.claimNames'],
       [{ ...DENIED_READ, caller: { kind: 'admin' } }, 'caller'],
       [{ ...DENIED_READ, id: 'forged' }, 'id'],
+      [{ ...DENIED_READ, projectId: '' }, 'projectId'],
+      [{ ...DENIED_READ, projectId: 'Has Spaces' }, 'projectId'],
+      [{ ...DENIED_READ, projectId: 'a'.repeat(64) }, 'projectId'],
+      [{ ...DENIED_READ, projectId: 7 }, 'projectId'],
     ];
     for (const [record, field] of cases) {
       const read = () => readObservedCall(record);
