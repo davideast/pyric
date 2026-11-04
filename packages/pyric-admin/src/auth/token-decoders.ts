@@ -5,27 +5,14 @@
  * (`pyric/sandbox/internal` `mintIdToken`), checked by the shared
  * {@link checkIdToken} and then by firebase-admin 13.10.0's rules, in its
  * order (lib/auth/token-verifier.js `verifyContent` and `verifySignature`,
- * lib/utils/jwt.js, and jsonwebtoken's `nbf` and `exp`). A custom token, a
- * plain string, or the client token shape from before #1836 fails to decode,
- * as it does in production (#1949).
+ * lib/utils/jwt.js, and jsonwebtoken's `nbf` and `exp`). A plain string, or
+ * the client token shape from before #1836, fails to decode, and a custom
+ * token is refused as one, as in production (#1949, #1952).
  */
-import { checkIdToken } from 'pyric/sandbox/internal';
+import { checkIdToken, CUSTOM_TOKEN_AUDIENCE } from 'pyric/sandbox/internal';
 import type { DecodedIdToken } from './types.js';
 
-/**
- * Token format minted by `createCustomToken`. Exported as a constant so tests
- * can lock the shape.
- *
- * Layout: `pyric-sandbox-custom:${uid}:${jsonClaims}`
- *
- * It is not a JWT and not signed, and it is not an ID token: `verifyIdToken`
- * refuses it with `auth/argument-error`, as production refuses a custom token.
- */
-export const SANDBOX_TOKEN_PREFIX = 'pyric-sandbox-custom';
-
 const ID_TOKEN_ISSUER = 'https://securetoken.google.com/';
-/** The `aud` of a custom token firebase-admin signs (token-verifier.js `FIREBASE_AUDIENCE`). */
-const CUSTOM_TOKEN_AUDIENCE = 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
 const MAX_SUBJECT_LENGTH = 128;
 
 const DOCS = ' See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token.';
