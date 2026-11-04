@@ -4,12 +4,13 @@
  * without a valid App Check token, and the app gets the `AIError` the SDK
  * throws for that refusal.
  *
- * The refusal's expected values come from
- * `earlier-captures/ai-logic-refusal-unenforced.json`: the 403 one unenforced
- * project answered. The current observations come from an unenforced project
- * that answers 200, and these files must never make the sandbox allow (#1300).
- * The limited-use values come from `app-check-client-ai-header`, and the late
- * initialize shape from `app-check-client-get-token-before-initialize`.
+ * The refusal's expected values come from the current observations, captured
+ * while AI Logic enforcement read `ENFORCED`: the 401 `UNAUTHENTICATED` in
+ * `app-check-ai-gate-wire`, the SDK error in `app-check-client-ai-header`
+ * (`noAppCheck`), and the late initialize shape in
+ * `app-check-client-get-token-before-initialize`. The 403 the sandbox sent
+ * before came from an unenforced project and stays in
+ * `earlier-captures/ai-logic-refusal-unenforced.json` (#1300).
  */
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -34,10 +35,8 @@ const obs = (name: string): Behavior =>
 
 const EARLIER_REFUSAL = join(import.meta.dir, '..', '..', '..', 'conformance', 'earlier-captures', 'ai-logic-refusal-unenforced.json');
 const earlier = (JSON.parse(readFileSync(EARLIER_REFUSAL, 'utf8')) as { captures: Record<string, Behavior> }).captures;
-const gateWire = earlier['app-check-ai-gate-wire']!;
-const earlierHeader = earlier['app-check-client-ai-header']!;
-const earlierBeforeInitialize = earlier['app-check-client-get-token-before-initialize']!;
-const unenforcedGateWire = obs('app-check-ai-gate-wire');
+const earlierGateWire = earlier['app-check-ai-gate-wire']!;
+const gateWire = obs('app-check-ai-gate-wire');
 const aiHeader = obs('app-check-client-ai-header');
 const beforeInitialize = obs('app-check-client-get-token-before-initialize');
 
@@ -85,38 +84,44 @@ function taskAndQuery(op: string): string {
   return op === 'streamGenerateContent' ? `${op}?alt=sse` : op;
 }
 
+/** The capture's request URL names the oracle project; the sandbox's names project `sandbox`. */
+const CAPTURED_PROJECT = /projects\/[^/]+\//;
+
 /** The SDK error the capture saw, with the sandbox's request URL in place of the oracle project's. */
 function expectCapturedRefusal(error: AIError, op: string): void {
-  const captured = earlierHeader.noAppCheck.generation;
+  const captured = aiHeader.noAppCheck.generation;
   const expectedMessage = (captured.message as string)
-    .replace('projects/genkit-idx/', 'projects/sandbox/')
+    .replace(CAPTURED_PROJECT, 'projects/sandbox/')
     .replace(':generateContent:', `:${taskAndQuery(op)}:`);
   expect(error).toBeInstanceOf(AIError);
   expect(error.code).toBe(captured.code);
   expect(error.message).toBe(expectedMessage);
   expect(error.customErrorData?.status).toBe(gateWire.noHeader.httpStatus);
-  expect(error.customErrorData?.statusText).toBe('Forbidden');
+  expect(error.customErrorData?.statusText).toBe('Unauthorized');
 }
 
 describe('ai#sandbox-app-check-required', () => {
-  it('stays refusing though the current unenforced capture answers 200; the 403 is another unenforced project\'s (#1300)', async () => {
-    expect(unenforcedGateWire.appCheckEnforcementModeAtCapture).toBe('UNENFORCED');
-    expect(unenforcedGateWire.noHeader.httpStatus).toBe(200);
-    expect(gateWire.appCheckEnforcementModeAtCapture).toBe('UNENFORCED');
-    expect(gateWire.noHeader.httpStatus).toBe(403);
+  it('answers what an enforced project answers, not the earlier unenforced project\'s 403 (#1300)', async () => {
+    expect(gateWire.appCheckEnforcementModeAtCapture).toBe('ENFORCED');
+    expect(gateWire.noHeader.httpStatus).toBe(401);
+    expect(gateWire.noHeader.errorStatus).toBe('UNAUTHENTICATED');
+    expect(earlierGateWire.appCheckEnforcementModeAtCapture).toBe('UNENFORCED');
+    expect(earlierGateWire.noHeader.httpStatus).toBe(403);
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
-    expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
+    const error = await rejection(model.generateContent('ping'));
+    expectCapturedRefusal(error, 'generateContent');
+    expect(error.message).not.toContain(earlierGateWire.noHeader.messageText);
   });
 
-  it('generateContent from getAI(app) with no App Check rejects with the AIError the SDK throws for the captured 403', async () => {
+  it('generateContent from getAI(app) with no App Check rejects with the AIError the SDK throws for the captured 401', async () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     expectCapturedRefusal(await rejection(model.generateContent('ping')), 'generateContent');
-    expect(earlierHeader.noAppCheck.responseStatus).toBe(403);
+    expect(aiHeader.noAppCheck.responseStatus).toBe(401);
   });
 
   it('the guidance says enforcement is set per project and the sandbox plays an enforced one (#1834)', () => {
     expect(APP_CHECK_REFUSAL_NOTE).toBe(
-      'The sandbox refuses AI Logic requests without an App Check token with a 403, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.',
+      'The sandbox refuses AI Logic requests without an App Check token with a 401, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.',
     );
     expect(APP_CHECK_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
     expect(APP_CHECK_SERVER_HINT.startsWith(`${APP_CHECK_REFUSAL_NOTE} `)).toBe(true);
@@ -326,7 +331,7 @@ describe('app-check#custom-provider-without-debug-token: AI Logic judges the pro
 describe('ai#sandbox-app-check-required: the error URL follows the handle backend (#1640)', () => {
   const vertexUrl = (location: string, op: string) =>
     `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/locations/${location}/publishers/google/models/${MODEL}:${taskAndQuery(op)}`;
-  const gate = `[403 Forbidden] ${earlierHeader.noAppCheck.generation.message.split('[403 Forbidden] ')[1]}`;
+  const gate = `[401 Unauthorized] ${aiHeader.noAppCheck.generation.message.split('[401 Unauthorized] ')[1]}`;
 
   it('a Vertex AI sandbox handle names the Vertex AI path, and a stream adds alt=sse', async () => {
     const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend('europe-west4') }), { model: MODEL });
@@ -395,9 +400,10 @@ describe('ai#sandbox-app-check-initialize-after-getai', () => {
     expect((await getToken(appCheck)).token.split('.')).toHaveLength(beforeInitialize.getTokenAfterLateInitialize.token.segmentCount);
     const error = await rejection(model.generateContent('ping'));
     expect(beforeInitialize.aiRequestAfterLateInitialize.appCheckHeaderPresent).toBe(false);
-    expect(error.code).toBe(earlierBeforeInitialize.aiGenerationAfterLateInitialize.code);
+    expect(beforeInitialize.aiRequestAfterLateInitialize.responseStatus).toBe(gateWire.noHeader.httpStatus);
+    expect(error.code).toBe(beforeInitialize.aiGenerationAfterLateInitialize.code);
     expect(error.message).toBe(
-      (earlierBeforeInitialize.aiGenerationAfterLateInitialize.message as string).replace('projects/genkit-idx/', 'projects/sandbox/'),
+      (beforeInitialize.aiGenerationAfterLateInitialize.message as string).replace(CAPTURED_PROJECT, 'projects/sandbox/'),
     );
   });
 });
@@ -467,7 +473,7 @@ describe('ai#sandbox-app-check-limited-use', () => {
 });
 
 describe('ai#sandbox-app-check-stream-and-count-tokens', () => {
-  it('generateContentStream rejects before any chunk, as the SDK does for a 403', async () => {
+  it('generateContentStream rejects before any chunk, as the SDK does for a 401', async () => {
     const model = getGenerativeModel(getAI(newApp()), { model: MODEL });
     expectCapturedRefusal(await rejection(model.generateContentStream('ping')), 'streamGenerateContent');
   });
@@ -559,10 +565,10 @@ describe('the broker gate', () => {
     const broker = new AiBroker({ sandbox });
     await broker.generateContent(REQUEST, `models/${MODEL}`, { token: null }).catch(() => undefined);
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ code: 403, status: 'PERMISSION_DENIED', message: gateWire.noHeader.messageText, hint: APP_CHECK_HINT });
+    expect(events[0]).toMatchObject({ code: gateWire.noHeader.errorCode, status: gateWire.noHeader.errorStatus, message: gateWire.noHeader.messageText, hint: APP_CHECK_HINT });
   });
 
-  it('a stream with no token and a malformed request gets the 403, as generateContent does', async () => {
+  it('a stream with no token and a malformed request gets the 401, as generateContent does', async () => {
     const malformed = { contents: [] };
     const model = `models/${MODEL}`;
     const broker = new AiBroker();
@@ -577,9 +583,10 @@ describe('the broker gate', () => {
     const stream = () => (async () => {
       for await (const _chunk of broker.streamGenerateContent(malformed, model, { token: null })) { /* none */ }
     })();
-    expect(await code(stream)).toBe(403);
-    expect(await code(() => broker.generateContent(malformed, model, { token: null }))).toBe(403);
-    expect(await code(() => broker.countTokens(malformed, model, { token: null }))).toBe(403);
+    const refused = gateWire.noHeader.httpStatus;
+    expect(await code(stream)).toBe(refused);
+    expect(await code(() => broker.generateContent(malformed, model, { token: null }))).toBe(refused);
+    expect(await code(() => broker.countTokens(malformed, model, { token: null }))).toBe(refused);
   });
 });
 

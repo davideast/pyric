@@ -1,8 +1,8 @@
 // In production AI mode the page's firebase/app-check is the Firebase SDK,
 // attached to the same app firebase/ai reads, so AI Logic requests carry the
 // App Check token. A Playwright route answers Google the way AI Logic does
-// (403 without a token, in earlier-captures/ai-logic-refusal-unenforced.json): nothing in this
-// scenario reaches a real Google endpoint.
+// (401 without a token while enforced, in observations/app-check/app-check-ai-gate-wire.json):
+// nothing in this scenario reaches a real Google endpoint.
 //
 // The app also sends its App Check token to its own backend, which verifies it
 // with firebase-admin and answers 401 when that fails (#1552). In production
@@ -16,9 +16,9 @@ import { scenario } from '../driver.ts';
 
 const DENIED = {
   error: {
-    code: 403,
-    message: 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check',
-    status: 'PERMISSION_DENIED',
+    code: 401,
+    message: 'Firebase App Check token is invalid.',
+    status: 'UNAUTHENTICATED',
   },
 };
 
@@ -101,7 +101,7 @@ export default scenario(async (app) => {
     await context.route('https://firebasevertexai.googleapis.com/**', (route) => {
       const header = route.request().headers()['x-firebase-appcheck'] ?? null;
       aiHeaders.push(header);
-      if (header === null) return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify(DENIED) });
+      if (header === null) return route.fulfill({ status: DENIED.error.code, contentType: 'application/json', body: JSON.stringify(DENIED) });
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -132,7 +132,7 @@ export default scenario(async (app) => {
     const outcome = await page.evaluate(() => runAppCheckAfterAi());
     assert.deepEqual(aiHeaders, [null]);
     assert.equal(outcome.ok, false);
-    assert.match(outcome.error ?? '', /you must enforce Firebase App Check/);
+    assert.match(outcome.error ?? '', /\[401 Unauthorized\] Firebase App Check token is invalid\./);
   });
 
   await app.step('a custom provider needs no App Check endpoint', () => {

@@ -1,7 +1,7 @@
 // An app on the Vite plugin's default plane (the SharedWorker) selects the
 // gemini engine, as #1575's report does. The dev server holds the Gemini API
 // key in its environment. A page that never initialized App Check gets AI
-// Logic's 403. A page that initialized it first gets Gemini's answer, with
+// Logic's 401. A page that initialized it first gets Gemini's answer, with
 // the key the server attached: the key never reaches the browser (#1584).
 //
 // A local stand-in plays the Gemini API, so no request reaches Google and no
@@ -67,7 +67,8 @@ const ECHO_KEY_MODEL = 'gemini-echo-key';
 const STREAM_ERROR_MODEL = 'gemini-stream-error';
 /** A made-up ADC token. Its second line makes it an invalid header value. */
 const ADC_TOKEN = 'scenario-adc-token-1737';
-const GATE_MESSAGE = 'Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check. Learn more: https://firebase.google.com/docs/ai-logic/app-check';
+/** An enforced project's refusal (capture `app-check-ai-gate-wire`, #1300). */
+const GATE_MESSAGE = 'Firebase App Check token is invalid.';
 
 /** The SDK's request URL adds `alt=sse` to a stream (#1640). */
 function refusal(op: string) {
@@ -75,8 +76,8 @@ function refusal(op: string) {
   return {
     ok: false,
     code: 'fetch-error',
-    status: 403,
-    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}${query}: [403 Forbidden] ${GATE_MESSAGE} (AI/fetch-error)`,
+    status: 401,
+    message: `AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/models/${MODEL}:${op}${query}: [401 Unauthorized] ${GATE_MESSAGE} (AI/fetch-error)`,
   };
 }
 
@@ -300,7 +301,7 @@ export default scenario(async (app) => {
 
     const page = await app.step('open the page', () => openPage(app, host));
 
-    await app.step('SharedWorker: without App Check, AI Logic\'s 403 and nothing reaches Gemini', async () => {
+    await app.step('SharedWorker: without App Check, AI Logic\'s 401 and nothing reaches Gemini', async () => {
       const result = await page.evaluate(() => runGemini('no-app-check', false));
       assert.deepEqual(result, REFUSED);
       assert.deepEqual(standIn.seen, []);

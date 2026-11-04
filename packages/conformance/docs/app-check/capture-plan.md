@@ -76,18 +76,20 @@ All are captured by `packages/conformance/src/app-check-probes.ts` (rig `rigs/ap
 
 The docs require enforcement from a date each project can set, up to January 21, 2027, so an unenforced project is legitimate production behavior before its date. Two captures read `UNENFORCED` for `firebaseml.googleapis.com` and answered differently:
 
-- On 2026-10-22 one project rejected every `generateContent` without a valid App Check token: HTTP 403, `PERMISSION_DENIED`, message "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check." A malformed header, the web SDK placeholder token, and a tampered token got the same envelope, and a valid token got a 200. That evidence is kept in `earlier-captures/ai-logic-refusal-unenforced.json`, and it is what the sandbox replays.
-- On 2026-11-02 another project answered 200 to all of those requests, and to `streamGenerateContent` and `countTokens` with no header. That is what the current observations record.
+- On 2026-10-22 one project rejected every `generateContent` without a valid App Check token: HTTP 403, `PERMISSION_DENIED`, message "Firebase AI Logic has been deactivated in this project. To resume using Firebase AI Logic, you must enforce Firebase App Check." A malformed header, the web SDK placeholder token, and a tampered token got the same envelope, and a valid token got a 200. That evidence is kept in `earlier-captures/ai-logic-refusal-unenforced.json`.
+- On 2026-11-02 another project answered 200 to all of those requests, and to `streamGenerateContent` and `countTokens` with no header.
 
-The sandbox refuses in both cases, and the capture's mode is recorded in `app-check-ai-gate-wire`.
+## Finding: an enforced project answers 401
 
-What is still unsettled is what `ENFORCED` mode answers (#1300).
+- 2026-11-03: the rig ran with AI Logic enforcement reading `ENFORCED` on the oracle project, firebase 12.19.0. No header, a malformed header, the web SDK placeholder token and a tampered token got HTTP 401, `UNAUTHENTICATED`, message "Firebase App Check token is invalid.", for `generateContent`, `streamGenerateContent` and `countTokens`. A valid Admin-minted token got 200. The current observations record this, and the sandbox now answers with this envelope on every project, in place of the earlier 403 (#1300).
+
+The capture's mode is recorded in `app-check-ai-gate-wire`.
 
 ## Other production facts seen while capturing
 
 - Admin `createToken` intermittently answers "App attestation failed." for a run of calls, then succeeds for the same app; the rig retries up to 8 times, 20 seconds apart. Seen in every run after the first, never on a lone call.
 - In debug mode the web SDK never calls `onTokenChanged` listeners registered before the first `getToken`, even across forced refreshes; a listener added after a token exists is called once, asynchronously.
-- With `useLimitedUseAppCheckTokens` and a failing attestation, `firebase/ai` throws `AI/error` before sending any request; without the option it sends the placeholder token, which a refusing project answers with the 403.
+- With `useLimitedUseAppCheckTokens` and a failing attestation, `firebase/ai` throws `AI/error` before sending any request; without the option it sends the placeholder token, which an enforced project answers with the 401.
 
 ## Run
 

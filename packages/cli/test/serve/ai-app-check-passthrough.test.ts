@@ -25,30 +25,30 @@ import { mapFirebaseSpecifier } from '../../src/register/mapping.js';
 const isClimb = process.env.PYRIC_CLIMB === '1';
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'app-check');
 type Behavior = Record<string, any>;
-const obs = (name: string): Behavior =>
-  (JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as { behavior: Behavior }).behavior;
-
-/** AI Logic's 403, from another unenforced project; the current observations answer 200 (#1300). */
-const earlier = (name: string): Behavior =>
-  (JSON.parse(readFileSync(join(import.meta.dir, '..', '..', '..', 'conformance', 'earlier-captures', 'ai-logic-refusal-unenforced.json'), 'utf8')) as { captures: Record<string, Behavior> }).captures[name]!;
+type Capture = { projectId: string; behavior: Behavior };
+const capture = (name: string): Capture =>
+  JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as Capture;
+/** The current captures, read while AI Logic enforcement was `ENFORCED` (#1300). */
+const obs = (name: string): Behavior => capture(name).behavior;
 
 const SDK_DUMMY_TOKEN = Buffer.from(JSON.stringify({ error: 'UNKNOWN_ERROR' })).toString('base64');
-const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: 'genkit-idx' };
+// The request URL in the SDK's error names the project, so the app uses the captures'.
+const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: capture('app-check-ai-gate-wire').projectId };
 const MODEL = 'gemini-flash-lite-latest';
 
 interface SeenRequest { appCheckHeader: string | null }
 const seen: SeenRequest[] = [];
 const realFetch = globalThis.fetch;
-let deniedBody: unknown;
+let deniedBody: { error: { code: number } };
 
-/** Answers AI Logic the way the captures saw it: 200 with a valid token, the captured 403 otherwise. */
+/** Answers AI Logic the way the captures saw it: 200 with a valid token, the captured 401 otherwise. */
 function installFetch(validTokens: () => Set<string>): void {
   globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
     const appCheckHeader = headers.get('x-firebase-appcheck');
     seen.push({ appCheckHeader });
     const valid = appCheckHeader !== null && validTokens().has(appCheckHeader);
-    if (!valid) return new Response(JSON.stringify(deniedBody), { status: 403, headers: { 'content-type': 'application/json' } });
+    if (!valid) return new Response(JSON.stringify(deniedBody), { status: deniedBody.error.code, statusText: 'Unauthorized', headers: { 'content-type': 'application/json' } });
     return new Response(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: 'pyric' }] }, finishReason: 'STOP' }] }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -110,7 +110,7 @@ async function generate(model: { generateContent(prompt: string): Promise<{ resp
 }
 
 beforeAll(() => {
-  deniedBody = earlier('app-check-ai-gate-wire').noHeader.raw;
+  deniedBody = obs('app-check-ai-gate-wire').noHeader.raw;
   installFetch(() => minted);
 });
 afterEach(() => {
@@ -157,13 +157,15 @@ const assertions: Record<string, () => Promise<void>> = {
   },
 
   'ai#app-check-required': async () => {
-    const o = earlier('app-check-client-ai-header').noAppCheck;
-    const wire = earlier('app-check-ai-gate-wire');
+    const o = obs('app-check-client-ai-header').noAppCheck;
+    const wire = obs('app-check-ai-gate-wire');
     const { app, ai } = await bridged();
     const generation = await generate(ai.getGenerativeModel(ai.getAI(app as never), { model: MODEL }));
     expect(Boolean(seen[0]?.appCheckHeader)).toBe(o.appCheckHeaderPresent);
     expect(generation.threw).toBe(o.generation.threw);
     expect((generation as { code: string }).code).toBe(o.generation.code);
+    expect(wire.appCheckEnforcementModeAtCapture).toBe('ENFORCED');
+    expect((generation as { message: string }).message).toBe(o.generation.message);
     expect((generation as { message: string }).message).toContain(wire.noHeader.messageText);
     for (const failing of ['malformedHeader', 'sdkPlaceholderToken', 'tamperedSignature']) {
       expect(wire[failing].messageText).toBe(wire.noHeader.messageText);
@@ -187,11 +189,12 @@ const assertions: Record<string, () => Promise<void>> = {
     expect(Object.keys(late).sort()).toEqual(o.getTokenAfterLateInitialize.keySet);
     const generation = await generate(model);
     expect(Boolean(seen[0]?.appCheckHeader)).toBe(o.aiRequestAfterLateInitialize.appCheckHeaderPresent);
-    expect(generation.threw).toBe(earlier('app-check-client-get-token-before-initialize').aiGenerationAfterLateInitialize.threw);
+    expect(generation.threw).toBe(o.aiGenerationAfterLateInitialize.threw);
+    expect((generation as { message?: string }).message).toBe(o.aiGenerationAfterLateInitialize.message);
   },
 
   'ai#app-check-attestation-failure': async () => {
-    const o = earlier('app-check-client-invalid-debug-token');
+    const o = obs('app-check-client-invalid-debug-token');
     // Debug mode is module-wide in the App Check SDK, so the refusal replays in
     // its own process (fixtures/app-check-debug-refusal.ts).
     const child = Bun.spawnSync(['bun', join(import.meta.dir, 'fixtures', 'app-check-debug-refusal.ts')], { stdout: 'pipe', stderr: 'pipe' });
