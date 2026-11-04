@@ -18,6 +18,9 @@ import {
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 import { getOrCreateBackend } from '../../src/database/sandbox/backend-for.js';
 import { getAuth } from '../../src/auth/instances.js';
+import { signInWithEmailAndPassword } from '../../src/auth/index.js';
+import { authAccountsFor } from 'pyric/sandbox/internal';
+import { getClock } from '../../src/sandbox/clock.js';
 import { sandbox as authDriver } from '../../src/auth/sandbox/driver.js';
 import { getAdminStorageSandbox } from '../../src/storage/internal.js';
 import { getBytes, getMetadata, ref as storageRef, uploadBytes } from '../../src/storage/index.js';
@@ -203,5 +206,21 @@ describe('full sandbox state', () => {
     await expect(
       uploadBytes(storageRef(clientStorage, 'after-restore.txt'), new Uint8Array([7, 8, 9])),
     ).rejects.toMatchObject({ code: 'storage/unauthorized' });
+  });
+});
+
+describe('applyFullState and held Auth sessions (#1950)', () => {
+  it('a checkpoint restore keeps the held session refreshing', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authDriver.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    // The state carries the clock, so capture it after the sign-in's second.
+    getClock(sandbox).advance(2000);
+    const state = await captureFullState(sandbox);
+    await applyFullState(sandbox, state);
+    expect(authAccountsFor(sandbox)?.standing('u1')).toEqual({ kind: 'active', tokensValidAfterMs: null });
+    expect(await user.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
   });
 });

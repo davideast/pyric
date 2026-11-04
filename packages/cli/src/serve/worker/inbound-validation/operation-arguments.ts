@@ -410,8 +410,14 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireRecord(message.request, 'request');
       return;
     case 'auth.adminDeleteUser':
+      requireString(message.uid, 'uid');
+      return;
     case 'auth.restorePortSession':
       requireString(message.uid, 'uid');
+      requireOptionalString(message.sessionKey, 'sessionKey');
+      return;
+    case 'auth.updateCurrentUser':
+      requireOptionalString(message.sessionKey, 'sessionKey');
       return;
     case 'messaging.acknowledge': {
       requireString(message.subId, 'subId');
@@ -483,7 +489,6 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'auth.deleteUser':
     case 'auth.updateEmail':
     case 'auth.updatePassword':
-    case 'auth.updateCurrentUser':
     case 'auth.listUsers':
     case 'auth.adminClearUsers':
     case 'auth.getProviderConfig':

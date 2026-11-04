@@ -89,6 +89,22 @@ export interface ClientAuth {
  *  user-only signature). Non-enumerable — never serialized. */
 const CLIENT_USER_PORT: unique symbol = Symbol('pyric.clientUser.port');
 
+/** Hidden per-`ClientUser` worker session key ({@link SerializedUser.sessionKey}).
+ *  Non-enumerable, like the port. */
+const CLIENT_USER_SESSION_KEY: unique symbol = Symbol('pyric.clientUser.sessionKey');
+
+/** The worker session key `user` carries, which a page stores to resume the
+ *  session after a reload; undefined when the worker sent none. */
+export function clientUserSessionKey(user: ClientUser): string | undefined {
+  return (user as { [CLIENT_USER_SESSION_KEY]?: string })[CLIENT_USER_SESSION_KEY];
+}
+
+/** `{ sessionKey }` for a user that carries one, so the worker continues its session. */
+function sessionKeyField(user: ClientUser): { sessionKey?: string } {
+  const sessionKey = clientUserSessionKey(user);
+  return sessionKey === undefined ? {} : { sessionKey };
+}
+
 /** Build a token-capable ClientUser from a wire SerializedUser. */
 function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
   const user: ClientUser = {
@@ -114,6 +130,7 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     },
   };
   Object.defineProperty(user, CLIENT_USER_PORT, { value: port, enumerable: false });
+  Object.defineProperty(user, CLIENT_USER_SESSION_KEY, { value: raw.sessionKey, enumerable: false });
   return user;
 }
 
@@ -166,7 +183,7 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     await request({ t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: auth.tenantId });
     const user = auth.currentUser;
     const isSignedIn = user !== null;
-    if (isSignedIn) await restorePortSession(auth, user.uid, request, user.tenantId);
+    if (isSignedIn) await restorePortSession(auth, user.uid, request, user.tenantId, clientUserSessionKey(user));
   };
 
   // ID-token updates also refresh same-UID changes such as provider linking.
@@ -321,10 +338,11 @@ export async function restorePortSession(
   uid: string,
   request: (message: OpMessage) => Promise<unknown> = message => rpc(auth.port, message),
   tenantId: string | null = auth.tenantId,
+  sessionKey?: string,
 ): Promise<ClientUser | null> {
   const raw = (await request({
     t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
-    tenantId,
+    tenantId, ...(sessionKey === undefined ? {} : { sessionKey }),
   })) as SerializedUser | null;
   const user = toClientUser(auth.port, raw);
   auth.currentUser = user;
@@ -480,6 +498,7 @@ export async function updateCurrentUser(
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
     tenantId: user?.tenantId ?? auth.tenantId ?? null,
+    ...(user === null ? {} : sessionKeyField(user)),
   })) as SerializedUser | null;
   auth.currentUser = toClientUser(auth.port, raw);
 }

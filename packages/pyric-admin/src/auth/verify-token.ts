@@ -3,13 +3,17 @@
  * arms. Each arm passes the project the token must be scoped to and the
  * current time on its own clock.
  */
+import type { AuthAccountStanding } from 'pyric/sandbox/internal';
 import { PrefixedFirebaseError } from '../app/firebase-error.js';
 import type { DecodedIdToken } from './types.js';
 import { checkClientIdToken, type IdTokenFailureCode } from './token-decoders.js';
 
+/** The codes `checkRevoked` and `revokeRefreshTokens` add to a token check's. */
+type AccountFailureCode = 'user-not-found' | 'user-disabled' | 'id-token-revoked' | 'invalid-uid';
+
 /** firebase-admin's FirebaseAuthError: a PrefixedFirebaseError with prefix `auth`. */
 export class FirebaseAuthError extends PrefixedFirebaseError {
-  constructor(code: IdTokenFailureCode, message: string) {
+  constructor(code: IdTokenFailureCode | AccountFailureCode, message: string) {
     super('auth', code, message);
   }
 }
@@ -39,4 +43,35 @@ export function verifySandboxIdToken(idToken: string, expected: IdTokenExpectati
     if (!verdict.ok) throw new FirebaseAuthError(verdict.code, verdict.message);
     return verdict.token;
   });
+}
+
+/**
+ * firebase-admin's answer for a uid that is not a non-empty string of at most
+ * 128 characters (13.10.0 `validator.isUid`), checked before any request.
+ */
+export function invalidUid(uid: unknown): FirebaseAuthError | null {
+  const isUid = typeof uid === 'string' && uid.length > 0 && uid.length <= 128;
+  if (isUid) return null;
+  return new FirebaseAuthError('invalid-uid', 'The uid must be a non-empty string with at most 128 characters.');
+}
+
+/** firebase-admin's `getUser` answer for a uid with no record. */
+export function userNotFound(): FirebaseAuthError {
+  return new FirebaseAuthError('user-not-found', 'There is no user record corresponding to the provided identifier.');
+}
+
+/**
+ * firebase-admin's `verifyDecodedJWTNotRevokedOrDisabled` (13.10.0
+ * `lib/auth/base-auth.js`), the `checkRevoked` step: the account must exist,
+ * be enabled, and have no revocation after the token's `auth_time`, compared
+ * in whole seconds as production stores it.
+ */
+export function assertNotRevokedOrDisabled(decoded: DecodedIdToken, standing: AuthAccountStanding): DecodedIdToken {
+  const hasNoRecord = standing.kind === 'deleted' || standing.kind === 'unrecorded';
+  if (hasNoRecord) throw userNotFound();
+  if (standing.kind === 'disabled') throw new FirebaseAuthError('user-disabled', 'The user record is disabled.');
+  const validAfterMs = standing.tokensValidAfterMs;
+  const revoked = validAfterMs !== null && decoded.auth_time * 1000 < validAfterMs;
+  if (revoked) throw new FirebaseAuthError('id-token-revoked', 'The Firebase ID token has been revoked.');
+  return decoded;
 }

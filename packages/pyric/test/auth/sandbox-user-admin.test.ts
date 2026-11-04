@@ -10,15 +10,20 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { checkIdToken } from 'pyric/sandbox/internal';
+import { authAccountsFor, checkIdToken, getClock } from 'pyric/sandbox/internal';
+import { mintCustomTokenFor, sessionKeyOf } from '../../src/auth/internal.js';
 import {
   createUserWithEmailAndPassword,
   getAuth,
   GoogleAuthProvider,
+  reload,
   sandbox as authSandbox,
   signInAnonymously,
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   signInWithPopup,
+  updateCurrentUser,
+  updatePassword,
   type Auth,
   type User,
 } from '../../src/auth/index.js';
@@ -584,6 +589,250 @@ describe('disabled users (A3)', () => {
     await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
     authSandbox.updateUser(auth, 'u1', { disabled: true });
     expect(auth.currentUser?.uid).toBe('u1');
+  });
+});
+
+// ─── #1950: a refresh for an invalidated account signs the user out ───
+
+describe('a refresh for a disabled or deleted account (#1950)', () => {
+  async function signedIn(): Promise<{ auth: Auth; user: User }> {
+    const auth = freshAuth();
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    return { auth, user };
+  }
+
+  it('a forced refresh of a disabled account rejects auth/user-disabled and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.updateUser(auth, 'u1', { disabled: true });
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-disabled' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('a forced refresh of a deleted account rejects auth/user-token-expired and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.deleteUser(auth, 'u1');
+    await expect(user.getIdTokenResult(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('reload of a disabled account rejects auth/user-disabled and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.updateUser(auth, 'u1', { disabled: true });
+    await expect(reload(user)).rejects.toMatchObject({ code: 'auth/user-disabled' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('reload of a deleted account rejects auth/user-token-expired and signs out', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.deleteUser(auth, 'u1');
+    await expect(reload(user)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('an account created again under a deleted uid refreshes a new sign-in', async () => {
+    const { auth } = await signedIn();
+    authSandbox.deleteUser(auth, 'u1');
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    expect(await user.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('re-creating a deleted uid does not revive the session held across the delete', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    getClock(sandbox).advance(2000);
+    authSandbox.deleteUser(auth, 'u1');
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('clearUsers does not revive a disabled account\'s session', async () => {
+    const { auth, user } = await signedIn();
+    authSandbox.updateUser(auth, 'u1', { disabled: true });
+    authSandbox.clearUsers(auth);
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('a custom-token sign-in that re-creates a deleted uid does not revive the held session', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user: held } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    getClock(sandbox).advance(2000);
+    authSandbox.deleteUser(auth, 'u1');
+    const { user: fresh } = await signInWithCustomToken(auth, mintCustomTokenFor(auth, 'u1'));
+    await expect(held.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    // The refusal belongs to the held session; the new sign-in stays.
+    expect(auth.currentUser?.uid).toBe('u1');
+    expect(await fresh.getIdToken(true)).toBeString();
+  });
+
+  it('resetAll forgets deletions and revocations', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u2', email: 'u2@x.com' });
+    authSandbox.deleteUser(auth, 'u2');
+    expect(authAccountsFor(sandbox)?.standing('u2')).toEqual({ kind: 'deleted' });
+    await sandbox.resetAll();
+    expect(authAccountsFor(sandbox)?.standing('u2')).toEqual({ kind: 'unrecorded' });
+  });
+
+  it('a non-forced read of a deleted account answers the held token', async () => {
+    const { auth, user } = await signedIn();
+    const held = await user.getIdToken();
+    authSandbox.deleteUser(auth, 'u1');
+    expect(await user.getIdToken()).toBe(held);
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('an admin password change refuses the held session refresh and signs out', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    // Production stores the revocation on a whole second, so a session
+    // authenticated in the same second stays valid.
+    getClock(sandbox).advance(2000);
+    authSandbox.updateUser(auth, 'u1', { password: 'new-pw-5678' });
+    await expect(user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('the session that changes its own password keeps refreshing', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    getClock(sandbox).advance(2000);
+    await updatePassword(user, 'new-pw-5678');
+    expect(await user.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('a page reloaded after changing its own password resumes its session and keeps refreshing; another session is refused', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const other = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    await updatePassword(user, 'new-pw-5678');
+    const sessionKey = sessionKeyOf(user);
+    // 16 random bytes, hex-encoded, and distinct per session.
+    expect(sessionKey).toMatch(/^[0-9a-f]{32}$/);
+    expect(sessionKeyOf(other.user)).toMatch(/^[0-9a-f]{32}$/);
+    expect(sessionKeyOf(other.user)).not.toBe(sessionKey);
+
+    // The reload: the page restores the uid with the key it stored.
+    const restored = authSandbox.restoreSession(auth, 'u1', sessionKey);
+    expect(restored).not.toBe(user);
+    expect(sessionKeyOf(restored)).toBe(sessionKey);
+    expect(await restored.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+
+    await expect(other.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+  });
+
+  it('a restore without a matching key does not borrow a later sign-in of the account', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user: a } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const b = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    await updatePassword(a, 'new-pw-5678');
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    getClock(sandbox).advance(2000);
+    const c = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'new-pw-5678' });
+    expect(await c.user.getIdToken(true)).toBeString();
+
+    for (const sessionKey of [undefined, 'bogus']) {
+      const restored = authSandbox.restoreSession(auth, 'u1', sessionKey);
+      await expect(restored.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+      expect(auth.currentUser).toBe(null);
+    }
+  });
+
+  it('updateCurrentUser with a refused session does not borrow a later sign-in of the account', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    const { user: a } = await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const b = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    await updatePassword(a, 'new-pw-5678');
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    getClock(sandbox).advance(2000);
+    const c = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'new-pw-5678' });
+
+    // With A current, then signed out: B stays B's session either way.
+    await updateCurrentUser(auth, b.user);
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    await updateCurrentUser(auth, null);
+    await updateCurrentUser(auth, b.user);
+    await expect(b.user.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(await c.user.getIdToken(true)).toBeString();
+  });
+
+  it('a restore without a key refreshes while nothing revoked the account', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    const restored = authSandbox.restoreSession(auth, 'u1');
+    expect(await restored.getIdToken(true)).toBeString();
+    expect(auth.currentUser?.uid).toBe('u1');
+  });
+
+  it('a restore with the key of another session after a password change stays refused', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    await signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234');
+    const other = authSandbox.mintSession(auth, { kind: 'password', email: 'u1@x.com', password: 'pw1234' });
+    getClock(sandbox).advance(2000);
+    authSandbox.updateUser(auth, 'u1', { password: 'new-pw-5678' });
+
+    const restored = authSandbox.restoreSession(auth, 'u1', sessionKeyOf(other.user));
+    await expect(restored.getIdToken(true)).rejects.toMatchObject({ code: 'auth/user-token-expired' });
+    expect(auth.currentUser).toBe(null);
+  });
+
+  it('pyric/sandbox/internal reports where each account stands', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    authSandbox.createUser(auth, { uid: 'on', email: 'on@x.com' });
+    authSandbox.createUser(auth, { uid: 'off', email: 'off@x.com', disabled: true });
+    authSandbox.createUser(auth, { uid: 'gone', email: 'gone@x.com' });
+    authSandbox.deleteUser(auth, 'gone');
+    const accounts = authAccountsFor(sandbox);
+    expect(accounts?.standing('on')).toEqual({ kind: 'active', tokensValidAfterMs: null });
+    expect(accounts?.standing('off')).toEqual({ kind: 'disabled' });
+    expect(accounts?.standing('gone')).toEqual({ kind: 'deleted' });
+    expect(accounts?.standing('never')).toEqual({ kind: 'unrecorded' });
+    getClock(sandbox).set(Date.parse('2026-11-04T12:00:00.750Z'));
+    accounts?.revokeRefreshTokens('on');
+    expect(accounts?.standing('on')).toEqual({ kind: 'active', tokensValidAfterMs: Date.parse('2026-11-04T12:00:00.000Z') });
+  });
+
+  it('a session restored into a sandbox that never stored its record still refreshes (#1515)', async () => {
+    // #1515: sign in on one sandbox, copy currentUser into a fresh one, refresh.
+    const first = initializeSandbox();
+    const firstAuth = getAuth(first);
+    authSandbox.createUser(firstAuth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    await signInWithEmailAndPassword(firstAuth, 'u1@x.com', 'pw1234');
+    const fresh = initializeSandbox();
+    const freshAuthHandle = getAuth(fresh);
+    fresh.currentUser = first.currentUser;
+    expect(freshAuthHandle.currentUser?.uid).toBe('u1');
+    expect(await freshAuthHandle.currentUser?.getIdToken(true)).toBeString();
+    expect(freshAuthHandle.currentUser?.uid).toBe('u1');
   });
 });
 
