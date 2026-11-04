@@ -1,6 +1,6 @@
 # How to publish Pyric to npm
 
-This guide publishes the five npm packages from a reviewed, merged release
+This guide publishes the six npm packages from a reviewed, merged release
 commit. Use the repository scripts for every version bump, verification, pack,
 and publish operation. Do not edit package versions or run `npm publish`
 directly.
@@ -12,10 +12,13 @@ Run every command from the repository root.
 You need:
 
 - push and pull-request access to `davideast/pyric`;
-- publish access to `pyric`, `pyric-admin`, `create-pyric`, `@pyric/cli`, and
-  `@pyric/ui`;
+- publish access to `pyric`, `pyric-admin`, `create-pyric`, `@pyric/cli`,
+  `@pyric/ui`, and `@pyric/live`;
 - an npm granular access token configured in your user-level `~/.npmrc` with
-  read/write access to those five packages and bypass 2FA enabled;
+  read/write access to those six packages and bypass 2FA enabled. The first
+  release that includes `@pyric/live` creates that package on npm, so a token
+  limited to the five existing packages can't publish it: give it read/write
+  access to the `@pyric` scope, or to all packages, for that release;
 - `bun`, `node`, `npm`, `git`, and an authenticated GitHub CLI (`gh`); and
 - a clean working tree with all release changes already merged to `main`.
 
@@ -49,7 +52,7 @@ RELEASE_VERSION=0.1.0-alpha.11
 ## 1. Prepare the release pull request
 
 Start from a clean checkout. The preparation script fetches `origin/main`,
-creates `release/v<version>` from that exact commit, bumps all five package
+creates `release/v<version>` from that exact commit, bumps all six package
 manifests in lockstep, refreshes `bun.lock`, verifies the resulting versions,
 commits the change, pushes the branch, and opens the release pull request with
 its changelog.
@@ -76,7 +79,7 @@ trying again. Do not bypass the cleanliness check.
 ## 2. Check out the merged release commit
 
 Return to `main`, update it without creating a merge commit, and verify that the
-five publishable package manifests all contain the requested version:
+six publishable package manifests all contain the requested version:
 
 ```bash
 git switch main
@@ -107,10 +110,10 @@ The preflight:
 4. runs the installed-tarball behaviour smoke and the app scenarios on the
    same tarballs, then stamps them in `dist/packages/proven.json`, but only if
    they're still the bytes the pack wrote, on the tree it packed;
-5. copies the five tarballs into a directory of its own and verifies the
+5. copies the six tarballs into a directory of its own and verifies the
    copies against the stamp;
 6. verifies npm authentication with a read-only `npm whoami` request, and runs
-   `npm publish --dry-run` for each of the five copies; and
+   `npm publish --dry-run` for each of the six copies; and
 7. runs the full compatibility check and calculates the `fb<major>.<minor>`
    compatibility tag.
 
@@ -143,7 +146,7 @@ gates tested.
 upload, such as npm authentication. It skips the gates and the pack, and checks
 the stamp first. It goes on only when `proven.json` names the current commit
 and version, the tree was clean then and is clean now (untracked files count),
-and exactly the five uploaded tarballs match their sha256. Otherwise it stops
+and exactly the six uploaded tarballs match their sha256. Otherwise it stops
 in seconds, before uploading anything.
 
 That covers several cases:
@@ -159,23 +162,24 @@ Run the publish again without the variable to prove a fresh pack.
 
 After those gates pass, `publish-alpha.sh`:
 
-- publishes the five tarballs under the `alpha` dist-tag;
-- moves `latest` to the same version for all five packages;
+- publishes the six tarballs under the `alpha` dist-tag;
+- moves `latest` to the same version for all six packages;
 - reruns `compat:check` against the pinned Firebase version;
 - moves the resulting `fb<major>.<minor>` tag for `pyric`, `pyric-admin`,
   `@pyric/cli`, and `@pyric/ui` only when compatibility is green; and
 - prints every package's dist-tags for inspection.
 
-`create-pyric` intentionally receives `alpha` and `latest`, but no Firebase
-compatibility tag.
+`create-pyric` and `@pyric/live` intentionally receive `alpha` and `latest`,
+but no Firebase compatibility tag. `@pyric/live` runs the app's own installed
+`firebase`, and its `firebase` peer range is its compatibility claim.
 
 ## 5. Verify npm and tag the commit
 
 Do not create the Git tag until the publisher has completed successfully and
-all five versions are visible in npm:
+all six versions are visible in npm:
 
 ```bash
-for package_name in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
+for package_name in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
   npm view "${package_name}@${RELEASE_VERSION}" version
   npm dist-tag ls "$package_name"
 done
@@ -210,7 +214,7 @@ entry point exists, and deploys Firebase Hosting only.
 
 Do not immediately rerun the publisher: npm versions are immutable, so an
 already-uploaded package version cannot be published again. First inspect the
-five packages with the read-only verification loop above and record which
+six packages with the read-only verification loop above and record which
 uploads and dist-tags succeeded.
 
 Do not create the Git tag or deploy the site while the package set is partial.

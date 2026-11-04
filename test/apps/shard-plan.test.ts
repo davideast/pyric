@@ -177,7 +177,7 @@ describe('the shard plan', () => {
 });
 
 describe('dependency sets, as the planner sees them before the run', () => {
-  const published = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui', '@pyric/studio', 'create-pyric'];
+  const published = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui', '@pyric/studio', 'create-pyric', '@pyric/live'];
   function app(files: Record<string, string>): string {
     const dir = tempDir();
     for (const [file, text] of Object.entries(files)) writeFileSync(join(dir, file), text);

@@ -8,13 +8,14 @@ describe('app scenario selection', () => {
     }
   });
 
-  test('runs for a pull request touching the Vite plugin, register hook, pyric-admin, AI broker, manifests, packaging, or apps', () => {
+  test('runs for a pull request touching the Vite plugin, register hook, pyric-admin, @pyric/live, AI broker, manifests, packaging, or apps', () => {
     for (const path of [
       'packages/cli/src/serve/vite-plugin.ts',
       'packages/cli/src/register/index.ts',
       'packages/cli/src/remote/index.ts',
       'packages/cli/src/cli/firebase-project.ts',
       'packages/pyric-admin/src/database/index.ts',
+      'packages/live/src/vite.ts',
       'packages/pyric/src/ai/broker/gemini-engine.ts',
       'packages/cli/package.json',
       'scripts/pack-packages.sh',

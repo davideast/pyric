@@ -17,13 +17,13 @@
 # records each tarball's sha256 and the tree it packed in manifest.json. Once
 # every gate passes, the script stamps dist/packages/proven.json, and only if
 # the tarballs are still the pack's bytes on the pack's tree
-# (scripts/lib/proven-stamp.mjs). The upload copies the five tarballs into a
+# (scripts/lib/proven-stamp.mjs). The upload copies the six tarballs into a
 # directory of its own, verifies the copies against the stamp, and publishes
 # the copies.
 #
 # A rerun with PYRIC_PUBLISH_SKIP_GATES=1 (after an authentication failure,
 # say) skips the gates and the pack. It uploads only when the stamp matches
-# HEAD, a clean tree and exactly the five files on disk, and refuses
+# HEAD, a clean tree and exactly the six files on disk, and refuses
 # tarballs from an earlier commit, a pack whose own checks failed, a failed
 # build's leftovers, and the leftovers of a run whose gates failed: every
 # other run removes the stamp before it starts.
@@ -53,6 +53,9 @@
 #    packages/site-docs/src/content/trust/versioning-and-compatibility.md.
 #  - `create-pyric` ships on alpha/latest with the others but does not
 #    receive an `fb*` tag (it is a scaffolder, not a Firebase mirror).
+#  - `@pyric/live` ships on alpha/latest with the others and receives no
+#    `fb*` tag either: it runs the app's own installed `firebase`, and its
+#    peer range (`^12.12.0`) is its compatibility claim.
 set -euo pipefail
 
 # Pin npm commands (publish, dist-tag, child consumer smokes) to public npmjs.org
@@ -75,8 +78,8 @@ node "$ROOT/scripts/lib/check-publish-version.mjs" "$V" "$ROOT"
 
 cd "$ROOT"
 
-# The five tarballs the publish uploads, by npm's flattened name.
-TARBALLS=(pyric pyric-admin create-pyric pyric-cli pyric-ui)
+# The six tarballs the publish uploads, by npm's flattened name.
+TARBALLS=(pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live)
 
 # A run that proves anything starts unproven: if it fails before the stamp,
 # no earlier stamp is left for a gate-skipping rerun to trust.
@@ -174,7 +177,7 @@ fi
 
 # Only a latest release moves latest and alpha. `next` and any other channel
 # (for example `exp`) move only their own tag.
-for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
+for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
   npm dist-tag add "${p}@${V}" "${PUBLISH_TAG}"
   if [ "${PUBLISH_TAG}" = "latest" ]; then
     npm dist-tag add "${p}@${V}" alpha
@@ -183,7 +186,7 @@ done
 
 # An experimental channel carries no compatibility certificate.
 if [ "${PUBLISH_TAG}" != "latest" ] && [ "${PUBLISH_TAG}" != "next" ]; then
-  for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
+  for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
     echo "== ${p}"; npm dist-tag ls "${p}"
   done
   echo ""
@@ -209,7 +212,7 @@ else
   exit 1
 fi
 
-for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
+for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
   echo "== ${p}"; npm dist-tag ls "${p}"
 done
 

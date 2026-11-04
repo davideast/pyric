@@ -91,7 +91,7 @@ describe('alpha publish safety contract', () => {
     const { result, commands } = runPublish();
     expect(result.status).toBe(0);
     const uploads = commands.filter((command) => command.startsWith('npm publish ')).map((command) => command.split(' ')[2] ?? '');
-    const names = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `${name}-0.1.0-alpha.9.tgz`);
+    const names = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map((name) => `${name}-0.1.0-alpha.9.tgz`);
     expect(uploads.map((upload) => upload.split('/').pop())).toEqual(names);
     const uploadDir = uploads[0]?.slice(0, uploads[0].lastIndexOf('/')) ?? '';
     expect(uploadDir).not.toBe(join(root, 'dist/packages'));
@@ -136,7 +136,7 @@ describe('alpha publish safety contract', () => {
     expect(commands).not.toContain(PACKAGING_GATE);
     expect(commands).not.toContain('bun test/apps/run.ts --packages dist/packages');
     expect(commands.some((command) => command.startsWith(PACK))).toBe(false);
-    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
+    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(6);
   });
 
   test('the packaging gate given --packages neither builds nor packs', () => {
@@ -173,7 +173,7 @@ describe('alpha publish safety contract', () => {
     const { result, commands } = runPublish({ dryRun: true });
     expect(result.status).toBe(0);
     expect(commands).toContain('npm whoami --registry=https://registry.npmjs.org/');
-    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
+    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(6);
     expect(
       commands
         .filter((command) => command.startsWith('npm publish '))
@@ -198,6 +198,26 @@ describe('alpha publish safety contract', () => {
     const script = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
     expect(script).toContain('gh pr create');
     expect(script).toContain('--label ci-packaging');
+  });
+
+  test('the upload list, the lockstep version check and the release bump name the same six packages', () => {
+    const tarballOf = (name: string) => name.replace(/^@/, '').replaceAll('/', '-');
+    const publish = readFileSync(join(root, 'scripts/publish-alpha.sh'), 'utf8');
+    const uploaded = /^TARBALLS=\(([^)]*)\)$/m.exec(publish)?.[1]?.split(' ') ?? [];
+    const prepare = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
+    const bumpedDirs = /^for dir in ([^;]*); do$/m.exec(prepare)?.[1]?.split(' ') ?? [];
+    const bumped = bumpedDirs.map((dir) => (JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf8')) as { name: string }).name);
+    const checker = readFileSync(join(root, 'scripts/lib/check-publish-version.mjs'), 'utf8');
+    const checkedDirs = [...checker.matchAll(/^ {2}'(packages\/[^']+)',$/gm)].map((match) => match[1] ?? '');
+    const checked = checkedDirs.map((dir) => (JSON.parse(readFileSync(join(root, dir, 'package.json'), 'utf8')) as { name: string }).name);
+    expect(uploaded).toContain('pyric-live');
+    expect(uploaded).toHaveLength(6);
+    expect(bumped.map(tarballOf).sort()).toEqual([...uploaded].sort());
+    expect(checked.map(tarballOf).sort()).toEqual([...uploaded].sort());
+    for (const dir of bumpedDirs) {
+      const manifest = JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf8')) as { private?: boolean };
+      expect(manifest.private).toBeUndefined();
+    }
   });
 
   test('supports publishing under the next tag without moving latest or alpha (#689)', () => {
@@ -229,6 +249,17 @@ describe('alpha publish safety contract', () => {
     expect(distTagAdds.some((c) => c.endsWith(' fb12.13'))).toBe(true);
   });
 
+  test('@pyric/live moves latest and alpha with the others, and takes no fb certificate', () => {
+    const { result, commands } = runPublish({ skip: true });
+    expect(result.status).toBe(0);
+    const liveTags = commands.filter((c) => c.startsWith('npm dist-tag add @pyric/live@0.1.0-alpha.9 '));
+    expect(liveTags).toEqual([
+      'npm dist-tag add @pyric/live@0.1.0-alpha.9 latest',
+      'npm dist-tag add @pyric/live@0.1.0-alpha.9 alpha',
+    ]);
+    expect(commands).toContain('npm dist-tag ls @pyric/live');
+  });
+
   test('pins NPM_CONFIG_REGISTRY to registry.npmjs.org even when ambient env points elsewhere', () => {
     const { result, registries } = runPublish({ skip: true, publishTag: 'exp' });
     expect(result.status).toBe(0);
@@ -241,7 +272,7 @@ describe('alpha publish safety contract', () => {
   });
 });
 
-const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui';
+const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live';
 const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
 const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
 
@@ -337,7 +368,7 @@ describe('a pack that fails leaves no tarball behind', () => {
  * publish-alpha.sh with the real node (check-publish-version and
  * proven-stamp), in a scratch git repo holding copies of the scripts, with
  * npm, bun and bash stubbed. The bash stub packs the way pack-packages.sh
- * does: five tarballs, a manifest, and a real `proven-stamp.mjs record`.
+ * does: six tarballs, a manifest, and a real `proven-stamp.mjs record`.
  */
 function realStampRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), 'pyric-publish-real-stamp-'));
@@ -352,7 +383,7 @@ function realStampRepo(): string {
     mkdirSync(dirname(join(repo, path)), { recursive: true });
     writeFileSync(join(repo, path), readFileSync(join(root, path)));
   }
-  for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui']]) {
+  for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui'], ['live', '@pyric/live']]) {
     mkdirSync(join(repo, 'packages', dir ?? ''), { recursive: true });
     writeFileSync(join(repo, 'packages', dir ?? '', 'package.json'), JSON.stringify({ name, version: '0.1.0-alpha.9' }));
   }
@@ -380,7 +411,7 @@ if [ "\${TESTS_FAIL:-}" = 1 ] && [ "$*" = "run test" ]; then exit 1; fi`,
     bash: `echo "bash $*" >> "${log}"
 if [ "$1" = scripts/pack-packages.sh ]; then
   mkdir -p "${packages}"; rm -f "${packages}"/*.tgz "${packages}"/*.json
-  for n in pyric pyric-admin create-pyric pyric-cli pyric-ui; do echo "packed $n" > "${packages}/$n-0.1.0-alpha.9.tgz"; done
+  for n in pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live; do echo "packed $n" > "${packages}/$n-0.1.0-alpha.9.tgz"; done
   echo '{"packages":[]}' > "${packages}/manifest.json"
   ${realNode} "${repo}/scripts/lib/proven-stamp.mjs" record "${packages}" "${repo}" "$(git -C "${repo}" rev-parse HEAD)" true
 fi`,
@@ -399,10 +430,10 @@ fi`,
   return { result, uploads };
 }
 
-const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui'].map((name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`);
+const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map((name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`);
 
 describe('the stamp, with the real node, inside publish-alpha.sh', () => {
-  test('a run whose gates pass uploads the five packed tarballs', () => {
+  test('a run whose gates pass uploads the six packed tarballs', () => {
     const { result, uploads } = publishForReal(realStampRepo());
     expect(result.status).toBe(0);
     expect(uploads).toEqual(PACKED_UPLOADS);

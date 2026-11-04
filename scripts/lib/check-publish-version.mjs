@@ -10,6 +10,7 @@ const PUBLISHABLE_PACKAGE_DIRS = [
   'packages/create-pyric',
   'packages/cli',
   'packages/ui',
+  'packages/live',
 ];
 
 export function validatePublishVersions(expectedVersion, packages) {
@@ -46,7 +47,7 @@ function main() {
     console.error(`✗ Refusing to publish ${expectedVersion}: package versions are not in lockstep:`);
     for (const mismatch of mismatches) console.error(`  - ${mismatch}`);
     console.error('');
-    console.error('Bump all five package.json versions and refresh bun.lock before publishing.');
+    console.error('Bump every published package.json version and refresh bun.lock before publishing.');
     process.exit(1);
   }
 }
