@@ -248,8 +248,7 @@ interface TemplateRun {
   app: AppRun;
   project: string;
   chipStates: string[];
-  /** Page templates only. */
-  chip?: DevSetup['chip'];
+  chip: DevSetup['chip'];
   devCommand?: DevCommandRun;
   installOutput?: string;
   /** The browser context, once the flow opened one. */
@@ -382,7 +381,8 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
   mkdirSync(home, { recursive: true });
   const app = new RecordedAppRun(name, options.workDir, home, () => Promise.resolve(browser), options.stepsFile);
   const flow = FLOWS[name];
-  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.dev.chip : undefined };
+  // A script template has no page, so no chip is expected.
+  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.dev.chip : 'not expected' };
   let failedStep: TemplateEvidence['failedStep'];
   try {
     await runTemplate(run, options);

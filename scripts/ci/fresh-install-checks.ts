@@ -56,7 +56,7 @@ export interface TemplateEvidence {
   serverOutput: string;
   /** The runtime chip after each load: `Ready`, `absent`, or what it showed instead. */
   chipStates: readonly string[];
-  /** Whether the template's plane mounts the chip (page templates only; see DEV_SETUPS). */
+  /** Whether the template's pages mount the chip (DEV_SETUPS); `not expected` for a template with no page. */
   chip?: ChipExpectation;
   /** The dev command the driver ran (page templates only). */
   devCommand?: DevCommandRun;
@@ -162,9 +162,9 @@ export const DEV_SETUPS = {
   web: { url: 'http://localhost:5173', chip: 'expected' },
   // `pyric sandbox --seed seed.json` on its default port; the served HTML gets the init entry, which mounts the chip.
   static: { url: 'http://localhost:3473', chip: 'expected' },
-  // `pyric sandbox -- next dev`: the page is Next's. No code under `@pyric/cli/next` mounts the chip.
+  // `pyric sandbox -- next dev`: the page is Next's, and `withPyric`'s runtime mounts the chip (`runtimeChip`, on by default).
   // The firewall rejects anything but loopback, so telemetry is turned off the way a careful user does.
-  nextjs: { url: 'http://localhost:3000', env: { NEXT_TELEMETRY_DISABLED: '1' }, chip: 'not expected' },
+  nextjs: { url: 'http://localhost:3000', env: { NEXT_TELEMETRY_DISABLED: '1' }, chip: 'expected' },
   chat: { url: 'http://localhost:5173', chip: 'expected' },
 } as const satisfies Record<string, DevSetup>;
 
@@ -207,10 +207,11 @@ function devCommandNote(run: DevCommandRun | undefined): string[] {
   ];
 }
 
+/** A template with no page (node) reads no chip, so it shows as absent. */
 function chipNote(evidence: TemplateEvidence): string[] {
   if (evidence.chip === undefined) return [];
   const seen = evidence.chipStates.map((state) => (state === 'absent' ? 'chip absent' : state));
-  return [`runtime chip ${evidence.chip}: ${[...new Set(seen)].join(', ') || 'not read'}`];
+  return [`runtime chip ${evidence.chip}: ${[...new Set(seen)].join(', ') || 'chip absent'}`];
 }
 
 /**

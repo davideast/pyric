@@ -6,9 +6,10 @@
 # flow in Chromium: sign in, one write, one read, a reload. It fails on a
 # create, install or start error, an uncaught page error, an unhandled
 # rejection, a worker error or crashed page, a runtime chip that is not
-# Ready, a chip absent from a template that mounts it (web, static, chat; the
-# nextjs plane mounts none), an error stack in the dev server's output, or
-# any request that is not to registry.npmjs.org:443.
+# Ready, a chip absent from a template whose pages mount it (every page
+# template: web, static, chat, nextjs; node has no page), an error stack in
+# the dev server's output, or any request that is not to
+# registry.npmjs.org:443.
 #
 # The install runs with npm's audit and funding notices on, as a new user's
 # does; findings.txt has each template's audit summary line.

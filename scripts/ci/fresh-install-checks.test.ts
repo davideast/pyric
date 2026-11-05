@@ -96,7 +96,7 @@ describe('crashFindings', () => {
   test('a runtime chip that is not Ready is a finding; a page without a chip is not where none is expected', () => {
     const findings = failing(run([
       template({ chipStates: ['Ready', 'error: A request failed in the last minute'] }),
-      template({ template: 'nextjs', chip: 'not expected', chipStates: ['absent'] }),
+      template({ template: 'node', chip: 'not expected', chipStates: ['absent'] }),
     ]));
     expect(findings).toEqual(['web: runtime chip is not Ready: error: A request failed in the last minute']);
   });
@@ -494,18 +494,22 @@ describe('runtime chip expectations', () => {
     expect(Object.fromEntries(Object.entries(DEV_SETUPS).map(([name, setup]) => [name, setup.chip]))).toEqual({
       web: 'expected',
       static: 'expected',
-      nextjs: 'not expected',
+      nextjs: 'expected',
       chat: 'expected',
     });
   });
 
   test('findings.txt says "chip absent" where the chip is not expected, and what showed where it is', () => {
     const notes = runNotes(run([
-      template({ template: 'nextjs', chip: 'not expected', chipStates: ['absent', 'absent'] }),
+      template({ template: 'other', chip: 'not expected', chipStates: ['absent', 'absent'] }),
       template({ template: 'static', chip: 'expected', chipStates: ['Ready', 'Ready'] }),
-      template({ template: 'node', chipStates: [] }),
+      template({ template: 'node', chip: 'not expected', chipStates: [] }),
     ]));
-    expect(notes).toEqual(['nextjs: runtime chip not expected: chip absent', 'static: runtime chip expected: Ready']);
+    expect(notes).toEqual([
+      'other: runtime chip not expected: chip absent',
+      'static: runtime chip expected: Ready',
+      'node: runtime chip not expected: chip absent',
+    ]);
   });
 });
 
