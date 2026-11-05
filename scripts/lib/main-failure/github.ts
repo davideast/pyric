@@ -13,7 +13,7 @@ import { FAILED, MAX_FLAKE_ISSUES, decide, type AttemptReport, type IssueAction,
 import { FLAKE_PREFIX, RED_PREFIX, UNCONFIRMED_PREFIX, describePlan, testFilePath } from './issue-text.ts';
 import { checkoutResolver, namedFailedJobs, parseFailures, type Failure, type FileResolver } from './parse-log.ts';
 
-const ISSUE_LABEL = 'lane:velocity';
+const ISSUE_LABEL = 'flake';
 /** The only workflow this lane reruns. */
 const BUILD_WORKFLOW_PATH = '.github/workflows/build.yml';
 /** How long the rerun job waits for attempt 2. The job's timeout is longer. */

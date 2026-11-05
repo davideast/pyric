@@ -10,7 +10,7 @@
 #     newer push run is pending. Otherwise the failures go to the one
 #     "Unconfirmed failures on main: " issue;
 #   - attempt 2 passed: each test that failed in attempt 1 (or its job, when
-#     the log names no test) is a flake, filed as one lane:velocity issue
+#     the log names no test) is a flake, filed as one flake issue
 #     titled "Flaky on main: `<test>`", or commented on an open issue that
 #     already names the test file's repository path (so a second flaky test
 #     in the same file comments on that file's flake issue);

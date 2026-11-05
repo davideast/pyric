@@ -104,7 +104,7 @@ CI runs these same gates in `.github/workflows/build.yml`, plus
 job summary. When a push run on main fails, `.github/workflows/main-failure.yml`
 reruns its failed jobs once, if the commit is still the head of main and no
 newer push run is pending; it checks again right before the rerun. If the
-rerun passes, it opens one `lane:velocity` issue per flaky test, titled like
+rerun passes, it opens one `flake` issue per flaky test, titled like
 "Flaky on main: `<test>`", or comments on an open issue that already names the
 test file's repository path, such as `packages/cli/test/auth.test.ts`. So a
 second flaky test in a file that already has a flake issue is commented on that
@@ -1106,7 +1106,7 @@ Not run: 4." and lists every leg, the unattended one included. Read the headline
 before trusting a green run.
 
 On a scheduled run the report job also files the result. It opens one
-`lane:reliability` issue titled with the counts of legs that need a person and
+`divergence` issue titled with the counts of legs that need a person and
 legs that are disabled, comments the table on it each week, and closes it once
 every leg has checked production with no drift. A disabled leg keeps the issue
 open, because it checks nothing. A manual dispatch files nothing unless you
@@ -1292,7 +1292,7 @@ plus `bun run compat:check` (`scripts/ci/sdk-drift.ts`). It has two tiers. The
 `in-range` tier tests the newest release pyric's declared range allows, and a
 failure turns the run red, because users inside that range are affected. The
 `latest` tier tests npm's `latest` tag, which may be a newer major; a failure
-opens or updates one `lane:reliability` issue per package and major, titled
+opens or updates one `bug` issue per package and major, titled
 like "pyric fails against firebase 13.1.0", and the run stays green. Step 1
 above always fails on a new version, so the job reports it as observations to
 re-capture, not as a failure. The job summary lists the resolved versions and

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  ISSUE_LABEL,
   blamedPackages,
   declaredRanges,
   failingTests,
@@ -126,6 +127,10 @@ describe('issue titles', () => {
     expect(issueTitle('firebase', '13.4.2').startsWith(issueTitlePrefix('firebase', '13.1.0'))).toBe(true);
     expect(issueTitle('firebase', '14.0.0').startsWith(issueTitlePrefix('firebase', '13.1.0'))).toBe(false);
     expect(issueTitle('firebase-admin', '13.1.0').startsWith(issueTitlePrefix('firebase', '13.1.0'))).toBe(false);
+  });
+
+  test('drift issues are filed under the bug label', () => {
+    expect(ISSUE_LABEL).toBe('bug');
   });
 });
 
