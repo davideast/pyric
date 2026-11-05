@@ -5,9 +5,10 @@
  * `npm install` from the npm registry, runs plain `npm run dev` on the
  * template's default host and port, opens the page in Chromium and drives the
  * template's main flow: sign in, one write, one read, a reload.
+ * After the install it runs `npm audit --json` in the app.
  * `crashFindings` (fresh-install-checks.ts) decides what fails the run, and
- * `runNotes` adds npm's audit summary, the dev command and the chip to
- * findings.txt.
+ * `runNotes` adds npm's audit summary, each high or critical advisory, the dev
+ * command and the chip to findings.txt.
  *
  *   bun scripts/ci/fresh-install.ts run [--tag exp] [--templates web,chat] [--out <dir>]
  *                                       [--proxy http://127.0.0.1:<port> --egress-log <file>]
@@ -47,6 +48,7 @@ import {
   startEgressProxy,
   UNHANDLED_REJECTION_MARK,
   WORKER_ERROR_MARK,
+  type AuditRun,
   type DevCommandRun,
   type DevSetup,
   type EgressEntry,
@@ -251,6 +253,7 @@ interface TemplateRun {
   chip: DevSetup['chip'];
   devCommand?: DevCommandRun;
   installOutput?: string;
+  audit?: AuditRun;
   /** The browser context, once the flow opened one. */
   context?: BrowserContext;
 }
@@ -356,10 +359,26 @@ async function runScriptFlow(run: TemplateRun): Promise<void> {
   }
 }
 
+/**
+ * `npm audit --json` in the installed app, for the advisory lines in
+ * findings.txt. npm exits 1 when it finds an advisory, and a failed or timed
+ * out audit is recorded, never thrown: the audit does not fail the run.
+ */
+async function auditApp(run: TemplateRun, env: Record<string, string>): Promise<AuditRun> {
+  return run.app.step('npm audit --json', async () => {
+    try {
+      return await run.app.command('npm', ['audit', '--json'], { env, cwd: run.project, timeoutMs: 300_000 });
+    } catch (error) {
+      return { code: null, output: '', error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+}
+
 async function runTemplate(run: TemplateRun, options: RunOptions): Promise<void> {
   const proxied = { env: installEnvironment(options.proxyUrl) };
   await expectExit(run.app, `npx create-pyric@${options.tag} --template ${run.name}`, 'npx', ['--yes', `create-pyric@${options.tag}`, run.project, '--template', run.name], { ...proxied, timeoutMs: 300_000 });
   run.installOutput = await expectExit(run.app, 'npm install', 'npm', ['install'], { ...proxied, cwd: run.project, timeoutMs: 600_000 });
+  run.audit = await auditApp(run, proxied.env);
   const flow = FLOWS[run.name];
   if (flow.kind === 'page') await runPageFlow(run, flow);
   else await runScriptFlow(run);
@@ -403,6 +422,7 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
     chip: run.chip,
     devCommand: run.devCommand,
     installOutput: run.installOutput,
+    audit: run.audit,
     hostErrors: app.unexpectedHostErrors(),
   };
 }

@@ -16,9 +16,15 @@ export type JsonObject = { [key: string]: Json };
  * from its `uid`, `email` and `provider` fields; in an Auth request it matches
  * a token this server minted for its `uid`. `host`, `session` and
  * `serverTime` fill an RTDB handshake: the host the client connected to, a
- * fresh session id, and the server's clock in milliseconds.
+ * fresh session id, and the server's clock in milliseconds. `pushId` stands
+ * for a push key the client picks: `{ "$": "pushId", "name": "<name>",
+ * "parent": "<path>" }` matches the path `<parent>/<key>` in an RTDB request
+ * and keeps the client's key under its name; in an answer it is filled with
+ * that path, or with the key alone when it has no `parent`. In an answer an
+ * object key `$pushId:<name>` is filled with the key too; an RTDB key cannot
+ * hold `$`, so it never names a real child.
  */
-export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime'] as const;
+export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime', 'pushId'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 
 /** A batch of Listen responses for one target. `after` names the write exchange whose answer releases it. */
@@ -61,7 +67,11 @@ export interface AuthExchange {
  * `request` is the message's `a` and `b`, without its request number `r`; an
  * exchange with no request is the handshake a connection to `instance` gets
  * when it opens. `events` are whole frames sent before `reply`, which is the
- * `b` of the response to the request.
+ * `b` of the response to the request. `later` holds the frames a listen
+ * (`q`) gets after its reply: each batch goes out on the listening
+ * connection when the exchange its `after` names is answered, on any
+ * connection. An onDisconnect write (`o`, `om`) counts as answered when its
+ * connection closes, as production runs it then.
  */
 export interface RtdbExchange {
   kind: 'rtdb';
@@ -73,6 +83,13 @@ export interface RtdbExchange {
   request?: { a: string; b: Json };
   events?: JsonObject[];
   reply?: { s: string; d: Json };
+  later?: RtdbBatch[];
+}
+
+/** Frames a listening connection gets once the exchange `after` names is answered. */
+export interface RtdbBatch {
+  after: string;
+  events: JsonObject[];
 }
 
 export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange;
@@ -139,17 +156,23 @@ export function assertShapesOnly(recording: Recording): void {
   }
   walk(recording.exchanges as unknown as Json, `exchanges`, (path, key, value) => checkValue(recording.project, path, key, value));
   recording.exchanges.forEach((exchange, index) => {
-    if (exchange.kind === 'rtdb') checkRtdb(recording.project, `exchanges[${index}]`, exchange);
+    if (exchange.kind === 'rtdb') checkRtdb(recording.project, `exchanges[${index}]`, exchange, ids);
   });
 }
 
 /** The placeholder each handshake field must be: production's values name its own hosts and sessions. */
 const HANDSHAKE_PLACEHOLDERS: Record<string, PlaceholderName> = { h: 'host', s: 'session', ts: 'serverTime' };
 
-/** Throws unless an RTDB exchange's instance is the project's, and its handshakes hold placeholders only. */
-function checkRtdb(project: string, path: string, exchange: RtdbExchange): void {
+/**
+ * Throws unless an RTDB exchange's instance is the project's, its handshakes
+ * hold placeholders only, and every `after` names an exchange in the recording.
+ */
+function checkRtdb(project: string, path: string, exchange: RtdbExchange, ids: Set<string>): void {
   const isProjectInstance = /^[a-z0-9-]+$/.test(exchange.instance) && exchange.instance.startsWith(`${project}-`);
   if (!isProjectInstance) throw new Error(`replay: ${path}.instance names ${exchange.instance}, outside project ${project}`);
+  (exchange.later ?? []).forEach((batch, index) => {
+    if (!ids.has(batch.after)) throw new Error(`replay: ${path}.later[${index}].after names ${batch.after}, which no exchange is`);
+  });
   (exchange.events ?? []).forEach((event, index) => {
     const control = event.t === 'c' ? (event.d as JsonObject | undefined) : undefined;
     if (control?.t !== 'h') return;
