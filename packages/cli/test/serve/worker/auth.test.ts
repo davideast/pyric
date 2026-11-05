@@ -26,7 +26,7 @@ import {
   type PortLike,
 } from '../../../src/serve/worker/host.js';
 import { reconcilePortSessions } from '../../../src/serve/worker/host-auth.js';
-import { getClock } from 'pyric/sandbox/internal';
+import { authAccountsFor, getClock } from 'pyric/sandbox/internal';
 import type {
   InboundMessage,
   OutboundMessage,
@@ -561,6 +561,47 @@ describe('worker auth — a refused refresh signs the port out (#1950)', () => {
     expect((await currentUser(ctx, port))?.email).toBe('checkpoint@example.com');
     const answer = await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
     expect(answer.ok).toBe(true);
+  });
+
+  it('a port revoked by a password change before a checkpoint stays refused after the worker restores it (#2021)', async () => {
+    const { ctx, port, uid } = await signedInPort('checkpoint-revoked@example.com');
+    getClock(ctx.sandbox).advance(2000);
+    authSandboxOps.updateUser(getAuth(ctx.sandbox), uid, { password: 'changed-password' });
+    okValue(await sendOp(ctx, port, { t: 'op', id: id(), method: 'checkpoint', name: 'after-revoke' }));
+
+    const revoked = authAccountsFor(ctx.sandbox)?.standing(uid);
+    okValue(await sendOp(ctx, port, { t: 'op', id: id(), method: 'restore', name: 'after-revoke' }));
+
+    // The restore's reconcile is a refresh-token exchange: the refused port signs out.
+    expect(authAccountsFor(ctx.sandbox)?.standing(uid)).toEqual(revoked!);
+    expect(await currentUser(ctx, port)).toBeNull();
+    expect(lastAuthState(port)).toBeNull();
+  });
+
+  it('an account deleted before a checkpoint stays deleted after the worker restores it (#2021)', async () => {
+    const { ctx, port, uid } = await signedInPort('checkpoint-deleted@example.com');
+    authSandboxOps.deleteUser(getAuth(ctx.sandbox), uid);
+    okValue(await sendOp(ctx, fakePort(), { t: 'op', id: id(), method: 'checkpoint', name: 'after-delete' }));
+
+    okValue(await sendOp(ctx, fakePort(), { t: 'op', id: id(), method: 'restore', name: 'after-delete' }));
+
+    expect(authAccountsFor(ctx.sandbox)?.standing(uid)).toEqual({ kind: 'deleted' });
+    expect(await currentUser(ctx, port)).toBeNull();
+  });
+
+  it('a port reloaded after the restore of a checkpoint taken after a revocation stays refused (#2021)', async () => {
+    const { ctx, port, uid } = await signedInPort('checkpoint-reload@example.com');
+    const sessionKey = (await currentUser(ctx, port))?.sessionKey;
+    getClock(ctx.sandbox).advance(2000);
+    authSandboxOps.updateUser(getAuth(ctx.sandbox), uid, { password: 'changed-password' });
+    okValue(await sendOp(ctx, port, { t: 'op', id: id(), method: 'checkpoint', name: 'before-reload' }));
+    okValue(await sendOp(ctx, port, { t: 'op', id: id(), method: 'restore', name: 'before-reload' }));
+
+    const reloaded = fakePort();
+    okValue(await sendOp(ctx, reloaded, { t: 'op', id: id(), method: 'auth.restorePortSession', uid, sessionKey }));
+    const refused = await sendOp(ctx, reloaded, { t: 'op', id: id(), method: 'auth.getIdToken', forceRefresh: true });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe('auth/user-token-expired');
   });
 
   it('a rules or state reconcile signs out a port whose refresh is refused', async () => {

@@ -9,6 +9,7 @@
  *   the Realtime Database tree, with its priorities
  *   Storage objects, with their bytes and complete stored metadata
  *   auth accounts, with the fields the auth sandbox exports, plus provider config
+ *     and each account's revocation time and the deleted uids
  *   the three rule sources: Firestore, Realtime Database, and Storage
  *
  * {@link captureFullState} is a pure read: it reaches each service's backend
@@ -51,6 +52,7 @@ import {
 } from '../storage/internal.js';
 import { getInternalEnv } from './internal/sandbox-impl.js';
 import { authAccountsFor } from 'pyric/sandbox/internal';
+import type { AuthAccountHistory } from './internal/auth-accounts.js';
 import { assertInlineStorageFits, base64DecodedLength, type InlineStorageDocument } from './internal/inline-storage-limit.js';
 import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
@@ -115,6 +117,15 @@ export interface AuthAccountsState {
   users: SeedUser[];
   /** Which sign-in providers are enabled, by provider id. */
   providers: Record<string, boolean>;
+  /**
+   * Each account's refresh-token revocation time and the uids whose record
+   * was deleted. Production keeps both on the account, so restoring the
+   * state does not bring a revoked or deleted session back (#2021).
+   *
+   * Optional: a state written before it restores with every revocation and
+   * deletion forgotten, as it always did.
+   */
+  history?: AuthAccountHistory;
 }
 
 /** The three rule sources a sandbox evaluates against. */
@@ -276,6 +287,14 @@ async function captureStorageReferences(storage: FirebaseStorage): Promise<Stora
   });
 }
 
+/** The auth account store: accounts, provider config, and the revocations and deletions over them. */
+function captureAuth(sandbox: LocalSandbox, auth: Auth): AuthAccountsState {
+  const users = authSandbox.exportUsers(auth);
+  const providers = authSandbox.exportProviderConfig(auth);
+  const history = authAccountsFor(sandbox)?.history();
+  return history === undefined ? { users, providers } : { users, providers, history };
+}
+
 /**
  * Read one sandbox's entire state.
  *
@@ -299,10 +318,7 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
     firestoreEncoding: DOC_VALUE_ENCODING,
     database: databaseStateWithoutRules(database),
     storage: await captureStorage(storage, options.storage ?? 'inline'),
-    auth: {
-      users: authSandbox.exportUsers(auth),
-      providers: authSandbox.exportProviderConfig(auth),
-    },
+    auth: captureAuth(sandbox, auth),
     rules: structuredClone(rules),
     clock: getClock(sandbox).capture(),
   };
@@ -375,15 +391,20 @@ function applyDatabase(sandbox: LocalSandbox, state: FullSandboxState): void {
 
 /**
  * Replace the target's auth account store with exactly the accounts the state
- * holds. Clearing records a deletion for each account; a checkpoint restore is
- * not a deletion, so the history is forgotten and held sessions keep refreshing.
+ * holds. Clearing records a deletion for each account, and a restore is not a
+ * deletion, so that history is replaced by the state's own: its revocations
+ * and deletions are replayed, and a held session they refuse stays refused
+ * (#2021). A state without history forgets it, as before.
  */
 function applyAuth(sandbox: LocalSandbox, accounts: AuthAccountsState): void {
   const auth = authFor(sandbox);
   authSandbox.clearUsers(auth);
-  authAccountsFor(sandbox)?.forgetHistory();
+  const table = authAccountsFor(sandbox);
+  table?.forgetHistory();
   if (accounts.users.length > 0) authSandbox.seedUsers(auth, structuredClone(accounts.users));
   authSandbox.restoreProviderConfig(auth, { ...accounts.providers });
+  const carriesHistory = accounts.history !== undefined;
+  if (carriesHistory) table?.replayHistory(structuredClone(accounts.history!));
 }
 
 /** Replace the target's bucket with exactly the objects the state holds. */

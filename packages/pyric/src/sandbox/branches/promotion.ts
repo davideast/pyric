@@ -30,11 +30,15 @@ import {
   type SandboxService,
   type StorageObjectState,
 } from '../full-state.js';
+import { authAccountsFor } from 'pyric/sandbox/internal';
+import type { AuthAccountHistory } from '../internal/auth-accounts.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
 import { decodeStateDocument } from '../internal/state-values.js';
 import type { LocalSandbox } from '../types/service.js';
 import {
+  AUTH_DELETIONS_PATH,
   AUTH_PROVIDER_CONFIG_PATH,
+  AUTH_REVOCATIONS_PATH,
   DATABASE_PRIORITY_FIELD,
   diffFullStates,
   type BranchDivergence,
@@ -160,6 +164,8 @@ function promoteAuth(
       providersDiverged = true;
       continue;
     }
+    const isHistory = path === AUTH_REVOCATIONS_PATH || path === AUTH_DELETIONS_PATH;
+    if (isHistory) continue;
     const account = accounts.get(path);
     if (account === undefined) {
       authSandbox.deleteUser(auth, path);
@@ -169,6 +175,39 @@ function promoteAuth(
   }
   if (changed.length > 0) authSandbox.seedUsers(auth, structuredClone(changed));
   if (providersDiverged) authSandbox.restoreProviderConfig(auth, { ...next.auth.providers });
+  promoteAuthHistory(target, next, divergences);
+}
+
+/**
+ * Land the revocations and deletions the branch changed, after its accounts:
+ * deleting an account on the target records a deletion at the target's now,
+ * and the branch's own record of it is the one that lands (#2021).
+ */
+function promoteAuthHistory(
+  target: LocalSandbox,
+  next: FullSandboxState,
+  divergences: readonly BranchDivergence[],
+): void {
+  const changes = divergences.filter((divergence) =>
+    divergence.path === AUTH_REVOCATIONS_PATH || divergence.path === AUTH_DELETIONS_PATH);
+  const table = authAccountsFor(target);
+  if (changes.length === 0 || table === undefined) return;
+  const landed: AuthAccountHistory = table.history();
+  const deleted = new Set(landed.deletedUids);
+  const nextTimes = next.auth.history?.tokensValidAfterMs ?? {};
+  const nextDeleted = new Set(next.auth.history?.deletedUids ?? []);
+  for (const { path, field: uid } of changes) {
+    if (uid === undefined) continue;
+    if (path === AUTH_DELETIONS_PATH) {
+      if (nextDeleted.has(uid)) deleted.add(uid);
+      else deleted.delete(uid);
+      continue;
+    }
+    const validAfterMs = nextTimes[uid];
+    if (validAfterMs === undefined) delete landed.tokensValidAfterMs[uid];
+    else landed.tokensValidAfterMs[uid] = validAfterMs;
+  }
+  table.replayHistory({ tokensValidAfterMs: landed.tokensValidAfterMs, deletedUids: [...deleted].sort() });
 }
 
 /**

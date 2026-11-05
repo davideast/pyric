@@ -251,7 +251,7 @@ export class SandboxBackend {
   private readonly authenticatedAtByUid = new Map<string, number>();
 
   /** Each session's last authentication, read by the refresh check. */
-  private readonly sessions = new SessionLedger(this.authenticatedAtByUid);
+  private readonly sessions: SessionLedger;
 
   /** The `User` {@link restoreSession} resumes a held session for: its
    *  {@link setCurrentUser} is not an authentication. */
@@ -372,6 +372,7 @@ export class SandboxBackend {
     this.providerConfigSubs = projectStore.providerConfigSubscribers;
     this.sharedCounters = projectStore.counters;
     this.projectStore = projectStore;
+    this.sessions = new SessionLedger(this.authenticatedAtByUid, projectStore.sessionRecords);
     // Initialize cachedUser from the injected session host.
     this.cachedUser = this.buildUserFromState(session.currentUser);
     this.lastNotifiedUid = this.cachedUser?.uid ?? null;
@@ -2524,6 +2525,9 @@ export class SandboxBackend {
     const now = this.now().getTime();
     this.authenticatedAtByUid.set(uid, now);
     if (session !== undefined) this.sessions.authenticate(session, now);
+    // A session's sign-in time is saved state: persistence saves it, so a
+    // reload after a reauthentication keeps the session refreshing (#2018).
+    if (session !== undefined) this.notifyUsersChanged();
   }
 
   /**

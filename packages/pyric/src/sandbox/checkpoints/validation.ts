@@ -53,7 +53,15 @@ const stateFields = {
   firestoreEncoding: z.literal(DOC_VALUE_ENCODING).optional(),
   database: z.unknown().refine(hasSupportedDatabaseEnvelope, 'Invalid RTDB persistence envelope'),
   storage: z.array(storageObjectSchema),
-  auth: z.object({ users: z.array(seedUserSchema), providers: z.record(z.boolean()) }),
+  auth: z.object({
+    users: z.array(seedUserSchema),
+    providers: z.record(z.boolean()),
+    // Absent in states written before revocations were captured (#2021).
+    history: z.object({
+      tokensValidAfterMs: z.record(z.number().finite()),
+      deletedUids: z.array(z.string()),
+    }).optional(),
+  }),
   rules: z.object({
     firestore: z.string(),
     database: z.object({ rules: z.record(z.unknown()) }).nullable(),

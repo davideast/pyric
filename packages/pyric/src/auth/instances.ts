@@ -12,9 +12,11 @@ import { registerAuthPersistence } from './sandbox/persistence.js';
 // one module instance `pyric-admin` reads.
 import { getClock, registerAuthAccounts } from 'pyric/sandbox/internal';
 import {
+  accountHistory,
   accountStanding,
   createAuthProjectStore,
   forgetAccountHistory,
+  replayAccountHistory,
   revokeTokensAt,
   type AuthProjectStore,
 } from './sandbox/project-store.js';
@@ -35,19 +37,37 @@ function projectStoreFor(sandbox: Sandbox): AuthProjectStore {
     // Admin adapters answer about these accounts through the shared foundation.
     registerAuthAccounts(sandbox, {
       standing: (uid) => accountStanding(created, uid),
-      revokeRefreshTokens: (uid) => revokeTokensAt(created, uid, getClock(sandbox).now()),
+      revokeRefreshTokens: (uid) => {
+        revokeTokensAt(created, uid, getClock(sandbox).now());
+        // The account changed: persistence saves the revocation (#2018).
+        notifyUserDb(created);
+      },
       forgetHistory: () => forgetAccountHistory(created),
+      history: () => accountHistory(created),
+      replayHistory: (history) => replayAccountHistory(created, history),
     });
   }
   return store;
 }
 
+/** Tell the account store's subscribers, persistence among them, that an account changed. */
+function notifyUserDb(store: AuthProjectStore): void {
+  for (const subscriber of [...store.userDbSubscribers]) {
+    try {
+      subscriber();
+    } catch {
+      // Observational, as the backend's own notifications are.
+    }
+  }
+}
+
 function backendFor(sandbox: Sandbox): SandboxBackend {
   let backend = sandboxBackends.get(sandbox);
   if (!backend) {
-    backend = new SandboxBackend(sandbox, sandbox, projectStoreFor(sandbox));
+    const store = projectStoreFor(sandbox);
+    backend = new SandboxBackend(sandbox, sandbox, store);
     sandboxBackends.set(sandbox, backend);
-    registerAuthPersistence(sandbox, backend, sandbox);
+    registerAuthPersistence(sandbox, backend, sandbox, store);
   }
   return backend;
 }
@@ -69,7 +89,7 @@ function backendForApp(app: FirebaseApp, runtime: ClientAppRuntime): SandboxBack
       store,
       (cleanup) => { runtime.onDelete(cleanup); },
     );
-    runtime.onDelete(registerAuthPersistence(sandbox, backend, session, app.name));
+    runtime.onDelete(registerAuthPersistence(sandbox, backend, session, store, app.name));
     return backend;
   });
 }
