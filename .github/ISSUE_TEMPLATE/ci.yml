@@ -1,6 +1,7 @@
 name: "CI or tooling"
 description: "Propose a change to CI or developer tooling."
 title: "CI: <what changes>"
+labels: ["ci"]
 body:
   - type: textarea
     id: problem
