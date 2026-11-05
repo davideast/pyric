@@ -41,6 +41,13 @@ export const LIVE_PROJECT_ROOT_VARIABLE = 'PYRIC_LIVE_PROJECT_ROOT';
 /** The internal variable that carries the first process's pass-through imports to its children, comma-separated. */
 export const LIVE_PASS_THROUGH_VARIABLE = 'PYRIC_LIVE_PASS_THROUGH';
 
+/**
+ * The internal variable that carries the folder the first process's live
+ * rows resolve the app's `firebase` from, the one its start check checked,
+ * to its children.
+ */
+export const LIVE_SDK_ROOT_VARIABLE = 'PYRIC_LIVE_SDK_ROOT';
+
 /** The pass-through imports the first process recorded, or none. */
 export function recordedPassThrough(env: Record<string, string | undefined>): string[] {
   const recorded = env[LIVE_PASS_THROUGH_VARIABLE] ?? '';
@@ -48,6 +55,7 @@ export function recordedPassThrough(env: Record<string, string | undefined>): st
 }
 
 type ModuleSource = (url: string, senderUrl: string) => string | null;
+type SdkRoot = (appDir: string, projectRoot: string) => string;
 
 /** What the register opens with: the installed rows, and the register entry children load. */
 export interface InstalledLiveRegister {
@@ -55,6 +63,8 @@ export interface InstalledLiveRegister {
   /** The installed `@pyric/live/register`, by file URL. */
   readonly entryUrl: string;
   readonly projectRoot: string;
+  /** The folder the rows resolve the app's `firebase` from (`liveSdkRoot`). */
+  readonly sdkRoot: string;
 }
 
 /** The file the live rows' observer imports `sendObservedCall` from. */
@@ -75,6 +85,21 @@ export function liveProjectRoot(env: Record<string, string | undefined>, cwd: st
 }
 
 /**
+ * The folder the rows resolve the app's `firebase` from: in a child process
+ * or worker, the one its first process recorded, which that process's start
+ * check checked, so a child started in a folder with its own `firebase`
+ * still opens on the checked copy; in the first process, the one `choose`
+ * picks. A recorded value counts only beside a recorded project root, which
+ * marks a child.
+ */
+export function liveSdkRoot(env: Record<string, string | undefined>, choose: () => string): string {
+  const recorded = env[LIVE_SDK_ROOT_VARIABLE];
+  const isChild = env[LIVE_PROJECT_ROOT_VARIABLE] !== undefined && env[LIVE_PROJECT_ROOT_VARIABLE] !== '';
+  const hasRecorded = isChild && recorded !== undefined && recorded !== '';
+  return hasRecorded ? recorded : choose();
+}
+
+/**
  * Where the package resolves from: `liveRoot`, the folder of the
  * `@pyric/live` whose register entry is running, when the package resolves
  * there, or else the project root, whose refusal names it.
@@ -86,21 +111,33 @@ export function liveResolutionRoot(projectRoot: string, liveRoot: string | undef
 
 /**
  * Loads the installed `@pyric/live`, from `liveRoot` first and then from
- * `projectRoot`. Throws when neither has it. The rows still resolve the
- * app's SDK from `projectRoot`.
+ * `projectRoot`. Throws when neither has it. The rows resolve the app's SDK
+ * from the folder that package's start checks read it from
+ * (`liveRegisterSdkRoot`, `appFirebaseRoot` in its `start-checks.ts`):
+ * `appDir`, the folder the process runs in, when `firebase` resolves there,
+ * else `projectRoot`, or in a child the folder its first process recorded
+ * (`liveSdkRoot`). One function in one package picks it, so the check and
+ * the rows never read two copies of `firebase`.
  */
-export async function loadInstalledLiveRegister(projectRoot: string, liveRoot?: string): Promise<InstalledLiveRegister> {
+export async function loadInstalledLiveRegister(
+  projectRoot: string,
+  liveRoot?: string,
+  appDir: string = process.cwd(),
+  env: Record<string, string | undefined> = process.env,
+): Promise<InstalledLiveRegister> {
   const from = liveResolutionRoot(projectRoot, liveRoot);
   const entry = installedLiveFile(from, REGISTER_SUBPATH);
   if (entry === null) throw liveNotInstalled(projectRoot, NOT_STARTED);
   const sources = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRegisterModuleSource', NOT_STARTED);
   const refusals = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRefusal', NOT_STARTED);
+  const sdkRoots = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRegisterSdkRoot', NOT_STARTED);
   const source = sources.fn as unknown as ModuleSource;
+  const sdkRoot = liveSdkRoot(env, () => (sdkRoots.fn as unknown as SdkRoot)(appDir, projectRoot));
   const senderUrl = observedCallSenderUrl();
   const rows: RegisterRowPackage = {
-    projectUrl: pathToFileURL(join(projectRoot, 'package.json')).href,
+    projectUrl: pathToFileURL(join(sdkRoot, 'package.json')).href,
     refusal: refusals.fn as unknown as SuppliedRowsRefusal,
     moduleSource: (url) => source(url, senderUrl),
   };
-  return { rows, entryUrl: pathToFileURL(entry).href, projectRoot };
+  return { rows, entryUrl: pathToFileURL(entry).href, projectRoot, sdkRoot };
 }

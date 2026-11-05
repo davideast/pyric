@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   SUPPORTED_FIREBASE_RANGE,
+  appFirebaseRoot,
   firebaseAppCopies,
   installedFirebaseVersion,
   isSupportedFirebaseVersion,
@@ -194,5 +195,39 @@ describe('the start refusal', () => {
     expect(refusal).toContain(nested);
     expect(refusal).toContain('npm dedupe');
     expect(refusal).not.toContain('\u2014');
+  });
+});
+
+describe('the folder the app loads firebase from', () => {
+  test('is the app folder when firebase is installed only there, below the project root (#2161)', () => {
+    const root = project();
+    const web = join(root, 'web');
+    installFirebase(web, '12.19.0');
+    expect(appFirebaseRoot(web, root)).toBe(web);
+    expect(liveStartRefusal(root)).toContain('This project has no firebase installed.');
+    expect(liveStartRefusal(root, web)).toBeNull();
+  });
+
+  test('is the app folder when it resolves the hoisted firebase above it', () => {
+    const root = project();
+    installFirebase(root, '12.19.0');
+    expect(appFirebaseRoot(join(root, 'web'), root)).toBe(join(root, 'web'));
+    expect(liveStartRefusal(root, join(root, 'web'))).toBeNull();
+  });
+
+  test('is the project root when the app folder resolves no firebase', () => {
+    const root = project();
+    const elsewhere = project();
+    installFirebase(root, '12.19.0');
+    expect(appFirebaseRoot(elsewhere, root)).toBe(root);
+    expect(liveStartRefusal(root, elsewhere)).toBeNull();
+  });
+
+  test('checks the version of the copy the app folder resolves, before the project root\'s', () => {
+    const root = project();
+    const web = join(root, 'web');
+    installFirebase(root, '12.19.0');
+    installFirebase(web, '11.10.0');
+    expect(liveStartRefusal(root, web)).toContain('This project has firebase 11.10.0 installed.');
   });
 });

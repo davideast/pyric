@@ -18,6 +18,7 @@ import { installChildProcessGuard } from './child-process-guard.js';
 import {
   LIVE_PASS_THROUGH_VARIABLE,
   LIVE_PROJECT_ROOT_VARIABLE,
+  LIVE_SDK_ROOT_VARIABLE,
   liveProjectRoot,
   loadInstalledLiveRegister,
   recordedPassThrough,
@@ -168,8 +169,9 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
   const rows = registerRows(passThrough);
   rows.open(installed.rows);
-  // Children and workers open the rows for this process's project, wherever they start.
+  // Children and workers open the rows for this process's project and its checked firebase, wherever they start.
   process.env[LIVE_PROJECT_ROOT_VARIABLE] = installed.projectRoot;
+  process.env[LIVE_SDK_ROOT_VARIABLE] = installed.sdkRoot;
   process.env[LIVE_PASS_THROUGH_VARIABLE] = [...passThrough].join(',');
   installWorkerGuard(installed.entryUrl);
   installChildProcessGuard(installed.entryUrl);
