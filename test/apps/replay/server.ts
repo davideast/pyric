@@ -18,13 +18,14 @@
 // `connectDatabaseEmulator` builds: its `ns` names the instance, and
 // `rtdb.ts` answers it from the same recordings.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
 import type { Recording } from './format.ts';
 import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
 import { startGrpcReplay, type GrpcReplay } from './grpc.ts';
-import { RtdbConnection, RtdbShared, type RtdbLog } from './rtdb.ts';
+import { RtdbConnection, RtdbShared, type RtdbLog, type RtdbReceived } from './rtdb.ts';
 import { parseForwardBody, WebChannelSession } from './webchannel.ts';
 
 export const FIRESTORE_HOST = 'firestore.googleapis.com';
@@ -72,10 +73,10 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const state = new ReplayState(recordings);
   const grpc = options.grpc ? await startGrpcReplay(state, options.grpc.projectDir) : null;
   const sessions = new Map<string, WebChannelSession>();
-  const sockets = new Set<WsSocket>();
+  const sockets = new Set<ServerSocket>();
   const rtdb = new RtdbShared();
   const server = createServer((request, response) => {
-    void handle(state, sessions, request, response).catch((error: unknown) => {
+    void handle(state, rtdb, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
       response.end(`pyric replay: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -107,7 +108,7 @@ async function closeServer(server: Server, sessions: Map<string, WebChannelSessi
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-async function handle(state: ReplayState, sessions: Map<string, WebChannelSession>, request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function handle(state: ReplayState, rtdb: RtdbShared, sessions: Map<string, WebChannelSession>, request: IncomingMessage, response: ServerResponse): Promise<void> {
   allowCrossOrigin(request, response);
   if (request.method === 'OPTIONS') {
     response.writeHead(204);
@@ -117,7 +118,7 @@ async function handle(state: ReplayState, sessions: Map<string, WebChannelSessio
   const report = REPORTS[request.url ?? ''];
   if (request.method === 'GET' && report) {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    response.end(JSON.stringify(report(state)));
+    response.end(JSON.stringify(report(state, rtdb)));
     return;
   }
   const route = routeOf(request);
@@ -134,9 +135,13 @@ async function handle(state: ReplayState, sessions: Map<string, WebChannelSessio
   response.end('pyric replay: no recorded host for this request');
 }
 
-/** What the server saw, for a caller in another process (`serve.ts`, `process.ts`). */
-const REPORTS: Record<string, (state: ReplayState) => unknown> = {
-  '/__replay/received': (state) => state.received,
+/**
+ * What the server saw, for a caller in another process (`serve.ts`,
+ * `process.ts`). `received` lists the Firestore and Auth requests in arrival
+ * order, then the RTDB frames in arrival order.
+ */
+const REPORTS: Record<string, (state: ReplayState, rtdb: RtdbShared) => Array<Received | RtdbReceived> | Unmatched[]> = {
+  '/__replay/received': (state, rtdb) => [...state.received, ...rtdb.received],
   '/__replay/unmatched': (state) => state.unmatched,
 };
 
@@ -184,7 +189,19 @@ function openSession(state: ReplayState, sessions: Map<string, WebChannelSession
   session.receive(batch);
 }
 
-/** The part of a `ws` socket an RTDB connection uses. */
+/** An accepted WebSocket, whichever library accepted it. */
+interface ServerSocket {
+  send(text: string): void;
+  close(): void;
+  /** Drops the connection without a closing handshake, for shutdown. */
+  terminate(): void;
+  onMessage(listener: (text: string) => void): void;
+  onClose(listener: () => void): void;
+}
+
+type Accept = (request: IncomingMessage, socket: Duplex, head: Buffer) => Promise<ServerSocket>;
+
+/** The part of a `ws` socket the server uses. */
 interface WsSocket {
   send(text: string): void;
   close(): void;
@@ -197,22 +214,64 @@ interface WsServer {
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, done: (socket: WsSocket) => void): void;
 }
 
-let wsServer: Promise<WsServer> | null = null;
+/** The part of a faye-websocket server socket the server uses. */
+interface FayeSocket {
+  send(text: string): boolean;
+  close(): void;
+  on(event: 'message', listener: (event: { data: string | Buffer }) => void): void;
+  on(event: 'close', listener: () => void): void;
+}
+
+type FayeWebSocket = new (request: IncomingMessage, socket: Duplex, head: Buffer) => FayeSocket;
+
+let accept: Promise<Accept> | null = null;
 
 /**
- * A `noServer` `ws` server, loaded on the first upgrade. Bun provides `ws`
- * itself; the root workspace does not depend on it, so a `node` process
- * (`serve.ts`) that never opens an RTDB connection never needs it.
+ * How this runtime accepts a WebSocket, loaded on the first upgrade. Bun
+ * provides `ws` itself, and faye-websocket never completes a handshake on
+ * Bun's upgrade socket. Under `node` (`serve.ts`) the root workspace installs
+ * no `ws`, so it uses faye-websocket from the `@firebase/database` that
+ * `firebase/database` resolves to, which depends on it for its Node build.
+ * The Bun tests cover the first, `rtdb-node.test.ts` the second.
  */
-function webSockets(): Promise<WsServer> {
-  wsServer ??= import('ws').then((ws: { WebSocketServer: new (options: { noServer: true }) => WsServer }) => new ws.WebSocketServer({ noServer: true }));
-  return wsServer;
+function webSockets(): Promise<Accept> {
+  const isBun = process.versions.bun !== undefined;
+  accept ??= isBun ? wsAccept() : Promise.resolve(fayeAccept());
+  return accept;
+}
+
+async function wsAccept(): Promise<Accept> {
+  const ws = (await import('ws')) as { WebSocketServer: new (options: { noServer: true }) => WsServer };
+  const server = new ws.WebSocketServer({ noServer: true });
+  return (request, socket, head) => new Promise((resolve) => server.handleUpgrade(request, socket, head, (accepted) => resolve({
+    send: (text) => accepted.send(text),
+    close: () => accepted.close(),
+    terminate: () => accepted.terminate(),
+    onMessage: (listener) => accepted.on('message', (data) => listener(data.toString('utf8'))),
+    onClose: (listener) => accepted.on('close', listener),
+  })));
+}
+
+function fayeAccept(): Accept {
+  const firebaseDatabase = createRequire(import.meta.url).resolve('firebase/database');
+  const database = createRequire(firebaseDatabase).resolve('@firebase/database');
+  const WebSocket = createRequire(database)('faye-websocket') as FayeWebSocket;
+  return async (request, socket, head) => {
+    const accepted = new WebSocket(request, socket, head);
+    return {
+      send: (text) => { accepted.send(text); },
+      close: () => accepted.close(),
+      terminate: () => socket.destroy(),
+      onMessage: (listener) => accepted.on('message', (event) => listener(event.data.toString())),
+      onClose: (listener) => accepted.on('close', listener),
+    };
+  };
 }
 
 const RTDB_PATH = '/.ws';
 
 /** Opens an RTDB connection on `/.ws` for the instance its `ns` names, or refuses the upgrade with a 404. */
-async function upgrade(state: ReplayState, rtdb: RtdbShared, sockets: Set<WsSocket>, request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+async function upgrade(state: ReplayState, rtdb: RtdbShared, sockets: Set<ServerSocket>, request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
   const url = new URL(request.url ?? '/', 'http://replay.invalid');
   const instance = url.searchParams.get('ns');
   if (url.pathname !== RTDB_PATH || !instance) {
@@ -220,20 +279,18 @@ async function upgrade(state: ReplayState, rtdb: RtdbShared, sockets: Set<WsSock
     socket.end('HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\n\r\npyric replay: no recorded WebSocket at this path\n');
     return;
   }
-  const server = await webSockets();
-  server.handleUpgrade(request, socket, head, (ws) => {
-    sockets.add(ws);
-    const connection = new RtdbConnection(ws, state, rtdb, instance, request.headers.host ?? '');
-    ws.on('message', (data) => connection.onFrame(data.toString('utf8')));
-    ws.on('close', () => {
-      sockets.delete(ws);
-      connection.close();
-    });
-    connection.open();
+  const ws = await (await webSockets())(request, socket, head);
+  sockets.add(ws);
+  const connection = new RtdbConnection(ws, state, rtdb, instance, request.headers.host ?? '');
+  ws.onMessage((text) => connection.onFrame(text));
+  ws.onClose(() => {
+    sockets.delete(ws);
+    connection.close();
   });
+  connection.open();
 }
 
-/** An upgrade that failed (`ws` would not load, say) is listed in `unmatched` with the reason, then its socket destroyed. */
+/** An upgrade that failed (a WebSocket library would not load, say) is listed in `unmatched` with the reason, then its socket destroyed. */
 export function refuseUpgrade(state: ReplayState, request: IncomingMessage, socket: Duplex, error: unknown): void {
   const reason = error instanceof Error ? error.message : String(error);
   state.unmatched.push({ rpc: 'rtdb', as: null, request: { method: request.method ?? '', path: request.url ?? '', error: reason } });

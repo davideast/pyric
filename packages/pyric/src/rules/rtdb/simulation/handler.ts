@@ -2,8 +2,8 @@ import { DataSnapshot, RtdbRuleRuntimeError, evaluateRtdbRule } from '../grammar
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, simulationQueryProblem, type SimulationInput } from './spec.js';
-import { normalizeAuthState } from '../../../sandbox/sandbox-context.js';
-import { withIdTokenClaims } from '../../../sandbox/internal/auth-token-claims.js';
+import { normalizeAuthState } from '../../auth/auth-state.js';
+import { withIdTokenClaims } from '../../auth/token-claims.js';
 import { projectPostWriteTree } from './post-write-tree.js';
 import type { RtdbRuleEvaluation, SimulateResult } from './spec.js';
 

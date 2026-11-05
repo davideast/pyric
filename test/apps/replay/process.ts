@@ -4,13 +4,23 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { Received, Unmatched } from './firestore.ts';
+import type { RtdbReceived } from './rtdb.ts';
 
 export const SERVE_SCRIPT = fileURLToPath(new URL('./serve.ts', import.meta.url));
 
-/** The `node` arguments that run a replay server for `recordings`, with gRPC from the SDK installed in `grpcProjectDir`. */
-export function replayServerArgs(recordings: string[], grpcProjectDir?: string): string[] {
+export interface ReplayProcessOptions {
+  /** Also serve RTDB capture A for this project (`--rtdb-capture`). */
+  rtdbCapture?: string;
+}
+
+/**
+ * The `node` arguments that run a replay server for `recordings`, with gRPC
+ * from the SDK installed in `grpcProjectDir`, and capture A with `rtdbCapture`.
+ */
+export function replayServerArgs(recordings: string[], grpcProjectDir?: string, options: ReplayProcessOptions = {}): string[] {
   const grpc = grpcProjectDir ? ['--grpc', grpcProjectDir] : [];
-  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...recordings];
+  const capture = options.rtdbCapture ? ['--rtdb-capture', options.rtdbCapture] : [];
+  return ['--experimental-transform-types', '--no-warnings', SERVE_SCRIPT, ...grpc, ...capture, ...recordings];
 }
 
 /** A replay server in another process, by the origins it printed. */
@@ -29,9 +39,9 @@ export function endpointsIn(output: string): ReplayEndpoints | null {
   return line ? (JSON.parse(line) as ReplayEndpoints) : null;
 }
 
-/** Every request the server at `origin` received. */
-export async function receivedBy(origin: string): Promise<Received[]> {
-  return (await (await fetch(`${origin}/__replay/received`)).json()) as Received[];
+/** Every request the server at `origin` received: Firestore and Auth in arrival order, then RTDB frames in arrival order. */
+export async function receivedBy(origin: string): Promise<Array<Received | RtdbReceived>> {
+  return (await (await fetch(`${origin}/__replay/received`)).json()) as Array<Received | RtdbReceived>;
 }
 
 /** Every request the server at `origin` had no recording for. */
@@ -45,8 +55,8 @@ export interface ReplayProcess extends ReplayEndpoints {
 }
 
 /** Starts a replay server process and waits for its endpoints. */
-export function startReplayProcess(recordings: string[], grpcProjectDir?: string): Promise<ReplayProcess> {
-  const child = spawn('node', replayServerArgs(recordings, grpcProjectDir), { stdio: ['ignore', 'pipe', 'pipe'] });
+export function startReplayProcess(recordings: string[], grpcProjectDir?: string, options: ReplayProcessOptions = {}): Promise<ReplayProcess> {
+  const child = spawn('node', replayServerArgs(recordings, grpcProjectDir, options), { stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
   const stop = async () => {

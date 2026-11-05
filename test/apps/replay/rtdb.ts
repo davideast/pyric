@@ -18,12 +18,13 @@
 // server minted (a token it did not mint drops the connection's identity, as
 // production does), `unauth` clears the uid, and the keepalive frame `0` is
 // ignored. A message split into several frames (a frame count first) is
-// refused and the connection closed: no recording holds one yet.
+// refused and the connection closed: no recording holds one yet. Every frame
+// a client sends but the keepalive is listed in `received`, answered or not.
 import { placeholderName, type Json, type JsonObject, type RtdbBatch, type RtdbExchange } from './format.ts';
 import type { ReplayState } from './firestore.ts';
 import { fill, matches, type ReplayTokens } from './values.ts';
 
-/** Where a connection's frames go: a `ws` socket on the replay server. */
+/** Where a connection's frames go: a WebSocket on the replay server. */
 export interface RtdbSocket {
   send(text: string): void;
   close(): void;
@@ -35,8 +36,18 @@ export interface RtdbLog {
   sent: JsonObject[];
 }
 
+/** A frame a client sent on an RTDB connection, as the uid the connection had then. */
+export interface RtdbReceived {
+  rpc: 'rtdb';
+  as: string | null;
+  /** The frame as JSON, or its text when it is not a JSON object. */
+  message: { instance: string; frame: Json };
+}
+
 /** What every RTDB connection on one replay server shares. */
 export class RtdbShared {
+  /** Every frame clients sent but the keepalive, in arrival order. */
+  readonly received: RtdbReceived[] = [];
   /** The push keys clients picked, by the name of the `pushId` placeholder that matched each. */
   readonly pushKeys = new Map<string, string>();
   /** Every connection in the order it opened. */
@@ -94,8 +105,9 @@ export class RtdbConnection {
 
   onFrame(text: string): void {
     if (text === KEEPALIVE) return;
-    if (FRAME_COUNT.test(text)) return this.refuse({ instance: this.instance, frames: Number(text) });
     const frame = parseFrame(text);
+    this.shared.received.push({ rpc: 'rtdb', as: this.as, message: { instance: this.instance, frame: frame ?? text } });
+    if (FRAME_COUNT.test(text)) return this.refuse({ instance: this.instance, frames: Number(text) });
     const data = frame?.t === 'd' ? (frame.d as JsonObject) : null;
     if (!data) return this.refuse({ instance: this.instance, frame: frame ?? text });
     this.guarded(() => this.answer(data));
@@ -190,7 +202,7 @@ export class RtdbConnection {
     this.as = uid;
     const claims = claimsOf(token);
     const provider = String((claims.firebase as JsonObject | undefined)?.sign_in_provider ?? 'custom');
-    const auth = { provider, provider_id: provider, user_id: uid, token: echoedClaims(claims, provider), uid };
+    const auth = { provider, provider_id: provider, user_id: uid, token: claims, uid };
     this.reply(r, { s: 'ok', d: { auth, expires: claims.exp ?? null } });
   }
 
@@ -294,16 +306,6 @@ function pathOf(body: Json): string {
 
 function isAtOrBelow(path: string, ancestor: string): boolean {
   return path === ancestor || path.startsWith(ancestor.endsWith('/') ? ancestor : `${ancestor}/`);
-}
-
-/**
- * The claims an `auth` reply echoes. An anonymous Firebase ID token carries
- * `provider_id: "anonymous"` besides its `firebase` claims, as capture A's
- * replies show; a token this server mints does not, so it is added here.
- */
-function echoedClaims(claims: JsonObject, provider: string): JsonObject {
-  const isAnonymous = provider === 'anonymous';
-  return isAnonymous ? { provider_id: provider, ...claims } : claims;
 }
 
 /** A frame as JSON, or null for text that is not a JSON object. */

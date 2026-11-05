@@ -37,13 +37,19 @@ export class ReplayTokens {
     return Buffer.from(`replay-${kind}-${this.count}`).toString('base64');
   }
 
-  /** An ID token with Firebase Auth's claims for a test project, signed by no one. */
+  /**
+   * An ID token with Firebase Auth's claims for a test project, signed by no
+   * one. An anonymous token also carries `provider_id: "anonymous"`, as the
+   * ones capture A's clients got from production do.
+   */
   mintIdToken(project: string, fields: JsonObject): string {
     const uid = String(fields.uid);
     const now = Math.floor(Date.now() / 1000);
     const provider = typeof fields.provider === 'string' ? fields.provider : 'password';
     const email = typeof fields.email === 'string' ? fields.email : undefined;
+    const isAnonymous = provider === 'anonymous';
     const claims = {
+      ...(isAnonymous ? { provider_id: provider } : {}),
       iss: `https://securetoken.google.com/${project}`,
       aud: project,
       auth_time: now,
