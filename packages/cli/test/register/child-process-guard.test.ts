@@ -47,6 +47,12 @@ describe('guardChildEnv', () => {
     expect(env.PYRIC_SANDBOX).toBe('remote:http://127.0.0.1:4000');
   });
 
+  it('keeps an empty PYRIC_GUARD_ALLOW, which clears the allowlist for the child', () => {
+    const parent = { ...PARENT, PYRIC_GUARD_ALLOW: 'api.example.com' };
+    const env = guardChildEnv({ PYRIC_GUARD_ALLOW: '' }, parent, REGISTER_URL);
+    expect(env.PYRIC_GUARD_ALLOW).toBe('');
+  });
+
   it('copies no other parent variable and never changes the caller env', () => {
     const childEnv = { PATH: '/usr/bin' };
     const env = guardChildEnv(childEnv, PARENT, REGISTER_URL);

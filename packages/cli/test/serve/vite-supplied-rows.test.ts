@@ -242,7 +242,7 @@ describe('live rows with imports that pass through', () => {
 
   /** An open swap passing `passThrough` through, and a resolver for its gate that lands each import on `file`. */
   function passingSwap(passThrough: string[]) {
-    const rows = suppliedRows(refusal, passThrough);
+    const rows = suppliedRows(refusal, { passThrough });
     rows.open(fakePackage);
     const gated = createViteModuleSwap(context, { supplied: rows });
     const resolveTo = (file: string, source: string, importer: string | undefined) =>
@@ -292,7 +292,7 @@ describe('live rows with imports that pass through', () => {
 
   it('take no import a row serves, nor firebase/firestore/lite or firebase-admin', () => {
     for (const entry of ['firebase/firestore', 'firebase/firestore/lite', 'firebase-admin', '@firebase/database']) {
-      expect(() => suppliedRows(refusal, [entry])).toThrow(`pyric: ${entry} cannot pass through`);
+      expect(() => suppliedRows(refusal, { passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
     }
   });
 });
@@ -357,5 +357,25 @@ describe('the installed @pyric/live', () => {
 
   it('is required: a project without it gets an error', async () => {
     await expect(loadRowModulePackage(project(false))).rejects.toThrow('live rows need @pyric/live installed');
+  });
+
+  // #2113: pyric installed in a package beside the app, which the project root does not resolve.
+  it("is found from the supplier's own folder when the project root has none", async () => {
+    const beside = join(project(true), 'node_modules/@pyric/live');
+    const found = await loadRowModulePackage(project(false), beside);
+    expect(found.root).toBe(realpathSync(fileURLToPath(new URL('../../../live', import.meta.url))));
+    expect(found.moduleSource(rowId('firebase/auth'))).toContain('export * from "firebase/auth";');
+  });
+
+  it("is found from the project root when the supplier's folder has none", async () => {
+    const found = await loadRowModulePackage(project(true), project(false));
+    expect(found.root).toBe(realpathSync(fileURLToPath(new URL('../../../live', import.meta.url))));
+  });
+
+  it('is required: with neither, the error names the project root', async () => {
+    const root = project(false);
+    await expect(loadRowModulePackage(root, project(false))).rejects.toThrow(
+      `live rows need @pyric/live installed in the project, and it does not resolve from ${root}.`,
+    );
   });
 });

@@ -69,11 +69,17 @@ export type SuppliedRowsRefusal = (specifier: string, plane: SuppliedRowsPlane) 
  */
 export interface SuppliedRows {
   readonly refusal: SuppliedRowsRefusal;
+  /**
+   * The folder of the `@pyric/live` that supplied the rows, which the rows'
+   * package resolves from before the project root; undefined when the
+   * supplier did not say.
+   */
+  readonly liveRoot?: string;
   /** The served specifiers with no row that load the installed SDK unwrapped and unobserved. */
   readonly passThrough: ReadonlySet<ServedFirebaseSpecifier>;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RowModulePackage | null;
-  /** Opens the rows with the package found from the project root. */
+  /** Opens the rows with the installed package (`vite-live-package.ts`). */
   open(found: RowModulePackage): void;
   /**
    * The installed SDK files the rows loaded on the page, as real file URLs,
@@ -123,12 +129,19 @@ export function passThroughSdkPackages(passThrough: ReadonlySet<ServedFirebaseSp
   return packages;
 }
 
-/** Shut live rows with the supplier's refusal, and the specifiers it passes through. */
-export function suppliedRows(refusal: SuppliedRowsRefusal, passThrough: readonly string[] = []): SuppliedRows {
+/** What a supplier says besides its refusal: where its `@pyric/live` is, and the specifiers it passes through. */
+export interface SuppliedRowsSupplier {
+  readonly liveRoot?: string;
+  readonly passThrough?: readonly string[];
+}
+
+/** Shut live rows with the supplier's refusal, the folder of its `@pyric/live`, and the specifiers it passes through. */
+export function suppliedRows(refusal: SuppliedRowsRefusal, supplier: SuppliedRowsSupplier = {}): SuppliedRows {
   let found: RowModulePackage | null = null;
   return {
     refusal,
-    passThrough: passThroughSet(passThrough),
+    liveRoot: supplier.liveRoot,
+    passThrough: passThroughSet(supplier.passThrough ?? []),
     liveSdkUrls: new Set(),
     package: () => found,
     open(next) {

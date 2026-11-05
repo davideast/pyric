@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase": "12.12.0",
+    "vite": "7.3.2"
+  }
+}

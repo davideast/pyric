@@ -415,9 +415,20 @@ onDisconnect operations when its socket closes.
 
 ### Forty-five seconds without a frame is a drop
 
-- Before each heartbeat, a client that has received no frame of any kind for
-  45 seconds (three heartbeats) treats the socket as dropped, as the web client
-  does. Any frame counts, not only `pong`.
+- Before each heartbeat, a native client that has received no frame of any
+  kind for 45 seconds (three heartbeats) treats the socket as dropped. Any
+  frame counts, not only `pong`. The Node remote client keeps this rule too.
+- Amended 2026-11-05 (#2097): the web hosted client counts the 45 seconds from
+  its oldest unanswered ping, and any frame from the host ends the wait. After
+  five minutes hidden, Chrome runs a tab's timers about once a minute, so two
+  heartbeats can run 60 seconds apart while the host answered each one; the
+  last-frame rule dropped that socket and ran the page's `onDisconnect`. The
+  web client also treats the socket as dropped, before it pings, once no frame
+  has arrived for 90 seconds (`HOST_PEER_LIVENESS_TIMEOUT_MS`): by then the
+  host has closed its side, so a client resumed from a suspend longer than
+  that reconnects on its first heartbeat. Because the wait starts at the first
+  ping, a host that goes silent right after an attach is noticed up to 15
+  seconds later than under the last-frame rule.
 - The drop is decision 2's. The client goes to `interrupted` and reconnects on
   decision 3's schedule. Operations in flight fail once and are never re-sent,
   and operations issued after the drop are held under decision 7 as amended. A

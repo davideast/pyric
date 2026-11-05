@@ -42,6 +42,9 @@ const GUARDED = Symbol.for('pyric.guardedChildProcess');
 /** The variables that carry the sandbox to a child. */
 const SANDBOX_VARIABLE = /^PYRIC_/;
 
+/** A variable whose empty value is a choice the caller made, not a gap to fill. */
+const EMPTY_IS_VALUE = new Set(['PYRIC_GUARD_ALLOW']);
+
 /** The register, named by its package rather than its file. */
 const REGISTER_BY_NAME = /(^|\s)--import[= ]?["']?@pyric\/cli\/register(["'\s]|$)/;
 
@@ -59,7 +62,8 @@ function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
 export function guardChildEnv(childEnv: Env, parentEnv: Env, registerUrl: string): Env {
   const guarded: Env = { ...childEnv };
   for (const [name, value] of Object.entries(parentEnv)) {
-    const childLacksIt = guarded[name] === undefined || guarded[name] === '';
+    const childLacksIt =
+      guarded[name] === undefined || (guarded[name] === '' && !EMPTY_IS_VALUE.has(name));
     if (SANDBOX_VARIABLE.test(name) && value !== undefined && childLacksIt) guarded[name] = value;
   }
   const nodeOptions = guarded.NODE_OPTIONS ?? '';

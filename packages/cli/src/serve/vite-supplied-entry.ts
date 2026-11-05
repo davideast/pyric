@@ -24,9 +24,16 @@ export type { LiveListener, LiveListenerActivity } from './entries/live-listener
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
 export { livePassThroughLine } from 'pyric/sandbox/internal';
 
-/** What the supplier gives: the error for a refused import, and the served specifiers it passes through. */
+/** What the supplier gives: the error for a refused import, where it is installed, and the served specifiers it passes through. */
 export interface SuppliedRowsInput {
   readonly refusal: SuppliedRowsRefusal;
+  /**
+   * The folder of the `@pyric/live` package calling this seam. The rows'
+   * source comes from the `@pyric/live` that resolves from there, before the
+   * one the project root resolves, so the rows open when that package is
+   * installed beside the app rather than in it.
+   */
+  readonly liveRoot?: string;
   /**
    * Served specifiers with no live row that load the installed SDK unwrapped
    * and unobserved (`vite-supplied-rows.ts`). Any other entry throws.
@@ -36,7 +43,7 @@ export interface SuppliedRowsInput {
 
 /** The plugin `pyric(options)` builds, with the live rows serving pages in place of the swap. */
 export function pyricWithSuppliedRows(options: PyricOptions, input: SuppliedRowsInput): Plugin & EnvironmentHooks {
-  return createPyricPlugin(options, suppliedRows(input.refusal, input.passThrough));
+  return createPyricPlugin(options, suppliedRows(input.refusal, { liveRoot: input.liveRoot, passThrough: input.passThrough }));
 }
 
 /**
