@@ -132,7 +132,7 @@ function identityButton(helper: ServeAuthHelper, id: HelperIdentity): HTMLButton
   const btn = document.createElement('button');
   btn.type = 'button';
   const label = id.displayName || id.email || id.uid;
-  btn.textContent = id.email && id.displayName ? `${label} — ${id.email}` : label;
+  btn.textContent = id.email && id.displayName ? `${label} (${id.email})` : label;
   btn.addEventListener('click', () => helper.pick(id.uid));
   return btn;
 }
