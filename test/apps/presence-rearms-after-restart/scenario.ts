@@ -105,7 +105,7 @@ export default scenario(async (app) => {
   // The restart interrupts the page's connection, and the page posts that to
   // /__pyric/diagnostics. A post made before the new server generation mounts
   // Pyric's routes answers 404, and the page keeps the report in memory.
-  app.expectHostError(/^404 POST \/__pyric\/diagnostics$/);
+  app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the new routes mount (#2098)' });
 
   const host = await app.step('start the hosted dev server', () => app.devServer());
 
