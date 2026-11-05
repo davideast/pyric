@@ -16,16 +16,16 @@ const ALLOWED_EDGES: readonly string[] = [
   'inspect/handler.ts -> ../../rules-production/inspect/handler.js',
   'test/handler.ts -> ../../rules-production/test/handler.js',
   'write/handler.ts -> ../../rules-production/write/handler.js',
-  // Agent and simulator tools, which move above rules.
+  // One-line shims left at the old paths after the agent tools moved to
+  // src/rules-tools.
+  'inspect/tools.ts -> ../../rules-tools/inspect/tools.js',
+  'stdlib-tools.ts -> ../rules-tools/stdlib-tools.js',
+  'tools.ts -> ../rules-tools/tools.js',
+  // Simulator and index tools, which move above rules.
   'indexes/extractTool.ts -> ../../sandbox/internal/tool-handler.js',
-  'inspect/tools.ts -> ../../project-scope.js',
-  'inspect/tools.ts -> ../../sandbox/internal/tool-handler.js',
   'simulator-tools-impl.ts -> ../sandbox/internal/tool-handler.js',
   'simulator-tools-impl.ts -> pyric/sandbox/internal',
   'simulator.ts -> ../sandbox/internal/tool-handler.js',
-  'stdlib-tools.ts -> ../sandbox/internal/tool-handler.js',
-  'tools.ts -> ../project-scope.js',
-  'tools.ts -> ../sandbox/internal/tool-handler.js',
   // Shared groundwork, which moves down into the engine.
   'api/rtdb-case-validation.ts -> ../../database/writable-path.js',
   'api/rtdb-case-validation.ts -> ../../sandbox/branches/state-diff.js',
