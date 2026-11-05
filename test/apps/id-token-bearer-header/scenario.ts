@@ -12,7 +12,10 @@
 //
 // An ID token lasts one hour, as production's does. After `pyric sandbox
 // advanceClock` moves the sandbox clock 61 minutes, the page's next
-// getIdToken() returns a new token, and the API verifies it.
+// getIdToken() returns a new token, and the API verifies it. The API reads
+// the sandbox clock through the host (#2010): it refuses the token held from
+// before the advance as expired, and a custom token it mints after the
+// advance exchanges, from the page and from its own process.
 //
 // The page runs on the hosted dev server. The API is a
 // `node --import @pyric/cli/register` process, which also signs in through
@@ -246,6 +249,10 @@ export default scenario(async (app) => {
     assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify(result));
   });
 
+  await app.step('the API refuses the token held from before the advance as expired, on the sandbox clock', async () => {
+    assertRefused(await whoami(apiUrl, held.idToken), /has expired/);
+  });
+
   await app.step("the page's next getIdToken() returns a new token, and the API verifies it", async () => {
     const { idToken, answer } = await page.evaluate((url) => callApiAsCurrentUser(url), apiUrl);
     assert.notEqual(idToken, held.idToken);
@@ -254,6 +261,19 @@ export default scenario(async (app) => {
     assert.ok(after.iat - before.iat >= SIXTY_ONE_MINUTES_MS / 1000, JSON.stringify({ before, after }));
     assert.equal(after.exp - after.iat, 3600, JSON.stringify(after));
     assert.deepEqual(answer, verified(held.uid, 'Builder One'), JSON.stringify(answer));
+  });
+
+  // The exchanges sign the page out, so they follow the held session's refresh.
+  await app.step('the page exchanges a custom token the API mints after the advance', async () => {
+    const result = await page.evaluate(([url]) => exchangeCustomToken(url, 'late-uid'), [apiUrl] as const);
+    assert.equal(result.code, undefined, JSON.stringify(result));
+    assert.deepEqual(result.answer, { status: 200, body: { uid: 'late-uid', role: 'editor', provider: 'custom' } }, JSON.stringify(result));
+  });
+
+  await app.step('the API exchanges a custom token it mints after the advance from its own process', async () => {
+    const result = await (await fetch(`${apiUrl}/self-custom`)).json() as { answer?: Answer; threw?: string };
+    assert.equal(result.threw, undefined, JSON.stringify(result));
+    assert.deepEqual(result.answer, { status: 200, body: { uid: 'server-custom-uid', role: 'editor', provider: 'custom' } }, JSON.stringify(result));
   });
 
   const ACCOUNT_CHANGES = [
