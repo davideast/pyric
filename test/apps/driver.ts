@@ -568,6 +568,17 @@ export async function guardContext(context: BrowserContext, log: string[]): Prom
   });
 }
 
+/**
+ * A `mayNotHappen` reason lets an allowance match nothing, so it must say why
+ * and cite the issue that tracks the race, which closing ends the allowance.
+ */
+function assertCitesIssue(pattern: RegExp, reason: string): void {
+  const hasReason = reason.trim().length > 0;
+  const citesIssue = /#\d+/.test(reason);
+  if (hasReason && citesIssue) return;
+  throw new Error(`expectHostError(${pattern}): mayNotHappen must say why the error comes only in some runs and cite its issue (#<number>); got ${JSON.stringify(reason)}`);
+}
+
 /** One run of one app: the state behind the `App` a scenario receives. */
 export class AppRun implements App {
   readonly processes: AppProcess[] = [];
@@ -858,8 +869,11 @@ export class AppRun implements App {
   }
 
   expectHostError(pattern: RegExp, options: { mayNotHappen?: string } = {}): void {
+    const reason = options.mayNotHappen;
+    const isRacy = reason !== undefined;
+    if (isRacy) assertCitesIssue(pattern, reason);
     this.expectedHostErrors.push(pattern);
-    if (options.mayNotHappen !== undefined) this.racyHostErrors.add(pattern);
+    if (isRacy) this.racyHostErrors.add(pattern);
   }
 
   expectLeftoverProcess(pattern: RegExp): void {

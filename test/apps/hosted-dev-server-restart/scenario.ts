@@ -150,82 +150,82 @@ export default scenario(async (app) => {
 
   // Resolver rules only, no route, so the HTTP cache stays on.
   const cachedBrowser = await launchScenarioBrowser();
-  const cachedContext = await cachedBrowser.newContext();
-  await app.watchCrashes(cachedContext);
+  try {
+    const cachedContext = await cachedBrowser.newContext();
+    await app.watchCrashes(cachedContext);
 
-  await app.step('the resolver rules alone keep the cache-on browser on loopback', async () => {
-    const page = await openCached(app, cachedContext, host.url);
-    let outcomes: { page: string[]; worker: string[] } = { page: [], worker: [] };
-    const seen = await listenOnEveryLocalAddress(async (port) => {
-      outcomes = await page.evaluate(`(${PROBE})(${JSON.stringify([...REFUSED_HOSTS, CONTROL_HOST])}, ${port})`);
+    await app.step('the resolver rules alone keep the cache-on browser on loopback', async () => {
+      const page = await openCached(app, cachedContext, host.url);
+      let outcomes: { page: string[]; worker: string[] } = { page: [], worker: [] };
+      const seen = await listenOnEveryLocalAddress(async (port) => {
+        outcomes = await page.evaluate(`(${PROBE})(${JSON.stringify([...REFUSED_HOSTS, CONTROL_HOST])}, ${port})`);
+      });
+      const tried = [...REFUSED_HOSTS, CONTROL_HOST].flatMap((name) => [`fetch ${name}`, `WebSocket ${name}`]);
+      const control = tried.slice(-2);
+      for (const [where, results] of Object.entries(outcomes)) {
+        const reached = tried.filter((_, index) => results[index] === 'reached');
+        assert.deepEqual(reached, control.slice(0, 1), `from the ${where}, only the control fetch reaches the listener (the listener refuses every WebSocket upgrade)`);
+      }
+      assert.ok(seen.length >= 4, `the controls did not reach the listener: ${JSON.stringify(seen)}`);
+      const escaped = seen.filter((line) => !line.startsWith(`${CONTROL_HOST}:`));
+      assert.deepEqual(escaped, [], 'a request under a name or address the rules refuse reached the listener');
+      await page.close();
     });
-    const tried = [...REFUSED_HOSTS, CONTROL_HOST].flatMap((name) => [`fetch ${name}`, `WebSocket ${name}`]);
-    const control = tried.slice(-2);
-    for (const [where, results] of Object.entries(outcomes)) {
-      const reached = tried.filter((_, index) => results[index] === 'reached');
-      assert.deepEqual(reached, control.slice(0, 1), `from the ${where}, only the control fetch reaches the listener (the listener refuses every WebSocket upgrade)`);
-    }
-    assert.ok(seen.length >= 4, `the controls did not reach the listener: ${JSON.stringify(seen)}`);
-    const escaped = seen.filter((line) => !line.startsWith(`${CONTROL_HOST}:`));
-    assert.deepEqual(escaped, [], 'a request under a name or address the rules refuse reached the listener');
-    await page.close();
-  });
 
-  const cached = await app.step('a page in the cache-on browser loads its modules from the cache on a reload', async () => {
-    const page = await openCached(app, cachedContext, host.url);
-    const hits = await cacheHits(cachedContext, page);
-    await page.reload();
-    await page.waitForFunction(() => 'notes' in window);
-    assert.ok(hits.size > 0, 'no request came from the HTTP cache, so the cache is off and the restart below tests nothing');
-    assert.deepEqual(await pageGenerations(page), { html: before, module: before });
-    hits.clear();
-    return { page, hits };
-  });
+    const cached = await app.step('a page in the cache-on browser loads its modules from the cache on a reload', async () => {
+      const page = await openCached(app, cachedContext, host.url);
+      const hits = await cacheHits(cachedContext, page);
+      await page.reload();
+      await page.waitForFunction(() => 'notes' in window);
+      assert.ok(hits.size > 0, 'no request came from the HTTP cache, so the cache is off and the restart below tests nothing');
+      assert.deepEqual(await pageGenerations(page), { html: before, module: before });
+      hits.clear();
+      return { page, hits };
+    });
 
-  // Vite's client reloads the open page once the restarted server answers.
-  // Playwright's page.close() can hang for good when it lands while a page
-  // reloads, so the scenario waits for that reload and reads from the
-  // reloaded page instead of closing it.
-  let reloaded: Promise<unknown> = Promise.resolve();
-  let cachedReloaded: Promise<unknown> = Promise.resolve();
-  await app.step('edit vite.config.js; Vite restarts the server', async () => {
-    const mark = host.process.mark();
-    reloaded = page.waitForEvent('load', { timeout: 90_000 });
-    cachedReloaded = cached.page.waitForEvent('load', { timeout: 90_000 });
-    // The last steps await the reloads; this keeps a failure before then from going unhandled.
-    reloaded.catch(() => {});
-    cachedReloaded.catch(() => {});
-    const config = app.readFile('vite.config.js');
-    const edited = config.replace(
-      'server: { port: 5181, strictPort: true },',
-      'server: { port: 5181, strictPort: true, headers: { "x-config-revision": "2" } },',
-    );
-    assert.notEqual(edited, config, 'the edit did not apply to vite.config.js');
-    app.writeFile('vite.config.js', edited);
-    const [outcome] = await host.process.waitForLog(/server restarted|server restart failed/, { since: mark, timeoutMs: 60_000 });
-    assert.equal(outcome, 'server restarted', `Vite reported: ${host.process.output.slice(mark).trim()}`);
-  });
+    // Vite's client reloads the open page once the restarted server answers.
+    // Playwright's page.close() can hang for good when it lands while a page
+    // reloads, so the scenario waits for that reload and reads from the
+    // reloaded page instead of closing it.
+    let reloaded: Promise<unknown> = Promise.resolve();
+    let cachedReloaded: Promise<unknown> = Promise.resolve();
+    await app.step('edit vite.config.js; Vite restarts the server', async () => {
+      const mark = host.process.mark();
+      reloaded = page.waitForEvent('load', { timeout: 90_000 });
+      cachedReloaded = cached.page.waitForEvent('load', { timeout: 90_000 });
+      // The last steps await the reloads; this keeps a failure before then from going unhandled.
+      reloaded.catch(() => {});
+      cachedReloaded.catch(() => {});
+      const config = app.readFile('vite.config.js');
+      const edited = config.replace(
+        'server: { port: 5181, strictPort: true },',
+        'server: { port: 5181, strictPort: true, headers: { "x-config-revision": "2" } },',
+      );
+      assert.notEqual(edited, config, 'the edit did not apply to vite.config.js');
+      app.writeFile('vite.config.js', edited);
+      const [outcome] = await host.process.waitForLog(/server restarted|server restart failed/, { since: mark, timeoutMs: 60_000 });
+      assert.equal(outcome, 'server restarted', `Vite reported: ${host.process.output.slice(mark).trim()}`);
+    });
 
-  await app.step('the restarted server runs the edited config on a new host generation', async () => {
-    const response = await fetch(`${host.url}/`);
-    assert.equal(response.headers.get('x-config-revision'), '2');
-    assert.notEqual(await hostInstance(host.url), before);
-  });
+    await app.step('the restarted server runs the edited config on a new host generation', async () => {
+      const response = await fetch(`${host.url}/`);
+      assert.equal(response.headers.get('x-config-revision'), '2');
+      assert.notEqual(await hostInstance(host.url), before);
+    });
 
-  await app.step('the note written before the restart reads back after it', async () => {
-    await reloaded;
-    await page.waitForFunction(() => 'notes' in window, undefined, { timeout: 30_000 });
-    const note = await within('page.evaluate(() => notes.read())', 30_000, page.evaluate(() => notes.read()));
-    assert.equal(note, 'before restart');
-  });
+    await app.step('the note written before the restart reads back after it', async () => {
+      await reloaded;
+      await page.waitForFunction(() => 'notes' in window, undefined, { timeout: 30_000 });
+      const note = await within('page.evaluate(() => notes.read())', 30_000, page.evaluate(() => notes.read()));
+      assert.equal(note, 'before restart');
+    });
 
-  await app.step('the cache-on page reloads onto the new generation, with no stale runtime module', async () => {
-    try {
+    await app.step('the cache-on page reloads onto the new generation, with no stale runtime module', async () => {
       await cachedReloaded;
       await cached.page.waitForFunction(() => 'notes' in window, undefined, { timeout: 30_000 });
       const after = await hostInstance(host.url);
       assert.ok(cached.hits.size > 0, 'the reload after the restart took nothing from the HTTP cache, so it tests nothing');
-      console.log(`  hosted-dev-server-restart: the cache-on reload took ${cached.hits.size} responses from the HTTP cache or a 304: ${[...cached.hits].join(", ")}`);
+      console.log(`  hosted-dev-server-restart: the cache-on reload took ${cached.hits.size} responses from the HTTP cache or a 304: ${[...cached.hits].join(', ')}`);
       assert.deepEqual(
         await pageGenerations(cached.page),
         { html: after, module: after },
@@ -233,8 +233,8 @@ export default scenario(async (app) => {
       );
       const note = await within('cached page notes.read()', 30_000, cached.page.evaluate(() => notes.read()));
       assert.equal(note, 'before restart');
-    } finally {
-      await cachedBrowser.close();
-    }
-  });
+    });
+  } finally {
+    await cachedBrowser.close();
+  }
 });

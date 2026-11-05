@@ -184,7 +184,16 @@ describe('allowances that match nothing', () => {
 
   test('a pattern whose error comes only in some runs says so, and passes a run without it', () => {
     const app = run();
-    app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the routes mount' });
+    app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the routes mount (#2098)' });
+    expect(app.unexpectedHostErrors()).toEqual([]);
+  });
+
+  test('a mayNotHappen reason that is blank or cites no issue is refused, naming the pattern', () => {
+    const app = run();
+    for (const reason of ['', '   ', 'a race decides it']) {
+      expect(() => app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: reason }))
+        .toThrow('expectHostError(/^404 POST \\/__pyric\\/diagnostics$/): mayNotHappen must say why the error comes only in some runs and cite its issue');
+    }
     expect(app.unexpectedHostErrors()).toEqual([]);
   });
 
