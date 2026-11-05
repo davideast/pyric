@@ -165,7 +165,7 @@ const PLAYGROUND_FILE_GATES = {
  *  elsewhere. `pick` narrows to what the wrapper actually registers. */
 const PLAYGROUND_WRAPPERS = {
   [`${PLAY}/tools/core/firestoreExtractIndexes.ts`]: {
-    file: `${PYRIC}/rules/indexes/extractTool.ts`,
+    file: `${PYRIC}/indexes/extractTool.ts`,
     factory: 'createFirestoreExtractTool',
     gate: 'always-on',
   },

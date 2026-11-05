@@ -5,8 +5,8 @@
  */
 import { describe, test, expect } from 'bun:test';
 import ts from 'typescript';
-import { classifyQueryCall } from '../../../../src/rules/indexes/extract/classify.js';
-import { getCalleeName, parseSource } from '../../../../src/rules/indexes/extract/ast.js';
+import { classifyQueryCall } from '../../../src/indexes/extract/classify.js';
+import { getCalleeName, parseSource } from '../../../src/indexes/extract/ast.js';
 
 function findFirstQueryCall(src: string): ts.CallExpression {
   const sf = parseSource('test.js', src);

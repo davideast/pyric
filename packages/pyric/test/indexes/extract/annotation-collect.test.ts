@@ -3,8 +3,8 @@
  * leading JSDoc comments and parses any @firestore-* tags out of them.
  */
 import { describe, test, expect } from 'bun:test';
-import { parseSource } from '../../../../src/rules/indexes/extract/ast.js';
-import { collectAnnotations } from '../../../../src/rules/indexes/extract/annotation-collect.js';
+import { parseSource } from '../../../src/indexes/extract/ast.js';
+import { collectAnnotations } from '../../../src/indexes/extract/annotation-collect.js';
 
 describe('collectAnnotations — function declarations', () => {
   test('function decl with @firestore-mutex annotation', () => {

@@ -5,8 +5,8 @@
  */
 import { describe, test, expect } from 'bun:test';
 import ts from 'typescript';
-import { scanFunctionBody, type CallResolver } from '../../../../src/rules/indexes/extract/dataflow.js';
-import { findFunctionByName, parseSource } from '../../../../src/rules/indexes/extract/ast.js';
+import { scanFunctionBody, type CallResolver } from '../../../src/indexes/extract/dataflow.js';
+import { findFunctionByName, parseSource } from '../../../src/indexes/extract/ast.js';
 
 function scan(snippet: string, fnName = 'fn', varName = 'q') {
   const sf = parseSource('test.js', snippet);

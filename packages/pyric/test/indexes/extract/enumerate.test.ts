@@ -3,8 +3,8 @@
  * keeps these tests independent of the dataflow walker.
  */
 import { describe, test, expect } from 'bun:test';
-import { enumerateShapes, pruneByAnnotations } from '../../../../src/rules/indexes/extract/enumerate.js';
-import type { Annotations, Fragment, QueryBaseDecl, QueryShape } from '../../../../src/rules/indexes/extract/types.js';
+import { enumerateShapes, pruneByAnnotations } from '../../../src/indexes/extract/enumerate.js';
+import type { Annotations, Fragment, QueryBaseDecl, QueryShape } from '../../../src/indexes/extract/types.js';
 
 function unconditional(kind: 'where' | 'orderBy', spec: Record<string, unknown>): Fragment {
   return {

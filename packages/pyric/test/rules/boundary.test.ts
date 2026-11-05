@@ -25,8 +25,14 @@ const ALLOWED_EDGES: readonly string[] = [
   // src/rules-tools.
   'simulator-tools-impl.ts -> ../rules-tools/simulator-tools-impl.js',
   'simulator.ts -> ../rules-tools/simulator.js',
-  // Index tools, which move above rules.
-  'indexes/extractTool.ts -> ../../sandbox/internal/tool-handler.js',
+  // One-line shims left at the old paths after index extraction moved to
+  // src/indexes.
+  'indexes/extract/composite.ts -> ../../../indexes/extract/composite.js',
+  'indexes/extract/extractor.ts -> ../../../indexes/extract/extractor.js',
+  'indexes/extract/types.ts -> ../../../indexes/extract/types.js',
+  'indexes/extractHandler.ts -> ../../indexes/extractHandler.js',
+  'indexes/extractTool.ts -> ../../indexes/extractTool.js',
+  'indexes/types.ts -> ../../indexes/types.js',
   // Shared groundwork, which moves down into the engine.
   'api/rtdb-case-validation.ts -> ../../database/writable-path.js',
   'api/rtdb-case-validation.ts -> ../../sandbox/branches/state-diff.js',
