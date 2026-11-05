@@ -99,11 +99,28 @@ export class WorkerTargetWatch {
     }
   }
 
+  /**
+   * When a shared worker's last page goes, as on a reload, Chromium keeps an
+   * attached session's target and restarts the worker under it for the next
+   * page, holding the new worker before its script runs until the debugger
+   * lets it go. Without this, the reloaded page waits on a worker that never runs.
+   */
+  private resume(sessionId: string): void {
+    const message = JSON.stringify({ id: 2, method: 'Runtime.runIfWaitingForDebugger' });
+    this.session.send('Target.sendMessageToTarget', { sessionId, message }).catch(() => {
+      // The worker ended again before it was resumed.
+    });
+  }
+
   private read(sessionId: string, text: string): void {
     const target = this.attached.get(sessionId);
     if (!target) return;
     let message: { method?: string; params?: { exceptionDetails?: ExceptionDetails } };
     try { message = JSON.parse(text) as typeof message; } catch { return; }
+    if (message.method === 'Inspector.targetReloadedAfterCrash') {
+      this.resume(sessionId);
+      return;
+    }
     const details = message.params?.exceptionDetails;
     if (message.method !== 'Runtime.exceptionThrown' || !details) return;
     const key = `${sessionId}:${details.exceptionId ?? text}`;
