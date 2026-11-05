@@ -2,10 +2,12 @@
  * Installs pyric the way a new user does and fails on any crash. For each
  * template create-pyric offers, in a clean temporary directory with a fresh
  * HOME, it runs `npx --yes create-pyric@<tag> <dir> --template <name>`, then
- * `npm install` from the npm registry, starts the template's own dev command,
- * opens the page in Chromium and drives the template's main flow: sign in,
- * one write, one read, a reload. `crashFindings` (fresh-install-checks.ts)
- * decides what fails the run.
+ * `npm install` from the npm registry, runs plain `npm run dev` on the
+ * template's default host and port, opens the page in Chromium and drives the
+ * template's main flow: sign in, one write, one read, a reload.
+ * `crashFindings` (fresh-install-checks.ts) decides what fails the run, and
+ * `runNotes` adds npm's audit summary, the dev command and the chip to
+ * findings.txt.
  *
  *   bun scripts/ci/fresh-install.ts run [--tag exp] [--templates web,chat] [--out <dir>]
  *                                       [--proxy http://127.0.0.1:<port> --egress-log <file>]
@@ -36,40 +38,21 @@ import { AppRun, launchScenarioBrowser, sleep, StepFailure, type AppProcess } fr
 import {
   ALLOWANCES,
   crashFindings,
+  DEV_SETUPS,
+  devCommandLine,
   firewallFindings,
+  installEnvironment,
   parseFirewallRejects,
-  REGISTRY_HOST,
+  runNotes,
   startEgressProxy,
   UNHANDLED_REJECTION_MARK,
   WORKER_ERROR_MARK,
+  type DevCommandRun,
+  type DevSetup,
   type EgressEntry,
   type StepRecord,
   type TemplateEvidence,
 } from './fresh-install-checks.ts';
-
-// ─── Egress guard ──────────────────────────────────────────────────────
-
-/**
- * The environment of create and install: the egress guard as the proxy, and
- * no audit or funding requests. Those reach only the registry, but they add
- * requests no step needs. The driver's processes inherit nothing else, so
- * these are set here, not in the workflow.
- */
-function installEnvironment(proxyUrl: string): Record<string, string> {
-  return {
-    npm_config_audit: 'false',
-    npm_config_fund: 'false',
-    HTTPS_PROXY: proxyUrl,
-    HTTP_PROXY: proxyUrl,
-    https_proxy: proxyUrl,
-    http_proxy: proxyUrl,
-    NO_PROXY: '127.0.0.1,localhost,::1',
-    no_proxy: '127.0.0.1,localhost,::1',
-    npm_config_https_proxy: proxyUrl,
-    npm_config_proxy: proxyUrl,
-    npm_config_registry: `https://${REGISTRY_HOST}/`,
-  };
-}
 
 function readJsonLines<T>(path: string): T[] {
   if (!existsSync(path)) return [];
@@ -123,12 +106,8 @@ interface PostsPage {
 
 interface PageFlow {
   kind: 'page';
-  /** Arguments after `npm run dev --` that put the page on 127.0.0.1:`port`. */
-  devArgs(port: number): string[];
-  /** Environment for the dev command beyond the run's own. */
-  devEnv?: Record<string, string>;
-  /** `required` where the template's plane always mounts the runtime chip (the Vite plugin). */
-  chip: 'required' | 'optional';
+  /** Where the template's own `npm run dev` serves, and whether its pages mount the chip. */
+  dev: DevSetup;
   drive(page: Page, run: TemplateRun): Promise<void>;
 }
 
@@ -138,20 +117,17 @@ interface ScriptFlow {
 
 const SERVE_TIMEOUT_MS = 180_000;
 const FLOW_TIMEOUT_MS = 60_000;
-const VITE_ARGS = (port: number) => ['--host', '127.0.0.1', '--port', String(port), '--strictPort'];
 
 const FLOWS: Record<TemplateName, PageFlow | ScriptFlow> = {
   // The served HTML already says "Signed out", so the required chip is what shows the page's code ran.
   web: {
     kind: 'page',
-    devArgs: VITE_ARGS,
-    chip: 'required',
+    dev: DEV_SETUPS.web,
     drive: (page, run) => drivePosts(page, run, { signIn: '#sign-in', title: '#post-title', submit: '#add-post button[type="submit"]', posts: '#posts' }),
   },
   static: {
     kind: 'page',
-    devArgs: (port) => ['--no-open', '--host', '127.0.0.1', '--port', String(port)],
-    chip: 'optional',
+    dev: DEV_SETUPS.static,
     drive: (page, run) => drivePosts(page, run, {
       signIn: '#sign-in',
       title: '#post-title',
@@ -162,11 +138,7 @@ const FLOWS: Record<TemplateName, PageFlow | ScriptFlow> = {
   },
   nextjs: {
     kind: 'page',
-    // `pyric sandbox -- next dev`: these land after `next dev`.
-    devArgs: (port) => ['--port', String(port), '--hostname', '127.0.0.1'],
-    // The firewall rejects anything but loopback, so telemetry is turned off the way a careful user does.
-    devEnv: { NEXT_TELEMETRY_DISABLED: '1' },
-    chip: 'optional',
+    dev: DEV_SETUPS.nextjs,
     drive: (page, run) => drivePosts(page, run, {
       signIn: '#sign-in-button',
       title: '#post-title-input',
@@ -177,7 +149,7 @@ const FLOWS: Record<TemplateName, PageFlow | ScriptFlow> = {
       serverStatus: { selector: '#api-status', prefix: 'Server-Side Admin API Runtime:' },
     }),
   },
-  chat: { kind: 'page', devArgs: VITE_ARGS, chip: 'required', drive: driveChat },
+  chat: { kind: 'page', dev: DEV_SETUPS.chat, drive: driveChat },
   node: { kind: 'script' },
 };
 
@@ -193,11 +165,9 @@ function readChip(): string {
 }
 
 async function chipState(page: Page, run: TemplateRun): Promise<string> {
-  const timeout = run.chip === 'required' ? FLOW_TIMEOUT_MS : 10_000;
+  const timeout = run.chip === 'expected' ? FLOW_TIMEOUT_MS : 10_000;
   await page.waitForSelector('[data-pyric-runtime-chip-host]', { state: 'attached', timeout }).catch(() => undefined);
-  const state = await page.evaluate(readChip);
-  if (state === 'absent' && run.chip === 'required') return 'absent, though this template always mounts it';
-  return state;
+  return page.evaluate(readChip);
 }
 
 async function signInThroughDialog(page: Page, trigger: string): Promise<void> {
@@ -278,7 +248,9 @@ interface TemplateRun {
   app: AppRun;
   project: string;
   chipStates: string[];
-  chip: PageFlow['chip'];
+  chip: DevSetup['chip'];
+  devCommand?: DevCommandRun;
+  installOutput?: string;
   /** The browser context, once the flow opened one. */
   context?: BrowserContext;
 }
@@ -309,6 +281,23 @@ async function watchContext(context: BrowserContext, log: string[]): Promise<voi
   await context.tracing.start({ screenshots: true, snapshots: true });
 }
 
+/**
+ * `localhost` as a dev server may bind it: 127.0.0.1, ::1, or both. Bun's
+ * fetch tries only one, so the probe asks each; Chromium tries both itself.
+ */
+function loopbackForms(url: string): string[] {
+  const parsed = new URL(url);
+  if (parsed.hostname !== 'localhost') return [url];
+  return ['127.0.0.1', '[::1]'].map((host) => url.replace('//localhost', `//${host}`));
+}
+
+async function answersOnSomeLoopback(url: string): Promise<boolean> {
+  for (const form of loopbackForms(url)) {
+    if (await answersOk(form)) return true;
+  }
+  return false;
+}
+
 async function answersOk(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
@@ -323,7 +312,7 @@ async function waitUntilServed(dev: AppProcess, url: string): Promise<void> {
   const deadline = Date.now() + SERVE_TIMEOUT_MS;
   for (;;) {
     if (!dev.running) throw new Error(`npm run dev exited (code ${await dev.exited}) before it served ${url}`);
-    if (await answersOk(`${url}/__pyric/init.json`) && await answersOk(`${url}/`)) return;
+    if (await answersOnSomeLoopback(`${url}/__pyric/init.json`) && await answersOnSomeLoopback(`${url}/`)) return;
     if (Date.now() > deadline) throw new Error(`npm run dev did not serve ${url}/ and ${url}/__pyric/init.json within ${SERVE_TIMEOUT_MS / 1000}s`);
     await sleep(500);
   }
@@ -337,11 +326,17 @@ async function expectExit(app: AppRun, step: string, command: string, args: stri
   });
 }
 
+/** The template's own `scripts.dev`, as its package.json says. */
+function devScript(project: string): string {
+  const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
+  return manifest.scripts?.dev ?? '(no dev script)';
+}
+
 async function runPageFlow(run: TemplateRun, flow: PageFlow): Promise<void> {
-  const port = await run.app.freePort();
-  const url = `http://127.0.0.1:${port}`;
+  const { url, env } = flow.dev;
+  run.devCommand = { ran: devCommandLine(flow.dev), script: devScript(join(run.app.dir, run.project)), url };
   const dev = await run.app.step('npm run dev serves the page', async () => {
-    const child = run.app.commandProcess('npm', ['run', 'dev', '--', ...flow.devArgs(port)], { cwd: run.project, env: flow.devEnv });
+    const child = run.app.commandProcess('npm', ['run', 'dev'], { cwd: run.project, env });
     await waitUntilServed(child, url);
     return child;
   });
@@ -364,7 +359,7 @@ async function runScriptFlow(run: TemplateRun): Promise<void> {
 async function runTemplate(run: TemplateRun, options: RunOptions): Promise<void> {
   const proxied = { env: installEnvironment(options.proxyUrl) };
   await expectExit(run.app, `npx create-pyric@${options.tag} --template ${run.name}`, 'npx', ['--yes', `create-pyric@${options.tag}`, run.project, '--template', run.name], { ...proxied, timeoutMs: 300_000 });
-  await expectExit(run.app, 'npm install', 'npm', ['install'], { ...proxied, cwd: run.project, timeoutMs: 600_000 });
+  run.installOutput = await expectExit(run.app, 'npm install', 'npm', ['install'], { ...proxied, cwd: run.project, timeoutMs: 600_000 });
   const flow = FLOWS[run.name];
   if (flow.kind === 'page') await runPageFlow(run, flow);
   else await runScriptFlow(run);
@@ -386,7 +381,8 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
   mkdirSync(home, { recursive: true });
   const app = new RecordedAppRun(name, options.workDir, home, () => Promise.resolve(browser), options.stepsFile);
   const flow = FLOWS[name];
-  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.chip : 'optional' };
+  // A script template has no page, so no chip is expected.
+  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.dev.chip : 'not expected' };
   let failedStep: TemplateEvidence['failedStep'];
   try {
     await runTemplate(run, options);
@@ -398,7 +394,17 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
   await saveLogs(run, home, join(options.out, name));
   await app.close();
   const serverOutput = app.processes.filter((child) => child.name.includes('npm run dev')).map((child) => child.output).join('\n');
-  return { template: name, failedStep, browserLog: [...app.browserLog], serverOutput, chipStates: run.chipStates, hostErrors: app.unexpectedHostErrors() };
+  return {
+    template: name,
+    failedStep,
+    browserLog: [...app.browserLog],
+    serverOutput,
+    chipStates: run.chipStates,
+    chip: run.chip,
+    devCommand: run.devCommand,
+    installOutput: run.installOutput,
+    hostErrors: app.unexpectedHostErrors(),
+  };
 }
 
 // ─── Entry points ──────────────────────────────────────────────────────
@@ -452,9 +458,11 @@ async function run(args: string[]): Promise<number> {
 
   const egress = egressLog === undefined ? inProcess : readJsonLines<EgressEntry>(egressLog);
   writeFileSync(join(out, 'egress.jsonl'), egress.map((entry) => JSON.stringify(entry)).join('\n'));
-  const { failing, allowed } = crashFindings({ templates, egress, steps: readJsonLines<StepRecord>(stepsFile) });
-  writeFileSync(join(out, 'findings.txt'), [...failing, ...allowed].join('\n'));
-  for (const line of [...failing, ...allowed]) console.error(`[fresh-install] ${line}`);
+  const evidence = { templates, egress, steps: readJsonLines<StepRecord>(stepsFile) };
+  const { failing, allowed } = crashFindings(evidence);
+  const lines = [...failing, ...allowed, ...runNotes(evidence)];
+  writeFileSync(join(out, 'findings.txt'), lines.join('\n'));
+  for (const line of lines) console.error(`[fresh-install] ${line}`);
   console.log(`[fresh-install] ${failing.length} failing, ${allowed.length} allowed; logs in ${out}`);
   return failing.length === 0 ? 0 : 1;
 }

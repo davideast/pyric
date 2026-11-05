@@ -251,9 +251,12 @@ export function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: st
   return defaultRoot;
 }
 
-/** Opens the live rows with the `@pyric/live` the project root resolves, and lets the page load its files. */
+/**
+ * Opens the live rows with the installed `@pyric/live`, the supplier's own
+ * or else the one the project root resolves, and lets the page load its files.
+ */
 async function openSuppliedRows(supplied: SuppliedRows, resolved: ResolvedConfig): Promise<void> {
-  const found = await loadRowModulePackage(resolved.root);
+  const found = await loadRowModulePackage(resolved.root, supplied.liveRoot);
   supplied.open(found);
   const allow = resolved.server?.fs?.allow;
   const needsAllowance = Array.isArray(allow) && !allow.includes(found.root);
@@ -286,8 +289,8 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
  * The plugin, with the live rows serving pages in place of the swap
  * (`vite-supplied-rows.ts`). `pyric()` passes none; only the internal
  * `@pyric/cli/vite/internal/supplied-rows` entry passes them. They open in
- * `configResolved`, from the `@pyric/live` installed in the project root,
- * and the dev server refuses to start without it.
+ * `configResolved`, from the `@pyric/live` that supplied them or else the
+ * one the project root resolves, and the dev server refuses to start without it.
  */
 export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows): Plugin & EnvironmentHooks {
   const moduleContext = createViteModuleContext();

@@ -66,11 +66,14 @@ describe('worker port ID tokens last one hour and refresh on read', () => {
       const authStateSnaps = snapsFor(messages, 'auth-state');
 
       getClock(sandbox).advance(SIXTY_ONE_MINUTES_MS);
+      const before = getClock(sandbox).now();
       const second = await send({ method: 'auth.getIdToken' });
+      const after = getClock(sandbox).now();
       const token = (second as { value?: unknown }).value;
       expect(token).not.toBe((first as { value?: unknown }).value);
       const claims = await claimsOf(token);
-      expect(claims.iat).toBe(Math.floor(getClock(sandbox).now() / 1000));
+      expect(claims.iat).toBeGreaterThanOrEqual(Math.floor(before / 1000));
+      expect(claims.iat).toBeLessThanOrEqual(Math.floor(after / 1000));
       expect(portSession(context, port)?.state.token?.iat).toBe(claims.iat);
       expect(snapsFor(messages, 'id-token')).toBe(idTokenSnaps + 1);
       expect(snapsFor(messages, 'auth-state')).toBe(authStateSnaps);

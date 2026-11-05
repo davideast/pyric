@@ -200,9 +200,13 @@ export const WORKER_SESSION_RETENTION_MS = 60_000;
 /** How often every bridge client sends `ping` while attached (ADR-0019). */
 export const HOSTED_HEARTBEAT_INTERVAL_MS = 15_000;
 /**
- * How long a client waits without any frame from the host before it treats
- * its socket as dropped and reconnects (ADR-0019). Checked before each
- * heartbeat, so three heartbeats go unanswered first.
+ * How long a client waits for the host before it treats its socket as dropped
+ * and reconnects (ADR-0019). Checked before each heartbeat. The web hosted
+ * client counts it from its oldest unanswered ping, so a hidden tab whose
+ * throttled heartbeats run 60 s apart stays attached, and it also drops a
+ * socket that has delivered no frame for {@link HOST_PEER_LIVENESS_TIMEOUT_MS}
+ * (#2097). The Node remote client and the native clients count it from the
+ * last frame of any kind.
  */
 export const HOSTED_CLIENT_LIVENESS_TIMEOUT_MS = 3 * HOSTED_HEARTBEAT_INTERVAL_MS;
 /**

@@ -23,14 +23,21 @@ export type { PyricWrite, PyricWriter, PyricWriteRefusal } from './hosted/own-wr
 export type { LiveListener, LiveListenerActivity } from './entries/live-listener-journal.js';
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
 
-/** What the supplier gives: only the error for a refused import. */
+/** What the supplier gives: the error for a refused import, and where it is installed. */
 export interface SuppliedRowsInput {
   readonly refusal: SuppliedRowsRefusal;
+  /**
+   * The folder of the `@pyric/live` package calling this seam. The rows'
+   * source comes from the `@pyric/live` that resolves from there, before the
+   * one the project root resolves, so the rows open when that package is
+   * installed beside the app rather than in it.
+   */
+  readonly liveRoot?: string;
 }
 
 /** The plugin `pyric(options)` builds, with the live rows serving pages in place of the swap. */
 export function pyricWithSuppliedRows(options: PyricOptions, input: SuppliedRowsInput): Plugin & EnvironmentHooks {
-  return createPyricPlugin(options, suppliedRows(input.refusal));
+  return createPyricPlugin(options, suppliedRows(input.refusal, input.liveRoot));
 }
 
 /**

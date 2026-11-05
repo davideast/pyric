@@ -11,16 +11,19 @@
  *
  * It is `@pyric/cli`'s plugin on the Node host (`hosted: true`) with the live
  * rows, through the one internal seam. The seam loads the row modules'
- * source from this package as the project installs it (`page-modules.ts`),
- * so nothing in `pyric` or `@pyric/cli` opens the rows without it. The dev
- * server is the Node host: a Node process under `@pyric/live/register`
- * finds it through the project's `.pyric/serve.json`, as it finds the host
- * `pyric-live` starts.
+ * source from this package (`page-modules.ts`): the copy this file is part
+ * of, which may be installed beside the app rather than in it, or else the
+ * one the Vite root resolves. So nothing in `pyric` or `@pyric/cli` opens the
+ * rows without it. The dev server is the Node host: a Node process under
+ * `@pyric/live/register` finds it through the project's `.pyric/serve.json`,
+ * as it finds the host `pyric-live` starts.
  *
  * The dev server refuses to start when a start check fails
  * (`start-checks.ts`) or no project is set, and prints the start line once
  * it serves.
  */
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { liveProjectFor, pyricWithSuppliedRows, type PyricOptions } from '@pyric/cli/vite/internal/supplied-rows';
 import { liveRefusal } from './refusal.js';
 import { liveStartLine } from './start-line.js';
@@ -37,6 +40,9 @@ export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild'>;
 
 const ENTRY = '@pyric/live/vite';
 
+/** This package's folder: the one above `dist/` in the installed files, or above `src/` in the workspace. */
+const LIVE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
 /** Whether Vite runs the dev server: live mode never applies to a build or a preview. */
 function isDevServer(_config: unknown, env: { command: string; isPreview?: boolean }): boolean {
   return env.command === 'serve' && env.isPreview !== true;
@@ -44,7 +50,7 @@ function isDevServer(_config: unknown, env: { command: string; isPreview?: boole
 
 /** Live mode for `vite dev`. */
 export function pyricLive(options: PyricLiveOptions = {}): PyricPlugin {
-  const hosted = pyricWithSuppliedRows({ ...options, hosted: true }, { refusal: liveRefusal });
+  const hosted = pyricWithSuppliedRows({ ...options, hosted: true }, { refusal: liveRefusal, liveRoot: LIVE_ROOT });
   const configResolved = hosted.configResolved as ConfigResolvedHook | undefined;
   const configureServer = hosted.configureServer as ConfigureServerHook | undefined;
   let projectId = '';
