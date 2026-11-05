@@ -12,7 +12,7 @@
 // the recorded response, or the recorded stream error. A write no recording
 // holds fails the stream with FAILED_PRECONDITION.
 import { EventEmitter } from 'node:events';
-import type { Json, JsonObject, ListenExchange, Recording, WriteExchange } from './format.ts';
+import type { Json, JsonObject, ListenExchange, Recording, RtdbExchange, WriteExchange } from './format.ts';
 import { fill, matches, ReplayClock, ReplayTokens, type FillContext } from './values.ts';
 import type { StreamHandler, WebChannelSession } from './webchannel.ts';
 
@@ -30,9 +30,10 @@ export interface Received {
 export interface Unmatched {
   /**
    * The stream or REST surface, `http` for a host or path this harness does
-   * not replay, or `grpc` for a Firestore RPC other than Listen and Write.
+   * not replay, `grpc` for a Firestore RPC other than Listen and Write, or
+   * `rtdb` for an RTDB WebSocket message or connection.
    */
-  rpc: 'Listen' | 'Write' | 'auth' | 'http' | 'grpc';
+  rpc: 'Listen' | 'Write' | 'auth' | 'http' | 'grpc' | 'rtdb';
   as: string | null;
   request: Json;
 }
@@ -68,7 +69,7 @@ export class ReplayState {
   }
 
   /** The first matching exchange not yet used, or the last matching one when all are used. */
-  take<T extends ListenExchange | WriteExchange>(kind: T['kind'], as: string | null, fits: (exchange: T) => boolean): T | null {
+  take<T extends ListenExchange | WriteExchange | RtdbExchange>(kind: T['kind'], as: string | null, fits: (exchange: T) => boolean): T | null {
     const candidates = this.recordings
       .flatMap((recording) => recording.exchanges)
       .filter((exchange): exchange is T => exchange.kind === kind)
