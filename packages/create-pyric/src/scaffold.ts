@@ -55,8 +55,8 @@ export function applyDepsMode(
     mode === 'vendor' && opts.vendorSpecs
       ? Object.fromEntries(Object.entries(opts.vendorSpecs).filter(([pkg]) => pkg !== '@pyric/cli'))
       : undefined;
-  const overrides =
-    vendorOverrides && Object.keys(vendorOverrides).length > 0 ? vendorOverrides : t.overrides;
+  const hasVendorOverrides = vendorOverrides !== undefined && Object.keys(vendorOverrides).length > 0;
+  const overrides = hasVendorOverrides ? { ...t.overrides, ...vendorOverrides } : t.overrides;
   return {
     ...t,
     dependencies: rewrite(t.dependencies),

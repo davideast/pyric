@@ -50,5 +50,9 @@
     "pyric": "*",
     "firebase-admin": "~13.10.0",
     "firebase-functions": "^6.0.0"
+  },
+  "overrides": {
+    "@mongodb-js/zstd": "npm:@favware/skip-dependency@1.2.2",
+    "node-liblzma": "npm:@favware/skip-dependency@1.2.2"
   }
 }
