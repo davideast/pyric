@@ -199,10 +199,11 @@ export { requestStatusLabel } from '../types/request-observation.js';
 
 export { createActiveListenerState } from '../active-listeners.js';
 export { asSentence } from './sentence.js';
+export { assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS } from './auth-token-claims.js';
 export {
-  accountTokenClaims, assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
+  accountTokenClaims, idTokenAudience, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
   type TokenClaimAccount, type TokenClaimRecord,
-} from './auth-token-claims.js';
+} from '../../rules/auth/token-claims.js';
 export { providerVerifiesEmail } from './provider-email-verification.js';
 // Realtime Database replay: re-applies recorded sandbox events to a fresh
 // instance and reports where the replayed tree drifts from the recorded one.
@@ -304,7 +305,7 @@ export {
   type SandboxSigningKey,
 } from './sandbox-jwt.js';
 export {
-  checkIdToken, ID_TOKEN_LIFETIME_MS, idTokenAudience, isPastIdTokenRefreshPoint, mintIdToken, SANDBOX_PROJECT_ID, signIdToken,
+  checkIdToken, ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, mintIdToken, signIdToken,
   TOKEN_REFRESH_BUFFER_MS, type IdTokenCheck,
 } from './id-token.js';
 export {

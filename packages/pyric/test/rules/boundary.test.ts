@@ -38,8 +38,6 @@ const ALLOWED_EDGES: readonly string[] = [
   'api/rtdb-case-validation.ts -> ../../sandbox/branches/state-diff.js',
   'api/rtdb-firebase-json.ts -> ../../sandbox/internal/database-rules-config.js',
   'api/rtdb-instance-case.ts -> ../../sandbox/internal/instances.js',
-  'rtdb/simulation/handler.ts -> ../../../sandbox/internal/auth-token-claims.js',
-  'rtdb/simulation/handler.ts -> ../../../sandbox/sandbox-context.js',
   'rtdb/simulation/post-write-tree.ts -> ../../../database/sandbox/normalize.js',
   'rtdb/simulation/post-write-tree.ts -> ../../../database/sandbox/sentinels.js',
   'rtdb/simulation/spec.ts -> ../../../database/internal/query-projection.js',
