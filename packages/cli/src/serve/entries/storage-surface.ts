@@ -29,12 +29,14 @@ import {
 import { useWorker } from './worker-runtime.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
+import { markServiceUsed } from './service-use.js';
 import { updateMetadata as unavailableUpdateMetadata } from './unsupported/storage.js';
 
 const workerStorageByApp = new WeakMap<FirebaseApp, FirebaseStorage>();
 
 export function getStorage(app?: FirebaseApp, _bucketUrl?: string): FirebaseStorage {
   const resolved = app ?? getApp();
+  markServiceUsed();
   if (!useWorker) return pyricGetStorage(resolved, _bucketUrl);
   const existing = workerStorageByApp.get(resolved);
   if (existing) return existing;
