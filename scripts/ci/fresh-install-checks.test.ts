@@ -2,11 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import { connect, type AddressInfo } from 'node:net';
 import {
   ALLOWANCES,
+  auditSummary,
   canonicalAddress,
   crashFindings,
+  DEV_SETUPS,
+  devCommandLine,
   firewallFindings,
+  installEnvironment,
   isRegistryRequest,
   parseFirewallRejects,
+  runNotes,
   startEgressProxy,
   UNHANDLED_REJECTION_MARK,
   WORKER_ERROR_MARK,
@@ -88,12 +93,17 @@ describe('crashFindings', () => {
     expect(findings).toEqual([]);
   });
 
-  test('a runtime chip that is not Ready is a finding; a page without a chip is not', () => {
+  test('a runtime chip that is not Ready is a finding; a page without a chip is not where none is expected', () => {
     const findings = failing(run([
       template({ chipStates: ['Ready', 'error: A request failed in the last minute'] }),
-      template({ template: 'static', chipStates: ['absent'] }),
+      template({ template: 'nextjs', chip: 'not expected', chipStates: ['absent'] }),
     ]));
     expect(findings).toEqual(['web: runtime chip is not Ready: error: A request failed in the last minute']);
+  });
+
+  test('an absent chip fails on a template that mounts it', () => {
+    const findings = failing(run([template({ template: 'static', chip: 'expected', chipStates: ['Ready', 'absent'] })]));
+    expect(findings).toEqual(['static: runtime chip absent, though this template mounts it']);
   });
 
   test('a blocked external request or WebSocket from a page is a finding', () => {
@@ -476,5 +486,72 @@ describe('allowances', () => {
     expect(result.allowed).toHaveLength(2);
     expect(result.failing).toHaveLength(1);
     expect(result.failing[0]).toContain('github.com:443 (only registry.npmjs.org:443 may be reached) (at 2026-11-05T01:07:58.000Z');
+  });
+});
+
+describe('runtime chip expectations', () => {
+  test('each page template says whether its plane mounts the chip', () => {
+    expect(Object.fromEntries(Object.entries(DEV_SETUPS).map(([name, setup]) => [name, setup.chip]))).toEqual({
+      web: 'expected',
+      static: 'expected',
+      nextjs: 'not expected',
+      chat: 'expected',
+    });
+  });
+
+  test('findings.txt says "chip absent" where the chip is not expected, and what showed where it is', () => {
+    const notes = runNotes(run([
+      template({ template: 'nextjs', chip: 'not expected', chipStates: ['absent', 'absent'] }),
+      template({ template: 'static', chip: 'expected', chipStates: ['Ready', 'Ready'] }),
+      template({ template: 'node', chipStates: [] }),
+    ]));
+    expect(notes).toEqual(['nextjs: runtime chip not expected: chip absent', 'static: runtime chip expected: Ready']);
+  });
+});
+
+describe('npm audit', () => {
+  test('create and install leave npm\'s audit and funding notices on', () => {
+    const env = installEnvironment('http://127.0.0.1:18080');
+    const npmSettings = Object.keys(env).filter((name) => name.startsWith('npm_config_')).sort();
+    expect(npmSettings).toEqual(['npm_config_https_proxy', 'npm_config_proxy', 'npm_config_registry']);
+  });
+
+  test('reads the summary line in each shape npm prints', () => {
+    const install = (summary: string) => `added 312 packages, and audited 313 packages in 9s\n\n58 packages are looking for funding\n  run \`npm fund\` for details\n\n${summary}\n`;
+    expect(auditSummary(install('found 0 vulnerabilities'))).toBe('found 0 vulnerabilities');
+    expect(auditSummary(install('3 moderate severity vulnerabilities\n\nTo address all issues, run:\n  npm audit fix'))).toBe('3 moderate severity vulnerabilities');
+    expect(auditSummary(install('1 high severity vulnerability'))).toBe('1 high severity vulnerability');
+    expect(auditSummary(install('7 vulnerabilities (2 low, 5 moderate)'))).toBe('7 vulnerabilities (2 low, 5 moderate)');
+    expect(auditSummary('added 1 package in 1s\n')).toBeUndefined();
+  });
+
+  test('findings.txt has the audit summary of each template, or says it is missing', () => {
+    const notes = runNotes(run([
+      template({ template: 'web', installOutput: 'added 40 packages, and audited 41 packages in 3s\n\nfound 0 vulnerabilities\n' }),
+      template({ template: 'node', chipStates: [], installOutput: 'up to date in 1s\n' }),
+    ]));
+    expect(notes).toEqual(['web: npm audit: found 0 vulnerabilities', 'node: npm audit: npm install printed no audit summary']);
+  });
+});
+
+describe('dev command', () => {
+  test('is the template\'s own npm run dev, with no host, port or open flags, on its default address', () => {
+    expect(Object.fromEntries(Object.entries(DEV_SETUPS).map(([name, setup]) => [name, `${devCommandLine(setup)} -> ${setup.url}`]))).toEqual({
+      web: 'npm run dev -> http://localhost:5173',
+      static: 'npm run dev -> http://localhost:3473',
+      nextjs: 'NEXT_TELEMETRY_DISABLED=1 npm run dev -> http://localhost:3000',
+      chat: 'npm run dev -> http://localhost:5173',
+    });
+  });
+
+  test('findings.txt lists the command run next to the template\'s npm run dev', () => {
+    const notes = runNotes(run([template({
+      template: 'nextjs',
+      devCommand: { ran: 'NEXT_TELEMETRY_DISABLED=1 npm run dev', script: 'pyric sandbox -- next dev', url: 'http://localhost:3000' },
+    })]));
+    expect(notes).toEqual([
+      'nextjs: dev command: ran `NEXT_TELEMETRY_DISABLED=1 npm run dev` (the template\'s `npm run dev` runs `pyric sandbox -- next dev`) '
+      + 'and opened http://localhost:3000/; CI is passed through and stdout is a pipe, so no browser opens on its own',
+    ]);
   });
 });
