@@ -26,6 +26,7 @@
  * `local-environment.ts`. The tree just stores bytes.
  */
 
+import { jsonEqual } from '../../rules/rtdb/data/json-equal.js';
 import { pathSegments } from '../../rules/rtdb/data/paths.js';
 
 export { pathSegments };
@@ -80,25 +81,14 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
 }
 
 /**
- * Structural RTDB JSON equality.
+ * Structural RTDB JSON equality: the rules engine's {@link jsonEqual}.
  *
- * Object key order is ignored, array order is preserved, and primitive
- * leaves compare by value. This is the equality RTDB listener diffs and
- * fixture replay use when deciding whether two JSON states are the same.
+ * Object key order is ignored, array order is preserved, keys are own
+ * keys (an own `__proto__` is an ordinary key), and numbers compare with
+ * `===`, so `-0` equals `0` as it does once JSON carries it. RTDB listener
+ * diffs and fixture replay use it to decide whether two states are the same.
  */
-export function jsonValuesEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b)) return false;
-    if (a.length !== b.length) return false;
-    return a.every((value, index) => jsonValuesEqual(value, b[index]));
-  }
-  if (!isJsonObject(a) || !isJsonObject(b)) return false;
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => key in b && jsonValuesEqual(a[key], b[key]));
-}
+export const jsonValuesEqual = jsonEqual;
 
 /**
  * In-memory JSON tree. One instance per sandbox.
