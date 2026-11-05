@@ -20,9 +20,25 @@ describe('sameRtdbValue', () => {
     expect(sameRtdbValue({ a: { b: 1 } }, { a: { b: 2 } })).toBe(false);
   });
 
-  it('uses Object.is semantics for scalar edge cases', () => {
-    expect(sameRtdbValue(Number.NaN, Number.NaN)).toBe(true);
-    expect(sameRtdbValue(-0, 0)).toBe(false);
+  it('agrees with the sandbox JSON equality on -0 and 0', () => {
+    expect(sameRtdbValue(0, -0)).toBe(true);
+    expect(sameRtdbValue({ n: -0 }, { n: 0 })).toBe(true);
     expect(sameRtdbValue(null, null)).toBe(true);
+    expect(sameRtdbValue(1, '1')).toBe(false);
+  });
+
+  it('treats a sparse-array hole and null as the same value', () => {
+    expect(sameRtdbValue([1, , 3], [1, null, 3])).toBe(true);
+    expect(sameRtdbValue({ list: [, 'b'] }, { list: [null, 'b'] })).toBe(true);
+    expect(sameRtdbValue([1, null], [1, 2])).toBe(false);
+  });
+
+  it('compares an own __proto__ key as data', () => {
+    const left: unknown = JSON.parse('{"__proto__":{"a":1}}');
+    const same: unknown = JSON.parse('{"__proto__":{"a":1}}');
+    const changed: unknown = JSON.parse('{"__proto__":{"a":2}}');
+    expect(sameRtdbValue(left, same)).toBe(true);
+    expect(sameRtdbValue(left, changed)).toBe(false);
+    expect(sameRtdbValue(left, {})).toBe(false);
   });
 });
