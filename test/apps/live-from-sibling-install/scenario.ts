@@ -18,6 +18,10 @@
  * dev server's `pyricLive({ passThrough })` lists it and the process reads
  * that list from the dev server's health report (#2122).
  *
+ * Then `pyric-live`, the command from `rules/`, starts from `web/` too. It
+ * walks up to the same project folder (#2148) and opens with its own
+ * `@pyric/live`, which `web/` and the project folder never resolve.
+ *
  * Neither the page nor the server makes a call, so nothing goes to production. Like every app
  * scenario this runs offline, and the browser blocks every host but loopback.
  */
@@ -68,7 +72,7 @@ export default scenario(async (app) => {
     const vite = app.commandProcess('node', ['node_modules/vite/bin/vite.js', 'web', '--host', '127.0.0.1', '--port', String(port), '--strictPort']);
     await vite.waitForLog(new RegExp(`@pyric/live/vite: live mode for the Firebase project ${PROJECT}\\.`));
     await servesInit(url);
-    return { url };
+    return { url, vite };
   });
 
   await app.step('the page loads firebase/app, firebase/auth and firebase/firestore through the live rows from rules/', async () => {
@@ -106,6 +110,21 @@ export default scenario(async (app) => {
     assert.match(result.resolved['firebase/firestore']!, /\/live-rows\/firebase\/firestore\.js$/, 'firebase/firestore is the live row');
     const installedSdk = pathToFileURL(`${realpathSync(join(app.dir, 'node_modules', 'firebase'))}/`).href;
     assert.ok(result.resolved['firebase/database']!.startsWith(installedSdk), `firebase/database is the app's installed SDK: ${result.resolved['firebase/database']}`);
+  });
+
+  await app.step('pyric-live started from web/ with the command from rules/ finds the project in the folder above', async () => {
+    // One hosted host per project: the dev server stops first, as a developer switching hosts stops it.
+    await host.vite.stop();
+    const port = await app.freePort();
+    const url = `http://127.0.0.1:${port}`;
+    // From web/, below the folder that holds firebase.json and .firebaserc: pyric-live walks up to it (#2148).
+    const live = app.commandProcess('node', ['../rules/node_modules/.bin/pyric-live', '--no-open', '--host', '127.0.0.1', '--port', String(port)], { cwd: 'web' });
+    await live.waitForLog(new RegExp(`pyric-live: live mode for the Firebase project ${PROJECT}\\.`));
+    await servesInit(url);
+    const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { configProjectId?: string; configSource?: string } };
+    assert.equal(health.live?.configProjectId, PROJECT);
+    assert.equal(health.live?.configSource, '.firebaserc');
+    await live.stop();
   });
 
   await app.step('nothing reached any host but loopback', () => {
