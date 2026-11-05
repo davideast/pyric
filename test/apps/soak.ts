@@ -222,3 +222,55 @@ export function judgeGrowth(samples: readonly MemorySample[], limit: GrowthLimit
   const verdicts = [...epochs.values()].map((epoch) => judgeEpoch(epoch, limit)).filter((verdict) => verdict !== undefined);
   return { growing: verdicts.some((verdict) => verdict.growing), lines: verdicts.map((verdict) => verdict.line) };
 }
+
+/** The self size and count of one kind of heap object: an object's constructor, `closure <name>`, or `(<type>)`. */
+export interface HeapType {
+  name: string;
+  count: number;
+  bytes: number;
+}
+
+interface HeapSnapshotJson {
+  snapshot: { meta: { node_fields: string[]; node_types: [string[], ...unknown[]] } };
+  nodes: number[];
+  strings: string[];
+}
+
+/** Sums a V8 heap snapshot's nodes by kind. Self sizes only, so the sums add up to the heap. */
+export function heapTypes(snapshotText: string): Map<string, HeapType> {
+  const snapshot = JSON.parse(snapshotText) as HeapSnapshotJson;
+  const fields = snapshot.snapshot.meta.node_fields;
+  const types = snapshot.snapshot.meta.node_types[0];
+  const width = fields.length;
+  const typeAt = fields.indexOf('type');
+  const nameAt = fields.indexOf('name');
+  const sizeAt = fields.indexOf('self_size');
+  const kinds = new Map<string, HeapType>();
+  for (let offset = 0; offset < snapshot.nodes.length; offset += width) {
+    const type = types[snapshot.nodes[offset + typeAt]!] ?? 'unknown';
+    const name = snapshot.strings[snapshot.nodes[offset + nameAt]!] ?? '';
+    const kind = type === 'object' ? name : type === 'closure' ? `closure ${name}` : `(${type})`;
+    const entry = kinds.get(kind) ?? { name: kind, count: 0, bytes: 0 };
+    entry.count += 1;
+    entry.bytes += snapshot.nodes[offset + sizeAt]!;
+    kinds.set(kind, entry);
+  }
+  return kinds;
+}
+
+export interface HeapTypeGrowth extends HeapType {
+  countGrowth: number;
+  bytesGrowth: number;
+}
+
+/** The kinds whose bytes grew most from `before` to `after`, largest growth first. */
+export function growingHeapTypes(before: Map<string, HeapType>, after: Map<string, HeapType>, top: number): HeapTypeGrowth[] {
+  return [...after.values()]
+    .map((entry) => {
+      const earlier = before.get(entry.name) ?? { count: 0, bytes: 0 };
+      return { ...entry, countGrowth: entry.count - earlier.count, bytesGrowth: entry.bytes - earlier.bytes };
+    })
+    .filter((entry) => entry.bytesGrowth > 0)
+    .sort((a, b) => b.bytesGrowth - a.bytesGrowth)
+    .slice(0, top);
+}

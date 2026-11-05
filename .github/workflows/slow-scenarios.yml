@@ -40,6 +40,10 @@ on:
         description: 'The soak seed, a number or a word, to replay a failure. Empty uses the scenario default.'
         required: false
         default: ''
+      soak_heap_snapshots:
+        description: 'Set to 1 to take two dev server heap snapshots before the first restart and save the kinds of object that grew.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -196,6 +200,7 @@ jobs:
         env:
           SOAK_MINUTES: ${{ inputs.soak_minutes || '60' }}
           SOAK_SEED: ${{ inputs.soak_seed }}
+          SOAK_HEAP_SNAPSHOTS: ${{ inputs.soak_heap_snapshots }}
         run: bun test/apps/run.ts --packages dist/packages long-session-soak
       # Always: a passing run's action log and memory samples are what the next failure is read against.
       - name: Upload the soak's logs, action log, and memory samples

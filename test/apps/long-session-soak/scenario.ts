@@ -19,11 +19,12 @@
 //
 //   SOAK_SEED=<n or word> SOAK_MINUTES=<n> bun test/apps/run.ts long-session-soak
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrowserContext, Page } from '@playwright/test';
 import { scenario, sleep, type App, type DevServer } from '../driver.ts';
 import { findProcessCrashes } from '../crash-output.ts';
+import { NodeInspector } from './inspector.ts';
 import {
   ActionLog,
   DEFAULT_MINUTES,
@@ -36,6 +37,9 @@ import {
   type MemorySample,
   type Random,
   type SoakSettings,
+  type HeapType,
+  growingHeapTypes,
+  heapTypes,
 } from '../soak.ts';
 
 export const slow = true;
@@ -63,8 +67,11 @@ const ACTIONS_BETWEEN_RESTARTS = 600;
 const ACTIONS_BETWEEN_RELOADS = 120;
 const ACTION_LIMIT_MS = 30_000;
 const SETTLE_MS = 10_000;
+/** How long Vite's client gets to reload the page once the restarted server answers. */
+const RESTART_RELOAD_MS = 30_000;
 const MB = 1024 * 1024;
 const PAGE_HEAP_LIMIT: GrowthLimit = { floorBytes: 48 * MB, ratio: 1, minSamples: 5 };
+const SERVER_HEAP_LIMIT: GrowthLimit = { floorBytes: 64 * MB, ratio: 0.5, minSamples: 5 };
 const SERVER_RSS_LIMIT: GrowthLimit = { floorBytes: 192 * MB, ratio: 0.75, minSamples: 5 };
 
 interface Account { email: string; password: string | null; uid: string }
@@ -161,15 +168,9 @@ function sortedEntries(record: Record<string, Post> | Map<string, Post>): Array<
   return entries.sort(([a], [b]) => a.localeCompare(b));
 }
 
-/** The dev server's resident set, from /proc. */
-function residentBytes(pid: number | undefined): number | undefined {
-  if (pid === undefined) return undefined;
-  try {
-    const kb = readFileSync(`/proc/${pid}/status`, 'utf8').match(/^VmRSS:\s+(\d+) kB$/m)?.[1];
-    return kb === undefined ? undefined : Number(kb) * 1024;
-  } catch {
-    return undefined;
-  }
+/** The dev server's environment: an inspector on a port of the soak's own, for collections and heap snapshots. */
+function inspectedEnv(inspectorPort: number): Record<string, string> {
+  return { NODE_OPTIONS: `--inspect=127.0.0.1:${inspectorPort}` };
 }
 
 /** One soak run: the app, its model, its log, and what it has measured. */
@@ -177,7 +178,13 @@ class Soak {
   readonly log = new ActionLog();
   readonly model = new Model();
   readonly pageHeap: MemorySample[] = [];
+  /** The dev server's V8 heap and its RSS, each read after a full collection. */
+  readonly serverHeap: MemorySample[] = [];
   readonly serverRss: MemorySample[] = [];
+  private inspector: NodeInspector | undefined;
+  /** The first heap snapshot's summary, with SOAK_HEAP_SNAPSHOTS=1, until the second is taken. */
+  private firstSnapshot: { at: number; types: Map<string, HeapType> } | undefined;
+  private snapshotsDone = false;
   private readonly random: Random;
   private readonly crashes: string[] = [];
   private readonly servers: DevServer[] = [];
@@ -195,6 +202,8 @@ class Soak {
     private host: DevServer,
     private page: Page,
     readonly settings: SoakSettings,
+    private readonly inspectorPort: number,
+    private readonly takeSnapshots: boolean,
   ) {
     this.random = seededRandom(settings.seed);
     this.servers.push(host);
@@ -490,14 +499,18 @@ class Soak {
     const port = this.host.port;
     const reloaded = this.page.waitForEvent('load', { timeout: 90_000 });
     reloaded.catch(() => {});
+    await this.heapSnapshot();
+    this.inspector?.close();
+    this.inspector = undefined;
     await this.host.process.stop();
-    this.host = await this.app.devServer({ port, cwd: PROJECT, name: `dev server after restart ${this.servers.length}` });
+    this.host = await this.app.devServer({ port, cwd: PROJECT, name: `dev server after restart ${this.servers.length}`, env: inspectedEnv(this.inspectorPort) });
     this.servers.push(this.host);
     this.serverEpoch += 1;
     this.restarting = false;
-    const loaded = await Promise.race([reloaded.then(() => true, () => false), sleep(30_000).then(() => false)]);
-    this.log.note(this.current!, loaded ? "Vite's client reloaded the page" : 'reloaded by the script');
-    if (!loaded) await this.call('page.reload()', (page) => page.reload());
+    // A page Vite's client does not reload is a dead page for a user, so the run fails rather than reloading it.
+    const loaded = await Promise.race([reloaded.then(() => true, () => false), sleep(RESTART_RELOAD_MS).then(() => false)]);
+    assert.ok(loaded, `Vite's client did not reload the page within ${RESTART_RELOAD_MS / 1000}s of the restarted server answering`);
+    this.log.note(this.current!, "Vite's client reloaded the page");
     this.pageEpoch += 1;
     this.model.listeners.clear();
     await this.pageReady(this.page, 'after a dev server restart');
@@ -523,6 +536,7 @@ class Soak {
   /** Compares everything the app reads back with the model, and checks the dev servers printed no crash. */
   async checkpoint(): Promise<void> {
     this.log.add('checkpoint');
+    if (!this.firstSnapshot) await this.heapSnapshot();
     for (const server of this.servers) {
       const printed = findProcessCrashes(server.process.output);
       assert.deepEqual(printed.map((crash) => `${crash.kind}: ${crash.message}`), [], `${server.process.name} printed a crash`);
@@ -553,9 +567,40 @@ class Soak {
     } finally {
       await session.detach().catch(() => {});
     }
-    const rss = residentBytes(this.host.process.pid);
-    if (rss !== undefined) this.serverRss.push({ at, epoch: this.serverEpoch, bytes: rss });
+    const server = await within('the dev server memory reading', ACTION_LIMIT_MS, (await this.serverInspector()).memoryAfterCollection());
+    this.serverHeap.push({ at, epoch: this.serverEpoch, bytes: server.heapUsed });
+    this.serverRss.push({ at, epoch: this.serverEpoch, bytes: server.rss });
     this.save();
+  }
+
+  closeInspector(): void {
+    this.inspector?.close();
+    this.inspector = undefined;
+  }
+
+  private async serverInspector(): Promise<NodeInspector> {
+    this.inspector ??= await NodeInspector.connect(this.inspectorPort);
+    return this.inspector;
+  }
+
+  /**
+   * With SOAK_HEAP_SNAPSHOTS=1: a heap snapshot of the dev server at the first
+   * checkpoint, and another just before the first restart, so both come from
+   * one process. The kinds of object that grew between them are saved.
+   */
+  private async heapSnapshot(): Promise<void> {
+    if (!this.takeSnapshots || this.snapshotsDone || this.serverEpoch > 0) return;
+    const inspector = await this.serverInspector();
+    const types = heapTypes(await within('a dev server heap snapshot', 120_000, inspector.heapSnapshot()));
+    if (!this.firstSnapshot) {
+      this.firstSnapshot = { at: this.seconds, types };
+      return;
+    }
+    this.snapshotsDone = true;
+    const rows = growingHeapTypes(this.firstSnapshot.types, types, 30).map((row) =>
+      `${(row.bytesGrowth / MB).toFixed(2).padStart(8)} MB  ${String(row.countGrowth).padStart(8)} objects  ${row.name}  (now ${(row.bytes / MB).toFixed(2)} MB in ${row.count})`);
+    const header = `dev server heap growth from +${this.firstSnapshot.at.toFixed(0)}s to +${this.seconds.toFixed(0)}s, self sizes after a collection:`;
+    writeFileSync(join(RESULTS, 'soak-heap-growth.txt'), `${[header, ...rows].join('\n')}\n`);
   }
 
   /** Saves what the page showed when the soak failed: a screenshot and its HTML, open dialogs included. */
@@ -570,7 +615,7 @@ class Soak {
   save(): void {
     mkdirSync(RESULTS, { recursive: true });
     writeFileSync(join(RESULTS, 'soak-actions.log'), `${this.log.text()}\n`);
-    const memory = { seed: this.settings.seed, minutes: this.settings.minutes, pageHeap: this.pageHeap, serverRss: this.serverRss };
+    const memory = { seed: this.settings.seed, minutes: this.settings.minutes, pageHeap: this.pageHeap, serverHeap: this.serverHeap, serverRss: this.serverRss };
     writeFileSync(join(RESULTS, 'soak-memory.json'), `${JSON.stringify(memory, null, 2)}\n`);
   }
 }
@@ -598,9 +643,14 @@ async function scaffold(app: App): Promise<void> {
 /** Each epoch of the page's heap and the dev server's RSS, judged for steady growth. */
 function memoryVerdict(run: Soak): { growing: boolean; report: string } {
   const heap = judgeGrowth(run.pageHeap, PAGE_HEAP_LIMIT);
+  const serverHeap = judgeGrowth(run.serverHeap, SERVER_HEAP_LIMIT);
   const rss = judgeGrowth(run.serverRss, SERVER_RSS_LIMIT);
-  const report = ['page JS heap:', ...heap.lines, 'dev server RSS:', ...rss.lines].join('\n');
-  return { growing: heap.growing || rss.growing, report };
+  const report = [
+    'page JS heap:', ...heap.lines,
+    'dev server heap used:', ...serverHeap.lines,
+    'dev server RSS:', ...rss.lines,
+  ].join('\n');
+  return { growing: heap.growing || serverHeap.growing || rss.growing, report };
 }
 
 async function openApp(app: App, host: DevServer): Promise<Page> {
@@ -624,9 +674,11 @@ export default scenario(async (app) => {
   // Pyric's routes answers 404, and the page keeps the report in memory.
   app.expectHostError(/^404 POST \/__pyric\/diagnostics$/);
   await scaffold(app);
-  const host = await app.step('start the scaffolded project on the Node host', () => app.devServer({ cwd: PROJECT }));
+  const inspectorPort = await app.freePort();
+  const host = await app.step('start the scaffolded project on the Node host, with an inspector', () =>
+    app.devServer({ cwd: PROJECT, env: inspectedEnv(inspectorPort) }));
   const page = await app.step('open the app; it runs on the dev server, signed out', () => openApp(app, host));
-  const run = new Soak(app, await app.browser(), host, page, settings);
+  const run = new Soak(app, await app.browser(), host, page, settings, inspectorPort, process.env.SOAK_HEAP_SNAPSHOTS === '1');
   await app.step(`use the app for ${settings.minutes} minutes (SOAK_SEED=${settings.seed})`, async () => {
     try {
       await run.run();
@@ -639,6 +691,7 @@ export default scenario(async (app) => {
       throw new Error(report, { cause: error });
     } finally {
       run.save();
+      run.closeInspector();
     }
     console.log(`  long-session-soak: ${run.log.entries.length} actions, saved to ${RESULTS}`);
   });

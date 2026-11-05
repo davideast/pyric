@@ -3,6 +3,8 @@ import {
   ActionLog,
   DEFAULT_MINUTES,
   DEFAULT_SEED,
+  growingHeapTypes,
+  heapTypes,
   judgeGrowth,
   parseSeed,
   pickAction,
@@ -126,6 +128,34 @@ describe('ActionLog', () => {
     expect(report).toContain('set post p-29; uid u1');
     expect(report).toContain('#10 ');
     expect(report).not.toContain('#9 ');
+  });
+});
+
+/** A V8 heap snapshot with only the fields heapTypes reads, one node per [type, name, self_size]. */
+function snapshotOf(nodes: Array<[string, string, number]>): string {
+  const types = ['hidden', 'object', 'closure', 'string'];
+  const strings = [...new Set(nodes.map(([, name]) => name))];
+  return JSON.stringify({
+    snapshot: { meta: { node_fields: ['type', 'name', 'id', 'self_size'], node_types: [types] } },
+    nodes: nodes.flatMap(([type, name, size], id) => [types.indexOf(type), strings.indexOf(name), id, size]),
+    strings,
+  });
+}
+
+describe('heapTypes and growingHeapTypes', () => {
+  test('sum nodes by constructor, closure name, or type, and rank what grew', () => {
+    const before = heapTypes(snapshotOf([['object', 'Listener', 100], ['closure', 'onSnapshot', 40], ['string', 'abc', 8]]));
+    expect(before.get('Listener')).toEqual({ name: 'Listener', count: 1, bytes: 100 });
+    expect(before.get('closure onSnapshot')).toEqual({ name: 'closure onSnapshot', count: 1, bytes: 40 });
+    expect(before.get('(string)')).toEqual({ name: '(string)', count: 1, bytes: 8 });
+    const after = heapTypes(snapshotOf([
+      ['object', 'Listener', 100], ['object', 'Listener', 100], ['object', 'Listener', 100],
+      ['closure', 'onSnapshot', 40], ['string', 'abcdef', 16],
+    ]));
+    expect(growingHeapTypes(before, after, 5)).toEqual([
+      { name: 'Listener', count: 3, bytes: 300, countGrowth: 2, bytesGrowth: 200 },
+      { name: '(string)', count: 1, bytes: 16, countGrowth: 0, bytesGrowth: 8 },
+    ]);
   });
 });
 
