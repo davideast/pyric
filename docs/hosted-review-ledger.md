@@ -27,7 +27,7 @@ What is left:
 - D7: build the per-consumer observation queue that reports a gap instead of closing the socket with 1013. #1385
 - E1: add oracle-backed registry rows for the query refusals and for batch and transaction `not-found` and `already-exists`. #1386
 - F1: run the hosted suites of record and the ledger acceptances in CI. #1053
-- H2: David decides on the `node:sqlite` experimental warning. #1057
+- H2: decided 2026-10-28. Keep the warning; the Node host page explains it. #1057
 - I6: re-run the persistence baseline at a commit before the backend, and encode its ceilings in the harness. #1052
 - I9b: declined 2026-10-30. The check stays on a copy, because opening SQLite can rewrite sidecars on the original. #1716
 - I17: re-derive the slow-consumer memory ceiling from a frozen baseline and pass it in CI. #1055
@@ -409,7 +409,7 @@ See `docs/hosted-persistence-plan-review.md` for the discussion.
 
 ### H2. Experimental warning on every hosted start
 
-- Severity: nit, first-run. Slice: `host`. Status: open. Reconciled 2026-10-17 at `81b9d9a4`: no decision is recorded, and no code under `packages/cli/src` disables or explains the warning. The Node host page in Get started now says the warning is expected. Left: the owner decides, and the first-run terminal output follows the decision. Reconciled 2026-10-27 at `6846b009d`: still open and undecided. Nothing under `packages/cli/src` handles the warning, and `get-started/node-host.md` still explains it. Tracked in #1057. Reconciled 2026-10-30 at `314c234c1`: still open. No decision, and nothing under `packages/cli/src` handles the warning.
+- Severity: nit, first-run. Slice: `host`. Status: closed 2026-10-28 by decision. Reconciled 2026-10-17 at `81b9d9a4`: no decision is recorded, and no code under `packages/cli/src` disables or explains the warning. The Node host page in Get started now says the warning is expected. Left: the owner decides, and the first-run terminal output follows the decision. Reconciled 2026-10-27 at `6846b009d`: still open and undecided. Nothing under `packages/cli/src` handles the warning, and `get-started/node-host.md` still explains it. Tracked in #1057. Reconciled 2026-10-30 at `314c234c1`: still open. No decision, and nothing under `packages/cli/src` handles the warning. Reconciled 2026-11-05: decided on #1057 to keep the warning until Node marks the module stable, with get-started/node-host.md explaining it, which meets the acceptance.
 - Context: `node:sqlite` prints `ExperimentalWarning` at first use. The ownership lock already triggers it on the branch. Node can only disable the whole category, not one module.
 - Acceptance: decide whether to disable the category on the hosted CLI path or accept the warning until Node marks the module stable. Either way, the getting-started path must not show an unexplained warning on first run.
 
