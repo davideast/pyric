@@ -14,9 +14,11 @@ export type JsonObject = { [key: string]: Json };
  * A value the replay server fills in when it answers, written as
  * `{ "$": "<name>" }`. `any` matches every request value. `idToken` is minted
  * from its `uid`, `email` and `provider` fields; in an Auth request it matches
- * a token this server minted for its `uid`.
+ * a token this server minted for its `uid`. `host`, `session` and
+ * `serverTime` fill an RTDB handshake: the host the client connected to, a
+ * fresh session id, and the server's clock in milliseconds.
  */
-export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken'] as const;
+export const PLACEHOLDERS = ['any', 'targetId', 'readTime', 'resumeToken', 'commitTime', 'idToken', 'refreshToken', 'host', 'session', 'serverTime'] as const;
 export type PlaceholderName = (typeof PLACEHOLDERS)[number];
 
 /** A batch of Listen responses for one target. `after` names the write exchange whose answer releases it. */
@@ -54,7 +56,26 @@ export interface AuthExchange {
   response: { status: number; body: JsonObject };
 }
 
-export type Exchange = ListenExchange | WriteExchange | AuthExchange;
+/**
+ * One RTDB data message on a WebSocket connection and production's answer.
+ * `request` is the message's `a` and `b`, without its request number `r`; an
+ * exchange with no request is the handshake a connection to `instance` gets
+ * when it opens. `events` are whole frames sent before `reply`, which is the
+ * `b` of the response to the request.
+ */
+export interface RtdbExchange {
+  kind: 'rtdb';
+  id: string;
+  /** The database instance, the `ns` the client connects with. */
+  instance: string;
+  /** The uid the connection authenticated as, null for none. Absent matches any. */
+  as?: string | null;
+  request?: { a: string; b: Json };
+  events?: JsonObject[];
+  reply?: { s: string; d: Json };
+}
+
+export type Exchange = ListenExchange | WriteExchange | AuthExchange | RtdbExchange;
 
 export interface Recording {
   format: typeof FORMAT;
@@ -99,12 +120,14 @@ const PLACEHOLDER_KEYS: Record<string, PlaceholderName[]> = {
   id_token: ['idToken'],
   access_token: ['idToken'],
   refresh_token: ['refreshToken', 'any'],
+  cred: ['idToken', 'any'],
 };
 
 /**
  * Throws unless the recording holds shapes and test-project values only: the
  * format is known, no credential appears, server-issued values are
- * placeholders, and every document name is under the recording's project.
+ * placeholders, every document name is under the recording's project, and
+ * every RTDB instance is one of the project's.
  */
 export function assertShapesOnly(recording: Recording): void {
   if (recording.format !== FORMAT) throw new Error(`replay: format is ${String(recording.format)}, expected ${FORMAT}`);
@@ -115,6 +138,26 @@ export function assertShapesOnly(recording: Recording): void {
     ids.add(exchange.id);
   }
   walk(recording.exchanges as unknown as Json, `exchanges`, (path, key, value) => checkValue(recording.project, path, key, value));
+  recording.exchanges.forEach((exchange, index) => {
+    if (exchange.kind === 'rtdb') checkRtdb(recording.project, `exchanges[${index}]`, exchange);
+  });
+}
+
+/** The placeholder each handshake field must be: production's values name its own hosts and sessions. */
+const HANDSHAKE_PLACEHOLDERS: Record<string, PlaceholderName> = { h: 'host', s: 'session', ts: 'serverTime' };
+
+/** Throws unless an RTDB exchange's instance is the project's, and its handshakes hold placeholders only. */
+function checkRtdb(project: string, path: string, exchange: RtdbExchange): void {
+  const isProjectInstance = /^[a-z0-9-]+$/.test(exchange.instance) && exchange.instance.startsWith(`${project}-`);
+  if (!isProjectInstance) throw new Error(`replay: ${path}.instance names ${exchange.instance}, outside project ${project}`);
+  (exchange.events ?? []).forEach((event, index) => {
+    const control = event.t === 'c' ? (event.d as JsonObject | undefined) : undefined;
+    if (control?.t !== 'h') return;
+    const handshake = (control.d ?? {}) as JsonObject;
+    for (const [key, name] of Object.entries(HANDSHAKE_PLACEHOLDERS)) {
+      if (placeholderName(handshake[key]) !== name) throw new Error(`replay: ${path}.events[${index}].d.d.${key} must be one of the placeholders {"$":"${name}"}`);
+    }
+  });
 }
 
 function checkValue(project: string, path: string, key: string, value: Json): void {
