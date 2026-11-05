@@ -9,7 +9,8 @@
  * Verified through the scripted browser gate (the bun suite covers the core;
  * this file is intentionally view-only).
  */
-import type { ServeAuthHelper } from './auth-helper-core.js';
+import type { AuthFlowRequest } from 'pyric/auth';
+import type { HelperIdentity, ServeAuthHelper } from './auth-helper-core.js';
 
 const PROVIDER_LABEL: Record<string, string> = {
   'google.com': 'Google',
@@ -41,6 +42,7 @@ const STYLE = `
   dialog[data-pyric-auth] h2 { margin: 0 0 4px; font-size: 16px; }
   dialog[data-pyric-auth] p { margin: 0 0 14px; font-size: 12px; color: #9a9aa8; }
   dialog[data-pyric-auth] .ids { display: grid; gap: 8px; margin-bottom: 14px; }
+  dialog[data-pyric-auth] .ids[hidden] { display: none; }
   dialog[data-pyric-auth] .ids button { display: flex; gap: 10px; align-items: center; text-align: left;
     padding: 8px 10px; border: 1px solid #2a2a35; border-radius: 8px; background: none; color: inherit; cursor: pointer; }
   dialog[data-pyric-auth] .ids button:hover { border-color: #4a4a5a; background: rgb(255 255 255 / 0.05); }
@@ -74,89 +76,107 @@ export function mountAuthHelperDialog(helper: ServeAuthHelper): void {
     dialog.addEventListener(type, (e) => e.stopPropagation());
   }
 
+  // The view is built once per request. Later emits for the same request,
+  // such as the identities list arriving from the worker, update only the
+  // list, so the inputs keep their nodes, values and focus.
+  let view: { request: AuthFlowRequest; identityList: HTMLDivElement } | null = null;
+
   const render = (): void => {
     const snap = helper.snapshot();
     if (!snap.request) {
+      view = null;
       if (dialog.open) dialog.close();
       return;
     }
-    const provider = PROVIDER_LABEL[snap.request.providerId] ?? snap.request.providerId;
-    const existingForm = dialog.querySelector('form');
-    const savedEmail = existingForm?.querySelector<HTMLInputElement>('input[type="email"]')?.value;
-    const savedName = existingForm?.querySelector<HTMLInputElement>('input[type="text"]')?.value;
-    const savedClaims = existingForm?.querySelector<HTMLTextAreaElement>('textarea')?.value;
-
-    dialog.replaceChildren();
-
-    const h2 = document.createElement('h2');
-    h2.textContent = `Sign in with ${provider}`;
-    const p = document.createElement('p');
-    p.textContent =
-      'pyric sandbox sign-in helper. Pick a test account or add one. Custom claims let rules using request.auth.token.* run against this identity.';
-    dialog.append(h2, p);
-
-    if (snap.identities.length > 0) {
-      const ids = document.createElement('div');
-      ids.className = 'ids';
-      for (const id of snap.identities) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        const label = id.displayName || id.email || id.uid;
-        btn.textContent = id.email && id.displayName ? `${label} — ${id.email}` : label;
-        btn.addEventListener('click', () => helper.pick(id.uid));
-        ids.appendChild(btn);
-      }
-      dialog.appendChild(ids);
+    const isNewRequest = view?.request !== snap.request;
+    if (!view || isNewRequest) {
+      view = { request: snap.request, identityList: buildRequestView(dialog, helper, snap.request) };
     }
-
-    const form = document.createElement('form');
-    form.method = 'dialog';
-    const email = document.createElement('input');
-    email.type = 'email';
-    email.placeholder = 'email@example.com';
-    email.required = true;
-    if (savedEmail) email.value = savedEmail;
-    const name = document.createElement('input');
-    name.type = 'text';
-    name.placeholder = 'Display name (optional)';
-    if (savedName) name.value = savedName;
-    const claims = document.createElement('textarea');
-    claims.rows = 3;
-    claims.placeholder = 'Custom claims JSON (optional)\ne.g. { "admin": true }';
-    if (savedClaims) claims.value = savedClaims;
-    const err = document.createElement('div');
-    err.className = 'err';
-    const row = document.createElement('div');
-    row.className = 'row';
-    const cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'cancel';
-    cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', () => helper.cancel());
-    const submit = document.createElement('button');
-    submit.type = 'submit';
-    submit.className = 'submit';
-    submit.textContent = 'Sign in';
-    row.append(cancel, submit);
-    form.append(email, name, claims, err, row);
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      let parsed: Record<string, unknown> | undefined;
-      if (claims.value.trim()) {
-        try {
-          parsed = JSON.parse(claims.value) as Record<string, unknown>;
-        } catch {
-          err.textContent = 'Custom claims must be valid JSON.';
-          return;
-        }
-      }
-      helper.add({ email: email.value.trim(), displayName: name.value.trim() || undefined, customClaims: parsed });
-    });
-    dialog.appendChild(form);
-
+    renderIdentities(view.identityList, helper, snap.identities);
     if (!dialog.open) dialog.showModal();
   };
 
   helper.subscribe(render);
   render();
+}
+
+/** Replaces the dialog's contents with a fresh view for one request and
+ *  returns the element that holds its identities list. */
+function buildRequestView(
+  dialog: HTMLDialogElement,
+  helper: ServeAuthHelper,
+  request: AuthFlowRequest,
+): HTMLDivElement {
+  const provider = PROVIDER_LABEL[request.providerId] ?? request.providerId;
+  const h2 = document.createElement('h2');
+  h2.textContent = `Sign in with ${provider}`;
+  const p = document.createElement('p');
+  p.textContent =
+    'pyric sandbox sign-in helper. Pick a test account or add one. Custom claims let rules using request.auth.token.* run against this identity.';
+  const ids = document.createElement('div');
+  ids.className = 'ids';
+  dialog.replaceChildren(h2, p, ids, buildAddForm(helper));
+  return ids;
+}
+
+function renderIdentities(
+  ids: HTMLDivElement,
+  helper: ServeAuthHelper,
+  identities: readonly HelperIdentity[],
+): void {
+  ids.hidden = identities.length === 0;
+  ids.replaceChildren(...identities.map((id) => identityButton(helper, id)));
+}
+
+function identityButton(helper: ServeAuthHelper, id: HelperIdentity): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  const label = id.displayName || id.email || id.uid;
+  btn.textContent = id.email && id.displayName ? `${label} — ${id.email}` : label;
+  btn.addEventListener('click', () => helper.pick(id.uid));
+  return btn;
+}
+
+function buildAddForm(helper: ServeAuthHelper): HTMLFormElement {
+  const form = document.createElement('form');
+  form.method = 'dialog';
+  const email = document.createElement('input');
+  email.type = 'email';
+  email.placeholder = 'email@example.com';
+  email.required = true;
+  const name = document.createElement('input');
+  name.type = 'text';
+  name.placeholder = 'Display name (optional)';
+  const claims = document.createElement('textarea');
+  claims.rows = 3;
+  claims.placeholder = 'Custom claims JSON (optional)\ne.g. { "admin": true }';
+  const err = document.createElement('div');
+  err.className = 'err';
+  const row = document.createElement('div');
+  row.className = 'row';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'cancel';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => helper.cancel());
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'submit';
+  submit.textContent = 'Sign in';
+  row.append(cancel, submit);
+  form.append(email, name, claims, err, row);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    let parsed: Record<string, unknown> | undefined;
+    if (claims.value.trim()) {
+      try {
+        parsed = JSON.parse(claims.value) as Record<string, unknown>;
+      } catch {
+        err.textContent = 'Custom claims must be valid JSON.';
+        return;
+      }
+    }
+    helper.add({ email: email.value.trim(), displayName: name.value.trim() || undefined, customClaims: parsed });
+  });
+  return form;
 }
