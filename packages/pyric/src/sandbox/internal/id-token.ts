@@ -14,13 +14,6 @@ import { checkSandboxJwt, SANDBOX_JWT_KID, signSandboxJwtSync, type SandboxJwtCh
 const ID_TOKEN_KEY = 'pyric-sandbox-id-token-signing-key';
 const ID_TOKEN_HEADER = { alg: 'RS256', kid: SANDBOX_JWT_KID, typ: 'JWT' } as const;
 
-/**
- * The project an ID token names when the minting side knows none, such as a
- * bare `getAuth(sandbox)`. No real project has this id, so its tokens fail an
- * admin app set up for a real project.
- */
-export const SANDBOX_PROJECT_ID = 'pyric-sandbox';
-
 export type IdTokenCheck = SandboxJwtCheck;
 
 /** An ID token's lifetime, as production issues it (auth#68c: `exp - iat` is 3600). */
@@ -42,11 +35,6 @@ export function isPastIdTokenRefreshPoint(claims: Record<string, unknown> | unde
   const hasExp = typeof exp === 'number';
   if (!hasExp) return true;
   return nowMs > exp * 1000 - TOKEN_REFRESH_BUFFER_MS;
-}
-
-/** Production's `iss` and `aud` for a project's ID tokens (capture `auth-request-auth-per-sign-in`). */
-export function idTokenAudience(projectId: string): { iss: string; aud: string } {
-  return { iss: `https://securetoken.google.com/${projectId}`, aud: projectId };
 }
 
 /**
