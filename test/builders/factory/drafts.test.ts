@@ -65,7 +65,7 @@ const KIND_CASES: readonly KindCase[] = [
   { label: 'flake', title: 'Red on main: app scenarios', wrongTitle: 'Scenarios are red', fields: { 'Fails how': 'A timeout.', Since: '#1789', Cause: 'Unknown.', 'Done when': 'ten runs pass' } },
   { label: 'documentation', title: 'Docs: firestore/indexes: names the wrong flag', wrongTitle: 'Docs: the wrong flag', fields: { Says: '--index.', 'Should say': '--indexes.', 'Done when': 'the page says --indexes' } },
   { label: 'plan', title: 'Plan: factory runs nightly', wrongTitle: 'Nightly factory', fields: { Goal: 'A run each night.', Steps: 'Timer, runner.', Decisions: 'Hours.', 'Done when': 'a week of runs' } },
-  { label: 'lane:velocity', title: 'CI: cache the packed packages', wrongTitle: 'Cache the packed packages', fields: { Problem: 'Packing is slow.', Change: 'Cache it.', 'Done when': 'packing takes a minute' } },
+  { label: 'ci', title: 'CI: cache the packed packages', wrongTitle: 'Cache the packed packages', fields: { Problem: 'Packing is slow.', Change: 'Cache it.', 'Done when': 'packing takes a minute' } },
 ];
 
 function kindDraft(kind: KindCase, overrides: { title?: string; omit?: string } = {}): string {
@@ -108,7 +108,7 @@ describe('validateDraft', () => {
   });
 
   test('takes exactly one known label', () => {
-    expect(validateDraft(BUG.replace('Label: bug', 'Labels: bug, lane:reliability'))).toEqual(['takes one label, found 2: bug, lane:reliability']);
+    expect(validateDraft(BUG.replace('Label: bug', 'Labels: bug, ci'))).toEqual(['takes one label, found 2: bug, ci']);
     expect(validateDraft(BUG.replace('Label: bug', 'Label: defect'))).toEqual(['unknown label "defect"']);
     expect(validateDraft(BUG.replace('Label: bug\n', ''))).toEqual(['missing the "Label:" line']);
   });
@@ -131,12 +131,12 @@ describe('validateDraft', () => {
     });
   });
 
-  test('takes both flake title forms, and any lane label for a CI draft', () => {
+  test('takes both flake title forms, and only the ci label for a CI draft', () => {
     const [flake, ci] = [KIND_CASES[4], KIND_CASES[7]];
     if (flake === undefined || ci === undefined) throw new Error('missing kind case');
     expect(validateDraft(kindDraft(flake, { title: 'Flaky: supervisor heartbeat test' }))).toEqual([]);
-    expect(validateDraft(kindDraft({ ...ci, label: 'lane:rules' }))).toEqual([]);
-    expect(validateDraft(kindDraft({ ...ci, label: 'lane:' }))).toEqual(['unknown label "lane:"']);
+    expect(validateDraft(kindDraft({ ...ci, label: 'ci' }))).toEqual([]);
+    expect(validateDraft(kindDraft({ ...ci, label: 'CI' }))).toEqual(['unknown label "CI"']);
   });
 
   test('needs a link to the evidence in a divergence and a missing API', () => {

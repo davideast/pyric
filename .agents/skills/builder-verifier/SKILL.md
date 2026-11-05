@@ -220,7 +220,7 @@ A Firebase API pyric lacks:
 
 ```
 Title: Support <API> in <package>
-Labels: support, <lane label>
+Label: support
 
 **Missing:** <what fails under pyric, with the exact error>
 
@@ -239,7 +239,7 @@ A defect (pyric differs from production, misleading docs, an unclear error):
 
 ```
 Title: <what breaks, in one line>
-Labels: bug, <lane label>
+Label: bug
 
 **What breaks:** <what the developer hits>
 
@@ -252,11 +252,8 @@ Labels: bug, <lane label>
 Found by builder run <run>.
 ```
 
-The lane labels are `lane:app-check`, `lane:velocity`, `lane:rules`,
-`lane:multi-resource`, `lane:reliability`, `lane:node-host`,
-`lane:functions`, `lane:demos` and `lane:live-mode`, one per section of
-`PRIORITIES.md`. Use only `support` or `bug` and one lane label; no other
-label exists for builder findings.
+Each draft takes one label, its kind: `support` or `bug`. No other label
+exists for builder findings.
 
 ## verdict.json
 
