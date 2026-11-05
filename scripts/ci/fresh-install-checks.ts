@@ -170,16 +170,6 @@ export interface Allowance {
 
 export const ALLOWANCES: readonly Allowance[] = [
   {
-    name: 'chat-zstd-native-binary',
-    label: '#2049',
-    reason: "the chat template's @inbrowser/workspace pulls in @mongodb-js/zstd, whose install script downloads a prebuilt binary from GitHub and falls back to Node headers from nodejs.org (#2049)",
-    template: 'chat',
-    step: 'npm install',
-    egressHosts: ['github.com', 'nodejs.org'],
-    port: 443,
-    limit: { oncePerHost: true },
-  },
-  {
     name: 'next-dev-version-check',
     label: 'next-dev-version-check',
     reason: 'the Next.js dev server\'s version check, made by Next, not by pyric, and sent only to the npm registry',
