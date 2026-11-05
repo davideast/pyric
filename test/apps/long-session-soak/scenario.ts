@@ -315,13 +315,13 @@ class Soak {
     const account = { email, password, uid };
     this.model.accounts.push(account);
     this.model.current = account;
-    this.log.note(index, `${email} uid ${uid}`);
+    this.log.note(this.current!, `${email} uid ${uid}`);
     await this.untilStatus(new RegExp(`^Signed in as ${escapeRegExp(email)}$`));
   }
 
   private async signIn(index: number): Promise<void> {
     const account = this.random.pick(this.model.accounts.filter((candidate) => candidate.password !== null));
-    this.log.note(index, account.email);
+    this.log.note(this.current!, account.email);
     await this.dropListeners();
     const uid = await this.call('soak.signIn()', (page) => page.evaluate(([e, p]) => soak.signIn(e, p), [account.email, account.password!] as const));
     assert.equal(uid, account.uid, `signing in as ${account.email} gave another uid`);
@@ -335,7 +335,7 @@ class Soak {
     const reuse = known.length > 0 && this.random.next() < 0.6;
     const account = reuse ? this.random.pick(known) : undefined;
     const email = account?.email ?? `google${known.length}@example.com`;
-    this.log.note(index, `${email}${reuse ? ' again' : ''}`);
+    this.log.note(this.current!, `${email}${reuse ? ' again' : ''}`);
     await this.page.locator('#sign-in').click({ timeout: SETTLE_MS });
     const dialog = this.page.locator('dialog[data-pyric-auth][open]');
     await dialog.waitFor({ state: 'visible', timeout: SETTLE_MS });
@@ -378,13 +378,13 @@ class Soak {
     const ids = await this.call('soak.idsWithTitle()', (page) => page.evaluate((t) => soak.idsWithTitle(t), title));
     assert.equal(ids.length, 1, `the form added ${ids.length} posts titled "${title}"`);
     this.model.currentPosts().set(ids[0]!, { title, n: null, tag: null });
-    this.log.note(index, ids[0]!);
+    this.log.note(this.current!, ids[0]!);
   }
 
   private async setPost(index: number): Promise<void> {
     const id = `p${index}`;
     const post = { title: `post ${index}`, n: this.random.int(0, 1000), tag: this.random.pick(TAGS) };
-    this.log.note(index, `${id} tag ${post.tag}`);
+    this.log.note(this.current!, `${id} tag ${post.tag}`);
     await this.call('soak.setPost()', (page) => page.evaluate(([i, p]) => soak.setPost(i, p), [id, post] as const));
     this.model.currentPosts().set(id, post);
   }
@@ -392,7 +392,7 @@ class Soak {
   private async updatePost(index: number): Promise<void> {
     const id = this.random.pick(this.model.currentIds());
     const patch = { n: this.random.int(0, 1000), tag: this.random.pick(TAGS) };
-    this.log.note(index, `${id} tag ${patch.tag}`);
+    this.log.note(this.current!, `${id} tag ${patch.tag}`);
     await this.call('soak.updatePost()', (page) => page.evaluate(([i, p]) => soak.updatePost(i, p), [id, patch] as const));
     const posts = this.model.currentPosts();
     posts.set(id, { ...posts.get(id)!, ...patch });
@@ -400,28 +400,28 @@ class Soak {
 
   private async deletePost(index: number): Promise<void> {
     const id = this.random.pick(this.model.currentIds());
-    this.log.note(index, id);
+    this.log.note(this.current!, id);
     await this.call('soak.deletePost()', (page) => page.evaluate((i) => soak.deletePost(i), id));
     this.model.currentPosts().delete(id);
   }
 
   private async readPost(index: number): Promise<void> {
     const id = this.random.pick(this.model.currentIds());
-    this.log.note(index, id);
+    this.log.note(this.current!, id);
     const read = await this.call('soak.getPost()', (page) => page.evaluate((i) => soak.getPost(i), id));
     assert.deepEqual(read, this.model.currentPosts().get(id), `post ${id} read back differently`);
   }
 
   private async queryByTag(index: number): Promise<void> {
     const tag = this.random.pick(TAGS);
-    this.log.note(index, `tag ${tag}`);
+    this.log.note(this.current!, `tag ${tag}`);
     const ids = await this.call('soak.idsWithTag()', (page) => page.evaluate((t) => soak.idsWithTag(t), tag));
     assert.deepEqual(ids, this.model.idsWithTag(tag), `the query for tag ${tag} returned other posts`);
   }
 
   private async writeAsAnotherUser(index: number): Promise<void> {
     const other = this.random.pick(this.model.others());
-    this.log.note(index, other.email);
+    this.log.note(this.current!, other.email);
     const code = await this.call('soak.writeAs()', (page) => page.evaluate(([u, i]) => soak.writeAs(u, i), [other.uid, `x${index}`] as const));
     assert.equal(code, 'permission-denied', `a write into ${other.email}'s posts was not denied`);
   }
@@ -429,7 +429,7 @@ class Soak {
   private async addListener(index: number): Promise<void> {
     const key = `l${index}`;
     const tag = this.random.pick(TAGS);
-    this.log.note(index, `${key} tag ${tag}`);
+    this.log.note(this.current!, `${key} tag ${tag}`);
     await this.call('soak.listen()', (page) => page.evaluate(([k, t]) => soak.listen(k, t), [key, tag] as const));
     this.model.listeners.set(key, tag);
     await this.listenersMatch();
@@ -437,7 +437,7 @@ class Soak {
 
   private async removeListener(index: number): Promise<void> {
     const key = this.random.pick([...this.model.listeners.keys()].sort());
-    this.log.note(index, key);
+    this.log.note(this.current!, key);
     await this.call('soak.unlisten()', (page) => page.evaluate((k) => soak.unlisten(k), key));
     this.model.listeners.delete(key);
   }
@@ -474,7 +474,7 @@ class Soak {
       assert.deepEqual(sortedEntries(read), sortedEntries(this.model.currentPosts()), 'the second tab read other posts');
       const id = `p${index}t`;
       const post = { title: `tab post ${index}`, n: this.random.int(0, 1000), tag: this.random.pick(TAGS) };
-      this.log.note(index, id);
+      this.log.note(this.current!, id);
       await this.call('soak.setPost() in the second tab', (p) => p.evaluate(([i, d]) => soak.setPost(i, d), [id, post] as const), tab);
       this.model.currentPosts().set(id, post);
       await until(`the first tab's list did not show "${post.title}"`, SETTLE_MS, async () => (await this.listedTitles()).includes(post.title));
@@ -496,7 +496,7 @@ class Soak {
     this.serverEpoch += 1;
     this.restarting = false;
     const loaded = await Promise.race([reloaded.then(() => true, () => false), sleep(30_000).then(() => false)]);
-    this.log.note(index, loaded ? "Vite's client reloaded the page" : 'reloaded by the script');
+    this.log.note(this.current!, loaded ? "Vite's client reloaded the page" : 'reloaded by the script');
     if (!loaded) await this.call('page.reload()', (page) => page.reload());
     this.pageEpoch += 1;
     this.model.listeners.clear();
@@ -558,6 +558,14 @@ class Soak {
     this.save();
   }
 
+  /** Saves what the page showed when the soak failed: a screenshot and its HTML, open dialogs included. */
+  async captureFailure(): Promise<void> {
+    mkdirSync(RESULTS, { recursive: true });
+    await within('the failure screenshot', 10_000, this.page.screenshot({ path: join(RESULTS, 'soak-failure.png'), fullPage: true })).catch(() => {});
+    const html = await within('the failure page HTML', 10_000, this.page.content()).catch((error: unknown) => `could not read the page: ${String(error)}`);
+    writeFileSync(join(RESULTS, 'soak-failure.html'), html);
+  }
+
   /** Writes the action log and the memory samples, so a run that stops early keeps them. */
   save(): void {
     mkdirSync(RESULTS, { recursive: true });
@@ -585,6 +593,14 @@ async function scaffold(app: App): Promise<void> {
     assert.match(main, /^const db = getFirestore\(app\);$/m);
     app.writeFile(`${PROJECT}/src/main.ts`, `${main}\nimport { installSoak } from './soak-page';\ninstallSoak(auth, db);\n`);
   });
+}
+
+/** Each epoch of the page's heap and the dev server's RSS, judged for steady growth. */
+function memoryVerdict(run: Soak): { growing: boolean; report: string } {
+  const heap = judgeGrowth(run.pageHeap, PAGE_HEAP_LIMIT);
+  const rss = judgeGrowth(run.serverRss, SERVER_RSS_LIMIT);
+  const report = ['page JS heap:', ...heap.lines, 'dev server RSS:', ...rss.lines].join('\n');
+  return { growing: heap.growing || rss.growing, report };
 }
 
 async function openApp(app: App, host: DevServer): Promise<Page> {
@@ -616,17 +632,19 @@ export default scenario(async (app) => {
       await run.run();
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(run.log.describeFailure(settings.seed, run.current, reason), { cause: error });
+      await run.captureFailure();
+      // The memory verdict so far, since a run that stops early never reaches the step that judges it.
+      const memory = memoryVerdict(run);
+      const report = `${run.log.describeFailure(settings.seed, run.current, reason)}\nmemory so far${memory.growing ? ', growing steadily' : ''}:\n${memory.report}`;
+      throw new Error(report, { cause: error });
     } finally {
       run.save();
     }
     console.log(`  long-session-soak: ${run.log.entries.length} actions, saved to ${RESULTS}`);
   });
   await app.step("neither the page's heap nor the dev server's RSS grew steadily", () => {
-    const heap = judgeGrowth(run.pageHeap, PAGE_HEAP_LIMIT);
-    const rss = judgeGrowth(run.serverRss, SERVER_RSS_LIMIT);
-    const report = [`page JS heap:`, ...heap.lines, `dev server RSS:`, ...rss.lines].join('\n');
+    const { growing, report } = memoryVerdict(run);
     console.log(report.replace(/^/gm, '  '));
-    assert.ok(!heap.growing && !rss.growing, `memory grew steadily (SOAK_SEED=${settings.seed}):\n${report}`);
+    assert.ok(!growing, `memory grew steadily (SOAK_SEED=${settings.seed}):\n${report}`);
   });
 });
