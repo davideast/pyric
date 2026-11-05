@@ -282,10 +282,12 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.statu
     expect(outcome.stderr).not.toContain('@pyric/live/register: live mode');
   }, 60_000);
 
-  it('refuses to start in a project without @pyric/live, and nothing loads', () => {
+  it('opens from its own package in a project without @pyric/live, refuses to start without the app SDK, and nothing loads', () => {
     const res = run([pathToFileURL(liveRegisterFile).href], ['firebase/firestore'], { cwd: otherDir });
     expect(res.status).not.toBe(0);
-    expect(res.stderr).toContain('live rows need @pyric/live installed in the project');
+    // The register found @pyric/live where it was loaded from (#2116), so the start checks ran.
+    expect(res.stderr).not.toContain('live rows need @pyric/live installed in the project');
+    expect(res.stderr).toContain('This project has no firebase installed');
     expect(res.sdkFiles).toEqual([]);
   }, 60_000);
 

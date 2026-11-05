@@ -1,20 +1,28 @@
 /**
  * `@pyric/cli/register/internal/supplied-rows`: the one seam through which
  * `@pyric/live/register` serves its rows to a Node process, over this
- * package's resolve hooks, stop, worker and child-process guards. It takes
- * nothing from its caller: the row modules' ids are fixed (`live-row.ts`),
- * and their source, the refusal and the register entry children load all
- * come from the `@pyric/live` installed in the project (`live-package.ts`).
- * The gate is that installed package: without it the register refuses to
- * start. `@pyric/cli/register` never reads this module, and no option, flag
- * or environment variable turns live mode on. It installs live mode's network
- * guard first (`live-net-guard.ts`), so only the live rows' SDK reaches
- * Google from the process.
+ * package's resolve hooks, stop, worker and child-process guards. Its caller
+ * gives only where it is installed and the imports that pass through: the
+ * row modules' ids are fixed (`live-row.ts`), and their source, the refusal
+ * and the register entry children load all come from the installed
+ * `@pyric/live` (`live-package.ts`). The gate is that installed package:
+ * without it the register refuses to start. `@pyric/cli/register` never
+ * reads this module, and no option, flag or environment variable turns live
+ * mode on. It installs live mode's network guard first (`live-net-guard.ts`),
+ * so only the live rows' SDK, and the SDK of each passed-through import,
+ * reaches Google from the process.
  */
 import Module from 'node:module';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
 import { installChildProcessGuard } from './child-process-guard.js';
-import { LIVE_PROJECT_ROOT_VARIABLE, liveProjectRoot, loadInstalledLiveRegister } from './live-package.js';
+import {
+  LIVE_PASS_THROUGH_VARIABLE,
+  LIVE_PROJECT_ROOT_VARIABLE,
+  liveProjectRoot,
+  loadInstalledLiveRegister,
+  recordedPassThrough,
+} from './live-package.js';
+import { passThroughSdkPackages, passThroughSet } from '../serve/vite-supplied-rows.js';
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
 import { installLiveNetGuard } from './live-net-guard.js';
 import { isRegisterLiveModule } from './live-row.js';
@@ -30,7 +38,8 @@ import { installWorkerGuard } from './worker-guard.js';
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
-export { LIVE_PROJECT_ROOT_VARIABLE } from './live-package.js';
+export { LIVE_PROJECT_ROOT_VARIABLE, liveProjectRoot } from './live-package.js';
+export { livePassThroughLine } from 'pyric/sandbox/internal';
 export { swappedFirebaseEntries } from '../serve/firebase-module-swap.js';
 export type { FirebaseRowSet, ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 export type { SuppliedRowsPlane, SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
@@ -63,25 +72,29 @@ const moduleApi = Module as unknown as {
 const LOG_PREFIX = '@pyric/live/register';
 
 /**
- * The resolve hook: rows, the installed SDK for a row's own import, refusals,
- * and the stop. `allowedUrls` is the stop's record of the installed SDK files
- * it let load, which the network guard reads too.
+ * The resolve hook: rows, the installed SDK for a row's own import and for a
+ * passed-through one, refusals, and the stop. `allowedUrls` is the stop's
+ * record of the installed SDK files it let load, which the network guard
+ * reads too.
  */
 function resolveWithRows(rows: RegisterRows, allowedUrls: Set<string>): Resolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
+  const passThroughPackages = passThroughSdkPackages(rows.passThrough);
   return (specifier, context, nextResolve) => {
     const request = { specifier, importer: context.parentURL, conditions: context.conditions };
     const resolution = registerRowsResolution(rows, request);
     if (resolution.kind === 'refused') throw resolution.error;
     if (resolution.kind === 'module') return { url: resolution.url, format: 'module', shortCircuit: true };
     const isRowImport = resolution.kind === 'installed-sdk';
+    const isPassThroughImport = resolution.kind === 'pass-through';
     // A row resolves its own specifier as the app would: from the project root.
+    // A passed-through import is the app's own, so it resolves as written.
     const result = isRowImport
       ? nextResolve(specifier, { ...context, parentURL: resolution.projectUrl })
       : nextResolve(specifier, context);
     const isEsmImport = isImportCondition(context.conditions);
     const load = { specifier, importer: context.parentURL, url: result.url };
-    const stop = suppliedRowsStopFor(load, allowedUrls, { isRowImport, isEsmImport });
+    const stop = suppliedRowsStopFor(load, allowedUrls, { isRowImport, isEsmImport, isPassThroughImport, passThroughPackages });
     if (stop === null) return result;
     report(stop);
     throw stop;
@@ -101,15 +114,35 @@ function isRefusedInProduction(): boolean {
   return process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1';
 }
 
+/** What the register entry gives the seam. */
+export interface SuppliedRowsActivation {
+  /**
+   * The folder of the `@pyric/live` package calling this seam. The rows open
+   * from the `@pyric/live` that resolves from there, before the one the
+   * project root resolves, so they open when that package is installed
+   * beside the app rather than in it.
+   */
+  readonly liveRoot?: string;
+  /**
+   * Served specifiers with no live row that load the app's installed SDK
+   * unwrapped and unobserved, as `pyricLive({ passThrough })` lists them
+   * (`passThroughSet`). Any other entry throws. Undefined in a child process
+   * or worker, which passes through what its first process recorded.
+   */
+  readonly passThrough?: readonly string[];
+}
+
 /**
  * Starts the live rows in this thread: the installed `@pyric/live` opens
  * them, then the hooks go in, and every worker thread and child process this
- * process starts loads the installed register, for the same project root.
+ * process starts loads the installed register, for the same project root and
+ * the same pass-through imports.
  * Throws, leaving the process unhooked, when the rows cannot open:
- * `@pyric/live` not installed in the project, Node without
- * `module.registerHooks`, or `@pyric/cli/register` already active.
+ * `@pyric/live` not installed beside the entry or in the project, Node
+ * without `module.registerHooks`, `@pyric/cli/register` already active, or
+ * a pass-through entry that cannot pass through.
  */
-export async function activateWithSuppliedRows(): Promise<void> {
+export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {}): Promise<void> {
   if (isLiveRegisterActive()) return;
   if (isRefusedInProduction()) {
     process.stderr.write(
@@ -127,15 +160,17 @@ export async function activateWithSuppliedRows(): Promise<void> {
         'Start the process with one of the two.',
     );
   }
+  const passThrough = passThroughSet(input.passThrough ?? recordedPassThrough(process.env));
   // First, before any hook: the network guard (`live-net-guard.ts`). A fetch
   // to Google passes only from a file of the installed SDK the stop let load.
   const allowedUrls = new Set<string>();
-  installLiveNetGuard({ isLiveSdkFile: (url) => allowedUrls.has(url) });
-  const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()));
-  const rows = registerRows();
+  installLiveNetGuard({ isLiveSdkFile: (url) => allowedUrls.has(url), passThrough });
+  const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
+  const rows = registerRows(passThrough);
   rows.open(installed.rows);
   // Children and workers open the rows for this process's project, wherever they start.
   process.env[LIVE_PROJECT_ROOT_VARIABLE] = installed.projectRoot;
+  process.env[LIVE_PASS_THROUGH_VARIABLE] = [...passThrough].join(',');
   installWorkerGuard(installed.entryUrl);
   installChildProcessGuard(installed.entryUrl);
   registerHooks({ resolve: resolveWithRows(rows, allowedUrls), load: loadWithRows(rows) });

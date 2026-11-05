@@ -1,0 +1,160 @@
+/**
+ * The Node register's half of live mode's pass-through (#2122) and where it
+ * finds `@pyric/live` (#2116):
+ *
+ * - the installed `@pyric/live` resolves from the register entry's own
+ *   package first, then from the project root;
+ * - the pass-through list takes what `pyricLive({ passThrough })` takes, and
+ *   throws on anything else;
+ * - a listed import resolves to the app's installed SDK, the stop lets its
+ *   entry and the packages it needs load, and the network guard lets its
+ *   hosts through, while unlisted imports stay refused.
+ */
+import { afterAll, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { liveResolutionRoot, recordedPassThrough, LIVE_PASS_THROUGH_VARIABLE } from '../../src/register/live-package.js';
+import { registerRows, registerRowsResolution, type RegisterRowPackage } from '../../src/register/supplied-rows.js';
+import { suppliedRowsStopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
+import { liveEgressRule, passThroughHosts } from '../../src/register/live-net-guard.js';
+import { passThroughSdkPackages, passThroughSet } from '../../src/serve/vite-supplied-rows.js';
+import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
+
+const scratch = mkdtempSync(join(tmpdir(), 'live-register-pass-through-'));
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+/** A folder holding a package named `@pyric/live` with a `register` export, as an install has it. */
+function livePackageAt(dir: string): string {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: '@pyric/live', type: 'module', exports: { './register': './register.js' } }));
+  writeFileSync(join(dir, 'register.js'), '');
+  return dir;
+}
+
+/** A project folder, with `@pyric/live` installed in its `node_modules` or not. */
+function projectAt(name: string, installed: boolean): string {
+  const dir = join(scratch, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, private: true }));
+  if (installed) livePackageAt(join(dir, 'node_modules', '@pyric', 'live'));
+  return dir;
+}
+
+describe('where the register finds @pyric/live', () => {
+  test('from the package the register entry was loaded from, before the project root', () => {
+    const project = projectAt('both', true);
+    const beside = livePackageAt(join(scratch, 'rules', 'node_modules', '@pyric', 'live'));
+    expect(liveResolutionRoot(project, beside)).toBe(beside);
+  });
+
+  test('from the project root when the entry gives no folder, or the package does not resolve there', () => {
+    const project = projectAt('project-only', true);
+    expect(liveResolutionRoot(project, undefined)).toBe(project);
+    const empty = join(scratch, 'not-a-package');
+    mkdirSync(empty, { recursive: true });
+    expect(liveResolutionRoot(project, empty)).toBe(project);
+  });
+
+  test('beside the app when the project root has none', () => {
+    const project = projectAt('web', false);
+    const beside = livePackageAt(join(scratch, 'sibling', 'node_modules', '@pyric', 'live'));
+    expect(liveResolutionRoot(project, beside)).toBe(beside);
+  });
+});
+
+describe('the pass-through list', () => {
+  test('takes every served import with no live row', () => {
+    expect([...passThroughSet(['firebase/database', 'firebase/ai', 'firebase/messaging'])]).toEqual([
+      'firebase/database',
+      'firebase/ai',
+      'firebase/messaging',
+    ]);
+  });
+
+  test('throws on a row, its service under another entry, firebase-admin or an SDK package', () => {
+    for (const entry of ['firebase/firestore', 'firebase/auth', 'firebase/firestore/lite', 'firebase-admin', '@firebase/database']) {
+      expect(() => passThroughSet([entry])).toThrow(`${entry} cannot pass through`);
+    }
+  });
+
+  test('reaches children as the first process recorded it', () => {
+    expect(recordedPassThrough({})).toEqual([]);
+    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: '' })).toEqual([]);
+    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: 'firebase/database,firebase/ai' })).toEqual(['firebase/database', 'firebase/ai']);
+  });
+});
+
+const ROWS: RegisterRowPackage = {
+  projectUrl: 'file:///app/package.json',
+  refusal: (specifier) => Object.assign(new Error(`refused ${specifier}`), { code: 'PYRIC_LIVE_REFUSED' }),
+  moduleSource: () => null,
+};
+
+function resolutionOf(passThrough: readonly ServedFirebaseSpecifier[], specifier: string, open = true) {
+  const rows = registerRows(new Set(passThrough));
+  if (open) rows.open(ROWS);
+  return registerRowsResolution(rows, { specifier, importer: 'file:///app/server.mjs', conditions: ['node', 'import'] });
+}
+
+describe('a passed-through import under the register', () => {
+  test('resolves to the installed SDK as the app wrote it, and an unlisted one is refused', () => {
+    expect(resolutionOf(['firebase/database'], 'firebase/database')).toEqual({ kind: 'pass-through' });
+    const storage = resolutionOf(['firebase/database'], 'firebase/storage');
+    expect(storage.kind).toBe('refused');
+    expect(resolutionOf([], 'firebase/database').kind).toBe('refused');
+  });
+
+  test('is refused while the rows are shut', () => {
+    expect(resolutionOf(['firebase/database'], 'firebase/database', false).kind).toBe('refused');
+  });
+});
+
+const FIREBASE_DIR = 'file:///app/node_modules/firebase/';
+const DATABASE_DIR = 'file:///app/node_modules/@firebase/database/';
+
+/** A load with its package named from the URL, so no manifest is read. */
+function loadOf(specifier: string, url: string, importer: string | undefined): ResolvedLoad {
+  const nameOf = (file: string) => (file.startsWith(FIREBASE_DIR) ? 'firebase' : file.startsWith(DATABASE_DIR) ? '@firebase/database' : null);
+  const pathInPackage = (file: string) => (file.startsWith(FIREBASE_DIR) ? file.slice(FIREBASE_DIR.length) : null);
+  return { specifier, url, importer, nameOf, pathInPackage };
+}
+
+describe('the stop for a passed-through import', () => {
+  const passThrough = new Set<ServedFirebaseSpecifier>(['firebase/database']);
+  const packages = passThroughSdkPackages(passThrough);
+  const entry = `${FIREBASE_DIR}database/dist/index.mjs`;
+
+  test('lets its entry load, then the SDK package that entry imports', () => {
+    const allowed = new Set<string>();
+    const grant = { isRowImport: false, isEsmImport: true, isPassThroughImport: true, passThroughPackages: packages };
+    expect(suppliedRowsStopFor(loadOf('firebase/database', entry, 'file:///app/server.mjs'), allowed, grant)).toBeNull();
+    expect(allowed.has(entry)).toBe(true);
+    const sdk = `${DATABASE_DIR}dist/node-esm/index.node.esm.js`;
+    const fromEntry = { isRowImport: false, isEsmImport: true, passThroughPackages: packages };
+    expect(suppliedRowsStopFor(loadOf('@firebase/database', sdk, entry), allowed, fromEntry)).toBeNull();
+    expect(allowed.has(sdk)).toBe(true);
+  });
+
+  test('stops a load of another entry by the listed name, a require(), and the package without the list', () => {
+    const grant = { isRowImport: false, isEsmImport: true, isPassThroughImport: true, passThroughPackages: packages };
+    const other = `${FIREBASE_DIR}storage/dist/index.mjs`;
+    expect(suppliedRowsStopFor(loadOf('firebase/database', other, 'file:///app/server.mjs'), new Set(), grant)).not.toBeNull();
+    const required = { ...grant, isEsmImport: false };
+    expect(suppliedRowsStopFor(loadOf('firebase/database', entry, 'file:///app/server.cjs'), new Set(), required)).not.toBeNull();
+    const sdk = `${DATABASE_DIR}dist/node-esm/index.node.esm.js`;
+    const withoutList = { isRowImport: false, isEsmImport: true };
+    expect(suppliedRowsStopFor(loadOf('@firebase/database', sdk, entry), new Set([entry]), withoutList)).not.toBeNull();
+  });
+});
+
+describe('the network guard for a passed-through import', () => {
+  test('lets the hosts of each listed service through, and no other', () => {
+    expect(passThroughHosts(['firebase/database'])).toEqual(['firebaseio.com', 'firebasedatabase.app']);
+    const rule = liveEgressRule(undefined, passThroughHosts(['firebase/database']));
+    expect(rule('demo-default-rtdb.firebaseio.com', '/')).toBeNull();
+    expect(rule('demo-default-rtdb.europe-west1.firebasedatabase.app', '/')).toBeNull();
+    expect(rule('firebasevertexai.googleapis.com', '/')).not.toBeNull();
+    expect(liveEgressRule()('demo-default-rtdb.firebaseio.com', '/')).not.toBeNull();
+  });
+});

@@ -10,7 +10,9 @@
  *
  * - a token source (`../google-token-endpoints.ts`) is refused, as the
  *   register's guard refuses it;
- * - a host the four live rows' SDK reaches ({@link LIVE_ROW_HOSTS}) passes;
+ * - a host the four live rows' SDK reaches ({@link LIVE_ROW_HOSTS}) passes,
+ *   and so does a host of an import the register passes through
+ *   ({@link passThroughHosts}), such as `firebase/database`'s;
  * - every other Google endpoint, a host in `../google-endpoints.ts` or under
  *   `googleapis.com`, is refused.
  *
@@ -37,7 +39,7 @@
  * side-effect-free modules only.
  */
 import { pathToFileURL } from 'node:url';
-import { lookupGoogleEndpoint, matchesHostSuffix, normalizeHostname } from '../google-endpoints.js';
+import { FIREBASE_AI_LOGIC_HOST, lookupGoogleEndpoint, matchesHostSuffix, normalizeHostname } from '../google-endpoints.js';
 import { findTokenSource, tokenEndpointsFrom } from '../google-token-endpoints.js';
 import {
   contextFrom,
@@ -62,6 +64,32 @@ export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
 
 const GOOGLE_APIS = 'googleapis.com';
 
+const INSTALLATIONS_HOST = 'firebaseinstallations.googleapis.com';
+const MESSAGING_HOSTS = ['fcmregistrations.googleapis.com', INSTALLATIONS_HOST];
+
+/**
+ * The Google hosts each import the register can pass through reaches, by
+ * host suffix: the service's own and, for the services that need one, the
+ * Installations ID. Its calls go to production unobserved, as the app asked.
+ */
+const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
+  'firebase/database': ['firebaseio.com', 'firebasedatabase.app'],
+  'firebase/ai': [FIREBASE_AI_LOGIC_HOST],
+  'firebase/storage': ['firebasestorage.googleapis.com'],
+  'firebase/functions': ['cloudfunctions.net'],
+  'firebase/messaging': MESSAGING_HOSTS,
+  'firebase/messaging/sw': MESSAGING_HOSTS,
+  'firebase/remote-config': ['firebaseremoteconfig.googleapis.com', INSTALLATIONS_HOST],
+  'firebase/analytics': [INSTALLATIONS_HOST],
+  'firebase/performance': [INSTALLATIONS_HOST],
+};
+
+/** The host suffixes the passed-through imports reach, each once. */
+export function passThroughHosts(passThrough: Iterable<string>): string[] {
+  const hosts = [...passThrough].flatMap((specifier) => PASS_THROUGH_HOSTS[specifier] ?? []);
+  return [...new Set(hosts)];
+}
+
 const LOG_PREFIX = '@pyric/live/register: net-guard';
 const TOKEN_REASON = "in live mode this process can't get a server-side Google access token";
 const LIVE_REASON = "in live mode only @pyric/live's rows, Firestore, Auth and App Check, reach Google from this process";
@@ -83,13 +111,19 @@ function liveVerdict(host: string, service: string, reason: string): EgressVerdi
   return { verdict: 'block', permitted: false, host, service, reason, remedy: LIVE_REMEDY };
 }
 
-/** Live mode's verdict for a socket or a dispatch: token sources and every Google endpoint but the live rows' hosts. */
-export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} })): EgressRule {
+/**
+ * Live mode's verdict for a socket or a dispatch: token sources and every
+ * Google endpoint but the live rows' hosts and `passedHosts`, the host
+ * suffixes of the imports the register passes through.
+ */
+export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), passedHosts: readonly string[] = []): EgressRule {
   return (hostname, path) => {
     const tokenRefusal = evaluateEgress(hostname, { mode: 'block', endpoints }, path);
     if (tokenRefusal !== null) return { ...tokenRefusal, reason: TOKEN_REASON, remedy: LIVE_REMEDY };
     const host = hostOf(hostname);
     if (LIVE_ROW_HOSTS.has(host)) return null;
+    const isPassedHost = passedHosts.some((suffix) => matchesHostSuffix(host, suffix));
+    if (isPassedHost) return null;
     const service = googleServiceOf(host);
     return service === null ? null : liveVerdict(host, service, LIVE_REASON);
   };
@@ -266,6 +300,8 @@ export interface LiveNetGuardOptions extends NetGuardHooks {
   readonly fetchScope?: { fetch?: Fetch };
   /** Prototypes whose `addRequest` is checked. Defaults to the `http.Agent` and `https.Agent` prototypes. */
   readonly liveAgentPrototypes?: readonly AgentPrototype[];
+  /** The imports the register passes through, whose hosts pass ({@link passThroughHosts}). */
+  readonly passThrough?: Iterable<string>;
 }
 
 /** Installs live mode's guard in this thread. */
@@ -275,7 +311,7 @@ export function installLiveNetGuard(options: LiveNetGuardOptions): EgressHooks {
   const reporterOptions: ReporterOptions = {
     mode: 'block',
     endpoints,
-    rule: liveEgressRule(endpoints),
+    rule: liveEgressRule(endpoints, passThroughHosts(options.passThrough ?? [])),
     write: options.write ?? ((line: string) => void process.stderr.write(line)),
     context: contextFrom(options.argv ?? process.argv),
     reported: new Set(),
