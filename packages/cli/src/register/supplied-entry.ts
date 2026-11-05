@@ -31,7 +31,8 @@ export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
 export { LIVE_PROJECT_ROOT_VARIABLE } from './live-package.js';
-export type { ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
+export { swappedFirebaseEntries } from '../serve/firebase-module-swap.js';
+export type { FirebaseRowSet, ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 export type { SuppliedRowsPlane, SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
 
