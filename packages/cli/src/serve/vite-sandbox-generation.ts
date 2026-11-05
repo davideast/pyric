@@ -65,6 +65,8 @@ export interface ViteSandboxGenerationOptions {
   project?: string;
   /** Set only through `@pyric/live`'s seam: the host reports its status as live (`live-host-state.ts`). */
   liveHost?: boolean;
+  /** The live host's pass-through imports, which its health report lists (`live-host-state.ts`). */
+  livePassThrough?: readonly string[];
   /**
    * Live mode's refusal of pyric's own writes, from the installed
    * `@pyric/live` when the live rows are open (`hosted/own-writes.ts`). With
@@ -231,6 +233,7 @@ export async function createViteSandboxGeneration(
         configSource: firebaseProject.source,
         optionName: 'the `project` option of pyricLive()',
         warn: (line) => server.config.logger.warn(line, { timestamp: true }),
+        passThrough: options.livePassThrough,
       })
       : undefined;
     const bridgeInput = {

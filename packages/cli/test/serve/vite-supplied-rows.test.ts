@@ -231,6 +231,72 @@ describe('live rows, once opened', () => {
   });
 });
 
+describe('live rows with imports that pass through', () => {
+  const installed = (specifier: string, from = import.meta.url): string => realpathSync(createRequire(from).resolve(specifier));
+  const databaseEntry = installed('firebase/database');
+  const storageEntry = installed('firebase/storage');
+  const messagingEntry = installed('firebase/messaging');
+  const messagingSwEntry = installed('firebase/messaging/sw');
+  const messagingPackage = installed('@firebase/messaging', messagingEntry);
+  const installationsPackage = installed('@firebase/installations', messagingPackage);
+
+  /** An open swap passing `passThrough` through, and a resolver for its gate that lands each import on `file`. */
+  function passingSwap(passThrough: string[]) {
+    const rows = suppliedRows(refusal, { passThrough });
+    rows.open(fakePackage);
+    const gated = createViteModuleSwap(context, { supplied: rows });
+    const resolveTo = (file: string, source: string, importer: string | undefined) =>
+      gated.resolvePluginId({ environment: clientEnvironment, resolve: async () => ({ id: file }) }, source, importer);
+    return { rows, gated, resolveTo };
+  }
+
+  it("load a listed import's own entry folder, and record it as an SDK file the page loaded", async () => {
+    const { rows, resolveTo } = passingSwap(['firebase/database']);
+    expect(await resolveTo(databaseEntry, aliased('firebase/database'), userImporter)).toEqual({ id: databaseEntry });
+    expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(databaseEntry).href]));
+    // An unlisted import is still refused.
+    expect(await resolveTo(storageEntry, aliased('firebase/storage'), userImporter)).toStartWith(STOP_PREFIX);
+  });
+
+  it("stop an alias that points a listed name at another service's entry", async () => {
+    const { rows, gated, resolveTo } = passingSwap(['firebase/database']);
+    const id = await resolveTo(storageEntry, aliased('firebase/database'), userImporter);
+    expect(id).toStartWith(STOP_PREFIX);
+    const error = await thrownBy(await gated.loadPluginModule(id as string));
+    expect(error.message).toBe('refused firebase/database on the page');
+    expect(rows.liveSdkUrls.size).toBe(0);
+  });
+
+  it('do not let firebase/messaging admit the firebase/messaging/sw entry', async () => {
+    const { rows, resolveTo } = passingSwap(['firebase/messaging']);
+    expect(await resolveTo(messagingEntry, aliased('firebase/messaging'), userImporter)).toEqual({ id: messagingEntry });
+    expect(await resolveTo(messagingSwEntry, aliased('firebase/messaging'), userImporter)).toStartWith(STOP_PREFIX);
+    expect(await resolveTo(messagingSwEntry, aliased('firebase/messaging/sw'), userImporter)).toStartWith(STOP_PREFIX);
+    expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(messagingEntry).href]));
+  });
+
+  it('admit a dependency package only from a loaded SDK file, and only when a service that needs it is listed', async () => {
+    const listed = passingSwap(['firebase/messaging']);
+    // App code cannot reach the packages a passed-through entry loads.
+    expect(await listed.resolveTo(installationsPackage, '@firebase/installations', userImporter)).toStartWith(STOP_PREFIX);
+    expect(await listed.resolveTo(messagingEntry, aliased('firebase/messaging'), userImporter)).toEqual({ id: messagingEntry });
+    expect(await listed.resolveTo(messagingPackage, '@firebase/messaging', messagingEntry)).toEqual({ id: messagingPackage });
+    expect(await listed.resolveTo(installationsPackage, '@firebase/installations', messagingPackage)).toEqual({ id: installationsPackage });
+
+    // With only firebase/database listed, a loaded SDK file still cannot reach @firebase/installations or @firebase/messaging.
+    const unlisted = passingSwap(['firebase/database']);
+    expect(await unlisted.resolveTo(databaseEntry, aliased('firebase/database'), userImporter)).toEqual({ id: databaseEntry });
+    expect(await unlisted.resolveTo(installationsPackage, '@firebase/installations', databaseEntry)).toStartWith(STOP_PREFIX);
+    expect(await unlisted.resolveTo(messagingPackage, '@firebase/messaging', databaseEntry)).toStartWith(STOP_PREFIX);
+  });
+
+  it('take no import a row serves, nor firebase/firestore/lite or firebase-admin', () => {
+    for (const entry of ['firebase/firestore', 'firebase/firestore/lite', 'firebase-admin', '@firebase/database']) {
+      expect(() => suppliedRows(refusal, { passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
+    }
+  });
+});
+
 describe('live rows that are still shut', () => {
   const swap = createViteModuleSwap(context, { supplied: suppliedRows(refusal) });
 

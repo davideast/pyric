@@ -49,6 +49,8 @@ export interface LiveHostStateInput {
   optionName: string;
   /** Writes a warning to the host's terminal. */
   warn(line: string): void;
+  /** The `firebase/*` imports the app's installed SDK serves unwrapped and unobserved (`pyricLive({ passThrough })`). */
+  passThrough?: readonly string[];
 }
 
 /** Where a project came from, as the developer set it. */
@@ -104,6 +106,8 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const warned = new Set<string>();
   const billed = createBilledCallCounter();
   const pending = new Map<string, ObservedCall>();
+  const passThrough = [...(input.passThrough ?? [])];
+  const passThroughField = passThrough.length === 0 ? {} : { passThrough };
 
   const report = (): LiveHostStatus => ({
     projectId: liveProjectOf(appProjectIds, input.configProjectId),
@@ -111,6 +115,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     configSource,
     appProjectIds: [...appProjectIds],
     billed: billed.count(),
+    ...passThroughField,
   });
 
   const noteProject = (projectId: string | undefined): void => {
