@@ -40,8 +40,10 @@ test('Google popup sign-in mints a served avatar URL that renders and survives r
   await page.locator('#signin').click();
   const dialog = page.locator('dialog[data-pyric-auth]');
   await expect(dialog).toBeVisible();
-  await dialog.locator('input[type="email"]').fill('erin@example.com');
+  const email = dialog.locator('input[type="email"]');
+  await email.fill('erin@example.com');
   await dialog.locator('input[placeholder="Display name (optional)"]').fill('Erin');
+  await expect(email).toHaveValue('erin@example.com');
   await dialog.locator('button.submit').click();
 
   await expect(page.locator('#status')).toHaveText(/^signed-in:/, { timeout: 10_000 });
@@ -108,8 +110,10 @@ test('email/password creation leaves photoURL null (Firebase-null fidelity)', as
 
   const authHelperDialog = page.locator('dialog[data-pyric-auth]');
   await expect(authHelperDialog).toBeVisible();
-  await authHelperDialog.locator('input[type="email"]').fill('frank@example.com');
+  const email = authHelperDialog.locator('input[type="email"]');
+  await email.fill('frank@example.com');
   await authHelperDialog.locator('input[placeholder="Display name (optional)"]').fill('Frank');
+  await expect(email).toHaveValue('frank@example.com');
   await authHelperDialog.locator('button.submit').click();
 
   await expect(page.locator('#status')).toHaveText(/^signed-in:/, { timeout: 10_000 });
