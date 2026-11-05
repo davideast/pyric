@@ -110,7 +110,7 @@ export const MCP_COMPOSITION_FILE = `${TOOLS}/bridge/server/tool-family-factorie
 /** MCP bridge, sandbox mode — mirrors bridge/server/tool-family-factories.ts. */
 const MCP_CONTRIBUTIONS = [
   { file: `${TOOLS}/bridge/server/capture-tools.ts`, factory: 'createCaptureTools', gate: 'in-process' },
-  { file: `${PYRIC}/rules/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
+  { file: `${PYRIC}/rules-tools/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
   { file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools', gate: 'forwarded' },
