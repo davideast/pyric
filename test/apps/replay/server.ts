@@ -13,12 +13,18 @@
 //
 // With `grpc`, the same recordings also answer Firestore's streams over gRPC,
 // the Node SDK's transport, from one shared state (`grpc.ts`).
+//
+// A WebSocket upgrade on `/.ws` is an RTDB connection, the URL
+// `connectDatabaseEmulator` builds: its `ns` names the instance, and
+// `rtdb.ts` answers it from the same recordings.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
 import type { Recording } from './format.ts';
 import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
 import { startGrpcReplay, type GrpcReplay } from './grpc.ts';
+import { RtdbConnection } from './rtdb.ts';
 import { parseForwardBody, WebChannelSession } from './webchannel.ts';
 
 export const FIRESTORE_HOST = 'firestore.googleapis.com';
@@ -64,11 +70,15 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const state = new ReplayState(recordings);
   const grpc = options.grpc ? await startGrpcReplay(state, options.grpc.projectDir) : null;
   const sessions = new Map<string, WebChannelSession>();
+  const sockets = new Set<WsSocket>();
   const server = createServer((request, response) => {
     void handle(state, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
       response.end(`pyric replay: ${error instanceof Error ? error.message : String(error)}`);
     });
+  });
+  server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    void upgrade(state, sockets, request, socket, head).catch(() => socket.destroy());
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
@@ -79,6 +89,8 @@ export async function startReplayServer(recordings: Recording[], options: Replay
     grpc,
     close: async () => {
       grpc?.close();
+      for (const socket of sockets) socket.terminate();
+      sockets.clear();
       await closeServer(server, sessions);
     },
   };
@@ -166,6 +178,52 @@ function openSession(state: ReplayState, sessions: Map<string, WebChannelSession
   sessions.set(session.sid, session);
   session.handshake(response);
   session.receive(batch);
+}
+
+/** The part of a `ws` socket an RTDB connection uses. */
+interface WsSocket {
+  send(text: string): void;
+  close(): void;
+  terminate(): void;
+  on(event: 'message', listener: (data: Buffer) => void): void;
+  on(event: 'close', listener: () => void): void;
+}
+
+interface WsServer {
+  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, done: (socket: WsSocket) => void): void;
+}
+
+let wsServer: Promise<WsServer> | null = null;
+
+/**
+ * A `noServer` `ws` server, loaded on the first upgrade. Bun provides `ws`
+ * itself; the root workspace does not depend on it, so a `node` process
+ * (`serve.ts`) that never opens an RTDB connection never needs it.
+ */
+function webSockets(): Promise<WsServer> {
+  wsServer ??= import('ws').then((ws: { WebSocketServer: new (options: { noServer: true }) => WsServer }) => new ws.WebSocketServer({ noServer: true }));
+  return wsServer;
+}
+
+const RTDB_PATH = '/.ws';
+
+/** Opens an RTDB connection on `/.ws` for the instance its `ns` names, or refuses the upgrade with a 404. */
+async function upgrade(state: ReplayState, sockets: Set<WsSocket>, request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+  const url = new URL(request.url ?? '/', 'http://replay.invalid');
+  const instance = url.searchParams.get('ns');
+  if (url.pathname !== RTDB_PATH || !instance) {
+    state.unmatched.push({ rpc: 'http', as: null, request: { method: request.method ?? '', path: request.url ?? '' } });
+    socket.end('HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\n\r\npyric replay: no recorded WebSocket at this path\n');
+    return;
+  }
+  const server = await webSockets();
+  server.handleUpgrade(request, socket, head, (ws) => {
+    sockets.add(ws);
+    const connection = new RtdbConnection(ws, state, instance, request.headers.host ?? '');
+    ws.on('message', (data) => connection.onFrame(data.toString('utf8')));
+    ws.on('close', () => sockets.delete(ws));
+    connection.open();
+  });
 }
 
 function allowCrossOrigin(request: IncomingMessage, response: ServerResponse): void {
