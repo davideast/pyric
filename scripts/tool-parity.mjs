@@ -123,12 +123,12 @@ const MCP_CONTRIBUTIONS = [
   // stdlib factory and adds firestore_test_rules only when a scope is
   // supplied (the default sandbox bridge supplies none).
   {
-    file: `${PYRIC}/rules/tools.ts`,
+    file: `${PYRIC}/rules-tools/tools.ts`,
     factory: 'createFirestoreRulesTools',
     gate: 'in-process',
     gates: { firestore_test_rules: 'in-process, scope-gated' },
   },
-  { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
+  { file: `${PYRIC}/rules-tools/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
   // createConformanceTools registers the shared createCanIUseTool factory,
   // which owns the name literal for both the MCP and Playground surfaces;
   // `via` points name extraction at it.
@@ -175,7 +175,7 @@ const PLAYGROUND_WRAPPERS = {
     gate: 'always-on',
   },
   [`${PLAY}/tools/core/firestoreRulesStdlib.ts`]: {
-    file: `${PYRIC}/rules/stdlib-tools.ts`,
+    file: `${PYRIC}/rules-tools/stdlib-tools.ts`,
     factory: 'createFirestoreRulesStdlibTools',
     pick: [
       'firestore_rules_stdlib_list',
