@@ -47,9 +47,9 @@ export class Soak {
     const restartOpen = index >= this.settings.firstRestartAction && index - this.lastRestart >= ACTIONS_BETWEEN_RESTARTS;
     const when = (condition: boolean, weight: number) => (condition ? weight : 0);
     return [
-      { name: 'sign up', weight: when(model.accounts.length < MAX_ACCOUNTS, 3) },
+      { name: 'sign up', weight: when(passwordAccounts < MAX_ACCOUNTS, 3) },
       { name: 'sign in', weight: when(passwordAccounts > 0, 4) },
-      { name: 'sign in with Google', weight: when(!signedIn && user.canSignInWithGoogle(this.session), 3) },
+      { name: 'sign in with Google', weight: when(!signedIn, 3) },
       { name: 'sign out', weight: when(signedIn, 2) },
       { name: 'add post in the form', weight: signedIn ? 4 : 1 },
       { name: 'set post', weight: when(signedIn, posts > MANY_POSTS ? 3 : 8) },

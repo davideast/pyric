@@ -3,7 +3,8 @@
 // checks its result against the model as it goes.
 import assert from 'node:assert/strict';
 import { escapeRegExp, until } from './model.ts';
-import { MAX_ACCOUNTS, SETTLE_MS, TAGS, type SoakPage } from './page-api.ts';
+import type { Account } from './page-api.ts';
+import { MAX_GOOGLE_ACCOUNTS, SETTLE_MS, TAGS, type SoakPage } from './page-api.ts';
 import type { Session } from './session.ts';
 
 declare const soak: SoakPage;
@@ -30,16 +31,15 @@ export async function signIn(s: Session): Promise<void> {
   await s.untilStatus(/^Signed in as /);
 }
 
-/** Whether a Google sign-in can happen: a listed account to reuse, or room for a new one. */
-export function canSignInWithGoogle(s: Session): boolean {
-  const known = s.model.accounts.some((account) => account.password === null);
-  return known || s.model.accounts.length < MAX_ACCOUNTS;
+/** The accounts signed in with Google, which the sandbox's dialog lists. */
+function googleAccounts(s: Session): Account[] {
+  return s.model.accounts.filter((account) => account.password === null);
 }
 
-/** The template's own button, through the sandbox's Google dialog: a new account, or one signed in before. */
+/** The template's own button, through the sandbox's Google dialog: a new account (up to MAX_GOOGLE_ACCOUNTS), or one signed in before. */
 export async function signInWithGoogle(s: Session): Promise<void> {
-  const known = s.model.accounts.filter((account) => account.password === null);
-  const roomForNew = s.model.accounts.length < MAX_ACCOUNTS;
+  const known = googleAccounts(s);
+  const roomForNew = known.length < MAX_GOOGLE_ACCOUNTS;
   const reuse = known.length > 0 && (!roomForNew || s.random.next() < 0.6);
   const account = reuse ? s.random.pick(known) : undefined;
   const email = account?.email ?? `google${known.length}@example.com`;

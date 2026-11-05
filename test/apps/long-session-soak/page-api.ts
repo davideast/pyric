@@ -33,8 +33,14 @@ export type ActionName =
   | 'reload' | 'second tab' | 'restart dev server' | 'pause';
 
 export const TAGS = ['a', 'b', 'c'] as const;
-/** Email and Google accounts together. */
+/** Email accounts. */
 export const MAX_ACCOUNTS = 12;
+/**
+ * Google accounts, which the sandbox's dialog lists. Set so a long run lists
+ * 51 or more, the state in which the first full hour's Google sign-in did not
+ * finish (action 5838, SOAK_SEED=20261104), a failure not yet explained.
+ */
+export const MAX_GOOGLE_ACCOUNTS = 64;
 export const MANY_POSTS = 15;
 export const MAX_LISTENERS = 4;
 export const ACTIONS_BETWEEN_RELOADS = 120;
