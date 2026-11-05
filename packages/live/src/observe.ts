@@ -2,7 +2,7 @@
  * Observation of the app's own Firebase SDK calls. A wrapper calls the real
  * function with the app's arguments and `this`, and returns what it returned:
  * the same value, the same unsubscribe function, the same thrown error. A
- * promise is the one exception: the app gets a new promise that settles with
+ * promise is one exception: the app gets a new promise that settles with
  * the real one's value or reason, so a rejection the app never handles is
  * still reported to the runtime as unhandled. Beside that, the wrapper hands
  * the observer a record of the call and its outcome.
@@ -16,6 +16,13 @@
  * Recording is isolated from the app: building a record, calling the
  * observer and a rejection from an async observer are each caught, so an
  * observer that fails never changes what the app sees.
+ *
+ * An observer may also journal Firestore listeners (`journal`), as the page's
+ * does, so the runtime chip's Listeners view and Flow see them. The listener
+ * wrapper then opens the listener's activity at the subscribe call, reports
+ * each delivery immediately before the app's callback runs, and closes the
+ * activity when the app unsubscribes: the app gets a function that closes it
+ * and calls the SDK's own unsubscribe.
  */
 
 /**
@@ -59,8 +66,45 @@ export interface LiveAccount {
   readonly claimNames?: readonly string[];
 }
 
-/** The hook a plane supplies to receive records. Its return value is ignored. */
-export type LiveObserver = (record: LiveCallRecord) => unknown;
+/**
+ * The hook a plane supplies to receive records. Its return value is ignored.
+ * A plane whose listeners the runtime chip shows also supplies `journal`.
+ */
+export type LiveObserver = ((record: LiveCallRecord) => unknown) & { readonly journal?: LiveListenerJournal };
+
+/** A Firestore listener, as the journal names it: never a value, only where it listens. */
+export interface LiveListenerSubject {
+  /** The Firestore instance the listener runs on, which names the app it belongs to. */
+  readonly firestore: object;
+  /** The export the app called, such as `onSnapshot`. */
+  readonly method: string;
+  /** The document or collection path, or the collection group's id. */
+  readonly target: string;
+  /** False for a document listener. */
+  readonly isQuery: boolean;
+  /** The same for two listeners on the same document or query. */
+  readonly key: string;
+}
+
+/**
+ * One listener's activity in the plane's journal: `pyric/sandbox/internal`'s
+ * SDK activity, which `@pyric/cli` opens for the page.
+ */
+export interface LiveListenerActivity {
+  /**
+   * Reports a delivery of `value`, which production billed for
+   * `billedDocuments`, then runs the app's callback and returns what it
+   * returned. Anything the callback throws propagates.
+   */
+  deliver(value: unknown, billedDocuments: number | undefined, run: () => unknown): unknown;
+  /** The listener was handed an error. */
+  fail(): void;
+  /** The app unsubscribed. */
+  close(): void;
+}
+
+/** Opens one listener's activity. */
+export type LiveListenerJournal = (subject: LiveListenerSubject) => LiveListenerActivity;
 
 /** What the SDK itself does with a listener error when the app passed no error callback. */
 export type UncaughtListenerError = (error: unknown) => void;
@@ -84,6 +128,8 @@ export interface ObservedSite {
   readonly subject?: unknown;
   /** Reads the account a call whose first argument is `subject` runs as. Absent records no account. */
   readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
+  /** For one listener the observer journals: its activity. */
+  readonly activity?: LiveListenerActivity;
 }
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
@@ -170,13 +216,15 @@ function ignoreRejection(returned: unknown): void {
   if (isPromise) Promise.prototype.then.call(returned, undefined, () => undefined);
 }
 
-/** Hands the observer one record. Nothing it does, or fails to do, reaches the caller. */
-function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): void {
+/** Hands the observer one record, and returns it. Nothing the observer does, or fails to do, reaches the caller. */
+function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): LiveCallRecord | undefined {
   try {
     const record = buildRecord(site, outcome, value);
     ignoreRejection(site.observer(record));
+    return record;
   } catch {
     // A recorder failure never changes what the app sees.
+    return undefined;
   }
 }
 
@@ -341,11 +389,47 @@ export function observedCall(site: ObservedSite, real: Callback): Callback {
   };
 }
 
+/** Tells the journal the listener failed. A journal failure never reaches the app. */
+function journalFailure(site: ObservedSite): void {
+  try {
+    site.activity?.fail();
+  } catch {
+    // The journal is a diagnostic; the app's error callback still runs.
+  }
+}
+
+/**
+ * Runs the app's callback for one delivery through the listener's activity,
+ * so the journal reports it immediately before the callback. The callback
+ * runs exactly once: directly when the listener has no activity, or when the
+ * journal fails before running it.
+ */
+function deliverThrough(site: ObservedSite, value: unknown, billedDocuments: number | undefined, run: () => unknown): unknown {
+  const activity = site.activity;
+  if (activity === undefined) return run();
+  let ran = false;
+  const once = (): unknown => {
+    ran = true;
+    return run();
+  };
+  try {
+    const returned = activity.deliver(value, billedDocuments, once);
+    return ran ? returned : run();
+  } catch (error) {
+    if (ran) throw error;
+    return run();
+  }
+}
+
 /** Wraps one listener callback: records the event, then calls the app's callback with the same `this` and values. */
 function recordingCallback(site: ObservedSite, outcome: LiveCallOutcome, callback: Callback): Callback {
   return function recorded(this: unknown, ...values: unknown[]): unknown {
-    report(site, outcome, values[0]);
-    return Reflect.apply(callback, this, values);
+    const record = report(site, outcome, values[0]);
+    const callApp = (): unknown => Reflect.apply(callback, this, values);
+    const isDelivery = outcome === 'delivered';
+    if (isDelivery) return deliverThrough(site, values[0], record?.billedDocuments, callApp);
+    journalFailure(site);
+    return callApp();
   };
 }
 
@@ -357,6 +441,7 @@ function recordingCallback(site: ObservedSite, outcome: LiveCallOutcome, callbac
 function uncaughtErrorCallback(site: ObservedSite): Callback {
   return function recorded(...values: unknown[]): void {
     report(site, 'listener-error', values[0]);
+    journalFailure(site);
     try {
       site.uncaughtListenerError?.(values[0]);
     } catch {
@@ -430,11 +515,91 @@ function recordingArguments(site: ObservedSite, args: unknown[]): unknown[] {
   return copy;
 }
 
+/** The constraints of a query, as the SDK keeps them in its `_query`. */
+const QUERY_CONSTRAINTS = ['filters', 'explicitOrderBy', 'limit', 'limitType', 'startAt', 'endAt'] as const;
+
+/** A query's collection path or group id, and its key, read from the SDK's `_query`. */
+function queryPath(subject: object): Pick<LiveListenerSubject, 'target' | 'key'> | undefined {
+  const query: unknown = Reflect.get(subject, '_query');
+  const isObject = typeof query === 'object' && query !== null;
+  if (!isObject) return undefined;
+  const group: unknown = Reflect.get(query, 'collectionGroup');
+  const path: unknown = Reflect.get(query, 'path');
+  const canonical = methodOf(path, 'canonicalString');
+  const collection: unknown = canonical === undefined ? undefined : Reflect.apply(canonical, path, []);
+  const target = typeof group === 'string' ? group : collection;
+  if (typeof target !== 'string') return undefined;
+  const constraints = QUERY_CONSTRAINTS.map((name) => Reflect.get(query, name));
+  try {
+    return { target, key: JSON.stringify(['query', target, constraints]) };
+  } catch {
+    // Constraints that do not serialize key the query by its collection alone.
+    return { target, key: JSON.stringify(['query', target]) };
+  }
+}
+
+/** A reference's path, or a query's, read without calling anything of the app's. */
+function firestorePath(subject: object, type: unknown): Pick<LiveListenerSubject, 'target' | 'key'> | undefined {
+  const isReference = type === 'document' || type === 'collection';
+  if (!isReference) return type === 'query' ? queryPath(subject) : undefined;
+  const path: unknown = Reflect.get(subject, 'path');
+  return typeof path === 'string' ? { target: path, key: JSON.stringify([type, path]) } : undefined;
+}
+
+/** The Firestore listener an export's first argument names, or undefined for any other subject. */
+function listenerSubject(method: string, subject: unknown): LiveListenerSubject | undefined {
+  const isObject = typeof subject === 'object' && subject !== null;
+  if (!isObject) return undefined;
+  const firestore: unknown = Reflect.get(subject, 'firestore');
+  const hasFirestore = typeof firestore === 'object' && firestore !== null;
+  if (!hasFirestore) return undefined;
+  const type: unknown = Reflect.get(subject, 'type');
+  const path = firestorePath(subject, type);
+  if (path === undefined) return undefined;
+  return { firestore, method, isQuery: type !== 'document', ...path };
+}
+
+/** The listener's activity in the observer's journal, or undefined when it has none or opening it failed. */
+function openActivity(site: ObservedSite, args: readonly unknown[]): LiveListenerActivity | undefined {
+  try {
+    const journal = site.observer.journal;
+    if (typeof journal !== 'function') return undefined;
+    const subject = listenerSubject(site.name, args[0]);
+    return subject === undefined ? undefined : journal(subject);
+  } catch {
+    // A listener the journal cannot open is still the SDK's own.
+    return undefined;
+  }
+}
+
+/** The SDK's unsubscribe, closing the listener's activity first. Any other result is passed back unchanged. */
+function closingUnsubscribe(activity: LiveListenerActivity, unsubscribe: unknown): unknown {
+  if (typeof unsubscribe !== 'function') return unsubscribe;
+  return function unsubscribed(this: unknown, ...values: unknown[]): unknown {
+    try {
+      activity.close();
+    } catch {
+      // The journal is a diagnostic; the SDK still unsubscribes.
+    }
+    return Reflect.apply(unsubscribe as Callback, this, values);
+  };
+}
+
 /** A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`, `onTokenChanged`. */
 export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args);
-    const listenerSite = { ...callSite, billing: billedDocuments() };
-    return callReal(callSite, real, this, recordingArguments(listenerSite, args));
+    const activity = openActivity(site, args);
+    const listenerSite = { ...callSite, billing: billedDocuments(), activity };
+    const listening = recordingArguments(listenerSite, args);
+    if (activity === undefined) return callReal(callSite, real, this, listening);
+    let unsubscribe: unknown;
+    try {
+      unsubscribe = callReal(callSite, real, this, listening);
+    } catch (error) {
+      journalFailure(listenerSite);
+      throw error;
+    }
+    return closingUnsubscribe(activity, unsubscribe);
   };
 }

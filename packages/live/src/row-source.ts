@@ -54,12 +54,30 @@ export function rowModuleSource(specifier: ServedFirebaseSpecifier, imports: Row
   ].join('\n');
 }
 
-/** The source of the observer module: each record that has a row goes to the host through `sender`. */
-export function observerModuleSource(sender: string, imports: RowImports): string {
+/** The observer module's lines on a page, whose observer also journals each Firestore listener. */
+function pageObserverLines(sender: string, observer: string): string[] {
   return [
     `import { sendObservedCall } from ${JSON.stringify(sender)};`,
-    `import { pageObserver } from ${JSON.stringify(imports.file('page-observer'))};`,
+    `import { journalLiveListener } from ${JSON.stringify(sender)};`,
+    `import { pageObserver } from ${observer};`,
+    'export const observer = Object.assign(pageObserver(sendObservedCall), { journal: journalLiveListener });',
+  ];
+}
+
+/**
+ * The source of the observer module: each record that has a row goes to the
+ * host through `sender`. On a page, the observer also journals each Firestore
+ * listener through the page sender's `journalLiveListener`, in the SDK
+ * activity the runtime chip's Listeners view and Flow read. A Node process
+ * has no chip.
+ */
+export function observerModuleSource(sender: string, imports: RowImports): string {
+  const observer = JSON.stringify(imports.file('page-observer'));
+  const isPage = imports.client === 'page';
+  const lines = isPage ? pageObserverLines(sender, observer) : [
+    `import { sendObservedCall } from ${JSON.stringify(sender)};`,
+    `import { pageObserver } from ${observer};`,
     'export const observer = pageObserver(sendObservedCall);',
-    '',
-  ].join('\n');
+  ];
+  return [...lines, ''].join('\n');
 }

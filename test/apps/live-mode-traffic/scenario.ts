@@ -5,7 +5,9 @@
  * page and the server job sign in as two accounts, and each reads, listens,
  * is denied a read and writes. The chip shows every call as production's,
  * from the client that made it, with production's answer, under
- * "Live: <project>" and the billed-call count.
+ * "Live: <project>" and the billed-call count. Its Listeners view lists the
+ * page's live listener with its deliveries, and Overview outlines the element
+ * the listener's callback changed.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * recorded exchanges: Auth REST, Firestore over WebChannel for the page and
@@ -263,6 +265,31 @@ export default scenario(async (app) => {
       await expectRow(rows, 'firestore.onSnapshot', source, 'Production succeeded', account);
       await expectRow(rows, 'firestore.setDoc', source, 'Production succeeded', account);
     }
+  });
+
+  await app.step('the chip\'s Listeners view lists the page\'s live listener with its deliveries, and Overview outlines what it changed', async () => {
+    const chip = await openChip(page);
+    await chip.locator('[data-chip-tab=listeners]').click();
+    // The page's one listener: the open rooms query, delivered production's first answer and the garden the page opened.
+    const listener = chip.locator('[data-listener-rows] [data-listener-row]').filter({ hasText: 'rooms' });
+    const facts = await eventually(
+      () => listener.evaluateAll((rows) => rows.map((row) => ({
+        fact: row.querySelector('.listener-fact')?.textContent ?? '',
+        text: row.textContent ?? '',
+      }))),
+      (rows) => rows.length === 1 && Number(/(\d+) deliveries/.exec(rows[0]!.fact)?.[1] ?? 0) >= 2,
+      'a Listeners row for the open rooms listener with its deliveries',
+    );
+    assert.match(facts[0]!.text, /Firestore collection/, `the listener names what it listens to: ${facts[0]!.text}`);
+    await chip.locator('[data-listener-mode=overview]').click();
+    // The listener's callback rewrote #rooms, so Overview draws its box there, badged with the query.
+    const badge = page.locator('[data-pyric-listener-overlay] [data-pyric-listener-badge]').filter({ hasText: 'rooms (query)' });
+    await badge.first().waitFor({ state: 'attached', timeout: 20_000 });
+    const box = await page.locator('[data-pyric-listener-overlay] [data-pyric-listener-box]').first().boundingBox();
+    const rooms = await page.locator('#rooms').boundingBox();
+    assert.ok(box && rooms, 'the outline and #rooms are both on the page');
+    assert.deepEqual([box.x, box.y, box.width, box.height].map(Math.round), [rooms.x, rooms.y, rooms.width, rooms.height].map(Math.round), 'the outline sits on #rooms');
+    await chip.locator('[data-listener-mode=overview]').click();
   });
 
   await app.step('each call the page makes that live mode refuses throws its refusal and sends nothing', async () => {
