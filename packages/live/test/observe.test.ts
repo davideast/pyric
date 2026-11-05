@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'bun:test';
-import { observedCall, observedListener, type LiveCallRecord, type LiveObserver } from '../src/observe.js';
+import { observedCall, observedListener, type LiveCallRecord, type LiveListenerJournal, type LiveObserver } from '../src/observe.js';
 
 const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
 
@@ -10,9 +10,13 @@ const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
  * runner fails a test on any unhandled rejection, so the runtime's own
  * behavior is checked in Node. Node 22 strips types from `observe.ts` only
  * behind `--experimental-strip-types`; Node 24 accepts the flag as well.
+ * The source imports its siblings as `.js`, as the built files do, so a
+ * resolve hook finds the `.ts` file beside a `.js` specifier Node cannot.
  */
 function rejectInNode(setup: string): { status: number | null; stdout: string; stderr: string } {
   const app = [
+    "import { registerHooks } from 'node:module';",
+    "registerHooks({ resolve(specifier, context, next) { try { return next(specifier, context); } catch (error) { if (!specifier.endsWith('.js')) throw error; return next(`${specifier.slice(0, -3)}.ts`, context); } } });",
     setup,
     `const { observedCall } = await import(${JSON.stringify(OBSERVE_URL)});`,
     `const getDoc = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer: () => undefined }, () => Promise.reject(Object.assign(new Error('permission-denied'), { code: 'permission-denied' })));`,
@@ -395,5 +399,90 @@ describe('the documents a Firestore listener delivery was billed for', () => {
     delivers[0]?.('not a snapshot');
     const delivered = records.filter((record) => record.outcome === 'delivered');
     expect(delivered.map((record) => record.billedDocuments)).toEqual([1, 1, undefined]);
+  });
+});
+
+/** An observer that journals listeners, keeping each journal step and app call in `steps`. */
+function journaling(steps: unknown[][], failing = false): LiveObserver {
+  const journal: LiveListenerJournal = (subject) => {
+    if (failing) throw new Error('journal down');
+    steps.push(['open', subject.method, subject.target, subject.isQuery]);
+    return {
+      deliver(value, billedDocuments, run) {
+        steps.push(['deliver', billedDocuments]);
+        return run();
+      },
+      fail: () => steps.push(['fail']),
+      close: () => steps.push(['close']),
+    };
+  };
+  return Object.assign(() => undefined, { journal });
+}
+
+const firestore = { app: { options: { projectId: 'demo' } } };
+const roomsQuery = { type: 'query', firestore, _query: { path: { canonicalString: () => 'rooms' }, filters: [{ op: '==' }] } };
+
+describe('a listener wrapper whose observer journals listeners', () => {
+  test('opens a Firestore listener, reports each delivery just before the app callback, and closes it on unsubscribe', () => {
+    const steps: unknown[][] = [];
+    let deliver: (value: unknown) => void = () => undefined;
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer: journaling(steps) }, (_target: unknown, next: unknown) => {
+      deliver = next as (value: unknown) => void;
+      return () => steps.push(['sdk unsubscribe']);
+    });
+    const snapshot = querySnapshot(1, false);
+    const unsubscribe = subscribe(roomsQuery, (value: unknown) => steps.push(['app', value === snapshot])) as () => void;
+    deliver(snapshot);
+    unsubscribe();
+    expect(steps).toEqual([['open', 'onSnapshot', 'rooms', true], ['deliver', 1], ['app', true], ['close'], ['sdk unsubscribe']]);
+  });
+
+  test('names a document listener by its path, and journals its error before the app gets it', () => {
+    const steps: unknown[][] = [];
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer: journaling(steps) }, (_target: unknown, _next: unknown, error: unknown) => {
+      (error as (reason: unknown) => void)(new CodedError('permission-denied'));
+      return () => undefined;
+    });
+    subscribe({ type: 'document', firestore, path: 'rooms/lobby' }, () => undefined, (reason: unknown) => steps.push(['app', reason instanceof CodedError]));
+    expect(steps).toEqual([['open', 'onSnapshot', 'rooms/lobby', false], ['fail'], ['app', true]]);
+  });
+
+  test('journals nothing for a listener on anything but a Firestore reference or query, and returns the SDK unsubscribe itself', () => {
+    const steps: unknown[][] = [];
+    const sdkUnsubscribe = () => undefined;
+    const subscribe = observedListener({ module: 'firebase/auth', name: 'onAuthStateChanged', observer: journaling(steps) }, () => sdkUnsubscribe);
+    expect(subscribe({ app: firestore.app }, () => undefined)).toBe(sdkUnsubscribe);
+    expect(steps).toEqual([]);
+  });
+
+  test('a journal that fails leaves the app callback, its value and the SDK unsubscribe as they were', () => {
+    const delivered: unknown[] = [];
+    const sdkUnsubscribe = () => undefined;
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer: journaling([], true) }, (_target: unknown, next: unknown) => {
+      (next as (value: unknown) => void)('snapshot');
+      return sdkUnsubscribe;
+    });
+    expect(subscribe(roomsQuery, (value: unknown) => delivered.push(value))).toBe(sdkUnsubscribe);
+    expect(delivered).toEqual(['snapshot']);
+  });
+
+  test('an error the app callback throws reaches the SDK unchanged, and the callback runs once', () => {
+    const thrown = new Error('app bug');
+    let calls = 0;
+    let caught: unknown;
+    const subscribe = observedListener({ module: 'firebase/firestore', name: 'onSnapshot', observer: journaling([]) }, (_target: unknown, next: unknown) => {
+      try {
+        (next as (value: unknown) => void)('value');
+      } catch (error) {
+        caught = error;
+      }
+      return () => undefined;
+    });
+    subscribe(roomsQuery, () => {
+      calls += 1;
+      throw thrown;
+    });
+    expect(caught).toBe(thrown);
+    expect(calls).toBe(1);
   });
 });
