@@ -44,7 +44,7 @@ export interface Manifest {
 const REPO_ROOT = resolve(import.meta.dir, '../..');
 const RANGE_MANIFEST = 'packages/pyric/package.json';
 const REWRITTEN_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
-const ISSUE_LABEL = 'lane:reliability';
+export const ISSUE_LABEL = 'bug';
 
 function isStable(version: string): boolean {
   return !version.includes('-');

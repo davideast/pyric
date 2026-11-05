@@ -12,7 +12,7 @@
 // A leg whose file never arrived is reported as not run, so a leg that died
 // early cannot look like a leg that checked production. On a scheduled run, or
 // a dispatch that asks for it, `report` also opens or updates one
-// `lane:reliability` issue, and closes it once every leg has checked
+// `divergence` issue, and closes it once every leg has checked
 // production with no drift.
 //
 // Both commands read their inputs from the environment (see `inputFromEnv` for
@@ -57,7 +57,7 @@ export interface LegStatus {
   fallbackAttempt?: number;
 }
 
-const ISSUE_LABEL = 'lane:reliability';
+const ISSUE_LABEL = 'divergence';
 export const ISSUE_TITLE_PREFIX = 'Oracle re-capture: production checked by ';
 const STATE_NAMES: readonly LegState[] = [
   'checked-clean', 'checked-drift', 'capture-failed', 'disabled', 'guard-missing', 'no-record',

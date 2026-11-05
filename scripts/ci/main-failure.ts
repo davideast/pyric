@@ -11,7 +11,7 @@
 // commit is still the head of main and no newer push run is pending; otherwise
 // its failures go to the one `Unconfirmed failures on main: ` issue. Attempt 2
 // passed: each test (or job, when its log names no test) that failed in
-// attempt 1 is a flake, filed as one `lane:velocity` issue titled
+// attempt 1 is a flake, filed as one `flake` issue titled
 // `Flaky on main: <test>`, or commented on an open issue that already names
 // the test file's repository path. Attempt 2 failed: open or update the one
 // `Main is red: ` issue. Attempt 2 cancelled: attempt 1's failures go to the
