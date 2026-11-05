@@ -36,8 +36,6 @@ const ALLOWED_EDGES: readonly string[] = [
   // Shared groundwork, which moves down into the engine.
   'api/rtdb-firebase-json.ts -> ../../sandbox/internal/database-rules-config.js',
   'api/rtdb-instance-case.ts -> ../../sandbox/internal/instances.js',
-  'rtdb/simulation/post-write-tree.ts -> ../../../database/sandbox/normalize.js',
-  'rtdb/simulation/post-write-tree.ts -> ../../../database/sandbox/sentinels.js',
   'rtdb/simulation/spec.ts -> ../../../database/internal/query-projection.js',
   'rtdb/simulation/spec.ts -> ../../../database/query-validation.js',
 ];
