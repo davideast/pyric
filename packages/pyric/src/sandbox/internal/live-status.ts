@@ -38,6 +38,11 @@ export interface LiveHostStatus {
   /** Every project the app's Firebase config named on a call, in the order the host saw them. */
   readonly appProjectIds: readonly string[];
   readonly billed: BilledCallCount;
+  /**
+   * The `firebase/*` imports the app's installed SDK serves unwrapped, with no
+   * row and no observer (`pyricLive({ passThrough })`). Absent when there are none.
+   */
+  readonly passThrough?: readonly string[];
 }
 
 /** The line every live view shows for as long as the host runs. */
@@ -59,6 +64,20 @@ export function liveMismatchLine(status: Pick<LiveHostStatus, 'appProjectIds' | 
   const isMismatch = otherProjects(status).length > 0;
   if (!isMismatch) return null;
   return `Your Firebase config says ${status.appProjectIds.join(', ')}; ${status.configSource} says ${status.configProjectId}.`;
+}
+
+/**
+ * The line every live view shows for one passed-through import, for as long
+ * as the host runs: `firebase/database passes through to production: its
+ * calls are not observed and still bill.`
+ */
+export function livePassThroughLine(specifier: string): string {
+  return `${specifier} passes through to production: its calls are not observed and still bill.`;
+}
+
+/** The pass-through lines of a live status, one per passed-through import. */
+export function livePassThroughLines(status: Pick<LiveHostStatus, 'passThrough'>): string[] {
+  return (status.passThrough ?? []).map(livePassThroughLine);
 }
 
 /** The label's project: the projects the app's calls named, else the host's. */
@@ -89,6 +108,19 @@ function readProjects(value: unknown): string[] | null {
   return isList ? [...(value as string[])] : null;
 }
 
+const FIREBASE_IMPORT = /^firebase\/[a-z-]+(?:\/[a-z-]+)*$/;
+
+function isFirebaseImport(value: unknown): value is string {
+  return typeof value === 'string' && FIREBASE_IMPORT.test(value);
+}
+
+/** The pass-through list: absent stays absent, and anything but a list of `firebase/*` imports is malformed. */
+function readPassThrough(value: unknown): { passThrough?: string[] } | null {
+  if (value === undefined) return {};
+  const isList = Array.isArray(value) && value.every(isFirebaseImport);
+  return isList ? { passThrough: [...(value as string[])] } : null;
+}
+
 /** The live status in a `/__pyric/health` report, or null for a sandbox host. */
 export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const isReport = typeof health === 'object' && health !== null;
@@ -101,9 +133,10 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const configSource: unknown = Reflect.get(live, 'configSource');
   const appProjectIds = readProjects(Reflect.get(live, 'appProjectIds'));
   const billed = readCount(Reflect.get(live, 'billed'));
+  const passThrough = readPassThrough(Reflect.get(live, 'passThrough'));
   const hasFields = isProjectName(projectId) && isProjectName(configProjectId) && isProjectName(configSource);
-  if (!hasFields || appProjectIds === null || billed === null) return null;
-  return { projectId, configProjectId, configSource, appProjectIds, billed };
+  if (!hasFields || appProjectIds === null || billed === null || passThrough === null) return null;
+  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough };
 }
 
 const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, BilledCallKind>([
