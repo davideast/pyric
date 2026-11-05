@@ -15,11 +15,8 @@ import {
   resourceFromStored,
   type StoredMetadata,
 } from 'pyric/storage/internal';
-import {
-  rtdbRulesSourceRejection,
-  type RtdbReplayDivergence,
-  type RtdbRulesDocument,
-} from 'pyric/rules/internal/rtdb';
+import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
+import type { RtdbReplayDivergence } from 'pyric/sandbox/internal';
 import {
   rulesSourceRejection,
   SimulateFirestoreRulesHandler,

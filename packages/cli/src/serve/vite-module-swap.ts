@@ -23,6 +23,7 @@ import {
   ROW_MODULE_IDS,
   isLiveModuleId,
   isSuppliedRowsImport,
+  passThroughSdkPackages,
   realFileUrlOf,
   suppliedRowsResolution,
   type SuppliedRows,
@@ -38,7 +39,7 @@ import {
 } from './vite-ssr-routing.js';
 import { loadServerTarget } from './vite-ssr-loader.js';
 import { LIVE_ROW_SDK_PACKAGES, isFirebaseSdkName, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
-import { packageNameOf } from '../register/package-identity.js';
+import { packageNameOf, pathInPackageOf } from '../register/package-identity.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const SDK_PACKAGE_SPECIFIER = /^@firebase\//;
@@ -268,6 +269,7 @@ export function createViteModuleSwap(
     const resolution = suppliedRowsResolution(supplied, source, importer);
     if (resolution.kind === 'module') return resolution.id;
     if (resolution.kind === 'refused') return refusalIdFor(source, 'page', resolution.error);
+    // `installed-sdk`, `pass-through` and `unserved` resolve as Vite would, then meet the gate.
     return null;
   }
 
@@ -351,11 +353,41 @@ export function createViteModuleSwap(
     if (isLoadedFile) return target;
     const specifier = unaliasedSpecifier(source) ?? source;
     const importerUrl = importer === undefined ? undefined : realFileUrlOf(importer) ?? importer;
+    const isPassThroughLoad = isPassThroughEntry(supplied, specifier, url) || isPassThroughPackageFile(supplied, importerUrl, url);
+    if (isPassThroughLoad) {
+      supplied.liveSdkUrls.add(url);
+      return target;
+    }
     const isRowImport = rowSpecifierOf(importer) === specifier;
     const load = { specifier, importer: importerUrl, url };
     const stopped = suppliedRowsStopFor(load, supplied.liveSdkUrls, { isRowImport, isEsmImport: true });
     if (stopped === null) return target;
     return refusedFileIdFor(specifier, fileURLToPath(url), supplied.refusal(specifier, 'page'));
+  }
+
+  /**
+   * Whether `url` is the entry of a passed-through specifier, imported by its
+   * name: a file of the `firebase` package under that specifier's own folder
+   * (`firebase/database` → `database/dist/`), so no alias can send the name
+   * to another service's entry.
+   */
+  function isPassThroughEntry(supplied: SuppliedRows, specifier: string, url: string): boolean {
+    const isListed = supplied.passThrough.has(specifier as ServedFirebaseSpecifier);
+    if (!isListed || packageNameOf(url) !== 'firebase') return false;
+    const folder = `${specifier.slice('firebase/'.length)}/dist/`;
+    return pathInPackageOf(url, 'firebase')?.startsWith(folder) ?? false;
+  }
+
+  /**
+   * Whether an SDK file the rows or a pass-through already loaded imports a
+   * file of a package only a passed-through entry needs (`@firebase/database`,
+   * `@firebase/installations`), its own relative imports included.
+   */
+  function isPassThroughPackageFile(supplied: SuppliedRows, importerUrl: string | undefined, url: string): boolean {
+    const isFromLoadedFile = importerUrl !== undefined && supplied.liveSdkUrls.has(importerUrl);
+    if (!isFromLoadedFile) return false;
+    const name = packageNameOf(url);
+    return name !== null && passThroughSdkPackages(supplied.passThrough).has(name);
   }
 
   /** Whether this resolution is for server code Vite runs, not the page. */
@@ -404,9 +436,10 @@ export function createViteModuleSwap(
       : resolveId(original, importer);
     const isRouted = routed !== null;
     if (isRouted) return routed;
-    const isRowModuleOwnImport = supplied !== undefined &&
-      suppliedRowsResolution(supplied, original, importer).kind === 'installed-sdk';
-    if (isRowModuleOwnImport) return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
+    const suppliedKind = supplied === undefined ? null : suppliedRowsResolution(supplied, original, importer).kind;
+    // A row module's own import, or a passed-through one: the installed SDK, which the gate then checks.
+    const isInstalledSdkImport = suppliedKind === 'installed-sdk' || suppliedKind === 'pass-through';
+    if (isInstalledSdkImport) return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
     // Not swapped here. firebase-admin in browser code, and any other load of
     // the real SDK the swap does not choose, gets the stop module.
     const stopId = stopIdFor(original, importer);
@@ -530,7 +563,8 @@ export function createViteModuleSwap(
         // Live rows load the installed Auth and Firestore, which import the
         // excluded @firebase/app: every package the rows load is kept out too,
         // so the page has one registry and the pre-bundle holds no SDK file.
-        ...(options?.supplied === undefined ? [] : [...LIVE_ROW_SDK_PACKAGES]),
+        // So is every package a passed-through entry loads (`@firebase/database`).
+        ...(options?.supplied === undefined ? [] : [...LIVE_ROW_SDK_PACKAGES, ...passThroughSdkPackages(options.supplied.passThrough)]),
       ];
       const usesRolldown = Number(viteVersion.split('.')[0]) >= 8;
       const optimizer = usesRolldown

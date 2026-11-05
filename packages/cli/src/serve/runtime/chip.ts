@@ -1,5 +1,5 @@
 import { CALLER_SOURCE_LABELS, productionVerdict, requestStatusLabel } from 'pyric/sandbox/internal';
-import { billedCallSummary, createLiveStatusPoller, liveLabel, liveMismatchLine, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
+import { billedCallSummary, createLiveStatusPoller, liveLabel, liveMismatchLine, livePassThroughLines, type LiveHostStatus, type LiveStatusTimers, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import { healthLiveStatus } from './chip-live-status.js';
 import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml } from './ai-model-label.js';
@@ -496,16 +496,19 @@ const BILLED_TITLE = 'Successful Firestore reads and writes, and documents deliv
 /** The collapsed chip's live line; its title carries the mismatch warning when there is one. */
 function liveChipHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
   if (live === null) return '';
-  const title = [LIVE_TITLE, liveMismatchLine(live)].filter(Boolean).join(' ');
+  const title = [LIVE_TITLE, liveMismatchLine(live), ...livePassThroughLines(live)].filter(Boolean).join(' ');
   return `<span class="live-label" data-chip-live title="${escape(title)}">${escape(liveLabel(live.projectId))}</span>`;
 }
 
-/** The panel header's live line, the mismatch warning, and the host's billed-call count. */
+/** The panel header's live line, the mismatch warning, a line for each import that passes through, and the host's billed-call count. */
 function liveHeaderHtml(live: LiveHostStatus | null, escape: (value: string) => string): string {
   if (live === null) return '';
   const mismatch = liveMismatchLine(live);
   const warning = mismatch === null ? '' : `<span class="live-warning" data-chip-live-mismatch role="status">${escape(mismatch)}</span>`;
-  return `${liveChipHtml(live, escape)}${warning}<span class="live-count" data-chip-billed title="${escape(BILLED_TITLE)}">Billed calls: ${escape(billedCallSummary(live.billed))}</span>`;
+  const passing = livePassThroughLines(live)
+    .map((line) => `<span class="live-warning" data-chip-live-pass-through role="status">${escape(line)}</span>`)
+    .join('');
+  return `${liveChipHtml(live, escape)}${warning}${passing}<span class="live-count" data-chip-billed title="${escape(BILLED_TITLE)}">Billed calls: ${escape(billedCallSummary(live.billed))}</span>`;
 }
 
 /** Mount the framework-independent runtime chip in an isolated shadow root. */

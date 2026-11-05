@@ -194,6 +194,11 @@ Work through these and record the observed result for each. Each line states wha
    - a named Firestore database, such as `getFirestore(app, 'reports')`;
    - `firebase-admin` in a Node process under the register;
    - a Studio edit or an MCP tool that writes.
+
+   Live mode refuses each Firebase import it doesn't serve. An app that lists one, as in
+   `pyricLive({ passThrough: ['firebase/database'] })`, loads it from its own installed SDK,
+   unobserved: its calls still bill, and the start line, the chip and Studio name it as passing
+   through. This covers the page only; a Node process under the register still refuses it (#2122).
 6. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
    `PYRIC_REAL_SDK_STOPPED`.
 7. **Own requests blocked.** A Node process's global `fetch` to Firestore rejects with

@@ -3,15 +3,8 @@
  *
  * `pyric/database` is reserved for the Firebase-shaped sandbox mirror. This
  * unstable internal subpath exposes the pure rules parser, simulator,
- * replay engine, and constraints DSL used by pyric's tooling packages.
+ * and constraints DSL used by pyric's tooling packages.
  */
-export { replay, rewoundRtdbTree, rtdbReplaySteps, rtdbStateDrift } from '../../database/replay.js';
-export type {
-  RtdbReplayDivergence,
-  RtdbReplayOptions,
-  RtdbReplayResult,
-  RtdbReplayStep,
-} from '../../database/replay.js';
 export { simulatedAuthOf as rtdbAuthVariable } from '../rtdb/simulation/handler.js';
 export {
   buildRuleExpression,

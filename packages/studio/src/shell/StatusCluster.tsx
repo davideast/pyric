@@ -39,7 +39,7 @@ import { useBridgeRemoteConsumers } from './bridge-presence.js';
 import { RemoteClientsPopover } from './RemoteClientsPopover.js';
 import { useStudioDataSource } from './studio-data.js';
 import { hrefFor, pushPath } from './router.js';
-import { billedCallSummary, liveLabel, liveMismatchLine } from 'pyric/sandbox/internal';
+import { billedCallSummary, liveLabel, liveMismatchLine, livePassThroughLines } from 'pyric/sandbox/internal';
 import { useLiveHost, useLiveStatusRefresh } from './live-status.js';
 
 const LIVE_TITLE = 'Live mode: rows marked Production went to your real Firebase project. Rows marked Sandbox were served by the local sandbox.';
@@ -70,6 +70,7 @@ export function StatusCluster() {
   const liveHost = useLiveHost();
   useLiveStatusRefresh(liveHost !== null);
   const liveMismatch = liveHost === null ? null : liveMismatchLine(liveHost);
+  const livePassThrough = liveHost === null ? [] : livePassThroughLines(liveHost);
   const presence = usePresenceView();
   const [presenceOpen, setPresenceOpen] = useState(false);
   const presenceTriggerRef = useRef<HTMLButtonElement>(null);
@@ -157,6 +158,11 @@ export function StatusCluster() {
               {liveMismatch}
             </span>
           )}
+          {livePassThrough.map((line) => (
+            <span key={line} className="studio-chip studio-chip--warn" data-studio-live-pass-through role="status">
+              {line}
+            </span>
+          ))}
           <span className="studio-chip" data-studio-billed title={BILLED_TITLE}>
             Billed calls: {billedCallSummary(liveHost.billed)}
           </span>

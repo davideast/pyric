@@ -13,13 +13,18 @@
  * that the rows did not lead to (`vite-module-swap.ts`), as the Node plane's
  * stop decides by the resolved file (`../register/swap-or-stop.ts`).
  *
+ * A supplier may also name served specifiers that pass through
+ * (`passThrough`): each loads the app's installed SDK unwrapped, with no row
+ * and no observer, as a row module's own import does. Only a specifier with
+ * no live row can pass through, and `firebase-admin` never does.
+ *
  * `pyric()` supplies no rows. A plugin gets them only through
  * `@pyric/cli/vite/internal/supplied-rows`, which takes no module ids.
  */
 import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
+import { SDK_MODULES, type ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import type { RowModulePackage } from './vite-live-package.js';
 
 /** The served specifiers a live row serves from the app's installed SDK. */
@@ -70,6 +75,8 @@ export interface SuppliedRows {
    * supplier did not say.
    */
   readonly liveRoot?: string;
+  /** The served specifiers with no row that load the installed SDK unwrapped and unobserved. */
+  readonly passThrough: ReadonlySet<ServedFirebaseSpecifier>;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RowModulePackage | null;
   /** Opens the rows with the installed package (`vite-live-package.ts`). */
@@ -82,12 +89,59 @@ export interface SuppliedRows {
   readonly liveSdkUrls: Set<string>;
 }
 
-/** Shut live rows with the supplier's refusal, and the folder of the `@pyric/live` that supplied them. */
-export function suppliedRows(refusal: SuppliedRowsRefusal, liveRoot?: string): SuppliedRows {
+/**
+ * Served specifiers with no row of their own that reach a service a row
+ * serves: `firebase/firestore/lite` is Firestore, so passing it through would
+ * send Firestore calls no observer sees and the billed count never counts.
+ */
+const ROW_SERVICE_SPECIFIERS: ReadonlySet<ServedFirebaseSpecifier> = new Set<ServedFirebaseSpecifier>(['firebase/firestore/lite']);
+
+/** The specifiers a supplier may pass through: every served one with no live row, and no row's service. */
+const PASS_THROUGH_SPECIFIERS: ReadonlySet<string> = new Set(
+  SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier) && !ROW_SERVICE_SPECIFIERS.has(specifier)),
+);
+
+/** The pass-through set, or a throw naming each entry that cannot pass through. */
+function passThroughSet(listed: readonly string[]): ReadonlySet<ServedFirebaseSpecifier> {
+  const invalid = listed.filter((specifier) => !PASS_THROUGH_SPECIFIERS.has(specifier));
+  if (invalid.length > 0) {
+    throw new Error(`pyric: ${invalid.join(', ')} cannot pass through: only ${[...PASS_THROUGH_SPECIFIERS].join(', ')} can.`);
+  }
+  return new Set(listed as readonly ServedFirebaseSpecifier[]);
+}
+
+/** The `@firebase/*` packages that `firebase/installations` serves to the services that import it. */
+const INSTALLATIONS_USERS: ReadonlySet<string> = new Set(['messaging', 'analytics', 'performance', 'remote-config']);
+
+/**
+ * The `@firebase/*` packages a pass-through specifier's entry loads besides
+ * the ones the live rows load: its own package (`firebase/messaging/sw` →
+ * `@firebase/messaging`), and `@firebase/installations` for the services
+ * that import it.
+ */
+export function passThroughSdkPackages(passThrough: ReadonlySet<ServedFirebaseSpecifier>): Set<string> {
+  const packages = new Set<string>();
+  for (const specifier of passThrough) {
+    const service = specifier.slice('firebase/'.length).split('/')[0]!;
+    packages.add(`@firebase/${service}`);
+    if (INSTALLATIONS_USERS.has(service)) packages.add('@firebase/installations');
+  }
+  return packages;
+}
+
+/** What a supplier says besides its refusal: where its `@pyric/live` is, and the specifiers it passes through. */
+export interface SuppliedRowsSupplier {
+  readonly liveRoot?: string;
+  readonly passThrough?: readonly string[];
+}
+
+/** Shut live rows with the supplier's refusal, the folder of its `@pyric/live`, and the specifiers it passes through. */
+export function suppliedRows(refusal: SuppliedRowsRefusal, supplier: SuppliedRowsSupplier = {}): SuppliedRows {
   let found: RowModulePackage | null = null;
   return {
     refusal,
-    liveRoot,
+    liveRoot: supplier.liveRoot,
+    passThrough: passThroughSet(supplier.passThrough ?? []),
     liveSdkUrls: new Set(),
     package: () => found,
     open(next) {
@@ -99,6 +153,7 @@ export function suppliedRows(refusal: SuppliedRowsRefusal, liveRoot?: string): S
 export type SuppliedRowsResolution =
   | { readonly kind: 'module'; readonly id: string }
   | { readonly kind: 'installed-sdk' }
+  | { readonly kind: 'pass-through' }
   | { readonly kind: 'refused'; readonly error: Error }
   | { readonly kind: 'unserved' };
 
@@ -140,6 +195,7 @@ function isLoadedSdkFile(rows: SuppliedRows, importer: string | undefined): bool
 /**
  * What a page-plane Firebase import gets under live rows: the row's module;
  * the installed SDK, when that row module imports its own specifier; the
+ * installed SDK unwrapped, for a specifier the supplier passes through; the
  * refusal, for every other `firebase`, `firebase/*` and `firebase-admin`
  * import, served by pyric or not, and for every one while the rows are shut,
  * as the Node register refuses them (`../register/supplied-rows.ts`); or
@@ -154,6 +210,8 @@ export function suppliedRowsResolution(rows: SuppliedRows, source: string, impor
     const isSdkOwnImport = isOpen && isLoadedSdkFile(rows, importer);
     return isSdkOwnImport ? { kind: 'unserved' } : { kind: 'refused', error: rows.refusal(source, 'page') };
   }
+  const isPassThrough = isOpen && rows.passThrough.has(source as ServedFirebaseSpecifier);
+  if (isPassThrough) return { kind: 'pass-through' };
   const id = ROW_MODULE_IDS.get(source as ServedFirebaseSpecifier);
   const isShut = rows.package() === null;
   if (id === undefined || isShut) return { kind: 'refused', error: rows.refusal(source, 'page') };

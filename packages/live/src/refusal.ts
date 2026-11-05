@@ -64,6 +64,95 @@ function refused(message: string): Error {
 }
 
 /**
+ * The imports `pyricLive({ passThrough })` can list: every served Firebase
+ * import live mode has no row for. Each loads the app's installed SDK
+ * unwrapped and unobserved.
+ */
+const SERVED_IMPORTS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check']);
+
+/**
+ * Imports of a service live mode serves, under another entry: they stay
+ * refused, since their calls would reach the served service unobserved and
+ * "Billed calls" would never count them.
+ */
+const SERVED_SERVICE_IMPORTS: Readonly<Record<string, string>> = {
+  'firebase/firestore/lite': 'firebase/firestore',
+};
+
+export const PASS_THROUGH_CANDIDATES: readonly string[] = Object.keys(SERVICE_NAMES)
+  .filter((specifier) => !Object.hasOwn(SERVED_SERVICE_IMPORTS, specifier));
+
+/** Whether `pyricLive({ passThrough })` can list `specifier`. */
+export function canPassThrough(specifier: string): boolean {
+  return PASS_THROUGH_CANDIDATES.includes(specifier);
+}
+
+/** What is wrong with one `passThrough` entry, or null when it can pass through. */
+function passThroughProblem(entry: unknown): string | null {
+  if (typeof entry !== 'string') return `passThrough lists ${JSON.stringify(entry)}, which is not an import name.`;
+  if (canPassThrough(entry)) return null;
+  if (SERVED_IMPORTS.has(entry)) return `passThrough lists ${entry}, which live mode already serves and observes; remove it.`;
+  const servedAs = SERVED_SERVICE_IMPORTS[entry];
+  if (servedAs !== undefined) {
+    return `passThrough lists ${entry}, which cannot pass through: live mode serves this service as ${servedAs}, ` +
+      `and its calls would reach it unobserved and uncounted. Import ${servedAs} instead.`;
+  }
+  if (serviceOf(entry) === 'the Admin SDK') {
+    return `passThrough lists ${entry}, which never passes through: live mode refuses the Admin SDK in every process.`;
+  }
+  const packageImport = packageImportOf(entry);
+  if (packageImport !== null) return `passThrough lists ${entry}, an SDK package name; list ${packageImport}, the import apps write.`;
+  return `passThrough lists ${entry}, which is not a Firebase import live mode can pass through. It takes ${PASS_THROUGH_CANDIDATES.join(', ')}.`;
+}
+
+/**
+ * The `passThrough` option as a list, each import once. Throws a start-time
+ * configuration error naming every entry that cannot pass through: one live
+ * mode serves, `firebase-admin`, an `@firebase/*` package name, or anything
+ * else that is not a Firebase import live mode has no row for.
+ */
+export function passThroughOption(entry: string, value: unknown): readonly string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${entry}: passThrough takes a list of Firebase imports, such as ['firebase/database'].`);
+  }
+  const problems = value.map(passThroughProblem).filter((problem): problem is string => problem !== null);
+  if (problems.length > 0) throw new Error(`${entry}: ${[...new Set(problems)].join(' ')}`);
+  return [...new Set(value as string[])];
+}
+
+/** `firebase/ai (Firebase AI Logic) and firebase/database (Realtime Database)`. */
+function namedList(specifiers: readonly string[]): string {
+  const named = specifiers.map((specifier) => `${specifier} (${serviceOf(specifier)})`);
+  if (named.length < 2) return named.join('');
+  return `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
+}
+
+/** The option that would let each of `specifiers` load: `pyricLive({ passThrough: ['firebase/ai'] })`. */
+export function passThroughOptionFor(specifiers: readonly string[]): string {
+  return `pyricLive({ passThrough: [${specifiers.map((specifier) => `'${specifier}'`).join(', ')}] })`;
+}
+
+/**
+ * The dev server's line for the unserved imports pages asked for so far,
+ * sorted: what was refused, and the option that would let each load.
+ */
+export function refusedImportsLine(entry: string, specifiers: readonly string[]): string {
+  const sorted = [...specifiers].sort();
+  const isOne = sorted.length === 1;
+  return `${entry}: a page imports ${namedList(sorted)}, which live mode does not serve, so ${isOne ? 'that import is' : 'those imports are'} refused. ` +
+    `To load ${isOne ? 'it' : 'them'} from your installed Firebase SDK without observing ${isOne ? 'it' : 'them'}, start with ${passThroughOptionFor(sorted)}. ` +
+    `${isOne ? 'Its' : 'Their'} calls then go to production unobserved and still bill.`;
+}
+
+/** A page refusal of a passable import, with the option that would let it load. */
+export function withPassThroughHint(error: Error, specifier: string): Error {
+  const hint = ` To load it from your installed Firebase SDK without observing it, list it in ${passThroughOptionFor([specifier])}; ` +
+    'its calls then go to production unobserved and still bill.';
+  return Object.assign(new Error(`${error.message}${hint}`), { code: LIVE_REFUSED });
+}
+
+/**
  * The error for `specifier`, imported from page code, from server code the
  * dev server runs, or from a Node process under `@pyric/live/register`.
  */
