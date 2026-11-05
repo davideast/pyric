@@ -11,7 +11,8 @@ import ts from 'typescript';
 // entry whose import is gone, so a PR that removes an edge removes its entry.
 // Adding an entry is a boundary change for review in #1521, not a fix.
 const ALLOWED_EDGES: readonly string[] = [
-  // Production Rules API handlers, which move above rules.
+  // One-line shims left at the old paths after the production Rules API
+  // handlers moved to src/rules-production.
   'inspect/handler.ts -> ../../rules-production/inspect/handler.js',
   'test/handler.ts -> ../../rules-production/test/handler.js',
   'write/handler.ts -> ../../rules-production/write/handler.js',
