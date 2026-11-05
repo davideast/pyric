@@ -129,15 +129,27 @@ jobs:
         if: always()
         run: |
           gid="$(getent group "$EGRESS_GROUP" | cut -d: -f3)"
+          # The group and its rules are made in one step; without the group the lock never went on.
+          if [ -z "$gid" ]; then
+            echo "no $EGRESS_GROUP group: the firewall step did not run, so there are no counters to read"
+            exit 0
+          fi
           # Only the lines the run caused, not the check's own direct request.
           before="$(cat "$RUNNER_TEMP/rejects-before-run" 2>/dev/null || echo 0)"
           sudo dmesg | grep 'fresh-install-reject: ' | tail -n "+$((before + 1))" > "$RUNNER_TEMP/firewall-rejects.log" || true
           rejected=0
           for table in iptables ip6tables; do
             # -v -x columns: pkts bytes target ...; the rule shows the group as `owner GID match <gid>`.
-            count="$(sudo "$table" -L OUTPUT -v -x -n | awk -v gid="$gid" '$3 == "REJECT" && $0 ~ ("owner GID match " gid "( |$)") { print $1 }')"
-            echo "$table: ${count:-no rule} connections from the run group rejected"
-            if [ "${count:-0}" != "0" ]; then rejected=1; fi
+            listing="$(sudo "$table" -L OUTPUT -v -x -n)"
+            count="$(printf '%s\n' "$listing" | awk -v gid="$gid" '$3 == "REJECT" && $0 ~ ("owner GID match " gid "( |$)") { print $1 }')"
+            # The rule is in place, so no match means the listing's format is not what this reads.
+            if [ -z "$count" ]; then
+              echo "$table: no REJECT rule for gid $gid found in the OUTPUT listing:"
+              printf '%s\n' "$listing"
+              exit 1
+            fi
+            echo "$table: $count connections from the run group rejected"
+            if [ "$count" != "0" ]; then rejected=1; fi
           done
           if [ "$rejected" = "1" ]; then
             echo 'The run tried to connect somewhere other than the egress guard. Destinations:'

@@ -330,7 +330,7 @@ async function saveLogs(run: TemplateRun, home: string, dir: string): Promise<vo
 async function evidenceFor(name: TemplateName, options: RunOptions, browser: Browser): Promise<TemplateEvidence> {
   // A HOME, and so an npm cache, of its own: no install reuses another's downloads.
   const home = join(options.workDir, `.home-${name}`);
-  mkdirSync(home);
+  mkdirSync(home, { recursive: true });
   const app = new AppRun(name, options.workDir, home, () => Promise.resolve(browser));
   const flow = FLOWS[name];
   const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.chip : 'optional' };
@@ -368,7 +368,8 @@ function templatesFrom(list: string | undefined): TemplateName[] {
   const names = list.split(',').filter(Boolean);
   const unknown = names.filter((name) => !(TEMPLATE_NAMES as readonly string[]).includes(name));
   if (unknown.length > 0) throw new Error(`unknown template ${unknown.join(', ')} (create-pyric offers ${TEMPLATE_NAMES.join(', ')})`);
-  return names as TemplateName[];
+  // Each template runs once: a repeat would scaffold into the directory the first one made.
+  return [...new Set(names)] as TemplateName[];
 }
 
 async function run(args: string[]): Promise<number> {
