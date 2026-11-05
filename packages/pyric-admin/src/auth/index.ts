@@ -104,7 +104,7 @@ import type {
   UpdateRequest,
   UserRecord,
 } from './types.js';
-import { assertNotRevokedOrDisabled, invalidUid, userNotFound, verifySandboxIdToken } from './verify-token.js';
+import { assertIdTokenArgument, assertNotRevokedOrDisabled, invalidUid, userNotFound, verifySandboxIdToken } from './verify-token.js';
 
 export * from './types.js';
 
@@ -510,12 +510,14 @@ function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
 // dedicated single-lookup op, and O(n) over the wire is fine at sandbox
 // scale (per the design spike — add an op if it ever matters).
 //
-// Tokens stay stateless and local: `createCustomToken` / `verifyIdToken`
-// are the same transforms as the local arm
-// ({@link mintSandboxCustomToken} / {@link verifySandboxIdToken}). The
-// remote arm reads expiry on this process's wall clock, not the worker's
-// sandbox clock, so after `advanceClock` the two arms can disagree about
-// whether a token has expired.
+// Tokens are minted and checked in this process with the local arm's
+// transforms ({@link mintSandboxCustomToken} / {@link verifySandboxIdToken}),
+// at the instant the worker's sandbox clock reads (`sandbox.clock`), so after
+// `advanceClock` both arms agree on `iat`, `exp` and expiry (#2010). The
+// clock is read on every call rather than cached: Studio, the CLI, an agent
+// or the page can move it at any moment, and the bridge relays no clock
+// updates to this process, so a cached offset would go stale at exactly the
+// advance a test makes.
 
 /** Map a firebase-admin `CreateRequest` onto the worker's sandbox
  *  create-user request. `null`s (upstream "clear") become "unset" — a
@@ -593,6 +595,10 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
   const listRecords = async (): Promise<AuthUserRecord[]> =>
     (await channel.op({ method: 'auth.listUsers' })) as AuthUserRecord[];
 
+  /** The worker's sandbox clock now, in epoch milliseconds. */
+  const sandboxNow = async (): Promise<number> =>
+    ((await channel.op({ method: 'sandbox.clock' })) as { now: number }).now;
+
   /**
    * Where the account stands, from the worker's user pool. The worker relays
    * no revocation time (this arm has no `revokeRefreshTokens`), so a token is
@@ -611,24 +617,22 @@ function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth {
       throw notImplemented('auth.app');
     },
 
-    /**
-     * Stateless mint, the local arm's for the app's project; needs no relay.
-     * `iat` and `exp` are read on the wall clock, so after the worker's
-     * sandbox clock moves an hour ahead, the worker refuses the token as
-     * expired.
-     */
-    createCustomToken(uid: string, developerClaims?: object): Promise<string> {
-      return mintSandboxCustomToken(app, Date.now(), uid, developerClaims);
+    /** The local arm's mint for the app's project, at the worker's sandbox clock. */
+    async createCustomToken(uid: string, developerClaims?: object): Promise<string> {
+      return mintSandboxCustomToken(app, await sandboxNow(), uid, developerClaims);
     },
 
     /**
-     * The local arm's token check, for the app's project. Expiry is read on
-     * the wall clock, which the worker's sandbox clock can be moved away from.
-     * With `checkRevoked`, the account's standing is relayed from the worker's
-     * user pool ({@link relayedStanding}).
+     * The local arm's token check, for the app's project, with expiry read on
+     * the worker's sandbox clock. A token that is not a string throws before
+     * the clock is read, as the local arm throws. With `checkRevoked`, the
+     * account's standing is relayed from the worker's user pool
+     * ({@link relayedStanding}).
      */
     verifyIdToken(idToken: string, checkRevoked = false): Promise<DecodedIdToken> {
-      const verified = verifySandboxIdToken(idToken, { projectId: idTokenProjectId(app), nowMs: Date.now() });
+      assertIdTokenArgument(idToken);
+      const projectId = idTokenProjectId(app);
+      const verified = sandboxNow().then((nowMs) => verifySandboxIdToken(idToken, { projectId, nowMs }));
       if (!checkRevoked) return verified;
       return verified.then(async (decoded) => assertNotRevokedOrDisabled(decoded, await relayedStanding(decoded.sub)));
     },
