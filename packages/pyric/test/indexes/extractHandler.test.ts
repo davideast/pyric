@@ -7,7 +7,7 @@ import { describe, test, expect } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ExtractFirestoreIndexesHandler } from '../../../src/rules/indexes/extractHandler.js';
+import { ExtractFirestoreIndexesHandler } from '../../src/indexes/extractHandler.js';
 
 describe('ExtractFirestoreIndexesHandler — input validation', () => {
   test('no files and no paths → recoverable EXTRACT_FAILED', () => {

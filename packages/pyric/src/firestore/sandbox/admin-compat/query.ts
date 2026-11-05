@@ -1,4 +1,4 @@
-import { captureIndexQuery } from '../../../rules/indexes/query-analysis.js';
+import { captureIndexQuery } from '../../../indexes/query-analysis.js';
 /** Admin-compatible query builders and snapshot shaping.
  * Candidate gathering, rule enforcement, and execution live behind
  * `LocalEnvironment.runQuery`; this adapter only builds immutable plan

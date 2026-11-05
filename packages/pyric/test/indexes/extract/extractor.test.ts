@@ -3,8 +3,8 @@
  * corpus test will live in a separate file once we vendor the fixture.
  */
 import { describe, test, expect } from 'bun:test';
-import { extractIndexes } from '../../../../src/rules/indexes/extract/extractor.js';
-import { analyzeIndexQuery, readIndexConfig } from '../../../../src/rules/indexes/query-analysis.js';
+import { extractIndexes } from '../../../src/indexes/extract/extractor.js';
+import { analyzeIndexQuery, readIndexConfig } from '../../../src/indexes/query-analysis.js';
 
 function extract(source: string) {
   const result = extractIndexes({ files: [{ name: 'test.js', source }] });

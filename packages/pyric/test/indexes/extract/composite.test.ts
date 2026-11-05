@@ -6,8 +6,8 @@ import {
   needsCompositeIndex,
   shapeToIndexEntry,
   indexEntryKey,
-} from '../../../../src/rules/indexes/extract/composite.js';
-import type { QueryShape } from '../../../../src/rules/indexes/extract/types.js';
+} from '../../../src/indexes/extract/composite.js';
+import type { QueryShape } from '../../../src/indexes/extract/types.js';
 
 const shape = (overrides: Partial<QueryShape> = {}): QueryShape => ({
   collectionPath: 'restaurants',
