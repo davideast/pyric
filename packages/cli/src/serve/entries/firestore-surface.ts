@@ -19,6 +19,7 @@ import * as ip from 'pyric/firestore';
 import { readDocumentAs, readQueryAs } from 'pyric/firestore/internal';
 import { readDocumentAs as workerDocumentRead, readQueryAs as workerQueryRead } from '../worker/client/firestore-reads.js';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
+import { markServiceUsed } from './service-use.js';
 import * as wcRaw from '../worker/client.js';
 import { useWorker } from './worker-runtime.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
@@ -91,6 +92,7 @@ const workerFirestoreByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGet
 
 export const getFirestore = ((app?: FirebaseApp) => {
   const resolved = app ?? getApp();
+  markServiceUsed();
   if (!useWorker) return pyricGetFirestore(resolved);
   const existing = workerFirestoreByApp.get(resolved);
   if (existing) return existing;
