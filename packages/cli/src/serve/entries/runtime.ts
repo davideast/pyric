@@ -32,7 +32,7 @@ import {
   relayWorkerDisconnect,
 } from '../worker/client.js';
 import { useWorker, workerDb, useHosted } from './worker-runtime.js';
-import { initPayload, initPayloadRequest } from './init-payload.js';
+import { initPayload, initPayloadRequest, logInitPayloadFailure } from './init-payload.js';
 export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { onServiceUsed } from './service-use.js';
@@ -546,8 +546,15 @@ if (bridgeUrlFromPayload) {
   // is on the load-bearing top-level-await path, and the agent connecting a beat
   // later is fine. Bridge-less pages just read a null bridgeUrl and stop.
   void (async () => {
+    let payload: Awaited<typeof initPayload>;
     try {
-      const payload = await initPayload;
+      payload = await initPayload;
+    } catch (e) {
+      runtimeStatus.reportError(e, 'runtime');
+      logInitPayloadFailure(e);
+      return;
+    }
+    try {
       const url = payload?.bridgeUrl ?? null;
       if (url) await connectBridgePeer(url);
     } catch (e) {
@@ -596,6 +603,9 @@ if (enablesFallbackTabSync) {
       getAuth(sandbox),
       authOps,
     );
+  }, (e: unknown) => {
+    runtimeStatus.reportError(e, 'runtime');
+    console.error('[pyric sandbox] auth tab sync failed:', e instanceof Error ? e.message : String(e));
   });
 }
 
