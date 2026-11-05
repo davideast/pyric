@@ -23,8 +23,10 @@ on:
       - 'packages/pyric/src/firestore/sandbox/**'
       - 'packages/pyric/src/rules/grammar/**'
       - 'packages/pyric/src/rules/simulator/**'
+      - 'packages/pyric/src/rules-tools/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
       - 'packages/pyric/test/rules/**'
+      - 'packages/pyric/test/rules-tools/**'
       - '.github/workflows/simulator-parity.yml'
   push:
     branches: [main]
@@ -32,8 +34,10 @@ on:
       - 'packages/pyric/src/firestore/sandbox/**'
       - 'packages/pyric/src/rules/grammar/**'
       - 'packages/pyric/src/rules/simulator/**'
+      - 'packages/pyric/src/rules-tools/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
       - 'packages/pyric/test/rules/**'
+      - 'packages/pyric/test/rules-tools/**'
       - '.github/workflows/simulator-parity.yml'
   workflow_dispatch:
 
@@ -69,6 +73,7 @@ jobs:
         run: |
           bun test packages/pyric/test/sandbox/firestore/simulator
           bun test packages/pyric/test/rules/simulator
+          bun test packages/pyric/test/rules-tools/simulator-tools
 
   parity-stress:
     name: Parity stress (live Rules Test API)
