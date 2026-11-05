@@ -5,10 +5,10 @@
  * browser bundle.
  *
  * The factory takes `resolveModulesFn` as an injected dep:
- *  - `pyric/rules/internal/node` wires `resolveModules` from `./modules/resolver.js`
+ *  - `pyric/rules/internal/node` wires `resolveModules` from `../rules/modules/resolver.js`
  *    — Node's disk-reading version.
  *  - `./simulator.ts` wires `resolveModulesBrowser` from
- *    `./modules/resolver-browser.js`, which pre-supplies the stdlib content
+ *    `../rules/modules/resolver-browser.js`, which pre-supplies the stdlib content
  *    inlined at build time.
  *  - When the dep is absent, the `firestore_simulator_create` tool
  *    returns a clear error if a caller seeds `'2+modules'` rules.
@@ -48,8 +48,8 @@ export interface FirestoreSimulatorToolDeps {
   resolveSandbox: () => LocalEnvironment | Promise<LocalEnvironment>;
   /**
    * Resolver for `rules_version = '2+modules'` sources. Wire one of:
-   *   - `resolveModules` from `./modules/resolver.js` (Node; disk).
-   *   - `resolveModulesBrowser` from `./modules/resolver-browser.js`
+   *   - `resolveModules` from `../rules/modules/resolver.js` (Node; disk).
+   *   - `resolveModulesBrowser` from `../rules/modules/resolver-browser.js`
    *     (browser; inlined stdlib).
    * When absent, attempts to seed `2+modules` rules error cleanly.
    */
