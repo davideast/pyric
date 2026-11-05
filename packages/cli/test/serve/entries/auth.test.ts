@@ -248,4 +248,111 @@ describe('firebase/auth entry dependency boundary', () => {
       dom.window.close();
     }
   });
+
+  describe('waits for the in-page backend the page script started (#2039)', () => {
+    interface Deferred { promise: Promise<unknown>; resolve(): void; reject(error: Error): void }
+    function deferred(): Deferred {
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<unknown>((res, rej) => { resolve = () => res(undefined); reject = rej; });
+      return { promise, resolve, reject };
+    }
+
+    /** The app and auth entries evaluated in-page, with `pageBackend` as what the page script published. */
+    async function inPageEntries(pageBackend: Promise<unknown>, warnings: unknown[][]) {
+      const { createContext, SourceTextModule } = await import('node:vm');
+      const esbuild = await import('esbuild');
+      const entriesDir = join(import.meta.dir, '../../../src/serve/entries');
+      const bundle = await esbuild.build({
+        stdin: {
+          contents: `export * as app from './app.ts'; export * as auth from './auth.ts';`,
+          resolveDir: entriesDir,
+        },
+        bundle: true,
+        write: false,
+        format: 'esm',
+        platform: 'browser',
+        supported: { 'top-level-await': false },
+      });
+      const context = createContext({
+        console: { ...console, warn: (...args: unknown[]) => warnings.push(args) },
+        TextEncoder,
+        TextDecoder,
+        URL,
+        AbortController,
+        MessageEvent,
+        crypto,
+        performance,
+        queueMicrotask,
+        structuredClone,
+        location: new URL('https://app.example/'),
+        __PYRIC_FORCE_INPAGE__: true,
+        __PYRIC_PAGE_BACKEND__: pageBackend,
+        setTimeout,
+        clearTimeout,
+        setInterval,
+        clearInterval,
+      });
+      const module = new SourceTextModule(bundle.outputFiles[0]!.text, { context });
+      await module.link(() => { throw new Error('Module linking failed'); });
+      await module.evaluate();
+      return module.namespace as {
+        app: typeof import('../../../src/serve/entries/app.js');
+        auth: typeof import('../../../src/serve/entries/auth.js');
+      };
+    }
+
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it('delivers the first auth state and runs sign-in only after the backend loads', async () => {
+      const backend = deferred();
+      const entries = await inPageEntries(backend.promise, []);
+      const auth = entries.auth.getAuth(entries.app.initializeApp({ projectId: 'page-backend-wait' }, 'wait'));
+      const states: unknown[] = [];
+      entries.auth.onAuthStateChanged(auth, (user) => states.push(user));
+      let signedUp = false;
+      const signUp = entries.auth.createUserWithEmailAndPassword(auth, 'wait@example.com', 'password123')
+        .then((credential) => { signedUp = true; return credential; });
+      await settle();
+      expect(states).toEqual([]);
+      expect(signedUp).toBe(false);
+      expect(auth.currentUser).toBeNull();
+
+      backend.resolve();
+      const credential = await signUp;
+      await settle();
+      expect(credential.user.email).toBe('wait@example.com');
+      expect((states.at(-1) as { email?: string } | undefined)?.email).toBe('wait@example.com');
+    });
+
+    it('never calls a listener removed before the backend loads', async () => {
+      const backend = deferred();
+      const entries = await inPageEntries(backend.promise, []);
+      const auth = entries.auth.getAuth(entries.app.initializeApp({ projectId: 'page-backend-stop' }, 'stop'));
+      const states: unknown[] = [];
+      const stop = entries.auth.onAuthStateChanged(auth, (user) => states.push(user));
+      stop();
+      backend.resolve();
+      await settle();
+      expect(states).toEqual([]);
+    });
+
+    it('runs unsaved, with one warning, when the backend fails to load', async () => {
+      const backend = deferred();
+      const warnings: unknown[][] = [];
+      const entries = await inPageEntries(backend.promise, warnings);
+      const auth = entries.auth.getAuth(entries.app.initializeApp({ projectId: 'page-backend-failed' }, 'failed'));
+      const states: unknown[] = [];
+      entries.auth.onAuthStateChanged(auth, (user) => states.push(user));
+      backend.reject(new Error('runtime chunk 404'));
+      const credential = await entries.auth.signInAnonymously(auth);
+      await entries.auth.signOut(auth);
+      await settle();
+      expect(credential.user.isAnonymous).toBe(true);
+      expect(states.length).toBeGreaterThan(0);
+      expect(states.at(-1)).toBeNull();
+      const backendWarnings = warnings.filter((args) => String(args[0]).includes('in-page backend did not load'));
+      expect(backendWarnings).toHaveLength(1);
+    });
+  });
 });
