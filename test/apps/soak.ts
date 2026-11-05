@@ -231,13 +231,34 @@ export interface HeapType {
 }
 
 interface HeapSnapshotJson {
-  snapshot: { meta: { node_fields: string[]; node_types: [string[], ...unknown[]] } };
+  snapshot: {
+    meta: {
+      node_fields: string[];
+      node_types: [string[], ...unknown[]];
+      edge_fields?: string[];
+      edge_types?: [string[], ...unknown[]];
+    };
+  };
   nodes: number[];
+  edges?: number[];
   strings: string[];
 }
 
-/** Sums a V8 heap snapshot's nodes by kind. Self sizes only, so the sums add up to the heap. */
-export function heapTypes(snapshotText: string): Map<string, HeapType> {
+/** What a heap snapshot holds: its kinds of object, and how many references each kind gets from where. */
+export interface HeapSummary {
+  types: Map<string, HeapType>;
+  /** `<kind> <- <holder kind>.<edge>` and how many such references there are. Ids in edge names read as `<id>`. */
+  retainers: Map<string, number>;
+}
+
+/** A property name with an id or index in it, which would make one path per document, reads as `<id>`. */
+function edgeLabel(type: string, name: string): string {
+  if (type === 'element' || type === 'hidden') return '[]';
+  return name.replace(/\d+|[0-9a-f]{8,}|[A-Za-z0-9_-]{16,}/g, '<id>');
+}
+
+/** Sums a V8 heap snapshot's nodes by kind (self sizes, so the sums add up to the heap), and counts their holders. */
+export function summarizeHeap(snapshotText: string): HeapSummary {
   const snapshot = JSON.parse(snapshotText) as HeapSnapshotJson;
   const fields = snapshot.snapshot.meta.node_fields;
   const types = snapshot.snapshot.meta.node_types[0];
@@ -245,17 +266,58 @@ export function heapTypes(snapshotText: string): Map<string, HeapType> {
   const typeAt = fields.indexOf('type');
   const nameAt = fields.indexOf('name');
   const sizeAt = fields.indexOf('self_size');
+  const edgeCountAt = fields.indexOf('edge_count');
+  const kindOf: string[] = [];
   const kinds = new Map<string, HeapType>();
   for (let offset = 0; offset < snapshot.nodes.length; offset += width) {
     const type = types[snapshot.nodes[offset + typeAt]!] ?? 'unknown';
     const name = snapshot.strings[snapshot.nodes[offset + nameAt]!] ?? '';
     const kind = type === 'object' ? name : type === 'closure' ? `closure ${name}` : `(${type})`;
+    kindOf.push(kind);
     const entry = kinds.get(kind) ?? { name: kind, count: 0, bytes: 0 };
     entry.count += 1;
     entry.bytes += snapshot.nodes[offset + sizeAt]!;
     kinds.set(kind, entry);
   }
-  return kinds;
+  const retainers = new Map<string, number>();
+  const edgeFields = snapshot.snapshot.meta.edge_fields;
+  const edgeTypes = snapshot.snapshot.meta.edge_types?.[0];
+  if (snapshot.edges && edgeFields && edgeTypes && edgeCountAt >= 0) {
+    const edgeWidth = edgeFields.length;
+    const edgeTypeAt = edgeFields.indexOf('type');
+    const edgeNameAt = edgeFields.indexOf('name_or_index');
+    const toAt = edgeFields.indexOf('to_node');
+    let edge = 0;
+    for (let node = 0; node < kindOf.length; node += 1) {
+      const count = snapshot.nodes[node * width + edgeCountAt]!;
+      for (let i = 0; i < count; i += 1, edge += edgeWidth) {
+        const type = edgeTypes[snapshot.edges[edge + edgeTypeAt]!] ?? 'unknown';
+        if (type === 'weak' || type === 'shortcut') continue;
+        const raw = snapshot.edges[edge + edgeNameAt]!;
+        const name = type === 'element' || type === 'hidden' ? '' : (snapshot.strings[raw] ?? '');
+        // V8's own bookkeeping (hidden classes, code, strings, prototypes) holds most edges and says nothing about the app.
+        const target = kindOf[snapshot.edges[edge + toAt]! / width]!;
+        if (target.startsWith('(') || name === '__proto__') continue;
+        const key = `${target} <- ${kindOf[node]}.${edgeLabel(type, name)}`;
+        retainers.set(key, (retainers.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  return { types: kinds, retainers };
+}
+
+/** Sums a V8 heap snapshot's nodes by kind. Self sizes only, so the sums add up to the heap. */
+export function heapTypes(snapshotText: string): Map<string, HeapType> {
+  return summarizeHeap(snapshotText).types;
+}
+
+/** The holder paths whose reference count grew most from `before` to `after`. */
+export function growingRetainers(before: Map<string, number>, after: Map<string, number>, top: number): Array<{ path: string; count: number; growth: number }> {
+  return [...after]
+    .map(([path, count]) => ({ path, count, growth: count - (before.get(path) ?? 0) }))
+    .filter((row) => row.growth > 0)
+    .sort((a, b) => b.growth - a.growth)
+    .slice(0, top);
 }
 
 export interface HeapTypeGrowth extends HeapType {

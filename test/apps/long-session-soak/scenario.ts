@@ -37,9 +37,10 @@ import {
   type MemorySample,
   type Random,
   type SoakSettings,
-  type HeapType,
+  type HeapSummary,
   growingHeapTypes,
-  heapTypes,
+  growingRetainers,
+  summarizeHeap,
 } from '../soak.ts';
 
 export const slow = true;
@@ -183,8 +184,10 @@ class Soak {
   readonly serverRss: MemorySample[] = [];
   private inspector: NodeInspector | undefined;
   /** The first heap snapshot's summary, with SOAK_HEAP_SNAPSHOTS=1, until the second is taken. */
-  private firstSnapshot: { at: number; types: Map<string, HeapType> } | undefined;
+  private firstSnapshot: { at: number; summary: HeapSummary } | undefined;
   private snapshotsDone = false;
+  /** Server epochs a heap snapshot was taken in. Taking one raises RSS for good, so their RSS is not judged. */
+  readonly snapshotEpochs = new Set<number>();
   private readonly random: Random;
   private readonly crashes: string[] = [];
   private readonly servers: DevServer[] = [];
@@ -591,16 +594,23 @@ class Soak {
   private async heapSnapshot(): Promise<void> {
     if (!this.takeSnapshots || this.snapshotsDone || this.serverEpoch > 0) return;
     const inspector = await this.serverInspector();
-    const types = heapTypes(await within('a dev server heap snapshot', 120_000, inspector.heapSnapshot()));
+    this.snapshotEpochs.add(this.serverEpoch);
+    const summary = summarizeHeap(await within('a dev server heap snapshot', 120_000, inspector.heapSnapshot()));
     if (!this.firstSnapshot) {
-      this.firstSnapshot = { at: this.seconds, types };
+      this.firstSnapshot = { at: this.seconds, summary };
       return;
     }
     this.snapshotsDone = true;
-    const rows = growingHeapTypes(this.firstSnapshot.types, types, 30).map((row) =>
+    const types = growingHeapTypes(this.firstSnapshot.summary.types, summary.types, 30).map((row) =>
       `${(row.bytesGrowth / MB).toFixed(2).padStart(8)} MB  ${String(row.countGrowth).padStart(8)} objects  ${row.name}  (now ${(row.bytes / MB).toFixed(2)} MB in ${row.count})`);
-    const header = `dev server heap growth from +${this.firstSnapshot.at.toFixed(0)}s to +${this.seconds.toFixed(0)}s, self sizes after a collection:`;
-    writeFileSync(join(RESULTS, 'soak-heap-growth.txt'), `${[header, ...rows].join('\n')}\n`);
+    const retainers = growingRetainers(this.firstSnapshot.summary.retainers, summary.retainers, 40).map((row) =>
+      `${String(row.growth).padStart(8)} more  ${row.path}  (now ${row.count})`);
+    const span = `from +${this.firstSnapshot.at.toFixed(0)}s to +${this.seconds.toFixed(0)}s, after a collection`;
+    const text = [
+      `dev server heap growth ${span}, by kind (self sizes):`, ...types, '',
+      `references that grew ${span}, as <kind> <- <holder>.<property>:`, ...retainers,
+    ];
+    writeFileSync(join(RESULTS, 'soak-heap-growth.txt'), `${text.join('\n')}\n`);
   }
 
   /** Saves what the page showed when the soak failed: a screenshot and its HTML, open dialogs included. */
@@ -644,11 +654,12 @@ async function scaffold(app: App): Promise<void> {
 function memoryVerdict(run: Soak): { growing: boolean; report: string } {
   const heap = judgeGrowth(run.pageHeap, PAGE_HEAP_LIMIT);
   const serverHeap = judgeGrowth(run.serverHeap, SERVER_HEAP_LIMIT);
-  const rss = judgeGrowth(run.serverRss, SERVER_RSS_LIMIT);
+  const rss = judgeGrowth(run.serverRss.filter((sample) => !run.snapshotEpochs.has(sample.epoch)), SERVER_RSS_LIMIT);
+  const skipped = [...run.snapshotEpochs].map((epoch) => `epoch ${epoch}: not judged, a heap snapshot was taken in it`);
   const report = [
     'page JS heap:', ...heap.lines,
     'dev server heap used:', ...serverHeap.lines,
-    'dev server RSS:', ...rss.lines,
+    'dev server RSS:', ...rss.lines, ...skipped,
   ].join('\n');
   return { growing: heap.growing || serverHeap.growing || rss.growing, report };
 }

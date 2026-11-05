@@ -4,7 +4,9 @@ import {
   DEFAULT_MINUTES,
   DEFAULT_SEED,
   growingHeapTypes,
+  growingRetainers,
   heapTypes,
+  summarizeHeap,
   judgeGrowth,
   parseSeed,
   pickAction,
@@ -155,6 +157,44 @@ describe('heapTypes and growingHeapTypes', () => {
     expect(growingHeapTypes(before, after, 5)).toEqual([
       { name: 'Listener', count: 3, bytes: 300, countGrowth: 2, bytesGrowth: 200 },
       { name: '(string)', count: 1, bytes: 16, countGrowth: 0, bytesGrowth: 8 },
+    ]);
+  });
+});
+
+describe('summarizeHeap retainers', () => {
+  /** A snapshot of one Store holding `count` Listener objects under ids, plus a hidden-class edge per Listener. */
+  function store(count: number): string {
+    const types = ['hidden', 'object'];
+    const edgeTypes = ['property', 'element', 'internal', 'weak'];
+    const strings = ['Store', 'Listener', '(map)', 'map', ...Array.from({ length: count }, (_, i) => `doc${i}`)];
+    const nodes = [1, 0, 0, 10, count, 0, 2, 1, 0, 0];
+    const edges: number[] = [];
+    for (let i = 0; i < count; i += 1) {
+      nodes.push(1, 1, i + 2, 20, 1);
+      edges.push(0, 4 + i, (i + 2) * 5);
+    }
+    for (let i = 0; i < count; i += 1) edges.push(2, 3, 5);
+    // The Listener's map edges come after the Store's, in node order.
+    return JSON.stringify({
+      snapshot: {
+        meta: {
+          node_fields: ['type', 'name', 'id', 'self_size', 'edge_count'],
+          node_types: [types],
+          edge_fields: ['type', 'name_or_index', 'to_node'],
+          edge_types: [edgeTypes],
+        },
+      },
+      nodes,
+      edges,
+      strings,
+    });
+  }
+
+  test('count references to app objects by holder and property, with ids folded', () => {
+    const before = summarizeHeap(store(2));
+    const after = summarizeHeap(store(5));
+    expect(growingRetainers(before.retainers, after.retainers, 5)).toEqual([
+      { path: 'Listener <- Store.doc<id>', count: 5, growth: 3 },
     ]);
   });
 });
