@@ -4,7 +4,15 @@
 // install, and the backend runs through that install's `pyric run`, which
 // hands Node the register module by absolute file URL.
 import assert from 'node:assert/strict';
-import { scenario } from '../driver.ts';
+import { scenario, type ExpectedCrash } from '../driver.ts';
+
+export const expectedCrashes: ExpectedCrash[] = [
+  {
+    message: /^Error \[ERR_MODULE_NOT_FOUND\]: Cannot find package '@pyric\/cli' imported from /,
+    source: /^command \d+ \(node --import @pyric\/cli\/register write\.mjs unreachable\)$/,
+    reason: 'the scenario runs a bare --import from backend/, which has no @pyric/cli, to show it cannot resolve',
+  },
+];
 
 export default scenario(async (app) => {
   await app.step('install pyric in tools/ and firebase-admin in backend/', async () => {

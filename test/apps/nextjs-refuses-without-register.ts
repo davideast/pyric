@@ -82,8 +82,13 @@ async function outcomeOf(started: Started, url: string): Promise<Outcome> {
   return outcome;
 }
 
+/**
+ * Starts a case that should exit, so its refusal's non-zero exit is the
+ * outcome `runRefusals` asserts, not an early exit the crash watch fails.
+ */
 function fromPyric(app: App, args: string[], env: Record<string, string>): Started {
   const child = app.pyricProcess(args, { env });
+  child.runsUntilStopped = false;
   return {
     exit: child.exited.then((code) => ({ code, output: child.output })),
     stop: () => child.stop(),

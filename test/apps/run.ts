@@ -62,7 +62,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
-import { AppRun, launchScenarioBrowser, StepFailure, type Scenario } from './driver.ts';
+import { AppRun, launchScenarioBrowser, StepFailure, type ExpectedCrash, type Scenario } from './driver.ts';
+import { checkExpectedCrashes, describeVerdict, isFailing } from './crash-watch.ts';
 import { currentPlatform, DependencyStore, readPackedPackages } from './dependency-store.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
@@ -93,6 +94,8 @@ interface ScenarioModule {
   default?: Scenario;
   /** True for a scenario that waits on real timeouts. */
   slow?: boolean;
+  /** The crashes the scenario provokes on purpose (crash-watch.ts); any other fails it. */
+  expectedCrashes?: readonly ExpectedCrash[];
 }
 
 function loadScenario(name: string): Promise<ScenarioModule> {
@@ -158,6 +161,7 @@ async function runApp(name: string, context: {
   let failure: unknown;
   let inScenario = false;
   let installSeconds = 0;
+  let expectedCrashes: readonly ExpectedCrash[] = [];
   try {
     run.currentStep = 'npm install';
     prepareApp({ appDir: join(appsDir, name), projectDir, tarballs: context.tarballs });
@@ -171,6 +175,9 @@ async function runApp(name: string, context: {
     run.currentStep = 'load scenario';
     const module = await loadScenario(name);
     if (typeof module.default !== 'function') throw new StepFailure('load scenario', new Error('scenario.ts has no default export from scenario()'));
+    const problems = checkExpectedCrashes(module.expectedCrashes);
+    if (problems.length > 0) throw new StepFailure('load scenario', new Error(problems.join('\n')));
+    expectedCrashes = module.expectedCrashes ?? [];
     inScenario = true;
     await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
     inScenario = false;
@@ -193,6 +200,15 @@ async function runApp(name: string, context: {
     remove: async () => (context.keep ? undefined : removeTree(work)),
   });
   if (context.keep) console.log(`  ${name}: installed at ${projectDir}`);
+  // Read after close, so a crash while the app's processes shut down counts too.
+  const verdict = run.crashVerdict(expectedCrashes);
+  if (failure === undefined && isFailing(verdict)) {
+    const report = describeVerdict(verdict);
+    failure = new StepFailure('nothing crashed that the scenario did not expect', Object.assign(new Error(report), { stack: report }));
+  } else if (verdict.unexpected.length > 0) {
+    // An entry that matched nothing says little about a run that stopped early, so only the crashes are kept.
+    logs.push({ name: 'crash watch', text: describeVerdict({ unexpected: verdict.unexpected, unmatched: [] }) });
+  }
   for (const child of run.processes) logs.push({ name: child.name, text: child.header + child.output });
   if (run.browserLog.length) logs.push({ name: 'browser', text: run.browserLog.join('\n') });
   const ok = failure === undefined;
