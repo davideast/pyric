@@ -14,10 +14,11 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { liveResolutionRoot, recordedPassThrough, LIVE_PASS_THROUGH_VARIABLE } from '../../src/register/live-package.js';
 import { registerRows, registerRowsResolution, type RegisterRowPackage } from '../../src/register/supplied-rows.js';
 import { suppliedRowsStopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
-import { liveEgressRule, passThroughHosts } from '../../src/register/live-net-guard.js';
+import { installLiveNetGuard, liveEgressRule, passThroughHosts } from '../../src/register/live-net-guard.js';
 import { passThroughSdkPackages, passThroughSet } from '../../src/serve/vite-supplied-rows.js';
 import type { ServedFirebaseSpecifier } from '../../src/serve/firebase-module-swap.js';
 
@@ -149,12 +150,146 @@ describe('the stop for a passed-through import', () => {
 });
 
 describe('the network guard for a passed-through import', () => {
-  test('lets the hosts of each listed service through, and no other', () => {
+  test('names the hosts of each listed service, and passes them only for the installed SDK', () => {
     expect(passThroughHosts(['firebase/database'])).toEqual(['firebaseio.com', 'firebasedatabase.app']);
-    const rule = liveEgressRule(undefined, passThroughHosts(['firebase/database']));
-    expect(rule('demo-default-rtdb.firebaseio.com', '/')).toBeNull();
-    expect(rule('demo-default-rtdb.europe-west1.firebasedatabase.app', '/')).toBeNull();
-    expect(rule('firebasevertexai.googleapis.com', '/')).not.toBeNull();
+    const hosts = passThroughHosts(['firebase/database']);
+    const fromAnyFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => true });
+    expect(fromAnyFile('demo-default-rtdb.firebaseio.com', '/')).toBeNull();
+    expect(fromAnyFile('demo-default-rtdb.europe-west1.firebasedatabase.app', '/')).toBeNull();
+    expect(fromAnyFile('firebasevertexai.googleapis.com', '/')).not.toBeNull();
+    const fromNoSdkFile = liveEgressRule(undefined, { hosts, isLiveSdkFile: () => false });
+    expect(fromNoSdkFile('demo-default-rtdb.firebaseio.com', '/')?.reason).toContain('only the installed SDK of an import that passes through');
     expect(liveEgressRule()('demo-default-rtdb.firebaseio.com', '/')).not.toBeNull();
+  });
+});
+
+/**
+ * The guard installed on stand-ins, so the test process's own sockets stay
+ * unpatched: what each seam let out is recorded instead of sent.
+ */
+function guardedSeams(isLiveSdkFile: (url: string) => boolean) {
+  const sent: string[] = [];
+  const fetchScope = { fetch: (async () => { sent.push('fetch'); return new Response(''); }) as unknown as typeof fetch };
+  const tls = { connect: (..._args: unknown[]) => { sent.push('tls.connect'); return {}; } };
+  const net = { connect: () => { sent.push('net.connect'); return {}; }, createConnection: () => { sent.push('net.connect'); return {}; } };
+  const requestPrototype = {
+    onSocket(this: unknown, _socket: unknown, error?: unknown) {
+      sent.push(error === undefined || error === null ? 'https.request' : 'https.request refused');
+    },
+  };
+  const agent = {
+    addRequest(request: { onSocket(socket: unknown, error?: unknown): unknown }) {
+      return request.onSocket({});
+    },
+  };
+  const hooks = installLiveNetGuard({
+    isLiveSdkFile,
+    passThrough: ['firebase/database'],
+    scope: { [Symbol.for('undici.globalDispatcher.1')]: { dispatch: () => true } },
+    env: {},
+    write: () => {},
+    net,
+    tls,
+    fetchScope,
+    agentPrototypes: [],
+    socketPrototypes: [],
+    requestPrototypes: [requestPrototype],
+    liveAgentPrototypes: [agent],
+  });
+  /** An `https.request` to `host`, as Node's Agent hands it a socket. */
+  const httpsRequest = (host: string) => {
+    const request = Object.assign(Object.create(requestPrototype) as object, { host, method: 'GET', path: '/.json?auth=secret' });
+    agent.addRequest(request as { onSocket(socket: unknown, error?: unknown): unknown });
+  };
+  return { sent, fetchScope, tls, httpsRequest, stop: () => hooks.stop() };
+}
+
+const DATABASE_HOST = 'demo-default-rtdb.firebaseio.com';
+
+/** A stand-in SDK file: the guard knows it as one the stop let load for firebase/database. */
+const sdkFile = join(scratch, 'database-sdk.mjs');
+writeFileSync(sdkFile, [
+  // Never in tail position: bun turns `return f()` into a tail call and drops this file's frame from the stack.
+  'export function sdkFetch(scope, url) { const calls = [scope.fetch(url)]; return calls[0]; }',
+  'export function sdkConnect(tls, host) { const sockets = [tls.connect({ host, port: 443, servername: host })]; return sockets[0]; }',
+  'export function sdkCallback(callback) { const results = [callback()]; return results[0]; }',
+  'export function sdkRequest(httpsRequest, host) { const requests = [httpsRequest(host)]; return requests[0]; }',
+].join('\n'));
+const sdkUrl = pathToFileURL(sdkFile).href;
+
+interface StandInSdk {
+  sdkFetch(scope: unknown, url: string): Promise<unknown>;
+  sdkConnect(tls: unknown, host: string): unknown;
+  sdkCallback(callback: () => unknown): unknown;
+  sdkRequest(httpsRequest: (host: string) => void, host: string): unknown;
+}
+
+/** The guard's code when `connect` throws its refusal, or `connected`. */
+function connectOutcome(connect: () => unknown): string | undefined {
+  try {
+    connect();
+    return 'connected';
+  } catch (error) {
+    return (error as { code?: string }).code;
+  }
+}
+
+describe('the network guard for a passed-through host, by caller', () => {
+  test('refuses fetch, https.request and tls.connect from an app file', async () => {
+    const seams = guardedSeams((url) => url === sdkUrl);
+    try {
+      const fetched = await seams.fetchScope.fetch(`https://${DATABASE_HOST}/.json?auth=secret`).then(() => 'sent', (error: Error) => error.message);
+      seams.httpsRequest(DATABASE_HOST);
+      const connected = (() => {
+        try {
+          seams.tls.connect({ host: DATABASE_HOST, port: 443 });
+          return 'connected';
+        } catch (error) {
+          return (error as { code?: string }).code;
+        }
+      })();
+      expect({ fetched, connected, sent: seams.sent }).toEqual({
+        fetched: 'fetch failed',
+        connected: 'PYRIC_GUARD_BLOCKED',
+        sent: ['https.request refused'],
+      });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('lets fetch and tls.connect out from a file the stop let load', async () => {
+    const seams = guardedSeams((url) => url === sdkUrl);
+    try {
+      const sdk = (await import(sdkUrl)) as StandInSdk;
+      await sdk.sdkFetch(seams.fetchScope, `https://${DATABASE_HOST}/.json`);
+      sdk.sdkConnect(seams.tls, DATABASE_HOST);
+      expect(seams.sent).toEqual(['fetch', 'tls.connect']);
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test('refuses an app callback the SDK runs, code made by new Function, and an https.request from the SDK file', async () => {
+    const seams = guardedSeams((url) => url === sdkUrl);
+    try {
+      const sdk = (await import(sdkUrl)) as StandInSdk;
+      const fromCallback = connectOutcome(() => sdk.sdkCallback(() => {
+        const sockets = [seams.tls.connect({ host: DATABASE_HOST, port: 443 })];
+        return sockets[0];
+      }));
+      const made = new Function('tls', 'host', 'const sockets = [tls.connect({ host, port: 443 })]; return sockets[0];') as (tls: unknown, host: string) => unknown;
+      const fromMadeCode = connectOutcome(() => sdk.sdkCallback(() => made(seams.tls, DATABASE_HOST)));
+      const madeDirect = connectOutcome(() => sdk.sdkCallback(made.bind(null, seams.tls, DATABASE_HOST)));
+      sdk.sdkRequest(seams.httpsRequest, DATABASE_HOST);
+      expect({ fromCallback, fromMadeCode, madeDirect, sent: seams.sent }).toEqual({
+        fromCallback: 'PYRIC_GUARD_BLOCKED',
+        fromMadeCode: 'PYRIC_GUARD_BLOCKED',
+        madeDirect: 'PYRIC_GUARD_BLOCKED',
+        sent: ['https.request refused'],
+      });
+    } finally {
+      seams.stop();
+    }
   });
 });
