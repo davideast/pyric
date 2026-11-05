@@ -2,7 +2,7 @@
 // shapes and test-project values: tokens, read times, resume tokens and commit
 // times become placeholders, a password becomes `any`, and an ID token keeps
 // only the uid, email and provider the replay server mints a new one from.
-import { FORMAT, type AuthExchange, type Json, type JsonObject, type ListenExchange, type Recording, type WriteExchange } from './format.ts';
+import { FORMAT, type AuthExchange, type Json, type JsonObject, type ListenBatch, type ListenExchange, type Recording, type WriteExchange } from './format.ts';
 import { targetShape } from './firestore.ts';
 
 const placeholder = (name: string): JsonObject => ({ $: name });
@@ -57,6 +57,17 @@ function sanitizeAuthBody(value: Json, side: 'request' | 'response'): Json {
   return Object.fromEntries(entries);
 }
 
+/**
+ * The write a Listen message may have been released by: the one sent and not
+ * yet answered, else the last one answered. The Listen and Write streams reach
+ * the recorder on separate connections, so a listener change can arrive before
+ * the answer to the write that caused it.
+ */
+interface WriteRef {
+  inFlight: string | null;
+  answered: string | null;
+}
+
 /** One Listen target the recorder is following. */
 interface FollowedTarget {
   exchange: ListenExchange;
@@ -70,7 +81,13 @@ export class Transcript {
   private readonly exchanges: Array<ListenExchange | WriteExchange | AuthExchange> = [];
   private count = 0;
   /** The last write production answered, which releases the Listen batches that follow it. */
-  private lastWrite: { id: string; commitTime: string | undefined } | null = null;
+  private lastWrite: string | null = null;
+  /** The last write sent and not yet answered. Its id is taken when it is sent. */
+  private sentWrite: string | null = null;
+  /** The commit time of each answered write, by id. A failed write has none. */
+  private readonly commitTimes = new Map<string, string | undefined>();
+  /** The write each Listen batch and message was received after, resolved when the recording is made. */
+  private readonly refs = new WeakMap<object, WriteRef>();
 
   constructor(private readonly project: string, private readonly source: string) {}
 
@@ -100,18 +117,66 @@ export class Transcript {
     this.exchanges.push(exchange);
   }
 
-  answeredWrite(id: string, commitTime: string | undefined): void {
-    this.lastWrite = { id, commitTime };
+  /** Takes the id of a write the client is sending, before production answers it. */
+  sendingWrite(): string {
+    this.sentWrite = this.nextId('write');
+    return this.sentWrite;
   }
 
-  get latestWrite(): { id: string; commitTime: string | undefined } | null {
-    return this.lastWrite;
+  answeredWrite(id: string, commitTime: string | undefined): void {
+    this.lastWrite = id;
+    this.commitTimes.set(id, commitTime);
+    if (this.sentWrite === id) this.sentWrite = null;
+  }
+
+  /** Notes the write `item` (a batch or a message) came after, as things stand now. */
+  noteWrite(item: object): void {
+    this.refs.set(item, { inFlight: this.sentWrite, answered: this.lastWrite });
   }
 
   recording(): Recording {
-    const exchanges = this.exchanges.map((exchange) => exchange.kind === 'listen' ? withoutEmptyBatches(exchange) : exchange);
+    const exchanges = this.exchanges.map((exchange) => exchange.kind === 'listen' ? withoutEmptyBatches(this.resolved(exchange)) : exchange);
     return { format: FORMAT, project: this.project, source: this.source, exchanges };
   }
+
+  /** The write `item` came after: the one in flight if production answered it, else the last one answered. */
+  private writeOf(item: object): string | undefined {
+    const ref = this.refs.get(item);
+    if (!ref) return undefined;
+    const { inFlight, answered } = ref;
+    const inFlightWasAnswered = inFlight !== null && this.commitTimes.has(inFlight);
+    if (inFlightWasAnswered) return inFlight;
+    return answered ?? undefined;
+  }
+
+  /** The exchange with each batch tied to the write that released it and each message sanitized. */
+  private resolved(exchange: ListenExchange): ListenExchange {
+    const batches = exchange.batches.map((batch, index) => {
+      const after = index === 0 ? undefined : this.writeOf(batch);
+      const messages = batch.messages.map((message) => {
+        const write = this.writeOf(message);
+        return sanitizeListen(message, write === undefined ? undefined : this.commitTimes.get(write));
+      });
+      return { ...(after ? { after } : {}), messages };
+    });
+    return { ...exchange, batches };
+  }
+}
+
+/** A Listen message with its ids, times and tokens as placeholders. */
+function sanitizeListen(message: JsonObject, commitTime: string | undefined): JsonObject {
+  const replace = (value: Json, key: string): Json => {
+    if (key === 'targetIds' || key === 'removedTargetIds') return [placeholder('targetId')];
+    if (key === 'readTime') return placeholder('readTime');
+    if (key === 'resumeToken') return placeholder('resumeToken');
+    const isCommitTime = (key === 'updateTime' || key === 'createTime') && commitTime !== undefined && value === commitTime;
+    if (isCommitTime) return placeholder('commitTime');
+    if (Array.isArray(value)) return value.map((item) => replace(item, ''));
+    const isObject = typeof value === 'object' && value !== null;
+    if (!isObject) return value;
+    return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, replace(item, name)]));
+  };
+  return replace(message, '') as JsonObject;
 }
 
 function withoutEmptyBatches(exchange: ListenExchange): ListenExchange {
@@ -154,31 +219,16 @@ export class RecordedListen {
       if (!target || isRemoveAck) continue;
       if (target.batchClosed) this.openBatch(target);
       const batches = target.exchange.batches;
-      batches[batches.length - 1]!.messages.push(this.sanitize(message));
+      this.transcript.noteWrite(message);
+      batches[batches.length - 1]!.messages.push(message);
     }
   }
 
   private openBatch(target: FollowedTarget): void {
     target.batchClosed = false;
-    const after = this.transcript.latestWrite?.id;
-    target.exchange.batches.push({ ...(after ? { after } : {}), messages: [] });
-  }
-
-  /** The message for one target, with its ids, times and tokens as placeholders. */
-  private sanitize(message: JsonObject): JsonObject {
-    const commitTime = this.transcript.latestWrite?.commitTime;
-    const replace = (value: Json, key: string): Json => {
-      if (key === 'targetIds' || key === 'removedTargetIds') return [placeholder('targetId')];
-      if (key === 'readTime') return placeholder('readTime');
-      if (key === 'resumeToken') return placeholder('resumeToken');
-      const isCommitTime = (key === 'updateTime' || key === 'createTime') && commitTime !== undefined && value === commitTime;
-      if (isCommitTime) return placeholder('commitTime');
-      if (Array.isArray(value)) return value.map((item) => replace(item, ''));
-      const isObject = typeof value === 'object' && value !== null;
-      if (!isObject) return value;
-      return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, replace(item, name)]));
-    };
-    return replace(message, '') as JsonObject;
+    const batch: ListenBatch = { messages: [] };
+    this.transcript.noteWrite(batch);
+    target.exchange.batches.push(batch);
   }
 }
 
@@ -190,23 +240,22 @@ function targetIdsOf(message: JsonObject): number[] {
 
 /** A Write stream: each message with writes, and production's answer or stream error. */
 export class RecordedWrite {
-  private pending: Json[] | null = null;
+  private pending: { id: string; writes: Json[] } | null = null;
 
   constructor(private readonly transcript: Transcript, private readonly as: string | null) {}
 
   fromClient(message: JsonObject): void {
     const writes = message.writes as Json[] | undefined;
-    if (writes && writes.length > 0) this.pending = writes;
+    if (writes && writes.length > 0) this.pending = { id: this.transcript.sendingWrite(), writes };
   }
 
   fromServer(message: JsonObject): void {
-    const writes = this.pending;
-    if (!writes) return;
+    if (!this.pending) return;
+    const { id, writes } = this.pending;
     const error = message.error as WriteExchange['error'] | undefined;
     const isAnswer = error !== undefined || message.writeResults !== undefined || message.commitTime !== undefined;
     if (!isAnswer) return;
     this.pending = null;
-    const id = this.transcript.nextId('write');
     if (error) {
       this.transcript.add({ kind: 'write', id, as: this.as, writes, error: { code: error.code, status: error.status, message: error.message } });
       this.transcript.answeredWrite(id, undefined);
