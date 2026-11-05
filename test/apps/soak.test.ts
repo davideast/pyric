@@ -298,6 +298,26 @@ describe('judgeLevelOff', () => {
     expect(verdict.lines[1]).toMatch(/^epoch 0: 36\.0 min, second half 1\.5 MB\/min over \d+ samples, spread .* still climbing$/);
   });
 
+  test('a flat series with spikes near its end passes, where a least-squares slope reads 1.26 MB a minute', () => {
+    // About 93 MB, with spikes like the 123 MB one at 33 minutes in run 42047336707, cut where a restart might come.
+    const spiky = series(19, (minute) => 93 + (minute % 1.5) + (minute === 17.5 ? 25 : 0) + (minute === 18.5 ? 30 : 0));
+    const verdict = judgeLevelOff(spiky, LEVEL);
+    expect(verdict.judged).toBe(1);
+    expect(verdict.growing).toBe(false);
+  });
+
+  test('a climb of 1.2 MB a minute with noise fails', () => {
+    const leaking = series(36, (minute) => 90 + minute * 1.2 + 3 * Math.sin(minute * 3.4));
+    const verdict = judgeLevelOff(leaking, LEVEL);
+    expect(verdict.growing).toBe(true);
+    expect(verdict.lines[1]).toMatch(/second half 1\.[12] MB\/min/);
+  });
+
+  test('a series that fills for 10 minutes and then holds passes', () => {
+    const filled = series(36, (minute) => 80 + Math.min(minute, 10) * 1.5 + 2 * Math.sin(minute * 2.1));
+    expect(judgeLevelOff(filled, LEVEL).growing).toBe(false);
+  });
+
   test('a short epoch is not judged, and the report says so', () => {
     const verdict = judgeLevelOff(series(6, (minute) => 80 + minute * 10), LEVEL);
     expect(verdict).toMatchObject({ growing: false, judged: 0, epochs: 1 });

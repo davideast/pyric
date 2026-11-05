@@ -280,30 +280,32 @@ export function judgeGrowth(samples: readonly MemorySample[], limit: GrowthLimit
 export interface LevelOffLimit {
   /** An epoch shorter than this is not judged: it may not have reached its caps yet. */
   minMinutes: number;
-  /** The second half's least-squares slope above this fails. */
+  /** The second half's Theil-Sen slope above this fails. */
   maxBytesPerMinute: number;
 }
 
-/** The least-squares slope of `samples`, in bytes a minute. */
+/**
+ * The Theil-Sen slope of `samples`, in bytes a minute: the median of the
+ * slopes between every pair. A single spike moves few of the pairs, so it
+ * does not read as a climb, where a least-squares fit follows it.
+ */
 function slopePerMinute(samples: readonly MemorySample[]): number {
-  const minutes = samples.map((sample) => sample.at / 60);
-  const meanX = minutes.reduce((sum, x) => sum + x, 0) / samples.length;
-  const meanY = samples.reduce((sum, sample) => sum + sample.bytes, 0) / samples.length;
-  let covariance = 0;
-  let variance = 0;
-  samples.forEach((sample, i) => {
-    covariance += (minutes[i]! - meanX) * (sample.bytes - meanY);
-    variance += (minutes[i]! - meanX) ** 2;
-  });
-  if (variance === 0) return 0;
-  return covariance / variance;
+  const slopes: number[] = [];
+  for (let i = 0; i < samples.length; i += 1) {
+    for (let j = i + 1; j < samples.length; j += 1) {
+      const minutes = (samples[j]!.at - samples[i]!.at) / 60;
+      if (minutes > 0) slopes.push((samples[j]!.bytes - samples[i]!.bytes) / minutes);
+    }
+  }
+  if (slopes.length === 0) return 0;
+  return median(slopes);
 }
 
 /**
  * Whether each long epoch levels off. Bounded history (an event cap, a byte
  * cap) climbs until it is full and then holds, so the second half of a long
  * process should be flat; an unbounded one keeps its slope. The second half
- * fails when its least-squares slope is above `maxBytesPerMinute`. Its spread
+ * fails when its Theil-Sen slope is above `maxBytesPerMinute`. Its spread
  * is reported too, as scripts/diagnostics/host-memory-soak.ts reports it.
  */
 export function judgeLevelOff(samples: readonly MemorySample[], limit: LevelOffLimit): GrowthVerdict {

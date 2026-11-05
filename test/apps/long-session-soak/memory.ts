@@ -24,7 +24,12 @@ const MB = 1024 * 1024;
 const PAGE_HEAP_LIMIT: GrowthLimit = { floorBytes: 48 * MB, ratio: 1, minSamples: 5 };
 const SERVER_HEAP_LIMIT: GrowthLimit = { floorBytes: 64 * MB, ratio: 0.5, minSamples: 5 };
 const SERVER_RSS_LIMIT: GrowthLimit = { floorBytes: 192 * MB, ratio: 0.75, minSamples: 5 };
-/** A process of 10 minutes or more must be flat in its second half: the observation history's caps are reached by then. */
+/**
+ * A process of 10 minutes or more must be flat in its second half. The
+ * observation history's 8 MB byte cap binds first: heap rose about 1.5 MB a
+ * minute before it, so it is full in about 6 minutes. Its 10,000-event cap,
+ * at about 3 events a second, would take about 55.
+ */
 export const SERVER_HEAP_LEVEL: LevelOffLimit = { minMinutes: 10, maxBytesPerMinute: 1 * MB };
 /** RSS moves in allocator steps, so it gets more room. */
 export const SERVER_RSS_LEVEL: LevelOffLimit = { minMinutes: 10, maxBytesPerMinute: 4 * MB };
