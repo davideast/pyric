@@ -12,7 +12,10 @@
 //
 // An ID token lasts one hour, as production's does. After `pyric sandbox
 // advanceClock` moves the sandbox clock 61 minutes, the page's next
-// getIdToken() returns a new token, and the API verifies it.
+// getIdToken() returns a new token, and the API verifies it. The API reads
+// the sandbox clock through the host (#2010): it refuses the token held from
+// before the advance as expired, and a custom token it mints after the
+// advance exchanges, from the page and from its own process.
 //
 // The page runs on the hosted dev server. The API is a
 // `node --import @pyric/cli/register` process, which also signs in through
@@ -27,7 +30,9 @@
 // while the account's session in another browser is refused. The API, under
 // register, does the same to its own session with firebase-admin. With
 // checkRevoked, the API refuses the token of a disabled or deleted account
-// with firebase-admin's reason.
+// with firebase-admin's reason. Production keeps a revocation on the account,
+// so restoring a checkpoint taken after one does not bring the session back
+// (#2021): `pyric sandbox restore` leaves the revoked page signed out.
 //
 // The API refuses what production refuses (#1949): a token whose claims were
 // edited after signing, an expired token, a token for another project, a
@@ -244,6 +249,10 @@ export default scenario(async (app) => {
     assert.equal(result.code, 'auth/invalid-custom-token', JSON.stringify(result));
   });
 
+  await app.step('the API refuses the token held from before the advance as expired, on the sandbox clock', async () => {
+    assertRefused(await whoami(apiUrl, held.idToken), /has expired/);
+  });
+
   await app.step("the page's next getIdToken() returns a new token, and the API verifies it", async () => {
     const { idToken, answer } = await page.evaluate((url) => callApiAsCurrentUser(url), apiUrl);
     assert.notEqual(idToken, held.idToken);
@@ -252,6 +261,19 @@ export default scenario(async (app) => {
     assert.ok(after.iat - before.iat >= SIXTY_ONE_MINUTES_MS / 1000, JSON.stringify({ before, after }));
     assert.equal(after.exp - after.iat, 3600, JSON.stringify(after));
     assert.deepEqual(answer, verified(held.uid, 'Builder One'), JSON.stringify(answer));
+  });
+
+  // The exchanges sign the page out, so they follow the held session's refresh.
+  await app.step('the page exchanges a custom token the API mints after the advance', async () => {
+    const result = await page.evaluate(([url]) => exchangeCustomToken(url, 'late-uid'), [apiUrl] as const);
+    assert.equal(result.code, undefined, JSON.stringify(result));
+    assert.deepEqual(result.answer, { status: 200, body: { uid: 'late-uid', role: 'editor', provider: 'custom' } }, JSON.stringify(result));
+  });
+
+  await app.step('the API exchanges a custom token it mints after the advance from its own process', async () => {
+    const result = await (await fetch(`${apiUrl}/self-custom`)).json() as { answer?: Answer; threw?: string };
+    assert.equal(result.threw, undefined, JSON.stringify(result));
+    assert.deepEqual(result.answer, { status: 200, body: { uid: 'server-custom-uid', role: 'editor', provider: 'custom' } }, JSON.stringify(result));
   });
 
   const ACCOUNT_CHANGES = [
@@ -308,5 +330,30 @@ export default scenario(async (app) => {
 
     const refused = await elsewhere.evaluate(() => forceRefresh());
     assert.deepEqual(refused, { code: 'auth/user-token-expired', currentUid: null, lastAuthState: null });
+  });
+
+  await app.step('a session revoked before a checkpoint stays signed out after pyric sandbox restore puts the checkpoint back', async () => {
+    const { uid } = await page.evaluate(([name, address]) => signInHeld(name, address), ['Builder One', 'checkpoint@example.com'] as const);
+    const tick = await app.pyric(['sandbox', 'advanceClock', '--ms', '2000']);
+    assert.equal(tick.code, 0, tick.output);
+    const revoked = await app.pyric(['auth', 'updateUser', '--uid', uid, '--password', 'changed-secret-pw']);
+    assert.equal(revoked.code, 0, revoked.output);
+    const saved = await app.pyric(['sandbox', 'checkpoint', '--name', 'after-revoke']);
+    assert.equal(saved.code, 0, saved.output);
+
+    const restored = await app.pyric(['sandbox', 'restore', '--name', 'after-revoke', '--confirm']);
+    assert.equal(restored.code, 0, restored.output);
+
+    // The restore re-checks each held session as a refresh-token exchange, so
+    // the revoked page is signed out at the restore, before any refresh of its
+    // own. Production keeps the user until its next refresh fails.
+    let authState = await page.evaluate(() => restoredUid());
+    for (let tries = 0; authState !== null && tries < 40; tries++) {
+      await page.waitForTimeout(250);
+      authState = await page.evaluate(() => restoredUid());
+    }
+    assert.equal(authState, null, 'the page is still signed in after the restore');
+    const signedOut = await page.evaluate(() => forceRefresh());
+    assert.deepEqual({ currentUid: signedOut.currentUid, lastAuthState: signedOut.lastAuthState }, { currentUid: null, lastAuthState: null });
   });
 });

@@ -89,14 +89,22 @@ export interface PersistableService {
     currentUid(): string | null;
 
     /**
+     * The key of the current session, saved beside its uid so a reload
+     * resumes that session rather than starting one with no sign-in time
+     * (#2018). Optional: a service without session keys saves the uid alone.
+     */
+    sessionKey?(): string | undefined;
+
+    /**
      * Re-establish the signed-in session for `uid` under the mode inferred
-     * from the storage slot that supplied it. Fires
+     * from the storage slot that supplied it, resuming the session
+     * `sessionKey` names when one was saved. Fires
      * `onAuthStateChanged` as if the user just signed in. May throw
      * `auth/user-not-found` or `auth/user-disabled` — the controller
      * catches and clears the stored session so a stale uid (user deleted
      * between sessions) doesn't crash init.
      */
-    restore(uid: string, mode: 'LOCAL' | 'SESSION'): void;
+    restore(uid: string, mode: 'LOCAL' | 'SESSION', sessionKey?: string): void;
 
     /**
      * Current persistence mode. Determines which web-storage slot the

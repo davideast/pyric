@@ -1,0 +1,6 @@
+{
+  "name": "empty-native-optional",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stands in for just-bash's native tar codecs (@mongodb-js/zstd, node-liblzma) through overrides, so npm install downloads and builds nothing. It has no entry file, so just-bash's import fails and `tar --zstd` or `tar --xz` reports that the codec could not be loaded."
+}

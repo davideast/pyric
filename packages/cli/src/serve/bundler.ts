@@ -74,7 +74,10 @@ export function defaultSdkEntries(): Record<string, string> {
     performance: pick('performance'),
     'remote-config': pick('remote-config'),
     storage: pick('storage'),
-    init: pick('init'),
+    // The page script every served page loads first (`/__pyric/sdk/init.js`,
+    // and the Vite plugin's injected entry): `page` mounts `./init.js` and, on
+    // the in-page path, starts the in-page backend that loads saved state.
+    init: pick('page'),
   };
 }
 

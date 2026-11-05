@@ -31,6 +31,8 @@ import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
 import { registerActiveAuth } from './active-auth.js';
 import { beforeAuthStateChanged as unavailableBeforeAuthStateChanged } from './unsupported/auth.js';
+import { afterPageBackend, runAfterPageBackend, subscribeAfterPageBackend } from './page-backend-wait.js';
+import { markServiceUsed } from './service-use.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -38,8 +40,14 @@ const wc = wcRaw as unknown as typeof ipAuth;
 
 /** Observers + email/anon sign-in: worker-client or in-page. */
 const A = useWorker ? wc : ipAuth;
-export const onAuthStateChanged = A.onAuthStateChanged;
-export const onIdTokenChanged = A.onIdTokenChanged;
+
+// In-page calls wait for a pending in-page backend load (#2039); see ./page-backend-wait.ts.
+export const onAuthStateChanged = (
+  useWorker ? wc.onAuthStateChanged : subscribeAfterPageBackend(ipAuth.onAuthStateChanged)
+) as typeof ipAuth.onAuthStateChanged;
+export const onIdTokenChanged = (
+  useWorker ? wc.onIdTokenChanged : subscribeAfterPageBackend(ipAuth.onIdTokenChanged)
+) as typeof ipAuth.onIdTokenChanged;
 export const getIdTokenResult = ipAuth.getIdTokenResult;
 export const getIdToken = ipAuth.getIdToken;
 export const getAdditionalUserInfo = ipAuth.getAdditionalUserInfo;
@@ -50,11 +58,19 @@ export const getAdditionalUserInfo = ipAuth.getAdditionalUserInfo;
  * In-page mode: full block-and-abort semantics via `pyric/auth`.
  */
 export const beforeAuthStateChanged = (useWorker ? unavailableBeforeAuthStateChanged : ipAuth.beforeAuthStateChanged) as typeof ipAuth.beforeAuthStateChanged;
-export const signInAnonymously = A.signInAnonymously;
-export const signInWithCustomToken = A.signInWithCustomToken;
-export const signInWithEmailAndPassword = A.signInWithEmailAndPassword;
-export const createUserWithEmailAndPassword = A.createUserWithEmailAndPassword;
-export const signOut = A.signOut;
+export const signInAnonymously = (
+  useWorker ? wc.signInAnonymously : afterPageBackend(ipAuth.signInAnonymously)
+) as typeof ipAuth.signInAnonymously;
+export const signInWithCustomToken = (
+  useWorker ? wc.signInWithCustomToken : afterPageBackend(ipAuth.signInWithCustomToken)
+) as typeof ipAuth.signInWithCustomToken;
+export const signInWithEmailAndPassword = (
+  useWorker ? wc.signInWithEmailAndPassword : afterPageBackend(ipAuth.signInWithEmailAndPassword)
+) as typeof ipAuth.signInWithEmailAndPassword;
+export const createUserWithEmailAndPassword = (
+  useWorker ? wc.createUserWithEmailAndPassword : afterPageBackend(ipAuth.createUserWithEmailAndPassword)
+) as typeof ipAuth.createUserWithEmailAndPassword;
+export const signOut = (useWorker ? wc.signOut : afterPageBackend(ipAuth.signOut)) as typeof ipAuth.signOut;
 export const connectAuthEmulator = A.connectAuthEmulator;
 export const switchAuthLens = A.switchAuthLens;
 export const getAuthLens = A.getAuthLens;
@@ -66,7 +82,7 @@ export const onAuthLensChanged = A.onAuthLensChanged;
  * export a top-level `updateProfile`; cast to the canonical `pyric/auth` shape.
  * (Fixes #746: the served `firebase/auth` entry didn't re-export this at all.)
  */
-export const updateProfile = (useWorker ? wc.updateProfile : ipAuth.updateProfile) as typeof ipAuth.updateProfile;
+export const updateProfile = (useWorker ? wc.updateProfile : afterPageBackend(ipAuth.updateProfile)) as typeof ipAuth.updateProfile;
 
 // ── Provider value classes + persistence markers — path-independent ───────
 export const GoogleAuthProvider = ipAuth.GoogleAuthProvider;
@@ -89,20 +105,45 @@ function wireAppPersistence(
   if (persistenceWired.has(app)) return;
   persistenceWired.add(app);
   const store = sessionStoreForApp(app);
-  const stored = store.load();
-  if (useWorker && stored) {
-    // Posting restore before listener registration preserves FIFO ordering on
-    // this app's MessagePort, so the initial listener value is the restore.
-    void restorePortSession(auth as never, stored.uid, undefined, undefined, stored.sessionKey).then((user) => {
-      if (!user) store.clear();
-    });
-  } else if (!useWorker && stored) {
-    try {
-      ipAuth.sandbox.restoreSession(auth, stored.uid, stored.sessionKey);
-    } catch {
-      store.clear();
-    }
+  if (useWorker) {
+    restoreWorkerSession(auth, store);
+    saveSessionChanges(auth, store);
+    return;
   }
+  // The restore needs the saved accounts and session records, so it waits for them.
+  runAfterPageBackend(() => {
+    restoreInPageSession(auth, store);
+    saveSessionChanges(auth, store);
+  });
+}
+
+type AppSessionStore = ReturnType<typeof sessionStoreForApp>;
+
+function restoreWorkerSession(auth: ReturnType<typeof pyricGetAuth>, store: AppSessionStore): void {
+  const stored = store.load();
+  if (!stored) return;
+  // Posting restore before listener registration preserves FIFO ordering on
+  // this app's MessagePort, so the initial listener value is the restore.
+  // A host that cannot answer now leaves the stored session for the next load.
+  void restorePortSession(auth as never, stored.uid, undefined, undefined, stored.sessionKey).then(
+    (user) => {
+      if (!user) store.clear();
+    },
+    (error: unknown) => console.warn('[pyric] session restore failed:', error instanceof Error ? error.message : String(error)),
+  );
+}
+
+function restoreInPageSession(auth: ReturnType<typeof pyricGetAuth>, store: AppSessionStore): void {
+  const stored = store.load();
+  if (!stored) return;
+  try {
+    ipAuth.sandbox.restoreSession(auth, stored.uid, stored.sessionKey);
+  } catch {
+    store.clear();
+  }
+}
+
+function saveSessionChanges(auth: ReturnType<typeof pyricGetAuth>, store: AppSessionStore): void {
   A.onAuthStateChanged(auth, (user) => {
     if (user) store.save(user.uid, storedSessionKey(user));
     else store.clear();
@@ -124,6 +165,7 @@ function attachServedSandboxHook(
 
 export const getAuth = ((app?: FirebaseApp) => {
   const resolved = app ?? getApp();
+  markServiceUsed();
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
     // A page whose pyric/auth is another copy stages through this bundle's own.
@@ -187,13 +229,13 @@ export const setPersistence = (
         sessionStoreForApp(auth.app ?? getApp()).setMode(toSessionMode(persistence.type));
         return (wc.setPersistence as typeof pyricSetPersistence)(auth, persistence);
       })
-    : async (
+    : afterPageBackend(async (
         auth: Parameters<typeof pyricSetPersistence>[0],
         persistence: Parameters<typeof pyricSetPersistence>[1],
       ) => {
         sessionStoreForApp(auth.app ?? getApp()).setMode(toSessionMode(persistence.type));
         return pyricSetPersistence(auth, persistence);
-      }
+      })
 ) as typeof pyricSetPersistence;
 
 // ── Provider sign-in (popup/redirect) — the in-page→worker bridge ─────────
@@ -233,7 +275,7 @@ export const signInWithPopup = (
   useWorker
     ? (auth: Parameters<typeof ipAuth.signInWithPopup>[0], provider: Parameters<typeof ipAuth.signInWithPopup>[1]) =>
         bridgeProviderSignIn(auth, provider, 'popup')
-    : ipAuth.signInWithPopup
+    : afterPageBackend(ipAuth.signInWithPopup)
 ) as typeof ipAuth.signInWithPopup;
 
 /**
@@ -247,19 +289,19 @@ export const signInWithRedirect = (
   useWorker
     ? (auth: Parameters<typeof ipAuth.signInWithRedirect>[0], provider: Parameters<typeof ipAuth.signInWithRedirect>[1]) =>
         bridgeProviderSignIn(auth, provider, 'redirect')
-    : ipAuth.signInWithRedirect
+    : afterPageBackend(ipAuth.signInWithRedirect)
 ) as typeof ipAuth.signInWithRedirect;
 
 export const getRedirectResult = (
   useWorker
     ? async (_auth?: unknown) => null
-    : ipAuth.getRedirectResult
+    : afterPageBackend(ipAuth.getRedirectResult)
 ) as typeof ipAuth.getRedirectResult;
 
 /** Direct credential sign-in: unsupported over the worker in v1 (the
  *  worker-client rejects with a clear error); in-page passes through. */
 export const signInWithCredential = (
-  useWorker ? wc.signInWithCredential : ipAuth.signInWithCredential
+  useWorker ? wc.signInWithCredential : afterPageBackend(ipAuth.signInWithCredential)
 ) as typeof ipAuth.signInWithCredential;
 
 /** `initializeAuth(app, deps?)` — aliases the picked `getAuth` (worker- or
@@ -284,7 +326,7 @@ export const reload = (
   useWorker ? wc.reload : ipAuth.reload
 ) as typeof ipAuth.reload;
 export const updateCurrentUser = (
-  useWorker ? wc.updateCurrentUser : ipAuth.updateCurrentUser
+  useWorker ? wc.updateCurrentUser : afterPageBackend(ipAuth.updateCurrentUser)
 ) as typeof ipAuth.updateCurrentUser;
 
 export {

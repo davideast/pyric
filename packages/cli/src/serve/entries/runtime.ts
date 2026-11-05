@@ -32,9 +32,10 @@ import {
   relayWorkerDisconnect,
 } from '../worker/client.js';
 import { useWorker, workerDb, useHosted } from './worker-runtime.js';
-import { initPayload, initPayloadRequest } from './init-payload.js';
+import { initPayload, initPayloadRequest, logInitPayloadFailure } from './init-payload.js';
 export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
+import { onServiceUsed } from './service-use.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
@@ -246,7 +247,17 @@ if (!useWorker) try {
       ...sessionTokenHeaders,
     };
     let readOnly = false;
+    // The writer role is claimed once the page uses a service (its first
+    // getAuth, getFirestore, getDatabase or getStorage, or its first sandbox
+    // event), not on load: a page that imports no Firebase service still loads
+    // this runtime through the page script and must leave the role free. A
+    // tab that uses a service claims it before it changes anything, so a tab
+    // that loaded an older world learns it is read-only before it can save
+    // over another tab's RTDB, Storage and auth history (#2039).
+    let claimsWriterRole = false;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
     const lostWriterLock = (): void => {
+      if (heartbeat !== null) clearInterval(heartbeat);
       if (readOnly) return;
       readOnly = true;
       diagnostics.persistReadOnly = true;
@@ -264,6 +275,9 @@ if (!useWorker) try {
         },
         async write(value) {
           if (readOnly) return; // a non-writer tab silently no-ops its flushes
+          // Before the page uses a service there is nothing of its own to save
+          // (the attach flush of a page that imports no Firebase service).
+          if (!claimsWriterRole) return;
           const res = await fetch(section('firestore'), {
             method: 'POST',
             headers: writerHeaders,
@@ -289,22 +303,30 @@ if (!useWorker) try {
     });
     diagnostics.persistEnabled = true;
 
-    // Heartbeat: keep an alive-but-idle writer's lock fresh. PUT refreshes
-    // the lock WITHOUT writing state (a POST would clobber). Release on
-    // pagehide so another tab can take over promptly.
-    const heartbeat = setInterval(() => {
+    // Heartbeat: claim the role, then keep an alive-but-idle writer's lock
+    // fresh. PUT claims/refreshes the lock WITHOUT writing state (a POST
+    // would clobber). Release on pagehide so another tab can take over promptly.
+    const sendHeartbeat = (): void => {
       if (readOnly) return;
       void fetch('/__pyric/state', { method: 'PUT', headers: writerHeaders }).then((res) => {
-        if (res.status === 423) {
-          lostWriterLock();
-          clearInterval(heartbeat);
-        }
+        if (res.status === 423) lostWriterLock();
       }, () => {});
-    }, 20_000);
+    };
+    const claimWriterRole = (): void => {
+      if (claimsWriterRole) return;
+      claimsWriterRole = true;
+      sendHeartbeat();
+      heartbeat = setInterval(sendHeartbeat, 20_000);
+    };
+    onServiceUsed(claimWriterRole);
+    const stopClaimOnEvent = sandbox.onEvent(() => {
+      stopClaimOnEvent();
+      claimWriterRole();
+    });
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', () => {
-        clearInterval(heartbeat);
-        if (!readOnly) {
+        if (heartbeat !== null) clearInterval(heartbeat);
+        if (!readOnly && claimsWriterRole) {
           fetch('/__pyric/state', { method: 'DELETE', headers: writerHeaders, keepalive: true }).catch(() => {});
         }
       });
@@ -315,7 +337,7 @@ if (!useWorker) try {
     const auth = getAuth(sandbox);
     let authFlushTimer: ReturnType<typeof setTimeout> | null = null;
     authOps.subscribeUsers(auth, () => {
-      if (readOnly) return;
+      if (readOnly || !claimsWriterRole) return;
       if (authFlushTimer) clearTimeout(authFlushTimer);
       authFlushTimer = setTimeout(() => {
         void fetch(section('auth'), {
@@ -524,8 +546,15 @@ if (bridgeUrlFromPayload) {
   // is on the load-bearing top-level-await path, and the agent connecting a beat
   // later is fine. Bridge-less pages just read a null bridgeUrl and stop.
   void (async () => {
+    let payload: Awaited<typeof initPayload>;
     try {
-      const payload = await initPayload;
+      payload = await initPayload;
+    } catch (e) {
+      runtimeStatus.reportError(e, 'runtime');
+      logInitPayloadFailure(e);
+      return;
+    }
+    try {
       const url = payload?.bridgeUrl ?? null;
       if (url) await connectBridgePeer(url);
     } catch (e) {
@@ -574,6 +603,9 @@ if (enablesFallbackTabSync) {
       getAuth(sandbox),
       authOps,
     );
+  }, (e: unknown) => {
+    runtimeStatus.reportError(e, 'runtime');
+    console.error('[pyric sandbox] auth tab sync failed:', e instanceof Error ? e.message : String(e));
   });
 }
 
@@ -663,3 +695,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
     });
   });
 }
+
+// Last top-level statement: the in-page backend has loaded, so the auth entry
+// runs its restore and calls inline from here on (./page-backend-wait.ts).
+globalThis.__PYRIC_PAGE_BACKEND_LOADED__ = true;

@@ -54,6 +54,7 @@ import {
   rtdbServerTimestamp,
 } from '../worker/client/rtdb-controls.js';
 import { useWorker } from './worker-runtime.js';
+import { markServiceUsed } from './service-use.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
 import { databaseRules } from './page-database-rules.js';
@@ -106,6 +107,7 @@ const workerDatabasesByApp = new WeakMap<FirebaseApp, AppDatabases>();
 
 export const getDatabase = ((app?: FirebaseApp, url?: string) => {
   const resolved = app ?? getApp();
+  markServiceUsed();
   if (!useWorker) {
     databaseRules.register(url || resolved.options.databaseURL, resolved.options.projectId);
     return pyricGetDatabase(resolved, url);

@@ -29,6 +29,16 @@ export interface IdTokenExpectation {
 const NOT_A_STRING = 'First argument to verifyIdToken() must be a Firebase ID token string.';
 
 /**
+ * Throws `auth/argument-error` synchronously for a token that is not a string,
+ * as firebase-admin's `verifyJWT` does, so an arm that reads its clock before
+ * verifying can check the argument first.
+ */
+export function assertIdTokenArgument(idToken: unknown): void {
+  const isInvalidTokenArgument = typeof idToken !== 'string';
+  if (isInvalidTokenArgument) throw new FirebaseAuthError('argument-error', NOT_A_STRING);
+}
+
+/**
  * Verifies an ID token minted by pyric's Auth for `expected.projectId`.
  *
  * A token that is not a string throws `auth/argument-error` synchronously, as
@@ -36,8 +46,7 @@ const NOT_A_STRING = 'First argument to verifyIdToken() must be a Firebase ID to
  * `auth/argument-error`, or `auth/id-token-expired` for an expired token.
  */
 export function verifySandboxIdToken(idToken: string, expected: IdTokenExpectation): Promise<DecodedIdToken> {
-  const isInvalidTokenArgument = typeof idToken !== 'string';
-  if (isInvalidTokenArgument) throw new FirebaseAuthError('argument-error', NOT_A_STRING);
+  assertIdTokenArgument(idToken);
   const nowSec = Math.floor(expected.nowMs / 1000);
   return checkClientIdToken(idToken, expected.projectId, nowSec).then((verdict) => {
     if (!verdict.ok) throw new FirebaseAuthError(verdict.code, verdict.message);
