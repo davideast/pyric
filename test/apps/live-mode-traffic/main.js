@@ -54,6 +54,8 @@ window.listenToOpenRooms = () => {
 window.openGarden = () => setDoc(doc(db, "rooms/garden"), { name: "Garden", open: true }).then(() => "written", failure);
 
 window.openRooms = () => snapshots.at(-1) ?? [];
+/** How many times the listener's callback ran. */
+window.deliveryCount = () => snapshots.length;
 window.billedDocumentCount = () => billedDocuments;
 
 /** What each call live mode refuses does: its error, or what it returned. */

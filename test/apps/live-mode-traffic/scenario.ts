@@ -54,6 +54,7 @@ declare function readSecret(): Promise<string>;
 declare function listenToOpenRooms(): Promise<string[]>;
 declare function openGarden(): Promise<string>;
 declare function openRooms(): string[];
+declare function deliveryCount(): number;
 declare function billedDocumentCount(): number;
 declare const refused: Record<'storage' | 'sdkPackage' | 'namedDatabase', () => Promise<string> | string> & {
   cacheBusted(variant: 't' | 'amp' | 'encodedName' | 'absolute' | 'absoluteQuery' | 'id' | 'idQuery', root?: string): Promise<string>;
@@ -270,17 +271,21 @@ export default scenario(async (app) => {
   await app.step('the chip\'s Listeners view lists the page\'s live listener with its deliveries, and Overview outlines what it changed', async () => {
     const chip = await openChip(page);
     await chip.locator('[data-chip-tab=listeners]').click();
-    // The page's one listener: the open rooms query, delivered production's first answer and the garden the page opened.
+    // The page's one listener, the open rooms query: one delivery on the row for each time its callback ran.
     const listener = chip.locator('[data-listener-rows] [data-listener-row]').filter({ hasText: 'rooms' });
-    const facts = await eventually(
-      () => listener.evaluateAll((rows) => rows.map((row) => ({
-        fact: row.querySelector('.listener-fact')?.textContent ?? '',
-        text: row.textContent ?? '',
-      }))),
-      (rows) => rows.length === 1 && Number(/(\d+) deliveries/.exec(rows[0]!.fact)?.[1] ?? 0) >= 2,
-      'a Listeners row for the open rooms listener with its deliveries',
+    const shown = await eventually(
+      async () => ({
+        callbacks: await page.evaluate(() => deliveryCount()),
+        rows: await listener.evaluateAll((rows) => rows.map((row) => ({
+          fact: row.querySelector('.listener-fact')?.textContent ?? '',
+          text: row.textContent ?? '',
+        }))),
+      }),
+      ({ callbacks, rows }) => rows.length === 1 && callbacks >= 2 && /(\d+) deliver(?:y|ies)/.exec(rows[0]!.fact)?.[1] === String(callbacks),
+      'a Listeners row for the open rooms listener with one delivery per callback',
     );
-    assert.match(facts[0]!.text, /Firestore collection/, `the listener names what it listens to: ${facts[0]!.text}`);
+    const row = shown.rows[0]!;
+    assert.match(row.text, /Firestore collection/, `the listener names what it listens to: ${row.text}`);
     await chip.locator('[data-listener-mode=overview]').click();
     // The listener's callback rewrote #rooms, so Overview draws its box there, badged with the query.
     const badge = page.locator('[data-pyric-listener-overlay] [data-pyric-listener-badge]').filter({ hasText: 'rooms (query)' });

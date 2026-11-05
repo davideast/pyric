@@ -22,8 +22,11 @@
  * wrapper then opens the listener's activity at the subscribe call, reports
  * each delivery immediately before the app's callback runs, and closes the
  * activity when the app unsubscribes: the app gets a function that closes it
- * and calls the SDK's own unsubscribe.
+ * and calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
+import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
+
+export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
 /**
  * What happened to one call or one listener event: the call returned or
@@ -71,40 +74,6 @@ export interface LiveAccount {
  * A plane whose listeners the runtime chip shows also supplies `journal`.
  */
 export type LiveObserver = ((record: LiveCallRecord) => unknown) & { readonly journal?: LiveListenerJournal };
-
-/** A Firestore listener, as the journal names it: never a value, only where it listens. */
-export interface LiveListenerSubject {
-  /** The Firestore instance the listener runs on, which names the app it belongs to. */
-  readonly firestore: object;
-  /** The export the app called, such as `onSnapshot`. */
-  readonly method: string;
-  /** The document or collection path, or the collection group's id. */
-  readonly target: string;
-  /** False for a document listener. */
-  readonly isQuery: boolean;
-  /** The same for two listeners on the same document or query. */
-  readonly key: string;
-}
-
-/**
- * One listener's activity in the plane's journal: `pyric/sandbox/internal`'s
- * SDK activity, which `@pyric/cli` opens for the page.
- */
-export interface LiveListenerActivity {
-  /**
-   * Reports a delivery of `value`, which production billed for
-   * `billedDocuments`, then runs the app's callback and returns what it
-   * returned. Anything the callback throws propagates.
-   */
-  deliver(value: unknown, billedDocuments: number | undefined, run: () => unknown): unknown;
-  /** The listener was handed an error. */
-  fail(): void;
-  /** The app unsubscribed. */
-  close(): void;
-}
-
-/** Opens one listener's activity. */
-export type LiveListenerJournal = (subject: LiveListenerSubject) => LiveListenerActivity;
 
 /** What the SDK itself does with a listener error when the app passed no error callback. */
 export type UncaughtListenerError = (error: unknown) => void;
@@ -515,81 +484,11 @@ function recordingArguments(site: ObservedSite, args: unknown[]): unknown[] {
   return copy;
 }
 
-/** The constraints of a query, as the SDK keeps them in its `_query`. */
-const QUERY_CONSTRAINTS = ['filters', 'explicitOrderBy', 'limit', 'limitType', 'startAt', 'endAt'] as const;
-
-/** A query's collection path or group id, and its key, read from the SDK's `_query`. */
-function queryPath(subject: object): Pick<LiveListenerSubject, 'target' | 'key'> | undefined {
-  const query: unknown = Reflect.get(subject, '_query');
-  const isObject = typeof query === 'object' && query !== null;
-  if (!isObject) return undefined;
-  const group: unknown = Reflect.get(query, 'collectionGroup');
-  const path: unknown = Reflect.get(query, 'path');
-  const canonical = methodOf(path, 'canonicalString');
-  const collection: unknown = canonical === undefined ? undefined : Reflect.apply(canonical, path, []);
-  const target = typeof group === 'string' ? group : collection;
-  if (typeof target !== 'string') return undefined;
-  const constraints = QUERY_CONSTRAINTS.map((name) => Reflect.get(query, name));
-  try {
-    return { target, key: JSON.stringify(['query', target, constraints]) };
-  } catch {
-    // Constraints that do not serialize key the query by its collection alone.
-    return { target, key: JSON.stringify(['query', target]) };
-  }
-}
-
-/** A reference's path, or a query's, read without calling anything of the app's. */
-function firestorePath(subject: object, type: unknown): Pick<LiveListenerSubject, 'target' | 'key'> | undefined {
-  const isReference = type === 'document' || type === 'collection';
-  if (!isReference) return type === 'query' ? queryPath(subject) : undefined;
-  const path: unknown = Reflect.get(subject, 'path');
-  return typeof path === 'string' ? { target: path, key: JSON.stringify([type, path]) } : undefined;
-}
-
-/** The Firestore listener an export's first argument names, or undefined for any other subject. */
-function listenerSubject(method: string, subject: unknown): LiveListenerSubject | undefined {
-  const isObject = typeof subject === 'object' && subject !== null;
-  if (!isObject) return undefined;
-  const firestore: unknown = Reflect.get(subject, 'firestore');
-  const hasFirestore = typeof firestore === 'object' && firestore !== null;
-  if (!hasFirestore) return undefined;
-  const type: unknown = Reflect.get(subject, 'type');
-  const path = firestorePath(subject, type);
-  if (path === undefined) return undefined;
-  return { firestore, method, isQuery: type !== 'document', ...path };
-}
-
-/** The listener's activity in the observer's journal, or undefined when it has none or opening it failed. */
-function openActivity(site: ObservedSite, args: readonly unknown[]): LiveListenerActivity | undefined {
-  try {
-    const journal = site.observer.journal;
-    if (typeof journal !== 'function') return undefined;
-    const subject = listenerSubject(site.name, args[0]);
-    return subject === undefined ? undefined : journal(subject);
-  } catch {
-    // A listener the journal cannot open is still the SDK's own.
-    return undefined;
-  }
-}
-
-/** The SDK's unsubscribe, closing the listener's activity first. Any other result is passed back unchanged. */
-function closingUnsubscribe(activity: LiveListenerActivity, unsubscribe: unknown): unknown {
-  if (typeof unsubscribe !== 'function') return unsubscribe;
-  return function unsubscribed(this: unknown, ...values: unknown[]): unknown {
-    try {
-      activity.close();
-    } catch {
-      // The journal is a diagnostic; the SDK still unsubscribes.
-    }
-    return Reflect.apply(unsubscribe as Callback, this, values);
-  };
-}
-
 /** A wrapper for a listener export: `onSnapshot`, `onAuthStateChanged`, `onTokenChanged`. */
 export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args);
-    const activity = openActivity(site, args);
+    const activity = openActivity(site.observer, site.name, args[0]);
     const listenerSite = { ...callSite, billing: billedDocuments(), activity };
     const listening = recordingArguments(listenerSite, args);
     if (activity === undefined) return callReal(callSite, real, this, listening);

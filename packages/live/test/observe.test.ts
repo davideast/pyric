@@ -10,9 +10,13 @@ const OBSERVE_URL = new URL('../src/observe.ts', import.meta.url).href;
  * runner fails a test on any unhandled rejection, so the runtime's own
  * behavior is checked in Node. Node 22 strips types from `observe.ts` only
  * behind `--experimental-strip-types`; Node 24 accepts the flag as well.
+ * The source imports its siblings as `.js`, as the built files do, so a
+ * resolve hook finds the `.ts` file beside a `.js` specifier Node cannot.
  */
 function rejectInNode(setup: string): { status: number | null; stdout: string; stderr: string } {
   const app = [
+    "import { registerHooks } from 'node:module';",
+    "registerHooks({ resolve(specifier, context, next) { try { return next(specifier, context); } catch (error) { if (!specifier.endsWith('.js')) throw error; return next(`${specifier.slice(0, -3)}.ts`, context); } } });",
     setup,
     `const { observedCall } = await import(${JSON.stringify(OBSERVE_URL)});`,
     `const getDoc = observedCall({ module: 'firebase/firestore', name: 'getDoc', observer: () => undefined }, () => Promise.reject(Object.assign(new Error('permission-denied'), { code: 'permission-denied' })));`,
