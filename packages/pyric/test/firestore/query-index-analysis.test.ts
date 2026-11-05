@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { analyzeIndexQuery, captureIndexQuery, readIndexConfig } from '../../src/rules/indexes/query-analysis.js';
+import { analyzeIndexQuery, captureIndexQuery, readIndexConfig } from '../../src/indexes/query-analysis.js';
 
 const empty = { indexes: [], fieldOverrides: [] };
 const query = () => captureIndexQuery('teams/north/projects', false, [{ kind: 'where', field: 'status', op: '==' }], [{ field: 'createdAt', direction: 'desc' }]);

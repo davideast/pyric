@@ -1,7 +1,7 @@
 import type { AiEvidence } from './ai-evidence.js';
 import { firestoreReadUsage, databaseReadUsage, firestoreWriteUsage, type UsageEvidence } from './usage-evidence.js';
 import type { ListenerOwner } from '../types/events.js';
-import type { ServiceIndexQuery } from '../../rules/indexes/service-query.js';
+import type { ServiceIndexQuery } from '../../indexes/service-query.js';
 import { sdkObservation, type SdkObservation } from './sdk-observation.js';
 
 /** Page-side SDK evidence. Transport messages are deliberately not deliveries. */

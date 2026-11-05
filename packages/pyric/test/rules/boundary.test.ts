@@ -32,8 +32,6 @@ const ALLOWED_EDGES: readonly string[] = [
   'indexes/extract/types.ts -> ../../../indexes/extract/types.js',
   'indexes/extractHandler.ts -> ../../indexes/extractHandler.js',
   'indexes/extractTool.ts -> ../../indexes/extractTool.js',
-  'indexes/query-analysis.ts -> ../../indexes/query-analysis.js',
-  'indexes/service-query.ts -> ../../indexes/service-query.js',
   'indexes/types.ts -> ../../indexes/types.js',
   // Shared groundwork, which moves down into the engine.
   'api/rtdb-case-validation.ts -> ../../database/writable-path.js',
