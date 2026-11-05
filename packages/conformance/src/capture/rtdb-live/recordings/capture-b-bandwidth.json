@@ -1,0 +1,565 @@
+{
+  "name": "rtdb-live-capture-b-bandwidth",
+  "description": "Per-operation bytes from firebase database:profile on the default instance. bytesDown sums realtime-read, listener-listen, listener-broadcast and rest-read events; bytesUp sums realtime-write, realtime-transaction, realtime-update, rest-write and rest-update events. wire is the client's own WebSocket frame bytes for the same operation. t, startMs and endMs are milliseconds since the capture started, profile timestamps corrected by clockOffsetMs (measured on the marker write).",
+  "observedAt": "2026-11-05T19:46:05.534Z",
+  "sdkVersion": "12.19.0",
+  "firebaseToolsVersion": "15.23.0",
+  "instance": "<default-instance>",
+  "runPath": "/pyric-live-capture/<run>",
+  "clockOffsetMs": -1900,
+  "profileEventCount": 30,
+  "operations": [
+    {
+      "op": "marker",
+      "description": "Admin REST write the profiler must show, to prove the stream was open and to measure clock offset.",
+      "startMs": 12920,
+      "endMs": 13031.4,
+      "bytesDown": 0,
+      "bytesUp": 3,
+      "paths": [
+        "/pyric-live-capture/<run>/marker"
+      ],
+      "events": [
+        {
+          "name": "rest-write",
+          "path": "/pyric-live-capture/<run>/marker",
+          "bytes": 3,
+          "millis": 1,
+          "t": 12975,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-broadcast",
+          "path": "/pyric-live-capture/<run>/marker",
+          "bytes": 0,
+          "millis": 0,
+          "t": 12975,
+          "otherFields": [
+            "client",
+            "clientsUpdated"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 0,
+        "received": 0
+      }
+    },
+    {
+      "op": "seed-10kb",
+      "description": "Admin REST write of 10 children of 1,000 characters each.",
+      "startMs": 15670.9,
+      "endMs": 15774,
+      "bytesDown": 0,
+      "bytesUp": 10081,
+      "paths": [
+        "/pyric-live-capture/<run>/big"
+      ],
+      "events": [
+        {
+          "name": "rest-write",
+          "path": "/pyric-live-capture/<run>/big",
+          "bytes": 10081,
+          "millis": 2,
+          "t": 15588,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-broadcast",
+          "path": "/pyric-live-capture/<run>/big",
+          "bytes": 0,
+          "millis": 0,
+          "t": 15588,
+          "otherFields": [
+            "client",
+            "clientsUpdated"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 0,
+        "received": 0
+      }
+    },
+    {
+      "op": "onValue-initial-10kb",
+      "description": "onValue on the 10 KB node: the initial snapshot.",
+      "startMs": 21409.2,
+      "endMs": 21498.4,
+      "detail": {
+        "children": 10
+      },
+      "bytesDown": 10081,
+      "bytesUp": 0,
+      "paths": [
+        "/pyric-live-capture/<run>/big"
+      ],
+      "events": [
+        {
+          "name": "listener-listen",
+          "path": "/pyric-live-capture/<run>/big",
+          "bytes": 10081,
+          "millis": 0,
+          "t": 20982,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime",
+            "unIndexed"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 93,
+        "received": 10208
+      }
+    },
+    {
+      "op": "child-update-100b-with-listener",
+      "description": "set of a 100-character child under the listened node.",
+      "startMs": 24160.8,
+      "endMs": 24217.2,
+      "detail": {
+        "listenerEvents": 1
+      },
+      "bytesDown": 160,
+      "bytesUp": 102,
+      "paths": [
+        "/pyric-live-capture/<run>/big"
+      ],
+      "events": [
+        {
+          "name": "realtime-write",
+          "path": "/pyric-live-capture/<run>/big/c100",
+          "bytes": 102,
+          "millis": 2,
+          "t": 23564,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-broadcast",
+          "path": "/pyric-live-capture/<run>/big/c100",
+          "bytes": 160,
+          "millis": 0,
+          "t": 23564,
+          "otherFields": [
+            "client",
+            "clientsUpdated"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 198,
+        "received": 234
+      }
+    },
+    {
+      "op": "get-with-listener",
+      "description": "get of the listened node while the onValue listener is attached.",
+      "startMs": 26879.6,
+      "endMs": 26881.2,
+      "detail": {
+        "children": 11
+      },
+      "bytesDown": 0,
+      "bytesUp": 0,
+      "paths": [
+        "/pyric-live-capture/<run>/big"
+      ],
+      "events": [],
+      "wire": {
+        "sent": 0,
+        "received": 0
+      }
+    },
+    {
+      "op": "unlisten",
+      "description": "Detach the onValue listener.",
+      "startMs": 29544.6,
+      "endMs": 29545.7,
+      "bytesDown": 0,
+      "bytesUp": 0,
+      "paths": [
+        "/pyric-live-capture/<run>/big"
+      ],
+      "events": [
+        {
+          "name": "listener-unlisten",
+          "path": "/pyric-live-capture/<run>/big",
+          "bytes": null,
+          "millis": null,
+          "t": 28621,
+          "otherFields": [
+            "client",
+            "pendingTime"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 86,
+        "received": 43
+      }
+    },
+    {
+      "op": "get-without-listener",
+      "description": "get of the same node with no listener attached.",
+      "startMs": 32220.8,
+      "endMs": 32280.6,
+      "detail": {
+        "children": 11
+      },
+      "bytesDown": 10191,
+      "bytesUp": 0,
+      "paths": [
+        "/pyric-live-capture/<run>/big"
+      ],
+      "events": [
+        {
+          "name": "realtime-read",
+          "path": "/pyric-live-capture/<run>/big",
+          "bytes": 10191,
+          "millis": 0,
+          "t": 31119,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime",
+            "querySet"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 93,
+        "received": 10232
+      }
+    },
+    {
+      "op": "push",
+      "description": "push of a 100-character value.",
+      "startMs": 34954.9,
+      "endMs": 35005.7,
+      "bytesDown": 0,
+      "bytesUp": 102,
+      "paths": [
+        "/pyric-live-capture/<run>/list"
+      ],
+      "events": [
+        {
+          "name": "realtime-write",
+          "path": "/pyric-live-capture/<run>/list/-P5hEdb-OoDux1Vlq_n2",
+          "bytes": 102,
+          "millis": 2,
+          "t": 33672,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-broadcast",
+          "path": "/pyric-live-capture/<run>/list/-P5hEdb-OoDux1Vlq_n2",
+          "bytes": 0,
+          "millis": 0,
+          "t": 33672,
+          "otherFields": [
+            "client",
+            "clientsUpdated"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 215,
+        "received": 43
+      }
+    },
+    {
+      "op": "transaction-contended",
+      "description": "runTransaction on one counter from two clients at once.",
+      "startMs": 37674.2,
+      "endMs": 37815.7,
+      "detail": {
+        "updateFunctionCalls": [
+          1,
+          2
+        ],
+        "committed": [
+          true,
+          true
+        ],
+        "final": 2
+      },
+      "bytesDown": 114,
+      "bytesUp": 3,
+      "paths": [
+        "/pyric-live-capture/<run>/counter"
+      ],
+      "events": [
+        {
+          "name": "listener-listen",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 0,
+          "millis": 0,
+          "t": 36218,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime",
+            "unIndexed"
+          ]
+        },
+        {
+          "name": "realtime-transaction",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 1,
+          "millis": 1,
+          "t": 36219,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-broadcast",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 56,
+          "millis": 0,
+          "t": 36219,
+          "otherFields": [
+            "client",
+            "clientsUpdated"
+          ]
+        },
+        {
+          "name": "listener-listen",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 1,
+          "millis": 0,
+          "t": 36223,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime",
+            "unIndexed"
+          ]
+        },
+        {
+          "name": "realtime-transaction",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 1,
+          "millis": 0,
+          "t": 36223,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-unlisten",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": null,
+          "millis": null,
+          "t": 36267,
+          "otherFields": [
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "realtime-transaction",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 1,
+          "millis": 1,
+          "t": 36268,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-broadcast",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 56,
+          "millis": 0,
+          "t": 36268,
+          "otherFields": [
+            "client",
+            "clientsUpdated"
+          ]
+        },
+        {
+          "name": "realtime-read",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": 1,
+          "millis": 0,
+          "t": 36307,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime",
+            "querySet"
+          ]
+        },
+        {
+          "name": "listener-unlisten",
+          "path": "/pyric-live-capture/<run>/counter",
+          "bytes": null,
+          "millis": null,
+          "t": 36316,
+          "otherFields": [
+            "client",
+            "pendingTime"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 810,
+        "received": 648
+      }
+    },
+    {
+      "op": "onDisconnect",
+      "description": "set, onDisconnect().set, close the connection, then an admin read until the server ran the queued write.",
+      "startMs": 40445.3,
+      "endMs": 40638.6,
+      "detail": {
+        "readBack": "offline"
+      },
+      "bytesDown": 9,
+      "bytesUp": 8,
+      "paths": [
+        "/pyric-live-capture/<run>/presence"
+      ],
+      "events": [
+        {
+          "name": "realtime-write",
+          "path": "/pyric-live-capture/<run>/presence",
+          "bytes": 8,
+          "millis": 1,
+          "t": 38848,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "listener-broadcast",
+          "path": "/pyric-live-capture/<run>/presence",
+          "bytes": 0,
+          "millis": 0,
+          "t": 38848,
+          "otherFields": [
+            "client",
+            "clientsUpdated"
+          ]
+        },
+        {
+          "name": "on-disconnect-put",
+          "path": "/pyric-live-capture/<run>/presence",
+          "bytes": 9,
+          "millis": 1,
+          "t": 38894,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime"
+          ]
+        },
+        {
+          "name": "rest-read",
+          "path": "/pyric-live-capture/<run>/presence",
+          "bytes": 9,
+          "millis": 0,
+          "t": 38989,
+          "otherFields": [
+            "allowed",
+            "client",
+            "pendingTime",
+            "querySet"
+          ]
+        }
+      ],
+      "wire": {
+        "sent": 211,
+        "received": 88
+      }
+    }
+  ],
+  "unattributed": [
+    {
+      "name": "concurrent-connect",
+      "path": "/",
+      "bytes": null,
+      "millis": null,
+      "t": 18279,
+      "otherFields": [
+        "client",
+        "pendingTime"
+      ]
+    },
+    {
+      "name": "concurrent-connect",
+      "path": "/",
+      "bytes": null,
+      "millis": null,
+      "t": 18423,
+      "otherFields": [
+        "client",
+        "pendingTime"
+      ]
+    },
+    {
+      "name": "run-on-disconnect",
+      "path": "/",
+      "bytes": 9,
+      "millis": 1,
+      "t": 38938,
+      "otherFields": [
+        "client"
+      ]
+    },
+    {
+      "name": "concurrent-disconnect",
+      "path": "/",
+      "bytes": null,
+      "millis": null,
+      "t": 38939,
+      "otherFields": [
+        "client",
+        "pendingTime"
+      ]
+    },
+    {
+      "name": "concurrent-disconnect",
+      "path": "/",
+      "bytes": null,
+      "millis": null,
+      "t": 41547,
+      "otherFields": [
+        "client",
+        "pendingTime"
+      ]
+    }
+  ],
+  "invariants": {
+    "dataRemoved": true,
+    "rulesRestored": true,
+    "markerSeen": true
+  }
+}
