@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { InspectFirestoreRulesHandler } from '../../../src/rules/inspect/handler.js';
+import { InspectFirestoreRulesHandler } from '../../../src/rules-production/inspect/handler.js';
 import type { ProjectScope } from '../../../src/project-scope.js';
 
 const originalFetch = global.fetch;
