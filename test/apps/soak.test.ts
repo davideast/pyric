@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  ACTIONS_BETWEEN_RESTARTS,
+  ACTIONS_PER_MINUTE,
   ActionLog,
   DEFAULT_MINUTES,
   DEFAULT_SEED,
@@ -8,6 +10,8 @@ import {
   heapTypes,
   summarizeHeap,
   judgeGrowth,
+  judgeLevelOff,
+  latencyReport,
   parseSeed,
   pickAction,
   seededRandom,
@@ -98,11 +102,18 @@ describe('pickAction', () => {
 describe('soakSettings', () => {
   test('defaults to the fixed seed and an hour, checked every three minutes', () => {
     const settings = soakSettings({});
-    expect(settings).toEqual({ seed: DEFAULT_SEED, minutes: DEFAULT_MINUTES, checkpointMs: 180_000, sampleMs: 30_000 });
+    expect(settings).toEqual({
+      seed: DEFAULT_SEED, minutes: DEFAULT_MINUTES, checkpointMs: 180_000, sampleMs: 30_000, pageSampleMs: 5_000, firstRestartAction: 3960,
+    });
   });
 
   test('a short run checks six times', () => {
-    expect(soakSettings({ SOAK_MINUTES: '2' })).toMatchObject({ minutes: 2, checkpointMs: 20_000, sampleMs: 5_000 });
+    expect(soakSettings({ SOAK_MINUTES: '2' })).toMatchObject({ minutes: 2, checkpointMs: 20_000, sampleMs: 5_000, pageSampleMs: 5_000 });
+  });
+
+  test('no restart comes before 60% of the run, or before the usual gap between restarts', () => {
+    expect(soakSettings({ SOAK_MINUTES: '60' }).firstRestartAction).toBe(Math.round(60 * 0.6 * ACTIONS_PER_MINUTE));
+    expect(soakSettings({ SOAK_MINUTES: '5' }).firstRestartAction).toBe(ACTIONS_BETWEEN_RESTARTS);
   });
 
   test('takes a number seed as itself and hashes a word', () => {
@@ -130,6 +141,26 @@ describe('ActionLog', () => {
     expect(report).toContain('set post p-29; uid u1');
     expect(report).toContain('#10 ');
     expect(report).not.toContain('#9 ');
+  });
+
+  test('records how long each action took, and the latency report ranks the slow ones', () => {
+    const log = new ActionLog();
+    log.add('set post', 'p0');
+    log.add('read post', 'p0');
+    log.entries[0]!.ms = 25_000;
+    log.entries[1]!.ms = 40;
+    expect(log.text()).toContain('set post p0 (25000 ms)');
+    const report = latencyReport(log.entries, 1);
+    expect(report[0]).toBe('set post: 1 actions, median 25000 ms, slowest 25000 ms');
+    expect(report[1]).toBe('read post: 1 actions, median 40 ms, slowest 40 ms');
+    expect(report.slice(2)).toEqual(['the 1 slowest actions:', expect.stringContaining('#0 ')]);
+  });
+
+  test('finish sets the time an action took', () => {
+    const log = new ActionLog();
+    const index = log.add('pause');
+    log.finish(index);
+    expect(log.entries[0]!.ms).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -213,7 +244,7 @@ describe('judgeGrowth', () => {
   test('a steady climb past both bounds is growth, and the line says so', () => {
     const verdict = judgeGrowth(epoch(0, [40, 50, 60, 70, 80, 90, 100, 110, 120, 130]), LIMIT);
     expect(verdict.growing).toBe(true);
-    expect(verdict.lines[0]).toMatch(/^epoch 0: 9 samples, .* steady growth$/);
+    expect(verdict.lines[1]).toMatch(/^epoch 0: 9 samples, .* steady growth$/);
   });
 
   test('a steady climb under the byte floor is not growth', () => {
@@ -230,8 +261,46 @@ describe('judgeGrowth', () => {
     expect(judgeGrowth(asOne, LIMIT).growing).toBe(false);
   });
 
-  test('an epoch with too few samples is not judged', () => {
+  test('an epoch with too few samples is not judged, and the report says so', () => {
     const verdict = judgeGrowth(epoch(0, [10, 100, 200, 300]), LIMIT);
-    expect(verdict).toEqual({ growing: false, lines: [] });
+    expect(verdict).toEqual({
+      growing: false, judged: 0, epochs: 1,
+      lines: ['0 of 1 epochs judged', 'epoch 0: not judged, 4 samples over 90s (needs 7)'],
+    });
+  });
+
+  test('a page leaking 100 MB a minute and reloading every 2 minutes fails when sampled every 5 seconds', () => {
+    const loads = [0, 1, 2].flatMap((load) =>
+      Array.from({ length: 24 }, (_, i) => ({ at: load * 120 + i * 5, epoch: load, bytes: (10 + (i * 5 * 100) / 60) * MB })));
+    const verdict = judgeGrowth(loads, { floorBytes: 48 * MB, ratio: 1, minSamples: 5 });
+    expect(verdict.judged).toBe(3);
+    expect(verdict.growing).toBe(true);
+  });
+});
+
+describe('judgeLevelOff', () => {
+  const LEVEL: { minMinutes: number; maxBytesPerMinute: number } = { minMinutes: 10, maxBytesPerMinute: 1 * MB };
+  /** Samples every 30 s for `minutes`, at `level(minute)` MB. */
+  function series(minutes: number, level: (minute: number) => number): MemorySample[] {
+    return Array.from({ length: minutes * 2 + 1 }, (_, i) => ({ at: i * 30, epoch: 0, bytes: level(i / 2) * MB }));
+  }
+
+  test('a history that fills its cap and holds passes', () => {
+    const capped = series(36, (minute) => 80 + Math.min(minute, 8) * 1.5 + (minute % 2));
+    const verdict = judgeLevelOff(capped, LEVEL);
+    expect(verdict.judged).toBe(1);
+    expect(verdict.growing).toBe(false);
+  });
+
+  test('a history with no cap fails at 1.5 MB a minute, the rate the soak measured before any cap', () => {
+    const verdict = judgeLevelOff(series(36, (minute) => 80 + minute * 1.5), LEVEL);
+    expect(verdict.growing).toBe(true);
+    expect(verdict.lines[1]).toMatch(/^epoch 0: 36\.0 min, second half 1\.5 MB\/min over \d+ samples, spread .* still climbing$/);
+  });
+
+  test('a short epoch is not judged, and the report says so', () => {
+    const verdict = judgeLevelOff(series(6, (minute) => 80 + minute * 10), LEVEL);
+    expect(verdict).toMatchObject({ growing: false, judged: 0, epochs: 1 });
+    expect(verdict.lines[1]).toBe('epoch 0: not judged, 6.0 min (needs 10)');
   });
 });

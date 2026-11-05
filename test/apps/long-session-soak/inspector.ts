@@ -76,3 +76,8 @@ export class NodeInspector {
     this.socket.close();
   }
 }
+
+/** The dev server's environment: an inspector on a port of the soak's own, for collections and heap snapshots. */
+export function inspectedEnv(inspectorPort: number): Record<string, string> {
+  return { NODE_OPTIONS: `--inspect=127.0.0.1:${inspectorPort}` };
+}

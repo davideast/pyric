@@ -14,8 +14,12 @@ export interface SoakSettings {
   minutes: number;
   /** How often the state check runs. */
   checkpointMs: number;
-  /** How often memory is sampled. */
+  /** How often the dev server's memory is sampled. */
   sampleMs: number;
+  /** How often the page's heap is sampled: often enough that a page load of half a minute is judged. */
+  pageSampleMs: number;
+  /** No dev server restart before this action, so one process lives long enough to show whether its memory levels off. */
+  firstRestartAction: number;
 }
 
 export const DEFAULT_SEED = 20261104;
@@ -25,6 +29,13 @@ const MIN_CHECKPOINT_MS = 20_000;
 const CHECKPOINTS_PER_RUN = 6;
 const MAX_SAMPLE_MS = 30_000;
 const SAMPLES_PER_CHECKPOINT = 4;
+const MAX_PAGE_SAMPLE_MS = 5_000;
+/** Actions a minute on a CI runner (6634 in the first full green hour), to turn a share of the run into an action count. */
+export const ACTIONS_PER_MINUTE = 110;
+/** The share of the run before the first restart. */
+const QUIET_SHARE = 0.6;
+/** The fewest actions between two restarts. */
+export const ACTIONS_BETWEEN_RESTARTS = 600;
 
 /** A seed from text: a decimal integer as itself, anything else hashed (FNV-1a), so `SOAK_SEED=nightly` works too. */
 export function parseSeed(text: string): number {
@@ -49,7 +60,10 @@ export function soakSettings(env: Record<string, string | undefined>): SoakSetti
   const evenSpacing = (minutes * 60_000) / CHECKPOINTS_PER_RUN;
   const checkpointMs = Math.round(Math.min(MAX_CHECKPOINT_MS, Math.max(MIN_CHECKPOINT_MS, evenSpacing)));
   const sampleMs = Math.min(MAX_SAMPLE_MS, Math.round(checkpointMs / SAMPLES_PER_CHECKPOINT));
-  return { seed, minutes, checkpointMs, sampleMs };
+  const pageSampleMs = Math.min(MAX_PAGE_SAMPLE_MS, sampleMs);
+  // An action count, not a time, so the seed replays the same actions.
+  const firstRestartAction = Math.max(ACTIONS_BETWEEN_RESTARTS, Math.round(minutes * QUIET_SHARE * ACTIONS_PER_MINUTE));
+  return { seed, minutes, checkpointMs, sampleMs, pageSampleMs, firstRestartAction };
 }
 
 /** A seeded source of random numbers (mulberry32). */
@@ -107,6 +121,8 @@ export interface LoggedAction {
   at: number;
   name: string;
   detail: string;
+  /** How long the action took, once it finished. */
+  ms?: number;
 }
 
 const FAILURE_TAIL = 20;
@@ -127,6 +143,12 @@ export class ActionLog {
   note(index: number, detail: string): void {
     const entry = this.entries[index];
     if (entry) entry.detail = entry.detail ? `${entry.detail}; ${detail}` : detail;
+  }
+
+  /** Records how long an action took. */
+  finish(index: number): void {
+    const entry = this.entries[index];
+    if (entry) entry.ms = Date.now() - this.started - entry.at * 1000;
   }
 
   last(count: number): LoggedAction[] {
@@ -152,7 +174,25 @@ export class ActionLog {
 
 function formatAction(entry: LoggedAction): string {
   const detail = entry.detail ? ` ${entry.detail}` : '';
-  return `#${entry.index} +${entry.at.toFixed(1)}s ${entry.name}${detail}`;
+  const took = entry.ms === undefined ? '' : ` (${Math.round(entry.ms)} ms)`;
+  return `#${entry.index} +${entry.at.toFixed(1)}s ${entry.name}${detail}${took}`;
+}
+
+/** Per action name: how many ran, the median and the slowest time, slowest first; then the slowest single actions. */
+export function latencyReport(entries: readonly LoggedAction[], slowest: number): string[] {
+  const timed = entries.filter((entry) => entry.ms !== undefined);
+  const byName = new Map<string, number[]>();
+  for (const entry of timed) {
+    const list = byName.get(entry.name) ?? [];
+    list.push(entry.ms!);
+    byName.set(entry.name, list);
+  }
+  const rows = [...byName]
+    .map(([name, times]) => ({ name, count: times.length, median: median(times), max: Math.max(...times) }))
+    .sort((a, b) => b.max - a.max)
+    .map((row) => `${row.name}: ${row.count} actions, median ${Math.round(row.median)} ms, slowest ${Math.round(row.max)} ms`);
+  const slow = [...timed].sort((a, b) => b.ms! - a.ms!).slice(0, slowest).map(formatAction);
+  return [...rows, `the ${slow.length} slowest actions:`, ...slow];
 }
 
 /** One memory reading, in bytes. `epoch` counts page loads for a page, restarts for a process: a new epoch starts from scratch. */
@@ -174,8 +214,10 @@ export interface GrowthLimit {
 
 export interface GrowthVerdict {
   growing: boolean;
-  /** One line per judged epoch. */
+  /** One line per epoch, judged or not, so a period that was not judged is never silent. */
   lines: string[];
+  judged: number;
+  epochs: number;
 }
 
 function median(values: readonly number[]): number {
@@ -195,9 +237,13 @@ const mb = (bytes: number): string => `${(bytes / MB).toFixed(1)} MB`;
  * back down fails the first test; one that settles at a higher level fails
  * the second unless the step is large.
  */
-function judgeEpoch(samples: readonly MemorySample[], limit: GrowthLimit): { growing: boolean; line: string } | undefined {
+function judgeEpoch(samples: readonly MemorySample[], limit: GrowthLimit): { growing: boolean; judged: boolean; line: string } {
   const judged = samples.slice(1).map((sample) => sample.bytes);
-  if (judged.length < limit.minSamples) return undefined;
+  const span = samples[samples.length - 1]!.at - samples[0]!.at;
+  if (judged.length < limit.minSamples) {
+    const line = `epoch ${samples[0]!.epoch}: not judged, ${samples.length} samples over ${span.toFixed(0)}s (needs ${limit.minSamples + 1})`;
+    return { growing: false, judged: false, line };
+  }
   const third = Math.max(1, Math.floor(judged.length / 3));
   const first = judged.slice(0, third);
   const last = judged.slice(-third);
@@ -208,19 +254,75 @@ function judgeEpoch(samples: readonly MemorySample[], limit: GrowthLimit): { gro
   const large = growth > limit.floorBytes && growth > start * limit.ratio;
   const growing = lastThirdClearsFirst && large;
   const line = `epoch ${samples[0]!.epoch}: ${judged.length} samples, ${mb(start)} to ${mb(end)} (${growth >= 0 ? '+' : ''}${mb(growth)})${growing ? ', steady growth' : ''}`;
-  return { growing, line };
+  return { growing, judged: true, line };
 }
 
-/** Judges each epoch of `samples` on its own, since a reload or restart frees what the last one held. */
-export function judgeGrowth(samples: readonly MemorySample[], limit: GrowthLimit): GrowthVerdict {
+/** Splits samples by epoch, in order. */
+function byEpoch(samples: readonly MemorySample[]): MemorySample[][] {
   const epochs = new Map<number, MemorySample[]>();
   for (const sample of samples) {
     const list = epochs.get(sample.epoch) ?? [];
     list.push(sample);
     epochs.set(sample.epoch, list);
   }
-  const verdicts = [...epochs.values()].map((epoch) => judgeEpoch(epoch, limit)).filter((verdict) => verdict !== undefined);
-  return { growing: verdicts.some((verdict) => verdict.growing), lines: verdicts.map((verdict) => verdict.line) };
+  return [...epochs.values()];
+}
+
+/** Judges each epoch of `samples` on its own, since a reload or restart frees what the last one held. */
+export function judgeGrowth(samples: readonly MemorySample[], limit: GrowthLimit): GrowthVerdict {
+  const verdicts = byEpoch(samples).map((epoch) => judgeEpoch(epoch, limit));
+  const judged = verdicts.filter((verdict) => verdict.judged).length;
+  const lines = [`${judged} of ${verdicts.length} epochs judged`, ...verdicts.map((verdict) => verdict.line)];
+  return { growing: verdicts.some((verdict) => verdict.growing), lines, judged, epochs: verdicts.length };
+}
+
+/** How fast memory may still climb once it should have levelled off. */
+export interface LevelOffLimit {
+  /** An epoch shorter than this is not judged: it may not have reached its caps yet. */
+  minMinutes: number;
+  /** The second half's least-squares slope above this fails. */
+  maxBytesPerMinute: number;
+}
+
+/** The least-squares slope of `samples`, in bytes a minute. */
+function slopePerMinute(samples: readonly MemorySample[]): number {
+  const minutes = samples.map((sample) => sample.at / 60);
+  const meanX = minutes.reduce((sum, x) => sum + x, 0) / samples.length;
+  const meanY = samples.reduce((sum, sample) => sum + sample.bytes, 0) / samples.length;
+  let covariance = 0;
+  let variance = 0;
+  samples.forEach((sample, i) => {
+    covariance += (minutes[i]! - meanX) * (sample.bytes - meanY);
+    variance += (minutes[i]! - meanX) ** 2;
+  });
+  if (variance === 0) return 0;
+  return covariance / variance;
+}
+
+/**
+ * Whether each long epoch levels off. Bounded history (an event cap, a byte
+ * cap) climbs until it is full and then holds, so the second half of a long
+ * process should be flat; an unbounded one keeps its slope. The second half
+ * fails when its least-squares slope is above `maxBytesPerMinute`. Its spread
+ * is reported too, as scripts/diagnostics/host-memory-soak.ts reports it.
+ */
+export function judgeLevelOff(samples: readonly MemorySample[], limit: LevelOffLimit): GrowthVerdict {
+  const verdicts = byEpoch(samples).map((epoch) => {
+    const start = epoch[0]!.at;
+    const minutes = (epoch[epoch.length - 1]!.at - start) / 60;
+    const name = `epoch ${epoch[0]!.epoch}`;
+    if (minutes < limit.minMinutes) return { growing: false, judged: false, line: `${name}: not judged, ${minutes.toFixed(1)} min (needs ${limit.minMinutes})` };
+    const half = epoch.filter((sample) => sample.at - start >= (minutes * 60) / 2);
+    const slope = slopePerMinute(half);
+    const values = half.map((sample) => sample.bytes);
+    const spread = Math.max(...values) - Math.min(...values);
+    const growing = slope > limit.maxBytesPerMinute;
+    const line = `${name}: ${minutes.toFixed(1)} min, second half ${mb(slope)}/min over ${half.length} samples, spread ${mb(spread)}${growing ? ', still climbing' : ''}`;
+    return { growing, judged: true, line };
+  });
+  const judged = verdicts.filter((verdict) => verdict.judged).length;
+  const lines = [`${judged} of ${verdicts.length} epochs judged`, ...verdicts.map((verdict) => verdict.line)];
+  return { growing: verdicts.some((verdict) => verdict.growing), lines, judged, epochs: verdicts.length };
 }
 
 /** The self size and count of one kind of heap object: an object's constructor, `closure <name>`, or `(<type>)`. */
@@ -257,6 +359,13 @@ function edgeLabel(type: string, name: string): string {
   return name.replace(/\d+|[0-9a-f]{8,}|[A-Za-z0-9_-]{16,}/g, '<id>');
 }
 
+/** An object reads as its constructor, a closure as `closure <name>`, anything else as `(<type>)`. */
+function nodeKind(type: string, name: string): string {
+  if (type === 'object') return name;
+  if (type === 'closure') return `closure ${name}`;
+  return `(${type})`;
+}
+
 /** Sums a V8 heap snapshot's nodes by kind (self sizes, so the sums add up to the heap), and counts their holders. */
 export function summarizeHeap(snapshotText: string): HeapSummary {
   const snapshot = JSON.parse(snapshotText) as HeapSnapshotJson;
@@ -272,7 +381,7 @@ export function summarizeHeap(snapshotText: string): HeapSummary {
   for (let offset = 0; offset < snapshot.nodes.length; offset += width) {
     const type = types[snapshot.nodes[offset + typeAt]!] ?? 'unknown';
     const name = snapshot.strings[snapshot.nodes[offset + nameAt]!] ?? '';
-    const kind = type === 'object' ? name : type === 'closure' ? `closure ${name}` : `(${type})`;
+    const kind = nodeKind(type, name);
     kindOf.push(kind);
     const entry = kinds.get(kind) ?? { name: kind, count: 0, bytes: 0 };
     entry.count += 1;
