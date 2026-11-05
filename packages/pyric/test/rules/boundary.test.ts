@@ -21,11 +21,12 @@ const ALLOWED_EDGES: readonly string[] = [
   'inspect/tools.ts -> ../../rules-tools/inspect/tools.js',
   'stdlib-tools.ts -> ../rules-tools/stdlib-tools.js',
   'tools.ts -> ../rules-tools/tools.js',
-  // Simulator and index tools, which move above rules.
+  // One-line shims left at the old paths after the simulator tools moved to
+  // src/rules-tools.
+  'simulator-tools-impl.ts -> ../rules-tools/simulator-tools-impl.js',
+  'simulator.ts -> ../rules-tools/simulator.js',
+  // Index tools, which move above rules.
   'indexes/extractTool.ts -> ../../sandbox/internal/tool-handler.js',
-  'simulator-tools-impl.ts -> ../sandbox/internal/tool-handler.js',
-  'simulator-tools-impl.ts -> pyric/sandbox/internal',
-  'simulator.ts -> ../sandbox/internal/tool-handler.js',
   // Shared groundwork, which moves down into the engine.
   'api/rtdb-case-validation.ts -> ../../database/writable-path.js',
   'api/rtdb-case-validation.ts -> ../../sandbox/branches/state-diff.js',

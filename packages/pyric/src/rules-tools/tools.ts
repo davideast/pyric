@@ -28,7 +28,7 @@ import type { TestCase } from '../rules/test/spec.js';
 import {
   createFirestoreSimulatorTools as createFirestoreSimulatorToolsImpl,
   type FirestoreSimulatorToolDeps as FirestoreSimulatorToolDepsImpl,
-} from '../rules/simulator-tools-impl.js';
+} from './simulator-tools-impl.js';
 
 // Re-exported for back-compat with consumers that imported the type
 // from `pyric/rules/internal/node` (where this file is exposed).
