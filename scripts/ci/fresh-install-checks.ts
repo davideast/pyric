@@ -7,6 +7,7 @@
  */
 import { createServer, type Server } from 'node:http';
 import { connect, type Socket } from 'node:net';
+import { UPSTREAM_ADVISORIES } from './upstream-advisories.ts';
 
 /** The only host an install may reach, and only over TLS. */
 export const REGISTRY_HOST = 'registry.npmjs.org';
@@ -213,12 +214,16 @@ interface AuditAdvisory {
   severity: string;
   name: string;
   id: string;
+  /** Where the vulnerable package is installed, such as `node_modules/shadcn/node_modules/undici`. */
+  nodes: string[];
 }
 
 type AuditReading = { advisories: AuditAdvisory[] } | { problem: string };
 
 const NOTED_SEVERITIES = ['critical', 'high'];
 const AUDIT_NOTE = 'npm audit --json';
+/** The most install locations one advisory line lists. */
+const LISTED_NODES = 3;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -250,11 +255,43 @@ function advisoryId(via: Record<string, unknown>): string {
  */
 function packageAdvisories(key: string, entry: unknown): AuditAdvisory[] {
   if (!isRecord(entry) || !Array.isArray(entry.via)) return [];
+  const nodes = Array.isArray(entry.nodes) ? entry.nodes.filter((node): node is string => typeof node === 'string') : [];
   return entry.via.filter(isRecord).map((via) => ({
     severity: typeof via.severity === 'string' ? via.severity : 'unknown',
     name: typeof via.name === 'string' ? via.name : key,
     id: advisoryId(via),
+    nodes,
   }));
+}
+
+/** A string with something in it, trimmed. */
+function nonEmptyText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  if (text === '') return undefined;
+  return text;
+}
+
+function joinedParts(parts: Array<string | undefined>): string | undefined {
+  const present = parts.filter((part) => part !== undefined);
+  if (present.length === 0) return undefined;
+  return present.join(': ');
+}
+
+/**
+ * What npm's error object says: `{"error":{"code":"ENOLOCK","summary":"..."}}`
+ * reads `npm error ENOLOCK: ...`. Undefined when it names neither.
+ */
+function npmErrorText(error: unknown): string | undefined {
+  if (!isRecord(error)) return undefined;
+  const named = joinedParts([nonEmptyText(error.code), nonEmptyText(error.summary)]);
+  if (named === undefined) return undefined;
+  return `npm error ${named}`;
+}
+
+/** Why a JSON object with no vulnerabilities is not a report: npm's message and its error object. */
+function npmProblem(report: Record<string, unknown>): string | undefined {
+  return joinedParts([nonEmptyText(report.message), npmErrorText(report.error)]);
 }
 
 function compareAdvisories(a: AuditAdvisory, b: AuditAdvisory): number {
@@ -273,7 +310,8 @@ function readAudit(output: string): AuditReading {
     return { problem: 'npm printed JSON that does not parse' };
   }
   if (!isRecord(report)) return { problem: 'the JSON is not an object' };
-  if (typeof report.message === 'string' && report.vulnerabilities === undefined) return { problem: report.message };
+  const npmSaid = report.vulnerabilities === undefined && npmProblem(report);
+  if (npmSaid) return { problem: npmSaid };
   if (!isRecord(report.vulnerabilities)) return { problem: 'the JSON has no vulnerabilities object' };
   const seen = new Set<string>();
   const advisories = Object.entries(report.vulnerabilities)
@@ -288,18 +326,39 @@ function readAudit(output: string): AuditReading {
   return { advisories: advisories.sort(compareAdvisories) };
 }
 
+/** `at a, b, c and 2 more`: where npm installed the vulnerable package, so a reader can tell what brings it in. */
+function nodesText(nodes: string[]): string | undefined {
+  if (nodes.length === 0) return undefined;
+  const more = nodes.length - LISTED_NODES;
+  const listed = nodes.slice(0, LISTED_NODES).join(', ');
+  return more > 0 ? `at ${listed} and ${more} more` : `at ${listed}`;
+}
+
+function advisoryNote({ severity, name, id, nodes }: AuditAdvisory): string {
+  const upstream = Object.hasOwn(UPSTREAM_ADVISORIES, id) ? `(upstream: ${UPSTREAM_ADVISORIES[id]})` : undefined;
+  return [`${AUDIT_NOTE}: ${severity} ${name} ${id}`, nodesText(nodes), upstream].filter((part) => part !== undefined).join(' ');
+}
+
+/** The first line of a command's error, without the output a timeout message carries after it. */
+function errorHeadline(error: string): string {
+  const line = error.split('\n').map((part) => part.trim()).find((part) => part !== '') ?? '';
+  return line.replace(/:$/, '');
+}
+
 /**
  * One line per high or critical advisory `npm audit --json` reported: its
- * severity, package and advisory id. A run with no report, or one that did not
- * finish, gets one line saying so. These lines never fail the run.
+ * severity, package, advisory id and install locations, and the reason when
+ * the advisory is known upstream and unreachable. A run with no report, or
+ * one that did not finish, gets one line saying so. These lines never fail
+ * the run.
  */
 export function auditAdvisoryNotes(run: AuditRun | undefined): string[] {
   if (run === undefined) return [];
-  if (run.error !== undefined) return [`${AUDIT_NOTE}: did not finish: ${run.error.trim()}`];
+  if (run.error !== undefined) return [`${AUDIT_NOTE}: did not finish: ${errorHeadline(run.error)}`];
   const reading = readAudit(run.output);
   if ('problem' in reading) return [`${AUDIT_NOTE}: no report (exit ${run.code}): ${reading.problem}`];
   if (reading.advisories.length === 0) return [`${AUDIT_NOTE}: no high or critical advisory`];
-  return reading.advisories.map(({ severity, name, id }) => `${AUDIT_NOTE}: ${severity} ${name} ${id}`);
+  return reading.advisories.map(advisoryNote);
 }
 
 function devCommandNote(run: DevCommandRun | undefined): string[] {
