@@ -24,7 +24,7 @@ import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
 import type { Recording } from './format.ts';
 import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
 import { startGrpcReplay, type GrpcReplay } from './grpc.ts';
-import { RtdbConnection } from './rtdb.ts';
+import { RtdbConnection, RtdbShared, type RtdbLog } from './rtdb.ts';
 import { parseForwardBody, WebChannelSession } from './webchannel.ts';
 
 export const FIRESTORE_HOST = 'firestore.googleapis.com';
@@ -41,6 +41,8 @@ export interface ReplayServer {
   received: Received[];
   /** The gRPC streams, when `startReplayServer` was given `grpc`. */
   grpc: GrpcReplay | null;
+  /** Every RTDB connection in the order it opened, with each frame the server sent on it. */
+  rtdb: RtdbLog[];
   close(): Promise<void>;
 }
 
@@ -71,6 +73,7 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const grpc = options.grpc ? await startGrpcReplay(state, options.grpc.projectDir) : null;
   const sessions = new Map<string, WebChannelSession>();
   const sockets = new Set<WsSocket>();
+  const rtdb = new RtdbShared();
   const server = createServer((request, response) => {
     void handle(state, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
@@ -78,7 +81,7 @@ export async function startReplayServer(recordings: Recording[], options: Replay
     });
   });
   server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    void upgrade(state, sockets, request, socket, head).catch(() => socket.destroy());
+    void upgrade(state, rtdb, sockets, request, socket, head).catch((error: unknown) => refuseUpgrade(state, request, socket, error));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
@@ -87,6 +90,7 @@ export async function startReplayServer(recordings: Recording[], options: Replay
     unmatched: state.unmatched,
     received: state.received,
     grpc,
+    rtdb: rtdb.connections,
     close: async () => {
       grpc?.close();
       for (const socket of sockets) socket.terminate();
@@ -208,7 +212,7 @@ function webSockets(): Promise<WsServer> {
 const RTDB_PATH = '/.ws';
 
 /** Opens an RTDB connection on `/.ws` for the instance its `ns` names, or refuses the upgrade with a 404. */
-async function upgrade(state: ReplayState, sockets: Set<WsSocket>, request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+async function upgrade(state: ReplayState, rtdb: RtdbShared, sockets: Set<WsSocket>, request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
   const url = new URL(request.url ?? '/', 'http://replay.invalid');
   const instance = url.searchParams.get('ns');
   if (url.pathname !== RTDB_PATH || !instance) {
@@ -219,11 +223,21 @@ async function upgrade(state: ReplayState, sockets: Set<WsSocket>, request: Inco
   const server = await webSockets();
   server.handleUpgrade(request, socket, head, (ws) => {
     sockets.add(ws);
-    const connection = new RtdbConnection(ws, state, instance, request.headers.host ?? '');
+    const connection = new RtdbConnection(ws, state, rtdb, instance, request.headers.host ?? '');
     ws.on('message', (data) => connection.onFrame(data.toString('utf8')));
-    ws.on('close', () => sockets.delete(ws));
+    ws.on('close', () => {
+      sockets.delete(ws);
+      connection.close();
+    });
     connection.open();
   });
+}
+
+/** An upgrade that failed (`ws` would not load, say) is listed in `unmatched` with the reason, then its socket destroyed. */
+export function refuseUpgrade(state: ReplayState, request: IncomingMessage, socket: Duplex, error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  state.unmatched.push({ rpc: 'rtdb', as: null, request: { method: request.method ?? '', path: request.url ?? '', error: reason } });
+  socket.destroy();
 }
 
 function allowCrossOrigin(request: IncomingMessage, response: ServerResponse): void {
