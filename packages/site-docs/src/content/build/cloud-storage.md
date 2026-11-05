@@ -79,7 +79,7 @@ const RULES = `service firebase.storage {
 
 const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { rules: RULES });
 ```
-An anonymous upload now throws `FirebaseError` with `storage/unauthenticated`. An 11 MiB payload throws `storage/unauthorized`, the signed-in-but-not-allowed code.
+An anonymous upload now throws `FirebaseError` with `storage/unauthorized`. An 11 MiB payload throws `storage/unauthorized`, the signed-in-but-not-allowed code.
 
 Notice the `request.method == 'delete'` carve-out. `deleteObject` carries no incoming payload, and production treats reading or null-checking the absent `request.resource` as an error. Testing the method lets deletes through while keeping payload checks on creates and updates.
 
