@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<body>
+<script type="module">
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, get, onValue, onDisconnect } from "firebase/database";
+
+const app = initializeApp({
+  apiKey: "demo",
+  appId: "demo",
+  projectId: "demo-app",
+  databaseURL: "https://demo-app-default-rtdb.firebaseio.com",
+});
+const db = getDatabase(app);
+
+// The longest wait between two runs of a 15 s timer chain, like the
+// bridge client's own heartbeat. A hidden tab's chain stretches it.
+window.longestTimerGap = 0;
+let last = performance.now();
+const tick = () => setTimeout(() => {
+  const now = performance.now();
+  window.longestTimerGap = Math.max(window.longestTimerGap, Math.round(now - last));
+  last = now;
+  tick();
+}, 15000);
+tick();
+
+window.presence = {
+  goOnline: async (user) => {
+    const status = ref(db, `status/${user}`);
+    await set(status, "online");
+    await onDisconnect(status).set("offline");
+  },
+  // Every value `user`'s status takes from now on, as this page's listener sees it.
+  watch: (user) => {
+    window.statusValues = [];
+    onValue(ref(db, `status/${user}`), (snapshot) => window.statusValues.push(snapshot.val()));
+  },
+  write: (path, value) => set(ref(db, path), value),
+  read: async (path) => (await get(ref(db, path))).val(),
+};
+</script>
+</body>
+</html>

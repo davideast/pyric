@@ -1,7 +1,7 @@
 import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
 import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
-import { HOSTED_CLIENT_LIVENESS_TIMEOUT_MS, HOSTED_HEARTBEAT_INTERVAL_MS, isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
@@ -10,6 +10,7 @@ import { _pending, failInFlightStreams, forgetOnDisconnectCalls, nextId, rawRpc,
 import { endFailedPort } from './disconnect.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { createHeldMessages } from './held-messages.js';
+import { watchHostSilence } from './host-silence.js';
 import { settleInFlightAtDrop } from './in-flight-at-drop.js';
 import { closeSendOrder, waitsToSend } from './send-order.js';
 
@@ -92,7 +93,7 @@ export function getHostedFirestore(target: {
   let attachDeadline: ReturnType<typeof setTimeout> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
-  let lastReceivedAt = 0;
+  let hostSilence = watchHostSilence();
   const realm = target.realm;
   // Settles once the first attachment says whether the host has a byte route,
   // or the connection ends without one; Storage waits on it before choosing.
@@ -271,24 +272,23 @@ export function getHostedFirestore(target: {
   }
 
   function scheduleHeartbeat(connection: WebSocket): void {
-    const remainingLiveness = HOSTED_CLIENT_LIVENESS_TIMEOUT_MS - (performance.now() - lastReceivedAt);
-    const delay = Math.max(0, Math.min(HOSTED_HEARTBEAT_INTERVAL_MS, remainingLiveness));
     heartbeatTimer = armed(setTimeout(() => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
-      const hasLostLiveness = performance.now() - lastReceivedAt >= HOSTED_CLIENT_LIVENESS_TIMEOUT_MS;
+      const hasLostLiveness = hostSilence.hasGoneSilent(performance.now());
       if (hasLostLiveness) {
         interruptConnection(connection);
         return;
       }
       try {
         send(connection, { type: 'ping', id: nextId() });
+        hostSilence.pinged(performance.now());
       } catch {
         interruptConnection(connection);
         return;
       }
       scheduleHeartbeat(connection);
-    }, delay));
+    }, hostSilence.nextBeatIn(performance.now())));
   }
 
   async function finishAttachment(connection: WebSocket, isResume: boolean): Promise<void> {
@@ -324,7 +324,7 @@ export function getHostedFirestore(target: {
     hasEverAttached = true;
     reconnectAttempt = 0;
     interruptedAt = undefined;
-    lastReceivedAt = performance.now();
+    hostSilence = watchHostSilence();
     clearTimeout(heartbeatTimer);
     scheduleHeartbeat(connection);
     if (isResume) {
@@ -428,7 +428,7 @@ export function getHostedFirestore(target: {
         failConnection('The hosted sandbox sent an invalid message. Requests already sent may have completed; check state before retrying.');
         return;
       }
-      lastReceivedAt = performance.now();
+      hostSilence.heard();
       switch (message.type) {
         case 'attach-ack': {
           const isUnsupportedProtocol = message.protocol !== 1;

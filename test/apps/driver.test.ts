@@ -162,6 +162,17 @@ function bareRun(ports: PortIssuer): AppRun {
   return new AppRun('stand-in', '.', '.', noBrowser, undefined, ports);
 }
 
+describe('error responses a scenario notes itself', () => {
+  test('a /__pyric/ error response fails the app unless expectHostError allows it, and any other route never counts', () => {
+    const app = bareRun(portIssuer(probePort));
+    app.expectHostError(/^403 GET \/__pyric\/storage\/.*token=wrong$/);
+    app.noteErrorResponse(403, 'GET', 'http://127.0.0.1:5173/__pyric/storage/v0/b/demo/o/a.txt?alt=media&token=wrong');
+    app.noteErrorResponse(404, 'GET', 'http://127.0.0.1:5173/missing.png');
+    app.noteErrorResponse(500, 'POST', 'http://127.0.0.1:5173/__pyric/denials');
+    expect(app.unexpectedHostErrors()).toEqual(['500 POST /__pyric/denials (during "setup")']);
+  });
+});
+
 describe('app ports', () => {
   test('freePort() asks the issuer, so a repeated probe gives a different port', async () => {
     const { probe } = scriptedProbe([33093, 33093, 33094]);

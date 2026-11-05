@@ -400,6 +400,12 @@ export interface App {
    */
   expectHostError(pattern: RegExp): void;
   /**
+   * Counts an error response to a page the scenario opened in a browser it
+   * launched itself, as `page()` counts its own: one from a `/__pyric/`
+   * route fails the app unless `expectHostError` allows it.
+   */
+  noteErrorResponse(status: number, method: string, url: string): void;
+  /**
    * Declares that a process an app process starts may outlive it, holding its
    * output pipes, such as a daemon the scenario starts on purpose. `pattern`
    * matches the leftover's command name. Any other leftover fails the app
@@ -833,10 +839,7 @@ export class AppRun implements App {
     page.on('response', (response) => {
       if (response.status() < 400) return;
       this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
-      const url = new URL(response.url());
-      if (url.pathname.startsWith('/__pyric/')) {
-        this.hostErrors.push({ step: this.currentStep, request: `${response.status()} ${response.request().method()} ${url.pathname}${url.search}` });
-      }
+      this.noteErrorResponse(response.status(), response.request().method(), response.url());
     });
     await page.goto(url);
     return page;
@@ -852,6 +855,14 @@ export class AppRun implements App {
 
   expectHostError(pattern: RegExp): void {
     this.expectedHostErrors.push(pattern);
+  }
+
+  /** Records an error response a page received; only `/__pyric/` routes count as host errors. */
+  noteErrorResponse(status: number, method: string, href: string): void {
+    const url = new URL(href);
+    const isHostRoute = url.pathname.startsWith('/__pyric/');
+    if (!isHostRoute) return;
+    this.hostErrors.push({ step: this.currentStep, request: `${status} ${method} ${url.pathname}${url.search}` });
   }
 
   expectLeftoverProcess(pattern: RegExp): void {
