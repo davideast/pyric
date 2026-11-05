@@ -187,6 +187,18 @@ jobs:
             sudo "$table" -D OUTPUT -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j LOG --log-prefix 'fresh-install-reject: ' --log-uid || true
             sudo "$table" -D OUTPUT -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j REJECT || true
           done
+      # Every run, so the allowed lines are seen nightly, not only when the run fails.
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-install-findings-${{ github.run_attempt }}
+          path: |
+            test-results/fresh-install/findings.txt
+            test-results/fresh-install/steps.jsonl
+            test-results/fresh-install/egress.jsonl
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload fresh install logs
         if: failure()
         uses: actions/upload-artifact@v4
