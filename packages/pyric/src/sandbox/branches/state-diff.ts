@@ -42,6 +42,16 @@ export type BranchDivergence = Extract<Divergence, { kind: 'real-divergence' }> 
  */
 export const AUTH_PROVIDER_CONFIG_PATH = '.providers';
 
+/**
+ * The paths auth's account history reports under (#2021): an account's
+ * refresh-token revocation time under {@link AUTH_REVOCATIONS_PATH} and
+ * whether its record was deleted under {@link AUTH_DELETIONS_PATH}, each with
+ * the uid as the field. Dotted, like {@link AUTH_PROVIDER_CONFIG_PATH}, so
+ * they stay outside the uid keyspace.
+ */
+export const AUTH_REVOCATIONS_PATH = '.revocations';
+export const AUTH_DELETIONS_PATH = '.deletions';
+
 /** The field a Realtime Database priority reports under, beside its path. */
 export const DATABASE_PRIORITY_FIELD = '.priority';
 
@@ -286,6 +296,25 @@ function diffAuth(before: AuthAccountsState, after: AuthAccountsState): BranchDi
         after.providers[providerId],
       ),
     );
+  }
+  out.push(...diffAuthHistory(before, after));
+  return out;
+}
+
+/** Revocation times and deletions by uid. A state without history has none. */
+function diffAuthHistory(before: AuthAccountsState, after: AuthAccountsState): BranchDivergence[] {
+  const out: BranchDivergence[] = [];
+  const beforeTimes = before.history?.tokensValidAfterMs ?? {};
+  const afterTimes = after.history?.tokensValidAfterMs ?? {};
+  for (const uid of [...new Set([...Object.keys(beforeTimes), ...Object.keys(afterTimes)])].sort()) {
+    if (beforeTimes[uid] === afterTimes[uid]) continue;
+    out.push(divergenceAt('auth', AUTH_REVOCATIONS_PATH, uid, beforeTimes[uid], afterTimes[uid]));
+  }
+  const beforeDeleted = new Set(before.history?.deletedUids ?? []);
+  const afterDeleted = new Set(after.history?.deletedUids ?? []);
+  for (const uid of [...new Set([...beforeDeleted, ...afterDeleted])].sort()) {
+    if (beforeDeleted.has(uid) === afterDeleted.has(uid)) continue;
+    out.push(divergenceAt('auth', AUTH_DELETIONS_PATH, uid, beforeDeleted.has(uid), afterDeleted.has(uid)));
   }
   return out;
 }

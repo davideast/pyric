@@ -16,7 +16,8 @@
  */
 import type { User } from '../types.js';
 
-interface SessionRecord {
+/** One session: its key, its uid, and when it last authenticated. */
+export interface SessionRecord {
   readonly key: string;
   readonly uid: string;
   authenticatedAtMs: number;
@@ -38,11 +39,17 @@ export function sessionKeyOf(user: User): string | undefined {
   return recordsByUser.get(user)?.key;
 }
 
-/** One backend's sessions. `byUid` is the backend's last authentication of each uid. */
+/**
+ * One backend's sessions. `byUid` is the backend's last authentication of
+ * each uid. `byKey` is the project's sessions by key, shared by every backend
+ * over one account store, so a persisted session is found again by whichever
+ * app's backend a reload restores it into (#2018).
+ */
 export class SessionLedger {
-  private readonly byKey = new Map<string, SessionRecord>();
-
-  constructor(private readonly byUid: ReadonlyMap<string, number>) {}
+  constructor(
+    private readonly byUid: ReadonlyMap<string, number>,
+    private readonly byKey: Map<string, SessionRecord>,
+  ) {}
 
   /** `user` authenticated at `atMs`: a new session, or its own session again (a reauthentication, a password change it made). */
   authenticate(user: User, atMs: number): void {

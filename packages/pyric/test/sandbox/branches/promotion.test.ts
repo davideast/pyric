@@ -21,7 +21,9 @@ import {
 import { getInternalEnv } from '../../../src/sandbox/internal/sandbox-impl.js';
 import { fork } from '../../../src/sandbox/branches/engine.js';
 import { promoteFullState } from '../../../src/sandbox/branches/promotion.js';
-import { diffFullStates } from '../../../src/sandbox/branches/state-diff.js';
+import { AUTH_REVOCATIONS_PATH, diffFullStates } from '../../../src/sandbox/branches/state-diff.js';
+import { getClock } from '../../../src/sandbox/clock.js';
+import { authAccountsFor } from 'pyric/sandbox/internal';
 import { getAdminStorageSandbox } from '../../../src/storage/internal.js';
 import { getBytes, ref as storageRef, uploadBytes } from '../../../src/storage/index.js';
 import { sandbox as authDriver } from '../../../src/auth/sandbox/driver.js';
@@ -198,6 +200,40 @@ describe('promoteFullState lands the divergences the diff reports', () => {
     expect(landed.database).toEqual(base.database);
     expect(landed.storage).toEqual(base.storage);
     expect(landed.rules).toEqual(base.rules);
+  });
+
+  it('lands a revocation the branch made (#2021)', async () => {
+    const source = await populatedSandbox();
+    const base = await captureFullState(source);
+    const next = await branchFrom(base, (sandbox) => {
+      authAccountsFor(sandbox)?.revokeRefreshTokens('alice');
+    });
+    const validAfterMs = next.auth.history?.tokensValidAfterMs.alice;
+    expect(validAfterMs).toBeNumber();
+    expect(diffFullStates(base, next)).toEqual([
+      { kind: 'real-divergence', service: 'auth', path: AUTH_REVOCATIONS_PATH, field: 'alice', before: undefined, after: validAfterMs },
+    ]);
+
+    const target = await targetOn(base);
+    await promoteFullState(target, base, next);
+
+    expect(authAccountsFor(target)?.standing('alice')).toEqual({ kind: 'active', tokensValidAfterMs: validAfterMs! });
+    expect((await captureFullState(target)).auth).toEqual(next.auth);
+  });
+
+  it('lands the branch\'s own record of an account it deleted (#2021)', async () => {
+    const source = await populatedSandbox();
+    const base = await captureFullState(source);
+    const next = await branchFrom(base, (sandbox) => {
+      authDriver.deleteUser(getAuth(sandbox), 'alice');
+    });
+
+    const target = await targetOn(base);
+    getClock(target).advance(60_000);
+    await promoteFullState(target, base, next);
+
+    expect(authAccountsFor(target)?.standing('alice')).toEqual({ kind: 'deleted' });
+    expect((await captureFullState(target)).auth.history).toEqual(next.auth.history);
   });
 
   it('lands a Firestore ruleset and leaves every other service alone', async () => {
