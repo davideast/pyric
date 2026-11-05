@@ -35,6 +35,8 @@ export interface TemplateEvidence {
   serverOutput: string;
   /** The runtime chip after each load: `Ready`, `absent`, or what it showed instead. */
   chipStates: readonly string[];
+  /** Error responses from `/__pyric/` routes to the pages (the driver's `unexpectedHostErrors()`). */
+  hostErrors?: readonly string[];
 }
 
 export interface RunEvidence {
@@ -47,9 +49,17 @@ export function isRegistryRequest(host: string, port: number): boolean {
   return host.toLowerCase() === REGISTRY_HOST && port === REGISTRY_PORT;
 }
 
-/** `    at fn (file:///x.js:1:2)` or `    at node:internal/x:1:2`: a V8 stack frame line. */
-const STACK_FRAME = /^\s+at\s+(?:.+\s\()?(?:file:|node:|\/|[A-Za-z]:\\)\S*:\d+:\d+\)?\s*$/;
+/**
+ * A V8 stack frame line: `    at fn (<location>:1:2)` or `    at <location>:1:2`
+ * for any location (absolute, relative, `file:`, `node:`, `webpack-internal:`,
+ * `<anonymous>`), or a frame with no position, `(<anonymous>)` or `(index 0)`.
+ */
+const STACK_FRAME = /^\s+at\s+\S.*(?::\d+:\d+\)?|\(<anonymous>\)|\(index \d+\))\s*$/;
+/** Next prints every server error after this mark, with or without a stack. */
+const NEXT_ERROR = /^\s*⨯\s/;
 const PAGE_ERROR = /^\[page \d+ error\] /;
+const SERVER_ERROR_RESPONSE = /^\[page \d+ response 5\d\d\] /;
+const BLOCKED_EGRESS = /^\[blocked external (?:request|WebSocket)\] /;
 const SHARED_WORKER_ERROR = 'Pyric SharedWorker error';
 const PAGE_CRASHED = '[page crashed]';
 
@@ -62,23 +72,35 @@ function browserFindings(evidence: TemplateEvidence): string[] {
   for (const line of evidence.browserLog) {
     const isWorkerCrash = line.includes(WORKER_ERROR_MARK) || line.includes(SHARED_WORKER_ERROR) || line.startsWith(PAGE_CRASHED);
     if (PAGE_ERROR.test(line)) findings.push(`uncaught page error: ${firstLine(line)}`);
+    else if (SERVER_ERROR_RESPONSE.test(line)) findings.push(`server error response: ${line}`);
+    else if (BLOCKED_EGRESS.test(line)) findings.push(`page tried to leave the machine: ${line}`);
     else if (line.includes(UNHANDLED_REJECTION_MARK)) findings.push(`unhandled rejection: ${firstLine(line)}`);
     else if (isWorkerCrash) findings.push(`worker crash: ${firstLine(line)}`);
   }
   return findings;
 }
 
-/** The line above each run of stack frames: the error the stack belongs to. */
-function serverStackFindings(output: string): string[] {
+/**
+ * One finding per error in the dev output: each Next `⨯` line, and the line
+ * above each run of stack frames (the error the stack belongs to). A stack
+ * under a `⨯` line is the same error, reported once.
+ */
+function serverErrorFindings(output: string): string[] {
   const lines = output.split('\n');
-  const findings: string[] = [];
+  const headers = new Set<number>();
   for (let index = 0; index < lines.length; index += 1) {
-    const startsStack = STACK_FRAME.test(lines[index]!) && !STACK_FRAME.test(lines[index - 1] ?? '');
-    if (!startsStack) continue;
-    const header = (lines[index - 1] ?? '').trim() || lines[index]!.trim();
-    findings.push(`error stack in dev server output: ${header}`);
+    const line = lines[index]!;
+    const startsStack = STACK_FRAME.test(line) && !STACK_FRAME.test(lines[index - 1] ?? '');
+    const hasHeaderAbove = index > 0 && (lines[index - 1] ?? '').trim() !== '';
+    if (NEXT_ERROR.test(line)) headers.add(index);
+    else if (startsStack && hasHeaderAbove) headers.add(index - 1);
+    else if (startsStack) headers.add(index);
   }
-  return findings;
+  return [...headers].sort((a, b) => a - b).map((index) => `error in dev server output: ${lines[index]!.trim()}`);
+}
+
+function hostErrorFindings(hostErrors: readonly string[] = []): string[] {
+  return hostErrors.map((request) => `pyric host answered with an error: ${request}`);
 }
 
 function chipFindings(states: readonly string[]): string[] {
@@ -99,15 +121,17 @@ function egressFindings(egress: readonly EgressEntry[]): string[] {
 /**
  * Every problem in one run: a failed create, install, start or flow step; an
  * uncaught page error; an unhandled rejection; a worker error or crashed
- * page; a runtime chip that is not Ready; an error stack in the dev server's
- * output; and any request the egress guard refused, or no guarded traffic at all.
+ * page; a 5xx response or a pyric host error to a page; a page request the
+ * browser guard blocked; a runtime chip that is not Ready; an error stack or
+ * a Next `⨯` error in the dev server's output; and any request the egress
+ * guard refused, or no guarded traffic at all.
  */
 export function crashFindings(run: RunEvidence): string[] {
   const findings: string[] = [];
   for (const evidence of run.templates) {
     const own: string[] = [];
     if (evidence.failedStep) own.push(`${evidence.failedStep.step} failed: ${firstLine(evidence.failedStep.reason)}`);
-    own.push(...browserFindings(evidence), ...chipFindings(evidence.chipStates), ...serverStackFindings(evidence.serverOutput));
+    own.push(...browserFindings(evidence), ...hostErrorFindings(evidence.hostErrors), ...chipFindings(evidence.chipStates), ...serverErrorFindings(evidence.serverOutput));
     findings.push(...own.map((finding) => `${evidence.template}: ${finding}`));
   }
   findings.push(...egressFindings(run.egress));

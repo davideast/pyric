@@ -65,12 +65,20 @@ interface PostsPage {
   title: string;
   submit: string;
   posts: string;
+  /** Text the page's own code renders once it runs, which the served HTML does not already hold. */
+  ready?: { step: string; selector: string; text: string };
+  /** An element whose text must start with `prefix` once the page's server route answered. */
+  serverStatus?: { selector: string; prefix: string };
 }
 
 interface PageFlow {
   kind: 'page';
   /** Arguments after `npm run dev --` that put the page on 127.0.0.1:`port`. */
   devArgs(port: number): string[];
+  /** Environment for the dev command beyond the run's own. */
+  devEnv?: Record<string, string>;
+  /** `required` where the template's plane always mounts the runtime chip (the Vite plugin). */
+  chip: 'required' | 'optional';
   drive(page: Page, run: TemplateRun): Promise<void>;
 }
 
@@ -83,19 +91,43 @@ const FLOW_TIMEOUT_MS = 60_000;
 const VITE_ARGS = (port: number) => ['--host', '127.0.0.1', '--port', String(port), '--strictPort'];
 
 const FLOWS: Record<TemplateName, PageFlow | ScriptFlow> = {
-  web: { kind: 'page', devArgs: VITE_ARGS, drive: (page, run) => drivePosts(page, run, { signIn: '#sign-in', title: '#post-title', submit: '#add-post button[type="submit"]', posts: '#posts' }) },
+  // The served HTML already says "Signed out", so the required chip is what shows the page's code ran.
+  web: {
+    kind: 'page',
+    devArgs: VITE_ARGS,
+    chip: 'required',
+    drive: (page, run) => drivePosts(page, run, { signIn: '#sign-in', title: '#post-title', submit: '#add-post button[type="submit"]', posts: '#posts' }),
+  },
   static: {
     kind: 'page',
     devArgs: (port) => ['--no-open', '--host', '127.0.0.1', '--port', String(port)],
-    drive: (page, run) => drivePosts(page, run, { signIn: '#sign-in', title: '#post-title', submit: '#add-post button[type="submit"]', posts: '#posts' }),
+    chip: 'optional',
+    drive: (page, run) => drivePosts(page, run, {
+      signIn: '#sign-in',
+      title: '#post-title',
+      submit: '#add-post button[type="submit"]',
+      posts: '#posts',
+      ready: { step: 'the page lists the seeded posts', selector: '#posts', text: 'Welcome to pyric' },
+    }),
   },
   nextjs: {
     kind: 'page',
     // `pyric sandbox -- next dev`: these land after `next dev`.
     devArgs: (port) => ['--port', String(port), '--hostname', '127.0.0.1'],
-    drive: (page, run) => drivePosts(page, run, { signIn: '#sign-in-button', title: '#post-title-input', submit: '#submit-post-button', posts: '#posts-list' }),
+    // The firewall rejects anything but loopback, so telemetry is turned off the way a careful user does.
+    devEnv: { NEXT_TELEMETRY_DISABLED: '1' },
+    chip: 'optional',
+    drive: (page, run) => drivePosts(page, run, {
+      signIn: '#sign-in-button',
+      title: '#post-title-input',
+      submit: '#submit-post-button',
+      posts: '#posts-list',
+      // The page renders "Checking authentication state..." until its auth listener runs.
+      ready: { step: 'the page reaches its signed-out state', selector: '#auth-status', text: 'Signed out' },
+      serverStatus: { selector: '#api-status', prefix: 'Server-Side Admin API Runtime:' },
+    }),
   },
-  chat: { kind: 'page', devArgs: VITE_ARGS, drive: driveChat },
+  chat: { kind: 'page', devArgs: VITE_ARGS, chip: 'required', drive: driveChat },
   node: { kind: 'script' },
 };
 
@@ -110,9 +142,12 @@ function readChip(): string {
   return 'Ready';
 }
 
-async function chipState(page: Page): Promise<string> {
-  await page.waitForSelector('[data-pyric-runtime-chip-host]', { state: 'attached', timeout: 10_000 }).catch(() => undefined);
-  return page.evaluate(readChip);
+async function chipState(page: Page, run: TemplateRun): Promise<string> {
+  const timeout = run.chip === 'required' ? FLOW_TIMEOUT_MS : 10_000;
+  await page.waitForSelector('[data-pyric-runtime-chip-host]', { state: 'attached', timeout }).catch(() => undefined);
+  const state = await page.evaluate(readChip);
+  if (state === 'absent' && run.chip === 'required') return 'absent, though this template always mounts it';
+  return state;
 }
 
 async function signInThroughDialog(page: Page, trigger: string): Promise<void> {
@@ -134,12 +169,22 @@ function listShows({ selector, text }: { selector: string; text: string }): bool
   return document.querySelector(selector)?.textContent?.includes(text) === true;
 }
 
+/** Runs in the page: whether the element `selector` names starts with `prefix`. */
+function startsWith({ selector, prefix }: { selector: string; prefix: string }): boolean {
+  return document.querySelector(selector)?.textContent?.startsWith(prefix) === true;
+}
+
 async function drivePosts(page: Page, run: TemplateRun, selectors: PostsPage): Promise<void> {
   const title = `fresh install ${Date.now()}`;
   const status = (pattern: string) => page.waitForFunction(statusMatches, pattern, { timeout: FLOW_TIMEOUT_MS });
   const listed = () => page.waitForFunction(listShows, { selector: selectors.posts, text: title }, { timeout: FLOW_TIMEOUT_MS });
-  await run.app.step('the page reaches its signed-out state', () => status('^Signed out$'));
-  run.chipStates.push(await chipState(page));
+  const { ready, serverStatus } = selectors;
+  if (ready) await run.app.step(ready.step, () => page.waitForFunction(listShows, ready, { timeout: FLOW_TIMEOUT_MS }));
+  run.chipStates.push(await chipState(page, run));
+  if (serverStatus) {
+    await run.app.step(`${serverStatus.selector} shows the server route answered`, () =>
+      page.waitForFunction(startsWith, serverStatus, { timeout: FLOW_TIMEOUT_MS }));
+  }
   await run.app.step('sign in through the sandbox Google dialog', async () => {
     await signInThroughDialog(page, selectors.signIn);
     await status('^Signed in as ');
@@ -154,14 +199,14 @@ async function drivePosts(page: Page, run: TemplateRun, selectors: PostsPage): P
     await status('^Signed in as ');
     await listed();
   });
-  run.chipStates.push(await chipState(page));
+  run.chipStates.push(await chipState(page, run));
 }
 
 async function driveChat(page: Page, run: TemplateRun): Promise<void> {
   const text = `fresh install ${Date.now()}`;
   const seesMessage = () => page.getByText(text, { exact: true }).first().waitFor({ timeout: FLOW_TIMEOUT_MS });
   await run.app.step('the page offers sign-in', () => page.getByRole('button', { name: 'Sign in to continue' }).waitFor({ timeout: FLOW_TIMEOUT_MS }));
-  run.chipStates.push(await chipState(page));
+  run.chipStates.push(await chipState(page, run));
   await run.app.step('sign in through the sandbox Google dialog', () => signInAsAda(page));
   await run.app.step('send one message', async () => {
     await sendDirectMessage(page, text);
@@ -173,7 +218,7 @@ async function driveChat(page: Page, run: TemplateRun): Promise<void> {
     await page.getByRole('button', { name: 'Sign out' }).waitFor({ timeout: FLOW_TIMEOUT_MS });
     await seesMessage();
   });
-  run.chipStates.push(await chipState(page));
+  run.chipStates.push(await chipState(page, run));
 }
 
 // ─── One template ──────────────────────────────────────────────────────
@@ -183,6 +228,7 @@ interface TemplateRun {
   app: AppRun;
   project: string;
   chipStates: string[];
+  chip: PageFlow['chip'];
   /** The browser context, once the flow opened one. */
   context?: BrowserContext;
 }
@@ -244,12 +290,15 @@ async function expectExit(app: AppRun, step: string, command: string, args: stri
 async function runPageFlow(run: TemplateRun, flow: PageFlow): Promise<void> {
   const port = await run.app.freePort();
   const url = `http://127.0.0.1:${port}`;
-  const dev = run.app.commandProcess('npm', ['run', 'dev', '--', ...flow.devArgs(port)], { cwd: run.project });
+  const dev = run.app.commandProcess('npm', ['run', 'dev', '--', ...flow.devArgs(port)], { cwd: run.project, env: flow.devEnv });
   await run.app.step('npm run dev serves the page', () => waitUntilServed(dev, url));
   run.context = await run.app.browser();
   await watchContext(run.context, run.app.browserLog);
   const page = await run.app.step('open the page', () => run.app.page(`${url}/`));
   await flow.drive(page, run);
+  await run.app.step('npm run dev is still running after the flow', async () => {
+    if (!dev.running) throw new Error(`npm run dev exited with code ${await dev.exited}`);
+  });
 }
 
 async function runScriptFlow(run: TemplateRun): Promise<void> {
@@ -279,8 +328,12 @@ async function saveLogs(run: TemplateRun, home: string, dir: string): Promise<vo
 }
 
 async function evidenceFor(name: TemplateName, options: RunOptions, browser: Browser): Promise<TemplateEvidence> {
-  const app = new AppRun(name, options.workDir, options.home, () => Promise.resolve(browser));
-  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [] };
+  // A HOME, and so an npm cache, of its own: no install reuses another's downloads.
+  const home = join(options.workDir, `.home-${name}`);
+  mkdirSync(home);
+  const app = new AppRun(name, options.workDir, home, () => Promise.resolve(browser));
+  const flow = FLOWS[name];
+  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.chip : 'optional' };
   let failedStep: TemplateEvidence['failedStep'];
   try {
     await runTemplate(run, options);
@@ -289,10 +342,10 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
     const reason = error instanceof StepFailure ? error.reason : error;
     failedStep = { step, reason: reason instanceof Error ? reason.message : String(reason) };
   }
-  await saveLogs(run, options.home, join(options.out, name));
+  await saveLogs(run, home, join(options.out, name));
   await app.close();
   const serverOutput = app.processes.filter((child) => child.name.includes('npm run dev')).map((child) => child.output).join('\n');
-  return { template: name, failedStep, browserLog: [...app.browserLog], serverOutput, chipStates: run.chipStates };
+  return { template: name, failedStep, browserLog: [...app.browserLog], serverOutput, chipStates: run.chipStates, hostErrors: app.unexpectedHostErrors() };
 }
 
 // ─── Entry points ──────────────────────────────────────────────────────
@@ -302,7 +355,6 @@ interface RunOptions {
   templates: TemplateName[];
   out: string;
   workDir: string;
-  home: string;
   proxyUrl: string;
 }
 
@@ -323,15 +375,13 @@ async function run(args: string[]): Promise<number> {
   const out = resolve(flag(args, 'out') ?? 'test-results/fresh-install');
   mkdirSync(out, { recursive: true });
   const workDir = mkdtempSync(join(tmpdir(), 'pyric-fresh-install-'));
-  const home = join(workDir, '.home');
-  mkdirSync(home);
   const inProcess: EgressEntry[] = [];
   const externalProxy = flag(args, 'proxy');
   const egressLog = flag(args, 'egress-log');
   const proxy = externalProxy === undefined ? await startEgressProxy(0, (entry) => inProcess.push(entry)) : undefined;
   const address = proxy?.address();
   const proxyUrl = externalProxy ?? `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
-  const options: RunOptions = { tag: flag(args, 'tag') ?? 'exp', templates: templatesFrom(flag(args, 'templates')), out, workDir, home, proxyUrl };
+  const options: RunOptions = { tag: flag(args, 'tag') ?? 'exp', templates: templatesFrom(flag(args, 'templates')), out, workDir, proxyUrl };
   console.log(`[fresh-install] create-pyric@${options.tag}, templates ${options.templates.join(', ')}, in ${workDir}, egress through ${proxyUrl}`);
 
   const browser = await launchScenarioBrowser();
