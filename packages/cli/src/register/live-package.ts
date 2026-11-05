@@ -9,8 +9,10 @@
  * installed package. Not finding it is an error: the register refuses to
  * start, and the stop stays shut.
  *
- * The project root is resolved once, in the first process: the working
- * directory it starts in. That process records the root in
+ * The project root is resolved once, in the first process: the nearest
+ * folder from the working directory up that holds `.firebaserc` or
+ * `firebase.json` (`findFirebaseProjectDir`, as the Vite plugin finds its
+ * project), or the working directory when none does. That process records the root in
  * `PYRIC_LIVE_PROJECT_ROOT`, which the child-process guard copies to every
  * child, so a child started in another directory opens the same project's
  * rows. The variable only names where to look: the directory it names must
@@ -23,6 +25,7 @@
  */
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { findFirebaseProjectDir } from '../cli/firebase-project.js';
 import { installedLiveFile, liveNotInstalled, loadInstalledLiveExport } from '../serve/installed-live-package.js';
 import type { SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
 import type { RegisterRowPackage } from './supplied-rows.js';
@@ -59,11 +62,16 @@ function observedCallSenderUrl(): string {
   return new URL('./observed-call-sender.js', import.meta.url).href;
 }
 
-/** The project root: the one the first process recorded, or this process's working directory. */
+/**
+ * The project root: the one the first process recorded, or else the Firebase
+ * project folder at or above `cwd`, or `cwd` itself when there is none, so a
+ * start with no project names the folder it started from.
+ */
 export function liveProjectRoot(env: Record<string, string | undefined>, cwd: string): string {
   const recorded = env[LIVE_PROJECT_ROOT_VARIABLE];
   const hasRecorded = recorded !== undefined && recorded !== '';
-  return hasRecorded ? recorded : cwd;
+  if (hasRecorded) return recorded;
+  return findFirebaseProjectDir(cwd) ?? cwd;
 }
 
 /**
