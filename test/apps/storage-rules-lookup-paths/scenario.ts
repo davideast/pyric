@@ -13,8 +13,8 @@ import { scenario } from '../driver.ts';
 declare function upload(path: string, customMetadata?: Record<string, string>): Promise<string>;
 
 export default scenario(async (app) => {
-  // Each refused upload answers 403 from the host's Storage route.
-  app.expectHostError(/^403 POST \/__pyric\/storage\//);
+  // A refused upload goes over the hosted bridge, not the host's Storage
+  // route, so the page sees no error response; each step reads the refusal.
   const host = await app.step('start the hosted dev server', () => app.devServer());
   const sandbox = { PYRIC_SANDBOX: `remote:${host.url}` };
 

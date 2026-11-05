@@ -90,7 +90,7 @@ export default scenario(async (app) => {
   // /__pyric/diagnostics. A post made before the new server generation mounts
   // Pyric's routes answers 404, and the page keeps the report in memory.
   // The allowance lasts the whole run, since restarts come at any point after the first.
-  app.expectHostError(/^404 POST \/__pyric\/diagnostics$/);
+  app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the new routes mount (#2098)' });
   await scaffold(app);
   const inspectorPort = await app.freePort();
   const host = await app.step('start the scaffolded project on the Node host, with an inspector', () =>
