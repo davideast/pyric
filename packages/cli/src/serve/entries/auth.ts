@@ -31,6 +31,7 @@ import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
 import { registerActiveAuth } from './active-auth.js';
 import { beforeAuthStateChanged as unavailableBeforeAuthStateChanged } from './unsupported/auth.js';
+import { afterPageBackend, runAfterPageBackend, subscribeAfterPageBackend } from './page-backend-wait.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -39,66 +40,7 @@ const wc = wcRaw as unknown as typeof ipAuth;
 /** Observers + email/anon sign-in: worker-client or in-page. */
 const A = useWorker ? wc : ipAuth;
 
-// ── Waiting for the in-page backend's saved state (#2039) ─────────────────
-/** What the page script (`./page.ts`) published, or null when it published nothing. */
-let pageBackendLoad: Promise<void> | null | undefined;
-
-/**
- * Resolves once the in-page backend has loaded the saved state: the accounts
- * and session records a restore needs. Null when there is nothing to wait for:
- * the worker path, a Node process, a Service Worker, or a host that injects no
- * page script, which all behave as before. A backend that fails to load warns
- * once and resolves, so auth runs unsaved instead of hanging.
- */
-function pageBackendReady(): Promise<void> | null {
-  if (pageBackendLoad !== undefined) return pageBackendLoad;
-  const load = useWorker ? undefined : globalThis.__PYRIC_PAGE_BACKEND__;
-  pageBackendLoad = load === undefined
-    ? null
-    : load.then(() => undefined, (error: unknown) => {
-      console.warn('[pyric sandbox] the in-page backend did not load, so auth on this page does not save or restore its state:', error);
-    });
-  return pageBackendLoad;
-}
-
-/** Run `task` once the saved state is loaded; at once when there is none to wait for. */
-function runAfterPageBackend(task: () => void): void {
-  const ready = pageBackendReady();
-  if (ready === null) task();
-  else void ready.then(task);
-}
-
-/** An async in-page call that runs after the saved state is loaded, so it sees the saved accounts. */
-function afterPageBackend<Args extends unknown[], Result>(
-  call: (...args: Args) => Promise<Result>,
-): (...args: Args) => Promise<Result> {
-  return (...args) => {
-    const ready = pageBackendReady();
-    if (ready === null) return call(...args);
-    return ready.then(() => call(...args));
-  };
-}
-
-/**
- * An in-page listener registered after the saved state is loaded, so its
- * first callback is the restored session rather than a null that precedes it.
- */
-function subscribeAfterPageBackend<Args extends unknown[]>(
-  subscribe: (...args: Args) => () => void,
-): (...args: Args) => () => void {
-  return (...args) => {
-    let unsubscribe: (() => void) | null = null;
-    let stopped = false;
-    runAfterPageBackend(() => {
-      if (!stopped) unsubscribe = subscribe(...args);
-    });
-    return () => {
-      stopped = true;
-      unsubscribe?.();
-    };
-  };
-}
-
+// In-page calls wait for a pending in-page backend load (#2039); see ./page-backend-wait.ts.
 export const onAuthStateChanged = (
   useWorker ? wc.onAuthStateChanged : subscribeAfterPageBackend(ipAuth.onAuthStateChanged)
 ) as typeof ipAuth.onAuthStateChanged;
@@ -139,7 +81,7 @@ export const onAuthLensChanged = A.onAuthLensChanged;
  * export a top-level `updateProfile`; cast to the canonical `pyric/auth` shape.
  * (Fixes #746: the served `firebase/auth` entry didn't re-export this at all.)
  */
-export const updateProfile = (useWorker ? wc.updateProfile : ipAuth.updateProfile) as typeof ipAuth.updateProfile;
+export const updateProfile = (useWorker ? wc.updateProfile : afterPageBackend(ipAuth.updateProfile)) as typeof ipAuth.updateProfile;
 
 // ── Provider value classes + persistence markers — path-independent ───────
 export const GoogleAuthProvider = ipAuth.GoogleAuthProvider;
@@ -378,7 +320,7 @@ export const reload = (
   useWorker ? wc.reload : ipAuth.reload
 ) as typeof ipAuth.reload;
 export const updateCurrentUser = (
-  useWorker ? wc.updateCurrentUser : ipAuth.updateCurrentUser
+  useWorker ? wc.updateCurrentUser : afterPageBackend(ipAuth.updateCurrentUser)
 ) as typeof ipAuth.updateCurrentUser;
 
 export {

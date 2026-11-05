@@ -17,11 +17,6 @@
 import './init.js';
 import { useWorker } from './worker-runtime.js';
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __PYRIC_PAGE_BACKEND__: Promise<unknown> | undefined;
-}
-
 // The worker path owns rules, seed and saved state in the worker, and loads
 // the runtime only from the entries that import it, as before.
 if (!useWorker) {

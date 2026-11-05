@@ -258,14 +258,31 @@ describe('firebase/auth entry dependency boundary', () => {
       return { promise, resolve, reject };
     }
 
-    /** The app and auth entries evaluated in-page, with `pageBackend` as what the page script published. */
-    async function inPageEntries(pageBackend: Promise<unknown>, warnings: unknown[][]) {
+    /** A Storage over a Map, for the session store. */
+    function memoryStorage() {
+      const items = new Map<string, string>();
+      return {
+        items,
+        getItem: (key: string) => items.get(key) ?? null,
+        setItem: (key: string, value: string) => { items.set(key, value); },
+        removeItem: (key: string) => { items.delete(key); },
+      };
+    }
+
+    /**
+     * The app, auth and Firestore entries evaluated in-page, with `pageBackend`
+     * as what the page script published (undefined: nothing yet) and `globals`
+     * added to the realm. Returns the realm too, so a test can publish later.
+     */
+    async function inPageEntries(pageBackend: Promise<unknown> | undefined, warnings: unknown[][], globals: Record<string, unknown> = {}) {
       const { createContext, SourceTextModule } = await import('node:vm');
       const esbuild = await import('esbuild');
       const entriesDir = join(import.meta.dir, '../../../src/serve/entries');
       const bundle = await esbuild.build({
         stdin: {
-          contents: `export * as app from './app.ts'; export * as auth from './auth.ts';`,
+          contents: `export * as app from './app.ts'; export * as auth from './auth.ts';
+            export * as firestore from 'pyric/firestore'; export { setRules } from 'pyric/sandbox/firestore';
+            export { sandbox } from './app-backend.ts';`,
           resolveDir: entriesDir,
         },
         bundle: true,
@@ -292,14 +309,19 @@ describe('firebase/auth entry dependency boundary', () => {
         clearTimeout,
         setInterval,
         clearInterval,
+        ...globals,
       });
       const module = new SourceTextModule(bundle.outputFiles[0]!.text, { context });
       await module.link(() => { throw new Error('Module linking failed'); });
       await module.evaluate();
-      return module.namespace as {
+      const entries = module.namespace as {
         app: typeof import('../../../src/serve/entries/app.js');
         auth: typeof import('../../../src/serve/entries/auth.js');
+        firestore: typeof import('pyric/firestore');
+        setRules: typeof import('pyric/sandbox/firestore').setRules;
+        sandbox: typeof import('../../../src/serve/entries/app-backend.js').sandbox;
       };
+      return { ...entries, realm: context as Record<string, unknown> };
     }
 
     const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -335,6 +357,43 @@ describe('firebase/auth entry dependency boundary', () => {
       backend.resolve();
       await settle();
       expect(states).toEqual([]);
+    });
+
+    it('restores a saved session inside getAuth once the backend has loaded, as on a page that imports Firestore', async () => {
+      const localStorage = memoryStorage();
+      const entries = await inPageEntries(Promise.resolve(), [], {
+        __PYRIC_PAGE_BACKEND_LOADED__: true,
+        localStorage,
+        sessionStorage: memoryStorage(),
+      });
+      entries.setRules(entries.sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{d}/documents { match /{p=**} { allow read: if request.auth != null; } } }");
+      const config = { projectId: 'page-backend-loaded', apiKey: 'k', appId: 'x' };
+      const laptop = entries.auth.getAuth(entries.app.initializeApp(config, 'laptop'));
+      const { user } = await entries.auth.createUserWithEmailAndPassword(laptop, 'loaded@example.com', 'secret-pw');
+      await settle();
+      // A second app reads the same saved session, as the reloaded page does.
+      const savedKey = [...localStorage.items.keys()].find((key) => key.endsWith(':laptop'))!;
+      localStorage.setItem(savedKey.replace(/:laptop$/, ':phone'), localStorage.getItem(savedKey)!);
+      const phoneApp = entries.app.initializeApp(config, 'phone');
+      const phone = entries.auth.getAuth(phoneApp);
+      expect(phone.currentUser?.uid).toBe(user.uid);
+      const db = entries.firestore.getFirestore(phoneApp);
+      const read = await entries.firestore.getDoc(entries.firestore.doc(db, 'notes/one'));
+      expect(read.exists()).toBe(false);
+    });
+
+    it('waits on a load the page script publishes after the auth entry evaluated', async () => {
+      const entries = await inPageEntries(undefined, []);
+      const backend = deferred();
+      entries.realm.__PYRIC_PAGE_BACKEND__ = backend.promise;
+      const auth = entries.auth.getAuth(entries.app.initializeApp({ projectId: 'page-backend-late' }, 'late'));
+      let signedIn = false;
+      const signIn = entries.auth.signInAnonymously(auth).then(() => { signedIn = true; });
+      await settle();
+      expect(signedIn).toBe(false);
+      backend.resolve();
+      await signIn;
+      expect(signedIn).toBe(true);
     });
 
     it('runs unsaved, with one warning, when the backend fails to load', async () => {

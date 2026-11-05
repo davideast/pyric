@@ -246,6 +246,10 @@ if (!useWorker) try {
       ...sessionTokenHeaders,
     };
     let readOnly = false;
+    // This tab claims the writer role with its first write, not on load: a
+    // tab that never writes (a page that imports no Firebase service, which
+    // still loads this runtime through the page script) leaves the role free.
+    let holdsWriterLock = false;
     const lostWriterLock = (): void => {
       if (readOnly) return;
       readOnly = true;
@@ -279,6 +283,7 @@ if (!useWorker) try {
           });
           if (res.status === 423) return lostWriterLock();
           if (!res.ok) throw new Error(`state flush → ${res.status}`);
+          holdsWriterLock = true;
           diagnostics.lastFlushAt = Date.now();
         },
         async clear() {
@@ -293,7 +298,7 @@ if (!useWorker) try {
     // the lock WITHOUT writing state (a POST would clobber). Release on
     // pagehide so another tab can take over promptly.
     const heartbeat = setInterval(() => {
-      if (readOnly) return;
+      if (readOnly || !holdsWriterLock) return;
       void fetch('/__pyric/state', { method: 'PUT', headers: writerHeaders }).then((res) => {
         if (res.status === 423) {
           lostWriterLock();
@@ -304,7 +309,7 @@ if (!useWorker) try {
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', () => {
         clearInterval(heartbeat);
-        if (!readOnly) {
+        if (!readOnly && holdsWriterLock) {
           fetch('/__pyric/state', { method: 'DELETE', headers: writerHeaders, keepalive: true }).catch(() => {});
         }
       });
@@ -325,7 +330,10 @@ if (!useWorker) try {
         }).then(
           (res) => {
             if (res.status === 423) lostWriterLock();
-            else if (res.ok) diagnostics.lastFlushAt = Date.now();
+            else if (res.ok) {
+              holdsWriterLock = true;
+              diagnostics.lastFlushAt = Date.now();
+            }
           },
           (e) => console.warn('[pyric sandbox] auth state flush failed:', e),
         );
@@ -663,3 +671,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
     });
   });
 }
+
+// Last top-level statement: the in-page backend has loaded, so the auth entry
+// runs its restore and calls inline from here on (./page-backend-wait.ts).
+globalThis.__PYRIC_PAGE_BACKEND_LOADED__ = true;
