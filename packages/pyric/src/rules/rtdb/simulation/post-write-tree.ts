@@ -1,5 +1,5 @@
-import { normalizeRuleWrite } from '../../../database/sandbox/normalize.js';
-import { resolveSentinels } from '../../../database/sandbox/sentinels.js';
+import { normalizeRuleWrite } from '../data/normalize.js';
+import { resolveSentinels } from '../data/sentinels.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
