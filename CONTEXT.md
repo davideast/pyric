@@ -97,13 +97,13 @@ subpaths include:
 | `pyric/rules/internal` | Engine internals seam. |
 | `pyric/rules/internal/node` | Node-only filesystem-backed module resolution. |
 | `pyric/rules/internal/extract` | Composite-index extraction. |
-| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus replay and constraints. |
+| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus constraints. RTDB replay is in `pyric/sandbox/internal`. |
 | `pyric/sandbox` | Sandbox lifecycle, events, persistence, replay, branches. |
 | `pyric/sandbox/branches/store` | Persisted branch store (`<project>/.pyric/state/branches/<name>/`), with per-service base/state files and event log. |
 | `pyric/sandbox/checkpoints` | Saved-state checkpoint capture, restore, and record-backend primitives. |
 | `pyric/sandbox/checkpoints/directory` | Node filesystem backend for checkpoints (`<project>/.pyric/state/checkpoints/<name>.json`). |
 | `pyric/sandbox/firestore` | Firestore-specific sandbox controls: rules, seeding, snapshots, and inspection. Controls receive the owning local `Sandbox`. |
-| `pyric/sandbox/internal` | Adapter-only internal protocol. |
+| `pyric/sandbox/internal` | Adapter-only internal protocol. Also carries RTDB replay (`replay`, `rtdbReplaySteps`, `rewoundRtdbTree`, `rtdbStateDrift`). |
 | `pyric/sandbox/admin-compat` | Chainable admin-Firestore-shaped sandbox wrapper. |
 | `pyric/sandbox/admin-firestore` | Internals backing the admin-compat layer. |
 | `pyric/{firestore/lite,functions,app-check,analytics,performance,remote-config}` | Deferred Web SDK mirrors. Each exports the exact public runtime symbol names and types so swapped imports link and type-check, and throws `PyricDeferredApiError` if called at runtime. |

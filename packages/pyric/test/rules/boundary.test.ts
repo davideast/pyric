@@ -26,9 +26,6 @@ const ALLOWED_EDGES: readonly string[] = [
   'stdlib-tools.ts -> ../sandbox/internal/tool-handler.js',
   'tools.ts -> ../project-scope.js',
   'tools.ts -> ../sandbox/internal/tool-handler.js',
-  // RTDB replay, re-exported from pyric/sandbox/internal instead.
-  'internal/rtdb.ts -> ../../database/replay.js',
-  'internal/rtdb.ts -> ../../database/replay.js',
   // Shared groundwork, which moves down into the engine.
   'api/rtdb-case-validation.ts -> ../../database/writable-path.js',
   'api/rtdb-case-validation.ts -> ../../sandbox/branches/state-diff.js',

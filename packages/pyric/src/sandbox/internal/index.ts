@@ -203,6 +203,15 @@ export {
   type TokenClaimAccount, type TokenClaimRecord,
 } from './auth-token-claims.js';
 export { providerVerifiesEmail } from './provider-email-verification.js';
+// Realtime Database replay: re-applies recorded sandbox events to a fresh
+// instance and reports where the replayed tree drifts from the recorded one.
+export { replay, rewoundRtdbTree, rtdbReplaySteps, rtdbStateDrift } from '../../database/replay.js';
+export type {
+  RtdbReplayDivergence,
+  RtdbReplayOptions,
+  RtdbReplayResult,
+  RtdbReplayStep,
+} from '../../database/replay.js';
 export { absolutePhotoUrl, realmOrigin } from './photo-url.js';
 // Realtime Database instance identity: the instance name production and
 // firebase.json use, and the per-instance registry sandbox and served hosts share.
