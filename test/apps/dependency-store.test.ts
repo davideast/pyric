@@ -725,6 +725,21 @@ describe('nested projects (#1514)', () => {
   const PUBLISHED = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui', 'create-pyric'];
   /** The published tarballs under `dir`, as the runner maps them. */
   const tarballsIn = (dir: string): Tarballs => new Map(PUBLISHED.map((name) => [name, join(dir, `${name.replace('@', '').replace('/', '-')}.tgz`)]));
+  /** The overrides pinPyricPackages adds: each published package pinned to its tarball under `dir`. */
+  const pinnedTo = (dir: string): Record<string, string> => Object.fromEntries([...tarballsIn(dir)].map(([name, file]) => [name, `file:${file}`]));
+  /**
+   * The overrides a template ships, kept beside the tarball pins. The chat
+   * template maps just-bash's native codecs to a stub it scaffolds into the
+   * app (#2049); the path is relative to the app, so the key stays the same
+   * wherever the tarballs are.
+   */
+  const TEMPLATE_OVERRIDES: Record<'chat' | 'node', Record<string, string>> = {
+    chat: {
+      '@mongodb-js/zstd': 'file:./stubs/empty-native-optional',
+      'node-liblzma': 'file:./stubs/empty-native-optional',
+    },
+    node: {},
+  };
   const packedPackages = PUBLISHED.map((name) => packed(name, '0.1.0-alpha.1'));
   /** create-pyric from source, so the test needs no build. */
   const createPyric = [process.execPath, join(repoRoot, 'packages', 'create-pyric', 'src', 'bin.ts')];
@@ -742,7 +757,7 @@ describe('nested projects (#1514)', () => {
     const scaffolded = await nestedProjectManifest(project, { appsDir, createPyric, tarballs: tarballsIn('/run-one/dist/packages') });
     const manifest = JSON.parse(scaffolded.manifest) as { name?: string; overrides?: Record<string, string> };
     expect(manifest.name).toBe(project.path);
-    expect(Object.keys(manifest.overrides ?? {}).sort()).toEqual([...PUBLISHED].sort());
+    expect(manifest.overrides).toEqual({ ...TEMPLATE_OVERRIDES[template], ...pinnedTo('/run-one/dist/packages') });
   }, 30_000);
 
   test('the chat and node templates have different keys', async () => {
