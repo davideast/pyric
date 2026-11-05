@@ -3,6 +3,7 @@ export {
   type DisconnectOperation,
 } from './disconnect-operation-queue.js';
 export { queryIdentifier } from './query-shape.js';
+export { jsonEqual } from '../rules/rtdb/data/json-equal.js';
 export { executeQuery } from './internal/query-projection.js';
 export { listenIndexWarning } from './listen-index-warning.js';
 export { logDatabaseWarning } from './sandbox/query-index.js';
