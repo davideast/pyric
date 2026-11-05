@@ -7,10 +7,16 @@
  * Only a module served through supplied rows imports this
  * (`../vite-supplied-rows.ts`); no `pyric()` entry does. It is served from
  * this folder so it shares the page runtime's one connection and request ids.
+ *
+ * It also hands the rows' observer `journalLiveListener`, which journals
+ * their Firestore listeners in the page's SDK activity
+ * (`live-listener-journal.ts`).
  */
 import type { ObservedCall } from 'pyric/sandbox';
 import { nextId, rpc } from '../worker/client/core.js';
 import { useHosted, workerDb } from './worker-runtime.js';
+
+export { journalLiveListener } from './live-listener-journal.js';
 
 /** Sends one observed call. Rejects when the page has no Node host connection. */
 export async function sendObservedCall(call: ObservedCall): Promise<void> {
