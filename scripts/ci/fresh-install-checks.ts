@@ -22,6 +22,27 @@ export interface EgressEntry {
   host: string;
   port: number;
   allowed: boolean;
+  /** When the guard saw it, as an ISO time. */
+  time?: string;
+}
+
+/** One driver step, with the commands it started and the ones running while it ran (steps.jsonl). */
+export interface StepRecord {
+  template: string;
+  index: number;
+  step: string;
+  started: readonly string[];
+  running: readonly string[];
+  start: string;
+  end: string;
+}
+
+/** One connection the firewall rejected, from the kernel log. */
+export interface FirewallReject {
+  time: string;
+  protocol: string;
+  destination: string;
+  port?: number;
 }
 
 /** What one template's run recorded. */
@@ -43,6 +64,8 @@ export interface RunEvidence {
   templates: readonly TemplateEvidence[];
   /** Every request the egress guard saw during the run. */
   egress: readonly EgressEntry[];
+  /** Every step the driver ran, to say which one each refused request fell in. */
+  steps?: readonly StepRecord[];
 }
 
 export function isRegistryRequest(host: string, port: number): boolean {
@@ -109,13 +132,294 @@ function chipFindings(states: readonly string[]): string[] {
     .map((state) => `runtime chip is not Ready: ${state}`);
 }
 
-function egressFindings(egress: readonly EgressEntry[]): string[] {
-  if (egress.length === 0) {
-    return ['egress: no request went through the egress guard, so the install bypassed it or never ran'];
+// ─── Allowances ────────────────────────────────────────────────────────
+
+/**
+ * A refused request or firewall reject that does not fail the run, because
+ * its source is known and named. It still shows in findings.txt as
+ * `allowed (<label>)` on every run, and an allowance that matched nothing
+ * in a run that reached its window fails the run as stale. Each one is
+ * bounded: one template, one window, its destinations and port, and a
+ * limit per window; a match past the limit fails. The proxy and the
+ * firewall still refuse what an allowance covers.
+ */
+export interface Allowance {
+  name: string;
+  /** What findings.txt shows in `allowed (<label>)`: the issue, or the allowance's name. */
+  label: string;
+  reason: string;
+  template: string;
+  /**
+   * The windows it applies in. `npm install`: each npm install step of the
+   * template. `dev command running`: each dev process's lifetime, from the
+   * start of the step that started `npm run dev` to the end of the last step
+   * it ran in, the gaps between those steps included.
+   */
+  step: 'npm install' | 'dev command running';
+  /** A refused egress request to one of these hosts. */
+  egressHosts?: readonly string[];
+  /** A firewall reject to an address this name resolves to at run time. */
+  resolvesTo?: string;
+  port: number;
+  /**
+   * How much it allows in one window: each host once, or every match within
+   * `burstMs` of the window's first match. Anything past the limit fails.
+   */
+  limit: { oncePerHost: true } | { burstMs: number };
+}
+
+export const ALLOWANCES: readonly Allowance[] = [
+  {
+    name: 'chat-zstd-native-binary',
+    label: '#2049',
+    reason: "the chat template's @inbrowser/workspace pulls in @mongodb-js/zstd, whose install script downloads a prebuilt binary from GitHub and falls back to Node headers from nodejs.org (#2049)",
+    template: 'chat',
+    step: 'npm install',
+    egressHosts: ['github.com', 'nodejs.org'],
+    port: 443,
+    limit: { oncePerHost: true },
+  },
+  {
+    name: 'next-dev-version-check',
+    label: 'next-dev-version-check',
+    reason: 'the Next.js dev server\'s version check, made by Next, not by pyric, and sent only to the npm registry',
+    template: 'nextjs',
+    step: 'dev command running',
+    resolvesTo: REGISTRY_HOST,
+    port: 443,
+    // Next caches the check once per process (getVersionInfoCached): one burst
+    // per dev process, one connection per address DNS returned, so no count cap.
+    limit: { burstMs: 2000 },
+  },
+];
+
+/** What a check found: lines that fail the run, and lines an allowance covers. */
+export interface Verdict {
+  failing: string[];
+  allowed: string[];
+}
+
+/** The addresses each allowance's `resolvesTo` name resolved to in this run. */
+export type ResolvedNames = ReadonlyMap<string, readonly string[]>;
+
+/** One form for an address, so `2606:4700:0000::22` and `2606:4700::22` compare equal. */
+export function canonicalAddress(address: string): string {
+  if (!address.includes(':')) return address;
+  try {
+    return new URL(`http://[${address}]/`).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return address.toLowerCase();
   }
-  return egress
+}
+
+/** A span an allowance applies in: one install step, or one dev process's lifetime. */
+interface AllowanceWindow {
+  id: string;
+  start: number;
+  end: number;
+}
+
+function isDevCommand(command: string): boolean {
+  return command.startsWith('npm run dev');
+}
+
+function ranIn(command: string, record: StepRecord): boolean {
+  return record.started.includes(command) || record.running.includes(command);
+}
+
+/** Each dev process: from the start of the step that started it to the end of the last step it ran in. */
+function devLifetimes(template: string, steps: readonly StepRecord[]): AllowanceWindow[] {
+  const own = steps.filter((record) => record.template === template);
+  return own.flatMap((record) =>
+    record.started.filter(isDevCommand).map((command) => {
+      const start = Date.parse(record.start);
+      const lived = own.filter((later) => Date.parse(later.start) >= start && ranIn(command, later));
+      const end = Math.max(...lived.map((later) => Date.parse(later.end)));
+      return { id: `${template} ${command} from ${record.start}`, start, end };
+    }),
+  );
+}
+
+function installSteps(template: string, steps: readonly StepRecord[]): AllowanceWindow[] {
+  return steps
+    .filter((record) => record.template === template && record.step === 'npm install')
+    .map((record) => ({ id: `${template} step ${record.index} from ${record.start}`, start: Date.parse(record.start), end: Date.parse(record.end) }));
+}
+
+function windowsFor(allowance: Allowance, steps: readonly StepRecord[]): AllowanceWindow[] {
+  if (allowance.step === 'dev command running') return devLifetimes(allowance.template, steps);
+  return installSteps(allowance.template, steps);
+}
+
+interface Target {
+  kind: 'egress' | 'firewall';
+  host: string;
+  port?: number;
+  time?: string;
+}
+
+/** What each window has used of its limit: the hosts it allowed, and when its first match came. */
+class AllowanceUse {
+  private readonly hosts = new Map<string, Set<string>>();
+  private readonly firstMatch = new Map<string, number>();
+
+  /** Whether one more match in `window` at `at` to `host` is within the limit; records it when it is. */
+  take(allowance: Allowance, window: AllowanceWindow, at: number, host: string): boolean {
+    if ('burstMs' in allowance.limit) return this.takeBurst(window, at, allowance.limit.burstMs);
+    const seen = this.hosts.get(window.id) ?? new Set<string>();
+    const key = host.toLowerCase();
+    if (seen.has(key)) return false;
+    this.hosts.set(window.id, seen.add(key));
+    return true;
+  }
+
+  private takeBurst(window: AllowanceWindow, at: number, burstMs: number): boolean {
+    const first = this.firstMatch.get(window.id) ?? at;
+    const afterTheBurst = at - first > burstMs;
+    if (afterTheBurst) return false;
+    this.firstMatch.set(window.id, first);
+    return true;
+  }
+}
+
+function timeOf(target: Target): number {
+  return target.time === undefined ? Number.NaN : Date.parse(target.time);
+}
+
+function windowHolding(windows: readonly AllowanceWindow[], at: number): AllowanceWindow | undefined {
+  return windows.find((window) => window.start <= at && at <= window.end);
+}
+
+function matchesDestination(allowance: Allowance, target: Target, resolved: ResolvedNames): boolean {
+  if (target.port !== allowance.port) return false;
+  if (target.kind === 'egress') return allowance.egressHosts?.includes(target.host.toLowerCase()) === true;
+  if (allowance.resolvesTo === undefined) return false;
+  const addresses = (resolved.get(allowance.resolvesTo) ?? []).map(canonicalAddress);
+  return addresses.includes(canonicalAddress(target.host));
+}
+
+function coversKind(allowance: Allowance, kind: Target['kind']): boolean {
+  if (kind === 'egress') return allowance.egressHosts !== undefined;
+  return allowance.resolvesTo !== undefined;
+}
+
+/**
+ * Sorts `findings` (one per target, same order) into allowed and failing,
+ * spending each window's limit in time order, and adds a failing line for
+ * each allowance of this kind that matched nothing although its template
+ * reached a window it covers.
+ */
+function applyAllowances(
+  kind: Target['kind'],
+  items: readonly { target: Target; finding: string }[],
+  steps: readonly StepRecord[],
+  resolved: ResolvedNames,
+  allowances: readonly Allowance[],
+): Verdict {
+  const candidates = allowances.filter((allowance) => coversKind(allowance, kind));
+  const windows = new Map(candidates.map((allowance) => [allowance, windowsFor(allowance, steps)]));
+  const use = new AllowanceUse();
+  const decided = new Map<number, Allowance>();
+  const byTime = items.map((item, position) => ({ position, at: timeOf(item.target), target: item.target }))
+    .filter((item) => !Number.isNaN(item.at))
+    .sort((a, b) => a.at - b.at);
+  for (const { position, at, target } of byTime) {
+    const allowance = candidates.find((candidate) => {
+      if (!matchesDestination(candidate, target, resolved)) return false;
+      const window = windowHolding(windows.get(candidate) ?? [], at);
+      return window !== undefined && use.take(candidate, window, at, target.host);
+    });
+    if (allowance !== undefined) decided.set(position, allowance);
+  }
+  const verdict: Verdict = { failing: [], allowed: [] };
+  items.forEach(({ finding }, position) => {
+    const allowance = decided.get(position);
+    if (allowance === undefined) verdict.failing.push(finding);
+    else verdict.allowed.push(`allowed (${allowance.label}): ${finding}; ${allowance.reason}`);
+  });
+  const used = new Set(decided.values());
+  for (const allowance of candidates) {
+    const reachedAWindow = (windows.get(allowance) ?? []).length > 0;
+    if (!used.has(allowance) && reachedAWindow) {
+      verdict.failing.push(`stale allowance ${allowance.name} (${allowance.label}): matched nothing this run; remove it or fix it`);
+    }
+  }
+  return verdict;
+}
+
+function egressVerdict(egress: readonly EgressEntry[], steps: readonly StepRecord[], allowances: readonly Allowance[]): Verdict {
+  if (egress.length === 0) {
+    return { failing: ['egress: no request went through the egress guard, so the install bypassed it or never ran'], allowed: [] };
+  }
+  const items = egress
     .filter((entry) => !entry.allowed)
-    .map((entry) => `egress: refused ${entry.method} ${entry.host}:${entry.port} (only ${REGISTRY_HOST}:${REGISTRY_PORT} may be reached)`);
+    .map((entry) => ({
+      target: { kind: 'egress' as const, host: entry.host, port: entry.port, time: entry.time },
+      finding: `egress: refused ${entry.method} ${entry.host}:${entry.port} (only ${REGISTRY_HOST}:${REGISTRY_PORT} may be reached) ${stepAt(entry.time, steps)}`,
+    }));
+  return applyAllowances('egress', items, steps, new Map(), allowances);
+}
+
+function describeStep(record: StepRecord): string {
+  const parts = [`${record.template} step ${record.index} "${record.step}"`];
+  if (record.started.length > 0) parts.push(`started: ${record.started.join(' | ')}`);
+  if (record.running.length > 0) parts.push(`running: ${record.running.join(' | ')}`);
+  return parts.join('; ');
+}
+
+/**
+ * Which step `time` fell in: the step whose window holds it, or the last
+ * step that ended before it when it fell between steps.
+ */
+export function stepAt(time: string | undefined, steps: readonly StepRecord[]): string {
+  const at = time === undefined ? Number.NaN : Date.parse(time);
+  if (Number.isNaN(at)) return '(at an unrecorded time)';
+  const holding = steps.find((record) => Date.parse(record.start) <= at && at <= Date.parse(record.end));
+  if (holding) return `(at ${time}, during ${describeStep(holding)})`;
+  const before = steps.filter((record) => Date.parse(record.end) < at).at(-1);
+  if (before) return `(at ${time}, between steps, after ${describeStep(before)})`;
+  return `(at ${time}, before the first step)`;
+}
+
+/** `dmesg --time-format iso` time: `2026-11-05T01:02:03,123456+00:00`, with the fraction cut to milliseconds. */
+function isoFromDmesg(stamp: string): string {
+  return stamp.replace(/,(\d{3})\d*/, '.$1');
+}
+
+/** The firewall's LOG lines (`dmesg --time-format iso`), one reject each. */
+export function parseFirewallRejects(text: string): FirewallReject[] {
+  const rejects: FirewallReject[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.includes('fresh-install-reject: ')) continue;
+    const stamp = line.split(/\s/, 1)[0] ?? '';
+    const destination = line.match(/\bDST=(\S+)/)?.[1];
+    if (destination === undefined) continue;
+    const port = line.match(/\bDPT=(\d+)/)?.[1];
+    rejects.push({
+      time: isoFromDmesg(stamp),
+      protocol: line.match(/\bPROTO=(\S+)/)?.[1] ?? 'unknown',
+      destination,
+      ...(port === undefined ? {} : { port: Number(port) }),
+    });
+  }
+  return rejects;
+}
+
+/** One line per connection the firewall rejected, naming the step it fell in, sorted by the allowances. */
+export function firewallFindings(
+  rejects: readonly FirewallReject[],
+  steps: readonly StepRecord[],
+  resolved: ResolvedNames = new Map(),
+  allowances: readonly Allowance[] = ALLOWANCES,
+): Verdict {
+  const items = rejects.map((reject) => {
+    const where = reject.port === undefined ? reject.destination : `${reject.destination}:${reject.port}`;
+    return {
+      target: { kind: 'firewall' as const, host: reject.destination, port: reject.port, time: reject.time },
+      finding: `firewall: rejected a direct ${reject.protocol} connection to ${where} ${stepAt(reject.time, steps)}`,
+    };
+  });
+  return applyAllowances('firewall', items, steps, resolved, allowances);
 }
 
 /**
@@ -124,9 +428,10 @@ function egressFindings(egress: readonly EgressEntry[]): string[] {
  * page; a 5xx response or a pyric host error to a page; a page request the
  * browser guard blocked; a runtime chip that is not Ready; an error stack or
  * a Next `⨯` error in the dev server's output; and any request the egress
- * guard refused, or no guarded traffic at all.
+ * guard refused, or no guarded traffic at all. Refused requests an
+ * allowance covers are listed in `allowed` instead.
  */
-export function crashFindings(run: RunEvidence): string[] {
+export function crashFindings(run: RunEvidence, allowances: readonly Allowance[] = ALLOWANCES): Verdict {
   const findings: string[] = [];
   for (const evidence of run.templates) {
     const own: string[] = [];
@@ -134,8 +439,8 @@ export function crashFindings(run: RunEvidence): string[] {
     own.push(...browserFindings(evidence), ...hostErrorFindings(evidence.hostErrors), ...chipFindings(evidence.chipStates), ...serverErrorFindings(evidence.serverOutput));
     findings.push(...own.map((finding) => `${evidence.template}: ${finding}`));
   }
-  findings.push(...egressFindings(run.egress));
-  return findings;
+  const egress = egressVerdict(run.egress, run.steps ?? [], allowances);
+  return { failing: [...findings, ...egress.failing], allowed: egress.allowed };
 }
 
 // ─── Egress guard ──────────────────────────────────────────────────────
@@ -169,13 +474,13 @@ export function startEgressProxy(port: number, record: (entry: EgressEntry) => v
     // Plain HTTP never reaches the registry, which is TLS only.
     const raw = request.url ?? '';
     const target = URL.canParse(raw) ? new URL(raw) : undefined;
-    record({ method: request.method ?? 'GET', host: target?.hostname ?? raw, port: Number(target?.port || 80), allowed: false });
+    record({ method: request.method ?? 'GET', host: target?.hostname ?? raw, port: Number(target?.port || 80), allowed: false, time: new Date().toISOString() });
     response.writeHead(403).end(`fresh-install egress guard: only https://${REGISTRY_HOST} may be reached\n`);
   });
   server.on('connect', (request, client: Socket, head: Buffer) => {
     const { host, port: targetPort } = splitHostPort(request.url ?? '');
     const allowed = isRegistryRequest(host, targetPort);
-    record({ method: 'CONNECT', host, port: targetPort, allowed });
+    record({ method: 'CONNECT', host, port: targetPort, allowed, time: new Date().toISOString() });
     if (allowed) tunnel(client, head, host, targetPort);
     else client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
   });
