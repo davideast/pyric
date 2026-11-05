@@ -583,9 +583,12 @@ describe('pyric-admin remote dispatch — Auth', () => {
     const { ctx, app } = makeStack();
     const sixtyOneMinutesMs = 61 * 60 * 1000;
     getClock(ctx.sandbox).advance(sixtyOneMinutesMs);
+    const before = getClock(ctx.sandbox).now();
     const token = await getAuth(app).createCustomToken('alice', { role: 'admin' });
+    const after = getClock(ctx.sandbox).now();
     const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { iat: number };
-    expect(payload.iat).toBe(Math.floor(getClock(ctx.sandbox).now() / 1000));
+    expect(payload.iat).toBeGreaterThanOrEqual(Math.floor(before / 1000));
+    expect(payload.iat).toBeLessThanOrEqual(Math.floor(after / 1000));
     await expect(workerOp(ctx, { method: 'auth.signInWithCustomToken', customToken: token })).resolves.toBeDefined();
   });
 
