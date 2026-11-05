@@ -330,15 +330,27 @@ describe('allowances', () => {
   };
   const webInstall: StepRecord = { ...chatInstall, template: 'web', start: '2026-11-05T01:00:00.000Z', end: '2026-11-05T01:01:00.000Z' };
   const refused = (host: string, time: string): EgressEntry => ({ method: 'CONNECT', host, port: 443, allowed: false, time });
-  const verdict = (egress: EgressEntry[], steps: StepRecord[]) => crashFindings({ templates: [], egress: [REGISTRY, ...egress], steps });
+  // An install-step egress allowance, shaped like the one #2049 needed before its fix shipped.
+  const chatInstallHosts: Allowance = {
+    name: 'chat-install-hosts',
+    label: 'fixture',
+    reason: 'a chat install script that downloads a prebuilt binary',
+    template: 'chat',
+    step: 'npm install',
+    egressHosts: ['github.com', 'nodejs.org'],
+    port: 443,
+    limit: { oncePerHost: true },
+  };
+  const verdict = (egress: EgressEntry[], steps: StepRecord[]) =>
+    crashFindings({ templates: [], egress: [REGISTRY, ...egress], steps }, [chatInstallHosts, ...ALLOWANCES]);
   const registry = new Map([['registry.npmjs.org', ['104.16.0.34', '104.16.1.34', '2606:4700::6810:22']]]);
   const reject = (destination: string, time = '2026-11-05T01:02:37.000Z') => ({ time, protocol: 'TCP', destination, port: 443 });
 
-  test('the chat install reaching github.com and nodejs.org is listed as allowed (#2049), not failing', () => {
+  test('the chat install reaching github.com and nodejs.org is listed as allowed, not failing', () => {
     const result = verdict([refused('github.com', '2026-11-05T01:07:55.007Z'), refused('nodejs.org', '2026-11-05T01:07:55.093Z')], [chatInstall]);
     expect(result.failing).toEqual([]);
     expect(result.allowed).toHaveLength(2);
-    expect(result.allowed[0]).toStartWith('allowed (#2049): egress: refused CONNECT github.com:443');
+    expect(result.allowed[0]).toStartWith('allowed (fixture): egress: refused CONNECT github.com:443');
   });
 
   test('the same host outside the chat install, or another host during it, still fails', () => {
@@ -373,7 +385,7 @@ describe('allowances', () => {
 
   test('an allowance that matched nothing in a run that reached its step is stale and fails', () => {
     expect(verdict([], [chatInstall]).failing).toEqual([
-      'stale allowance chat-zstd-native-binary (#2049): matched nothing this run; remove it or fix it',
+      'stale allowance chat-install-hosts (fixture): matched nothing this run; remove it or fix it',
     ]);
     expect(firewallFindings([], STEPS, registry).failing).toEqual([
       'stale allowance next-dev-version-check (next-dev-version-check): matched nothing this run; remove it or fix it',
@@ -392,7 +404,6 @@ describe('allowances', () => {
       expect(allowance.label.length > 0 && allowance.reason.length > 0).toBe(true);
       expect((allowance.egressHosts === undefined) !== (allowance.resolvesTo === undefined)).toBe(true);
     }
-    expect(ALLOWANCES.find((allowance) => allowance.name === 'chat-zstd-native-binary')?.reason).toContain('#2049');
   });
 
   test('canonicalAddress compares IPv6 forms', () => {
