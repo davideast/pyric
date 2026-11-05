@@ -240,6 +240,7 @@ assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/ui/chat/chat-
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/firebase-messaging-sw\.ts$' "create-pyric ships the chat notification worker"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/README\.md$' "create-pyric ships the chat setup guide"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/\.env\.example$' "create-pyric ships the chat environment example"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/stubs/empty-native-optional/package\.json$' "create-pyric ships the chat stub for just-bash's native codecs"
 assert_tar_lacks "$TARBALL_CREATE_PYRIC" 'package/templates/chat/dist/' "create-pyric excludes the built chat dist/ tree"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 assert_tar_has "$TARBALL_LIVE" 'package/dist/cli\.js$' "@pyric/live ships the pyric-live bin"

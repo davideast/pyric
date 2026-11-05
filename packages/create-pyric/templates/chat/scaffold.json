@@ -15,6 +15,7 @@
     "scripts",
     "src",
     "storage.rules",
+    "stubs",
     "test",
     "tsconfig.json",
     "vite.config.ts"
