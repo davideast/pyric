@@ -93,7 +93,7 @@ export function getHostedFirestore(target: {
   let attachDeadline: ReturnType<typeof setTimeout> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
-  let hostSilence = watchHostSilence();
+  let hostSilence = watchHostSilence(0);
   const realm = target.realm;
   // Settles once the first attachment says whether the host has a byte route,
   // or the connection ends without one; Storage waits on it before choosing.
@@ -324,7 +324,7 @@ export function getHostedFirestore(target: {
     hasEverAttached = true;
     reconnectAttempt = 0;
     interruptedAt = undefined;
-    hostSilence = watchHostSilence();
+    hostSilence = watchHostSilence(performance.now());
     clearTimeout(heartbeatTimer);
     scheduleHeartbeat(connection);
     if (isResume) {
@@ -428,7 +428,7 @@ export function getHostedFirestore(target: {
         failConnection('The hosted sandbox sent an invalid message. Requests already sent may have completed; check state before retrying.');
         return;
       }
-      hostSilence.heard();
+      hostSilence.heard(performance.now());
       switch (message.type) {
         case 'attach-ack': {
           const isUnsupportedProtocol = message.protocol !== 1;
