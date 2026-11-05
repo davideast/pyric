@@ -22,7 +22,7 @@
  * and the functions child all take their project from this function.
  */
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { readFirebaseRcSync, type FirebaseRc } from './firebase-json.js';
@@ -68,6 +68,32 @@ export const FIREBASE_PROJECT_FIXES =
 export function firebaseToolsConfigstorePath(env: NodeJS.ProcessEnv = process.env): string {
   const configHome = nonEmpty(env.XDG_CONFIG_HOME) ?? join(nonEmpty(env.HOME) ?? homedir(), '.config');
   return join(configHome, 'configstore', 'firebase-tools.json');
+}
+
+/** The files that mark a folder as a Firebase project root. */
+const PROJECT_ROOT_MARKERS = ['.firebaserc', 'firebase.json'];
+
+function isFirebaseProjectRoot(dir: string): boolean {
+  return PROJECT_ROOT_MARKERS.some((marker) => existsSync(join(dir, marker)));
+}
+
+/**
+ * The Firebase project root for a process or server started in `startDir`:
+ * the nearest folder from `startDir` up, to the filesystem root, that holds
+ * `.firebaserc` or `firebase.json`, or null when none does. firebase-tools
+ * walks up the same way for `firebase.json` (`detectProjectRoot`); a
+ * `.firebaserc` also counts here, since it alone names the project. The Vite
+ * plugin and the live register both find their project with this function.
+ */
+export function findFirebaseProjectDir(startDir: string): string | null {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (isFirebaseProjectRoot(dir)) return dir;
+    const parent = dirname(dir);
+    const isFilesystemRoot = parent === dir;
+    if (isFilesystemRoot) return null;
+    dir = parent;
+  }
 }
 
 /** Resolve the project; see the module comment for the order. */

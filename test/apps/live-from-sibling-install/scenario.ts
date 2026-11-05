@@ -9,8 +9,10 @@
  * `firebase/firestore` load through the live rows, whose files the page
  * loads by `/@fs` from the `@pyric/live` in `rules/`, outside the Vite root.
  *
- * The app's server process, `web/server.mjs`, runs from the project folder
- * under the register from `rules/`: `node --import` with the file
+ * The app's server process, `web/server.mjs`, runs from `web/`, below the
+ * project folder that holds `.firebaserc` and `firebase.json`, under the
+ * register from `rules/`. The register walks up from `web/` to that folder
+ * for its project (#2134): `node --import` with the file
  * `rules/node_modules/@pyric/live/register` resolves to (#2116). Its `firebase/firestore` is the live row, and its
  * `firebase/database` is the app's installed SDK, passed through because the
  * dev server's `pyricLive({ passThrough })` lists it and the process reads
@@ -89,11 +91,11 @@ export default scenario(async (app) => {
     assert.deepEqual(health.live?.passThrough, ['firebase/database']);
   });
 
-  await app.step('a server in web/ under the register from rules/ loads its live rows and passes firebase/database through', async () => {
+  await app.step('a server started from web/ under the register from rules/ loads its live rows and passes firebase/database through', async () => {
     const register = pathToFileURL(createRequire(join(app.dir, 'rules', 'package.json')).resolve('@pyric/live/register')).href;
     assert.ok(register.startsWith(pathToFileURL(`${liveDir}/`).href), `the register entry is the one in rules/: ${register}`);
-    // From the project folder, where firebase.json and .firebaserc are, as the dev server's project is.
-    const run = await app.command('node', ['--import', register, 'web/server.mjs'], { timeoutMs: 60_000 });
+    // From web/, below the folder that holds firebase.json and .firebaserc: the register walks up to it (#2134).
+    const run = await app.command('node', ['--import', register, 'server.mjs'], { cwd: 'web', timeoutMs: 60_000 });
     assert.equal(run.code, 0, run.output);
     assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${PROJECT}\\.`));
     assert.ok(run.output.includes(`@pyric/live/register: ${PASSED}`), run.output);
