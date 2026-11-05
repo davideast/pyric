@@ -5,7 +5,7 @@
 // its Auth and Firestore handles, so every call goes through the same SDK
 // the page renders with.
 import type { Auth } from 'firebase/auth';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import type { Firestore, Unsubscribe } from 'firebase/firestore';
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 
@@ -46,9 +46,15 @@ export function installSoak(auth: Auth, db: Firestore): void {
   const posts = () => collection(db, 'users', uid(), 'posts');
 
   const soak = {
-    async authSettled(): Promise<string | null> {
-      await auth.authStateReady();
-      return auth.currentUser?.uid ?? null;
+    /** The restored user, once Auth has read its persistence: the first onAuthStateChanged call. */
+    authSettled(): Promise<string | null> {
+      // Not auth.authStateReady(): the sandbox's Auth has none yet (#1540).
+      return new Promise((resolve) => {
+        const stop = onAuthStateChanged(auth, (user) => {
+          stop();
+          resolve(user?.uid ?? null);
+        });
+      });
     },
     currentUid: (): string | null => auth.currentUser?.uid ?? null,
     async signUp(email: string, password: string): Promise<string> {
