@@ -74,6 +74,11 @@ Install from one of two sources, and say which in your report:
 3. Add `.pyric/` to `.gitignore`.
 4. Confirm it runs: `npx --no-install pyric-live --help` prints the usage.
 
+Installing `@pyric/live` with npm 7 or later also installs its `firebase` and `vite` peers into
+that package. In a layout where pyric sits in a separate package beside the app, set
+`legacy-peer-deps=true` in that package's `.npmrc` so a second `firebase` does not trip the
+one-`@firebase/app` start check.
+
 To move to a newer build later, run the install command again.
 
 ## Install from a checkout

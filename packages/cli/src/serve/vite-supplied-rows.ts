@@ -64,9 +64,15 @@ export type SuppliedRowsRefusal = (specifier: string, plane: SuppliedRowsPlane) 
  */
 export interface SuppliedRows {
   readonly refusal: SuppliedRowsRefusal;
+  /**
+   * The folder of the `@pyric/live` that supplied the rows, which the rows'
+   * package resolves from before the project root; undefined when the
+   * supplier did not say.
+   */
+  readonly liveRoot?: string;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RowModulePackage | null;
-  /** Opens the rows with the package found from the project root. */
+  /** Opens the rows with the installed package (`vite-live-package.ts`). */
   open(found: RowModulePackage): void;
   /**
    * The installed SDK files the rows loaded on the page, as real file URLs,
@@ -76,11 +82,12 @@ export interface SuppliedRows {
   readonly liveSdkUrls: Set<string>;
 }
 
-/** Shut live rows with the supplier's refusal. */
-export function suppliedRows(refusal: SuppliedRowsRefusal): SuppliedRows {
+/** Shut live rows with the supplier's refusal, and the folder of the `@pyric/live` that supplied them. */
+export function suppliedRows(refusal: SuppliedRowsRefusal, liveRoot?: string): SuppliedRows {
   let found: RowModulePackage | null = null;
   return {
     refusal,
+    liveRoot,
     liveSdkUrls: new Set(),
     package: () => found,
     open(next) {
