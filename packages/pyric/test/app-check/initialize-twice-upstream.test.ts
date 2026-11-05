@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as upstreamApp from 'firebase/app';
 import * as upstreamAppCheck from 'firebase/app-check';
 import { initializeApp, getApps, deleteApp } from '../../src/app/index.js';
@@ -43,9 +43,14 @@ function pyricOutcome(firstFlag: Flag, secondFlag: Flag, name: string): Outcome 
 }
 
 describe('app-check/initializeAppCheck called twice, against the installed firebase', () => {
+  // bun runs a package's test files in one process, in no fixed order, so a file before this one can leave the registry holding another config.
+  beforeEach(async () => {
+    await resetAppRegistryForTests();
+  });
+
   afterEach(async () => {
     for (const app of getApps()) await deleteApp(app);
-    resetAppRegistryForTests();
+    await resetAppRegistryForTests();
     for (const app of upstreamApp.getApps()) await upstreamApp.deleteApp(app);
   });
 
