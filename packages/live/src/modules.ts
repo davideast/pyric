@@ -8,7 +8,11 @@
  * Auth they return so a call's record can name its account (`account.ts`),
  * and every other one (classes, constants, `doc`, `query`) as the real value
  * itself, so `instanceof` and identity checks see the SDK's own. Every
- * wrapper returns the SDK's own result.
+ * wrapper returns the SDK's own result, with two exceptions (`observe.ts`): a
+ * promise comes back as a new promise that settles the same way, and a
+ * Firestore listener the page's observer journals returns a function that
+ * closes the listener's journal activity and then calls the SDK's own
+ * unsubscribe.
  *
  * The real module is passed in. A plane loads it from the app's own installed
  * `firebase`, so the app object, Auth, Firestore and App Check all come from
