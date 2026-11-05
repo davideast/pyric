@@ -6,8 +6,9 @@
  * Row `app-check#recaptcha-providers-without-document` holds the same claim
  * for the climb lane; this file guards it in the default run.
  */
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { initializeApp } from '../../src/app/index.js';
+import { resetAppRegistryForTests } from '../../src/app/registry.js';
 import { CustomProvider, getToken, initializeAppCheck, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider } from '../../src/app-check/index.js';
 import { NEVER_SETTLES_WARNING, resetNeverSettlesWarningForTests } from '../../src/app-check/never-settles-warning.js';
 
@@ -39,6 +40,10 @@ afterEach(() => {
   warn.mockRestore();
   delete testGlobal.FIREBASE_APPCHECK_DEBUG_TOKEN;
   delete testGlobal.document;
+});
+// The apps this file made hold its config; the next file in the process may use another.
+afterAll(async () => {
+  await resetAppRegistryForTests();
 });
 
 describe('initializeAppCheck with a reCAPTCHA provider and no document', () => {
