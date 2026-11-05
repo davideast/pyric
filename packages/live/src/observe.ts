@@ -2,7 +2,7 @@
  * Observation of the app's own Firebase SDK calls. A wrapper calls the real
  * function with the app's arguments and `this`, and returns what it returned:
  * the same value, the same unsubscribe function, the same thrown error. A
- * promise is the one exception: the app gets a new promise that settles with
+ * promise is one exception: the app gets a new promise that settles with
  * the real one's value or reason, so a rejection the app never handles is
  * still reported to the runtime as unhandled. Beside that, the wrapper hands
  * the observer a record of the call and its outcome.
@@ -16,7 +16,17 @@
  * Recording is isolated from the app: building a record, calling the
  * observer and a rejection from an async observer are each caught, so an
  * observer that fails never changes what the app sees.
+ *
+ * An observer may also journal Firestore listeners (`journal`), as the page's
+ * does, so the runtime chip's Listeners view and Flow see them. The listener
+ * wrapper then opens the listener's activity at the subscribe call, reports
+ * each delivery immediately before the app's callback runs, and closes the
+ * activity when the app unsubscribes: the app gets a function that closes it
+ * and calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
+import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
+
+export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
 /**
  * What happened to one call or one listener event: the call returned or
@@ -59,8 +69,11 @@ export interface LiveAccount {
   readonly claimNames?: readonly string[];
 }
 
-/** The hook a plane supplies to receive records. Its return value is ignored. */
-export type LiveObserver = (record: LiveCallRecord) => unknown;
+/**
+ * The hook a plane supplies to receive records. Its return value is ignored.
+ * A plane whose listeners the runtime chip shows also supplies `journal`.
+ */
+export type LiveObserver = ((record: LiveCallRecord) => unknown) & { readonly journal?: LiveListenerJournal };
 
 /** What the SDK itself does with a listener error when the app passed no error callback. */
 export type UncaughtListenerError = (error: unknown) => void;
@@ -84,6 +97,8 @@ export interface ObservedSite {
   readonly subject?: unknown;
   /** Reads the account a call whose first argument is `subject` runs as. Absent records no account. */
   readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
+  /** For one listener the observer journals: its activity. */
+  readonly activity?: LiveListenerActivity;
 }
 
 type Callback = (this: unknown, ...values: unknown[]) => unknown;
@@ -170,13 +185,15 @@ function ignoreRejection(returned: unknown): void {
   if (isPromise) Promise.prototype.then.call(returned, undefined, () => undefined);
 }
 
-/** Hands the observer one record. Nothing it does, or fails to do, reaches the caller. */
-function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): void {
+/** Hands the observer one record, and returns it. Nothing the observer does, or fails to do, reaches the caller. */
+function report(site: ObservedSite, outcome: LiveCallOutcome, value?: unknown): LiveCallRecord | undefined {
   try {
     const record = buildRecord(site, outcome, value);
     ignoreRejection(site.observer(record));
+    return record;
   } catch {
     // A recorder failure never changes what the app sees.
+    return undefined;
   }
 }
 
@@ -341,11 +358,47 @@ export function observedCall(site: ObservedSite, real: Callback): Callback {
   };
 }
 
+/** Tells the journal the listener failed. A journal failure never reaches the app. */
+function journalFailure(site: ObservedSite): void {
+  try {
+    site.activity?.fail();
+  } catch {
+    // The journal is a diagnostic; the app's error callback still runs.
+  }
+}
+
+/**
+ * Runs the app's callback for one delivery through the listener's activity,
+ * so the journal reports it immediately before the callback. The callback
+ * runs exactly once: directly when the listener has no activity, or when the
+ * journal fails before running it.
+ */
+function deliverThrough(site: ObservedSite, value: unknown, billedDocuments: number | undefined, run: () => unknown): unknown {
+  const activity = site.activity;
+  if (activity === undefined) return run();
+  let ran = false;
+  const once = (): unknown => {
+    ran = true;
+    return run();
+  };
+  try {
+    const returned = activity.deliver(value, billedDocuments, once);
+    return ran ? returned : run();
+  } catch (error) {
+    if (ran) throw error;
+    return run();
+  }
+}
+
 /** Wraps one listener callback: records the event, then calls the app's callback with the same `this` and values. */
 function recordingCallback(site: ObservedSite, outcome: LiveCallOutcome, callback: Callback): Callback {
   return function recorded(this: unknown, ...values: unknown[]): unknown {
-    report(site, outcome, values[0]);
-    return Reflect.apply(callback, this, values);
+    const record = report(site, outcome, values[0]);
+    const callApp = (): unknown => Reflect.apply(callback, this, values);
+    const isDelivery = outcome === 'delivered';
+    if (isDelivery) return deliverThrough(site, values[0], record?.billedDocuments, callApp);
+    journalFailure(site);
+    return callApp();
   };
 }
 
@@ -357,6 +410,7 @@ function recordingCallback(site: ObservedSite, outcome: LiveCallOutcome, callbac
 function uncaughtErrorCallback(site: ObservedSite): Callback {
   return function recorded(...values: unknown[]): void {
     report(site, 'listener-error', values[0]);
+    journalFailure(site);
     try {
       site.uncaughtListenerError?.(values[0]);
     } catch {
@@ -434,7 +488,17 @@ function recordingArguments(site: ObservedSite, args: unknown[]): unknown[] {
 export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args);
-    const listenerSite = { ...callSite, billing: billedDocuments() };
-    return callReal(callSite, real, this, recordingArguments(listenerSite, args));
+    const activity = openActivity(site.observer, site.name, args[0]);
+    const listenerSite = { ...callSite, billing: billedDocuments(), activity };
+    const listening = recordingArguments(listenerSite, args);
+    if (activity === undefined) return callReal(callSite, real, this, listening);
+    let unsubscribe: unknown;
+    try {
+      unsubscribe = callReal(callSite, real, this, listening);
+    } catch (error) {
+      journalFailure(listenerSite);
+      throw error;
+    }
+    return closingUnsubscribe(activity, unsubscribe);
   };
 }

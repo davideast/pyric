@@ -20,6 +20,7 @@ export { INSTALLED_SDK_SPECIFIERS, OBSERVER_MODULE_ID, OBSERVER_SPECIFIER, ROW_M
 export type { SuppliedRowsPlane, SuppliedRowsRefusal } from './vite-supplied-rows.js';
 export type { PyricOptions } from './vite-plugin.js';
 export type { PyricWrite, PyricWriter, PyricWriteRefusal } from './hosted/own-writes.js';
+export type { LiveListener, LiveListenerActivity } from './entries/live-listener-journal.js';
 export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric/sandbox';
 
 /** What the supplier gives: only the error for a refused import. */
