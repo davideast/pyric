@@ -26,8 +26,9 @@
  * `web/node_modules`, as a workspace that installs it only for the app lays
  * it out (#2161). The project folder's own resolution no longer reaches
  * `firebase`, so the start checks and the live rows read it from the folder
- * the app runs in first: the server starts from `web/` again, against a
- * dev server started again for its pass-through list.
+ * the app runs in first: `pyric-live` and the server each start from `web/`
+ * again, the server against a dev server started again for its
+ * pass-through list.
  *
  * Neither the page nor the server makes a call, so nothing goes to production. Like every app
  * scenario this runs offline, and the browser blocks every host but loopback.
@@ -142,12 +143,16 @@ export default scenario(async (app) => {
     await pyricLiveStartsFromWeb(app);
   });
 
-  await app.step('with firebase installed only in web/, the server from web/ loads its live rows and passes firebase/database through', async () => {
+  await app.step('with firebase installed only in web/, pyric-live started from web/ passes its start checks', async () => {
     const webModules = join(app.dir, 'web', 'node_modules');
     // Vite's dependency cache already made web/node_modules.
     mkdirSync(webModules, { recursive: true });
     for (const name of ['firebase', '@firebase']) renameSync(join(app.dir, 'node_modules', name), join(webModules, name));
     assert.equal(existsSync(join(app.dir, 'node_modules', 'firebase')), false, 'the repository root has no firebase');
+    await pyricLiveStartsFromWeb(app);
+  });
+
+  await app.step('with firebase installed only in web/, the server from web/ loads its live rows and passes firebase/database through', async () => {
     // The dev server again, for the pass-through list the server reads from its health report.
     const dev = await startViteDev(app);
     const register = pathToFileURL(createRequire(join(app.dir, 'rules', 'package.json')).resolve('@pyric/live/register')).href;
