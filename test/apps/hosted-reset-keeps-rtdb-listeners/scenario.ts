@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { scenario } from '../driver.ts';
+import { scenario, type ExpectedCrash } from '../driver.ts';
+
+export const expectedCrashes: ExpectedCrash[] = [
+  {
+    message: /^Error: WebSocket closed without opened\.$/,
+    source: /^page http:\/\/127\.0\.0\.1:\d+\/ \(at http:\/\/127\.0\.0\.1:\d+\/@vite\/client:\d+\)$/,
+    reason: "vite.config.js points Vite's HMR client at port 1 so it never reloads the page, and the client rejects when that socket fails",
+  },
+];
 
 export default scenario(async (app) => {
   const host = await app.step('start the hosted dev server', () => app.devServer());

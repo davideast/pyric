@@ -161,6 +161,7 @@ export default scenario(async (app) => {
     const watch = await app.step('watch every request the browser makes, from pages and workers', () => RequestWatch.open(debuggingPort));
     const context = await browser.newContext();
     await guardContext(context, app.browserLog as string[]);
+    await app.watchCrashes(context);
     const page = await context.newPage();
     await app.step('open the page', () => openPage(app, page, host.url));
 
