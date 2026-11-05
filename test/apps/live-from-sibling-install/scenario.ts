@@ -163,6 +163,7 @@ export default scenario(async (app) => {
     assert.ok(run.output.includes(`@pyric/live/register: reporting calls to the live host at ${dev.url}.`), run.output);
     const result = resultOf(run.output);
     assert.equal(result.firestore, 'rooms/lobby');
+    assert.equal(result.database, 'https://demo-live-sibling-default-rtdb.firebaseio.com/rooms/lobby');
     assert.match(result.resolved['firebase/firestore']!, /\/live-rows\/firebase\/firestore\.js$/, 'firebase/firestore is the live row');
     const appSdk = pathToFileURL(`${realpathSync(join(app.dir, 'web', 'node_modules', 'firebase'))}/`).href;
     assert.ok(result.resolved['firebase/database']!.startsWith(appSdk), `firebase/database is the SDK in web/node_modules: ${result.resolved['firebase/database']}`);

@@ -8,18 +8,20 @@
  * sandbox host.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { parseArgs } from '../src/cli/parse-args.js';
 // Imported here, before any test changes the working directory: the serve
 // modules it loads read the working directory once, as they load.
 import { LiveProjectMissingError, liveHostProject, runLiveHost } from '../src/serve/live-host.js';
+import { LIVE_PROJECT_ROOT_VARIABLE, LIVE_SDK_ROOT_VARIABLE, loadInstalledLiveRegister } from '../src/register/live-package.js';
 
 const cliDir = fileURLToPath(new URL('../', import.meta.url));
 const pyricDir = fileURLToPath(new URL('../../pyric/', import.meta.url));
+const liveDir = fileURLToPath(new URL('../../live/', import.meta.url));
 
 interface Manifest {
   bin?: string | Record<string, string>;
@@ -177,9 +179,11 @@ describe('pyric and @pyric/cli expose nothing live', () => {
       for (const match of text.matchAll(/PYRIC_[A-Z0-9_]*LIVE[A-Z0-9_]*/g)) variables.add(match[0]);
       expect(text, file).not.toMatch(/config\.live\b|pyricConfig\.live\b|\.live\s*===\s*true\s*\?\s*'live'/);
     }
-    // Error codes, and the two variables a live process passes its own children:
-    // PYRIC_LIVE_PROJECT_ROOT names where to look, and PYRIC_LIVE_PASS_THROUGH
-    // narrows which imports go to production. Both are read only inside
+    // Error codes, and the three variables a live process passes its own children:
+    // PYRIC_LIVE_PROJECT_ROOT names where to look, PYRIC_LIVE_PASS_THROUGH
+    // narrows which imports go to production, and PYRIC_LIVE_SDK_ROOT names the
+    // folder whose firebase the first process checked, so a child's rows resolve
+    // that copy rather than one beside its own cwd. All are read only inside
     // activateWithSuppliedRows, which only @pyric/live/register calls, so live
     // mode still starts only by importing @pyric/live/register.
     expect([...variables].sort()).toEqual([
@@ -187,6 +191,7 @@ describe('pyric and @pyric/cli expose nothing live', () => {
       'PYRIC_LIVE_PASS_THROUGH',
       'PYRIC_LIVE_PROJECT_ROOT',
       'PYRIC_LIVE_REFUSED',
+      'PYRIC_LIVE_SDK_ROOT',
       'PYRIC_TEST_PEER_LIVENESS_MS',
     ]);
   });
@@ -210,5 +215,41 @@ describe('the live host seam', () => {
     writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'from-rc' } }));
     expect(liveHostProject([], root)).toBe('from-rc');
     expect(liveHostProject(['--project', 'from-flag'], root)).toBe('from-flag');
+  });
+});
+
+describe('the folder the live register rows resolve firebase from', () => {
+  /** A project with firebase installed in web/ and, at another version, in functions/. */
+  function twoInstalls(): { root: string; web: string; functions: string } {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-sdk-root-')));
+    roots.push(root);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'app', private: true }));
+    for (const [folder, version] of [['web', '12.12.0'], ['functions', '11.10.0']]) {
+      const firebase = join(root, folder, 'node_modules', 'firebase');
+      mkdirSync(firebase, { recursive: true });
+      writeFileSync(join(firebase, 'package.json'), JSON.stringify({ name: 'firebase', version }));
+    }
+    return { root, web: join(root, 'web'), functions: join(root, 'functions') };
+  }
+
+  it('is the folder the first process runs in, when firebase resolves there', async () => {
+    const { root, web } = twoInstalls();
+    const installed = await loadInstalledLiveRegister(root, liveDir, web, {});
+    expect(installed.sdkRoot).toBe(web);
+    expect(installed.rows.projectUrl).toBe(pathToFileURL(join(web, 'package.json')).href);
+  });
+
+  it('in a child, is the folder its first process recorded, not the child\'s cwd with its own firebase', async () => {
+    const { root, web, functions } = twoInstalls();
+    const childEnv = { [LIVE_PROJECT_ROOT_VARIABLE]: root, [LIVE_SDK_ROOT_VARIABLE]: web };
+    const installed = await loadInstalledLiveRegister(root, liveDir, functions, childEnv);
+    expect(installed.sdkRoot).toBe(web);
+    expect(installed.rows.projectUrl).toBe(pathToFileURL(join(web, 'package.json')).href);
+  });
+
+  it('ignores a recorded folder without a recorded project root, which only a child has', async () => {
+    const { root, web, functions } = twoInstalls();
+    const installed = await loadInstalledLiveRegister(root, liveDir, functions, { [LIVE_SDK_ROOT_VARIABLE]: web });
+    expect(installed.sdkRoot).toBe(functions);
   });
 });
