@@ -37,7 +37,7 @@ if [ -n "\${FAIL_COMMAND:-}" ] && [ "$name $*" = "$FAIL_COMMAND" ]; then exit 17
   if (options.dryRun) args.push('--dry-run');
   args.push('0.1.0-alpha.9');
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...envWithoutReleaseSettings(),
     PATH: `${bin}:${process.env.PATH}`,
     COMMAND_LOG: log,
     REGISTRY_LOG: registryLog,
@@ -397,6 +397,14 @@ function realStampRepo(): string {
 }
 
 /** What `npm access list packages <user> --json` prints: package name to `read-write` or `read-only`. */
+// The release itself runs with these set (the preflight runs this file), so a test that
+// inherits them would test the owner's release settings instead of its own.
+function envWithoutReleaseSettings(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const name of ['PYRIC_PUBLISH_SCOPE_WRITE', 'PYRIC_PUBLISH_SKIP_GATES', 'PYRIC_PUBLISH_TAG', 'PYRIC_NPM_REGISTRY']) delete env[name];
+  return env;
+}
+
 const PUBLISHED_NAMES = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui', '@pyric/live'];
 const accessJson = (names: string[], permission = 'read-write') =>
   JSON.stringify(Object.fromEntries(names.map((name) => [name, permission])));
@@ -448,7 +456,7 @@ fi`,
   const result = spawnSync('/bin/bash', [join(repo, 'scripts/publish-alpha.sh'), '--dry-run', '0.1.0-alpha.9'], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, ACCESS_JSON: ALL_READ_WRITE, COLLABORATORS_JSON: '{}', ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
+    env: { ...envWithoutReleaseSettings(), ACCESS_JSON: ALL_READ_WRITE, COLLABORATORS_JSON: '{}', ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
   });
   const commands = readFileSync(log, 'utf8').split('\n');
   const uploads = commands.filter((line) => line.startsWith('uploaded '));
