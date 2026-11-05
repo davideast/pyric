@@ -6,8 +6,23 @@
 # flow in Chromium: sign in, one write, one read, a reload. It fails on a
 # create, install or start error, an uncaught page error, an unhandled
 # rejection, a worker error or crashed page, a runtime chip that is not
-# Ready, an error stack in the dev server's output, or any request that is
-# not to registry.npmjs.org:443.
+# Ready, a chip absent from a template whose pages mount it (every page
+# template: web, static, chat, nextjs; node has no page), an error stack in
+# the dev server's output, or any request that is not to
+# registry.npmjs.org:443.
+#
+# The install runs with npm's audit and funding notices on, as a new user's
+# does; findings.txt has each template's audit summary line.
+#
+# The dev command is plain `npm run dev`, with no host, port or open flags,
+# and the page opens on the template's default address (localhost:5173 for
+# web and chat, localhost:3473 for static, localhost:3000 for nextjs). Two
+# things differ from a user's terminal: CI is passed through to the dev
+# command and its stdout is a pipe, and either one turns off `pyric
+# sandbox`'s auto-open (packages/cli/src/serve/open-browser.ts), so no
+# browser opens on its own. findings.txt lists the command run next to the
+# template's own `npm run dev` script, and the chip each template showed
+# ("chip absent" where none is expected).
 #
 # The run's direct connections are rejected by the firewall: it runs in a
 # group whose traffic may reach only loopback, and its installs go through

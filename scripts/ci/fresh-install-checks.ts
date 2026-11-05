@@ -56,6 +56,12 @@ export interface TemplateEvidence {
   serverOutput: string;
   /** The runtime chip after each load: `Ready`, `absent`, or what it showed instead. */
   chipStates: readonly string[];
+  /** Whether the template's pages mount the chip (DEV_SETUPS); `not expected` for a template with no page. */
+  chip?: ChipExpectation;
+  /** The dev command the driver ran (page templates only). */
+  devCommand?: DevCommandRun;
+  /** The output of `npm install`, which ends with npm's audit summary. */
+  installOutput?: string;
   /** Error responses from `/__pyric/` routes to the pages (the driver's `unexpectedHostErrors()`). */
   hostErrors?: readonly string[];
 }
@@ -126,10 +132,96 @@ function hostErrorFindings(hostErrors: readonly string[] = []): string[] {
   return hostErrors.map((request) => `pyric host answered with an error: ${request}`);
 }
 
-function chipFindings(states: readonly string[]): string[] {
-  return states
-    .filter((state) => state !== 'Ready' && state !== 'absent')
-    .map((state) => `runtime chip is not Ready: ${state}`);
+/** `absent` fails only where the chip is expected; any other state but `Ready` always fails. */
+function chipFindings(evidence: TemplateEvidence): string[] {
+  return evidence.chipStates.flatMap((state) => {
+    if (state === 'Ready') return [];
+    if (state !== 'absent') return [`runtime chip is not Ready: ${state}`];
+    if (evidence.chip === 'expected') return ['runtime chip absent, though this template mounts it'];
+    return [];
+  });
+}
+
+// ─── Dev commands ──────────────────────────────────────────────────────
+
+/** Whether a template's plane mounts the runtime chip on its pages. */
+export type ChipExpectation = 'expected' | 'not expected';
+
+/** How the driver starts one page template: plain `npm run dev`, on the template's own host and port. */
+export interface DevSetup {
+  /** The page the template's dev command serves by default, where the browser opens it. */
+  url: string;
+  /** Environment for the dev command beyond the run's own. */
+  env?: Record<string, string>;
+  /** Why the chip is or is not expected on this template's pages. */
+  chip: ChipExpectation;
+}
+
+export const DEV_SETUPS = {
+  // `vite`: the Vite plugin (`@pyric/cli/vite`) injects the init entry, which mounts the chip.
+  web: { url: 'http://localhost:5173', chip: 'expected' },
+  // `pyric sandbox --seed seed.json` on its default port; the served HTML gets the init entry, which mounts the chip.
+  static: { url: 'http://localhost:3473', chip: 'expected' },
+  // `pyric sandbox -- next dev`: the page is Next's, and `withPyric`'s runtime mounts the chip (`runtimeChip`, on by default).
+  // The firewall rejects anything but loopback, so telemetry is turned off the way a careful user does.
+  nextjs: { url: 'http://localhost:3000', env: { NEXT_TELEMETRY_DISABLED: '1' }, chip: 'expected' },
+  chat: { url: 'http://localhost:5173', chip: 'expected' },
+} as const satisfies Record<string, DevSetup>;
+
+/** What the driver ran for a page template, for its findings.txt line. */
+export interface DevCommandRun {
+  /** The command line, with the environment the driver adds: `npm run dev`. */
+  ran: string;
+  /** The template's own `scripts.dev`, which `npm run dev` runs. */
+  script: string;
+  url: string;
+}
+
+/** The command line the driver runs for `setup`: `npm run dev`, after any environment it adds. */
+export function devCommandLine(setup: DevSetup): string {
+  const env = Object.entries(setup.env ?? {}).map(([name, value]) => `${name}=${value}`);
+  return [...env, 'npm', 'run', 'dev'].join(' ');
+}
+
+/**
+ * The line npm's audit prints at the end of `npm install`: `found 0
+ * vulnerabilities`, or `3 moderate severity vulnerabilities`, or
+ * `7 vulnerabilities (2 low, 5 moderate)`.
+ */
+const AUDIT_SUMMARY = /^(?:found \d+ vulnerabilit(?:y|ies)|\d+ (?:\w+ severity )?vulnerabilit(?:y|ies)\b.*)$/;
+
+export function auditSummary(installOutput: string): string | undefined {
+  return installOutput.split('\n').map((line) => line.trim()).find((line) => AUDIT_SUMMARY.test(line));
+}
+
+function auditNote(installOutput: string | undefined): string[] {
+  if (installOutput === undefined) return [];
+  return [`npm audit: ${auditSummary(installOutput) ?? 'npm install printed no audit summary'}`];
+}
+
+function devCommandNote(run: DevCommandRun | undefined): string[] {
+  if (run === undefined) return [];
+  return [
+    `dev command: ran \`${run.ran}\` (the template's \`npm run dev\` runs \`${run.script}\`) and opened ${run.url}/; `
+    + 'CI is passed through and stdout is a pipe, so no browser opens on its own',
+  ];
+}
+
+/** A template with no page (node) reads no chip, so it shows as absent. */
+function chipNote(evidence: TemplateEvidence): string[] {
+  if (evidence.chip === undefined) return [];
+  const seen = evidence.chipStates.map((state) => (state === 'absent' ? 'chip absent' : state));
+  return [`runtime chip ${evidence.chip}: ${[...new Set(seen)].join(', ') || 'chip absent'}`];
+}
+
+/**
+ * Lines findings.txt shows on every run that never fail it: npm's audit
+ * summary, the dev command the driver ran, and the chip each template showed.
+ */
+export function runNotes(run: RunEvidence): string[] {
+  return run.templates.flatMap((evidence) =>
+    [...auditNote(evidence.installOutput), ...devCommandNote(evidence.devCommand), ...chipNote(evidence)]
+      .map((note) => `${evidence.template}: ${note}`));
 }
 
 // ─── Allowances ────────────────────────────────────────────────────────
@@ -416,9 +508,10 @@ export function firewallFindings(
  * Every problem in one run: a failed create, install, start or flow step; an
  * uncaught page error; an unhandled rejection; a worker error or crashed
  * page; a 5xx response or a pyric host error to a page; a page request the
- * browser guard blocked; a runtime chip that is not Ready; an error stack or
- * a Next `⨯` error in the dev server's output; and any request the egress
- * guard refused, or no guarded traffic at all. Refused requests an
+ * browser guard blocked; a runtime chip that is not Ready, or absent where the
+ * template mounts it; an error stack or a Next `⨯` error in the dev server's
+ * output; and any request the egress guard refused, or no guarded traffic at
+ * all. Refused requests an
  * allowance covers are listed in `allowed` instead.
  */
 export function crashFindings(run: RunEvidence, allowances: readonly Allowance[] = ALLOWANCES): Verdict {
@@ -426,7 +519,7 @@ export function crashFindings(run: RunEvidence, allowances: readonly Allowance[]
   for (const evidence of run.templates) {
     const own: string[] = [];
     if (evidence.failedStep) own.push(`${evidence.failedStep.step} failed: ${firstLine(evidence.failedStep.reason)}`);
-    own.push(...browserFindings(evidence), ...hostErrorFindings(evidence.hostErrors), ...chipFindings(evidence.chipStates), ...serverErrorFindings(evidence.serverOutput));
+    own.push(...browserFindings(evidence), ...hostErrorFindings(evidence.hostErrors), ...chipFindings(evidence), ...serverErrorFindings(evidence.serverOutput));
     findings.push(...own.map((finding) => `${evidence.template}: ${finding}`));
   }
   const egress = egressVerdict(run.egress, run.steps ?? [], allowances);
@@ -434,6 +527,26 @@ export function crashFindings(run: RunEvidence, allowances: readonly Allowance[]
 }
 
 // ─── Egress guard ──────────────────────────────────────────────────────
+
+/**
+ * The environment of create and install: the egress guard as the proxy and
+ * the registry, and nothing else, so npm's audit and funding notices run as
+ * they do for a new user. Both reach only the registry. The driver's
+ * processes inherit nothing else, so these are set here, not in the workflow.
+ */
+export function installEnvironment(proxyUrl: string): Record<string, string> {
+  return {
+    HTTPS_PROXY: proxyUrl,
+    HTTP_PROXY: proxyUrl,
+    https_proxy: proxyUrl,
+    http_proxy: proxyUrl,
+    NO_PROXY: '127.0.0.1,localhost,::1',
+    no_proxy: '127.0.0.1,localhost,::1',
+    npm_config_https_proxy: proxyUrl,
+    npm_config_proxy: proxyUrl,
+    npm_config_registry: `https://${REGISTRY_HOST}/`,
+  };
+}
 
 function splitHostPort(authority: string): { host: string; port: number } {
   const colon = authority.lastIndexOf(':');
