@@ -21,7 +21,12 @@ Live mode is not a sandbox. Every call reaches a real Firebase project.
   project's Cloud Functions triggers, which may send real email or SMS.
 - Write only new documents, under a collection the owner names or under a unique test prefix such
   as `pyric-live-test-<time>`. Never change or delete existing documents.
-- Put `limit()` on every query and listener.
+- Never change the app's code, queries or listeners to make a test cheaper or safer. Live mode
+  observes what the app does; a changed app makes the observation worthless.
+- Your own test reads, queries and listeners target only the documents you wrote under your test
+  collection or prefix. That keeps them small without changing anything.
+- Exercising an app flow that reads a whole collection is billed like any production read. If the
+  owner hasn't said it's fine, ask first and name the flow.
 - Never use real people's email addresses or phone numbers. Use addresses and numbers the owner
   controls or gives you.
 - Never paste document contents, ID tokens, refresh tokens or API keys into a report.
@@ -144,8 +149,8 @@ further. If the terminal, the chip or Studio warns that the app's calls go to a 
 
 Work through these and record the observed result for each. Each line states what should happen.
 
-1. **Firestore.** A read, a query and a listener (each with `limit()`), and a write of a new
-   document under the test collection or prefix, on the `(default)` database, each appear
+1. **Firestore.** A write of a new document, and a read, a query and a listener, all on the test
+   collection or prefix in the `(default)` database, each appear
    as a row served by production, with the method (such as `setDoc`), production's answer, the
    client (this page, another tab or a Node process), and the signed-in account's id and claim
    names. No row shows a token.
