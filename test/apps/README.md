@@ -9,6 +9,33 @@ Each directory here is a plain user project: a `package.json`, a `vite.config.js
 
 Every app process gets a fresh `HOME` and no inherited credentials or API keys.
 
+## How the scenario browser differs from a user's Chrome
+
+**The HTTP cache is off.** `guardContext` routes every request (`context.route`), and Playwright turns off the browser's HTTP cache in any context with a route. That covers `app.browser()`, every page `app.page()` opens, and each context a scenario guards itself. Every load fetches every module in full, so a bug that needs the cache, such as a stale Pyric runtime module after a dev server restart, a wrong 304, or the SDK loading twice, cannot show there. `hosted-dev-server-restart` also opens a page in a second browser that has the resolver rules and no route, so its cache stays on. It first proves the rules alone keep that browser on loopback: a fetch and a WebSocket from the page and from a dedicated worker, to names and addresses the rules do not exclude, never reach a listener on every local address. Then it checks that the page, reloaded across the restart, runs the new host generation's modules.
+
+**Playwright's default Chromium switches.** Playwright 1.62.0 (`chromiumSwitches` in `playwright-core`) launches every scenario browser with these, so a scenario sees none of what they turn off unless it passes them to `ignoreDefaultArgs`:
+
+| Switch | What a user's Chrome does that the scenario browser does not |
+|---|---|
+| `--disable-background-timer-throttling` | Throttles timers in hidden tabs: at most once a second, and about once a minute for timer chains after five minutes hidden |
+| `--disable-renderer-backgrounding` | Lowers the priority of renderers for background tabs |
+| `--disable-backgrounding-occluded-windows` | Treats a covered or minimized window as hidden |
+| `--disable-back-forward-cache` | Keeps a page in the back-forward cache when it navigates away, with its socket open |
+| `--disable-ipc-flooding-protection` | Limits how fast a page can call navigation and history APIs |
+| `--disable-hang-monitor` | Offers to stop a page that stops responding |
+| `--disable-popup-blocking` | Blocks popups a page opens without a user gesture |
+| `--disable-prompt-on-repost` | Asks before resubmitting a form on reload |
+| `--allow-pre-commit-input` | Drops input before a page first paints |
+| `--disable-background-networking` | Makes background requests such as component updates and safe browsing lists |
+| `--disable-field-trial-config` | Runs Chrome's field trial features |
+| `--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion` | Among these: upgrades `http` navigations to `https`, holds paint across same-origin navigations, and partitions third-party storage by top-level site |
+| `--enable-features=CDPScreenshotNewSurface` | Nothing; it changes how CDP takes screenshots |
+| `--disable-breakpad`, `--disable-client-side-phishing-detection`, `--disable-component-extensions-with-background-pages`, `--disable-component-update`, `--no-default-browser-check`, `--disable-default-apps`, `--disable-dev-shm-usage`, `--disable-edgeupdater`, `--disable-extensions`, `--disable-updater-scheduler`, `--force-color-profile=srgb`, `--metrics-recording-only`, `--no-first-run`, `--password-store=basic`, `--use-mock-keychain`, `--no-service-autorun`, `--export-tagged-pdf`, `--disable-search-engine-choice-screen`, `--unsafely-disable-devtools-self-xss-warnings`, `--edge-skip-compat-layer-relaunch`, `--disable-infobars`, `--disable-sync` | Crash reports, phishing checks, extensions, updates, first-run and sign-in prompts, sync, and the color profile, none of which a scenario page reads |
+| `--headless`, `--hide-scrollbars`, `--mute-audio`, `--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4` | Added for headless: no window, no scrollbars, no sound, and a page that reports hover and a fine pointer |
+| `--no-sandbox` | Runs renderers in Chromium's sandbox; Playwright leaves it out unless `chromiumSandbox` is set |
+
+The driver adds `--host-resolver-rules` (above). Playwright also turns on CDP focus emulation for every page it drives, which holds the page visible: a tab another tab covers still reports `document.visibilityState === 'visible'`, and Chromium does not throttle it even without the switches. `host-closes-silent-page` restores the back-forward cache with `ignoreDefaultArgs`. A tab opened over CDP in a browser context Playwright does not manage gets no focus emulation, so with the three throttling switches dropped it is hidden and throttled as in Chrome.
+
 These live at the repository root, not under a package, because each app exercises several published packages together (`@pyric/cli`, `pyric-admin`, `pyric`) as one installed project.
 
 ## Run them
@@ -92,10 +119,12 @@ The dev server port comes from the command line, which overrides any `server.por
 | `app.blackholedPort()` | A port whose connects never complete and never refuse, as a closed port behaves under WSL mirrored networking. |
 | `app.browserLog` | Every page's console lines, page errors, and error responses so far, for asserting what a user would see in the console. It also holds a line for each blocked external request (`[blocked external request]`) and WebSocket (`[blocked external WebSocket]`). |
 | `app.expectHostError(pattern)` | Allows a page request to a `/__pyric/` route to answer with an error, matched against `"<status> <method> <path>?<query>"`. |
+| `app.expectLeftoverProcess(pattern)` | Allows a process an app process started to outlive it, matched against the leftover's command name. |
+| `app.noteErrorResponse(status, method, url)` | Counts an error response to a page the scenario opened in a browser it launched itself, as `app.page()` counts its own. |
 
 `process.stop()` sends SIGTERM to the process group, then SIGKILL after 5 seconds. A process that still has not closed 5 seconds after that, such as one whose pipes another process holds open, is recorded as gone with a note in its log, so a step and the run's teardown never wait on it longer. When a spawn fails with `EBADF` before the process writes any output, which Bun's `spawn` does now and then under concurrency (#997), the driver starts it once more and says so in its log.
 
-A page request that a `/__pyric/` route answers with a 4xx or 5xx status fails the app after its scenario finishes, even when every step passed. A user sees those errors in the browser console on every page load, so a scenario that triggers one on purpose, such as a download URL with the wrong token, declares it with `app.expectHostError` just before the request.
+A page request that a `/__pyric/` route answers with a 4xx or 5xx status fails the app after its scenario finishes, even when every step passed. A user sees those errors in the browser console on every page load, so a scenario that triggers one on purpose, such as a download URL with the wrong token, declares it with `app.expectHostError` just before the request. A pattern that matched no error fails the app too, as does an `expectLeftoverProcess` pattern that matched no leftover and an `expectedCrashes` entry that matched no crash, so an allowance cannot outlive what it describes. An error that comes only in some runs, such as one a race decides, passes `{ mayNotHappen: '<why, with its issue>' }`, and only then may its pattern match nothing. The driver refuses a reason that is blank or cites no issue (`#<number>`). Remove the `mayNotHappen` when its issue closes.
 
 ## Recorded production (`replay/`)
 
