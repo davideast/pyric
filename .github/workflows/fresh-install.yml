@@ -132,7 +132,9 @@ jobs:
           TEMPLATES: ${{ github.event.inputs.templates }}
         run: |
           sg "$EGRESS_GROUP" -c 'bun scripts/ci/fresh-install.ts run --tag "$TAG" ${TEMPLATES:+--templates "$TEMPLATES"} --proxy "http://127.0.0.1:$EGRESS_PORT" --egress-log "$RUNNER_TEMP/egress.jsonl" --out test-results/fresh-install'
-      # Confirms the allowed Next.js reject's source in the Next the template installed.
+      # Only logs, never fails: prints where the Next the template installed
+      # fetches the registry, the source of the allowed Next.js rejects, so a
+      # reader can check it against next-dev-version-check.
       - name: Where the installed Next.js dev server fetches the registry
         if: always()
         run: |

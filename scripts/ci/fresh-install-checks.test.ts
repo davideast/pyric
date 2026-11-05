@@ -332,7 +332,6 @@ describe('allowances', () => {
   const refused = (host: string, time: string): EgressEntry => ({ method: 'CONNECT', host, port: 443, allowed: false, time });
   const verdict = (egress: EgressEntry[], steps: StepRecord[]) => crashFindings({ templates: [], egress: [REGISTRY, ...egress], steps });
   const registry = new Map([['registry.npmjs.org', ['104.16.0.34', '104.16.1.34', '2606:4700::6810:22']]]);
-  const nextDev = STEPS[2]!;
   const reject = (destination: string, time = '2026-11-05T01:02:37.000Z') => ({ time, protocol: 'TCP', destination, port: 443 });
 
   test('the chat install reaching github.com and nodejs.org is listed as allowed (#2049), not failing', () => {
@@ -355,7 +354,7 @@ describe('allowances', () => {
   });
 
   test('a nextjs dev-server reject to an address the registry resolves to is allowed, by its name', () => {
-    const result = firewallFindings([reject('104.16.0.34'), reject('2606:4700:0000:0000:0000:0000:6810:0022')], [STEPS[0]!, nextDev], registry);
+    const result = firewallFindings([reject('104.16.0.34'), reject('2606:4700:0000:0000:0000:0000:6810:0022')], STEPS, registry);
     expect(result.failing).toEqual([]);
     expect(result.allowed).toHaveLength(2);
     expect(result.allowed[0]).toStartWith('allowed (next-dev-version-check): firewall: rejected a direct TCP connection to 104.16.0.34:443');
@@ -399,5 +398,72 @@ describe('allowances', () => {
   test('canonicalAddress compares IPv6 forms', () => {
     expect(canonicalAddress('2606:4700:0000:0000:0000:0000:6810:0022')).toBe(canonicalAddress('2606:4700::6810:22'));
     expect(canonicalAddress('104.16.0.34')).toBe('104.16.0.34');
+  });
+
+  const twelve = Array.from({ length: 12 }, (_, i) => `104.16.${i}.34`);
+  const registryOfTwelve = new Map([['registry.npmjs.org', twelve]]);
+  const at = (base: string, ms: number) => new Date(Date.parse(base) + ms).toISOString();
+
+  test('a burst of 12 rejects within 38 ms of one dev process is allowed', () => {
+    const burst = twelve.map((address, i) => reject(address, at('2026-11-05T01:02:37.000Z', Math.round((i * 38) / 11))));
+    const result = firewallFindings(burst, STEPS, registryOfTwelve);
+    expect(result.failing).toEqual([]);
+    expect(result.allowed).toHaveLength(12);
+  });
+
+  test('a second burst 9 s after the first, in the same dev process, fails', () => {
+    const first = twelve.slice(0, 3).map((address, i) => reject(address, at('2026-11-05T01:02:05.000Z', i * 3)));
+    const second = twelve.slice(0, 3).map((address, i) => reject(address, at('2026-11-05T01:02:14.000Z', i * 3)));
+    const result = firewallFindings([...first, ...second], STEPS, registryOfTwelve);
+    expect(result.allowed).toHaveLength(3);
+    expect(result.failing).toHaveLength(3);
+    expect(result.failing.every((line) => line.includes('at 2026-11-05T01:02:14'))).toBe(true);
+  });
+
+  test('a burst in the gap between two steps the dev process ran in is allowed', () => {
+    const result = firewallFindings([reject('104.16.0.34', '2026-11-05T01:02:32.000Z'), reject('104.16.1.34', '2026-11-05T01:02:32.020Z')], STEPS, registryOfTwelve);
+    expect(result.failing).toEqual([]);
+    expect(result.allowed).toHaveLength(2);
+  });
+
+  test('a reject between steps outside the dev process lifetime fails', () => {
+    const afterDev: StepRecord = {
+      template: 'nextjs', index: 6, step: 'stop the dev server', started: [], running: [],
+      start: '2026-11-05T01:02:45.000Z', end: '2026-11-05T01:02:50.000Z',
+    };
+    const rejects = [reject('104.16.0.34', '2026-11-05T01:02:00.500Z'), reject('104.16.1.34', '2026-11-05T01:02:42.000Z')];
+    const result = firewallFindings(rejects, [...STEPS, afterDev], registryOfTwelve);
+    expect(result.allowed).toEqual([]);
+    expect(result.failing.filter((line) => line.startsWith('firewall: rejected'))).toHaveLength(2);
+  });
+
+  test('a port other than the allowance names fails', () => {
+    const firewall = firewallFindings([reject('104.16.0.34'), { ...reject('104.16.1.34'), port: 80 }], STEPS, registryOfTwelve);
+    expect(firewall.allowed).toHaveLength(1);
+    expect(firewall.failing).toHaveLength(1);
+    expect(firewall.failing[0]).toContain('104.16.1.34:80');
+    const egress = verdict([refused('nodejs.org', '2026-11-05T01:07:55.093Z'), { ...refused('github.com', '2026-11-05T01:07:55.007Z'), port: 80 }], [chatInstall]);
+    expect(egress.allowed).toHaveLength(1);
+    expect(egress.failing).toHaveLength(1);
+    expect(egress.failing[0]).toStartWith('egress: refused CONNECT github.com:80');
+  });
+
+  test('a registry reject from a template other than nextjs fails', () => {
+    const webSteps = STEPS.map((record) => ({ ...record, template: 'web' }));
+    const result = firewallFindings([reject('104.16.0.34')], webSteps, registryOfTwelve);
+    expect(result.allowed).toEqual([]);
+    expect(result.failing).toHaveLength(1);
+    expect(result.failing[0]).toStartWith('firewall: rejected a direct TCP connection to 104.16.0.34:443');
+  });
+
+  test('a second CONNECT to the same host in one chat install fails', () => {
+    const result = verdict([
+      refused('github.com', '2026-11-05T01:07:55.007Z'),
+      refused('nodejs.org', '2026-11-05T01:07:55.093Z'),
+      refused('github.com', '2026-11-05T01:07:58.000Z'),
+    ], [chatInstall]);
+    expect(result.allowed).toHaveLength(2);
+    expect(result.failing).toHaveLength(1);
+    expect(result.failing[0]).toContain('github.com:443 (only registry.npmjs.org:443 may be reached) (at 2026-11-05T01:07:58.000Z');
   });
 });

@@ -138,7 +138,9 @@ function chipFindings(states: readonly string[]): string[] {
  * A refused request or firewall reject that does not fail the run, because
  * its source is known and named. It still shows in findings.txt as
  * `allowed (<label>)` on every run, and an allowance that matched nothing
- * in a run that reached its step fails the run as stale. The proxy and the
+ * in a run that reached its window fails the run as stale. Each one is
+ * bounded: one template, one window, its destinations and port, and a
+ * limit per window; a match past the limit fails. The proxy and the
  * firewall still refuse what an allowance covers.
  */
 export interface Allowance {
@@ -147,13 +149,23 @@ export interface Allowance {
   label: string;
   reason: string;
   template: string;
-  /** `npm install`: during that step. `dev command running`: during a step while `npm run dev` runs. */
+  /**
+   * The windows it applies in. `npm install`: each npm install step of the
+   * template. `dev command running`: each dev process's lifetime, from the
+   * start of the step that started `npm run dev` to the end of the last step
+   * it ran in, the gaps between those steps included.
+   */
   step: 'npm install' | 'dev command running';
   /** A refused egress request to one of these hosts. */
   egressHosts?: readonly string[];
   /** A firewall reject to an address this name resolves to at run time. */
   resolvesTo?: string;
   port: number;
+  /**
+   * How much it allows in one window: each host once, or every match within
+   * `burstMs` of the window's first match. Anything past the limit fails.
+   */
+  limit: { oncePerHost: true } | { burstMs: number };
 }
 
 export const ALLOWANCES: readonly Allowance[] = [
@@ -165,6 +177,7 @@ export const ALLOWANCES: readonly Allowance[] = [
     step: 'npm install',
     egressHosts: ['github.com', 'nodejs.org'],
     port: 443,
+    limit: { oncePerHost: true },
   },
   {
     name: 'next-dev-version-check',
@@ -174,6 +187,9 @@ export const ALLOWANCES: readonly Allowance[] = [
     step: 'dev command running',
     resolvesTo: REGISTRY_HOST,
     port: 443,
+    // Next caches the check once per process (getVersionInfoCached): one burst
+    // per dev process, one connection per address DNS returned, so no count cap.
+    limit: { burstMs: 2000 },
   },
 ];
 
@@ -196,16 +212,43 @@ export function canonicalAddress(address: string): string {
   }
 }
 
-function stepHolding(time: string | undefined, steps: readonly StepRecord[]): StepRecord | undefined {
-  const at = time === undefined ? Number.NaN : Date.parse(time);
-  if (Number.isNaN(at)) return undefined;
-  return steps.find((record) => Date.parse(record.start) <= at && at <= Date.parse(record.end));
+/** A span an allowance applies in: one install step, or one dev process's lifetime. */
+interface AllowanceWindow {
+  id: string;
+  start: number;
+  end: number;
 }
 
-function inAllowedStep(allowance: Allowance, record: StepRecord): boolean {
-  if (record.template !== allowance.template) return false;
-  if (allowance.step === 'npm install') return record.step === 'npm install';
-  return [...record.started, ...record.running].some((command) => command.startsWith('npm run dev'));
+function isDevCommand(command: string): boolean {
+  return command.startsWith('npm run dev');
+}
+
+function ranIn(command: string, record: StepRecord): boolean {
+  return record.started.includes(command) || record.running.includes(command);
+}
+
+/** Each dev process: from the start of the step that started it to the end of the last step it ran in. */
+function devLifetimes(template: string, steps: readonly StepRecord[]): AllowanceWindow[] {
+  const own = steps.filter((record) => record.template === template);
+  return own.flatMap((record) =>
+    record.started.filter(isDevCommand).map((command) => {
+      const start = Date.parse(record.start);
+      const lived = own.filter((later) => Date.parse(later.start) >= start && ranIn(command, later));
+      const end = Math.max(...lived.map((later) => Date.parse(later.end)));
+      return { id: `${template} ${command} from ${record.start}`, start, end };
+    }),
+  );
+}
+
+function installSteps(template: string, steps: readonly StepRecord[]): AllowanceWindow[] {
+  return steps
+    .filter((record) => record.template === template && record.step === 'npm install')
+    .map((record) => ({ id: `${template} step ${record.index} from ${record.start}`, start: Date.parse(record.start), end: Date.parse(record.end) }));
+}
+
+function windowsFor(allowance: Allowance, steps: readonly StepRecord[]): AllowanceWindow[] {
+  if (allowance.step === 'dev command running') return devLifetimes(allowance.template, steps);
+  return installSteps(allowance.template, steps);
 }
 
 interface Target {
@@ -215,9 +258,40 @@ interface Target {
   time?: string;
 }
 
-function allows(allowance: Allowance, target: Target, steps: readonly StepRecord[], resolved: ResolvedNames): boolean {
-  const record = stepHolding(target.time, steps);
-  if (record === undefined || !inAllowedStep(allowance, record) || target.port !== allowance.port) return false;
+/** What each window has used of its limit: the hosts it allowed, and when its first match came. */
+class AllowanceUse {
+  private readonly hosts = new Map<string, Set<string>>();
+  private readonly firstMatch = new Map<string, number>();
+
+  /** Whether one more match in `window` at `at` to `host` is within the limit; records it when it is. */
+  take(allowance: Allowance, window: AllowanceWindow, at: number, host: string): boolean {
+    if ('burstMs' in allowance.limit) return this.takeBurst(window, at, allowance.limit.burstMs);
+    const seen = this.hosts.get(window.id) ?? new Set<string>();
+    const key = host.toLowerCase();
+    if (seen.has(key)) return false;
+    this.hosts.set(window.id, seen.add(key));
+    return true;
+  }
+
+  private takeBurst(window: AllowanceWindow, at: number, burstMs: number): boolean {
+    const first = this.firstMatch.get(window.id) ?? at;
+    const afterTheBurst = at - first > burstMs;
+    if (afterTheBurst) return false;
+    this.firstMatch.set(window.id, first);
+    return true;
+  }
+}
+
+function timeOf(target: Target): number {
+  return target.time === undefined ? Number.NaN : Date.parse(target.time);
+}
+
+function windowHolding(windows: readonly AllowanceWindow[], at: number): AllowanceWindow | undefined {
+  return windows.find((window) => window.start <= at && at <= window.end);
+}
+
+function matchesDestination(allowance: Allowance, target: Target, resolved: ResolvedNames): boolean {
+  if (target.port !== allowance.port) return false;
   if (target.kind === 'egress') return allowance.egressHosts?.includes(target.host.toLowerCase()) === true;
   if (allowance.resolvesTo === undefined) return false;
   const addresses = (resolved.get(allowance.resolvesTo) ?? []).map(canonicalAddress);
@@ -231,8 +305,9 @@ function coversKind(allowance: Allowance, kind: Target['kind']): boolean {
 
 /**
  * Sorts `findings` (one per target, same order) into allowed and failing,
- * and adds a failing line for each allowance of this kind that matched
- * nothing although its template reached the step it covers.
+ * spending each window's limit in time order, and adds a failing line for
+ * each allowance of this kind that matched nothing although its template
+ * reached a window it covers.
  */
 function applyAllowances(
   kind: Target['kind'],
@@ -241,20 +316,31 @@ function applyAllowances(
   resolved: ResolvedNames,
   allowances: readonly Allowance[],
 ): Verdict {
-  const verdict: Verdict = { failing: [], allowed: [] };
-  const used = new Set<Allowance>();
-  for (const { target, finding } of items) {
-    const allowance = allowances.find((candidate) => coversKind(candidate, kind) && allows(candidate, target, steps, resolved));
-    if (allowance === undefined) {
-      verdict.failing.push(finding);
-      continue;
-    }
-    used.add(allowance);
-    verdict.allowed.push(`allowed (${allowance.label}): ${finding}; ${allowance.reason}`);
+  const candidates = allowances.filter((allowance) => coversKind(allowance, kind));
+  const windows = new Map(candidates.map((allowance) => [allowance, windowsFor(allowance, steps)]));
+  const use = new AllowanceUse();
+  const decided = new Map<number, Allowance>();
+  const byTime = items.map((item, position) => ({ position, at: timeOf(item.target), target: item.target }))
+    .filter((item) => !Number.isNaN(item.at))
+    .sort((a, b) => a.at - b.at);
+  for (const { position, at, target } of byTime) {
+    const allowance = candidates.find((candidate) => {
+      if (!matchesDestination(candidate, target, resolved)) return false;
+      const window = windowHolding(windows.get(candidate) ?? [], at);
+      return window !== undefined && use.take(candidate, window, at, target.host);
+    });
+    if (allowance !== undefined) decided.set(position, allowance);
   }
-  for (const allowance of allowances) {
-    const reachedItsStep = steps.some((record) => inAllowedStep(allowance, record));
-    if (coversKind(allowance, kind) && !used.has(allowance) && reachedItsStep) {
+  const verdict: Verdict = { failing: [], allowed: [] };
+  items.forEach(({ finding }, position) => {
+    const allowance = decided.get(position);
+    if (allowance === undefined) verdict.failing.push(finding);
+    else verdict.allowed.push(`allowed (${allowance.label}): ${finding}; ${allowance.reason}`);
+  });
+  const used = new Set(decided.values());
+  for (const allowance of candidates) {
+    const reachedAWindow = (windows.get(allowance) ?? []).length > 0;
+    if (!used.has(allowance) && reachedAWindow) {
       verdict.failing.push(`stale allowance ${allowance.name} (${allowance.label}): matched nothing this run; remove it or fix it`);
     }
   }
