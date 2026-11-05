@@ -48,6 +48,7 @@ export function recordedPassThrough(env: Record<string, string | undefined>): st
 }
 
 type ModuleSource = (url: string, senderUrl: string) => string | null;
+type SdkRoot = (appDir: string, projectRoot: string) => string;
 
 /** What the register opens with: the installed rows, and the register entry children load. */
 export interface InstalledLiveRegister {
@@ -86,19 +87,29 @@ export function liveResolutionRoot(projectRoot: string, liveRoot: string | undef
 
 /**
  * Loads the installed `@pyric/live`, from `liveRoot` first and then from
- * `projectRoot`. Throws when neither has it. The rows still resolve the
- * app's SDK from `projectRoot`.
+ * `projectRoot`. Throws when neither has it. The rows resolve the app's SDK
+ * from the folder that package's start checks read it from
+ * (`liveRegisterSdkRoot`, `appFirebaseRoot` in its `start-checks.ts`):
+ * `appDir`, the folder the process runs in, when `firebase` resolves there,
+ * else `projectRoot`. One function in one package picks it, so the check and
+ * the rows never read two copies of `firebase`.
  */
-export async function loadInstalledLiveRegister(projectRoot: string, liveRoot?: string): Promise<InstalledLiveRegister> {
+export async function loadInstalledLiveRegister(
+  projectRoot: string,
+  liveRoot?: string,
+  appDir: string = process.cwd(),
+): Promise<InstalledLiveRegister> {
   const from = liveResolutionRoot(projectRoot, liveRoot);
   const entry = installedLiveFile(from, REGISTER_SUBPATH);
   if (entry === null) throw liveNotInstalled(projectRoot, NOT_STARTED);
   const sources = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRegisterModuleSource', NOT_STARTED);
   const refusals = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRefusal', NOT_STARTED);
+  const sdkRoots = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRegisterSdkRoot', NOT_STARTED);
   const source = sources.fn as unknown as ModuleSource;
+  const sdkRoot = (sdkRoots.fn as unknown as SdkRoot)(appDir, projectRoot);
   const senderUrl = observedCallSenderUrl();
   const rows: RegisterRowPackage = {
-    projectUrl: pathToFileURL(join(projectRoot, 'package.json')).href,
+    projectUrl: pathToFileURL(join(sdkRoot, 'package.json')).href,
     refusal: refusals.fn as unknown as SuppliedRowsRefusal,
     moduleSource: (url) => source(url, senderUrl),
   };

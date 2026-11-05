@@ -18,11 +18,17 @@
  * dev server's `pyricLive({ passThrough })` lists it and the process reads
  * that list from the dev server's health report (#2122).
  *
+ * Then `firebase` moves from the repository root's install into
+ * `web/node_modules`, as a workspace that installs it only for the app lays
+ * it out, and the same server starts again from `web/` (#2161). The project
+ * root's own resolution no longer reaches `firebase`, so the start checks
+ * and the live rows resolve it from the folder the app runs in first.
+ *
  * Neither the page nor the server makes a call, so nothing goes to production. Like every app
  * scenario this runs offline, and the browser blocks every host but loopback.
  */
 import assert from 'node:assert/strict';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -106,6 +112,23 @@ export default scenario(async (app) => {
     assert.match(result.resolved['firebase/firestore']!, /\/live-rows\/firebase\/firestore\.js$/, 'firebase/firestore is the live row');
     const installedSdk = pathToFileURL(`${realpathSync(join(app.dir, 'node_modules', 'firebase'))}/`).href;
     assert.ok(result.resolved['firebase/database']!.startsWith(installedSdk), `firebase/database is the app's installed SDK: ${result.resolved['firebase/database']}`);
+  });
+
+  await app.step('with firebase installed only in web/, the server from web/ still loads its live rows and passes firebase/database through', async () => {
+    const webModules = join(app.dir, 'web', 'node_modules');
+    mkdirSync(webModules, { recursive: true });
+    for (const name of ['firebase', '@firebase']) renameSync(join(app.dir, 'node_modules', name), join(webModules, name));
+    assert.equal(existsSync(join(app.dir, 'node_modules', 'firebase')), false, 'the repository root has no firebase');
+    const register = pathToFileURL(createRequire(join(app.dir, 'rules', 'package.json')).resolve('@pyric/live/register')).href;
+    const run = await app.command('node', ['--import', register, 'server.mjs'], { cwd: 'web', timeoutMs: 60_000 });
+    assert.equal(run.code, 0, run.output);
+    assert.match(run.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${PROJECT}\\.`));
+    assert.ok(run.output.includes(`@pyric/live/register: ${PASSED}`), run.output);
+    const result = resultOf(run.output);
+    assert.equal(result.firestore, 'rooms/lobby');
+    assert.match(result.resolved['firebase/firestore']!, /\/live-rows\/firebase\/firestore\.js$/, 'firebase/firestore is the live row');
+    const appSdk = pathToFileURL(`${realpathSync(join(webModules, 'firebase'))}/`).href;
+    assert.ok(result.resolved['firebase/database']!.startsWith(appSdk), `firebase/database is the SDK in web/node_modules: ${result.resolved['firebase/database']}`);
   });
 
   await app.step('nothing reached any host but loopback', () => {

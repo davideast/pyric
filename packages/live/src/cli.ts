@@ -42,7 +42,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
   const projectRoot = process.cwd();
-  const refusal = liveStartRefusal(projectRoot);
+  const refusal = liveStartRefusal(projectRoot, process.cwd());
   if (refusal !== null) {
     process.stderr.write(`${ENTRY}: ${refusal}\n`);
     return 1;
