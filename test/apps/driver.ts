@@ -25,6 +25,9 @@ import {
   type LiveProcess,
 } from './unreaped-exit.ts';
 import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
+import { CrashWatch, type Crash, type ExpectedCrash } from './crash-watch.ts';
+
+export type { ExpectedCrash } from './crash-watch.ts';
 
 /**
  * How `installProject` installs a nested project: from the run's dependency
@@ -549,6 +552,8 @@ export class AppRun implements App {
   private serverCount = 0;
   private scriptCount = 0;
   private readonly blackholes: BlackholedPort[] = [];
+  /** Uncaught errors and crashes in the app's pages, workers, and processes (crash-watch.ts). */
+  readonly crashWatch = new CrashWatch(() => this.currentStep);
 
   constructor(
     readonly name: string,
@@ -782,6 +787,7 @@ export class AppRun implements App {
     const browser = await this.launchBrowser();
     const context = await browser.newContext();
     await guardContext(context, this.browserLog);
+    this.crashWatch.watchContext(context);
     this.context = context;
     return context;
   }
@@ -833,6 +839,11 @@ export class AppRun implements App {
     return this.hostErrors
       .filter(({ request }) => !this.expectedHostErrors.some((pattern) => pattern.test(request)))
       .map(({ step, request }) => `${request} (during "${step}")`);
+  }
+
+  /** Crashes in the app's pages, workers, and processes so far that no `expected` entry matches. */
+  unexpectedCrashes(expected: readonly ExpectedCrash[]): Crash[] {
+    return this.crashWatch.unexpected(expected, this.processes);
   }
 
   async close(): Promise<void> {
