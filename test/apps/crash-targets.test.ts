@@ -66,6 +66,25 @@ describe('WorkerTargetWatch', () => {
     ]);
   });
 
+  test('resumes a shared worker that restarted while the watch was attached', async () => {
+    const fake = fakeSession();
+    const watch = new WorkerTargetWatch(fake.session, () => {});
+    await watch.start();
+    watch.setContextId('ours');
+    fake.events.emit('Target.targetCreated', target('shared', 'shared_worker', 'http://x/shared.js'));
+    await flush();
+    // A reload ends the page's only client; Chromium restarts the worker under the
+    // same target and session and holds it before its script runs.
+    const restarted = JSON.stringify({ method: 'Inspector.targetReloadedAfterCrash', params: {} });
+    fake.events.emit('Target.receivedMessageFromTarget', { sessionId: 'session-1', message: restarted });
+    await flush();
+    const toTarget = fake.sent.filter((call) => call.method === 'Target.sendMessageToTarget').map((call) => call.params);
+    expect(toTarget).toEqual([
+      { sessionId: 'session-1', message: JSON.stringify({ id: 1, method: 'Runtime.enable' }) },
+      { sessionId: 'session-1', message: JSON.stringify({ id: 2, method: 'Runtime.runIfWaitingForDebugger' }) },
+    ]);
+  });
+
   test('a rejection with a non-Error reason reads its value', async () => {
     const fake = fakeSession();
     const crashes: TargetCrash[] = [];
