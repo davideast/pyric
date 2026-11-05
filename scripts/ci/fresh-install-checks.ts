@@ -62,6 +62,8 @@ export interface TemplateEvidence {
   devCommand?: DevCommandRun;
   /** The output of `npm install`, which ends with npm's audit summary. */
   installOutput?: string;
+  /** `npm audit --json`, run in the app after `npm install`. */
+  audit?: AuditRun;
   /** Error responses from `/__pyric/` routes to the pages (the driver's `unexpectedHostErrors()`). */
   hostErrors?: readonly string[];
 }
@@ -199,6 +201,107 @@ function auditNote(installOutput: string | undefined): string[] {
   return [`npm audit: ${auditSummary(installOutput) ?? 'npm install printed no audit summary'}`];
 }
 
+/** One `npm audit --json` run: its exit code and stdout and stderr as one stream, or why it did not finish. */
+export interface AuditRun {
+  code: number | null;
+  output: string;
+  /** Set when the command threw or timed out instead of exiting. */
+  error?: string;
+}
+
+interface AuditAdvisory {
+  severity: string;
+  name: string;
+  id: string;
+}
+
+type AuditReading = { advisories: AuditAdvisory[] } | { problem: string };
+
+const NOTED_SEVERITIES = ['critical', 'high'];
+const AUDIT_NOTE = 'npm audit --json';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The JSON document in `output`: from the first line that starts with `{` to
+ * the last that ends with `}`. npm writes it to stdout, and its `npm warn` and
+ * `npm error` lines may come before or after it on the same stream.
+ */
+function auditJsonText(output: string): string | undefined {
+  const lines = output.split('\n').map((line) => line.trim());
+  const first = lines.findIndex((line) => line.startsWith('{'));
+  const last = lines.findLastIndex((line) => line.endsWith('}'));
+  if (first === -1 || last < first) return undefined;
+  return lines.slice(first, last + 1).join('\n');
+}
+
+/** GitHub's advisory id from the advisory URL, else npm's numeric source id. */
+function advisoryId(via: Record<string, unknown>): string {
+  const ghsa = typeof via.url === 'string' ? /GHSA(?:-[a-z0-9]{4}){3}/i.exec(via.url)?.[0] : undefined;
+  if (ghsa !== undefined) return ghsa;
+  return typeof via.source === 'number' ? `advisory ${via.source}` : '(no advisory id)';
+}
+
+/**
+ * The advisories a vulnerable package lists in `via`. A string entry names
+ * another vulnerable package (npm's metavuln), whose own entry lists the advisory.
+ */
+function packageAdvisories(key: string, entry: unknown): AuditAdvisory[] {
+  if (!isRecord(entry) || !Array.isArray(entry.via)) return [];
+  return entry.via.filter(isRecord).map((via) => ({
+    severity: typeof via.severity === 'string' ? via.severity : 'unknown',
+    name: typeof via.name === 'string' ? via.name : key,
+    id: advisoryId(via),
+  }));
+}
+
+function compareAdvisories(a: AuditAdvisory, b: AuditAdvisory): number {
+  const severity = NOTED_SEVERITIES.indexOf(a.severity) - NOTED_SEVERITIES.indexOf(b.severity);
+  return severity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+}
+
+/** Reads `npm audit --json` (report version 2) output; never throws. */
+function readAudit(output: string): AuditReading {
+  const text = auditJsonText(output);
+  if (text === undefined) return { problem: 'npm printed no JSON' };
+  let report: unknown;
+  try {
+    report = JSON.parse(text);
+  } catch {
+    return { problem: 'npm printed JSON that does not parse' };
+  }
+  if (!isRecord(report)) return { problem: 'the JSON is not an object' };
+  if (typeof report.message === 'string' && report.vulnerabilities === undefined) return { problem: report.message };
+  if (!isRecord(report.vulnerabilities)) return { problem: 'the JSON has no vulnerabilities object' };
+  const seen = new Set<string>();
+  const advisories = Object.entries(report.vulnerabilities)
+    .flatMap(([key, entry]) => packageAdvisories(key, entry))
+    .filter((advisory) => NOTED_SEVERITIES.includes(advisory.severity))
+    .filter((advisory) => {
+      const key = `${advisory.name} ${advisory.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return { advisories: advisories.sort(compareAdvisories) };
+}
+
+/**
+ * One line per high or critical advisory `npm audit --json` reported: its
+ * severity, package and advisory id. A run with no report, or one that did not
+ * finish, gets one line saying so. These lines never fail the run.
+ */
+export function auditAdvisoryNotes(run: AuditRun | undefined): string[] {
+  if (run === undefined) return [];
+  if (run.error !== undefined) return [`${AUDIT_NOTE}: did not finish: ${run.error.trim()}`];
+  const reading = readAudit(run.output);
+  if ('problem' in reading) return [`${AUDIT_NOTE}: no report (exit ${run.code}): ${reading.problem}`];
+  if (reading.advisories.length === 0) return [`${AUDIT_NOTE}: no high or critical advisory`];
+  return reading.advisories.map(({ severity, name, id }) => `${AUDIT_NOTE}: ${severity} ${name} ${id}`);
+}
+
 function devCommandNote(run: DevCommandRun | undefined): string[] {
   if (run === undefined) return [];
   return [
@@ -216,11 +319,17 @@ function chipNote(evidence: TemplateEvidence): string[] {
 
 /**
  * Lines findings.txt shows on every run that never fail it: npm's audit
- * summary, the dev command the driver ran, and the chip each template showed.
+ * summary, each high or critical advisory, the dev command the driver ran,
+ * and the chip each template showed.
  */
 export function runNotes(run: RunEvidence): string[] {
   return run.templates.flatMap((evidence) =>
-    [...auditNote(evidence.installOutput), ...devCommandNote(evidence.devCommand), ...chipNote(evidence)]
+    [
+      ...auditNote(evidence.installOutput),
+      ...auditAdvisoryNotes(evidence.audit),
+      ...devCommandNote(evidence.devCommand),
+      ...chipNote(evidence),
+    ]
       .map((note) => `${evidence.template}: ${note}`));
 }
 

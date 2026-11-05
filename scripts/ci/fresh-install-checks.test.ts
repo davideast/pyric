@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { connect, type AddressInfo } from 'node:net';
 import {
   ALLOWANCES,
+  auditAdvisoryNotes,
   auditSummary,
   canonicalAddress,
   crashFindings,
@@ -535,6 +537,96 @@ describe('npm audit', () => {
       template({ template: 'node', chipStates: [], installOutput: 'up to date in 1s\n' }),
     ]));
     expect(notes).toEqual(['web: npm audit: found 0 vulnerabilities', 'node: npm audit: npm install printed no audit summary']);
+  });
+});
+
+/** `npm audit --json` v2 output, in the shape arborist's AuditReport.toJSON writes. */
+const AUDIT_V2 = readFileSync(new URL('./fixtures/npm-audit-v2.json', import.meta.url), 'utf8');
+
+/** npm 11.13.0 `npm audit --json` with no network, stdout and stderr as one stream: exit 1. */
+const AUDIT_OFFLINE = [
+  'npm warn audit request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org',
+  'npm error audit endpoint returned an error',
+  '{',
+  '  "message": "request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org",',
+  '  "error": {',
+  '    "summary": "",',
+  '    "detail": ""',
+  '  }',
+  '}',
+  'npm error A complete log of this run can be found in: /tmp/npm-home/.npm/_logs/2026-11-05T21_42_23_795Z-debug-0.log',
+  '',
+].join('\n');
+
+describe('npm audit --json advisories', () => {
+  test('names the package, severity and advisory id of every high or critical advisory, most severe first', () => {
+    // npm exits 1 when it finds any advisory.
+    expect(auditAdvisoryNotes({ code: 1, output: AUDIT_V2 })).toEqual([
+      'npm audit --json: critical form-data GHSA-fjxv-7rqg-78g4',
+      'npm audit --json: high cross-spawn GHSA-3xgq-45jj-v275',
+      'npm audit --json: high tar-fs GHSA-8cj5-5rvv-wf4v',
+      'npm audit --json: high tar-fs GHSA-vj76-c3g6-qr5v',
+    ]);
+  });
+
+  test('reads the report when npm\'s warnings share the stream with it', () => {
+    const output = `npm warn config production Use \`--omit=dev\` instead.\n${AUDIT_V2}\nnpm notice New minor version of npm available!\n`;
+    expect(auditAdvisoryNotes({ code: 1, output })).toHaveLength(4);
+  });
+
+  test('an advisory with no GitHub advisory URL is named by its npm source id', () => {
+    const report = JSON.parse(AUDIT_V2) as { vulnerabilities: Record<string, { via: Array<Record<string, unknown>> }> };
+    delete report.vulnerabilities['cross-spawn']?.via[0]?.url;
+    const notes = auditAdvisoryNotes({ code: 1, output: JSON.stringify(report) });
+    expect(notes).toContain('npm audit --json: high cross-spawn advisory 1100563');
+  });
+
+  test('says so when no advisory is high or critical', () => {
+    const clean = JSON.stringify({ auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 0 } } });
+    expect(auditAdvisoryNotes({ code: 0, output: clean })).toEqual(['npm audit --json: no high or critical advisory']);
+  });
+
+  test('notes npm\'s own error when the audit request fails', () => {
+    expect(auditAdvisoryNotes({ code: 1, output: AUDIT_OFFLINE })).toEqual([
+      'npm audit --json: no report (exit 1): request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org',
+    ]);
+  });
+
+  test('notes, and never throws, when npm prints no JSON, broken JSON or another shape', () => {
+    expect(auditAdvisoryNotes({ code: 1, output: '' })).toEqual(['npm audit --json: no report (exit 1): npm printed no JSON']);
+    expect(auditAdvisoryNotes({ code: 1, output: 'npm error code ENOLOCK\nnpm error audit This command requires an existing lockfile.\n' }))
+      .toEqual(['npm audit --json: no report (exit 1): npm printed no JSON']);
+    expect(auditAdvisoryNotes({ code: 1, output: '{\n  "auditReportVersion": 2,\n' })).toEqual(['npm audit --json: no report (exit 1): npm printed no JSON']);
+    expect(auditAdvisoryNotes({ code: 0, output: '{\n  "auditReportVersion": 2,\n  "vulnerabilities": [\n}\n' }))
+      .toEqual(['npm audit --json: no report (exit 0): npm printed JSON that does not parse']);
+    expect(auditAdvisoryNotes({ code: 0, output: '{\n  "auditReportVersion": 1\n}\n' }))
+      .toEqual(['npm audit --json: no report (exit 0): the JSON has no vulnerabilities object']);
+    const odd = JSON.stringify({ vulnerabilities: { a: null, b: { via: [null, 7, { severity: 'high' }] }, c: { via: 'x' } } });
+    expect(auditAdvisoryNotes({ code: 1, output: odd })).toEqual(['npm audit --json: high b (no advisory id)']);
+  });
+
+  test('notes a command that did not finish', () => {
+    expect(auditAdvisoryNotes({ code: null, output: '', error: 'npm audit --json did not exit within 300s:\n' }))
+      .toEqual(['npm audit --json: did not finish: npm audit --json did not exit within 300s:']);
+  });
+
+  test('findings.txt lists the advisories after the audit summary, and nothing for a template that never audited', () => {
+    const notes = runNotes(run([
+      template({ template: 'chat', installOutput: '39 high severity vulnerabilities\n', audit: { code: 1, output: AUDIT_V2 } }),
+      template({ template: 'node', installOutput: 'found 0 vulnerabilities\n' }),
+    ]));
+    expect(notes).toEqual([
+      'chat: npm audit: 39 high severity vulnerabilities',
+      'chat: npm audit --json: critical form-data GHSA-fjxv-7rqg-78g4',
+      'chat: npm audit --json: high cross-spawn GHSA-3xgq-45jj-v275',
+      'chat: npm audit --json: high tar-fs GHSA-8cj5-5rvv-wf4v',
+      'chat: npm audit --json: high tar-fs GHSA-vj76-c3g6-qr5v',
+      'node: npm audit: found 0 vulnerabilities',
+    ]);
+  });
+
+  test('no advisory fails the run', () => {
+    expect(failing(run([template({ audit: { code: 1, output: AUDIT_V2 } })]))).toEqual([]);
   });
 });
 

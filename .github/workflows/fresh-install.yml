@@ -12,7 +12,10 @@
 # registry.npmjs.org:443.
 #
 # The install runs with npm's audit and funding notices on, as a new user's
-# does; findings.txt has each template's audit summary line.
+# does; findings.txt has each template's audit summary line. After the
+# install the driver runs `npm audit --json` in the app, through the same
+# egress guard, and findings.txt names the package, severity and advisory id
+# of each high or critical advisory. Those lines never fail the run.
 #
 # The dev command is plain `npm run dev`, with no host, port or open flags,
 # and the page opens on the template's default address (localhost:5173 for
