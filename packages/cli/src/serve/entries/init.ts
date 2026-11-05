@@ -22,7 +22,7 @@ import {
   subscribeToActiveAuth,
   registerActiveAuth,
 } from './active-auth.js';
-import { initPayload } from './init-payload.js';
+import { initPayload, logInitPayloadFailure } from './init-payload.js';
 import { sandbox } from './app-backend.js';
 import { installAvatarUpgrades } from './avatar-upgrade.js';
 import { useWorker, workerDb } from './worker-runtime.js';
@@ -89,7 +89,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   // reaches the app through the calls it makes, so here it is only logged.
   void initPayload.then(
     (payload) => installAvatarUpgrades(payload?.avatarUpgrades === true),
-    (error: unknown) => console.error('[pyric] init payload unavailable:', error instanceof Error ? error.message : String(error)),
+    logInitPayloadFailure,
   );
   // A served page is a development host whatever the app's bundle says: the
   // template's served build is a Vite production build, which folds the

@@ -119,6 +119,22 @@ const readPayload = (): Promise<InitPayload | null> => initPayloadRequest.catch(
 
 export const initPayload: Promise<InitPayload | null> = isNodeRealm ? startedOnUse(readPayload) : readPayload();
 
+const loggedInitPayloadFailures = new WeakSet<object>();
+
+/**
+ * Logs a failed {@link initPayload} once per page, however many of its readers
+ * see the failure. The app learns of a refusal from its own calls; this is the
+ * page's one console line for it.
+ */
+export function logInitPayloadFailure(error: unknown): void {
+  const isTracked = typeof error === 'object' && error !== null;
+  const isLogged = isTracked && loggedInitPayloadFailures.has(error);
+  if (isLogged) return;
+  if (isTracked) loggedInitPayloadFailures.add(error);
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error('[pyric sandbox] init payload unavailable:', detail);
+}
+
 let sessionTokenRequest: Promise<string | null> | undefined;
 let sessionTokenIsStale = false;
 
