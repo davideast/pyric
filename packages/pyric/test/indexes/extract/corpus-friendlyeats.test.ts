@@ -15,12 +15,12 @@ import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { extractIndexes } from '../../../../src/rules/indexes/extract/extractor.js';
-import { indexEntryKey } from '../../../../src/rules/indexes/extract/composite.js';
-import type { IndexesConfig, IndexesConfigEntry } from '../../../../src/rules/indexes/types.js';
+import { extractIndexes } from '../../../src/indexes/extract/extractor.js';
+import { indexEntryKey } from '../../../src/indexes/extract/composite.js';
+import type { IndexesConfig, IndexesConfigEntry } from '../../../src/indexes/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fixtureDir = resolve(here, '../../fixtures/firestore-indexes/friendlyeats');
+const fixtureDir = resolve(here, '../../rules/fixtures/firestore-indexes/friendlyeats');
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(fixtureDir, name), 'utf8');

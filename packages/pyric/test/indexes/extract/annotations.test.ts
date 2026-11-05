@@ -2,7 +2,7 @@
  * Unit tests for the @firestore-* annotation parser.
  */
 import { describe, test, expect } from 'bun:test';
-import { parseAnnotations } from '../../../../src/rules/indexes/extract/annotations.js';
+import { parseAnnotations } from '../../../src/indexes/extract/annotations.js';
 
 describe('parseAnnotations — empty / fallback', () => {
   test('empty string → empty annotations, no warnings', () => {
