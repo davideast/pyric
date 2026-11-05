@@ -254,21 +254,41 @@ export interface SuppliedRowsGrant {
   readonly isRowImport: boolean;
   /** Resolved with the `import` condition: an ESM import, which `createRequire` cannot make. */
   readonly isEsmImport: boolean;
+  /** The app's own import of a specifier the register passes through (`firebase/database`). */
+  readonly isPassThroughImport?: boolean;
+  /**
+   * The `@firebase/*` packages the passed-through entries load besides the
+   * rows' (`passThroughSdkPackages` in `../serve/vite-supplied-rows.ts`).
+   */
+  readonly passThroughPackages?: ReadonlySet<string>;
+}
+
+/**
+ * Whether `load` is the entry of the passed-through specifier it names: a
+ * file of the `firebase` package under that specifier's own folder
+ * (`firebase/database` → `database/dist/`), as the page plane checks it.
+ */
+function isPassThroughEntry(load: ResolvedLoad): boolean {
+  const folder = `${load.specifier.slice('firebase/'.length)}/dist/`;
+  return (load.pathInPackage ?? pathInPackageOf)(load.url, 'firebase')?.startsWith(folder) ?? false;
 }
 
 /**
  * Whether a load under live rows may reach the installed client SDK: an ESM
- * import, either a row module's own import of `firebase/*`, or an allowed
- * client SDK file's import of a package the four entries load. A
+ * import, either a row module's own import of `firebase/*`, the app's import
+ * of a passed-through entry, or an allowed client SDK file's import of a
+ * package the four entries or a passed-through one load. A
  * `createRequire` call can name any file as its importer, but it resolves
  * with the `require` condition, so it never passes.
  */
 function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUrls: ReadonlySet<string>, grant: SuppliedRowsGrant): boolean {
   if (!grant.isEsmImport) return false;
   if (grant.isRowImport) return packageName === 'firebase';
+  if (grant.isPassThroughImport === true) return packageName === 'firebase' && isPassThroughEntry(load);
   const importer = load.importer;
   const isFromAllowedFile = importer !== undefined && allowedUrls.has(importer);
-  return isFromAllowedFile && LIVE_ROW_SDK_PACKAGES.has(packageName);
+  const isLoadedPackage = LIVE_ROW_SDK_PACKAGES.has(packageName) || (grant.passThroughPackages?.has(packageName) ?? false);
+  return isFromAllowedFile && isLoadedPackage;
 }
 
 /**

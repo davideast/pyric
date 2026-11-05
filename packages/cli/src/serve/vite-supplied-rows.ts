@@ -101,8 +101,12 @@ const PASS_THROUGH_SPECIFIERS: ReadonlySet<string> = new Set(
   SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier) && !ROW_SERVICE_SPECIFIERS.has(specifier)),
 );
 
-/** The pass-through set, or a throw naming each entry that cannot pass through. */
-function passThroughSet(listed: readonly string[]): ReadonlySet<ServedFirebaseSpecifier> {
+/**
+ * The pass-through set, or a throw naming each entry that cannot pass
+ * through. The Node register checks its list with this too
+ * (`../register/supplied-entry.ts`).
+ */
+export function passThroughSet(listed: readonly string[]): ReadonlySet<ServedFirebaseSpecifier> {
   const invalid = listed.filter((specifier) => !PASS_THROUGH_SPECIFIERS.has(specifier));
   if (invalid.length > 0) {
     throw new Error(`pyric: ${invalid.join(', ')} cannot pass through: only ${[...PASS_THROUGH_SPECIFIERS].join(', ')} can.`);
