@@ -28,9 +28,28 @@ const CREDENTIAL_PATTERNS: Array<[string, RegExp]> = [
 ];
 
 const FIREBASE_HOST = /([A-Za-z0-9<>_-]+)\.(?:firebaseio\.com|firebasedatabase\.app)/g;
-/** A database host is a redacted instance placeholder or a server shard (`s-usc1b-nss-2041`). */
-const ALLOWED_HOST = /^(?:<default-instance>|<named-instance>|s-[a-z0-9-]+)$/;
+/** A database host is a redacted instance placeholder or a server shard (`s-gke-usc1-nssi2-16`). */
+const ALLOWED_HOST = /^(?:<default-instance>|<named-instance>|s-gke-[a-z0-9-]+)$/;
 const UID_FIELD = /"(?:uid|user_id|sub)\\?"\s*:\s*\\?"([^"\\]*)/g;
+
+/**
+ * The project id and instance names the captures ran against, from the same
+ * env variables the scripts read. Committed code names none of them, so this
+ * check runs only where they are set.
+ */
+function capturedNames(): string[] {
+  const names = [process.env.PYRIC_ORACLE_PROJECT_ID ?? ''];
+  for (const variable of ['PYRIC_STAGING_RTDB', 'PYRIC_STAGING_RTDB_NAMED']) {
+    const url = process.env[variable];
+    if (url) names.push(new URL(url).hostname.split('.')[0]!);
+  }
+  return names.filter((name) => name !== '');
+}
+const CAPTURED_NAMES = capturedNames();
+
+function expectNoCapturedNames(text: string): void {
+  for (const name of CAPTURED_NAMES) expect({ name, present: text.includes(name) }).toEqual({ name, present: false });
+}
 
 function expectRedacted(text: string): void {
   for (const [label, pattern] of CREDENTIAL_PATTERNS) {
@@ -99,6 +118,7 @@ describe('capture A: RTDB wire recording', () => {
   });
 
   test('is redacted', () => expectRedacted(text));
+  test.skipIf(CAPTURED_NAMES.length === 0)('names neither the project nor an instance it ran against', () => expectNoCapturedNames(text));
 });
 
 const BANDWIDTH_OPERATIONS = [
@@ -141,4 +161,5 @@ describe('capture B: RTDB bandwidth calibration', () => {
   });
 
   test('is redacted', () => expectRedacted(text));
+  test.skipIf(CAPTURED_NAMES.length === 0)('names neither the project nor an instance it ran against', () => expectNoCapturedNames(text));
 });

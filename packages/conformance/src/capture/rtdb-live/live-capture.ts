@@ -128,43 +128,130 @@ export function captureRules(priorText: string, runId: string): { rules: Record<
   };
 }
 
+export interface CaptureRulesOptions {
+  /**
+   * Stops every client before cleanup starts (goOffline, deleteUser,
+   * deleteApp, any child process), so no queued onDisconnect or in-flight
+   * write lands after the run path is removed. A failure is logged, not thrown.
+   */
+  shutdown?: () => Promise<void>;
+  /** Wait after shutdown for the server to run any queued onDisconnect write. */
+  settleMs?: number;
+  /** Install SIGINT and SIGTERM handlers that run the same cleanup once, then exit. */
+  handleSignals?: boolean;
+}
+
+export interface CaptureRulesResult<T> {
+  result?: T;
+  error?: Error;
+  invariants: RunInvariants;
+}
+
 /**
  * Snapshot the instance's rules, deploy `captureRules`, run `body`, then
  * remove the run path, restore the exact prior rules text and read both back.
  * The invariants are reported whether or not `body` threw.
  */
-export async function withCaptureRules<T>(
+export function withCaptureRules<T>(
   instance: LiveInstance,
   ctx: LiveContext,
   body: () => Promise<T>,
-): Promise<{ result?: T; error?: Error; invariants: RunInvariants }> {
-  const rest = adminRest(instance, ctx);
+  options: CaptureRulesOptions = {},
+): Promise<CaptureRulesResult<T>> {
+  return runWithCaptureRules(instance.label, adminRest(instance, ctx), ctx, body, options);
+}
+
+type RestAnswer = { status: number; text: string };
+
+async function attempt(failures: string[], step: string, task: () => Promise<RestAnswer>): Promise<RestAnswer | null> {
+  try {
+    return await task();
+  } catch (e) {
+    failures.push(`${step}: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+/**
+ * The cleanup after a run. Every step runs whatever the earlier ones did, so a
+ * failed DELETE or token fetch still restores the rules. A failed step is an
+ * invariant failure, never a throw.
+ */
+export async function cleanupCaptureRun(
+  label: string,
+  rest: AdminRest,
+  runPath: string,
+  priorRules: string,
+  options: Pick<CaptureRulesOptions, 'shutdown' | 'settleMs'> = {},
+): Promise<RunInvariants> {
+  const failures: string[] = [];
+  if (options.shutdown) {
+    try {
+      await options.shutdown();
+    } catch (e) {
+      failures.push(`shutdown: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  if (options.settleMs) await pause(options.settleMs);
+  const removed = await attempt(failures, 'remove run path', () => rest.request('DELETE', runPath));
+  const restored = await attempt(failures, 'restore rules', () => rest.request('PUT', '.settings/rules', priorRules));
+  const rulesBack = await attempt(failures, 'read rules back', () => rest.request('GET', '.settings/rules'));
+  const dataBack = await attempt(failures, 'read run path back', () => rest.request('GET', runPath, undefined, '?shallow=true'));
+  const invariants = {
+    dataRemoved: removed?.status === 200 && dataBack?.status === 200 && dataBack.text === 'null',
+    rulesRestored: restored?.status === 200 && rulesBack?.status === 200 && rulesBack.text === priorRules,
+  };
+  if (!invariants.dataRemoved || !invariants.rulesRestored || failures.length > 0) {
+    console.error(`[rtdb-live] ${label}: invariant failed`, invariants, {
+      removeStatus: removed?.status ?? null,
+      restoreStatus: restored?.status ?? null,
+      failures,
+    });
+    console.error(`[rtdb-live] ${label}: read the rules and the run path back by hand.`);
+  }
+  return invariants;
+}
+
+/** `withCaptureRules` with the admin REST calls passed in; tests supply a fake. */
+export async function runWithCaptureRules<T>(
+  label: string,
+  rest: AdminRest,
+  run: Pick<LiveContext, 'runId' | 'runPath'>,
+  body: () => Promise<T>,
+  options: CaptureRulesOptions = {},
+): Promise<CaptureRulesResult<T>> {
   const prior = await rest.request('GET', '.settings/rules');
-  if (prior.status !== 200) throw new Error(`${instance.label}: cannot read rules: ${prior.status}`);
-  const existing = await rest.request('GET', ctx.runPath, undefined, '?shallow=true');
-  if (existing.text !== 'null') throw new Error(`${instance.label}: refusing: the run path already holds data`);
-  const deploy = JSON.stringify(captureRules(prior.text, ctx.runId));
+  if (prior.status !== 200) throw new Error(`${label}: cannot read rules: ${prior.status}`);
+  const existing = await rest.request('GET', run.runPath, undefined, '?shallow=true');
+  if (existing.text !== 'null') throw new Error(`${label}: refusing: the run path already holds data`);
+  const deploy = JSON.stringify(captureRules(prior.text, run.runId));
+
+  let cleanup: Promise<RunInvariants> | undefined;
+  const cleanupOnce = () => (cleanup ??= cleanupCaptureRun(label, rest, run.runPath, prior.text, options));
+  const onSignal = (signal: NodeJS.Signals) => {
+    console.error(`[rtdb-live] ${label}: ${signal}; cleaning up before exit.`);
+    void cleanupOnce().then((invariants) => process.exit(invariants.dataRemoved && invariants.rulesRestored ? 130 : 3));
+  };
+  if (options.handleSignals) {
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+  }
+
   let result: T | undefined;
   let error: Error | undefined;
   try {
     const dry = await rest.request('PUT', '.settings/rules', deploy, '?dryRun=true');
-    if (dry.status !== 200) throw new Error(`${instance.label}: capture rules refused by dry run: ${dry.text.slice(0, 200)}`);
+    if (dry.status !== 200) throw new Error(`${label}: capture rules refused by dry run: ${dry.text.slice(0, 200)}`);
     const put = await rest.request('PUT', '.settings/rules', deploy);
-    if (put.status !== 200) throw new Error(`${instance.label}: capture rules deploy failed: ${put.status}`);
+    if (put.status !== 200) throw new Error(`${label}: capture rules deploy failed: ${put.status}`);
     result = await body();
   } catch (e) {
     error = e instanceof Error ? e : new Error(String(e));
   }
-  const removed = await rest.request('DELETE', ctx.runPath);
-  const restored = await rest.request('PUT', '.settings/rules', prior.text);
-  const rulesBack = await rest.request('GET', '.settings/rules');
-  const dataBack = await rest.request('GET', ctx.runPath, undefined, '?shallow=true');
-  const invariants = {
-    dataRemoved: removed.status === 200 && dataBack.status === 200 && dataBack.text === 'null',
-    rulesRestored: restored.status === 200 && rulesBack.status === 200 && rulesBack.text === prior.text,
-  };
-  if (!invariants.dataRemoved || !invariants.rulesRestored) {
-    console.error(`[rtdb-live] ${instance.label}: invariant failed`, invariants, { restoreStatus: restored.status });
+  const invariants = await cleanupOnce();
+  if (options.handleSignals) {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
   }
   return { result, error, invariants };
 }

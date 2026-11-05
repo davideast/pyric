@@ -111,15 +111,30 @@ async function signedInClient(index: number): Promise<Client> {
   return { app, auth, db: rtdb.getDatabase(app, instance!.url) };
 }
 
-function startProfiler(file: string): Promise<number | null> {
+type ProfilerOutcome = { code: number | null } | { error: Error };
+
+interface Profiler {
+  /** Settles once with the exit code or the spawn error; never rejects. */
+  outcome: Promise<ProfilerOutcome>;
+  /** Kill the child when it is still running. */
+  stop(): void;
+}
+
+function startProfiler(file: string): Profiler {
   const child = spawn(FIREBASE_BIN, [
     'database:profile', '--project', ctx.projectId, '--instance', instance!.name,
     '--raw', '--output', file, '--duration', String(PROFILE_SECONDS),
   ], { stdio: ['ignore', 'ignore', 'inherit'] });
-  return new Promise((resolve, reject) => {
-    child.on('error', reject);
-    child.on('exit', resolve);
+  const outcome = new Promise<ProfilerOutcome>((resolve) => {
+    child.on('error', (error) => resolve({ error }));
+    child.on('exit', (code) => resolve({ code }));
   });
+  return {
+    outcome,
+    stop() {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    },
+  };
 }
 
 const KILOBYTE_CHILD = 'k'.repeat(1_000);
@@ -262,19 +277,44 @@ const toolsVersion = spawnSync(FIREBASE_BIN, ['--version'], { encoding: 'utf8' }
 const one = await signedInClient(1);
 const two = await signedInClient(2);
 
-let profileExit: Promise<number | null> | undefined;
-const run = await withCaptureRules(instance, ctx, async () => {
-  profileExit = startProfiler(profileFile);
-  await pause(PROFILE_WARMUP_MS);
-  await sequence(one, two);
-  if (recorder.now() > PROFILE_WARMUP_MS + (PROFILE_SECONDS - 10) * 1_000) throw new Error('the sequence ran too close to the end of the profile');
-  const code = await withTimeout('profiler exit', profileExit, (PROFILE_SECONDS + 60) * 1_000);
-  if (code !== 0) throw new Error(`firebase database:profile exited ${code}`);
-});
-for (const client of [one, two]) {
-  if (client.auth.currentUser) await deleteUser(client.auth.currentUser).catch(() => console.error('[rtdb-live:capture-b] could not delete an anonymous user'));
-  await deleteApp(client.app);
+let profiler: Profiler | undefined;
+
+/**
+ * Stop the profiler and close and delete both clients before cleanup, so no
+ * queued onDisconnect or in-flight write lands after the run path is removed.
+ * Every step runs; the failures are rethrown together at the end.
+ */
+async function shutdown(): Promise<void> {
+  const errors: string[] = [];
+  profiler?.stop();
+  for (const client of [one, two]) {
+    try {
+      rtdb.goOffline(client.db);
+    } catch (e) {
+      errors.push(`goOffline: ${String(e)}`);
+    }
+  }
+  for (const client of [one, two]) {
+    if (client.auth.currentUser) await deleteUser(client.auth.currentUser).catch((e) => errors.push(`delete user: ${String(e)}`));
+    await deleteApp(client.app).catch((e) => errors.push(`delete app: ${String(e)}`));
+  }
+  if (errors.length > 0) throw new Error(errors.join('; '));
 }
+
+const run = await withCaptureRules(instance, ctx, async () => {
+  profiler = startProfiler(profileFile);
+  try {
+    await pause(PROFILE_WARMUP_MS);
+    await sequence(one, two);
+    if (recorder.now() > PROFILE_WARMUP_MS + (PROFILE_SECONDS - 10) * 1_000) throw new Error('the sequence ran too close to the end of the profile');
+    const outcome = await withTimeout('profiler exit', profiler.outcome, (PROFILE_SECONDS + 60) * 1_000);
+    if ('error' in outcome) throw new Error(`firebase database:profile did not start: ${outcome.error.message}`);
+    if (outcome.code !== 0) throw new Error(`firebase database:profile exited ${outcome.code}`);
+  } catch (e) {
+    profiler.stop();
+    throw e;
+  }
+}, { shutdown, settleMs: 2_000, handleSignals: true });
 if (!run.invariants.dataRemoved || !run.invariants.rulesRestored) {
   console.error('[rtdb-live:capture-b] an invariant failed; nothing written. Read the rules and run path back by hand.');
   process.exit(3);

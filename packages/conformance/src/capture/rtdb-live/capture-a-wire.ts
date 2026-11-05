@@ -203,8 +203,33 @@ async function driveInstance(instance: LiveInstance, one: Client, two: Client): 
   return results;
 }
 
-const recordingsByInstance: Record<string, unknown> = {};
+/** Time after the clients close for the server to run any onDisconnect write still queued. */
+const SHUTDOWN_SETTLE_MS = 2_000;
 const failures: string[] = [];
+
+/**
+ * Close every connection and delete each client before cleanup, so nothing a
+ * client queued (an onDisconnect write, an unacknowledged set) lands after the
+ * run path is removed. Every step runs; the first failure is rethrown at the end.
+ */
+async function shutdownClients(instance: LiveInstance, clients: Client[]): Promise<void> {
+  const errors: string[] = [];
+  for (const client of clients) {
+    try {
+      rtdb.goOffline(rtdb.getDatabase(client.app, instance.url));
+    } catch (e) {
+      errors.push(`goOffline: ${String(e)}`);
+    }
+  }
+  for (const client of clients) {
+    if (client.auth.currentUser) await deleteUser(client.auth.currentUser).catch((e) => errors.push(`delete user: ${String(e)}`));
+    await deleteApp(client.app).catch((e) => errors.push(`delete app: ${String(e)}`));
+  }
+  failures.push(...errors);
+  if (errors.length > 0) throw new Error(errors.join('; '));
+}
+
+const recordingsByInstance: Record<string, unknown> = {};
 let allHeld = true;
 
 for (const [index, instance] of instances.entries()) {
@@ -213,13 +238,14 @@ for (const [index, instance] of instances.entries()) {
   const two = await signedInClient(`client-2-${instance.label}`, index * 2 + 2);
   const firstConnection = recorder.connections.length;
   const firstFrame = recorder.frames.length;
-  const run = await withCaptureRules(instance, ctx, () => driveInstance(instance, one, two));
-  for (const client of [one, two]) {
-    if (client.auth.currentUser) await deleteUser(client.auth.currentUser).catch((e) => failures.push(`delete user: ${String(e)}`));
-    await deleteApp(client.app);
-  }
+  const run = await withCaptureRules(instance, ctx, () => driveInstance(instance, one, two), {
+    shutdown: () => shutdownClients(instance, [one, two]),
+    settleMs: SHUTDOWN_SETTLE_MS,
+    handleSignals: true,
+  });
   if (run.error) failures.push(`${instance.label}: ${run.error.message}`);
   allHeld &&= run.invariants.dataRemoved && run.invariants.rulesRestored;
+  if (!allHeld) break;
   const connections = recorder.connections.slice(firstConnection).map((c) => ({ ...c, client: c.client.replace(`-${instance.label}`, '') }));
   const frames = recorder.frames.slice(firstFrame).map((f) => ({ ...f, client: f.client.replace(`-${instance.label}`, '') }));
   recordingsByInstance[instance.label] = {
