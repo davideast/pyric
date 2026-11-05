@@ -66,6 +66,7 @@ import { AppRun, launchScenarioBrowser, StepFailure, type ExpectedCrash, type Sc
 import { checkExpectedCrashes, describeVerdict, isFailing } from './crash-watch.ts';
 import { currentPlatform, DependencyStore, readPackedPackages } from './dependency-store.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
+import { SharedBrowser } from './shared-browser.ts';
 import { SharedInstalls } from './shared-installs.ts';
 import { takeHeavyRunSlot } from '../../scripts/lib/heavy-run-slots.ts';
 import { sampleMachineLoad } from '../../scripts/lib/machine-load.ts';
@@ -353,8 +354,7 @@ async function main(): Promise<void> {
     report: (line) => console.log(line),
   });
 
-  let browser: Promise<Browser> | undefined;
-  const launch = () => (browser ??= launchScenarioBrowser());
+  const browser = new SharedBrowser(() => launchScenarioBrowser(), (line) => console.log(line));
 
   const jobs = options.jobs ?? defaultJobs(machine, process.env);
   const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;
@@ -363,7 +363,7 @@ async function main(): Promise<void> {
   let installsFailure: string | undefined;
   try {
     results = await pool(names, jobs, async (name) => {
-      const result = await runApp(name, { tarballs, store, installs, keep: options.keep, browser: launch });
+      const result = await runApp(name, { tarballs, store, installs, keep: options.keep, browser: () => browser.get() });
       const dir = saveLogs(result);
       // Recorded as each app finishes, so a run that stops early keeps the times it has.
       recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);
@@ -371,7 +371,7 @@ async function main(): Promise<void> {
       for (const cleanupFailure of result.cleanupFailures) console.log(`  warning: ${name}: cleanup failed: ${cleanupFailure}`);
       return result;
     });
-    if (browser) await (await browser).close();
+    await browser.close();
   } finally {
     if (options.keep) console.log(`  shared installs: ${installsDir}`);
     else installsFailure = await removeTree(installsDir);
