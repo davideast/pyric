@@ -93,8 +93,11 @@ next to new ones, then run the pack script and the install command again.
 Live mode learns the app's project only from its calls, so a warning about a different project
 comes after a call has already reached it. Check before starting:
 
-1. Find the app's `initializeApp` options and any `.env` values they read (for Vite,
-   `import.meta.env.VITE_*`; for Node, `process.env`).
+1. Find every `initializeApp` call and the options it passes, and any environment values those
+   options read (for Vite, `import.meta.env.VITE_*`; for Node, `process.env`). For Vite, check
+   `.env` and the files that override it: `.env.local`, `.env.development`, `.env.[mode]` and
+   `.env.[mode].local`. A Node `initializeApp()` with no arguments reads its config from the
+   environment; treat that as a project you can't tell, and stop.
 2. Check that `projectId` is the test project you were given. If it isn't, or you can't tell,
    stop and report what you found.
 
