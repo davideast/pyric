@@ -574,6 +574,9 @@ if (enablesFallbackTabSync) {
       getAuth(sandbox),
       authOps,
     );
+  }, (e: unknown) => {
+    runtimeStatus.reportError(e, 'runtime');
+    console.error('[pyric sandbox] auth tab sync failed:', e instanceof Error ? e.message : String(e));
   });
 }
 

@@ -93,9 +93,13 @@ function wireAppPersistence(
   if (useWorker && stored) {
     // Posting restore before listener registration preserves FIFO ordering on
     // this app's MessagePort, so the initial listener value is the restore.
-    void restorePortSession(auth as never, stored.uid, undefined, undefined, stored.sessionKey).then((user) => {
-      if (!user) store.clear();
-    });
+    // A host that cannot answer now leaves the stored session for the next load.
+    void restorePortSession(auth as never, stored.uid, undefined, undefined, stored.sessionKey).then(
+      (user) => {
+        if (!user) store.clear();
+      },
+      (error: unknown) => console.warn('[pyric] session restore failed:', error instanceof Error ? error.message : String(error)),
+    );
   } else if (!useWorker && stored) {
     try {
       ipAuth.sandbox.restoreSession(auth, stored.uid, stored.sessionKey);
