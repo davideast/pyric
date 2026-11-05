@@ -96,6 +96,8 @@ interface ScenarioModule {
   slow?: boolean;
   /** The crashes the scenario provokes on purpose (crash-watch.ts); any other fails it. */
   expectedCrashes?: readonly ExpectedCrash[];
+  /** How long the scenario may run, for one that runs longer than the default by design, such as a soak. */
+  timeoutMs?: number;
 }
 
 function loadScenario(name: string): Promise<ScenarioModule> {
@@ -179,7 +181,7 @@ async function runApp(name: string, context: {
     if (problems.length > 0) throw new StepFailure('load scenario', new Error(problems.join('\n')));
     expectedCrashes = module.expectedCrashes ?? [];
     inScenario = true;
-    await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
+    await withTimeout(module.default(run), module.timeoutMs ?? APP_TIMEOUT_MS, run);
     inScenario = false;
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
