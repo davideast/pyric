@@ -32,6 +32,7 @@ import { workerClientForApp } from './app-client.js';
 import { registerActiveAuth } from './active-auth.js';
 import { beforeAuthStateChanged as unavailableBeforeAuthStateChanged } from './unsupported/auth.js';
 import { afterPageBackend, runAfterPageBackend, subscribeAfterPageBackend } from './page-backend-wait.js';
+import { markServiceUsed } from './service-use.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -160,6 +161,7 @@ function attachServedSandboxHook(
 
 export const getAuth = ((app?: FirebaseApp) => {
   const resolved = app ?? getApp();
+  markServiceUsed();
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
     // A page whose pyric/auth is another copy stages through this bundle's own.
