@@ -11,10 +11,11 @@
  *   hosts through, while unlisted imports stay refused.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { liveResolutionRoot, recordedPassThrough, LIVE_PASS_THROUGH_VARIABLE } from '../../src/register/live-package.js';
 import { registerRows, registerRowsResolution, type RegisterRowPackage } from '../../src/register/supplied-rows.js';
 import { suppliedRowsStopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
@@ -292,4 +293,23 @@ describe('the network guard for a passed-through host, by caller', () => {
       seams.stop();
     }
   });
+});
+
+const VM_CALLER_FIXTURE = fileURLToPath(new URL('./fixtures/live-guard-vm-caller.mjs', import.meta.url));
+const DIST_GUARD = new URL('../../dist/register/live-net-guard.js', import.meta.url).href;
+
+describe('the network guard for a passed-through host, under Node', () => {
+  // Bun names a vm frame `file:///`; Node names it `evalmachine.<anonymous>` or its `filename`, with isEval() false.
+  test('refuses a callback the SDK runs that node:vm built, whatever filename it was given', () => {
+    const result = spawnSync('node', [VM_CALLER_FIXTURE, DIST_GUARD, sdkUrl], { encoding: 'utf8', timeout: 20_000 });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      fromSdk: 'connected',
+      vmDefault: 'PYRIC_GUARD_BLOCKED',
+      vmEmptyName: 'PYRIC_GUARD_BLOCKED',
+      vmNamed: 'PYRIC_GUARD_BLOCKED',
+      vmNodeName: 'PYRIC_GUARD_BLOCKED',
+      sent: ['tls.connect'],
+    });
+  }, 30_000);
 });

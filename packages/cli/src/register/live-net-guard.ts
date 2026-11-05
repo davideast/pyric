@@ -45,6 +45,7 @@
  * Loaded by the live register, so it imports node built-ins and
  * side-effect-free modules only.
  */
+import { isBuiltin } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { FIREBASE_AI_LOGIC_HOST, lookupGoogleEndpoint, matchesHostSuffix, normalizeHostname } from '../google-endpoints.js';
 import { findTokenSource, tokenEndpointsFrom } from '../google-token-endpoints.js';
@@ -194,10 +195,13 @@ function isGoogleRequest(url: URL, endpoints: ReturnType<typeof tokenEndpointsFr
   return isTokenSource || LIVE_ROW_HOSTS.has(host) || googleServiceOf(host) !== null;
 }
 
-type CallSite = { getFileName(): string | null | undefined; isEval?(): boolean };
+type CallSite = { getFileName(): string | null | undefined; isEval?(): boolean; isNative?(): boolean };
 
 /** What a frame of code made by `eval` or `new Function` reads as: a caller, never a file the stop let load. */
 const EVAL_FRAME = 'eval:';
+
+/** What a native frame reads as: one with no script at all, such as `new Promise` or `Array.prototype.map`. */
+const NATIVE_FRAME = 'native:';
 
 /** How many frames the caller check reads: past the guard's own, the runtime's and a transport's. */
 const STACK_DEPTH = 64;
@@ -213,9 +217,23 @@ const GUARD_FILE = /^(live-)?net-guard\.[jt]s$/;
  */
 const TRANSPORT_PACKAGES = ['/node_modules/faye-websocket/', '/node_modules/websocket-driver/'];
 
-/** A frame of the runtime itself: `node:internal/...`, undici's, or a native one. */
+/**
+ * A frame of the runtime itself: native, `node:internal/...` (undici's
+ * among them) or a built-in module such as `node:net`. Any other frame that
+ * is not a file, such as a `vm` script's `evalmachine.<anonymous>` or the
+ * name passed as its `filename`, is the app's and stops the walk.
+ */
 function isRuntimeFrame(file: string): boolean {
-  return !file.startsWith('file:') && file !== EVAL_FRAME;
+  const isInternal = file.startsWith('node:internal/');
+  const isBuiltinModule = file.startsWith('node:') && isBuiltin(file);
+  return file === NATIVE_FRAME || isInternal || isBuiltinModule;
+}
+
+function frameFileOf(site: CallSite): string {
+  if (site.isEval?.() === true) return EVAL_FRAME;
+  const file = site.getFileName();
+  const isNative = site.isNative?.() === true || file === null || file === undefined;
+  return isNative ? NATIVE_FRAME : fileUrlOf(file);
 }
 
 function isGuardFrame(file: string): boolean {
@@ -242,7 +260,7 @@ function stackFiles(): string[] {
     Error.captureStackTrace(holder);
     const sites = (holder.stack as CallSite[] | undefined) ?? [];
     // Code an app builds with `eval` or `new Function` has no file, but it is the app's: it stops the walk.
-    return sites.map((site) => (site.isEval?.() === true ? EVAL_FRAME : fileUrlOf(site.getFileName() ?? '')));
+    return sites.map(frameFileOf);
   } catch {
     return [];
   } finally {
