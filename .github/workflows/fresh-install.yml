@@ -1,0 +1,129 @@
+# Installs pyric the way a new user does and fails on any crash. For each
+# template create-pyric offers, scripts/ci/fresh-install.ts runs
+# `npx create-pyric@exp <dir> --template <name>` in a clean temporary
+# directory, installs it from the npm registry (no workspace packages, no
+# packed tarballs), starts the template's dev command, and drives its main
+# flow in Chromium: sign in, one write, one read, a reload. It fails on a
+# create, install or start error, an uncaught page error, an unhandled
+# rejection, a worker error or crashed page, a runtime chip that is not
+# Ready, an error stack in the dev server's output, or any request that is
+# not to registry.npmjs.org:443.
+#
+# The run's direct connections are rejected by the firewall: it runs in a
+# group whose traffic may reach only loopback, and its installs go through
+# the egress guard (`fresh-install.ts proxy`), which runs outside that group,
+# tunnels only to the registry, and logs every request.
+#
+# Runs nightly and on demand, never on pull requests. It is not part of
+# `CI / required`.
+
+name: Fresh install
+
+on:
+  schedule:
+    - cron: '31 7 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The create-pyric dist-tag or version to install.'
+        required: false
+        default: 'exp'
+      templates:
+        description: 'Comma-separated templates to run. Empty runs every template create-pyric offers.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fresh-install-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EGRESS_GROUP: pyric-fresh-install
+  EGRESS_PORT: '18080'
+
+jobs:
+  fresh-install:
+    name: Fresh install (create-pyric from the npm registry)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      # The node and npm a new user has; the apps' installs never use a cache.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15'
+      # The driver's own dependencies (Playwright); the apps install nothing from here.
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('packages/cli/package.json', 'package.json') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-${{ env.ImageOS }}-
+            playwright-chromium-${{ runner.os }}-
+      - name: Install Chromium browser
+        run: bunx playwright install chromium
+      - name: Driver tests
+        run: bun test scripts/ci/fresh-install-checks.test.ts
+      - name: Start the egress guard
+        run: |
+          nohup bun scripts/ci/fresh-install.ts proxy --port "$EGRESS_PORT" --log "$RUNNER_TEMP/egress.jsonl" > "$RUNNER_TEMP/egress-guard.log" 2>&1 &
+          for _ in $(seq 1 100); do
+            if grep -q 'egress guard on' "$RUNNER_TEMP/egress-guard.log"; then exit 0; fi
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/egress-guard.log"
+          exit 1
+      - name: Reject direct connections from the run's group
+        run: |
+          sudo groupadd --system "$EGRESS_GROUP"
+          sudo usermod -aG "$EGRESS_GROUP" "$USER"
+          sudo iptables -I OUTPUT 1 -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j REJECT
+          sudo ip6tables -I OUTPUT 1 -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j REJECT
+          # The lock holds: a direct request fails, the same request through the guard succeeds.
+          if sg "$EGRESS_GROUP" -c 'curl -sS --max-time 10 -o /dev/null https://registry.npmjs.org/create-pyric'; then
+            echo 'a direct connection from the run group reached the registry'
+            exit 1
+          fi
+          sg "$EGRESS_GROUP" -c 'curl -sS --max-time 30 -o /dev/null -x "http://127.0.0.1:$EGRESS_PORT" https://registry.npmjs.org/create-pyric'
+          # The run must put its own traffic through the guard, so the check request is not counted.
+          : > "$RUNNER_TEMP/egress.jsonl"
+      - name: Fresh install of each template
+        env:
+          TAG: ${{ github.event.inputs.tag || 'exp' }}
+          TEMPLATES: ${{ github.event.inputs.templates }}
+        run: |
+          sg "$EGRESS_GROUP" -c 'bun scripts/ci/fresh-install.ts run --tag "$TAG" ${TEMPLATES:+--templates "$TEMPLATES"} --proxy "http://127.0.0.1:$EGRESS_PORT" --egress-log "$RUNNER_TEMP/egress.jsonl" --out test-results/fresh-install'
+      # Before any later step, and the cache saves at the end of the job, need the network.
+      - name: Allow direct connections again
+        if: always()
+        run: |
+          sudo iptables -D OUTPUT -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j REJECT || true
+          sudo ip6tables -D OUTPUT -m owner --gid-owner "$EGRESS_GROUP" ! -o lo -j REJECT || true
+      - name: Upload fresh install logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-install-logs-${{ github.run_attempt }}
+          path: |
+            test-results/fresh-install/
+            ${{ runner.temp }}/egress.jsonl
+            ${{ runner.temp }}/egress-guard.log
+          if-no-files-found: warn
+          retention-days: 7
