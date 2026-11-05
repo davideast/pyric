@@ -17,6 +17,17 @@ import { parseCreateArgs } from '../src/parse-args.js';
 import { runScaffold, applyDepsMode, TEMPLATES } from '../src/scaffold.js';
 import { loadAssetTemplate } from '../src/templates.js';
 
+// just-bash lists these as optional dependencies for its Node-only `tar`
+// codecs. Their install scripts download prebuilt binaries from github.com or
+// build native code with headers from nodejs.org; the chat app runs just-bash's
+// browser bundle, which never loads them. The overrides point both at a stub
+// the scaffold writes into the app.
+const CHAT_NATIVE_STUB = 'stubs/empty-native-optional';
+const CHAT_NATIVE_OVERRIDES = {
+  '@mongodb-js/zstd': `file:./${CHAT_NATIVE_STUB}`,
+  'node-liblzma': `file:./${CHAT_NATIVE_STUB}`,
+};
+
 function treeBytes(root: string): number {
   return readdirSync(root, { withFileTypes: true }).reduce((total, entry) => {
     const path = join(root, entry.name);
@@ -238,6 +249,46 @@ describe('runScaffold', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('maps the chat template native optional dependencies to a stub written into the app', () => {
+    const root = mkdtempSync(join(tmpdir(), 'create-pyric-chat-overrides-'));
+    const project = join(root, 'app');
+    try {
+      const bin = fileURLToPath(new URL('../src/bin.ts', import.meta.url));
+      const run = spawnSync(process.execPath, [bin, project, '--template', 'chat'], {
+        encoding: 'utf8',
+      });
+      expect(run.status).toBe(0);
+
+      const generated = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
+        overrides?: Record<string, string>;
+      };
+      expect(generated.overrides).toEqual(CHAT_NATIVE_OVERRIDES);
+
+      // npm resolves each `file:` override against the app root. The stub has
+      // no entry file and no scripts, so installing it runs nothing.
+      expect(readdirSync(join(project, CHAT_NATIVE_STUB))).toEqual(['package.json']);
+      const stub = JSON.parse(
+        readFileSync(join(project, CHAT_NATIVE_STUB, 'package.json'), 'utf8'),
+      ) as { name: string; version: string; scripts?: unknown; main?: unknown };
+      expect(stub.name).toBe('empty-native-optional');
+      expect(stub.version).toBe('0.0.0');
+      expect(stub.scripts).toBeUndefined();
+      expect(stub.main).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the chat template overrides next to vendored package overrides', () => {
+    const vendored = applyDepsMode(TEMPLATES.chat, 'vendor', {
+      vendorSpecs: { pyric: 'file:vendor/pyric.tgz', '@pyric/cli': 'file:vendor/cli.tgz' },
+    });
+    expect(vendored.overrides).toEqual({
+      ...CHAT_NATIVE_OVERRIDES,
+      pyric: 'file:vendor/pyric.tgz',
+    });
   });
 
   it('keeps every top-level chat source entry classified by the manifest', () => {
