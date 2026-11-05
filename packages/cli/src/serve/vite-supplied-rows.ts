@@ -83,9 +83,16 @@ export interface SuppliedRows {
   readonly liveSdkUrls: Set<string>;
 }
 
-/** The specifiers a supplier may pass through: every served one with no live row. */
+/**
+ * Served specifiers with no row of their own that reach a service a row
+ * serves: `firebase/firestore/lite` is Firestore, so passing it through would
+ * send Firestore calls no observer sees and the billed count never counts.
+ */
+const ROW_SERVICE_SPECIFIERS: ReadonlySet<ServedFirebaseSpecifier> = new Set<ServedFirebaseSpecifier>(['firebase/firestore/lite']);
+
+/** The specifiers a supplier may pass through: every served one with no live row, and no row's service. */
 const PASS_THROUGH_SPECIFIERS: ReadonlySet<string> = new Set(
-  SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier)),
+  SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier) && !ROW_SERVICE_SPECIFIERS.has(specifier)),
 );
 
 /** The pass-through set, or a throw naming each entry that cannot pass through. */

@@ -68,20 +68,35 @@ function refused(message: string): Error {
  * import live mode has no row for. Each loads the app's installed SDK
  * unwrapped and unobserved.
  */
-export const PASS_THROUGH_CANDIDATES: readonly string[] = Object.keys(SERVICE_NAMES);
+const SERVED_IMPORTS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check']);
+
+/**
+ * Imports of a service live mode serves, under another entry: they stay
+ * refused, since their calls would reach the served service unobserved and
+ * "Billed calls" would never count them.
+ */
+const SERVED_SERVICE_IMPORTS: Readonly<Record<string, string>> = {
+  'firebase/firestore/lite': 'firebase/firestore',
+};
+
+export const PASS_THROUGH_CANDIDATES: readonly string[] = Object.keys(SERVICE_NAMES)
+  .filter((specifier) => !Object.hasOwn(SERVED_SERVICE_IMPORTS, specifier));
 
 /** Whether `pyricLive({ passThrough })` can list `specifier`. */
 export function canPassThrough(specifier: string): boolean {
-  return Object.hasOwn(SERVICE_NAMES, specifier);
+  return PASS_THROUGH_CANDIDATES.includes(specifier);
 }
-
-const SERVED_IMPORTS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/app-check']);
 
 /** What is wrong with one `passThrough` entry, or null when it can pass through. */
 function passThroughProblem(entry: unknown): string | null {
   if (typeof entry !== 'string') return `passThrough lists ${JSON.stringify(entry)}, which is not an import name.`;
   if (canPassThrough(entry)) return null;
   if (SERVED_IMPORTS.has(entry)) return `passThrough lists ${entry}, which live mode already serves and observes; remove it.`;
+  const servedAs = SERVED_SERVICE_IMPORTS[entry];
+  if (servedAs !== undefined) {
+    return `passThrough lists ${entry}, which cannot pass through: live mode serves this service as ${servedAs}, ` +
+      `and its calls would reach it unobserved and uncounted. Import ${servedAs} instead.`;
+  }
   if (serviceOf(entry) === 'the Admin SDK') {
     return `passThrough lists ${entry}, which never passes through: live mode refuses the Admin SDK in every process.`;
   }

@@ -29,10 +29,25 @@ function startError(value: unknown): string {
 }
 
 describe('the passThrough option', () => {
-  test('takes every served Firebase import live mode has no row for, and nothing else', () => {
-    const unserved = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
-    expect([...PASS_THROUGH_CANDIDATES].sort()).toEqual([...unserved].sort());
-    expect(passThroughOption(ENTRY, unserved)).toEqual(unserved);
+  test('takes every served Firebase import live mode has no row for, except Firestore Lite, and nothing else', () => {
+    const passable = [
+      'firebase/ai', 'firebase/analytics', 'firebase/database', 'firebase/functions', 'firebase/messaging',
+      'firebase/messaging/sw', 'firebase/performance', 'firebase/remote-config', 'firebase/storage',
+    ];
+    const unserved: string[] = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
+    expect([...unserved].sort()).toEqual([...passable, 'firebase/firestore/lite'].sort());
+    expect([...PASS_THROUGH_CANDIDATES].sort()).toEqual(passable);
+    expect(passThroughOption(ENTRY, passable)).toEqual(passable);
+    expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: passable })).not.toThrow();
+  });
+
+  test('refuses firebase/firestore/lite: its Firestore calls would go unobserved and uncounted', () => {
+    expect(startError(['firebase/firestore/lite'])).toBe(
+      `${ENTRY}: passThrough lists firebase/firestore/lite, which cannot pass through: live mode serves this service as firebase/firestore, ` +
+        'and its calls would reach it unobserved and uncounted. Import firebase/firestore instead.',
+    );
+    expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: ['firebase/firestore/lite'] }))
+      .toThrow('pyric: firebase/firestore/lite cannot pass through');
   });
 
   test('is empty when absent, and lists each import once', () => {
