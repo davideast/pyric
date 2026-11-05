@@ -132,13 +132,146 @@ function chipFindings(states: readonly string[]): string[] {
     .map((state) => `runtime chip is not Ready: ${state}`);
 }
 
-function egressFindings(egress: readonly EgressEntry[], steps: readonly StepRecord[]): string[] {
-  if (egress.length === 0) {
-    return ['egress: no request went through the egress guard, so the install bypassed it or never ran'];
+// ─── Allowances ────────────────────────────────────────────────────────
+
+/**
+ * A refused request or firewall reject that does not fail the run, because
+ * its source is known and named. It still shows in findings.txt as
+ * `allowed (<label>)` on every run, and an allowance that matched nothing
+ * in a run that reached its step fails the run as stale. The proxy and the
+ * firewall still refuse what an allowance covers.
+ */
+export interface Allowance {
+  name: string;
+  /** What findings.txt shows in `allowed (<label>)`: the issue, or the allowance's name. */
+  label: string;
+  reason: string;
+  template: string;
+  /** `npm install`: during that step. `dev command running`: during a step while `npm run dev` runs. */
+  step: 'npm install' | 'dev command running';
+  /** A refused egress request to one of these hosts. */
+  egressHosts?: readonly string[];
+  /** A firewall reject to an address this name resolves to at run time. */
+  resolvesTo?: string;
+  port: number;
+}
+
+export const ALLOWANCES: readonly Allowance[] = [
+  {
+    name: 'chat-zstd-native-binary',
+    label: '#2049',
+    reason: "the chat template's @inbrowser/workspace pulls in @mongodb-js/zstd, whose install script downloads a prebuilt binary from GitHub and falls back to Node headers from nodejs.org (#2049)",
+    template: 'chat',
+    step: 'npm install',
+    egressHosts: ['github.com', 'nodejs.org'],
+    port: 443,
+  },
+  {
+    name: 'next-dev-version-check',
+    label: 'next-dev-version-check',
+    reason: 'the Next.js dev server\'s version check, made by Next, not by pyric, and sent only to the npm registry',
+    template: 'nextjs',
+    step: 'dev command running',
+    resolvesTo: REGISTRY_HOST,
+    port: 443,
+  },
+];
+
+/** What a check found: lines that fail the run, and lines an allowance covers. */
+export interface Verdict {
+  failing: string[];
+  allowed: string[];
+}
+
+/** The addresses each allowance's `resolvesTo` name resolved to in this run. */
+export type ResolvedNames = ReadonlyMap<string, readonly string[]>;
+
+/** One form for an address, so `2606:4700:0000::22` and `2606:4700::22` compare equal. */
+export function canonicalAddress(address: string): string {
+  if (!address.includes(':')) return address;
+  try {
+    return new URL(`http://[${address}]/`).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return address.toLowerCase();
   }
-  return egress
+}
+
+function stepHolding(time: string | undefined, steps: readonly StepRecord[]): StepRecord | undefined {
+  const at = time === undefined ? Number.NaN : Date.parse(time);
+  if (Number.isNaN(at)) return undefined;
+  return steps.find((record) => Date.parse(record.start) <= at && at <= Date.parse(record.end));
+}
+
+function inAllowedStep(allowance: Allowance, record: StepRecord): boolean {
+  if (record.template !== allowance.template) return false;
+  if (allowance.step === 'npm install') return record.step === 'npm install';
+  return [...record.started, ...record.running].some((command) => command.startsWith('npm run dev'));
+}
+
+interface Target {
+  kind: 'egress' | 'firewall';
+  host: string;
+  port?: number;
+  time?: string;
+}
+
+function allows(allowance: Allowance, target: Target, steps: readonly StepRecord[], resolved: ResolvedNames): boolean {
+  const record = stepHolding(target.time, steps);
+  if (record === undefined || !inAllowedStep(allowance, record) || target.port !== allowance.port) return false;
+  if (target.kind === 'egress') return allowance.egressHosts?.includes(target.host.toLowerCase()) === true;
+  if (allowance.resolvesTo === undefined) return false;
+  const addresses = (resolved.get(allowance.resolvesTo) ?? []).map(canonicalAddress);
+  return addresses.includes(canonicalAddress(target.host));
+}
+
+function coversKind(allowance: Allowance, kind: Target['kind']): boolean {
+  if (kind === 'egress') return allowance.egressHosts !== undefined;
+  return allowance.resolvesTo !== undefined;
+}
+
+/**
+ * Sorts `findings` (one per target, same order) into allowed and failing,
+ * and adds a failing line for each allowance of this kind that matched
+ * nothing although its template reached the step it covers.
+ */
+function applyAllowances(
+  kind: Target['kind'],
+  items: readonly { target: Target; finding: string }[],
+  steps: readonly StepRecord[],
+  resolved: ResolvedNames,
+  allowances: readonly Allowance[],
+): Verdict {
+  const verdict: Verdict = { failing: [], allowed: [] };
+  const used = new Set<Allowance>();
+  for (const { target, finding } of items) {
+    const allowance = allowances.find((candidate) => coversKind(candidate, kind) && allows(candidate, target, steps, resolved));
+    if (allowance === undefined) {
+      verdict.failing.push(finding);
+      continue;
+    }
+    used.add(allowance);
+    verdict.allowed.push(`allowed (${allowance.label}): ${finding}; ${allowance.reason}`);
+  }
+  for (const allowance of allowances) {
+    const reachedItsStep = steps.some((record) => inAllowedStep(allowance, record));
+    if (coversKind(allowance, kind) && !used.has(allowance) && reachedItsStep) {
+      verdict.failing.push(`stale allowance ${allowance.name} (${allowance.label}): matched nothing this run; remove it or fix it`);
+    }
+  }
+  return verdict;
+}
+
+function egressVerdict(egress: readonly EgressEntry[], steps: readonly StepRecord[], allowances: readonly Allowance[]): Verdict {
+  if (egress.length === 0) {
+    return { failing: ['egress: no request went through the egress guard, so the install bypassed it or never ran'], allowed: [] };
+  }
+  const items = egress
     .filter((entry) => !entry.allowed)
-    .map((entry) => `egress: refused ${entry.method} ${entry.host}:${entry.port} (only ${REGISTRY_HOST}:${REGISTRY_PORT} may be reached) ${stepAt(entry.time, steps)}`);
+    .map((entry) => ({
+      target: { kind: 'egress' as const, host: entry.host, port: entry.port, time: entry.time },
+      finding: `egress: refused ${entry.method} ${entry.host}:${entry.port} (only ${REGISTRY_HOST}:${REGISTRY_PORT} may be reached) ${stepAt(entry.time, steps)}`,
+    }));
+  return applyAllowances('egress', items, steps, new Map(), allowances);
 }
 
 function describeStep(record: StepRecord): string {
@@ -186,12 +319,21 @@ export function parseFirewallRejects(text: string): FirewallReject[] {
   return rejects;
 }
 
-/** One finding per connection the firewall rejected, naming the step it fell in. */
-export function firewallFindings(rejects: readonly FirewallReject[], steps: readonly StepRecord[]): string[] {
-  return rejects.map((reject) => {
-    const target = reject.port === undefined ? reject.destination : `${reject.destination}:${reject.port}`;
-    return `firewall: rejected a direct ${reject.protocol} connection to ${target} ${stepAt(reject.time, steps)}`;
+/** One line per connection the firewall rejected, naming the step it fell in, sorted by the allowances. */
+export function firewallFindings(
+  rejects: readonly FirewallReject[],
+  steps: readonly StepRecord[],
+  resolved: ResolvedNames = new Map(),
+  allowances: readonly Allowance[] = ALLOWANCES,
+): Verdict {
+  const items = rejects.map((reject) => {
+    const where = reject.port === undefined ? reject.destination : `${reject.destination}:${reject.port}`;
+    return {
+      target: { kind: 'firewall' as const, host: reject.destination, port: reject.port, time: reject.time },
+      finding: `firewall: rejected a direct ${reject.protocol} connection to ${where} ${stepAt(reject.time, steps)}`,
+    };
   });
+  return applyAllowances('firewall', items, steps, resolved, allowances);
 }
 
 /**
@@ -200,9 +342,10 @@ export function firewallFindings(rejects: readonly FirewallReject[], steps: read
  * page; a 5xx response or a pyric host error to a page; a page request the
  * browser guard blocked; a runtime chip that is not Ready; an error stack or
  * a Next `⨯` error in the dev server's output; and any request the egress
- * guard refused, or no guarded traffic at all.
+ * guard refused, or no guarded traffic at all. Refused requests an
+ * allowance covers are listed in `allowed` instead.
  */
-export function crashFindings(run: RunEvidence): string[] {
+export function crashFindings(run: RunEvidence, allowances: readonly Allowance[] = ALLOWANCES): Verdict {
   const findings: string[] = [];
   for (const evidence of run.templates) {
     const own: string[] = [];
@@ -210,8 +353,8 @@ export function crashFindings(run: RunEvidence): string[] {
     own.push(...browserFindings(evidence), ...hostErrorFindings(evidence.hostErrors), ...chipFindings(evidence.chipStates), ...serverErrorFindings(evidence.serverOutput));
     findings.push(...own.map((finding) => `${evidence.template}: ${finding}`));
   }
-  findings.push(...egressFindings(run.egress, run.steps ?? []));
-  return findings;
+  const egress = egressVerdict(run.egress, run.steps ?? [], allowances);
+  return { failing: [...findings, ...egress.failing], allowed: egress.allowed };
 }
 
 // ─── Egress guard ──────────────────────────────────────────────────────

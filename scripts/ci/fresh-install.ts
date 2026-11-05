@@ -26,6 +26,7 @@
  * only loopback (the app scenario driver's browser guard).
  */
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { lookup } from 'node:dns/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
@@ -33,6 +34,7 @@ import { TEMPLATE_NAMES, type TemplateName } from '../../packages/create-pyric/s
 import { sendDirectMessage, signInAsAda } from '../../test/apps/chat-template.ts';
 import { AppRun, launchScenarioBrowser, sleep, StepFailure, type AppProcess } from '../../test/apps/driver.ts';
 import {
+  ALLOWANCES,
   crashFindings,
   firewallFindings,
   parseFirewallRejects,
@@ -450,11 +452,11 @@ async function run(args: string[]): Promise<number> {
 
   const egress = egressLog === undefined ? inProcess : readJsonLines<EgressEntry>(egressLog);
   writeFileSync(join(out, 'egress.jsonl'), egress.map((entry) => JSON.stringify(entry)).join('\n'));
-  const findings = crashFindings({ templates, egress, steps: readJsonLines<StepRecord>(stepsFile) });
-  writeFileSync(join(out, 'findings.txt'), findings.join('\n'));
-  for (const finding of findings) console.error(`[fresh-install] ${finding}`);
-  console.log(`[fresh-install] ${findings.length === 0 ? 'no findings' : `${findings.length} findings`}; logs in ${out}`);
-  return findings.length === 0 ? 0 : 1;
+  const { failing, allowed } = crashFindings({ templates, egress, steps: readJsonLines<StepRecord>(stepsFile) });
+  writeFileSync(join(out, 'findings.txt'), [...failing, ...allowed].join('\n'));
+  for (const line of [...failing, ...allowed]) console.error(`[fresh-install] ${line}`);
+  console.log(`[fresh-install] ${failing.length} failing, ${allowed.length} allowed; logs in ${out}`);
+  return failing.length === 0 ? 0 : 1;
 }
 
 async function serveProxy(args: string[]): Promise<number> {
@@ -476,10 +478,23 @@ async function attributeRejects(args: string[]): Promise<number> {
     throw new Error('usage: fresh-install.ts rejects --steps <steps.jsonl> --log <firewall-rejects.log> --findings <findings.txt>');
   }
   const text = existsSync(log) ? readFileSync(log, 'utf8') : '';
-  const findings = firewallFindings(parseFirewallRejects(text), readJsonLines<StepRecord>(steps));
-  for (const finding of findings) console.error(`[fresh-install] ${finding}`);
-  if (findings.length > 0) appendFileSync(findingsFile, `\n${findings.join('\n')}`);
-  return findings.length === 0 ? 0 : 1;
+  const { failing, allowed } = firewallFindings(parseFirewallRejects(text), readJsonLines<StepRecord>(steps), await resolveAllowanceNames());
+  const lines = [...failing, ...allowed];
+  for (const line of lines) console.error(`[fresh-install] ${line}`);
+  if (lines.length > 0) appendFileSync(findingsFile, `\n${lines.join('\n')}`);
+  return failing.length === 0 ? 0 : 1;
+}
+
+/** Every address each allowance's `resolvesTo` name has now, both families; none when it does not resolve. */
+async function resolveAllowanceNames(): Promise<Map<string, string[]>> {
+  const names = [...new Set(ALLOWANCES.flatMap((allowance) => (allowance.resolvesTo === undefined ? [] : [allowance.resolvesTo])))];
+  const resolved = new Map<string, string[]>();
+  for (const name of names) {
+    const addresses = await lookup(name, { all: true }).catch(() => []);
+    resolved.set(name, addresses.map((entry) => entry.address));
+    console.log(`[fresh-install] ${name} resolves to ${resolved.get(name)!.join(', ') || 'nothing'}`);
+  }
+  return resolved;
 }
 
 if (import.meta.main) {

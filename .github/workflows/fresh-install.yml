@@ -13,9 +13,15 @@
 # group whose traffic may reach only loopback, and its installs go through
 # the egress guard (`fresh-install.ts proxy`), which runs outside that group,
 # tunnels only to the registry, and logs every request. Each rejected
-# connection is logged with its destination and counted, and any count above
-# zero fails the run. Next.js telemetry is turned off (NEXT_TELEMETRY_DISABLED),
-# as a careful user does; nothing else is allowed.
+# connection is logged with its destination and counted. Next.js telemetry is
+# turned off (NEXT_TELEMETRY_DISABLED), as a careful user does.
+#
+# Every refused request and every reject is named with the template and step
+# it fell in, and fails the run unless an allowance in
+# scripts/ci/fresh-install-checks.ts (ALLOWANCES) covers it. The guard and the
+# firewall still refuse what an allowance covers; findings.txt lists it as
+# `allowed (<label>)` on every run, and an allowance that matched nothing is
+# stale and fails the run.
 #
 # Each template installs with a HOME and npm cache of its own. The job only
 # restores the Bun and Playwright caches, never saves them, so a run cannot
@@ -126,7 +132,16 @@ jobs:
           TEMPLATES: ${{ github.event.inputs.templates }}
         run: |
           sg "$EGRESS_GROUP" -c 'bun scripts/ci/fresh-install.ts run --tag "$TAG" ${TEMPLATES:+--templates "$TEMPLATES"} --proxy "http://127.0.0.1:$EGRESS_PORT" --egress-log "$RUNNER_TEMP/egress.jsonl" --out test-results/fresh-install'
-      - name: No direct connection was rejected
+      # Confirms the allowed Next.js reject's source in the Next the template installed.
+      - name: Where the installed Next.js dev server fetches the registry
+        if: always()
+        run: |
+          for next in /tmp/pyric-fresh-install-*/nextjs-app/node_modules/next; do
+            [ -d "$next/dist" ] || continue
+            grep -m1 '"version"' "$next/package.json"
+            grep -rn --include='*.js' 'registry.npmjs.org' "$next/dist" | grep -v '/dist/compiled/' || echo "no registry fetch in $next/dist"
+          done
+      - name: No direct connection was rejected without an allowance
         if: always()
         run: |
           gid="$(getent group "$EGRESS_GROUP" | cut -d: -f3)"
@@ -139,8 +154,11 @@ jobs:
           before="$(cat "$RUNNER_TEMP/rejects-before-run" 2>/dev/null || echo 0)"
           # Wall-clock times, so each reject can be matched to the driver step it fell in.
           sudo dmesg --time-format iso | grep 'fresh-install-reject: ' | tail -n "+$((before + 1))" > "$RUNNER_TEMP/firewall-rejects.log" || true
-          bun scripts/ci/fresh-install.ts rejects --steps test-results/fresh-install/steps.jsonl --log "$RUNNER_TEMP/firewall-rejects.log" --findings test-results/fresh-install/findings.txt || true
-          rejected=0
+          # Each reject, with its step; one no allowance covers fails here.
+          attributed=0
+          bun scripts/ci/fresh-install.ts rejects --steps test-results/fresh-install/steps.jsonl --log "$RUNNER_TEMP/firewall-rejects.log" --findings test-results/fresh-install/findings.txt || attributed=1
+          logged="$(grep -c 'fresh-install-reject: ' "$RUNNER_TEMP/firewall-rejects.log" || true)"
+          total=0
           for table in iptables ip6tables; do
             # -v -x columns: pkts bytes target ...; the rule shows the group as `owner GID match <gid>`.
             listing="$(sudo "$table" -L OUTPUT -v -x -n)"
@@ -152,13 +170,15 @@ jobs:
               exit 1
             fi
             echo "$table: $count connections from the run group rejected"
-            if [ "$count" != "0" ]; then rejected=1; fi
+            total=$((total + count))
           done
-          if [ "$rejected" = "1" ]; then
-            echo 'The run tried to connect somewhere other than the egress guard. Destinations:'
+          # Every rejected packet is logged first, so the counters and the log agree unless the log lost lines.
+          if [ "$total" != "${logged:-0}" ]; then
+            echo "the firewall rejected $total packets but the kernel log shows ${logged:-0}; the unlogged ones have no step:"
             cat "$RUNNER_TEMP/firewall-rejects.log"
             exit 1
           fi
+          exit "$attributed"
       # Before any later step that needs the network.
       - name: Allow direct connections again
         if: always()

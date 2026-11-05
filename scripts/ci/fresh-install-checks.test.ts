@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { connect, type AddressInfo } from 'node:net';
 import {
+  ALLOWANCES,
+  canonicalAddress,
   crashFindings,
   firewallFindings,
   isRegistryRequest,
@@ -8,6 +10,7 @@ import {
   startEgressProxy,
   UNHANDLED_REJECTION_MARK,
   WORKER_ERROR_MARK,
+  type Allowance,
   type EgressEntry,
   type RunEvidence,
   type StepRecord,
@@ -26,22 +29,27 @@ function template(overrides: Partial<TemplateEvidence> = {}): TemplateEvidence {
   };
 }
 
+/** The lines that fail the run, with no allowances. */
+function failing(evidence: RunEvidence): string[] {
+  return crashFindings(evidence, []).failing;
+}
+
 function run(templates: TemplateEvidence[], egress: EgressEntry[] = [REGISTRY]): RunEvidence {
   return { templates, egress };
 }
 
 describe('crashFindings', () => {
   test('a clean run has no findings', () => {
-    expect(crashFindings(run([template(), template({ template: 'node', chipStates: [] })]))).toEqual([]);
+    expect(failing(run([template(), template({ template: 'node', chipStates: [] })]))).toEqual([]);
   });
 
   test('a failed install or start step is a finding that names the step', () => {
-    const findings = crashFindings(run([template({ failedStep: { step: 'npm install', reason: 'exit 1: ERESOLVE' } })]));
+    const findings = failing(run([template({ failedStep: { step: 'npm install', reason: 'exit 1: ERESOLVE' } })]));
     expect(findings).toEqual(['web: npm install failed: exit 1: ERESOLVE']);
   });
 
   test('an uncaught page error is a finding', () => {
-    const findings = crashFindings(run([template({
+    const findings = failing(run([template({
       browserLog: ['[page 1 error] TypeError: Cannot read properties of undefined (reading \'uid\')\n    at main.ts:12:3'],
     })]));
     expect(findings).toEqual([
@@ -50,7 +58,7 @@ describe('crashFindings', () => {
   });
 
   test('an unhandled rejection is a finding', () => {
-    const findings = crashFindings(run([template({
+    const findings = failing(run([template({
       browserLog: [`[page 1 console.error] ${UNHANDLED_REJECTION_MARK} FirebaseError: permission-denied`],
     })]));
     expect(findings).toEqual([
@@ -59,7 +67,7 @@ describe('crashFindings', () => {
   });
 
   test('a worker error, a SharedWorker error and a crashed page are worker crashes', () => {
-    const findings = crashFindings(run([template({
+    const findings = failing(run([template({
       browserLog: [
         `[page 1 console.error] ${WORKER_ERROR_MARK} SharedWorker /__pyric/worker.js: script error`,
         '[page 1 console.error] Error: Pyric SharedWorker error: worker failed to load',
@@ -71,7 +79,7 @@ describe('crashFindings', () => {
   });
 
   test('a console warning or an ordinary console error is not a crash', () => {
-    const findings = crashFindings(run([template({
+    const findings = failing(run([template({
       browserLog: [
         '[page 1 console.warning] [vite] connecting...',
         '[page 1 console.error] Failed to load resource: the server responded with a status of 404 (Not Found)',
@@ -81,7 +89,7 @@ describe('crashFindings', () => {
   });
 
   test('a runtime chip that is not Ready is a finding; a page without a chip is not', () => {
-    const findings = crashFindings(run([
+    const findings = failing(run([
       template({ chipStates: ['Ready', 'error: A request failed in the last minute'] }),
       template({ template: 'static', chipStates: ['absent'] }),
     ]));
@@ -89,7 +97,7 @@ describe('crashFindings', () => {
   });
 
   test('a blocked external request or WebSocket from a page is a finding', () => {
-    const findings = crashFindings(run([template({
+    const findings = failing(run([template({
       browserLog: [
         '[blocked external request] POST https://telemetry.example.com/v1',
         '[blocked external WebSocket] wss://firestore.googleapis.com/ws',
@@ -102,7 +110,7 @@ describe('crashFindings', () => {
   });
 
   test('a 5xx response is a finding; a 404 is not', () => {
-    const findings = crashFindings(run([template({
+    const findings = failing(run([template({
       browserLog: [
         '[page 1 response 500] GET http://127.0.0.1:3000/api/status',
         '[page 1 response 404] GET http://127.0.0.1:3000/favicon.ico',
@@ -112,7 +120,7 @@ describe('crashFindings', () => {
   });
 
   test('an error response from a pyric host route is a finding', () => {
-    const findings = crashFindings(run([template({ hostErrors: ['403 POST /__pyric/diagnostics (during "write one post")'] })]));
+    const findings = failing(run([template({ hostErrors: ['403 POST /__pyric/diagnostics (during "write one post")'] })]));
     expect(findings).toEqual(['web: pyric host answered with an error: 403 POST /__pyric/diagnostics (during "write one post")']);
   });
 
@@ -123,18 +131,18 @@ describe('crashFindings', () => {
       '    at TransformPluginContext._formatError (file:///app/node_modules/vite/dist/node/chunks/dep.js:49258:41)',
       '    at async TransformPluginContext.transform (node:internal/modules/esm/loader:120:7)',
     ].join('\n');
-    expect(crashFindings(run([template({ serverOutput })]))).toEqual([
+    expect(failing(run([template({ serverOutput })]))).toEqual([
       'web: error in dev server output: 12:00:01 [vite] Internal server error: Failed to resolve import "firebase/ai"',
     ]);
   });
 
   test('prose with "at" and a URL is not a stack frame', () => {
     const serverOutput = 'Pyric sandbox at http://127.0.0.1:4000\n  Studio at http://127.0.0.1:4000/__pyric/studio\n';
-    expect(crashFindings(run([template({ serverOutput })]))).toEqual([]);
+    expect(failing(run([template({ serverOutput })]))).toEqual([]);
   });
 
   test('a refused off-registry request is a finding', () => {
-    const findings = crashFindings(run([template()], [
+    const findings = failing(run([template()], [
       REGISTRY,
       { method: 'CONNECT', host: 'github.com', port: 443, allowed: false },
     ]));
@@ -142,7 +150,7 @@ describe('crashFindings', () => {
   });
 
   test('a run with no registry traffic through the guard is a finding', () => {
-    expect(crashFindings(run([template()], []))).toEqual([
+    expect(failing(run([template()], []))).toEqual([
       'egress: no request went through the egress guard, so the install bypassed it or never ran',
     ]);
   });
@@ -239,12 +247,15 @@ describe('dev server errors in the shapes each dev command prints', () => {
   };
   for (const [name, { output, expected }] of Object.entries(samples)) {
     test(name, () => {
-      expect(crashFindings(run([template({ serverOutput: output })]))).toEqual(
+      expect(failing(run([template({ serverOutput: output })]))).toEqual(
         expected.map((line) => `web: error in dev server output: ${line}`),
       );
     });
   }
 });
+
+const noAllowances = (rejects: Parameters<typeof firewallFindings>[0], steps: readonly StepRecord[]) =>
+  firewallFindings(rejects, steps, new Map(), []).failing;
 
 const STEPS: StepRecord[] = [
   {
@@ -263,7 +274,7 @@ const STEPS: StepRecord[] = [
 
 describe('attribution to the step a request fell in', () => {
   test('a refused request names the step whose window holds it and the command it started', () => {
-    const findings = crashFindings({
+    const findings = failing({
       templates: [],
       egress: [REGISTRY, { method: 'CONNECT', host: 'nodejs.org', port: 443, allowed: false, time: '2026-11-05T01:01:10.000Z' }],
       steps: STEPS,
@@ -274,21 +285,21 @@ describe('attribution to the step a request fell in', () => {
   });
 
   test('a request during a step that started nothing names what was running', () => {
-    const findings = firewallFindings([{ time: '2026-11-05T01:02:37.000Z', protocol: 'TCP', destination: '104.16.0.34', port: 443 }], STEPS);
+    const findings = noAllowances([{ time: '2026-11-05T01:02:37.000Z', protocol: 'TCP', destination: '104.16.0.34', port: 443 }], STEPS);
     expect(findings).toEqual([
       'firewall: rejected a direct TCP connection to 104.16.0.34:443 (at 2026-11-05T01:02:37.000Z, during nextjs step 5 "sign in through the sandbox Google dialog"; running: npm run dev -- --port 4100 --hostname 127.0.0.1)',
     ]);
   });
 
   test('a request between steps names the step before it', () => {
-    const findings = firewallFindings([{ time: '2026-11-05T01:02:32.000Z', protocol: 'TCP', destination: '104.16.1.34', port: 443 }], STEPS);
+    const findings = noAllowances([{ time: '2026-11-05T01:02:32.000Z', protocol: 'TCP', destination: '104.16.1.34', port: 443 }], STEPS);
     expect(findings).toEqual([
       'firewall: rejected a direct TCP connection to 104.16.1.34:443 (at 2026-11-05T01:02:32.000Z, between steps, after nextjs step 3 "npm run dev serves the page"; started: npm run dev -- --port 4100 --hostname 127.0.0.1)',
     ]);
   });
 
   test('a request before any step says so', () => {
-    expect(firewallFindings([{ time: '2026-11-05T00:59:00.000Z', protocol: 'UDP', destination: '168.63.129.16', port: 53 }], STEPS)).toEqual([
+    expect(noAllowances([{ time: '2026-11-05T00:59:00.000Z', protocol: 'UDP', destination: '168.63.129.16', port: 53 }], STEPS)).toEqual([
       'firewall: rejected a direct UDP connection to 168.63.129.16:53 (at 2026-11-05T00:59:00.000Z, before the first step)',
     ]);
   });
@@ -305,5 +316,88 @@ describe('parseFirewallRejects', () => {
       { time: '2026-11-05T01:02:37.412+00:00', protocol: 'TCP', destination: '104.16.0.34', port: 443 },
       { time: '2026-11-05T01:02:38.000+00:00', protocol: 'ICMPv6', destination: '2606:4700::6810:22' },
     ]);
+  });
+});
+
+describe('allowances', () => {
+  const chatInstall: StepRecord = {
+    template: 'chat', index: 2, step: 'npm install', started: ['npm install'], running: [],
+    start: '2026-11-05T01:07:17.000Z', end: '2026-11-05T01:08:00.000Z',
+  };
+  const chatDev: StepRecord = {
+    template: 'chat', index: 5, step: 'send one message', started: [], running: ['npm run dev -- --host 127.0.0.1 --port 41667 --strictPort'],
+    start: '2026-11-05T01:08:10.000Z', end: '2026-11-05T01:08:20.000Z',
+  };
+  const webInstall: StepRecord = { ...chatInstall, template: 'web', start: '2026-11-05T01:00:00.000Z', end: '2026-11-05T01:01:00.000Z' };
+  const refused = (host: string, time: string): EgressEntry => ({ method: 'CONNECT', host, port: 443, allowed: false, time });
+  const verdict = (egress: EgressEntry[], steps: StepRecord[]) => crashFindings({ templates: [], egress: [REGISTRY, ...egress], steps });
+  const registry = new Map([['registry.npmjs.org', ['104.16.0.34', '104.16.1.34', '2606:4700::6810:22']]]);
+  const nextDev = STEPS[2]!;
+  const reject = (destination: string, time = '2026-11-05T01:02:37.000Z') => ({ time, protocol: 'TCP', destination, port: 443 });
+
+  test('the chat install reaching github.com and nodejs.org is listed as allowed (#2049), not failing', () => {
+    const result = verdict([refused('github.com', '2026-11-05T01:07:55.007Z'), refused('nodejs.org', '2026-11-05T01:07:55.093Z')], [chatInstall]);
+    expect(result.failing).toEqual([]);
+    expect(result.allowed).toHaveLength(2);
+    expect(result.allowed[0]).toStartWith('allowed (#2049): egress: refused CONNECT github.com:443');
+  });
+
+  test('the same host outside the chat install, or another host during it, still fails', () => {
+    const result = verdict([
+      refused('github.com', '2026-11-05T01:08:15.000Z'),
+      refused('github.com', '2026-11-05T01:00:30.000Z'),
+      refused('example.com', '2026-11-05T01:07:30.000Z'),
+      refused('nodejs.org', '2026-11-05T01:07:55.093Z'),
+    ], [webInstall, chatInstall, chatDev]);
+    expect(result.allowed).toHaveLength(1);
+    expect(result.failing).toHaveLength(3);
+    expect(result.failing.every((line) => line.startsWith('egress: refused CONNECT'))).toBe(true);
+  });
+
+  test('a nextjs dev-server reject to an address the registry resolves to is allowed, by its name', () => {
+    const result = firewallFindings([reject('104.16.0.34'), reject('2606:4700:0000:0000:0000:0000:6810:0022')], [STEPS[0]!, nextDev], registry);
+    expect(result.failing).toEqual([]);
+    expect(result.allowed).toHaveLength(2);
+    expect(result.allowed[0]).toStartWith('allowed (next-dev-version-check): firewall: rejected a direct TCP connection to 104.16.0.34:443');
+    expect(result.allowed[0]).toEndWith("the Next.js dev server's version check, made by Next, not by pyric, and sent only to the npm registry");
+  });
+
+  test('a reject to another address, or during the nextjs install, still fails', () => {
+    const result = firewallFindings([reject('140.82.112.3'), reject('104.16.1.34', '2026-11-05T01:01:00.000Z')], STEPS, registry);
+    expect(result.allowed).toEqual([]);
+    expect(result.failing.filter((line) => line.startsWith('firewall: rejected'))).toHaveLength(2);
+  });
+
+  test('a reject is not allowed when the registry did not resolve', () => {
+    expect(firewallFindings([reject('104.16.0.34')], STEPS, new Map()).allowed).toEqual([]);
+  });
+
+  test('an allowance that matched nothing in a run that reached its step is stale and fails', () => {
+    expect(verdict([], [chatInstall]).failing).toEqual([
+      'stale allowance chat-zstd-native-binary (#2049): matched nothing this run; remove it or fix it',
+    ]);
+    expect(firewallFindings([], STEPS, registry).failing).toEqual([
+      'stale allowance next-dev-version-check (next-dev-version-check): matched nothing this run; remove it or fix it',
+    ]);
+  });
+
+  test('an allowance whose template did not reach its step is not stale', () => {
+    expect(verdict([], [webInstall]).failing).toEqual([]);
+    expect(firewallFindings([], [STEPS[0]!], registry).failing).toEqual([]);
+  });
+
+  test('the list: unique names, a label and reason each, and one kind of target each', () => {
+    const names = ALLOWANCES.map((allowance: Allowance) => allowance.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const allowance of ALLOWANCES) {
+      expect(allowance.label.length > 0 && allowance.reason.length > 0).toBe(true);
+      expect((allowance.egressHosts === undefined) !== (allowance.resolvesTo === undefined)).toBe(true);
+    }
+    expect(ALLOWANCES.find((allowance) => allowance.name === 'chat-zstd-native-binary')?.reason).toContain('#2049');
+  });
+
+  test('canonicalAddress compares IPv6 forms', () => {
+    expect(canonicalAddress('2606:4700:0000:0000:0000:0000:6810:0022')).toBe(canonicalAddress('2606:4700::6810:22'));
+    expect(canonicalAddress('104.16.0.34')).toBe('104.16.0.34');
   });
 });
