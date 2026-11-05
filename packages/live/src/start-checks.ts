@@ -61,7 +61,20 @@ function resolvedPackageDir(name: string, fromDir: string): string | null {
   }
 }
 
-/** The version of the `firebase` the project root resolves, or null when it has none. */
+/**
+ * The folder the app's `firebase` resolves from, for every live start check
+ * and for the live rows of a Node process (`liveRegisterSdkRoot` in
+ * `node-modules.ts`): `appDir`, the folder the app runs in, when `firebase`
+ * resolves from it, as Node loads it for the app; else the project root.
+ * A workspace can install `firebase` only in the app's folder, below the
+ * folder that holds `.firebaserc` or `firebase.json` (#2161).
+ */
+export function appFirebaseRoot(appDir: string, projectRoot: string): string {
+  const resolvesFromApp = resolvedPackageDir('firebase', appDir) !== null;
+  return resolvesFromApp ? appDir : projectRoot;
+}
+
+/** The version of the `firebase` the folder resolves, or null when it has none. */
 export function installedFirebaseVersion(projectRoot: string): string | null {
   const dir = resolvedPackageDir('firebase', projectRoot);
   if (dir === null) return null;
@@ -175,7 +188,12 @@ function copiesRefusal(copies: readonly string[]): string | null {
   ].join('\n');
 }
 
-/** Why live mode refuses to start in `projectRoot`, or null when both checks pass. */
-export function liveStartRefusal(projectRoot: string): string | null {
-  return versionRefusal(installedFirebaseVersion(projectRoot)) ?? copiesRefusal(firebaseAppCopies(projectRoot));
+/**
+ * Why live mode refuses to start for the app in `appDir` of the project in
+ * `projectRoot`, or null when both checks pass. Both check the `firebase`
+ * the app loads (`appFirebaseRoot`).
+ */
+export function liveStartRefusal(projectRoot: string, appDir: string = projectRoot): string | null {
+  const sdkRoot = appFirebaseRoot(appDir, projectRoot);
+  return versionRefusal(installedFirebaseVersion(sdkRoot)) ?? copiesRefusal(firebaseAppCopies(sdkRoot));
 }

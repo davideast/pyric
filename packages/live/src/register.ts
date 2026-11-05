@@ -59,7 +59,7 @@ await activateWithSuppliedRows({ liveRoot: LIVE_ROOT, passThrough });
 const projectRoot = process.env[LIVE_PROJECT_ROOT_VARIABLE];
 const startsLive = reach !== null && projectRoot !== undefined;
 if (startsLive) {
-  const refusal = liveStartRefusal(projectRoot);
+  const refusal = liveStartRefusal(projectRoot, process.cwd());
   if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
   const projectId = liveProjectId(projectRoot);
   const passing = (passThrough ?? []).map((specifier) => `${ENTRY}: ${livePassThroughLine(specifier)}`);
