@@ -23,6 +23,7 @@ import {
   type StepRecord,
   type TemplateEvidence,
 } from './fresh-install-checks.ts';
+import { UPSTREAM_ADVISORIES } from './upstream-advisories.ts';
 
 const REGISTRY: EgressEntry = { method: 'CONNECT', host: 'registry.npmjs.org', port: 443, allowed: true };
 
@@ -558,27 +559,55 @@ const AUDIT_OFFLINE = [
   '',
 ].join('\n');
 
+const GRPC_UPSTREAM = `(upstream: ${UPSTREAM_ADVISORIES['GHSA-m9gg-hp2v-232j']})`;
+
+/** The advisory lines AUDIT_V2 gives, most severe first. */
+const AUDIT_V2_NOTES = [
+  'npm audit --json: critical form-data GHSA-fjxv-7rqg-78g4 at node_modules/form-data',
+  `npm audit --json: high @grpc/grpc-js GHSA-m9gg-hp2v-232j at node_modules/@grpc/grpc-js ${GRPC_UPSTREAM}`,
+  'npm audit --json: high cross-spawn GHSA-3xgq-45jj-v275 at node_modules/cross-spawn',
+  'npm audit --json: high tar-fs GHSA-8cj5-5rvv-wf4v at node_modules/tar-fs',
+  'npm audit --json: high tar-fs GHSA-vj76-c3g6-qr5v at node_modules/tar-fs',
+  'npm audit --json: high undici GHSA-2m5v-pch6-74hx at node_modules/shadcn/node_modules/undici, '
+  + 'node_modules/@ai-sdk/mcp/node_modules/undici, node_modules/jsdom/node_modules/undici and 2 more',
+];
+
 describe('npm audit --json advisories', () => {
-  test('names the package, severity and advisory id of every high or critical advisory, most severe first', () => {
+  test('names the package, severity, advisory id and install locations of every high or critical advisory, most severe first', () => {
     // npm exits 1 when it finds any advisory.
-    expect(auditAdvisoryNotes({ code: 1, output: AUDIT_V2 })).toEqual([
-      'npm audit --json: critical form-data GHSA-fjxv-7rqg-78g4',
-      'npm audit --json: high cross-spawn GHSA-3xgq-45jj-v275',
-      'npm audit --json: high tar-fs GHSA-8cj5-5rvv-wf4v',
-      'npm audit --json: high tar-fs GHSA-vj76-c3g6-qr5v',
-    ]);
+    expect(auditAdvisoryNotes({ code: 1, output: AUDIT_V2 })).toEqual(AUDIT_V2_NOTES);
+  });
+
+  test('lists at most three install locations and counts the rest, and leaves them out when npm names none', () => {
+    const report = JSON.parse(AUDIT_V2) as { vulnerabilities: Record<string, { nodes?: unknown }> };
+    const undici = report.vulnerabilities.undici;
+    const crossSpawn = report.vulnerabilities['cross-spawn'];
+    if (undici === undefined || crossSpawn === undefined) throw new Error('the fixture lists undici and cross-spawn');
+    undici.nodes = ['node_modules/a/node_modules/undici', 'node_modules/b/node_modules/undici', 'node_modules/c/node_modules/undici'];
+    delete crossSpawn.nodes;
+    const notes = auditAdvisoryNotes({ code: 1, output: JSON.stringify(report) });
+    expect(notes).toContain('npm audit --json: high undici GHSA-2m5v-pch6-74hx at node_modules/a/node_modules/undici, '
+      + 'node_modules/b/node_modules/undici, node_modules/c/node_modules/undici');
+    expect(notes).toContain('npm audit --json: high cross-spawn GHSA-3xgq-45jj-v275');
+  });
+
+  test('gives the reason for an advisory known upstream and unreachable, and only for that one', () => {
+    expect(UPSTREAM_ADVISORIES['GHSA-m9gg-hp2v-232j']).toContain('server');
+    const notes = auditAdvisoryNotes({ code: 1, output: AUDIT_V2 });
+    expect(notes.filter((note) => note.includes('(upstream: '))).toEqual([AUDIT_V2_NOTES[1]]);
+    for (const reason of Object.values(UPSTREAM_ADVISORIES)) expect(reason).not.toContain('\n');
   });
 
   test('reads the report when npm\'s warnings share the stream with it', () => {
     const output = `npm warn config production Use \`--omit=dev\` instead.\n${AUDIT_V2}\nnpm notice New minor version of npm available!\n`;
-    expect(auditAdvisoryNotes({ code: 1, output })).toHaveLength(4);
+    expect(auditAdvisoryNotes({ code: 1, output })).toEqual(AUDIT_V2_NOTES);
   });
 
   test('an advisory with no GitHub advisory URL is named by its npm source id', () => {
     const report = JSON.parse(AUDIT_V2) as { vulnerabilities: Record<string, { via: Array<Record<string, unknown>> }> };
     delete report.vulnerabilities['cross-spawn']?.via[0]?.url;
     const notes = auditAdvisoryNotes({ code: 1, output: JSON.stringify(report) });
-    expect(notes).toContain('npm audit --json: high cross-spawn advisory 1100563');
+    expect(notes).toContain('npm audit --json: high cross-spawn advisory 1100563 at node_modules/cross-spawn');
   });
 
   test('says so when no advisory is high or critical', () => {
@@ -590,6 +619,16 @@ describe('npm audit --json advisories', () => {
     expect(auditAdvisoryNotes({ code: 1, output: AUDIT_OFFLINE })).toEqual([
       'npm audit --json: no report (exit 1): request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org',
     ]);
+  });
+
+  test('names the code and summary of npm\'s error object', () => {
+    const enolock = JSON.stringify({ error: { code: 'ENOLOCK', summary: 'This command requires an existing lockfile.', detail: 'Try creating one first with: npm i --package-lock-only' } }, null, 2);
+    expect(auditAdvisoryNotes({ code: 1, output: `npm error code ENOLOCK\n${enolock}\n` }))
+      .toEqual(['npm audit --json: no report (exit 1): npm error ENOLOCK: This command requires an existing lockfile.']);
+    expect(auditAdvisoryNotes({ code: 1, output: JSON.stringify({ error: { code: 'EAUDITNOPJSON', summary: '' } }) }))
+      .toEqual(['npm audit --json: no report (exit 1): npm error EAUDITNOPJSON']);
+    expect(auditAdvisoryNotes({ code: 1, output: JSON.stringify({ message: 'request failed', error: { code: 'ECONNRESET', summary: 'socket hang up' } }) }))
+      .toEqual(['npm audit --json: no report (exit 1): request failed: npm error ECONNRESET: socket hang up']);
   });
 
   test('notes, and never throws, when npm prints no JSON, broken JSON or another shape', () => {
@@ -605,9 +644,12 @@ describe('npm audit --json advisories', () => {
     expect(auditAdvisoryNotes({ code: 1, output: odd })).toEqual(['npm audit --json: high b (no advisory id)']);
   });
 
-  test('notes a command that did not finish', () => {
-    expect(auditAdvisoryNotes({ code: null, output: '', error: 'npm audit --json did not exit within 300s:\n' }))
-      .toEqual(['npm audit --json: did not finish: npm audit --json did not exit within 300s:']);
+  test('notes a command that did not finish with the first line of its error, not the output it carries', () => {
+    const error = `npm audit --json did not exit within 300s:\n${AUDIT_OFFLINE}`;
+    expect(auditAdvisoryNotes({ code: null, output: '', error }))
+      .toEqual(['npm audit --json: did not finish: npm audit --json did not exit within 300s']);
+    expect(auditAdvisoryNotes({ code: null, output: '', error: '\n  spawn npm ENOENT\n' }))
+      .toEqual(['npm audit --json: did not finish: spawn npm ENOENT']);
   });
 
   test('findings.txt lists the advisories after the audit summary, and nothing for a template that never audited', () => {
@@ -617,10 +659,7 @@ describe('npm audit --json advisories', () => {
     ]));
     expect(notes).toEqual([
       'chat: npm audit: 39 high severity vulnerabilities',
-      'chat: npm audit --json: critical form-data GHSA-fjxv-7rqg-78g4',
-      'chat: npm audit --json: high cross-spawn GHSA-3xgq-45jj-v275',
-      'chat: npm audit --json: high tar-fs GHSA-8cj5-5rvv-wf4v',
-      'chat: npm audit --json: high tar-fs GHSA-vj76-c3g6-qr5v',
+      ...AUDIT_V2_NOTES.map((note) => `chat: ${note}`),
       'node: npm audit: found 0 vulnerabilities',
     ]);
   });

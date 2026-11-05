@@ -1,6 +1,38 @@
 {
   "auditReportVersion": 2,
   "vulnerabilities": {
+    "@firebase/firestore": {
+      "name": "@firebase/firestore",
+      "severity": "high",
+      "isDirect": false,
+      "via": ["@grpc/grpc-js"],
+      "effects": ["firebase"],
+      "range": "*",
+      "nodes": ["node_modules/@firebase/firestore"],
+      "fixAvailable": false
+    },
+    "@grpc/grpc-js": {
+      "name": "@grpc/grpc-js",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1109000,
+          "name": "@grpc/grpc-js",
+          "dependency": "@grpc/grpc-js",
+          "title": "@grpc/grpc-js server authentication bypass",
+          "url": "https://github.com/advisories/GHSA-m9gg-hp2v-232j",
+          "severity": "high",
+          "cwe": ["CWE-287"],
+          "cvss": { "score": 0, "vectorString": null },
+          "range": "<1.10.0"
+        }
+      ],
+      "effects": ["@firebase/firestore"],
+      "range": "<1.10.0",
+      "nodes": ["node_modules/@grpc/grpc-js"],
+      "fixAvailable": false
+    },
     "cross-spawn": {
       "name": "cross-spawn",
       "severity": "high",
@@ -109,10 +141,38 @@
       "range": "3.0.0 - 3.1.0",
       "nodes": ["node_modules/tar-fs"],
       "fixAvailable": true
+    },
+    "undici": {
+      "name": "undici",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1108000,
+          "name": "undici",
+          "dependency": "undici",
+          "title": "undici unbounded decompression chain",
+          "url": "https://github.com/advisories/GHSA-2m5v-pch6-74hx",
+          "severity": "high",
+          "cwe": ["CWE-770"],
+          "cvss": { "score": 0, "vectorString": null },
+          "range": "<6.23.0"
+        }
+      ],
+      "effects": [],
+      "range": "<6.23.0",
+      "nodes": [
+        "node_modules/shadcn/node_modules/undici",
+        "node_modules/@ai-sdk/mcp/node_modules/undici",
+        "node_modules/jsdom/node_modules/undici",
+        "node_modules/miniflare/node_modules/undici",
+        "node_modules/wrangler/node_modules/undici"
+      ],
+      "fixAvailable": true
     }
   },
   "metadata": {
-    "vulnerabilities": { "info": 0, "low": 0, "moderate": 1, "high": 2, "critical": 2, "total": 5 },
+    "vulnerabilities": { "info": 0, "low": 0, "moderate": 1, "high": 5, "critical": 2, "total": 8 },
     "dependencies": { "prod": 312, "dev": 0, "optional": 24, "peer": 0, "peerOptional": 0, "total": 335 }
   }
 }
