@@ -360,12 +360,12 @@ describe('the issue', () => {
     expect(calls).toEqual([]);
   });
 
-  test('with no open issue, a failing run opens one labeled lane:reliability', () => {
+  test('with no open issue, a failing run opens one labeled divergence', () => {
     const { gh, calls } = fakeGh([]);
     const outcome = applyIssueAction(gh, nothingChecked(), true, CONTEXT, scratchFile());
     expect(outcome.action).toBe('open-or-update');
     const create = calls.find((call) => call.args[1] === 'create');
-    expect(create?.args).toContain('lane:reliability');
+    expect(create?.args).toContain('divergence');
     expect(create?.args[create.args.indexOf('--title') + 1]).toBe(
       `${ISSUE_TITLE_PREFIX}0 of 4 credentialed legs, 2 need a person, 2 disabled`,
     );

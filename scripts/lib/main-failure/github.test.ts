@@ -199,6 +199,8 @@ describe('handling a completed attempt', () => {
     await handleAttempt(fake.context, 7, 1);
     expect(fake.calls).toContainEqual(['run', 'rerun', '7', '--failed', '--repo', 'o/r']);
     expect(issueCreates(fake.calls)).toEqual([`${FLAKE_PREFIX}\`packages/cli/${SPARSE}\``]);
+    const create = fake.calls.find((call) => call[0] === 'issue' && call[1] === 'create') ?? [];
+    expect(create[create.indexOf('--label') + 1]).toBe('flake');
     expect(fake.logged.map((text) => text.split('\n')[1])).toEqual([
       'attempt 1 failed: rerun its failed jobs once',
       'attempt 2 passed after attempt 1 failed: the failures were flakes',

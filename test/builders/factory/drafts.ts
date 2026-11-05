@@ -21,8 +21,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface IssueKind {
-  /** The kind's one label, or the pattern its label must match. */
-  label: string | RegExp;
+  /** The kind's one label. */
+  label: string;
   title: RegExp;
   titlePattern: string;
   fields: readonly string[];
@@ -38,7 +38,7 @@ export const ISSUE_KINDS: readonly IssueKind[] = [
   { label: 'flake', title: /^(Flaky|Red on main): \S.*$/, titlePattern: 'Flaky: <test> or Red on main: <check>', fields: ['Fails how', 'Since', 'Cause', 'Done when'] },
   { label: 'documentation', title: /^Docs: [^:]+: \S.*$/, titlePattern: 'Docs: <page>: <what is wrong>', fields: ['Says', 'Should say', 'Done when'] },
   { label: 'plan', title: /^Plan: \S.*$/, titlePattern: 'Plan: <outcome>', fields: ['Goal', 'Steps', 'Decisions', 'Done when'] },
-  { label: /^lane:[a-z0-9-]+$/, title: /^CI: \S.*$/, titlePattern: 'CI: <what changes>', fields: ['Problem', 'Change', 'Done when'] },
+  { label: 'ci', title: /^CI: \S.*$/, titlePattern: 'CI: <what changes>', fields: ['Problem', 'Change', 'Done when'] },
 ];
 
 export interface ParsedDraft {
@@ -86,12 +86,8 @@ export function parseDraft(text: string): ParsedDraft {
   return draft;
 }
 
-function labelMatches(kind: IssueKind, label: string): boolean {
-  return typeof kind.label === 'string' ? kind.label === label : kind.label.test(label);
-}
-
 export function kindForLabel(label: string): IssueKind | undefined {
-  return ISSUE_KINDS.find((kind) => labelMatches(kind, label));
+  return ISSUE_KINDS.find((kind) => kind.label === label);
 }
 
 function fieldErrors(kind: IssueKind, fields: ReadonlyMap<string, string>): string[] {

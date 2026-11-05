@@ -31,6 +31,6 @@ File every issue in one of these shapes. The forms live in `.github/ISSUE_TEMPLA
 | Flaky or red test | `Flaky: <test>` or `Red on main: <check>` | flake | Fails how, Since, Cause, Done when |
 | Docs | `Docs: <page>: <what is wrong>` | documentation | Says, Should say, Done when |
 | Plan or epic | `Plan: <outcome>` | plan | Goal, Steps, Decisions, Done when |
-| CI or tooling | `CI: <what changes>` | lane label only | Problem, Change, Done when |
+| CI or tooling | `CI: <what changes>` | ci | Problem, Change, Done when |
 
 Issue #1521 plans a `rules.yml` form; it is not added here.
