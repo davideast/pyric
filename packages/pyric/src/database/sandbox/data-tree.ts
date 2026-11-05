@@ -27,17 +27,11 @@
  */
 
 import { jsonEqual } from '../../rules/rtdb/data/json-equal.js';
+import type { JsonValue } from '../../rules/rtdb/data/json-value.js';
 import { pathSegments } from '../../rules/rtdb/data/paths.js';
 
 export { pathSegments };
-
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+export type { JsonValue };
 
 /** Join segments back into a `/`-prefixed canonical path. `[]` → `'/'`. */
 export function joinPath(segments: string[]): string {
