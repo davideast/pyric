@@ -177,9 +177,18 @@ describe('pyric and @pyric/cli expose nothing live', () => {
       for (const match of text.matchAll(/PYRIC_[A-Z0-9_]*LIVE[A-Z0-9_]*/g)) variables.add(match[0]);
       expect(text, file).not.toMatch(/config\.live\b|pyricConfig\.live\b|\.live\s*===\s*true\s*\?\s*'live'/);
     }
-    // Error codes, and the variable a live process passes its own children: it
-    // names where to look, and live mode starts only by importing @pyric/live/register.
-    expect([...variables].sort()).toEqual(['PYRIC_LIVE_NO_PROJECT', 'PYRIC_LIVE_PROJECT_ROOT', 'PYRIC_LIVE_REFUSED', 'PYRIC_TEST_PEER_LIVENESS_MS']);
+    // Error codes, and the two variables a live process passes its own children:
+    // PYRIC_LIVE_PROJECT_ROOT names where to look, and PYRIC_LIVE_PASS_THROUGH
+    // narrows which imports go to production. Both are read only inside
+    // activateWithSuppliedRows, which only @pyric/live/register calls, so live
+    // mode still starts only by importing @pyric/live/register.
+    expect([...variables].sort()).toEqual([
+      'PYRIC_LIVE_NO_PROJECT',
+      'PYRIC_LIVE_PASS_THROUGH',
+      'PYRIC_LIVE_PROJECT_ROOT',
+      'PYRIC_LIVE_REFUSED',
+      'PYRIC_TEST_PEER_LIVENESS_MS',
+    ]);
   });
 });
 
