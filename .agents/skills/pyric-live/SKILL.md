@@ -1,6 +1,6 @@
 ---
 name: pyric-live
-description: Install @pyric/live from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore and Auth call with production's answer. Requires a cloned Pyric repository, because @pyric/live is not published to npm yet. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
+description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
 ---
 
 # Test Pyric's live mode
@@ -43,21 +43,43 @@ Live mode is not a sandbox. Every call reaches a real Firebase project.
 ## Requirements
 
 - Node 22.15 or later.
-- A cloned Pyric repository. Ask for its path if you were not given one. Call it `<pyric>` below.
-- Bun and npm on the PATH. The checkout builds with Bun; packing uses npm.
+- npm on the PATH. Installing from a checkout also needs Bun, and a cloned Pyric repository.
 - An app whose installed `firebase` is in `^12.12.0`, with exactly one copy of `@firebase/app`.
   Live mode refuses to start otherwise, with `Live mode did not start.` and the version it found,
   or the path of every copy.
 - A Firebase project set for the app. With none, the start is refused with
   `No Firebase project is set for <folder>`.
 
-## Choose the checkout branch
+## Choose the source
 
-Use `main`. Pull before you pack. Say which commit you tested in your report.
+Install from one of two sources, and say which in your report:
 
-## Install from the checkout
+- **npm, the `exp` tag.** The default. It is the latest published build.
+- **A Pyric checkout.** Use it when you were asked to test a commit or branch that is not
+  published yet, or when the owner names a checkout.
 
-`@pyric/live` is not on npm yet, so install it from the checkout.
+## Install from npm
+
+1. Install the three packages together as development dependencies, with the project's package
+   manager. With npm:
+
+   ```sh
+   npm install --save-dev pyric@exp @pyric/cli@exp @pyric/live@exp
+   ```
+
+   `@pyric/cli` brings `pyric-admin` and `create-pyric` at the same version.
+2. Run `npm ls pyric @pyric/cli @pyric/live`. All three must be the same version, the one
+   `npm view @pyric/live dist-tags.exp` prints. If one is older, the project pinned it: change that
+   range to `exp` and install again.
+3. Add `.pyric/` to `.gitignore`.
+4. Confirm it runs: `npx --no-install pyric-live --help` prints the usage.
+
+To move to a newer build later, run the install command again.
+
+## Install from a checkout
+
+Call the checkout's path `<pyric>`. Ask for it if you were not given one. Use `main` unless you
+were given a branch or commit, and pull before you pack.
 
 1. Build and pack, from the project being tested. The script ships with this skill in the checkout:
 
@@ -141,7 +163,8 @@ comes after a call has already reached it. Check before starting:
    `appProjectIds` and the `billed` counts (`reads`, `writes`, `deliveries`). A sandbox host has
    no `live` field.
 
-Report the project, the URL, the branch and commit of `<pyric>`, and these results before going
+Report the project, the URL, the source (the npm version, or the branch and commit of `<pyric>`),
+and these results before going
 further. If the terminal, the chip or Studio warns that the app's calls go to a different project
 (`Live mode: your app's calls go to the Firebase project <a>, not <b>.`), stop and report.
 
@@ -184,7 +207,7 @@ proxy tunnel. A host also names at most eight projects in its label and warning.
 
 ## When something breaks
 
-- Capture the start line, the host's terminal output, the steps, and the `<pyric>` commit. For a
-  host, add the `live` field of `GET <url>/__pyric/health`.
+- Capture the start line, the host's terminal output, the steps, and the npm version or the
+  `<pyric>` commit. For a host, add the `live` field of `GET <url>/__pyric/health`.
 - Do not share document contents, tokens, API keys, or the email addresses and phone numbers used.
 - Do not retry a write, sign-up or email to get unstuck. Each attempt is real and billed.
