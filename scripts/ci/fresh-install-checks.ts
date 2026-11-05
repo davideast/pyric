@@ -22,6 +22,27 @@ export interface EgressEntry {
   host: string;
   port: number;
   allowed: boolean;
+  /** When the guard saw it, as an ISO time. */
+  time?: string;
+}
+
+/** One driver step, with the commands it started and the ones running while it ran (steps.jsonl). */
+export interface StepRecord {
+  template: string;
+  index: number;
+  step: string;
+  started: readonly string[];
+  running: readonly string[];
+  start: string;
+  end: string;
+}
+
+/** One connection the firewall rejected, from the kernel log. */
+export interface FirewallReject {
+  time: string;
+  protocol: string;
+  destination: string;
+  port?: number;
 }
 
 /** What one template's run recorded. */
@@ -43,6 +64,8 @@ export interface RunEvidence {
   templates: readonly TemplateEvidence[];
   /** Every request the egress guard saw during the run. */
   egress: readonly EgressEntry[];
+  /** Every step the driver ran, to say which one each refused request fell in. */
+  steps?: readonly StepRecord[];
 }
 
 export function isRegistryRequest(host: string, port: number): boolean {
@@ -109,13 +132,66 @@ function chipFindings(states: readonly string[]): string[] {
     .map((state) => `runtime chip is not Ready: ${state}`);
 }
 
-function egressFindings(egress: readonly EgressEntry[]): string[] {
+function egressFindings(egress: readonly EgressEntry[], steps: readonly StepRecord[]): string[] {
   if (egress.length === 0) {
     return ['egress: no request went through the egress guard, so the install bypassed it or never ran'];
   }
   return egress
     .filter((entry) => !entry.allowed)
-    .map((entry) => `egress: refused ${entry.method} ${entry.host}:${entry.port} (only ${REGISTRY_HOST}:${REGISTRY_PORT} may be reached)`);
+    .map((entry) => `egress: refused ${entry.method} ${entry.host}:${entry.port} (only ${REGISTRY_HOST}:${REGISTRY_PORT} may be reached) ${stepAt(entry.time, steps)}`);
+}
+
+function describeStep(record: StepRecord): string {
+  const parts = [`${record.template} step ${record.index} "${record.step}"`];
+  if (record.started.length > 0) parts.push(`started: ${record.started.join(' | ')}`);
+  if (record.running.length > 0) parts.push(`running: ${record.running.join(' | ')}`);
+  return parts.join('; ');
+}
+
+/**
+ * Which step `time` fell in: the step whose window holds it, or the last
+ * step that ended before it when it fell between steps.
+ */
+export function stepAt(time: string | undefined, steps: readonly StepRecord[]): string {
+  const at = time === undefined ? Number.NaN : Date.parse(time);
+  if (Number.isNaN(at)) return '(at an unrecorded time)';
+  const holding = steps.find((record) => Date.parse(record.start) <= at && at <= Date.parse(record.end));
+  if (holding) return `(at ${time}, during ${describeStep(holding)})`;
+  const before = steps.filter((record) => Date.parse(record.end) < at).at(-1);
+  if (before) return `(at ${time}, between steps, after ${describeStep(before)})`;
+  return `(at ${time}, before the first step)`;
+}
+
+/** `dmesg --time-format iso` time: `2026-11-05T01:02:03,123456+00:00`, with the fraction cut to milliseconds. */
+function isoFromDmesg(stamp: string): string {
+  return stamp.replace(/,(\d{3})\d*/, '.$1');
+}
+
+/** The firewall's LOG lines (`dmesg --time-format iso`), one reject each. */
+export function parseFirewallRejects(text: string): FirewallReject[] {
+  const rejects: FirewallReject[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.includes('fresh-install-reject: ')) continue;
+    const stamp = line.split(/\s/, 1)[0] ?? '';
+    const destination = line.match(/\bDST=(\S+)/)?.[1];
+    if (destination === undefined) continue;
+    const port = line.match(/\bDPT=(\d+)/)?.[1];
+    rejects.push({
+      time: isoFromDmesg(stamp),
+      protocol: line.match(/\bPROTO=(\S+)/)?.[1] ?? 'unknown',
+      destination,
+      ...(port === undefined ? {} : { port: Number(port) }),
+    });
+  }
+  return rejects;
+}
+
+/** One finding per connection the firewall rejected, naming the step it fell in. */
+export function firewallFindings(rejects: readonly FirewallReject[], steps: readonly StepRecord[]): string[] {
+  return rejects.map((reject) => {
+    const target = reject.port === undefined ? reject.destination : `${reject.destination}:${reject.port}`;
+    return `firewall: rejected a direct ${reject.protocol} connection to ${target} ${stepAt(reject.time, steps)}`;
+  });
 }
 
 /**
@@ -134,7 +210,7 @@ export function crashFindings(run: RunEvidence): string[] {
     own.push(...browserFindings(evidence), ...hostErrorFindings(evidence.hostErrors), ...chipFindings(evidence.chipStates), ...serverErrorFindings(evidence.serverOutput));
     findings.push(...own.map((finding) => `${evidence.template}: ${finding}`));
   }
-  findings.push(...egressFindings(run.egress));
+  findings.push(...egressFindings(run.egress, run.steps ?? []));
   return findings;
 }
 
@@ -169,13 +245,13 @@ export function startEgressProxy(port: number, record: (entry: EgressEntry) => v
     // Plain HTTP never reaches the registry, which is TLS only.
     const raw = request.url ?? '';
     const target = URL.canParse(raw) ? new URL(raw) : undefined;
-    record({ method: request.method ?? 'GET', host: target?.hostname ?? raw, port: Number(target?.port || 80), allowed: false });
+    record({ method: request.method ?? 'GET', host: target?.hostname ?? raw, port: Number(target?.port || 80), allowed: false, time: new Date().toISOString() });
     response.writeHead(403).end(`fresh-install egress guard: only https://${REGISTRY_HOST} may be reached\n`);
   });
   server.on('connect', (request, client: Socket, head: Buffer) => {
     const { host, port: targetPort } = splitHostPort(request.url ?? '');
     const allowed = isRegistryRequest(host, targetPort);
-    record({ method: 'CONNECT', host, port: targetPort, allowed });
+    record({ method: 'CONNECT', host, port: targetPort, allowed, time: new Date().toISOString() });
     if (allowed) tunnel(client, head, host, targetPort);
     else client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
   });

@@ -10,6 +10,12 @@
  *   bun scripts/ci/fresh-install.ts run [--tag exp] [--templates web,chat] [--out <dir>]
  *                                       [--proxy http://127.0.0.1:<port> --egress-log <file>]
  *   bun scripts/ci/fresh-install.ts proxy --port <port> --log <file>
+ *   bun scripts/ci/fresh-install.ts rejects --steps <steps.jsonl> --log <firewall-rejects.log> --findings <findings.txt>
+ *
+ * Every step the driver runs goes to `<out>/steps.jsonl` with its start and
+ * end times, the commands it started, and those still running, so each
+ * refused request (egress.jsonl) and each firewall reject (`rejects`) names
+ * the template and step it fell in.
  *
  * Every create and install goes through an egress guard: a local proxy that
  * tunnels only to registry.npmjs.org:443 and records every request. `run`
@@ -28,18 +34,29 @@ import { sendDirectMessage, signInAsAda } from '../../test/apps/chat-template.ts
 import { AppRun, launchScenarioBrowser, sleep, StepFailure, type AppProcess } from '../../test/apps/driver.ts';
 import {
   crashFindings,
+  firewallFindings,
+  parseFirewallRejects,
   REGISTRY_HOST,
   startEgressProxy,
   UNHANDLED_REJECTION_MARK,
   WORKER_ERROR_MARK,
   type EgressEntry,
+  type StepRecord,
   type TemplateEvidence,
 } from './fresh-install-checks.ts';
 
 // ─── Egress guard ──────────────────────────────────────────────────────
 
-function proxyEnvironment(proxyUrl: string): Record<string, string> {
+/**
+ * The environment of create and install: the egress guard as the proxy, and
+ * no audit or funding requests. Those reach only the registry, but they add
+ * requests no step needs. The driver's processes inherit nothing else, so
+ * these are set here, not in the workflow.
+ */
+function installEnvironment(proxyUrl: string): Record<string, string> {
   return {
+    npm_config_audit: 'false',
+    npm_config_fund: 'false',
     HTTPS_PROXY: proxyUrl,
     HTTP_PROXY: proxyUrl,
     https_proxy: proxyUrl,
@@ -52,9 +69,40 @@ function proxyEnvironment(proxyUrl: string): Record<string, string> {
   };
 }
 
-function readEgressLog(path: string): EgressEntry[] {
+function readJsonLines<T>(path: string): T[] {
   if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as EgressEntry);
+  return readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as T);
+}
+
+// ─── Step log ──────────────────────────────────────────────────────────
+
+/** A process as steps.jsonl names it: its command line, without the `$ `. */
+function commandLabel(child: AppProcess): string {
+  return child.header.replace(/^\$ /, '').trim();
+}
+
+/** The scenario driver's `AppRun`, with every step appended to a steps.jsonl. */
+class RecordedAppRun extends AppRun {
+  private stepCount = 0;
+
+  constructor(name: string, dir: string, home: string, launchBrowser: () => Promise<Browser>, private readonly stepsFile: string) {
+    super(name, dir, home, launchBrowser);
+  }
+
+  override async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
+    this.stepCount += 1;
+    const index = this.stepCount;
+    const firstNew = this.processes.length;
+    const running = this.processes.filter((child) => child.running).map(commandLabel);
+    const start = new Date().toISOString();
+    try {
+      return await super.step(name, run);
+    } finally {
+      const started = this.processes.slice(firstNew).map(commandLabel);
+      const record: StepRecord = { template: this.name, index, step: name, started, running, start, end: new Date().toISOString() };
+      appendFileSync(this.stepsFile, `${JSON.stringify(record)}\n`);
+    }
+  }
 }
 
 // ─── Template flows ────────────────────────────────────────────────────
@@ -290,8 +338,11 @@ async function expectExit(app: AppRun, step: string, command: string, args: stri
 async function runPageFlow(run: TemplateRun, flow: PageFlow): Promise<void> {
   const port = await run.app.freePort();
   const url = `http://127.0.0.1:${port}`;
-  const dev = run.app.commandProcess('npm', ['run', 'dev', '--', ...flow.devArgs(port)], { cwd: run.project, env: flow.devEnv });
-  await run.app.step('npm run dev serves the page', () => waitUntilServed(dev, url));
+  const dev = await run.app.step('npm run dev serves the page', async () => {
+    const child = run.app.commandProcess('npm', ['run', 'dev', '--', ...flow.devArgs(port)], { cwd: run.project, env: flow.devEnv });
+    await waitUntilServed(child, url);
+    return child;
+  });
   run.context = await run.app.browser();
   await watchContext(run.context, run.app.browserLog);
   const page = await run.app.step('open the page', () => run.app.page(`${url}/`));
@@ -309,7 +360,7 @@ async function runScriptFlow(run: TemplateRun): Promise<void> {
 }
 
 async function runTemplate(run: TemplateRun, options: RunOptions): Promise<void> {
-  const proxied = { env: proxyEnvironment(options.proxyUrl) };
+  const proxied = { env: installEnvironment(options.proxyUrl) };
   await expectExit(run.app, `npx create-pyric@${options.tag} --template ${run.name}`, 'npx', ['--yes', `create-pyric@${options.tag}`, run.project, '--template', run.name], { ...proxied, timeoutMs: 300_000 });
   await expectExit(run.app, 'npm install', 'npm', ['install'], { ...proxied, cwd: run.project, timeoutMs: 600_000 });
   const flow = FLOWS[run.name];
@@ -331,7 +382,7 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
   // A HOME, and so an npm cache, of its own: no install reuses another's downloads.
   const home = join(options.workDir, `.home-${name}`);
   mkdirSync(home, { recursive: true });
-  const app = new AppRun(name, options.workDir, home, () => Promise.resolve(browser));
+  const app = new RecordedAppRun(name, options.workDir, home, () => Promise.resolve(browser), options.stepsFile);
   const flow = FLOWS[name];
   const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.chip : 'optional' };
   let failedStep: TemplateEvidence['failedStep'];
@@ -356,6 +407,7 @@ interface RunOptions {
   out: string;
   workDir: string;
   proxyUrl: string;
+  stepsFile: string;
 }
 
 function flag(args: string[], name: string): string | undefined {
@@ -382,7 +434,9 @@ async function run(args: string[]): Promise<number> {
   const proxy = externalProxy === undefined ? await startEgressProxy(0, (entry) => inProcess.push(entry)) : undefined;
   const address = proxy?.address();
   const proxyUrl = externalProxy ?? `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
-  const options: RunOptions = { tag: flag(args, 'tag') ?? 'exp', templates: templatesFrom(flag(args, 'templates')), out, workDir, proxyUrl };
+  const stepsFile = join(out, 'steps.jsonl');
+  writeFileSync(stepsFile, '');
+  const options: RunOptions = { tag: flag(args, 'tag') ?? 'exp', templates: templatesFrom(flag(args, 'templates')), out, workDir, proxyUrl, stepsFile };
   console.log(`[fresh-install] create-pyric@${options.tag}, templates ${options.templates.join(', ')}, in ${workDir}, egress through ${proxyUrl}`);
 
   const browser = await launchScenarioBrowser();
@@ -394,9 +448,9 @@ async function run(args: string[]): Promise<number> {
   await browser.close();
   proxy?.close();
 
-  const egress = egressLog === undefined ? inProcess : readEgressLog(egressLog);
+  const egress = egressLog === undefined ? inProcess : readJsonLines<EgressEntry>(egressLog);
   writeFileSync(join(out, 'egress.jsonl'), egress.map((entry) => JSON.stringify(entry)).join('\n'));
-  const findings = crashFindings({ templates, egress });
+  const findings = crashFindings({ templates, egress, steps: readJsonLines<StepRecord>(stepsFile) });
   writeFileSync(join(out, 'findings.txt'), findings.join('\n'));
   for (const finding of findings) console.error(`[fresh-install] ${finding}`);
   console.log(`[fresh-install] ${findings.length === 0 ? 'no findings' : `${findings.length} findings`}; logs in ${out}`);
@@ -413,12 +467,27 @@ async function serveProxy(args: string[]): Promise<number> {
   return new Promise(() => {});
 }
 
+/** Names the step of each firewall reject, prints it and adds it to findings.txt; exits 1 on any. */
+async function attributeRejects(args: string[]): Promise<number> {
+  const steps = flag(args, 'steps');
+  const log = flag(args, 'log');
+  const findingsFile = flag(args, 'findings');
+  if (steps === undefined || log === undefined || findingsFile === undefined) {
+    throw new Error('usage: fresh-install.ts rejects --steps <steps.jsonl> --log <firewall-rejects.log> --findings <findings.txt>');
+  }
+  const text = existsSync(log) ? readFileSync(log, 'utf8') : '';
+  const findings = firewallFindings(parseFirewallRejects(text), readJsonLines<StepRecord>(steps));
+  for (const finding of findings) console.error(`[fresh-install] ${finding}`);
+  if (findings.length > 0) appendFileSync(findingsFile, `\n${findings.join('\n')}`);
+  return findings.length === 0 ? 0 : 1;
+}
+
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2);
-  const commands: Record<string, (args: string[]) => Promise<number>> = { run, proxy: serveProxy };
+  const commands: Record<string, (args: string[]) => Promise<number>> = { run, proxy: serveProxy, rejects: attributeRejects };
   const entry = command !== undefined && Object.hasOwn(commands, command) ? commands[command] : undefined;
   if (entry === undefined) {
-    console.error('usage: fresh-install.ts run [flags] | proxy --port <port> --log <file>');
+    console.error('usage: fresh-install.ts run [flags] | proxy --port <port> --log <file> | rejects --steps <file> --log <file> --findings <file>');
     process.exit(2);
   }
   process.exit(await entry(rest));

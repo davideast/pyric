@@ -2,12 +2,15 @@ import { describe, expect, test } from 'bun:test';
 import { connect, type AddressInfo } from 'node:net';
 import {
   crashFindings,
+  firewallFindings,
   isRegistryRequest,
+  parseFirewallRejects,
   startEgressProxy,
   UNHANDLED_REJECTION_MARK,
   WORKER_ERROR_MARK,
   type EgressEntry,
   type RunEvidence,
+  type StepRecord,
   type TemplateEvidence,
 } from './fresh-install-checks.ts';
 
@@ -135,7 +138,7 @@ describe('crashFindings', () => {
       REGISTRY,
       { method: 'CONNECT', host: 'github.com', port: 443, allowed: false },
     ]));
-    expect(findings).toEqual(['egress: refused CONNECT github.com:443 (only registry.npmjs.org:443 may be reached)']);
+    expect(findings).toEqual(['egress: refused CONNECT github.com:443 (only registry.npmjs.org:443 may be reached) (at an unrecorded time)']);
   });
 
   test('a run with no registry traffic through the guard is a finding', () => {
@@ -175,7 +178,8 @@ describe('startEgressProxy', () => {
     const status = await statusLine(port, 'CONNECT github.com:443 HTTP/1.1\r\nHost: github.com:443\r\n\r\n');
     proxy.close();
     expect(status).toBe('HTTP/1.1 403 Forbidden');
-    expect(seen).toEqual([{ method: 'CONNECT', host: 'github.com', port: 443, allowed: false }]);
+    expect(seen).toMatchObject([{ method: 'CONNECT', host: 'github.com', port: 443, allowed: false }]);
+    expect(Number.isNaN(Date.parse(seen[0]!.time ?? ''))).toBe(false);
   });
 
   test('refuses plain HTTP, even to the registry, and records it', async () => {
@@ -185,7 +189,8 @@ describe('startEgressProxy', () => {
     const status = await statusLine(port, 'GET http://registry.npmjs.org/create-pyric HTTP/1.1\r\nHost: registry.npmjs.org\r\nConnection: close\r\n\r\n');
     proxy.close();
     expect(status).toBe('HTTP/1.1 403 Forbidden');
-    expect(seen).toEqual([{ method: 'GET', host: 'registry.npmjs.org', port: 80, allowed: false }]);
+    expect(seen).toMatchObject([{ method: 'GET', host: 'registry.npmjs.org', port: 80, allowed: false }]);
+    expect(Number.isNaN(Date.parse(seen[0]!.time ?? ''))).toBe(false);
   });
 });
 
@@ -239,4 +244,66 @@ describe('dev server errors in the shapes each dev command prints', () => {
       );
     });
   }
+});
+
+const STEPS: StepRecord[] = [
+  {
+    template: 'nextjs', index: 2, step: 'npm install', started: ['npm install'], running: [],
+    start: '2026-11-05T01:00:00.000Z', end: '2026-11-05T01:02:00.000Z',
+  },
+  {
+    template: 'nextjs', index: 3, step: 'npm run dev serves the page', started: ['npm run dev -- --port 4100 --hostname 127.0.0.1'], running: [],
+    start: '2026-11-05T01:02:01.000Z', end: '2026-11-05T01:02:30.000Z',
+  },
+  {
+    template: 'nextjs', index: 5, step: 'sign in through the sandbox Google dialog', started: [], running: ['npm run dev -- --port 4100 --hostname 127.0.0.1'],
+    start: '2026-11-05T01:02:35.000Z', end: '2026-11-05T01:02:40.000Z',
+  },
+];
+
+describe('attribution to the step a request fell in', () => {
+  test('a refused request names the step whose window holds it and the command it started', () => {
+    const findings = crashFindings({
+      templates: [],
+      egress: [REGISTRY, { method: 'CONNECT', host: 'nodejs.org', port: 443, allowed: false, time: '2026-11-05T01:01:10.000Z' }],
+      steps: STEPS,
+    });
+    expect(findings).toEqual([
+      'egress: refused CONNECT nodejs.org:443 (only registry.npmjs.org:443 may be reached) (at 2026-11-05T01:01:10.000Z, during nextjs step 2 "npm install"; started: npm install)',
+    ]);
+  });
+
+  test('a request during a step that started nothing names what was running', () => {
+    const findings = firewallFindings([{ time: '2026-11-05T01:02:37.000Z', protocol: 'TCP', destination: '104.16.0.34', port: 443 }], STEPS);
+    expect(findings).toEqual([
+      'firewall: rejected a direct TCP connection to 104.16.0.34:443 (at 2026-11-05T01:02:37.000Z, during nextjs step 5 "sign in through the sandbox Google dialog"; running: npm run dev -- --port 4100 --hostname 127.0.0.1)',
+    ]);
+  });
+
+  test('a request between steps names the step before it', () => {
+    const findings = firewallFindings([{ time: '2026-11-05T01:02:32.000Z', protocol: 'TCP', destination: '104.16.1.34', port: 443 }], STEPS);
+    expect(findings).toEqual([
+      'firewall: rejected a direct TCP connection to 104.16.1.34:443 (at 2026-11-05T01:02:32.000Z, between steps, after nextjs step 3 "npm run dev serves the page"; started: npm run dev -- --port 4100 --hostname 127.0.0.1)',
+    ]);
+  });
+
+  test('a request before any step says so', () => {
+    expect(firewallFindings([{ time: '2026-11-05T00:59:00.000Z', protocol: 'UDP', destination: '168.63.129.16', port: 53 }], STEPS)).toEqual([
+      'firewall: rejected a direct UDP connection to 168.63.129.16:53 (at 2026-11-05T00:59:00.000Z, before the first step)',
+    ]);
+  });
+});
+
+describe('parseFirewallRejects', () => {
+  test('reads time, protocol, destination and port from dmesg --time-format iso lines', () => {
+    const text = [
+      '2026-11-05T01:02:37,412345+00:00 fresh-install-reject: IN= OUT=eth0 SRC=10.1.0.4 DST=104.16.0.34 LEN=60 TOS=0x00 PREC=0x00 TTL=64 ID=1 DF PROTO=TCP SPT=40000 DPT=443 WINDOW=64240 RES=0x00 SYN URGP=0 UID=1001 GID=999',
+      '2026-11-05T01:02:38,000001+00:00 fresh-install-reject: IN= OUT=eth0 SRC=fe80::1 DST=2606:4700::6810:22 LEN=80 PROTO=ICMPv6 TYPE=128 CODE=0',
+      '2026-11-05T01:02:39,000000+00:00 some other kernel line',
+    ].join('\n');
+    expect(parseFirewallRejects(text)).toEqual([
+      { time: '2026-11-05T01:02:37.412+00:00', protocol: 'TCP', destination: '104.16.0.34', port: 443 },
+      { time: '2026-11-05T01:02:38.000+00:00', protocol: 'ICMPv6', destination: '2606:4700::6810:22' },
+    ]);
+  });
 });
