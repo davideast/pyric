@@ -93,13 +93,21 @@ async function healthOf(url: string): Promise<Record<string, unknown> | null> {
   }
 }
 
+/**
+ * Waits until the host's Node sandbox is connected. The host answers health
+ * as soon as it listens, before `startHostedSandbox` connects the sandbox,
+ * and a call in that window is refused with "sandbox not connected".
+ */
 async function waitForHost(host: Started, url: string): Promise<Record<string, unknown>> {
   const deadline = Date.now() + 90_000;
   for (;;) {
     const health = await healthOf(url);
-    if (health !== null) return health;
+    if (health?.sandboxConnected === true) return health;
     if (host.child.exitCode !== null) throw new Error(`the host exited:\n${host.output()}`);
-    if (Date.now() > deadline) throw new Error(`the host did not serve ${url}:\n${host.output()}`);
+    if (Date.now() > deadline) {
+      const seen = health === null ? 'no health answer' : `health ${JSON.stringify(health)}`;
+      throw new Error(`the host at ${url} did not connect its sandbox (last: ${seen}):\n${host.output()}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
