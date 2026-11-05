@@ -14,8 +14,9 @@
 # The long-session soak (test/apps/long-session-soak) is slow too, so the
 # slow-scenarios job runs it for SOAK_MINUTES=5. Its full hour runs in the
 # soak job: nightly, and on demand when `soak_minutes` is given, which then
-# runs only that job. A nightly run has a concurrency group of its own, so a
-# push to main does not cancel the soak.
+# runs only that job. A nightly run, and each soak run on demand, has a
+# concurrency group of its own, so neither a push to main nor another soak
+# run cancels it.
 
 name: Slow app scenarios
 
@@ -52,7 +53,7 @@ concurrency:
   # One run per ref; a newer one cancels it. Adding any other label to a pull
   # request starts a run that does nothing, so it gets a group of its own
   # instead of cancelling a slow run in progress.
-  group: slow-scenarios-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.label.name != 'ci-slow-scenarios' && format('-{0}', github.run_id) || '' }}${{ github.event_name == 'schedule' && '-nightly' || '' }}
+  group: slow-scenarios-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.label.name != 'ci-slow-scenarios' && format('-{0}', github.run_id) || '' }}${{ github.event_name == 'schedule' && '-nightly' || '' }}${{ inputs.soak_minutes && format('-soak-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
