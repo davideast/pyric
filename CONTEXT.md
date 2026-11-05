@@ -97,7 +97,7 @@ subpaths include:
 | `pyric/rules/internal` | Engine internals seam. |
 | `pyric/rules/internal/node` | Node-only filesystem-backed module resolution. |
 | `pyric/rules/internal/extract` | Composite-index extraction. |
-| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus replay and constraints. |
+| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus constraints. RTDB replay is in `pyric/sandbox/internal`. |
 | `pyric/sandbox` | Sandbox lifecycle, events, persistence, replay, branches. |
 | `pyric/sandbox/branches/store` | Persisted branch store (`<project>/.pyric/state/branches/<name>/`), with per-service base/state files and event log. |
 | `pyric/sandbox/checkpoints` | Saved-state checkpoint capture, restore, and record-backend primitives. |

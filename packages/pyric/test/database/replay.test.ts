@@ -21,7 +21,7 @@ import {
   update,
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
-import { replay } from '../../src/rules/internal/rtdb.js';
+import { replay } from '../../src/sandbox/internal/index.js';
 
 const ALLOW_ALL = { rules: { '.read': true, '.write': true } };
 const DENY_ALL = { rules: { '.read': false, '.write': false } };
