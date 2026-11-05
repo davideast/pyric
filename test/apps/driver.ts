@@ -25,7 +25,7 @@ import {
   type LiveProcess,
 } from './unreaped-exit.ts';
 import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
-import { CrashWatch, type Crash, type ExpectedCrash } from './crash-watch.ts';
+import { CrashWatch, type CrashVerdict, type ExpectedCrash, type WatchedProcess } from './crash-watch.ts';
 
 export type { ExpectedCrash } from './crash-watch.ts';
 
@@ -89,6 +89,14 @@ export class AppProcess {
   private exitedEarly = false;
   /** Processes this child started that outlived it, holding its pipes (#1274). */
   readonly leftoverProcesses: LiveProcess[] = [];
+  /**
+   * Set for a process the scenario starts to run until it stops it, such as a
+   * dev server, and not for a command it runs to exit. Such a process that
+   * exits on its own with a non-zero code fails the app (crash-watch.ts).
+   */
+  runsUntilStopped = false;
+  /** Set when `stop()` found the process running, so its exit was the driver's doing. */
+  private stopRequested = false;
 
   constructor(
     readonly name: string,
@@ -183,6 +191,13 @@ export class AppProcess {
     return this.exitCode === undefined;
   }
 
+  /** The non-zero code a process started to run until stopped exited with before anything stopped it. */
+  get earlyExitCode(): number | undefined {
+    const exitedOnItsOwn = this.runsUntilStopped && !this.stopRequested;
+    const failed = typeof this.exitCode === 'number' && this.exitCode !== 0;
+    return exitedOnItsOwn && failed ? this.exitCode as number : undefined;
+  }
+
   /** The current end of the output, for `waitForLog({ since })`. */
   mark(): number {
     return this.text.length;
@@ -237,6 +252,7 @@ export class AppProcess {
    */
   async stop(grace: StopGrace = this.timing.stop): Promise<void> {
     if (this.child.pid === undefined) return;
+    if (this.running) this.stopRequested = true;
     if (!this.running) {
       await this.stopLeftoverGroup(grace);
       return;
@@ -361,6 +377,11 @@ export interface App {
   browser(): Promise<BrowserContext>;
   /** Opens `url` in a new page of the app's browser context. */
   page(url: string): Promise<Page>;
+  /**
+   * Watches a browser context the scenario made itself, in a browser it
+   * launched, for crashes, as `browser()` does for its own (crash-watch.ts).
+   */
+  watchCrashes(context: BrowserContext): Promise<void>;
   readFile(path: string): string;
   writeFile(path: string, text: string): void;
   /** A free TCP port on 127.0.0.1. */
@@ -603,6 +624,7 @@ export class AppRun implements App {
       spawn,
       this.timing,
     );
+    child.runsUntilStopped = true;
     this.processes.push(child);
     return this.servedHost(name, port, child);
   }
@@ -639,11 +661,19 @@ export class AppRun implements App {
       spawn,
       this.timing,
     );
+    child.runsUntilStopped = true;
     this.processes.push(child);
     return child;
   }
 
   pyricProcess(args: string[], options: { env?: Record<string, string> } = {}): AppProcess {
+    const child = this.startPyric(args, options);
+    child.runsUntilStopped = true;
+    return child;
+  }
+
+  /** Starts the installed `pyric` command, for `pyric()` to run to exit and `pyricProcess()` to run until stopped. */
+  private startPyric(args: string[], options: { env?: Record<string, string> }): AppProcess {
     this.scriptCount += 1;
     const child = new AppProcess(
       `pyric ${this.scriptCount} (${args.join(' ')})`,
@@ -659,7 +689,7 @@ export class AppRun implements App {
   }
 
   async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
-    const child = this.pyricProcess(args, options);
+    const child = this.startPyric(args, options);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
     if (!finished) {
@@ -690,6 +720,7 @@ export class AppRun implements App {
       spawn,
       this.timing,
     );
+    child.runsUntilStopped = true;
     this.processes.push(child);
     return child;
   }
@@ -787,7 +818,7 @@ export class AppRun implements App {
     const browser = await this.launchBrowser();
     const context = await browser.newContext();
     await guardContext(context, this.browserLog);
-    this.crashWatch.watchContext(context);
+    await this.crashWatch.watchContext(context);
     this.context = context;
     return context;
   }
@@ -841,9 +872,14 @@ export class AppRun implements App {
       .map(({ step, request }) => `${request} (during "${step}")`);
   }
 
-  /** Crashes in the app's pages, workers, and processes so far that no `expected` entry matches. */
-  unexpectedCrashes(expected: readonly ExpectedCrash[]): Crash[] {
-    return this.crashWatch.unexpected(expected, this.processes);
+  watchCrashes(context: BrowserContext): Promise<void> {
+    return this.crashWatch.watchContext(context);
+  }
+
+  /** The crashes in the app's pages, workers, and processes so far that no `expected` entry matches, and the entries nothing matched. */
+  crashVerdict(expected: readonly ExpectedCrash[]): CrashVerdict {
+    const processes: WatchedProcess[] = this.processes.map((child) => ({ name: child.name, output: child.output, earlyExitCode: child.earlyExitCode }));
+    return this.crashWatch.verdict(expected, processes);
   }
 
   async close(): Promise<void> {

@@ -61,6 +61,7 @@ export default scenario(async (app) => {
   try {
     const context = await browser.newContext();
     await guardContext(context, app.browserLog as string[]);
+    await app.watchCrashes(context);
     const observer = await context.newPage();
     await observer.goto(host.url);
     await observer.waitForFunction(() => 'presence' in window);

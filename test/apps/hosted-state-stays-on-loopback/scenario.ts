@@ -87,6 +87,7 @@ export default scenario(async (app) => {
     const browser = await chromium.launch({ headless: true, args: [`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ${remote}`] });
     try {
       const page = await browser.newPage();
+      await app.watchCrashes(page.context());
       await page.goto(`http://${remote}:${port}/remote-page.html`);
       await page.waitForFunction(() => 'outcome' in window, undefined, { timeout: 30_000 });
       const outcome = await page.evaluate(() => (window as unknown as { outcome: string }).outcome);

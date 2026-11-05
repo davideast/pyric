@@ -1,109 +1,28 @@
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import type { BrowserContext } from '@playwright/test';
-import { CrashWatch, describeCrashes, findProcessCrashes, readWorkerReport, WORKER_REPORT_MARKER, type ExpectedCrash } from './crash-watch.ts';
+import type { TargetCrash } from './crash-targets.ts';
+import { checkExpectedCrashes, CrashWatch, describeVerdict, isFailing, type ExpectedCrash } from './crash-watch.ts';
 
-const PYRIC_FRAME = '    at handle (/tmp/pyric-app-x/app/node_modules/@pyric/cli/dist/serve/server.js:12:3)';
-const APP_FRAME = '    at main (/tmp/pyric-app-x/app/server.mjs:4:9)';
-
-const nodeUncaught = (frame: string) => [
-  'listening on 4000',
-  '/tmp/pyric-app-x/app/node_modules/@pyric/cli/dist/serve/server.js:12',
-  "    throw new TypeError('boom');",
-  '    ^',
+const NODE_CRASH = [
+  'file:///tmp/pyric-app-x/app/server.mjs:4',
+  'cred.user.missingField.read;',
+  '                       ^',
   '',
-  'TypeError: boom',
-  frame,
-  '    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)',
-  '',
-  'Node.js v24.16.0',
-  '',
-].join('\n');
-
-const nodeRejection = [
-  'node:internal/process/promises:394',
-  '    triggerUncaughtException(err, true /* fromPromise */);',
-  '    ^',
-  '',
-  '[UnhandledPromiseRejection: This error originated either by throwing inside of an async function without a catch block, or by rejecting a promise which was not handled with .catch(). The promise rejected with the reason "nope".] {',
-  "  code: 'ERR_UNHANDLED_REJECTION'",
-  '}',
+  "TypeError: Cannot read properties of undefined (reading 'read')",
+  '    at main (file:///tmp/pyric-app-x/app/server.mjs:4:24)',
   '',
   'Node.js v24.16.0',
 ].join('\n');
 
-describe('findProcessCrashes', () => {
-  test("reads Node's uncaught exception with a Pyric frame", () => {
-    const [crash, ...rest] = findProcessCrashes(nodeUncaught(PYRIC_FRAME));
-    expect(rest).toEqual([]);
-    expect(crash!.kind).toBe('uncaught exception');
-    expect(crash!.message).toBe('TypeError: boom');
-    expect(crash!.stack[0]).toBe(PYRIC_FRAME);
-  });
-
-  test("leaves out an uncaught exception from the app's own code", () => {
-    const appCrash = nodeUncaught(APP_FRAME).replace('node_modules/@pyric/cli/dist/serve/server.js', 'server.mjs');
-    expect(findProcessCrashes(appCrash)).toEqual([]);
-  });
-
-  test("reads Node's unhandled rejection of a non-Error reason, which has no frames", () => {
-    const [crash] = findProcessCrashes(nodeRejection);
-    expect(crash!.kind).toBe('unhandled rejection');
-    expect(crash!.message).toStartWith('[UnhandledPromiseRejection:');
-  });
-
-  test("reads the sandbox guard's report and its indented stack", () => {
-    const output = [
-      '  ✖ pyric sandbox: unhandled rejection. The server was kept alive. Please report this:',
-      '    Error: socket hang up',
-      `    ${PYRIC_FRAME.trim()}`,
-      'next line',
-    ].join('\n');
-    expect(findProcessCrashes(output)).toEqual([
-      { kind: 'pyric sandbox unhandled rejection', message: 'Error: socket hang up', stack: [PYRIC_FRAME.trim()] },
-    ]);
-  });
-
-  test("reads the functions host's report only when the stack is Pyric's", () => {
-    const pyric = `✖ functions uncaught exception, kept serving: Error: tick\n${PYRIC_FRAME}\n`;
-    const app = `✖ functions uncaught exception, kept serving: Error: tick\n${APP_FRAME}\n`;
-    expect(findProcessCrashes(pyric).map((crash) => crash.message)).toEqual(['Error: tick']);
-    expect(findProcessCrashes(app)).toEqual([]);
-  });
-
-  test("reads the host request handler's 500 line", () => {
-    expect(findProcessCrashes('  ✖ 500 /__pyric/init.json: Cannot read properties of undefined\n')).toEqual([
-      { kind: 'host request handler threw', message: 'Cannot read properties of undefined', stack: ['request /__pyric/init.json'] },
-    ]);
-  });
-
-  test('finds nothing in ordinary output', () => {
-    expect(findProcessCrashes('  VITE v6 ready\n  ✔ [pyric] function hello\nError: denied by rules\n')).toEqual([]);
-  });
-});
-
-describe('readWorkerReport', () => {
-  test("reads a service worker's report", () => {
-    const text = WORKER_REPORT_MARKER + JSON.stringify({ kind: 'unhandled rejection', message: 'x', stack: 'Error: x\n    at sw.js:1:1' });
-    expect(readWorkerReport(text)).toEqual({ kind: 'service worker unhandled rejection', message: 'Error: x', stack: ['    at sw.js:1:1'] });
-  });
-
-  test('ignores other console lines', () => {
-    expect(readWorkerReport('hello')).toBeUndefined();
-  });
-});
-
-/** A context, page, and service worker that emit the events the watch listens for. */
+/** A context and page that emit the events the watch listens for, and a stand-in worker watch. */
 function fakeContext() {
   const context = new EventEmitter();
   const page = Object.assign(new EventEmitter(), { url: () => 'http://127.0.0.1:5173/' });
-  const evaluated: string[] = [];
-  const worker = Object.assign(new EventEmitter(), {
-    url: () => 'http://127.0.0.1:5173/sw.js',
-    evaluate: async (_fn: unknown, marker: string) => { evaluated.push(marker); },
-  });
-  Object.assign(context, { pages: () => [page], serviceWorkers: () => [] });
-  return { context, asContext: context as unknown as BrowserContext, page, worker, evaluated };
+  Object.assign(context, { pages: () => [page] });
+  let reportWorkerCrash: (crash: TargetCrash) => void = () => {};
+  const watchWorkers = async (_context: BrowserContext, record: (crash: TargetCrash) => void) => { reportWorkerCrash = record; };
+  return { context, asContext: context as unknown as BrowserContext, page, watchWorkers, workerCrash: (crash: TargetCrash) => reportWorkerCrash(crash) };
 }
 
 function webError(error: Error) {
@@ -111,63 +30,105 @@ function webError(error: Error) {
 }
 
 describe('CrashWatch', () => {
-  test('records page errors, renderer crashes, and service worker reports with the step they happened in', async () => {
+  test('records page errors, renderer crashes, and worker crashes with the step they happened in', async () => {
     let step = 'open the page';
-    const watch = new CrashWatch(() => step);
     const fake = fakeContext();
-    watch.watchContext(fake.asContext);
+    const watch = new CrashWatch(() => step, fake.watchWorkers);
+    await watch.watchContext(fake.asContext);
     fake.context.emit('weberror', webError(new TypeError('undefined is not a function')));
     step = 'reload';
     fake.page.emit('crash');
-    fake.context.emit('serviceworker', fake.worker);
-    await Promise.resolve();
-    expect(fake.evaluated).toEqual([WORKER_REPORT_MARKER]);
-    fake.worker.emit('console', { text: () => WORKER_REPORT_MARKER + JSON.stringify({ kind: 'uncaught exception', message: 'sw', stack: '' }) });
-    fake.worker.emit('console', { text: () => 'an ordinary log' });
+    fake.workerCrash({ kind: 'shared worker uncaught exception', source: 'shared worker http://127.0.0.1:5173/shared.js', message: 'Error: sw', stack: [] });
 
-    const crashes = watch.unexpected([], []);
-    expect(crashes.map(({ kind, source, step: during, message }) => ({ kind, source, during, message }))).toEqual([
+    const { unexpected } = watch.verdict([], []);
+    expect(unexpected.map(({ kind, source, step: during, message }) => ({ kind, source, during, message }))).toEqual([
       { kind: 'page error', source: 'page http://127.0.0.1:5173/ (at http://127.0.0.1:5173/main.js:7)', during: 'open the page', message: 'TypeError: undefined is not a function' },
       { kind: 'page crash', source: 'page http://127.0.0.1:5173/', during: 'reload', message: "the page's renderer crashed" },
-      { kind: 'service worker uncaught exception', source: 'service worker http://127.0.0.1:5173/sw.js', during: 'reload', message: 'sw' },
+      { kind: 'shared worker uncaught exception', source: 'shared worker http://127.0.0.1:5173/shared.js', during: 'reload', message: 'Error: sw' },
     ]);
   });
 
-  test('a page opened after the watch starts is watched too', () => {
-    const watch = new CrashWatch(() => 'step');
+  test('a page opened after the watch starts is watched too', async () => {
     const fake = fakeContext();
-    watch.watchContext(fake.asContext);
+    const watch = new CrashWatch(() => 'step', fake.watchWorkers);
+    await watch.watchContext(fake.asContext);
     const later = Object.assign(new EventEmitter(), { url: () => 'http://127.0.0.1:5173/second' });
     fake.context.emit('page', later);
     later.emit('crash');
-    expect(watch.unexpected([], []).map((crash) => crash.source)).toEqual(['page http://127.0.0.1:5173/second']);
+    expect(watch.verdict([], []).unexpected.map((crash) => crash.source)).toEqual(['page http://127.0.0.1:5173/second']);
   });
 
-  test('an expected crash must match both its message and its source', () => {
-    const watch = new CrashWatch(() => 'step');
-    const fake = fakeContext();
-    watch.watchContext(fake.asContext);
-    fake.context.emit('weberror', webError(new Error('refused: no register')));
-    const processes = [{ name: 'server script 1 (refuse.mjs)', output: nodeUncaught(PYRIC_FRAME) }];
-    const expected: ExpectedCrash[] = [
-      { message: /refused: no register/, source: /^page /, reason: 'the page provokes the refusal' },
-      { message: /boom/, source: /^dev server$/, reason: 'a different process' },
-    ];
-    const left = watch.unexpected(expected, processes);
-    expect(left.map((crash) => `${crash.source}: ${crash.message}`)).toEqual(['server script 1 (refuse.mjs): TypeError: boom']);
-  });
-
-  test('the failure text names each crash, where, and the head of its stack', () => {
-    const text = describeCrashes([
-      { kind: 'page error', source: 'page http://x/', step: 'load', message: 'Error: a', stack: Array.from({ length: 8 }, (_, i) => `    at f${i} (x.js)`) },
-      { kind: 'uncaught exception', source: 'dev server', step: '', message: 'Error: b', stack: [] },
+  test("a Node crash in a process counts, even in the app's own code", () => {
+    const watch = new CrashWatch(() => 'step', fakeContext().watchWorkers);
+    const { unexpected } = watch.verdict([], [{ name: 'server process 1 (server.mjs)', output: NODE_CRASH }]);
+    expect(unexpected.map((crash) => `${crash.kind} in ${crash.source}: ${crash.message}`)).toEqual([
+      "uncaught exception in server process 1 (server.mjs): TypeError: Cannot read properties of undefined (reading 'read')",
     ]);
+  });
+
+  test('a process that exited early with a non-zero code and printed no crash fails with its last lines', () => {
+    const watch = new CrashWatch(() => 'step', fakeContext().watchWorkers);
+    const processes = [
+      { name: 'dev server', output: 'one\ntwo\nthree\nfour\nfive\nsix\n', earlyExitCode: 1 },
+      { name: 'server process 1 (server.mjs)', output: NODE_CRASH, earlyExitCode: 1 },
+      { name: 'pyric 2 (rules lint)', output: 'refused\n' },
+    ];
+    const { unexpected } = watch.verdict([], processes);
+    expect(unexpected.map(({ kind, source, message, stack }) => ({ kind, source, message, stack: stack.length }))).toEqual([
+      { kind: 'process exited early', source: 'dev server', message: 'exited with code 1 before the scenario stopped it', stack: 5 },
+      { kind: 'uncaught exception', source: 'server process 1 (server.mjs)', message: "TypeError: Cannot read properties of undefined (reading 'read')", stack: 3 },
+    ]);
+  });
+
+  test('an expected crash must match both its message and its source, and an entry that matches nothing is reported', async () => {
+    const fake = fakeContext();
+    const watch = new CrashWatch(() => 'step', fake.watchWorkers);
+    await watch.watchContext(fake.asContext);
+    fake.context.emit('weberror', webError(new Error('refused: no register')));
+    const processes = [{ name: 'server script 1 (refuse.mjs)', output: NODE_CRASH }];
+    const pageEntry: ExpectedCrash = { message: /refused: no register/, source: /^page /, reason: 'the page provokes the refusal' };
+    const otherProcess: ExpectedCrash = { message: /missingField|reading 'read'/, source: /^dev server$/, reason: 'a different process' };
+    const verdict = watch.verdict([pageEntry, otherProcess], processes);
+    expect(verdict.unexpected.map((crash) => crash.source)).toEqual(['server script 1 (refuse.mjs)']);
+    expect(verdict.unmatched).toEqual([otherProcess]);
+    expect(isFailing(verdict)).toBe(true);
+    expect(isFailing(watch.verdict([pageEntry, { ...otherProcess, source: /^server script/ }], processes))).toBe(false);
+  });
+});
+
+describe('checkExpectedCrashes', () => {
+  test('accepts entries with plain patterns and a reason', () => {
+    expect(checkExpectedCrashes(undefined)).toEqual([]);
+    expect(checkExpectedCrashes([{ message: /x/i, source: /^page /, reason: 'why' }])).toEqual([]);
+  });
+
+  test('rejects g and y patterns, which keep lastIndex between tests, and entries with no reason', () => {
+    expect(checkExpectedCrashes([{ message: /x/g, source: /^page /y, reason: ' ' }, { message: 'x', source: /y/, reason: 'why' }])).toEqual([
+      'expectedCrashes[0].message /x/g has the g flag',
+      'expectedCrashes[0].source /^page /y has the y flag',
+      'expectedCrashes[0] has no reason',
+      'expectedCrashes[1].message is not a RegExp',
+    ]);
+    expect(checkExpectedCrashes({})).toEqual(['expectedCrashes is not an array']);
+  });
+});
+
+describe('describeVerdict', () => {
+  test('names each crash, where, and the head of its stack, then each entry that matched nothing', () => {
+    const text = describeVerdict({
+      unexpected: [
+        { kind: 'page error', source: 'page http://x/', step: 'load', message: 'Error: a', stack: Array.from({ length: 8 }, (_, i) => `    at f${i} (x.js)`) },
+        { kind: 'uncaught exception', source: 'dev server', step: '', message: 'Error: b', stack: [] },
+      ],
+      unmatched: [{ message: /gone/, source: /^page /, reason: 'the page used to provoke it' }],
+    });
     expect(text).toContain('2 crashes the scenario did not expect:');
     expect(text).toContain('- page error in page http://x/, during "load": Error: a');
     expect(text).toContain('    at f5 (x.js)');
     expect(text).not.toContain('at f6');
     expect(text).toContain('... 2 more lines');
     expect(text).toContain('- uncaught exception in dev server: Error: b');
-    expect(text).toContain('expectedCrashes');
+    expect(text).toContain('1 expectedCrashes entry matched no crash; remove each or fix its patterns:');
+    expect(text).toContain('- message /gone/, source /^page / (the page used to provoke it)');
   });
 });

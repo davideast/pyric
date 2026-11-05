@@ -63,7 +63,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
 import { AppRun, launchScenarioBrowser, StepFailure, type ExpectedCrash, type Scenario } from './driver.ts';
-import { describeCrashes } from './crash-watch.ts';
+import { checkExpectedCrashes, describeVerdict, isFailing } from './crash-watch.ts';
 import { currentPlatform, DependencyStore, readPackedPackages } from './dependency-store.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
 import { SharedInstalls } from './shared-installs.ts';
@@ -175,6 +175,8 @@ async function runApp(name: string, context: {
     run.currentStep = 'load scenario';
     const module = await loadScenario(name);
     if (typeof module.default !== 'function') throw new StepFailure('load scenario', new Error('scenario.ts has no default export from scenario()'));
+    const problems = checkExpectedCrashes(module.expectedCrashes);
+    if (problems.length > 0) throw new StepFailure('load scenario', new Error(problems.join('\n')));
     expectedCrashes = module.expectedCrashes ?? [];
     inScenario = true;
     await withTimeout(module.default(run), APP_TIMEOUT_MS, run);
@@ -199,12 +201,13 @@ async function runApp(name: string, context: {
   });
   if (context.keep) console.log(`  ${name}: installed at ${projectDir}`);
   // Read after close, so a crash while the app's processes shut down counts too.
-  const crashes = run.unexpectedCrashes(expectedCrashes);
-  const crashReport = crashes.length > 0 ? describeCrashes(crashes) : undefined;
-  if (crashReport !== undefined && failure === undefined) {
-    failure = new StepFailure('nothing crashed that the scenario did not expect', Object.assign(new Error(crashReport), { stack: crashReport }));
-  } else if (crashReport !== undefined) {
-    logs.push({ name: 'crash watch', text: crashReport });
+  const verdict = run.crashVerdict(expectedCrashes);
+  if (failure === undefined && isFailing(verdict)) {
+    const report = describeVerdict(verdict);
+    failure = new StepFailure('nothing crashed that the scenario did not expect', Object.assign(new Error(report), { stack: report }));
+  } else if (verdict.unexpected.length > 0) {
+    // An entry that matched nothing says little about a run that stopped early, so only the crashes are kept.
+    logs.push({ name: 'crash watch', text: describeVerdict({ unexpected: verdict.unexpected, unmatched: [] }) });
   }
   for (const child of run.processes) logs.push({ name: child.name, text: child.header + child.output });
   if (run.browserLog.length) logs.push({ name: 'browser', text: run.browserLog.join('\n') });
