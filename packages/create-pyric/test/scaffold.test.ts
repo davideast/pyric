@@ -20,10 +20,12 @@ import { loadAssetTemplate } from '../src/templates.js';
 // just-bash lists these as optional dependencies for its Node-only `tar`
 // codecs. Their install scripts download prebuilt binaries from github.com or
 // build native code with headers from nodejs.org; the chat app runs just-bash's
-// browser bundle, which never loads them.
+// browser bundle, which never loads them. The overrides point both at a stub
+// the scaffold writes into the app.
+const CHAT_NATIVE_STUB = 'stubs/empty-native-optional';
 const CHAT_NATIVE_OVERRIDES = {
-  '@mongodb-js/zstd': 'npm:@favware/skip-dependency@1.2.2',
-  'node-liblzma': 'npm:@favware/skip-dependency@1.2.2',
+  '@mongodb-js/zstd': `file:./${CHAT_NATIVE_STUB}`,
+  'node-liblzma': `file:./${CHAT_NATIVE_STUB}`,
 };
 
 function treeBytes(root: string): number {
@@ -249,7 +251,7 @@ describe('runScaffold', () => {
     }
   });
 
-  it('maps the chat template native optional dependencies to an empty package', () => {
+  it('maps the chat template native optional dependencies to a stub written into the app', () => {
     const root = mkdtempSync(join(tmpdir(), 'create-pyric-chat-overrides-'));
     const project = join(root, 'app');
     try {
@@ -263,6 +265,17 @@ describe('runScaffold', () => {
         overrides?: Record<string, string>;
       };
       expect(generated.overrides).toEqual(CHAT_NATIVE_OVERRIDES);
+
+      // npm resolves each `file:` override against the app root. The stub has
+      // no entry file and no scripts, so installing it runs nothing.
+      expect(readdirSync(join(project, CHAT_NATIVE_STUB))).toEqual(['package.json']);
+      const stub = JSON.parse(
+        readFileSync(join(project, CHAT_NATIVE_STUB, 'package.json'), 'utf8'),
+      ) as { name: string; version: string; scripts?: unknown; main?: unknown };
+      expect(stub.name).toBe('empty-native-optional');
+      expect(stub.version).toBe('0.0.0');
+      expect(stub.scripts).toBeUndefined();
+      expect(stub.main).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
