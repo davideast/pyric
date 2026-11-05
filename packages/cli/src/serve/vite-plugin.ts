@@ -40,9 +40,8 @@ import type { FlowConfig } from './flow-config.js';
  * to the in-page sandbox (single-tab, ephemeral).
  */
 import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
+import { findFirebaseProjectDir } from '../cli/firebase-project.js';
 import { readPyricConfig } from '../cli/pyric-config.js';
 import { resolveOwnersConfig, type OwnersConfig } from './owners-config.js';
 import type { PyricAiOptions } from './vite-ai-config.js';
@@ -231,24 +230,14 @@ async function readOwners(projectDir: string, overrides: OwnersConfig | undefine
 /**
  * Resolves the Firebase project root directory from Vite's server root. In
  * split-directory or full-stack monorepo layouts where Vite operates inside a
- * subdirectory (e.g. `/web` or `/frontend`) while hosting and security rules
- * configuration (`firebase.json`) resides in an ancestor workspace directory,
- * this ascends to locate the authoritative configuration root.
+ * subdirectory (e.g. `/web` or `/frontend`) while `firebase.json` or
+ * `.firebaserc` resides in an ancestor workspace directory, this ascends to
+ * that folder (`findFirebaseProjectDir`, which the live register shares).
  */
 export function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): string {
   const hasExplicitRoot = explicitRoot !== undefined && explicitRoot.length > 0;
   if (hasExplicitRoot) return explicitRoot as string;
-  let current = resolve(defaultRoot);
-  while (true) {
-    const candidateConfig = join(current, 'firebase.json');
-    const configExists = existsSync(candidateConfig);
-    if (configExists) return current;
-    const parent = dirname(current);
-    const isRootOfFilesystem = parent === current;
-    if (isRootOfFilesystem) break;
-    current = parent;
-  }
-  return defaultRoot;
+  return findFirebaseProjectDir(defaultRoot) ?? defaultRoot;
 }
 
 /**
