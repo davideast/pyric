@@ -28,7 +28,7 @@
 
 import { afterEach, describe, it, expect } from 'bun:test';
 import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
-import { idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
+import { getClock, idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { getDatabase as getModularDatabase, sandbox as databaseSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
@@ -546,7 +546,7 @@ describe('pyric-admin remote dispatch — Auth', () => {
     expect(auth.createUser({ uid: 'dup' })).rejects.toThrow(/dup/);
   });
 
-  it('createCustomToken / verifyIdToken are stateless and need no relay', async () => {
+  it('createCustomToken / verifyIdToken mint and check in this process', async () => {
     const { bridge, app } = makeStack();
     void bridge;
     const auth = getAuth(app);
@@ -577,6 +577,39 @@ describe('pyric-admin remote dispatch — Auth', () => {
     });
     const expired = mintIdToken({ ...claims, ...idTokenAudience('demo-remote'), exp: nowSec - 60 });
     await expect(auth.verifyIdToken(expired)).rejects.toMatchObject({ code: 'auth/id-token-expired' });
+  });
+
+  it('a custom token minted after advanceClock exchanges in the worker (#2010)', async () => {
+    const { ctx, app } = makeStack();
+    const sixtyOneMinutesMs = 61 * 60 * 1000;
+    getClock(ctx.sandbox).advance(sixtyOneMinutesMs);
+    const token = await getAuth(app).createCustomToken('alice', { role: 'admin' });
+    const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { iat: number };
+    expect(payload.iat).toBe(Math.floor(getClock(ctx.sandbox).now() / 1000));
+    await expect(workerOp(ctx, { method: 'auth.signInWithCustomToken', customToken: token })).resolves.toBeDefined();
+  });
+
+  it('the remote and local arms agree on an ID token expiry after advanceClock (#2010)', async () => {
+    const { ctx, app } = makeStack();
+    const remoteAuth = getAuth(app);
+    const localAuth = getAuth(initializeApp({ sandbox: ctx.sandbox }, 'local-arm'));
+    const idTokenAt = (nowMs: number): string => {
+      const nowSec = Math.floor(nowMs / 1000);
+      return mintIdToken({ ...idTokenAudience(SANDBOX_PROJECT_ID), sub: 'alice', iat: nowSec, auth_time: nowSec, exp: nowSec + 3600 });
+    };
+    const beforeAdvance = idTokenAt(getClock(ctx.sandbox).now());
+    getClock(ctx.sandbox).advance(61 * 60 * 1000);
+    const afterAdvance = idTokenAt(getClock(ctx.sandbox).now());
+    const answer = (auth: typeof localAuth, token: string): Promise<string> =>
+      auth.verifyIdToken(token).then(() => 'verified', (error: { code?: string }) => error.code ?? String(error));
+    const answers = async (auth: typeof localAuth): Promise<string[]> => [await answer(auth, beforeAdvance), await answer(auth, afterAdvance)];
+    expect(await answers(localAuth)).toEqual(['auth/id-token-expired', 'verified']);
+    expect(await answers(remoteAuth)).toEqual(await answers(localAuth));
+  });
+
+  it('verifyIdToken still throws synchronously for a token that is not a string', () => {
+    const { app } = makeStack();
+    expect(() => getAuth(app).verifyIdToken(42 as unknown as string)).toThrow(/must be a Firebase ID token string/);
   });
 
   it('unmodeled surface throws the canonical remote "not implemented" error', () => {
