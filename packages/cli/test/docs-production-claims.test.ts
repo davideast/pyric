@@ -18,10 +18,11 @@ const json = <T>(path: string) => JSON.parse(readFileSync(join(repoRoot, path), 
 interface UploadAttempt { threw: boolean; code: string | null; status: number | null }
 
 describe('docs claims pinned against production captures', () => {
-  test('DT-H1-11: cloud-storage.md names storage/unauthenticated for a signed-out upload; production answers storage/unauthorized', () => {
+  test('DT-H1-11: cloud-storage.md names storage/unauthorized for a signed-out upload, matching production', () => {
     // The page's rule is `allow write: if request.auth != null`, and the
     // capture's oracle namespace carries the same rule (namespaceRuleDeployed).
-    expect(docs('build/cloud-storage.md')).toContain('An anonymous upload now throws `FirebaseError` with `storage/unauthenticated`.');
+    expect(docs('build/cloud-storage.md')).toContain('An anonymous upload and an 11 MiB payload both throw `FirebaseError` with `storage/unauthorized`.');
+    expect(docs('build/cloud-storage.md')).not.toContain('storage/unauthenticated');
 
     const obs = json<{ behavior: { namespaceRuleDeployed: boolean; signedOutCurrentUser: null; signedOutNamespace: UploadAttempt } }>(
       'packages/conformance/observations/storage/storage-rules-denied-signed-out-error-code.json',
