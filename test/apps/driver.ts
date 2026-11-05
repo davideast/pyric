@@ -396,14 +396,22 @@ export interface App {
   /**
    * Declares that a page request to a `/__pyric/` route may answer with an
    * error status, such as a download URL with the wrong token. Any other error
-   * a `/__pyric/` route answers to a page fails the app after its scenario.
+   * a `/__pyric/` route answers to a page fails the app after its scenario,
+   * and so does a pattern that matched no error, unless `mayNotHappen` says
+   * why the error comes only in some runs, such as one a race decides.
    */
-  expectHostError(pattern: RegExp): void;
+  expectHostError(pattern: RegExp, options?: { mayNotHappen?: string }): void;
+  /**
+   * Counts an error response to a page the scenario opened in a browser it
+   * launched itself, as `page()` counts its own: one from a `/__pyric/`
+   * route fails the app unless `expectHostError` allows it.
+   */
+  noteErrorResponse(status: number, method: string, url: string): void;
   /**
    * Declares that a process an app process starts may outlive it, holding its
    * output pipes, such as a daemon the scenario starts on purpose. `pattern`
    * matches the leftover's command name. Any other leftover fails the app
-   * after its scenario (#1274).
+   * after its scenario (#1274), and so does a pattern that matched no leftover.
    */
   expectLeftoverProcess(pattern: RegExp): void;
 }
@@ -560,6 +568,17 @@ export async function guardContext(context: BrowserContext, log: string[]): Prom
   });
 }
 
+/**
+ * A `mayNotHappen` reason lets an allowance match nothing, so it must say why
+ * and cite the issue that tracks the race, which closing ends the allowance.
+ */
+function assertCitesIssue(pattern: RegExp, reason: string): void {
+  const hasReason = reason.trim().length > 0;
+  const citesIssue = /#\d+/.test(reason);
+  if (hasReason && citesIssue) return;
+  throw new Error(`expectHostError(${pattern}): mayNotHappen must say why the error comes only in some runs and cite its issue (#<number>); got ${JSON.stringify(reason)}`);
+}
+
 /** One run of one app: the state behind the `App` a scenario receives. */
 export class AppRun implements App {
   readonly processes: AppProcess[] = [];
@@ -569,6 +588,8 @@ export class AppRun implements App {
   private readonly hostErrors: { step: string; request: string }[] = [];
   private readonly expectedLeftovers: RegExp[] = [];
   private readonly expectedHostErrors: RegExp[] = [];
+  /** The `expectHostError` patterns whose error comes only in some runs, which the stale check skips. */
+  private readonly racyHostErrors = new Set<RegExp>();
   private context: BrowserContext | undefined;
   private serverCount = 0;
   private scriptCount = 0;
@@ -833,10 +854,7 @@ export class AppRun implements App {
     page.on('response', (response) => {
       if (response.status() < 400) return;
       this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
-      const url = new URL(response.url());
-      if (url.pathname.startsWith('/__pyric/')) {
-        this.hostErrors.push({ step: this.currentStep, request: `${response.status()} ${response.request().method()} ${url.pathname}${url.search}` });
-      }
+      this.noteErrorResponse(response.status(), response.request().method(), response.url());
     });
     await page.goto(url);
     return page;
@@ -850,26 +868,58 @@ export class AppRun implements App {
     writeFileSync(join(this.dir, path), text);
   }
 
-  expectHostError(pattern: RegExp): void {
+  expectHostError(pattern: RegExp, options: { mayNotHappen?: string } = {}): void {
+    const reason = options.mayNotHappen;
+    const isRacy = reason !== undefined;
+    if (isRacy) assertCitesIssue(pattern, reason);
     this.expectedHostErrors.push(pattern);
+    if (isRacy) this.racyHostErrors.add(pattern);
   }
 
   expectLeftoverProcess(pattern: RegExp): void {
     this.expectedLeftovers.push(pattern);
   }
 
-  /** Processes app processes started that outlived them, and that no `expectLeftoverProcess` pattern matches. */
+  /**
+   * What fails the app after its scenario: each process an app process
+   * started that outlived it and that no `expectLeftoverProcess` pattern
+   * matches, then each pattern that matched no leftover. A pattern that
+   * matched nothing fails the run as an `expectedCrashes` entry does
+   * (crash-watch.ts), so the list cannot outlive what it describes.
+   */
   unexpectedLeftoverProcesses(): string[] {
-    return this.processes.flatMap((child) => child.leftoverProcesses
-      .filter((leftover) => !this.expectedLeftovers.some((pattern) => pattern.test(leftover.comm)))
-      .map((leftover) => `pid ${leftover.pid} (${leftover.comm}), started by ${child.name}`));
+    const leftovers = this.processes.flatMap((child) => child.leftoverProcesses.map((leftover) => ({ leftover, child })));
+    const unexpected = leftovers
+      .filter(({ leftover }) => !this.expectedLeftovers.some((pattern) => pattern.test(leftover.comm)))
+      .map(({ leftover, child }) => `pid ${leftover.pid} (${leftover.comm}), started by ${child.name}`);
+    const stale = this.expectedLeftovers
+      .filter((pattern) => !leftovers.some(({ leftover }) => pattern.test(leftover.comm)))
+      .map((pattern) => `expectLeftoverProcess(${pattern}) matched no leftover process; remove it or fix its pattern`);
+    return [...unexpected, ...stale];
   }
 
-  /** Error responses from `/__pyric/` routes that no `expectHostError` pattern matches. */
+  /** Records an error response a page received; only `/__pyric/` routes count as host errors. */
+  noteErrorResponse(status: number, method: string, href: string): void {
+    const url = new URL(href);
+    const isHostRoute = url.pathname.startsWith('/__pyric/');
+    if (!isHostRoute) return;
+    this.hostErrors.push({ step: this.currentStep, request: `${status} ${method} ${url.pathname}${url.search}` });
+  }
+
+  /**
+   * What fails the app after its scenario: each error response from a
+   * `/__pyric/` route that no `expectHostError` pattern matches, then each
+   * pattern that matched no error, checked as `unexpectedLeftoverProcesses` is.
+   */
   unexpectedHostErrors(): string[] {
-    return this.hostErrors
+    const unexpected = this.hostErrors
       .filter(({ request }) => !this.expectedHostErrors.some((pattern) => pattern.test(request)))
       .map(({ step, request }) => `${request} (during "${step}")`);
+    const stale = this.expectedHostErrors
+      .filter((pattern) => !this.racyHostErrors.has(pattern))
+      .filter((pattern) => !this.hostErrors.some(({ request }) => pattern.test(request)))
+      .map((pattern) => `expectHostError(${pattern}) matched no error response from a /__pyric/ route; remove it or fix its pattern`);
+    return [...unexpected, ...stale];
   }
 
   watchCrashes(context: BrowserContext): Promise<void> {

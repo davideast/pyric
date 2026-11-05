@@ -162,6 +162,50 @@ function bareRun(ports: PortIssuer): AppRun {
   return new AppRun('stand-in', '.', '.', noBrowser, undefined, ports);
 }
 
+describe('allowances that match nothing', () => {
+  const run = () => bareRun(portIssuer(probePort));
+
+  test('an expectHostError pattern no error matched fails the app, as an expectedCrashes entry does', () => {
+    const app = run();
+    app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
+    app.noteErrorResponse(404, 'GET', 'http://127.0.0.1:5173/missing.png');
+    expect(app.unexpectedHostErrors()).toEqual([
+      'expectHostError(/^403 POST \\/__pyric\\/diagnostics$/) matched no error response from a /__pyric/ route; remove it or fix its pattern',
+    ]);
+  });
+
+  test('a pattern that matched an error passes, and an error no pattern matched still fails', () => {
+    const app = run();
+    app.expectHostError(/^403 GET \/__pyric\/storage\/.*token=wrong$/);
+    app.noteErrorResponse(403, 'GET', 'http://127.0.0.1:5173/__pyric/storage/v0/b/demo/o/a.txt?alt=media&token=wrong');
+    app.noteErrorResponse(500, 'POST', 'http://127.0.0.1:5173/__pyric/denials');
+    expect(app.unexpectedHostErrors()).toEqual(['500 POST /__pyric/denials (during "setup")']);
+  });
+
+  test('a pattern whose error comes only in some runs says so, and passes a run without it', () => {
+    const app = run();
+    app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: 'a race decides whether the post lands before the routes mount (#2098)' });
+    expect(app.unexpectedHostErrors()).toEqual([]);
+  });
+
+  test('a mayNotHappen reason that is blank or cites no issue is refused, naming the pattern', () => {
+    const app = run();
+    for (const reason of ['', '   ', 'a race decides it']) {
+      expect(() => app.expectHostError(/^404 POST \/__pyric\/diagnostics$/, { mayNotHappen: reason }))
+        .toThrow('expectHostError(/^404 POST \\/__pyric\\/diagnostics$/): mayNotHappen must say why the error comes only in some runs and cite its issue');
+    }
+    expect(app.unexpectedHostErrors()).toEqual([]);
+  });
+
+  test('an expectLeftoverProcess pattern no leftover matched fails the app', () => {
+    const app = run();
+    app.expectLeftoverProcess(/^esbuild$/);
+    expect(app.unexpectedLeftoverProcesses()).toEqual([
+      'expectLeftoverProcess(/^esbuild$/) matched no leftover process; remove it or fix its pattern',
+    ]);
+  });
+});
+
 describe('app ports', () => {
   test('freePort() asks the issuer, so a repeated probe gives a different port', async () => {
     const { probe } = scriptedProbe([33093, 33093, 33094]);

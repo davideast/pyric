@@ -592,8 +592,6 @@ export async function runFirebaseImports(
   cases: readonly FirebaseImportsCase[],
   options: { refusals?: boolean; extraCases?: readonly ExtraCase[] } = {},
 ): Promise<void> {
-  // The rewrite keeps the Next origin, which the host's origin guard refuses (#1194).
-  app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
   const files = await app.step('write the Next app and the safety preload', () => writeApp(app));
   const sink = await listenSink();
   try {
