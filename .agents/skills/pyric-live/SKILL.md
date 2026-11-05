@@ -141,7 +141,9 @@ comes after a call has already reached it. Check before starting:
      both: each registers `pyric:sandbox` with `enforce: 'pre'`. Start the existing dev script.
      The dev server is the live host.
    - **Node process:** `node --import @pyric/live/register server.js`. It reports its calls to the
-     live host for the same project, so start a host first.
+     live host for the same project, so start a host first. When pyric sits in a package beside
+     the app, point `--import` at that package's file:
+     `node --import ../rules/node_modules/@pyric/live/dist/register.js server.js`.
    - **No Vite dev server:** `npx --no-install pyric-live --no-open`, with `--port` (default
      3473), `--host` and `--project <id>`. It starts no child command; start the Node process in
      another terminal.
@@ -164,8 +166,8 @@ comes after a call has already reached it. Check before starting:
 2. The chip and Studio show `Live: <project>` before the app makes its first call. Until a call
    is made, that label is also the settings project.
 3. `GET <url>/__pyric/health` has a `live` field: `projectId`, `configProjectId`, `configSource`,
-   `appProjectIds` and the `billed` counts (`reads`, `writes`, `deliveries`). A sandbox host has
-   no `live` field.
+   `appProjectIds`, the `billed` counts (`reads`, `writes`, `deliveries`), and `passThrough`
+   when the host passes imports through. A sandbox host has no `live` field.
 
 Report the project, the URL, the source (the npm version, or the branch and commit of `<pyric>`),
 and these results before going
@@ -198,7 +200,10 @@ Work through these and record the observed result for each. Each line states wha
    Live mode refuses each Firebase import it doesn't serve. An app that lists one, as in
    `pyricLive({ passThrough: ['firebase/database'] })`, loads it from its own installed SDK,
    unobserved: its calls still bill, and the start line, the chip and Studio name it as passing
-   through. This covers the page only; a Node process under the register still refuses it (#2122).
+   through. A Node process under the register passes through the same list: at start it reads
+   the list from its live host's `/__pyric/health`, prints a line for each import, and passes the
+   same ones to its children and workers. Start the process after the host; a process started
+   with no live host, or under `pyric-live`, which takes no list, still refuses them.
 6. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
    `PYRIC_REAL_SDK_STOPPED`.
 7. **Own requests blocked.** A Node process's global `fetch` to Firestore rejects with

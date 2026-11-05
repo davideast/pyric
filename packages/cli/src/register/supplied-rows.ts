@@ -10,6 +10,11 @@
  * import is refused, never sent to a sandbox mirror, so one app object never
  * mixes the installed SDK with sandbox services.
  *
+ * The register may also pass served specifiers through (`passThrough`), as
+ * the page plane does: each loads the app's installed SDK unwrapped, with no
+ * row and no observer. Only a specifier with no live row can pass through,
+ * and `firebase-admin` never does (`passThroughSet`).
+ *
  * Imports node built-ins and side-effect-free modules only.
  */
 import type { SuppliedRowsRefusal } from '../serve/vite-supplied-rows.js';
@@ -31,6 +36,8 @@ export interface RegisterRowPackage {
  * import, until {@link RegisterRows.open} is given the installed `@pyric/live`.
  */
 export interface RegisterRows {
+  /** The served specifiers with no row that load the installed SDK unwrapped and unobserved. */
+  readonly passThrough: ReadonlySet<ServedFirebaseSpecifier>;
   /** The installed `@pyric/live`, or null while the rows are shut. */
   package(): RegisterRowPackage | null;
   open(found: RegisterRowPackage): void;
@@ -42,10 +49,11 @@ function shutRefusal(specifier: string): Error {
   return Object.assign(error, { code: 'PYRIC_LIVE_REFUSED' });
 }
 
-/** Shut live rows. */
-export function registerRows(): RegisterRows {
+/** Shut live rows, with the specifiers that pass through once they open. */
+export function registerRows(passThrough: ReadonlySet<ServedFirebaseSpecifier> = new Set()): RegisterRows {
   let found: RegisterRowPackage | null = null;
   return {
+    passThrough,
     package: () => found,
     open(next) {
       found = next;
@@ -56,6 +64,7 @@ export function registerRows(): RegisterRows {
 export type RegisterRowsResolution =
   | { readonly kind: 'module'; readonly url: string }
   | { readonly kind: 'installed-sdk'; readonly projectUrl: string }
+  | { readonly kind: 'pass-through' }
   | { readonly kind: 'refused'; readonly error: Error }
   | { readonly kind: 'unserved' };
 
@@ -92,7 +101,8 @@ function isOwnRowImport(rowUrl: string, request: RegisterRowsImport): boolean {
 
 /**
  * What an import gets under live rows: the row's module; the installed SDK,
- * when that row module imports its own specifier; the refusal, for every
+ * when that row module imports its own specifier; the installed SDK
+ * unwrapped, for a specifier the register passes through; the refusal, for every
  * other Firebase and `firebase-admin` import and for every one while the rows
  * are shut; or `unserved` for anything else, which resolves as Node resolves
  * it and still meets the stop.
@@ -106,6 +116,8 @@ export function registerRowsResolution(rows: RegisterRows, request: RegisterRows
   if (!isFirebaseImport) return { kind: 'unserved' };
   const url = REGISTER_ROW_URLS.get(specifier as ServedFirebaseSpecifier);
   if (found === null) return { kind: 'refused', error: shutRefusal(specifier) };
+  const isPassThrough = rows.passThrough.has(specifier as ServedFirebaseSpecifier);
+  if (isPassThrough) return { kind: 'pass-through' };
   if (url === undefined) return { kind: 'refused', error: found.refusal(specifier, 'node') };
   return isOwnRowImport(url, request) ? { kind: 'installed-sdk', projectUrl: found.projectUrl } : { kind: 'module', url };
 }
