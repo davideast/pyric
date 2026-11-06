@@ -756,11 +756,16 @@ describe('the Traffic view', () => {
     };
   }
 
-  it("shows the host's live line and billed count, and reads the count again after traffic", async () => {
+  /** The header's text: "pyric", then the project name and nothing else. */
+  function headerText(root: ShadowRoot): string {
+    return root.querySelector('.panel-header .brand')!.textContent!;
+  }
+
+  it("shows the host's project after pyric, and reads it again after traffic", async () => {
     const clock = manualTimers();
     const statuses = [
-      liveStatus({ reads: 0, writes: 0, deliveries: 0 }),
-      liveStatus({ reads: 1, writes: 1, deliveries: 1 }),
+      liveStatus({ reads: 0, writes: 0, deliveries: 0 }, []),
+      liveStatus({ reads: 1, writes: 1, deliveries: 1 }, ['prod']),
     ];
     let reads = 0;
     const { root, push, runtime, showTab } = setup({
@@ -774,9 +779,8 @@ describe('the Traffic view', () => {
     runtime.setWorker({ mode: 'hosted' });
     await settle();
     expect(reads).toBe(1);
-    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
-    expect(root.querySelector('[data-chip-live-mismatch]')).toBeNull();
-    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners');
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('my-project');
+    expect(headerText(root)).toBe('pyricmy-project');
 
     const now = Date.now();
     const observed = observedCallEvent({ service: 'firestore', method: 'getDoc', at: now, outcome: { status: 'ok' } });
@@ -786,8 +790,8 @@ describe('the Traffic view', () => {
     ], { history: true, pageId: 'tab-1' });
     await clock.advance(150);
     expect(reads).toBe(2);
-    // The count is the host's, so every view shows the same one.
-    expect(root.querySelector('[data-chip-billed]')!.textContent).toBe('Billed calls: 1 read, 1 write, 1 document delivered to listeners');
+    // The project is the host's, so every view shows the same one.
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('prod');
 
     showTab('traffic');
     const served = root.querySelector('[data-request-row="served"]')!;
@@ -799,10 +803,11 @@ describe('the Traffic view', () => {
     expect(root.querySelector('[data-traffic-detail]')!.textContent).toContain('Served bySandbox');
 
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(root.querySelector('[data-expand] [data-chip-live]')!.textContent).toBe('Live: my-project');
+    expect(root.querySelector('[data-expand] [data-chip-live]')!.textContent).toBe('prod');
+    expect(root.querySelector('[data-expand]')!.textContent).toBe('pyricprod');
   });
 
-  it("names the project the app's Firebase config names, and warns that the host's settings name another", async () => {
+  it("names the project the app's Firebase config names, and leaves the mismatch warning to the terminal", async () => {
     const clock = manualTimers();
     const { root, runtime } = setup({
       initiallyOpen: true,
@@ -812,10 +817,35 @@ describe('the Traffic view', () => {
     });
     runtime.setWorker({ mode: 'hosted' });
     await settle();
-    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: prod');
-    expect(root.querySelector('[data-chip-live-mismatch]')!.textContent).toBe('Your Firebase config says prod; .firebaserc says staging.');
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('prod');
+    expect(headerText(root)).toBe('pyricprod');
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(root.querySelector('[data-expand] [data-chip-live]')!.getAttribute('title')).toContain('Your Firebase config says prod; .firebaserc says staging.');
+    expect(root.querySelector('[data-expand]')!.textContent).toBe('pyricprod');
+    expect(root.querySelector('[data-expand] [data-chip-live]')!.getAttribute('title')).not.toContain('Your Firebase config says');
+  });
+
+  it('keeps the header to pyric and the project name when imports pass through and the project id is long', async () => {
+    const clock = manualTimers();
+    const projectId = 'live-header-worst-case-project';
+    const { root, runtime } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      liveStatusTimers: clock.timers,
+      liveStatus: async () => ({
+        ...liveStatus({ reads: 3, writes: 2, deliveries: 7 }, [projectId]),
+        configProjectId: 'live-header-staging-project-01',
+        passThrough: ['firebase/analytics', 'firebase/functions', 'firebase/performance', 'firebase/remote-config'],
+      }),
+    });
+    runtime.setWorker({ mode: 'hosted' });
+    await settle();
+    const brand = root.querySelector('.panel-header .brand')!;
+    expect([...brand.children].map((child) => child.className)).toEqual(['panel-name', 'live-label']);
+    expect(headerText(root)).toBe(`pyric${projectId}`);
+    expect(root.querySelector('[data-chip-live]')!.getAttribute('title')).not.toContain('passes through');
+    expect(root.querySelector('.panel-header .actions [data-open-studio]')).not.toBeNull();
+    root.querySelector<HTMLButtonElement>('.panel-header .actions [data-collapse]')!.click();
+    expect(root.querySelector('[data-expand]')!.textContent).toBe(`pyric${projectId}`);
   });
 
   it('reads the live status again after a failed read, until one succeeds', async () => {
@@ -837,7 +867,7 @@ describe('the Traffic view', () => {
     await clock.advance(250);
     await clock.advance(500);
     expect(reads).toBe(3);
-    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('Live: my-project');
+    expect(root.querySelector('.panel-header [data-chip-live]')!.textContent).toBe('my-project');
   });
 
   it('shows no live line on a hosted sandbox host, and stops reading', async () => {
@@ -852,7 +882,6 @@ describe('the Traffic view', () => {
     runtime.setWorker({ mode: 'hosted' });
     await settle();
     expect(root.querySelector('[data-chip-live]')).toBeNull();
-    expect(root.querySelector('[data-chip-billed]')).toBeNull();
     await clock.advance(10_000);
     expect(reads).toBe(1);
     expect(clock.pending()).toBe(0);

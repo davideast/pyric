@@ -6,6 +6,10 @@
  * closed loopback port, so nothing reaches a Firebase backend. A served
  * specifier with no live row is refused.
  *
+ * The chip's header stays one line, "pyric" and the project name, however
+ * long the project id and however many imports pass through, so its Studio
+ * and Minimize buttons stay where a developer clicks them.
+ *
  * The plan's replay-server scenario under `test/apps/` drives the same path
  * through the packed packages and the `pyric-live` command.
  */
@@ -15,7 +19,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { createLogger, createServer, type PluginOption, type ViteDevServer } from 'vite';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
@@ -32,12 +36,12 @@ async function closedLoopbackPort(): Promise<number> {
   return address.port;
 }
 
-function appSource(port: number): string {
+function appSource(port: number, projectId = 'live-page-plane'): string {
   return `
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, signInAnonymously } from 'firebase/auth';
 import { connectFirestoreEmulator, doc, getDocFromCache, getFirestore, onSnapshot } from 'firebase/firestore';
-const app = initializeApp({ projectId: 'live-page-plane', apiKey: 'live-page-plane-key', appId: '1:1:web:1' });
+const app = initializeApp({ projectId: '${projectId}', apiKey: 'live-page-plane-key', appId: '1:1:web:1' });
 const auth = getAuth(app);
 connectAuthEmulator(auth, 'http://127.0.0.1:${port}', { disableWarnings: true });
 const db = getFirestore(app);
@@ -53,6 +57,28 @@ window.listen = () => new Promise((resolve) => { const stop = onSnapshot(doc(db,
 window.importFunctions = () => import('firebase/functions').then(() => 'loaded', (error) => error.message);
 document.querySelector('#status').textContent = 'Ready';
 `;
+}
+
+interface LiveHealth {
+  live?: { projectId: string; configProjectId: string; billed: { reads: number; writes: number; deliveries: number }; passThrough?: string[] };
+}
+
+async function healthOf(base: string): Promise<LiveHealth | null> {
+  const response = await fetch(new URL('/__pyric/health', base));
+  return response.ok ? await response.json() as LiveHealth : null;
+}
+
+/** Whether the element is the one a click at its centre reaches, so nothing covers it. */
+async function receivesClickAtCentre(page: Page, selector: string): Promise<boolean> {
+  return page.evaluate((target) => {
+    const host = document.querySelector('[data-pyric-runtime-chip-host]');
+    const root = host?.shadowRoot;
+    const element = root?.querySelector(target);
+    if (root === null || root === undefined || element === null || element === undefined) return false;
+    const box = element.getBoundingClientRect();
+    const hit = root.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit !== null && element.contains(hit);
+  }, selector);
 }
 
 test('a live page reports its Firestore and Auth calls to the Node host as production rows', async ({ page }) => {
@@ -95,11 +121,12 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     const result = await page.evaluate(() => (Reflect.get(window, 'run') as () => Promise<unknown>)());
     expect(result).toEqual({ codes: { firestore: 'unavailable', auth: 'auth/network-request-failed' }, oneApp: true });
 
-    // The chip names the project for as long as the host runs, and counts billed calls from every client.
-    await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('Live: live-page-plane');
-    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners');
+    // The chip names the project for as long as the host runs; the host counts billed calls from every client.
+    await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('live-page-plane');
+    await expect(page.locator('.panel-header .brand')).toHaveText('pyriclive-page-plane');
+    await expect.poll(async () => (await healthOf(url))?.live?.billed).toEqual({ reads: 0, writes: 0, deliveries: 0 });
     expect(await page.evaluate(() => (Reflect.get(window, 'listen') as () => Promise<string>)())).toBe('delivered');
-    await expect(page.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 document delivered to listeners');
+    await expect.poll(async () => (await healthOf(url))?.live?.billed).toEqual({ reads: 0, writes: 0, deliveries: 1 });
     expect(reports.some((line) => line.includes('@pyric/live/vite: live mode for the Firebase project live-page-plane.'))).toBe(true);
 
     await page.locator('[data-chip-tab=traffic]').click();
@@ -119,6 +146,70 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     expect(reports.filter((line) => line.includes('PYRIC_REAL_SDK_STOPPED') || line.includes('stopped loading the real'))).toEqual([]);
   } finally {
     process.stderr.write = writeStderr;
+    await page.close();
+    await server?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the chip header stays one line, pyric and the project name, with a long project id and several imports passing through', async ({ page }, testInfo) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-header-')));
+  let server: ViteDevServer | undefined;
+  // Firebase's longest project ids are 30 characters; the app's config names another project than .firebaserc.
+  const appProject = 'live-header-worst-case-project';
+  const configProject = 'live-header-staging-project-01';
+  const passThrough = ['firebase/analytics', 'firebase/functions', 'firebase/performance', 'firebase/remote-config'];
+  try {
+    mkdirSync(join(root, 'node_modules/@pyric'), { recursive: true });
+    symlinkSync(cliDir, join(root, 'node_modules/@pyric/cli'));
+    symlinkSync(liveDir, join(root, 'node_modules/@pyric/live'));
+    symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
+    writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: configProject } }));
+    writeFileSync(join(root, 'index.html'), '<output id="status">Starting</output><script type="module" src="/main.js"></script>');
+    writeFileSync(join(root, 'main.js'), appSource(await closedLoopbackPort(), appProject));
+    const { pyricLive } = await import(createRequire(join(root, 'package.json')).resolve('@pyric/live/vite')) as typeof import('../../../live/src/vite.js');
+    server = await createServer({
+      root, configFile: false, customLogger: createLogger('silent'),
+      plugins: [pyricLive({ capture: false, passThrough, runtimeChip: { initiallyOpen: true } }) as PluginOption],
+      server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
+    });
+    await server.listen();
+    const url = server.resolvedUrls?.local[0];
+    if (url === undefined) throw new Error('Vite did not expose a URL');
+    await page.goto(url);
+    await expect(page.locator('#status')).toHaveText('Ready');
+    await page.evaluate(() => (Reflect.get(window, 'run') as () => Promise<unknown>)());
+
+    // The host knows the mismatch, the pass-through imports and the count; the header shows the project only.
+    await expect.poll(async () => (await healthOf(url))?.live?.projectId).toBe(appProject);
+    expect((await healthOf(url))?.live).toMatchObject({ configProjectId: configProject, passThrough });
+    const header = page.locator('.panel-header');
+    await expect(header.locator('[data-chip-live]')).toContainText(appProject);
+
+    const headerBox = (await header.boundingBox())!;
+    const nameBox = (await header.locator('.panel-name').boundingBox())!;
+    const brandBox = (await header.locator('.brand').boundingBox())!;
+    expect(headerBox.height).toBe(64);
+    // One line: the brand is no taller than "pyric" itself.
+    expect.soft(brandBox.height).toBeLessThanOrEqual(nameBox.height + 1);
+    for (const selector of ['.panel-header [data-open-studio]', '.panel-header [data-collapse]']) {
+      const control = page.locator(selector);
+      await expect(control).toBeVisible();
+      const box = (await control.boundingBox())!;
+      expect(box.y, selector).toBeGreaterThanOrEqual(headerBox.y);
+      expect(box.y + box.height, selector).toBeLessThanOrEqual(headerBox.y + headerBox.height);
+      expect(await receivesClickAtCentre(page, selector), selector).toBe(true);
+    }
+    await page.locator('.panel-header [data-open-studio]').click({ trial: true, timeout: 5_000 });
+    const screenshot = testInfo.outputPath('chip-header-worst-case.png');
+    await header.screenshot({ path: screenshot });
+    await testInfo.attach('chip-header-worst-case', { path: screenshot, contentType: 'image/png' });
+    await expect(header.locator('[data-chip-live]')).toHaveText(appProject);
+    await expect(header.locator('.brand')).toHaveText(`pyric${appProject}`);
+
+    await page.locator('.panel-header [data-collapse]').click({ timeout: 5_000 });
+    await expect(page.locator('[data-expand]')).toHaveText(`pyric${appProject}`);
+  } finally {
     await page.close();
     await server?.close();
     rmSync(root, { recursive: true, force: true });

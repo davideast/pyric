@@ -80,7 +80,7 @@ test('a module service worker under live mode reports its Firestore read to the 
     const code = await page.evaluate(() => (Reflect.get(window, 'readInWorker') as () => Promise<unknown>)());
     expect(code).toBe('unavailable');
 
-    await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('Live: live-service-worker');
+    await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('live-service-worker');
     await page.locator('[data-chip-tab=traffic]').click();
     await page.locator('[data-traffic-scope=all]').click();
     const row = page.locator('[data-traffic-rows] [data-request-row]').filter({ hasText: 'firestore.getDocFromCache' });

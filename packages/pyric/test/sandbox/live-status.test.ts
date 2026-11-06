@@ -1,7 +1,7 @@
 /**
- * What every live mode view shows beside its rows: the project line and the
- * mismatch warning, read from the host's health report, and the count of
- * billed calls the host keeps.
+ * A live host's status: the project the chip and Studio name, the mismatch
+ * warning the terminal prints, read from the host's health report, and the
+ * count of billed calls the host keeps.
  */
 import { describe, expect, it } from 'bun:test';
 import type { ObservedCall } from '../../src/sandbox/index.js';
@@ -73,8 +73,9 @@ describe('billedCallSummary', () => {
 });
 
 describe('the live project line', () => {
-  it('reads "Live: <project-id>"', () => {
-    expect(liveLabel('my-project')).toBe('Live: my-project');
+  it('is the project name, with no prefix', () => {
+    expect(liveLabel('my-project')).toBe('my-project');
+    expect(liveLabel('prod, other')).toBe('prod, other');
   });
 
   it('names the projects the app called, else the host project', () => {

@@ -1,13 +1,14 @@
 /**
  * The `pyric-live` command through real entry points: the bin `@pyric/live`
  * declares starts the Node host in live mode, a Node process under
- * `node --import @pyric/live/register` reports its calls to it, and the chip
- * in Chromium shows "Live: <project-id>", the billed-call count and the
- * process's rows as production's. The SDK points at a closed loopback port,
- * so nothing reaches a Firebase backend.
+ * `node --import @pyric/live/register` reports its calls to it, the chip in
+ * Chromium shows "pyric" and the project id and the process's rows as
+ * production's, and the health report carries the billed-call count. The SDK
+ * points at a closed loopback port, so nothing reaches a Firebase backend.
  *
  * When the app's Firebase config names another project than `.firebaserc`,
- * the host names the app's and warns in the terminal and the chip.
+ * the host names the app's, warns in the terminal, and the chip shows the
+ * app's project with no warning line.
  *
  * Also: each start check refuses the command with its reason, the register
  * says when no host is reachable, and `pyric sandbox --hosted` with every
@@ -188,7 +189,7 @@ test.describe('pyric-live', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
-  test('starts the Node host in live mode, and the chip shows the project, the count and a Node process as production', async ({ page }) => {
+  test('starts the Node host in live mode, the chip shows the project and a Node process as production, and health reports the count', async ({ page }) => {
     test.setTimeout(150_000);
     const root = project(roots);
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
@@ -226,12 +227,11 @@ test.describe('pyric-live', () => {
     await expect(page.locator('#status')).toContainText('firebase/firestore is not served to pages of the pyric-live host');
 
     const chip = await openChip(page);
-    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveText(`Live: ${PROJECT_ID}`);
+    await expect(chip.locator('[data-expand]')).toHaveText(`pyric${PROJECT_ID}`);
     await chip.locator('[data-expand]').click();
-    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText(`Live: ${PROJECT_ID}`);
+    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText(PROJECT_ID);
+    await expect(chip.locator('.panel-header .brand')).toHaveText(`pyric${PROJECT_ID}`);
     // The host's count: the listener's delivery; the failed read and the Auth call are not billed.
-    await expect(chip.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 document delivered to listeners');
-    await expect(chip.locator('[data-chip-live-mismatch]')).toHaveCount(0);
     expect((await healthOf(url))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
     await chip.locator('[data-chip-tab=traffic]').click();
     await chip.locator('[data-traffic-scope=all]').click();
@@ -253,7 +253,7 @@ test.describe('pyric-live', () => {
     expect(aloneFinished.output).toContain(`Start one in ${root} with npx pyric-live, or vite dev with pyricLive() from @pyric/live/vite.`);
   });
 
-  test("names the project the app's Firebase config names, and warns in the terminal and the chip when .firebaserc names another", async ({ page }) => {
+  test("names the project the app's Firebase config names, and warns in the terminal when .firebaserc names another", async ({ page }) => {
     test.setTimeout(150_000);
     const root = project(roots, 'staging-demo', 'prod-demo');
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
@@ -274,10 +274,11 @@ test.describe('pyric-live', () => {
 
     await page.goto(`${url}/`);
     const chip = await openChip(page);
-    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveText('Live: prod-demo');
+    await expect(chip.locator('[data-expand]')).toHaveText('pyricprod-demo');
     await chip.locator('[data-expand]').click();
-    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText('Live: prod-demo');
-    await expect(chip.locator('[data-chip-live-mismatch]')).toHaveText(warning);
+    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText('prod-demo');
+    // The header is one line: the warning stays in the terminal.
+    await expect(chip.locator('.panel-header .brand')).toHaveText('pyricprod-demo');
   });
 
   test('refuses a seed file: a live host makes none of pyric\'s own writes', async () => {

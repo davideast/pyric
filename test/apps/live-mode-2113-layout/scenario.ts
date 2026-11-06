@@ -227,10 +227,10 @@ export default scenario(async (app) => {
     }
     assert.ok(!served.includes('firebase/messaging'), `the page's firebase/messaging is a live row module:\n${served.join('\n')}`);
     const openedChip = await openChip(opened);
-    assert.equal(await openedChip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${PROJECT}`);
-    const passThroughLines = openedChip.locator('.panel-header [data-chip-live-pass-through]');
-    await passThroughLines.nth(PASSED.length - 1).waitFor({ timeout: 20_000 });
-    assert.deepEqual(await passThroughLines.allTextContents(), PASSED.map(passThroughLine));
+    assert.equal(await openedChip.locator('.panel-header [data-chip-live]').textContent(), PROJECT);
+    assert.equal(await openedChip.locator('.panel-header .brand').textContent(), `pyric${PROJECT}`);
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { passThrough?: string[] } };
+    assert.deepEqual(health.live?.passThrough, PASSED);
     return { page: opened, chip: openedChip };
   });
 

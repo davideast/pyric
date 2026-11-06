@@ -4,8 +4,9 @@
  * `node --import @pyric/live/register`, and the `pyric-live` command. The
  * page and the server job sign in as two accounts, and each reads, listens,
  * is denied a read and writes. The chip shows every call as production's,
- * from the client that made it, with production's answer, under
- * "Live: <project>" and the billed-call count. Its Listeners view lists the
+ * from the client that made it, with production's answer, under "pyric" and
+ * the project, and the host's health report carries the billed-call count.
+ * Its Listeners view lists the
  * page's live listener with its deliveries, and Overview outlines the element
  * the listener's callback changed.
  *
@@ -176,13 +177,16 @@ async function expectRow(rows: Locator, call: string, source: 'page' | 'node', a
 
 const LABELS = { page: 'This page', node: 'Server (client SDK)' } as const;
 
-/** The chip's listener part of the billed count. */
-function documentsDelivered(count: number): string {
-  return `${count} ${count === 1 ? 'document' : 'documents'} delivered to listeners`;
+interface BilledCount {
+  reads: number;
+  writes: number;
+  deliveries: number;
 }
 
-async function billedLine(chip: Locator): Promise<string> {
-  return (await chip.locator('[data-chip-billed]').first().textContent()) ?? '';
+/** The host's billed-call count, as its health report carries it. */
+async function billed(url: string): Promise<BilledCount | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { billed?: BilledCount } };
+  return health.live?.billed;
 }
 
 /** Nothing reached the replay server while `run` ran, and nothing went to another host. */
@@ -247,14 +251,14 @@ export default scenario(async (app) => {
     assert.deepEqual(await replay.unmatched(), []);
   });
 
-  await app.step('the chip shows Live: <project>, the billed count, and each call as production\'s from its client and account', async () => {
+  await app.step('the chip shows the project, the host counts billed calls, and the chip shows each call as production\'s from its client and account', async () => {
     const chip = await openChip(page);
-    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${project}`);
+    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), project);
     // Each client's ok read and write, and each document its listener's snapshots changed, at least one for the first.
     // The acknowledgement of each client's write only changes metadata and counts nothing.
     const delivered = await page.evaluate(() => billedDocumentCount()) + serverJob.billedDocuments;
-    const expected = `Billed calls: 2 reads, 2 writes, ${documentsDelivered(delivered)}`;
-    await eventually(() => billedLine(chip), (line) => line === expected, 'the billed count');
+    const expected = { reads: 2, writes: 2, deliveries: delivered };
+    await eventually(() => billed(host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
     const rows = await trafficRows(chip);
     // The page signed in as the reader and the server job as the writer: each row names its client's account.
     const accounts = { page: reader, node: writer } as const;
@@ -357,9 +361,9 @@ export default scenario(async (app) => {
     assert.equal(result.uid, writer);
     const hosting = await app.page(`${live.url}/`);
     const chip = await openChip(hosting);
-    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), `Live: ${project}`);
-    const expected = `Billed calls: 1 read, 1 write, ${documentsDelivered(result.billedDocuments)}`;
-    await eventually(() => billedLine(chip), (line) => line === expected, 'the billed count');
+    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), project);
+    const expected = { reads: 1, writes: 1, deliveries: result.billedDocuments };
+    await eventually(() => billed(live.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
     const rows = await trafficRows(chip);
     await expectRow(rows, 'firestore.getDoc', 'node', 'Production succeeded', writer);
     await expectRow(rows, 'firestore.getDoc', 'node', 'Production denied', writer);

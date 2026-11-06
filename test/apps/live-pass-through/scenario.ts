@@ -5,8 +5,8 @@
  * `pyricLive({ passThrough: ['firebase/functions', 'firebase/remote-config'] })` the
  * page loads: Auth is the live row, and Cloud Functions and Remote Config are
  * the app's installed SDK, unwrapped, on the same app object. The start line,
- * the health report and the chip name each one as not observed and still
- * billed.
+ * the health report lists each one, and the chip's header names the project
+ * only.
  *
  * Without the list, the same page is refused: the dev server names every
  * unserved import it was asked for and the `passThrough` option that would
@@ -94,15 +94,12 @@ export default scenario(async (app) => {
     return opened;
   });
 
-  await app.step('the chip names each passed-through service as not observed and still billed', async () => {
+  await app.step('the chip shows the project only, and the health report still lists each passed-through service', async () => {
     const chip = await openChip(page);
-    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), 'Live: demo-live-pass-through');
-    const lines = await eventually(
-      () => chip.locator('.panel-header [data-chip-live-pass-through]').allTextContents(),
-      (shown) => shown.length === PASSED.length,
-      'the pass-through lines',
-    );
-    assert.deepEqual(lines, PASSED.map(passThroughLine));
+    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), 'demo-live-pass-through');
+    assert.equal(await chip.locator('.panel-header .brand').textContent(), 'pyricdemo-live-pass-through');
+    const live = await liveHealth(host.url);
+    assert.deepEqual(live.passThrough, PASSED);
   });
 
   await app.step('stop the dev server', async () => {
