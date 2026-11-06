@@ -18,8 +18,8 @@ describe('generated conformance scoreboard', () => {
     expect(rulesRow).toContain('>Firestore Rules<');
     expect(rulesRow).toContain('>Storage Rules<');
     expect(rulesRow).toContain('>Realtime Database Rules<');
-    expect(rulesRow).toContain('<span class="compat-score-pct">93.6%</span>');
-    expect(rulesRow).toContain('131 of 140 rules-language constructs verified');
+    expect(rulesRow).toContain('<span class="compat-score-pct">94.3%</span>');
+    expect(rulesRow).toContain('132 of 140 rules-language constructs verified');
     expect(rulesRow).toContain('<span class="compat-score-pct">87.1%</span>');
     expect(rulesRow).toContain('122 of 140 rules-language constructs verified');
     expect(rulesRow).toContain('<span class="compat-score-pct">98.9%</span>');
