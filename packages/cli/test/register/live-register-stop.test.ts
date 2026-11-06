@@ -82,10 +82,11 @@ interface Run {
   sdkFiles: string[];
 }
 
-function run(registers: readonly string[], specifiers: readonly string[], options: { cwd?: string; env?: Record<string, string> } = {}): Run {
+/** Runs the probe under `registers` from `cwd`, with the probe in `entryDir` (the project by default). */
+function run(registers: readonly string[], specifiers: readonly string[], options: { cwd?: string; entryDir?: string; env?: Record<string, string> } = {}): Run {
   const cwd = options.cwd ?? projectDir;
   const imports = ['--import', pathToFileURL(join(projectDir, 'observer.mjs')).href, ...registers.flatMap((entry) => ['--import', entry])];
-  const result = spawnSync('node', [...imports, join(projectDir, 'probe.mjs')], {
+  const result = spawnSync('node', [...imports, join(options.entryDir ?? projectDir, 'probe.mjs')], {
     cwd,
     encoding: 'utf8',
     timeout: 60_000,
@@ -139,6 +140,7 @@ beforeAll(() => {
   writeFileSync(join(projectDir, 'probe.mjs'), PROBE);
   otherDir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-stop-other-')));
   writeFileSync(join(otherDir, 'package.json'), JSON.stringify({ name: 'no-live', type: 'module' }));
+  writeFileSync(join(otherDir, 'probe.mjs'), PROBE);
 });
 
 afterAll(() => {
@@ -283,7 +285,8 @@ console.log('OUTCOME ' + JSON.stringify({ outcome: { status: String(result.statu
   }, 60_000);
 
   it('opens from its own package in a project without @pyric/live, refuses to start without the app SDK, and nothing loads', () => {
-    const res = run([pathToFileURL(liveRegisterFile).href], ['firebase/firestore'], { cwd: otherDir });
+    // The probe in otherDir too: the register reads the app's firebase from the entry script's folder first (#2166).
+    const res = run([pathToFileURL(liveRegisterFile).href], ['firebase/firestore'], { cwd: otherDir, entryDir: otherDir });
     expect(res.status).not.toBe(0);
     // The register found @pyric/live where it was loaded from (#2116), so the start checks ran.
     expect(res.stderr).not.toContain('live rows need @pyric/live installed in the project');

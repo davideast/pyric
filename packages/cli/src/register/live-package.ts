@@ -23,7 +23,8 @@
  * `PYRIC_LIVE_PASS_THROUGH`, so its children and workers pass the same ones
  * through. The list is checked again wherever it is read.
  */
-import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { findFirebaseProjectDir } from '../cli/firebase-project.js';
 import { installedLiveFile, liveNotInstalled, loadInstalledLiveExport } from '../serve/installed-live-package.js';
@@ -55,7 +56,7 @@ export function recordedPassThrough(env: Record<string, string | undefined>): st
 }
 
 type ModuleSource = (url: string, senderUrl: string) => string | null;
-type SdkRoot = (appDir: string, projectRoot: string) => string;
+type SdkRoot = (appDirs: readonly string[], projectRoot: string) => string;
 
 /** What the register opens with: the installed rows, and the register entry children load. */
 export interface InstalledLiveRegister {
@@ -99,6 +100,30 @@ export function liveSdkRoot(env: Record<string, string | undefined>, choose: () 
   return hasRecorded ? recorded : choose();
 }
 
+/** The folder of the entry script, by real path, as Node resolves the main module's imports. */
+function entryFolder(entry: string): string {
+  try {
+    return dirname(realpathSync(entry));
+  } catch {
+    return dirname(resolve(entry));
+  }
+}
+
+/**
+ * The folders the app's modules resolve from, in order: the entry script's
+ * folder (`process.argv[1]`), from which Node resolves the app's imports,
+ * then the working directory. A process with no entry script, such as
+ * `node -e`, has only the working directory. The register's start check and
+ * its rows both read the app's `firebase` from the first that resolves it
+ * (`appFirebaseRoot` in `@pyric/live`), so `node web/server.mjs` started
+ * from the folder above finds the `firebase` in `web/` (#2166).
+ */
+export function liveAppDirs(entry: string | undefined, cwd: string): string[] {
+  const hasEntry = entry !== undefined && entry !== '';
+  const dirs = hasEntry ? [entryFolder(entry), cwd] : [cwd];
+  return [...new Set(dirs)];
+}
+
 /**
  * Where the package resolves from: `liveRoot`, the folder of the
  * `@pyric/live` whose register entry is running, when the package resolves
@@ -114,15 +139,15 @@ export function liveResolutionRoot(projectRoot: string, liveRoot: string | undef
  * `projectRoot`. Throws when neither has it. The rows resolve the app's SDK
  * from the folder that package's start checks read it from
  * (`liveRegisterSdkRoot`, `appFirebaseRoot` in its `start-checks.ts`):
- * `appDir`, the folder the process runs in, when `firebase` resolves there,
- * else `projectRoot`, or in a child the folder its first process recorded
+ * the first of `appDirs` (`liveAppDirs`: the entry script's folder, then the
+ * working directory) that `firebase` resolves from, else `projectRoot`, or in a child the folder its first process recorded
  * (`liveSdkRoot`). One function in one package picks it, so the check and
  * the rows never read two copies of `firebase`.
  */
 export async function loadInstalledLiveRegister(
   projectRoot: string,
   liveRoot?: string,
-  appDir: string = process.cwd(),
+  appDirs: string | readonly string[] = liveAppDirs(process.argv[1], process.cwd()),
   env: Record<string, string | undefined> = process.env,
 ): Promise<InstalledLiveRegister> {
   const from = liveResolutionRoot(projectRoot, liveRoot);
@@ -132,7 +157,8 @@ export async function loadInstalledLiveRegister(
   const refusals = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRefusal', NOT_STARTED);
   const sdkRoots = await loadInstalledLiveExport(from, NODE_MODULES_SUBPATH, 'liveRegisterSdkRoot', NOT_STARTED);
   const source = sources.fn as unknown as ModuleSource;
-  const sdkRoot = liveSdkRoot(env, () => (sdkRoots.fn as unknown as SdkRoot)(appDir, projectRoot));
+  const appFolders = typeof appDirs === 'string' ? [appDirs] : appDirs;
+  const sdkRoot = liveSdkRoot(env, () => (sdkRoots.fn as unknown as SdkRoot)(appFolders, projectRoot));
   const senderUrl = observedCallSenderUrl();
   const rows: RegisterRowPackage = {
     projectUrl: pathToFileURL(join(sdkRoot, 'package.json')).href,

@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 import {
   LIVE_PROJECT_ROOT_VARIABLE,
   activateWithSuppliedRows,
+  liveAppDirs,
   livePassThroughLine,
   liveProjectId,
   liveProjectRoot,
@@ -59,7 +60,8 @@ await activateWithSuppliedRows({ liveRoot: LIVE_ROOT, passThrough });
 const projectRoot = process.env[LIVE_PROJECT_ROOT_VARIABLE];
 const startsLive = reach !== null && projectRoot !== undefined;
 if (startsLive) {
-  const refusal = liveStartRefusal(projectRoot, process.cwd());
+  // The app's firebase as its rows read it: from the entry script's folder, then the working directory.
+  const refusal = liveStartRefusal(projectRoot, liveAppDirs(process.argv[1], process.cwd()));
   if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
   const projectId = liveProjectId(projectRoot);
   const passing = (passThrough ?? []).map((specifier) => `${ENTRY}: ${livePassThroughLine(specifier)}`);

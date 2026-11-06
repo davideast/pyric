@@ -64,14 +64,17 @@ function resolvedPackageDir(name: string, fromDir: string): string | null {
 /**
  * The folder the app's `firebase` resolves from, for every live start check
  * and for the live rows of a Node process (`liveRegisterSdkRoot` in
- * `node-modules.ts`): `appDir`, the folder the app runs in, when `firebase`
- * resolves from it, as Node loads it for the app; else the project root.
- * A workspace can install `firebase` only in the app's folder, below the
- * folder that holds `.firebaserc` or `firebase.json` (#2161).
+ * `node-modules.ts`): the first of `appDirs`, the folders the app's modules
+ * resolve from in order, that `firebase` resolves from, as Node loads it for
+ * the app; else the project root. A workspace can install `firebase` only in
+ * the app's folder, below the folder that holds `.firebaserc` or
+ * `firebase.json` (#2161). A Node process passes its entry script's folder
+ * first, then its working directory, so `node web/server.mjs` started from
+ * the folder above finds the `firebase` in `web/` (#2166).
  */
-export function appFirebaseRoot(appDir: string, projectRoot: string): string {
-  const resolvesFromApp = resolvedPackageDir('firebase', appDir) !== null;
-  return resolvesFromApp ? appDir : projectRoot;
+export function appFirebaseRoot(appDirs: string | readonly string[], projectRoot: string): string {
+  const candidates = typeof appDirs === 'string' ? [appDirs] : appDirs;
+  return candidates.find((dir) => resolvedPackageDir('firebase', dir) !== null) ?? projectRoot;
 }
 
 /** The version of the `firebase` the folder resolves, or null when it has none. */
@@ -170,10 +173,16 @@ export function firebaseAppCopies(projectRoot: string): string[] {
 const NOT_STARTED = 'Live mode did not start.';
 const INSTALL = `Install a supported version with: npm install firebase@${SUPPORTED_FIREBASE_RANGE}`;
 
-function versionRefusal(version: string | null): string | null {
+/** The no-firebase refusal's line: the folders it looked from, and where to start. */
+function noFirebaseLine(searched: readonly string[]): string {
+  const folders = searched.join(', ');
+  return `This project has no firebase installed. None resolves from ${folders}. Start from the folder of the app that installs firebase, or install it there.`;
+}
+
+function versionRefusal(version: string | null, searched: readonly string[]): string | null {
   const isSupported = version !== null && isSupportedFirebaseVersion(version);
   if (isSupported) return null;
-  const found = version === null ? 'This project has no firebase installed.' : `This project has firebase ${version} installed.`;
+  const found = version === null ? noFirebaseLine(searched) : `This project has firebase ${version} installed.`;
   return `${NOT_STARTED} @pyric/live needs firebase ${SUPPORTED_FIREBASE_RANGE}. ${found} ${INSTALL}`;
 }
 
@@ -189,11 +198,14 @@ function copiesRefusal(copies: readonly string[]): string | null {
 }
 
 /**
- * Why live mode refuses to start for the app in `appDir` of the project in
- * `projectRoot`, or null when both checks pass. Both check the `firebase`
- * the app loads (`appFirebaseRoot`).
+ * Why live mode refuses to start for the app whose modules resolve from
+ * `appDirs` in the project in `projectRoot`, or null when both checks pass.
+ * Both check the `firebase` the app loads (`appFirebaseRoot`). With none
+ * installed, the refusal names every folder it looked from.
  */
-export function liveStartRefusal(projectRoot: string, appDir: string = projectRoot): string | null {
-  const sdkRoot = appFirebaseRoot(appDir, projectRoot);
-  return versionRefusal(installedFirebaseVersion(sdkRoot)) ?? copiesRefusal(firebaseAppCopies(sdkRoot));
+export function liveStartRefusal(projectRoot: string, appDirs: string | readonly string[] = projectRoot): string | null {
+  const sdkRoot = appFirebaseRoot(appDirs, projectRoot);
+  const appFolders = typeof appDirs === 'string' ? [appDirs] : appDirs;
+  const searched = [...new Set([...appFolders, projectRoot])];
+  return versionRefusal(installedFirebaseVersion(sdkRoot), searched) ?? copiesRefusal(firebaseAppCopies(sdkRoot));
 }
