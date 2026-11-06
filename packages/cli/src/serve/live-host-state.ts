@@ -8,7 +8,8 @@
  * The host learns both from the observed calls its live clients send. The
  * bridge mount hands this every frame on its way to and from the Node
  * sandbox (`bridge-mount.ts`); an observed call counts once the host has
- * accepted it, so a refused frame never reaches the count.
+ * accepted it, so a refused frame never reaches the count. The same frames
+ * name the clients connected to the host (`live-clients.ts`).
  *
  * Only a host a live seam started holds one: `serve/live-host.ts` for the
  * `pyric-live` command, and the Vite generation `@pyric/live/vite` starts.
@@ -26,6 +27,7 @@ import type { ObservedCall } from 'pyric/sandbox';
 import type { BridgeMessage } from '../bridge/protocol.js';
 import type { FirebaseProjectSource } from '../cli/firebase-project.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
+import { createLiveClients } from './live-clients.js';
 
 /** Observed calls waiting on the host's answer; a bound, since a client could send replies it never gets. */
 const MAX_PENDING_CALLS = 4096;
@@ -58,6 +60,8 @@ export interface LiveHostStateInput {
    * reads this each time: a live set, or a function that returns the list.
    */
   observed?: ObservedImportsSource;
+  /** The host clock, in epoch milliseconds, for each client's last frame. `Date.now` by default. */
+  now?: () => number;
 }
 
 /** Where the report reads the imports the app resolved to live rows. */
@@ -134,6 +138,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   const pending = new Map<string, ObservedCall>();
   const passThrough = [...(input.passThrough ?? [])];
   const passThroughField = passThrough.length === 0 ? {} : { passThrough };
+  const clients = createLiveClients(input.now ?? Date.now);
 
   const report = (): LiveHostStatus => ({
     projectId: liveProjectOf(appProjectIds, input.configProjectId),
@@ -143,6 +148,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
     billed: billed.count(),
     ...passThroughField,
     ...observedField(input.observed),
+    ...clients.field(),
   });
 
   const noteProject = (projectId: string | undefined): void => {
@@ -163,6 +169,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   return {
     report,
     inbound(message) {
+      clients.inbound(message);
       const observed = observedCallIn(message);
       if (observed === null) return;
       const isFull = pending.size >= MAX_PENDING_CALLS;

@@ -52,7 +52,34 @@ export interface LiveHostStatus {
    * there are none.
    */
   readonly observed?: readonly string[];
+  /**
+   * The clients connected to the host, one per browser profile, service
+   * worker and Node process. Absent when none is connected.
+   */
+  readonly clients?: readonly LiveClient[];
 }
+
+/** What connected to a live host: a page of a browser profile, its service worker, or a Node process. */
+export type LiveClientKind = 'browser' | 'service-worker' | 'node';
+
+/**
+ * One client connected to a live host, keyed by kind and client id, so a
+ * service worker is never grouped with the pages of its profile.
+ */
+export interface LiveClient {
+  readonly kind: LiveClientKind;
+  /** The browser profile's or service worker realm's client id, or the connection's own for a Node process. */
+  readonly clientId: string;
+  /** The path of the page the client last reported. Absent for a service worker or a Node process. */
+  readonly label?: string;
+  /** The uid its last observed call ran as, or null when signed out. */
+  readonly user: string | null;
+  /** The host time, in epoch milliseconds, of its last frame. */
+  readonly lastSeen: number;
+}
+
+/** The most clients a status lists; a bound on what a host's report can grow. */
+const MAX_LIVE_CLIENTS = 64;
 
 /** What the chip and Studio show beside "pyric" for as long as the host runs: the project name. */
 export function liveLabel(projectId: string): string {
@@ -141,6 +168,39 @@ function readImports<K extends 'passThrough' | 'observed'>(
   return isList ? ({ [field]: [...(value as string[])] } as Partial<Record<K, string[]>>) : null;
 }
 
+const LIVE_CLIENT_KINDS: ReadonlySet<unknown> = new Set<LiveClientKind>(['browser', 'service-worker', 'node']);
+
+function isLiveClientKind(value: unknown): value is LiveClientKind {
+  return LIVE_CLIENT_KINDS.has(value);
+}
+
+function isLiveClientUser(value: unknown): value is string | null {
+  return value === null || isProjectName(value);
+}
+
+/** One client entry, or null for a malformed one. */
+function readClient(value: unknown): LiveClient | null {
+  const isObject = typeof value === 'object' && value !== null;
+  if (!isObject) return null;
+  const kind: unknown = Reflect.get(value, 'kind');
+  const clientId: unknown = Reflect.get(value, 'clientId');
+  const label: unknown = Reflect.get(value, 'label');
+  const user: unknown = Reflect.get(value, 'user');
+  const lastSeen: unknown = Reflect.get(value, 'lastSeen');
+  const hasLabel = label === undefined || typeof label === 'string';
+  const isValid = isLiveClientKind(kind) && isProjectName(clientId) && hasLabel && isLiveClientUser(user) && isCount(lastSeen);
+  if (!isValid) return null;
+  const labelField = label === undefined ? {} : { label: label as string };
+  return { kind, clientId, ...labelField, user, lastSeen };
+}
+
+/** The clients field: its well-formed entries, at most {@link MAX_LIVE_CLIENTS}; a malformed entry or list never loses the status. */
+function readClients(value: unknown): { clients?: LiveClient[] } {
+  if (!Array.isArray(value)) return {};
+  const clients = value.map(readClient).filter((client): client is LiveClient => client !== null).slice(0, MAX_LIVE_CLIENTS);
+  return clients.length === 0 ? {} : { clients };
+}
+
 /** The live status in a `/__pyric/health` report, or null for a sandbox host. */
 export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const isReport = typeof health === 'object' && health !== null;
@@ -158,7 +218,8 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const hasFields = isProjectName(projectId) && isProjectName(configProjectId) && isProjectName(configSource);
   const hasLists = appProjectIds !== null && billed !== null && passThrough !== null && observed !== null;
   if (!hasFields || !hasLists) return null;
-  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed };
+  const clients = readClients(Reflect.get(live, 'clients'));
+  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed, ...clients };
 }
 
 const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, BilledCallKind>([
