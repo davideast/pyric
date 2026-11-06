@@ -120,6 +120,9 @@ export function opensRulesInspector(event: {
   return event.rulesDisposition.kind === 'evaluated';
 }
 
+/** The `gs://<bucket>/` a Storage row's path starts with. */
+const GS_BUCKET_PREFIX = /^gs:\/\/[^/]+\//;
+
 /**
  * The route of the record a traffic row touched — the row's navigation
  * semantic (C3 drill-in: detail belongs to the owning surface). Null when
@@ -131,6 +134,8 @@ export function opensRulesInspector(event: {
  *                                      N4 gap: no path deep-link yet)
  *   storage   → /storage/<path>       (object path)
  *             → /storage/<path>?kind=prefix (listed prefix)
+ *             → /storage              (`gs://<bucket>/`, the bucket root; a
+ *                                      `gs://<bucket>/` prefix is stripped)
  *   auth      → /auth/<uid>           (`path` carries the uid; `*` = clear-all,
  *                                      not addressable)
  */
@@ -139,6 +144,15 @@ export function subjectTarget(event: {
   method: StudioTrafficEvent['method'];
   path: string;
 }): CommandTarget | null {
+  const isStorage = event.service === 'storage';
+  const bucketPrefix = isStorage ? GS_BUCKET_PREFIX.exec(event.path) : null;
+  // A Storage row reads `gs://<bucket>/<path>`; the pane routes by object path,
+  // in its own bucket, and `gs://<bucket>/` is that bucket's root.
+  if (bucketPrefix !== null) {
+    const objectPath = event.path.slice(bucketPrefix[0].length);
+    if (objectPath === '') return { tab: 'storage' };
+    return subjectTarget({ ...event, path: objectPath });
+  }
   const path = event.path;
   if (
     event.service === 'storage' &&
