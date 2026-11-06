@@ -9,7 +9,7 @@
  * Vite plugin can never disagree about what AI resolved to.
  */
 import type { AiEngineConfigWire } from './worker/protocol.js';
-import { GEMINI_DEFAULT_BASE_URL, hasGeminiStaticKey, redactUrl } from 'pyric/ai/internal';
+import { GEMINI_DEFAULT_BASE_URL, hasGeminiStaticKey, redactUpstreamUrl } from 'pyric/ai/internal';
 import { AI_PROXY_ROUTE, resolveAiProxyUpstream } from './ai-proxy.js';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 
@@ -77,7 +77,7 @@ function ignoredGeminiKeyNote(): string | null {
 function describeAiStatus(status: AiStartupStatus): { mark: string; body: string } {
   const upstream = resolveAiProxyUpstream(status.proxyUpstream);
   const provenance = describeUpstreamProvenance(upstream.source);
-  const upstreamTarget = `${redactUrl(upstream.target)}${provenance}`;
+  const upstreamTarget = `${redactUpstreamUrl(upstream.target)}${provenance}`;
   const proxyChain = status.hosted
     ? `${upstreamTarget} (direct from Node)`
     : `${AI_PROXY_ROUTE} → ${upstreamTarget}`;
@@ -106,7 +106,7 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     const baseUrl = engine.baseUrl ?? AI_PROXY_ROUTE;
     let endpoint = proxyChain;
     if (baseUrl !== AI_PROXY_ROUTE) {
-      endpoint = `${redactUrl(baseUrl)} (direct, bypasses ${AI_PROXY_ROUTE})`;
+      endpoint = `${redactUpstreamUrl(baseUrl)} (direct, bypasses ${AI_PROXY_ROUTE})`;
     }
     return { mark: '✔', body: `openai (${model}) → ${endpoint}` };
   }
@@ -119,7 +119,7 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     if (ignoredKeyNote !== null) key = `no API key; ${ignoredKeyNote}`;
     if (hasKey) key = 'API key set';
     let endpoint = GEMINI_DEFAULT_BASE_URL;
-    if (engine.baseUrl !== undefined) endpoint = redactUrl(engine.baseUrl);
+    if (engine.baseUrl !== undefined) endpoint = redactUpstreamUrl(engine.baseUrl);
     return { mark: '✔', body: `gemini (${key}) → ${endpoint}` };
   }
   const responses = engine.script?.length ?? 0;

@@ -16,6 +16,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import {
   AiBroker,
   AiBrokerError,
+  GeminiEngine,
   OpenAiEngine,
   ScriptedEngine,
   SseParser,
@@ -31,6 +32,7 @@ import {
   missingThoughtSignature,
   openAIChunkToParts,
   openAIToGeminiResponse,
+  redactUpstreamUrl,
   unknownModel,
   type GenerateContentRequest,
   type OpenAIResponse,
@@ -937,6 +939,22 @@ describe('openai engine (mocked fetch)', () => {
     expect(keySet(env.error)).toEqual(['code', 'message', 'status']);
     expect(env.error.code).toBe(500);
   });
+
+  it('drops the userinfo of a baseUrl from a fetch error that quotes it (#1766)', async () => {
+    // Node's fetch refuses a URL with userinfo and quotes the whole URL.
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://gateway-user:gateway-secret-1766@up.example/v1',
+      fetch: (async (input: RequestInfo | URL) => {
+        throw new TypeError(`Request cannot be constructed from a URL that includes credentials: ${String(input)}`);
+      }) as typeof fetch,
+    });
+    const env = await envelopeOf(engine.generateContent(userReq('x'), 'm'));
+    expect(env.error.code).toBe(502);
+    expect(env.error.status).toBe('UNAVAILABLE');
+    expect(env.error.message).not.toContain('gateway-secret-1766');
+    expect(env.error.message).not.toContain('gateway-user');
+    expect(env.error.message).toContain('http://up.example/v1/chat/completions');
+  });
 });
 
 // ── Broker: engine seam + sandbox event emission ────────────────────────────
@@ -1523,4 +1541,93 @@ describe('engine construction visibility (console.info + event detail)', () => {
     expect(events[0].detail.model).toBe('llama3');
     expect(events[0].detail.baseUrl).toBe('http://up/v1');
   });
+
+  it('the info line, events and status show a baseUrl without its userinfo (#1766)', async () => {
+    const sandbox = initializeSandbox();
+    const events: unknown[] = [];
+    sandbox.onEvent((e) => {
+      if (e.kind === 'service_mutation' && e.service === 'ai') events.push(e);
+    });
+    const baseUrl = 'http://gateway-user:gateway-secret-1766@up.example';
+    const refusing = (async (input: RequestInfo | URL) => {
+      throw new TypeError(`Request cannot be constructed from a URL that includes credentials: ${String(input)}`);
+    }) as unknown as typeof fetch;
+    let broker: AiBroker | undefined;
+    const infos = await captureConsole('info', () => {
+      broker = new AiBroker({ sandbox, engine: { kind: 'gemini', apiKey: 'fake-key-1766', baseUrl, fetch: refusing } });
+    });
+    const env = await envelopeOf(broker!.generateContent(userReq('hello'), MODEL));
+    expect(env.error.code).toBe(502);
+    expect(env.error.status).toBe('UNAVAILABLE');
+    const shown = [...infos, env.error.message, JSON.stringify(events), JSON.stringify(broker!.describeStatus())];
+    for (const text of shown) {
+      expect(text).not.toContain('gateway-secret-1766');
+      expect(text).not.toContain('gateway-user');
+      expect(text).not.toContain('fake-key-1766');
+    }
+    expect(broker!.describeStatus().upstream).toBe('http://up.example');
+    expect(env.error.message).toContain(`http://up.example/v1beta/models/${MODEL}:generateContent`);
+  });
+});
+
+// ── Userinfo in a base URL, as Node's fetch quotes it (#1766) ───────────────
+
+/** Node's fetch refuses a URL it parses that carries userinfo, quoting the input. */
+const nodeRefuses = (url: string): string => `Request cannot be constructed from a URL that includes credentials: ${url}`;
+/** Node's fetch refuses a URL it cannot parse, quoting the input. */
+const nodeCannotParse = (url: string): string => `Failed to parse URL from ${url}`;
+
+/** Each password character a pattern could stop at, and the scheme forms a parser accepts. */
+const USERINFO_CASES: Array<{ name: string; baseUrl: string; error: (url: string) => string }> = [
+  { name: "a ' in the password", baseUrl: "http://gw-user:pw'secret-1766@up.example", error: nodeRefuses },
+  { name: 'a " in the password', baseUrl: 'http://gw-user:pw"secret-1766@up.example', error: nodeRefuses },
+  { name: 'a space in the password', baseUrl: 'http://gw-user:pw secret-1766@up.example', error: nodeRefuses },
+  { name: 'a / in the password', baseUrl: 'http://gw-user:pw/secret-1766@up.example', error: nodeCannotParse },
+  { name: 'a # in the password', baseUrl: 'http://gw-user:pw#secret-1766@up.example', error: nodeCannotParse },
+  { name: 'a ? in the password', baseUrl: 'http://gw-user:pw?secret-1766@up.example', error: nodeCannotParse },
+  { name: 'a backslash in the password', baseUrl: 'http://gw-user:pw\\secret-1766@up.example', error: nodeCannotParse },
+  { name: 'a single-slash scheme', baseUrl: 'http:/gw-user:pw-secret-1766@up.example', error: nodeRefuses },
+  { name: 'a backslash scheme', baseUrl: 'http:\\\\gw-user:pw-secret-1766@up.example', error: nodeRefuses },
+];
+
+function refusingFetch(error: (url: string) => string): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    throw new TypeError(error(String(input)));
+  }) as unknown as typeof fetch;
+}
+
+function assertNoUserinfo(texts: string[]): void {
+  for (const text of texts) {
+    expect(text).not.toContain('secret-1766');
+    expect(text).not.toContain('gw-user');
+  }
+}
+
+describe('userinfo in a base URL never reaches an error or a display (#1766)', () => {
+  for (const { name, baseUrl, error } of USERINFO_CASES) {
+    it(`gemini engine, ${name}`, async () => {
+      const engine = new GeminiEngine({ apiKey: 'fake-key-1766', baseUrl, fetch: refusingFetch(error) });
+      const env = await envelopeOf(engine.generateContent(userReq('x'), MODEL));
+      expect(env.error.code).toBe(502);
+      expect(env.error.status).toBe('UNAVAILABLE');
+      assertNoUserinfo([env.error.message]);
+      expect(env.error.message).not.toContain('fake-key-1766');
+    });
+
+    it(`openai engine, ${name}`, async () => {
+      const engine = new OpenAiEngine({ baseUrl, fetch: refusingFetch(error) });
+      const env = await envelopeOf(engine.generateContent(userReq('x'), 'm'));
+      expect(env.error.code).toBe(502);
+      assertNoUserinfo([env.error.message]);
+    });
+
+    it(`broker display and redactUpstreamUrl, ${name}`, async () => {
+      let broker: AiBroker | undefined;
+      const infos = await captureConsole('info', () => {
+        broker = new AiBroker({ engine: { kind: 'gemini', apiKey: 'fake-key-1766', baseUrl, fetch: refusingFetch(error) } });
+      });
+      assertNoUserinfo([...infos, JSON.stringify(broker!.describeStatus()), redactUpstreamUrl(baseUrl)]);
+      expect(redactUpstreamUrl(baseUrl)).toContain('up.example');
+    });
+  }
 });

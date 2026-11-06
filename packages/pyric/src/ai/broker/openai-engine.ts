@@ -30,9 +30,9 @@ import {
   Synthesizer,
   errorEnvelope,
   estimateTokens,
-  redactUrl,
   resolveModelVersion,
 } from './synthesizer.js';
+import { redactUpstreamText, urlCredentials } from './upstream-error-redaction.js';
 import { promptTextOf } from './scripted-engine.js';
 import type {
   AnswerEngine,
@@ -676,7 +676,7 @@ export class OpenAiEngine implements AnswerEngine {
       throw new AiBrokerError(
         errorEnvelope(
           502,
-          `openai engine: upstream fetch failed: ${redactUrl(String(err))}`,
+          `openai engine: upstream fetch failed: ${redactUpstreamText(String(err), urlCredentials(this.baseUrl))}`,
           'UNAVAILABLE',
         ),
       );

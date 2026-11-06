@@ -32,6 +32,11 @@
 // quotes the header, token included (#1737). The page's error and the dev
 // server's terminal must both read `***` in place of the token.
 //
+// A base URL with userinfo, `http://user:password@host`, is refused by Node's
+// fetch, and its error quotes the whole URL (#1766). On the SharedWorker and
+// on `hosted: true`, the page's error, the gemini proxy's 502 and the dev
+// server's terminal must name the host without the userinfo.
+//
 // Vite serves every `VITE_`-prefixed variable to any module that reads
 // `import.meta.env`. The page never reads it, so no module the dev server
 // serves may carry the dev server's `VITE_` value: Pyric's own modules must
@@ -235,6 +240,46 @@ async function assertMaskedFetchError(result: { ok: boolean; message?: string },
   assert.ok(!server.process.output.includes(ADC_TOKEN), 'the dev server printed the token');
 }
 
+/**
+ * Userinfo the scenario puts in the stand-in's base URL (#1766). The password
+ * holds a space and both quotes, which a pattern over the text stops at.
+ */
+const USERINFO = `gateway-user:gateway-secret-1766 "q'`;
+
+/** The stand-in's base URL with USERINFO in it. */
+function withUserinfo(url: string): string {
+  return url.replace('http://', `http://${USERINFO}@`);
+}
+
+/** No surface quotes the userinfo, and the page's error still names the host. */
+function assertNoUserinfo(texts: string[], host: string): void {
+  for (const text of texts) {
+    assert.ok(!text.includes('gateway-secret-1766'), text.slice(0, 400));
+    assert.ok(!text.includes('gateway-user'), text.slice(0, 400));
+  }
+  assert.ok(texts[0]!.includes(`http://${host}/v1beta/models/`), texts[0]);
+}
+
+/** A dev server whose gemini base URL carries userinfo: the page, the proxy's 502 and the terminal drop it. */
+async function assertUserinfoDropped(app: App, standInUrl: string, name: string, hosted: boolean): Promise<void> {
+  const env = { GEMINI_API_KEY: SERVER_KEY, GEMINI_STAND_IN_URL: withUserinfo(standInUrl), ...(hosted ? { HOSTED: '1' } : {}) };
+  const server = await app.devServer({ name, env });
+  const page = await openPage(app, server);
+  const since = server.process.mark();
+  const result = await page.evaluate((tag) => runGeminiError(tag, 'gemini-2.5-flash'), name);
+  assert.equal(result.ok, false);
+  const texts = [result.message ?? ''];
+  if (hosted) {
+    await server.process.waitForLog(/ai request rejected: /, { since });
+  } else {
+    await server.process.waitForLog(/upstream unreachable: /, { since });
+    const answer = await workerRouteAnswer(server);
+    assert.equal(answer.status, 502, answer.text);
+    texts.push(answer.text);
+  }
+  assertNoUserinfo([...texts, server.process.output], new URL(standInUrl).host);
+}
+
 async function openPage(app: App, host: DevServer) {
   const page = await app.page(host.url);
   await page.waitForFunction(() => 'runGemini' in window);
@@ -372,6 +417,18 @@ export default scenario(async (app) => {
       const adcPage = await openPage(app, adcServer);
       const since = adcServer.process.mark();
       await assertMaskedFetchError(await adcPage.evaluate(() => runGeminiError('adc-fetch-error', 'gemini-2.5-flash')), adcServer, since);
+      assert.deepEqual(standIn.seen, answeredAt(2), 'nothing reached the stand-in');
+    });
+
+    await app.step('SharedWorker: a base URL with userinfo reaches the page, the 502 and the terminal without it', async () => {
+      await assertUserinfoDropped(app, standIn.url, 'userinfo-dev-server', false);
+      assert.deepEqual(standIn.seen, answeredAt(2), 'nothing reached the stand-in');
+    });
+
+    await app.step('hosted: true: a base URL with userinfo reaches the page and the terminal without it', async () => {
+      // One hosted sandbox owns a project's hosted state at a time.
+      await hostedServer.process.stop();
+      await assertUserinfoDropped(app, standIn.url, 'hosted-userinfo-dev-server', true);
       assert.deepEqual(standIn.seen, answeredAt(2), 'nothing reached the stand-in');
     });
 
