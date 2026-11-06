@@ -74,6 +74,18 @@ const GET_TOKEN: ObservedCall = {
   ],
 };
 
+/** An Admin SDK call a backend made, as the live register records it: the class and method, and production's code. */
+const ADMIN_UPDATE: ObservedCall = {
+  service: 'firestore',
+  method: 'DocumentReference.update',
+  path: 'rooms/missing',
+  at: 1_700_000_000_000,
+  durationMs: 18,
+  outcome: { status: 'error', code: 'not-found' },
+  projectId: 'my-project',
+  sdk: 'admin',
+};
+
 /** Shapes a recorder must never pass on: a FIS auth token, an FCM registration token, a VAPID key. */
 const FIS_AUTH_TOKEN = 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjE6MTIzNDU2Nzg5MDp3ZWI6YWJjIn0.c2ln';
 const FCM_TOKEN = 'dGVzdEZpZDAxMjM0NTY3:APA91bH7xVb0nU3sKq9Yw2Zr5tLp8mQe4cJd6fGh1iOa';
@@ -342,6 +354,32 @@ describe('readObservedCall', () => {
     expect(event.auth).toEqual({ uid: 'alice' });
   });
 
+  it('keeps an Admin call on Firestore, RTDB, Storage and Auth', () => {
+    expect(readObservedCall(ADMIN_UPDATE)).toEqual(ADMIN_UPDATE);
+    const admin = [
+      { ...NAMED_RTDB_READ, method: 'Reference.set', sdk: 'admin' },
+      { ...UPLOAD, method: 'File.save', sdk: 'admin' },
+      { service: 'auth', method: 'Auth.verifyIdToken', at: 1, outcome: { status: 'ok' }, account: { uid: 'alice', claimNames: ['admin'] }, sdk: 'admin' },
+    ];
+    for (const call of admin) expect(readObservedCall(call)).toEqual(call as ObservedCall);
+    expect(readObservedCall(DENIED_READ)).not.toHaveProperty('sdk');
+  });
+
+  it('refuses sdk on an AI or Messaging call, and any value but admin', () => {
+    const cases: unknown[] = [
+      { ...GENERATE, sdk: 'admin' },
+      { ...GET_TOKEN, sdk: 'admin' },
+      { ...ADMIN_UPDATE, sdk: 'client' },
+      { ...ADMIN_UPDATE, sdk: true },
+      { ...ADMIN_UPDATE, sdk: null },
+    ];
+    for (const record of cases) {
+      const read = () => readObservedCall(record);
+      expect(read).toThrow(ObservedCallError);
+      expect(read).toThrow('Invalid observed call field: sdk.');
+    }
+  });
+
   it('refuses a malformed record and names the field', () => {
     const cases: Array<[unknown, string]> = [
       [null, 'call'],
@@ -410,6 +448,37 @@ describe('observedCallEvent', () => {
     expect(record?.rules).toEqual({ kind: 'not-evaluated', reason: 'external-execution' });
     expect(record?.production).toEqual({ outcome: { status: 'error', code: 'permission-denied' }, claimNames: ['admin', 'email'] });
     expect(isProductionServed(record?.rules)).toBe(true);
+  });
+
+  it('lands an Admin call in the event stream as production-served, bypassing rules under the Admin lens', () => {
+    const sandbox = initializeSandbox();
+    const hostProvenance = { actor: { kind: 'app' }, authLens: { mode: 'app-session' }, caller: { kind: 'node' } } as const;
+    emitSandboxEvent(sandbox, observedCallEvent(readObservedCall(ADMIN_UPDATE)), hostProvenance);
+    const [event] = sandbox.history();
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      auth: null,
+      result: 'error',
+      origin: 'user',
+      caller: { kind: 'node' },
+      authLens: { mode: 'admin' },
+      detail: { sdk: 'admin' },
+      rulesDisposition: { kind: 'bypassed', reason: 'admin' },
+      production: { outcome: { status: 'error', code: 'not-found' } },
+    });
+    const record = toOperationRecord(event!);
+    expect(record?.rules).toEqual({ kind: 'bypassed', reason: 'admin' });
+    expect(isProductionServed(record?.rules)).toBe(true);
+  });
+
+  it("keeps a Storage Admin call's bucket beside its sdk, and leaves a client call without either Admin mark", () => {
+    const event = observedCallEvent(readObservedCall({ ...UPLOAD, method: 'File.save', sdk: 'admin' }));
+    expect(event.detail).toEqual({ bucket: 'my-project.firebasestorage.app', sdk: 'admin' });
+    expect(observedCallEvent(UPLOAD).detail).toEqual({ bucket: 'my-project.firebasestorage.app' });
+    expect(observedCallEvent(UPLOAD)).not.toHaveProperty('authLens');
   });
 
   it("reads production's answer as allow, deny or error, the way sandbox events read", () => {

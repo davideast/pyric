@@ -234,6 +234,57 @@ describe('host: observed calls', () => {
     expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'ok' }, usage, billedDocuments: 3 });
   });
 
+  it("writes a server process's Admin call as bypassing rules under the Admin lens, with production's answer", async () => {
+    const ctx = makeCtx();
+    const viewer = fakePort();
+    await subscribe(ctx, viewer);
+    const server = fakePort();
+    markPortConnection(ctx, server, 'node');
+    const call = {
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      at: 1,
+      durationMs: 9,
+      outcome: { status: 'error', code: 'not-found' },
+      projectId: 'demo-project',
+      writeData: { title: 'x' },
+      sdk: 'admin',
+    };
+    expect(await observe(ctx, server, { call })).toMatchObject({ ok: true });
+    const [event] = streamed(viewer);
+    expect(event).toMatchObject({
+      kind: 'operation',
+      service: 'firestore',
+      method: 'DocumentReference.update',
+      path: 'rooms/missing',
+      result: 'error',
+      caller: { kind: 'node', clientId: expect.any(String) },
+      authLens: { mode: 'admin' },
+      detail: { sdk: 'admin' },
+      rulesDisposition: { kind: 'bypassed', reason: 'admin' },
+      production: { outcome: { status: 'error', code: 'not-found' } },
+    });
+    // Admin calls bypass Security Rules, so the host records no local verdict.
+    expect(event?.kind === 'operation' ? event.production : undefined).toEqual({ outcome: { status: 'error', code: 'not-found' } });
+  });
+
+  it('refuses sdk on an AI or Messaging call, and any value but admin, and writes nothing', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    await subscribe(ctx, page);
+    const before = ctx.sandbox.history().length;
+    const malformed: unknown[] = [
+      { service: 'ai', method: 'generateContent', at: 1, outcome: { status: 'ok' }, ai: { model: 'models/m' }, sdk: 'admin' },
+      { service: 'messaging', method: 'getToken', at: 1, outcome: { status: 'ok' }, sdk: 'admin' },
+      { ...DENIED_READ, sdk: 'client' },
+    ];
+    for (const call of malformed) {
+      expect(await observe(ctx, page, { call })).toMatchObject({ t: 'res', ok: false, error: { code: 'invalid-argument' } });
+    }
+    expect(ctx.sandbox.history().length).toBe(before);
+  });
+
   it('refuses a malformed record with invalid-argument and writes nothing', async () => {
     const ctx = makeCtx();
     const page = fakePort();

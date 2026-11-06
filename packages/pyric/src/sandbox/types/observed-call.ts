@@ -5,7 +5,10 @@
  * real project, and a recorder beside the app reported what production
  * answered. A host accepts the record from a client connection and writes it
  * to the event stream as an `operation` event whose Rules disposition is
- * `external-execution` and whose `production` field holds the answer.
+ * `external-execution` and whose `production` field holds the answer. A
+ * call a server process made through the Admin SDK is marked `sdk: 'admin'`
+ * and becomes an event that bypassed Security Rules under the Admin lens,
+ * with production's answer beside it.
  */
 
 /** The services a client may report observed calls for. */
@@ -94,8 +97,19 @@ export interface ObservedUsage {
 /** One observed call, as a client sends it to a host. */
 export interface ObservedCall {
   service: ObservedCallService;
-  /** The SDK function the app called, such as `getDoc` or `signInWithEmailAndPassword`. */
+  /**
+   * The SDK function the app called, such as `getDoc` or
+   * `signInWithEmailAndPassword`. An Admin call names its class and method,
+   * such as `DocumentReference.get` or `Auth.verifyIdToken`.
+   */
   method: string;
+  /**
+   * `'admin'` when a server process made the call through the Admin SDK,
+   * which bypasses Security Rules; absent for the client SDK. Taken only on
+   * `firestore`, `rtdb`, `storage` and `auth` calls; the event carries it as
+   * `detail.sdk`.
+   */
+  sdk?: 'admin';
   /**
    * The document or collection path the call named, when it named one. On an
    * `rtdb` call, the reference's path, such as `/items/a`. On a `storage`
