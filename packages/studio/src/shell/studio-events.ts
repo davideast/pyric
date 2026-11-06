@@ -197,6 +197,10 @@ function toTrafficEvent(
   if (e.path !== undefined) {
     pathVal = e.path;
   }
+  const bucket = storageBucket(e);
+  if (bucket !== undefined) {
+    pathVal = bucketPath(bucket, e.path);
+  }
   let reasonsVal: string[] = [];
   if (e.reasons !== undefined) {
     reasonsVal = e.reasons;
@@ -227,6 +231,31 @@ function toTrafficEvent(
   };
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * The bucket a Storage operation names, sandbox or production. The sandbox
+ * keeps its store key (`pyric-default`) in `detail.bucket` and the app's name
+ * for the bucket in `detail.bucketName`; production sends only `bucket`.
+ */
+function storageBucket(e: SandboxEvent): string | undefined {
+  const isStorageOperation = e.kind === 'operation' && e.service === 'storage';
+  if (!isStorageOperation) return undefined;
+  const detail = e.detail;
+  return nonEmptyString(detail?.bucketName) ?? nonEmptyString(detail?.bucket);
+}
+
+/**
+ * A Storage row's path, as the StoragePane shows an object:
+ * `gs://<bucket>/<path>`, and `gs://<bucket>/` for the bucket's root.
+ */
+function bucketPath(bucket: string, path: string | undefined): string {
+  const objectPath = (path ?? '').replace(/^\/+/, '');
+  return `gs://${bucket}/${objectPath}`;
+}
+
 /** The caller field to carry onto an adapted event, when the host stamped one. */
 function callerOf(e: EventProvenance): Pick<StudioTrafficEvent, 'caller'> {
   return e.caller === undefined ? {} : { caller: e.caller };
@@ -239,10 +268,12 @@ function callerOf(e: EventProvenance): Pick<StudioTrafficEvent, 'caller'> {
  */
 export function useStudioTraffic(): StudioTrafficEvent[] {
   const events = useStudioEvents();
-  return useMemo<StudioTrafficEvent[]>(
-    () => events.filter(isTrafficEvent).map(toTrafficEvent),
-    [events],
-  );
+  return useMemo<StudioTrafficEvent[]>(() => studioTrafficEvents(events), [events]);
+}
+
+/** The traffic rows {@link useStudioTraffic} reads, from any event array. */
+export function studioTrafficEvents(events: readonly SandboxEvent[]): StudioTrafficEvent[] {
+  return events.filter(isTrafficEvent).map(toTrafficEvent);
 }
 
 /** The denied ops (rules-failure debugging), derived from the live stream. */
