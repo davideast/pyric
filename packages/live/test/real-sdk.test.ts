@@ -163,7 +163,7 @@ describe('results are the real SDK classes, recorded as they settle', () => {
     expect(reason).toBeInstanceOf(realApp.FirebaseError);
     expect((reason as realApp.FirebaseError).code).toBe('unavailable');
     expect(records.filter((record) => record.name === 'getDocFromCache')).toEqual([
-      { module: 'firebase/firestore', name: 'getDocFromCache', outcome: 'rejected', code: 'unavailable', projectId: 'demo-live' },
+      { module: 'firebase/firestore', name: 'getDocFromCache', outcome: 'rejected', code: 'unavailable', projectId: 'demo-live', path: 'rooms/missing' },
     ]);
   });
 
