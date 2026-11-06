@@ -409,6 +409,11 @@ export function storageBucketSuffix(bucket: string | null, target?: string, join
   return isDefaultBucket ? '' : `${joiner} ${storageBucketLabel(bucket, target)}`;
 }
 
+/** A rules file `firebase.json` names, resolved against the project directory. */
+function projectFilePath(cwd: string, file: string): string {
+  return isAbsolute(file) ? file : join(cwd, file);
+}
+
 /**
  * The rules files `firebase.json` deploys to Storage and the bucket each
  * deploys to, resolved as `firebase deploy` resolves them by the shared
@@ -430,7 +435,7 @@ export function storageRulesTargets(
   try {
     resolved = storageRulesConfig(config?.storage, {
       targetBuckets: (target) => projectId === undefined ? [] : readRc()?.targets?.[projectId]?.storage?.[target] ?? [],
-      resolveFile: (file) => databaseRulesFilePath(cwd, file),
+      resolveFile: (file) => projectFilePath(cwd, file),
     });
   } catch (error) {
     throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
@@ -607,10 +612,6 @@ export interface LoadedDatabaseRules extends Omit<DatabaseRulesTargets, 'pending
   instances: Map<string, LoadedDatabaseInstanceRules>;
 }
 
-function databaseRulesFilePath(cwd: string, file: string): string {
-  return isAbsolute(file) ? file : join(cwd, file);
-}
-
 /**
  * The rules files `firebase.json` deploys and the database instance each
  * deploys to, resolved as `firebase deploy` resolves them by
@@ -635,7 +636,7 @@ export function databaseRulesTargets(
     resolved = databaseRulesConfig(config?.database, {
       ...(projectId === undefined ? {} : { projectId }),
       targetInstances: (target) => projectId === undefined ? [] : readRc()?.targets?.[projectId]?.database?.[target] ?? [],
-      resolveFile: (file) => databaseRulesFilePath(cwd, file),
+      resolveFile: (file) => projectFilePath(cwd, file),
     });
   } catch (error) {
     throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
