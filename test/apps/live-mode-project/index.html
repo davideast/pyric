@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Rooms</title></head>
+  <body>
+    <h1>Rooms</h1>
+    <output id="status">Starting</output>
+    <script>
+      // A client module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+      addEventListener("unhandledrejection", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.reason?.message ?? event.reason}`;
+      });
+    </script>
+    <script type="module">
+      // A rooms page with two Firebase apps: the default one on the project
+      // the live host serves, and a second one whose config names another
+      // project. Each reads the lobby. Their backend is the local one a
+      // `?backend=<origin>` query names, through the SDK's own emulator
+      // connectors.
+      import { initializeApp } from "firebase/app";
+      import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+      import { connectFirestoreEmulator, doc, getDoc, getFirestore } from "firebase/firestore";
+
+      const config = (projectId) => ({
+        projectId,
+        apiKey: `${projectId}-key`,
+        appId: `1:1:web:${projectId}`,
+        authDomain: `${projectId}.firebaseapp.com`,
+      });
+      const host = initializeApp(config("demo-live-traffic"));
+      const other = initializeApp(config("demo-live-other"), "other");
+      const backend = new URL(new URLSearchParams(location.search).get("backend"));
+      const auth = getAuth(host);
+      connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
+      const databases = { host: getFirestore(host), other: getFirestore(other) };
+      for (const db of Object.values(databases)) connectFirestoreEmulator(db, backend.hostname, Number(backend.port));
+
+      /** What a call settled with: its value, or its error's code, a project refusal's field and projects, and its message. */
+      const settle = (call) => Promise.resolve().then(call).then(
+        (value) => ({ ok: true, value }),
+        (error) => ({ ok: false, code: error.code ?? String(error), field: error.field, appProjectId: error.appProjectId, hostProjectId: error.hostProjectId, message: error.message }),
+      );
+
+      window.signIn = () => settle(() => signInWithEmailAndPassword(auth, "reader@example.com", "reader-password").then((credential) => credential.user.uid));
+      /** Reads the lobby through the `host` or the `other` app. */
+      window.readLobby = (name) => settle(() => getDoc(doc(databases[name], "rooms/lobby")).then((snapshot) => snapshot.data() ?? null));
+
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>
