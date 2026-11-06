@@ -44,7 +44,7 @@ import {
 } from '@pyric/cli/register/internal/supplied-rows';
 import { serveHostProject } from './node-modules.js';
 import { passThroughOption } from './refusal.js';
-import { hostReachLine, liveStartLine } from './start-line.js';
+import { hostReachLine, liveStartLine, passThroughLines } from './start-line.js';
 import { liveStartRefusal } from './start-checks.js';
 
 const ENTRY = '@pyric/live/register';
@@ -84,7 +84,8 @@ if (startsLive) {
   if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
   const projectId = liveProjectId(projectRoot);
   serveHostProject(projectId);
-  const passing = (passThrough ?? []).map((specifier) => `${ENTRY}: ${livePassThroughLine(specifier)}`);
+  // The reach lists firebase-admin when its host passes the Admin SDK through, so this prints the Admin line.
+  const passing = passThroughLines(ENTRY, passThrough ?? [], livePassThroughLine);
   const lines = [liveStartLine(ENTRY, projectId), ...passing, hostReachLine(ENTRY, reach, projectId, projectRoot)];
   process.stderr.write(`${lines.join('\n')}\n`);
 }

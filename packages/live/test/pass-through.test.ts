@@ -6,7 +6,7 @@
  * `test/apps/live-pass-through`.
  */
 import { describe, expect, test } from 'bun:test';
-import { INSTALLED_SDK_SPECIFIERS, SDK_MODULES, pyricWithSuppliedRows } from '@pyric/cli/vite/internal/supplied-rows';
+import { INSTALLED_SDK_SPECIFIERS, SDK_MODULES, livePassThroughLine, pyricWithSuppliedRows } from '@pyric/cli/vite/internal/supplied-rows';
 import {
   ADMIN_PASS_THROUGH,
   LIVE_REFUSED,
@@ -16,6 +16,7 @@ import {
   refusedImportsLine,
   withPassThroughHint,
 } from '../src/refusal.js';
+import { adminPassThroughLine, passThroughLines } from '../src/start-line.js';
 import { pyricLive } from '../src/vite.js';
 
 const ENTRY = '@pyric/live/vite';
@@ -133,5 +134,25 @@ describe('a refused import that could pass through', () => {
     const both = refusedImportsLine(ENTRY, ['firebase/functions', 'firebase/analytics', 'firebase/remote-config']);
     expect(both).toContain('a page imports firebase/analytics (Analytics), firebase/functions (Cloud Functions) and firebase/remote-config (Remote Config)');
     expect(both).toContain("start with pyricLive({ passThrough: ['firebase/analytics', 'firebase/functions', 'firebase/remote-config'] })");
+  });
+});
+
+describe('the start lines for a pass-through list', () => {
+  const REGISTER = '@pyric/live/register';
+
+  test('give firebase-admin its own Admin line, one per entry, and keep one line for each other import', () => {
+    const lines = passThroughLines(ENTRY, ['firebase/functions', 'firebase-admin'], livePassThroughLine);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toStartWith(`${ENTRY}: firebase/functions `);
+    expect(lines[1]).toBe(adminPassThroughLine(ENTRY));
+    expect(lines[1]).toStartWith(`${ENTRY}: firebase-admin `);
+    expect(passThroughLines(REGISTER, ['firebase-admin'], livePassThroughLine)).toEqual([adminPassThroughLine(REGISTER)]);
+    expect(adminPassThroughLine(REGISTER)).toStartWith(`${REGISTER}: firebase-admin `);
+    expect(adminPassThroughLine(REGISTER).slice(REGISTER.length)).not.toBe(adminPassThroughLine(ENTRY).slice(ENTRY.length));
+  });
+
+  test('print no Admin line without firebase-admin in the list', () => {
+    expect(passThroughLines(ENTRY, ['firebase/functions'], livePassThroughLine).some((line) => line.startsWith(`${ENTRY}: firebase-admin`))).toBe(false);
+    expect(passThroughLines(ENTRY, [], livePassThroughLine)).toEqual([]);
   });
 });
