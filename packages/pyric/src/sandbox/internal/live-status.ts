@@ -46,6 +46,12 @@ export interface LiveHostStatus {
    * Absent when there are none.
    */
   readonly passThrough?: readonly string[];
+  /**
+   * The `firebase/*` imports the app resolved to live rows, whose calls the
+   * host observes, in the order the app first imported them. Absent when
+   * there are none.
+   */
+  readonly observed?: readonly string[];
 }
 
 /** What the chip and Studio show beside "pyric" for as long as the host runs: the project name. */
@@ -113,17 +119,26 @@ function readProjects(value: unknown): string[] | null {
 
 const FIREBASE_IMPORT = /^firebase\/[a-z-]+(?:\/[a-z-]+)*$/;
 
+/** An observed import: a `firebase/*` import the app resolved to a live row. */
+function isFirebaseImport(value: unknown): value is string {
+  return typeof value === 'string' && FIREBASE_IMPORT.test(value);
+}
+
 /** A passed-through import: a `firebase/*` import, or `firebase-admin` itself. */
 function isPassThroughImport(value: unknown): value is string {
   const isAdmin = value === ADMIN_SDK;
-  return isAdmin || (typeof value === 'string' && FIREBASE_IMPORT.test(value));
+  return isAdmin || isFirebaseImport(value);
 }
 
-/** The pass-through list: absent stays absent, and anything but a list of `firebase/*` imports and `firebase-admin` is malformed. */
-function readPassThrough(value: unknown): { passThrough?: string[] } | null {
+/** A list of imports: absent stays absent, and anything but a list `isImport` accepts is malformed. */
+function readImports<K extends 'passThrough' | 'observed'>(
+  field: K,
+  value: unknown,
+  isImport: (entry: unknown) => entry is string,
+): Partial<Record<K, string[]>> | null {
   if (value === undefined) return {};
-  const isList = Array.isArray(value) && value.every(isPassThroughImport);
-  return isList ? { passThrough: [...(value as string[])] } : null;
+  const isList = Array.isArray(value) && value.every(isImport);
+  return isList ? ({ [field]: [...(value as string[])] } as Partial<Record<K, string[]>>) : null;
 }
 
 /** The live status in a `/__pyric/health` report, or null for a sandbox host. */
@@ -138,10 +153,12 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const configSource: unknown = Reflect.get(live, 'configSource');
   const appProjectIds = readProjects(Reflect.get(live, 'appProjectIds'));
   const billed = readCount(Reflect.get(live, 'billed'));
-  const passThrough = readPassThrough(Reflect.get(live, 'passThrough'));
+  const passThrough = readImports('passThrough', Reflect.get(live, 'passThrough'), isPassThroughImport);
+  const observed = readImports('observed', Reflect.get(live, 'observed'), isFirebaseImport);
   const hasFields = isProjectName(projectId) && isProjectName(configProjectId) && isProjectName(configSource);
-  if (!hasFields || appProjectIds === null || billed === null || passThrough === null) return null;
-  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough };
+  const hasLists = appProjectIds !== null && billed !== null && passThrough !== null && observed !== null;
+  if (!hasFields || !hasLists) return null;
+  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed };
 }
 
 const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, BilledCallKind>([
