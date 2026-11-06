@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#227","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads \\p{Han} as the RE2 Han script class; pyric reads it as the letters p{Han}, so 中 does not match","issue":"#1889"}

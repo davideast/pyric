@@ -229,6 +229,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "root-recursive-own-allow-write",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -358,6 +359,7 @@
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -399,6 +401,7 @@
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simulator-language-semantics",
         "strict-boolean-control-flow",
@@ -656,6 +659,7 @@
         "root-recursive-path-value",
         "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
@@ -1254,11 +1258,13 @@
       "verifiedBy": [
         "matches-full-string-regex",
         "re2-pattern-semantics",
+        "script-classes-and-nested-repeats",
         "string-literals-and-regex"
       ],
       "verifiedByRows": [],
       "divergedByRows": [
-        "firestore-rules#199"
+        "firestore-rules#199",
+        "firestore-rules#227"
       ]
     },
     "firestore.method.string.lower": {
@@ -1352,6 +1358,7 @@
         "functions-verbs-and-recursive",
         "list-and-string-methods",
         "re2-pattern-semantics",
+        "script-classes-and-nested-repeats",
         "split-and-trim-edges"
       ],
       "verifiedByRows": [
@@ -1375,6 +1382,7 @@
       "verifiedBy": [
         "list-and-string-methods",
         "re2-pattern-semantics",
+        "script-classes-and-nested-repeats",
         "simulator-language-semantics"
       ],
       "verifiedByRows": [
@@ -1486,6 +1494,7 @@
         "list-methods-concat-removeall-toset",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
+        "script-classes-and-nested-repeats",
         "split-and-trim-edges"
       ],
       "verifiedByRows": [],
@@ -2387,6 +2396,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "root-recursive-path-value",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2751,6 +2761,7 @@
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -2912,6 +2923,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "root-recursive-own-allow-write",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "simulator-language-semantics",
@@ -3042,6 +3054,7 @@
         "resource-missing-document",
         "root-recursive-path-value",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "simulator-language-semantics",
         "split-and-trim-edges",
         "string-literals-and-regex",
@@ -3105,6 +3118,7 @@
         "prototype-chain-keys",
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
+        "script-classes-and-nested-repeats",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
         "strict-boolean-control-flow",
@@ -3206,6 +3220,7 @@
         "root-recursive-path-value",
         "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
@@ -3320,6 +3335,7 @@
         "root-recursive-path-value",
         "root-recursive-with-own-allow",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
@@ -3394,6 +3410,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "rules-version-1-recursive-glob",
+        "script-classes-and-nested-repeats",
         "service-root-match-path",
         "set-algebra-difference-union-intersection",
         "simcase-mock-and-path-fidelity",
