@@ -84,10 +84,12 @@ export function objectNotFound(path: string): StorageError {
   return new StorageError('object-not-found', `no object at "${path}".`);
 }
 
-export function unauthorized(method: string, path: string, detail: string): StorageError {
+/** A rules denial; `bucket` is the name the rules saw the bucket by, when the request had one. */
+export function unauthorized(method: string, path: string, detail: string, bucket?: string): StorageError {
+  const where = bucket === undefined ? '' : ` in bucket "${bucket}"`;
   return new StorageError(
     'unauthorized',
-    asSentence(`${method} "${path}" denied by rules${detail}`),
+    asSentence(`${method} "${path}"${where} denied by rules${detail}`),
   );
 }
 
