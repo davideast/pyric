@@ -74,6 +74,8 @@ export interface LiveClient {
   readonly label?: string;
   /** The uid its last observed call ran as, or null when signed out. */
   readonly user: string | null;
+  /** The email of the user a browser client's page reports signed in. Absent when signed out or unknown; kept in host memory only. */
+  readonly email?: string;
   /** The host time, in epoch milliseconds, of its last frame. */
   readonly lastSeen: number;
 }
@@ -187,11 +189,14 @@ function readClient(value: unknown): LiveClient | null {
   const label: unknown = Reflect.get(value, 'label');
   const user: unknown = Reflect.get(value, 'user');
   const lastSeen: unknown = Reflect.get(value, 'lastSeen');
+  const email: unknown = Reflect.get(value, 'email');
   const hasLabel = label === undefined || typeof label === 'string';
-  const isValid = isLiveClientKind(kind) && isProjectName(clientId) && hasLabel && isLiveClientUser(user) && isCount(lastSeen);
+  const hasEmail = email === undefined || typeof email === 'string';
+  const isValid = isLiveClientKind(kind) && isProjectName(clientId) && hasLabel && isLiveClientUser(user) && hasEmail && isCount(lastSeen);
   if (!isValid) return null;
   const labelField = label === undefined ? {} : { label: label as string };
-  return { kind, clientId, ...labelField, user, lastSeen };
+  const emailField = email === undefined ? {} : { email: email as string };
+  return { kind, clientId, ...labelField, user, ...emailField, lastSeen };
 }
 
 /** The clients field: its well-formed entries, at most {@link MAX_LIVE_CLIENTS}; a malformed entry or list never loses the status. */

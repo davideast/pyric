@@ -338,6 +338,8 @@ export type OpMessage = (
       kind: PresenceClientKind;
       route: string;
       visibility: PresenceVisibility;
+      /** A live page's signed-in user's email, null when signed out. A live host keeps it in memory and strips it before the Node sandbox. */
+      email?: string | null;
     }
   | { t: 'op'; id: string; method: 'presence.heartbeat'; clientId: string }
   | {
@@ -347,6 +349,8 @@ export type OpMessage = (
       clientId: string;
       route?: string;
       visibility?: PresenceVisibility;
+      /** Sent when a live page's user changes; see `presence.register`. */
+      email?: string | null;
     }
   | { t: 'op'; id: string; method: 'presence.disconnect'; clientId: string }
 ) & {

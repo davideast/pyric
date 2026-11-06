@@ -41,6 +41,7 @@ import {
   type RegisterRows,
 } from './supplied-rows.js';
 import { installWorkerGuard } from './worker-guard.js';
+import { installProcessHealth } from './process-health.js';
 
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
@@ -250,5 +251,8 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   installWorkerGuard(installed.entryUrl);
   installChildProcessGuard(installed.entryUrl);
   registerHooks({ resolve: resolveWithRows(rows, allowedUrls, adminTree), load: loadWithRows(rows) });
+  // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it.
+  const projectId = adminProjectId ?? undefined;
+  installProcessHealth(() => ({ mode: 'live', projectId }));
   markLiveRegisterActive();
 }
