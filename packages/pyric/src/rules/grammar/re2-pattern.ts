@@ -146,37 +146,6 @@ function re2SpaceEscape(escape: string, inClass: boolean, unicode: boolean): str
 }
 
 /**
- * Spell RE2's `.` as `[^\n]` in a JS RegExp source. A JS `.` also skips
- * `\r`, U+2028 and U+2029; RE2's `.` skips only `\n`. The 2026-10-28 capture
- * `re2-pattern-semantics` shows production's `split()` and `replace()` match
- * `\r` with `.`. Under `(?s)` (`dotAll`) a JS `.` with the `s` flag already
- * matches everything, as RE2's does, so the source is left alone.
- *
- * `source` is already normalized by `normalizeRe2ForJsRegExp`, as for
- * `spellRe2SpaceClasses`.
- */
-export function spellRe2Dot(source: string, dotAll: boolean): string {
-  if (dotAll) return source;
-  let out = '';
-  let inClass = false;
-  let i = 0;
-  while (i < source.length) {
-    const ch = source[i]!;
-    if (ch === '\\' && i + 1 < source.length) {
-      out += source.slice(i, i + 2);
-      i += 2;
-      continue;
-    }
-    if (ch === '[') inClass = true;
-    else if (ch === ']') inClass = false;
-    const isDot = ch === '.' && !inClass;
-    out += isDot ? '[^\\n]' : ch;
-    i++;
-  }
-  return out;
-}
-
-/**
  * Scan an RE2 pattern for the constructs JavaScript accepts and RE2 rejects
  * (a backreference, a lookaround), and collect its inline flags (`(?i)`,
  * `(?m)`, `(?s)`, and their scoped forms) as JavaScript RegExp flags.
@@ -269,150 +238,93 @@ export function spellRe2PropertyShorthand(source: string): string {
   return out;
 }
 
-/** A `{n}`, `{n,}` or `{n,m}` repeat at the start of a string. */
-const COUNTED_REPEAT = /^\{(\d+)(?:,(\d*))?\}/;
+/**
+ * RE2's POSIX classes, each as code point ranges. They are ASCII only, as
+ * RE2's are: `[[:alpha:]]` is `[A-Za-z]`.
+ */
+const RE2_POSIX_CLASSES: Readonly<Record<string, ReadonlyArray<readonly [number, number]>>> = {
+  alnum: [[0x30, 0x39], [0x41, 0x5a], [0x61, 0x7a]],
+  alpha: [[0x41, 0x5a], [0x61, 0x7a]],
+  ascii: [[0x00, 0x7f]],
+  blank: [[0x09, 0x09], [0x20, 0x20]],
+  cntrl: [[0x00, 0x1f], [0x7f, 0x7f]],
+  digit: [[0x30, 0x39]],
+  graph: [[0x21, 0x7e]],
+  lower: [[0x61, 0x7a]],
+  print: [[0x20, 0x7e]],
+  punct: [[0x21, 0x2f], [0x3a, 0x40], [0x5b, 0x60], [0x7b, 0x7e]],
+  space: [[0x09, 0x0d], [0x20, 0x20]],
+  upper: [[0x41, 0x5a]],
+  word: [[0x30, 0x39], [0x41, 0x5a], [0x5f, 0x5f], [0x61, 0x7a]],
+  xdigit: [[0x30, 0x39], [0x41, 0x46], [0x61, 0x66]],
+};
+
+export interface Re2PosixClass {
+  /** The source length of `[:name:]` or `[:^name:]`. */
+  length: number;
+  ranges: ReadonlyArray<readonly [number, number]>;
+}
 
 /**
- * Whether each repeat in an RE2 pattern is greedy, in source order: one
- * entry per `*`, `+`, `?` or counted repeat, read the way `parseRe2Ast` in
- * `rules/simulator/rules-type.ts` reads them, so the list lines up with the
- * repeats in its tree. RE2's `(?U)` flag swaps the meaning of a trailing
- * `?`: under it `a+` is lazy and `a+?` greedy. The 2026-11-03 capture
- * `c1-re2-replace-split` (`ug0`, `ug1`) shows production reads `(?U)` so in
- * `replace()` (#1891).
+ * The POSIX class `[:name:]` or `[:^name:]` starting at `pos` inside a
+ * bracket class, or null. A negated one holds every code point the named
+ * one does not.
  */
-export function re2RepeatGreediness(pattern: string): boolean[] {
-  const scan = new RepeatScan(pattern);
-  scan.run();
-  return scan.greedy;
+export function re2PosixClassAt(source: string, pos: number): Re2PosixClass | null {
+  const found = /^\[:(\^?)([a-z]+):\]/.exec(source.slice(pos, pos + 12));
+  if (found === null) return null;
+  const ranges = RE2_POSIX_CLASSES[found[2]!];
+  if (ranges === undefined) return null;
+  return { length: found[0].length, ranges: found[1] === '^' ? complementRanges(ranges) : ranges };
 }
 
-class RepeatScan {
-  readonly greedy: boolean[] = [];
-  private pos = 0;
-  private ungreedy = false;
-  private afterAtom = false;
-  private readonly scopes: boolean[] = [];
-
-  constructor(private readonly pattern: string) {}
-
-  run(): void {
-    while (this.pos < this.pattern.length) {
-      const ch = this.pattern[this.pos]!;
-      // `parseRe2Ast` stops at a `)` that closes no group.
-      const closesNoGroup = ch === ')' && this.scopes.length === 0;
-      if (closesNoGroup) return;
-      this.step(ch);
-    }
+function complementRanges(ranges: ReadonlyArray<readonly [number, number]>): Array<readonly [number, number]> {
+  const out: Array<readonly [number, number]> = [];
+  let next = 0;
+  for (const [lo, hi] of ranges) {
+    if (lo > next) out.push([next, lo - 1]);
+    next = hi + 1;
   }
-
-  private step(ch: string): void {
-    if (this.afterAtom && this.readRepeat(ch)) return;
-    if (ch === '(') return this.openGroup();
-    if (ch === ')') return this.closeGroup();
-    if (ch === '|') {
-      this.pos++;
-      this.afterAtom = false;
-      return;
-    }
-    this.pos = this.atomEnd(ch);
-    this.afterAtom = true;
-  }
-
-  /** Read a repeat at `pos`, if one is there, and record its greediness. */
-  private readRepeat(ch: string): boolean {
-    let length = 0;
-    if (ch === '*' || ch === '+' || ch === '?') length = 1;
-    else if (ch === '{') length = COUNTED_REPEAT.exec(this.pattern.slice(this.pos))?.[0].length ?? 0;
-    if (length === 0) return false;
-    this.pos += length;
-    const lazySuffix = this.pattern[this.pos] === '?';
-    if (lazySuffix) this.pos++;
-    this.greedy.push(lazySuffix === this.ungreedy);
-    return true;
-  }
-
-  private openGroup(): void {
-    this.scopes.push(this.ungreedy);
-    this.pos++;
-    this.afterAtom = false;
-    if (this.pattern[this.pos] !== '?') return;
-    this.pos++;
-    const next = this.pattern[this.pos];
-    if (next === ':') {
-      this.pos++;
-      return;
-    }
-    const named = next === '<' || (next === 'P' && this.pattern[this.pos + 1] === '<');
-    if (named) {
-      this.pos = this.pattern.indexOf('>', this.pos) + 1;
-      return;
-    }
-    this.readFlags();
-  }
-
-  /** Read `(?flags)`, which sets flags for the rest of its group, or `(?flags:`. */
-  private readFlags(): void {
-    const flags = /^[imsU-]+/.exec(this.pattern.slice(this.pos))?.[0];
-    if (flags === undefined) return;
-    this.applyFlags(flags);
-    this.pos += flags.length;
-    if (this.pattern[this.pos] === ':') {
-      this.pos++;
-      return;
-    }
-    if (this.pattern[this.pos] !== ')') return;
-    // A flag group alone is an empty atom, and its flags outlive it.
-    this.pos++;
-    this.scopes.pop();
-    this.afterAtom = true;
-  }
-
-  private applyFlags(flags: string): void {
-    let clearing = false;
-    for (const f of flags) {
-      if (f === '-') clearing = true;
-      else if (f === 'U') this.ungreedy = !clearing;
-    }
-  }
-
-  private closeGroup(): void {
-    this.ungreedy = this.scopes.pop() ?? this.ungreedy;
-    this.pos++;
-    this.afterAtom = true;
-  }
-
-  private atomEnd(ch: string): number {
-    if (ch === '[') return this.classEnd();
-    if (ch === '\\') return this.escapeEnd();
-    return this.pos + String.fromCodePoint(this.pattern.codePointAt(this.pos)!).length;
-  }
-
-  private classEnd(): number {
-    let i = this.pos + 1;
-    if (this.pattern[i] === '^') i++;
-    if (this.pattern[i] === ']') i++;
-    while (i < this.pattern.length && this.pattern[i] !== ']') i += this.pattern[i] === '\\' ? 2 : 1;
-    return this.pattern[i] === ']' ? i + 1 : i;
-  }
-
-  /** Where the escape at `pos` ends, by the lengths `parseRe2Ast` consumes. */
-  private escapeEnd(): number {
-    const start = this.pos;
-    const esc = this.pattern[start + 1];
-    if (esc === undefined) return start + 1;
-    const braced = this.pattern[start + 2] === '{' && 'xupP'.includes(esc);
-    const close = braced ? this.pattern.indexOf('}', start + 3) : -1;
-    if (close !== -1) return close + 1;
-    const letterClass = (esc === 'p' || esc === 'P') && /[A-Za-z]/.test(this.pattern[start + 2] ?? '');
-    if (letterClass) return start + 3;
-    const fixed = FIXED_ESCAPE_LENGTHS[esc];
-    if (fixed !== undefined) return start + fixed;
-    const octal = /^[0-7]{1,3}/.exec(this.pattern.slice(start + 1))?.[0].length ?? 0;
-    if (octal > 0) return start + 1 + octal;
-    return start + 1 + String.fromCodePoint(this.pattern.codePointAt(start + 1)!).length;
-  }
+  out.push([next, 0x10ffff]);
+  return out;
 }
 
-/** Escapes `parseRe2Ast` reads at a fixed length, the backslash included. */
-const FIXED_ESCAPE_LENGTHS: Readonly<Record<string, number>> = { x: 4, u: 6, c: 3 };
+/**
+ * Spell RE2's POSIX classes inside a bracket class as ranges a JavaScript
+ * RegExp reads: `[[:alpha:]]` as `[\x41-\x5a\x61-\x7a]`. A JavaScript engine
+ * reads `[[:alpha:]]` as the set `[:alph` followed by a literal `]`. The
+ * 2026-10-27 capture `re2-pattern-semantics` and the 2026-11-04 captures
+ * `c1-re2-replace-split` (`px0`) and `c9-re2-more` (`px2`) show production
+ * reads them as classes. `unicode` says whether the RegExp has the `u`
+ * flag; without it a range stops at U+FFFF.
+ */
+export function spellRe2PosixClasses(source: string, unicode: boolean): string {
+  let out = '';
+  let inClass = false;
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === '\\' && i + 1 < source.length) {
+      out += source.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    const posix = inClass ? re2PosixClassAt(source, i) : null;
+    if (posix !== null) {
+      out += posix.ranges.map(([lo, hi]) => `${classMember(lo, unicode)}-${classMember(hi, unicode)}`).join('');
+      i += posix.length;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    else if (ch === ']') inClass = false;
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+function classMember(codePoint: number, unicode: boolean): string {
+  if (codePoint <= 0xff) return `\\x${codePoint.toString(16).padStart(2, '0')}`;
+  if (unicode) return `\\u{${codePoint.toString(16)}}`;
+  return `\\u${Math.min(codePoint, 0xffff).toString(16).padStart(4, '0')}`;
+}

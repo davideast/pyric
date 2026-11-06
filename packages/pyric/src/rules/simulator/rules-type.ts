@@ -1,13 +1,21 @@
 import {
   normalizeRe2ForJsRegExp,
+  re2PosixClassAt,
   scanRe2Pattern,
-  spellRe2Dot,
+  spellRe2PosixClasses,
   spellRe2PropertyShorthand,
   spellRe2SpaceClasses,
 } from '../grammar/re2-pattern.js';
 import { FirestoreSet } from './firestore-set.js';
 import { MapDiff } from './mapdiff.js';
-import { matchesRegexNode, type RegexNode } from './regex-nfa.js';
+import {
+  CodePointSubject,
+  compileRegexSearch,
+  matchesRegexNode,
+  type RegexNode,
+  type RegexSearch,
+  type UnitMatch,
+} from './regex-nfa.js';
 import { MAX_REGEX_POSITIONS, MAX_REGEX_STATES, sizeProblem } from '../rtdb/grammar/regex-limits.js';
 import { RulesValue } from './wrappers/base.js';
 import { isRulesInt } from './rules-int.js';
@@ -81,27 +89,30 @@ function unsupportedConstructError(method: string, construct: string): Error {
   return new Error(`${method}() pattern uses an RE2-unsupported construct (${construct}) that production would reject`);
 }
 
+/** A pattern compiled for `split()` and `replace()`, with its capture groups. */
+export interface Re2Search {
+  search: RegexSearch;
+  groupCount: number;
+  /** Each named group's number, from `(?P<name>...)` or `(?<name>...)`. */
+  groupNames: ReadonlyMap<string, number>;
+}
+
 /**
- * Validate and compile a rules RE2 pattern into a JS RegExp for `split` or
- * `replace`, rejecting backreferences and lookaround constructs that RE2
- * rejects in production, and patterns past pyric's size limits.
+ * Validate and compile a rules RE2 pattern for `split()` or `replace()`,
+ * with the checks `matches()` gives it: RE2's refusal of backreferences and
+ * lookaround, JavaScript's syntax check, and pyric's size limits. The search
+ * runs on the linear matcher `matches()` uses.
  */
-export function compileRe2Regex(method: string, pattern: string, source: string, flags?: string): RegExp {
+export function compileRe2Search(method: string, pattern: string): Re2Search {
   // The scan skips escapes and classes, so `\\1` and `[(?=]` are literals.
-  const { unsupported, inlineFlags } = scanRe2Pattern(pattern);
+  const { unsupported } = scanRe2Pattern(pattern);
   if (unsupported !== null) throw unsupportedConstructError(method, unsupported);
-  // `(?i)` and the other inline flags reach the RegExp as flags, `\s` is
-  // RE2's ASCII class (FS2-SIM-6), and `.` matches `\r` (FS2-SIM-5a2).
-  const mergedFlags = [...new Set(`${flags ?? ''}${inlineFlags}`)].join('');
-  const spaced = spellRe2SpaceClasses(normalizeRe2ForJsRegExp(source), false);
-  let regex: RegExp;
-  try {
-    regex = new RegExp(spellRe2Dot(spaced, mergedFlags.includes('s')), mergedFlags);
-  } catch (err) {
-    throw new Error(`Invalid regex '${pattern}' in ${method}(): ${(err as Error).message}`);
-  }
-  parseSizedRe2Ast(pattern);
-  return regex;
+  const compileError = re2PatternCompileError(pattern);
+  if (compileError !== null) throw new Error(`Invalid regex '${pattern}' in ${method}(): ${compileError}`);
+  const parsed = parseRe2Pattern(pattern);
+  const sizeRefusal = re2SizeRefusal(pattern, parsed.ast);
+  if (sizeRefusal !== null) throw new Error(sizeRefusal);
+  return { search: compileRegexSearch(parsed.ast), groupCount: parsed.groupCount, groupNames: parsed.groupNames };
 }
 
 /**
@@ -188,21 +199,44 @@ function compileCharMatcher(rawPattern: string, ignoreCase: boolean): (ch: strin
   let flags = 'u';
   if (ignoreCase) flags = 'iu';
   try {
-    const re = new RegExp(`^${spellRe2SpaceClasses(spellRe2UnicodeClasses(rawPattern), true)}$`, flags);
+    const spelled = spellRe2UnicodeClasses(spellRe2PosixClasses(rawPattern, true));
+    const re = new RegExp(`^${spellRe2SpaceClasses(spelled, true)}$`, flags);
     return (c) => re.test(c);
   } catch {
     const fallbackFlags = ignoreCase ? 'i' : '';
-    const re = new RegExp(`^${spellRe2SpaceClasses(rawPattern, false)}$`, fallbackFlags);
+    const spelled = spellRe2PosixClasses(rawPattern, false);
+    const re = new RegExp(`^${spellRe2SpaceClasses(spelled, false)}$`, fallbackFlags);
     return (c) => re.test(c);
   }
 }
 
 /** Parse an RE2 pattern into the matcher's tree, refusing a repeat count over 1000. */
 export function parseRe2Ast(pattern: string): RegexNode {
+  return parseRe2Pattern(pattern).ast;
+}
+
+/** An RE2 pattern's tree and its capture groups. */
+export interface ParsedRe2Pattern {
+  ast: RegexNode;
+  groupCount: number;
+  groupNames: ReadonlyMap<string, number>;
+}
+
+/**
+ * Parse an RE2 pattern into the matcher's tree, numbering its capture
+ * groups by their opening parenthesis. Each repeat's greediness comes from
+ * the same reading: a trailing `?` makes it lazy, and under RE2's `(?U)`
+ * flag a repeat is lazy unless it has one. Capture `c1-re2-replace-split`
+ * (`ug0`, `ug1`) shows production reads `(?U)` so (#1891).
+ */
+export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
   let pos = 0;
   let ignoreCase = false;
   let multiline = false;
   let dotAll = false;
+  let ungreedy = false;
+  let groupCount = 0;
+  const groupNames = new Map<string, number>();
 
   const applyFlagString = (flagStr: string) => {
     let clearing = false;
@@ -211,6 +245,7 @@ export function parseRe2Ast(pattern: string): RegexNode {
       else if (f === 'i') ignoreCase = !clearing;
       else if (f === 'm') multiline = !clearing;
       else if (f === 's') dotAll = !clearing;
+      else if (f === 'U') ungreedy = !clearing;
     }
   };
 
@@ -227,30 +262,53 @@ export function parseRe2Ast(pattern: string): RegexNode {
   const parseConcat = (): RegexNode => {
     const items: RegexNode[] = [];
     while (pos < pattern.length && pattern[pos] !== '|' && pattern[pos] !== ')') {
-      items.push(parseQuantified());
+      const quoted = pattern.startsWith('\\Q', pos);
+      if (quoted) items.push(...parseQuoted());
+      else items.push(parseQuantified());
     }
     if (items.length === 0) return { kind: 'empty' };
     if (items.length === 1) return items[0]!;
     return { kind: 'seq', items };
   };
 
-  const parseQuantified = (): RegexNode => {
-    let node = parseAtom();
+  /**
+   * `\Q...\E`: the text up to `\E`, or to the end, as literal characters.
+   * A repeat after it applies to its last character, as RE2 reads it.
+   */
+  const parseQuoted = (): RegexNode[] => {
+    const close = pattern.indexOf('\\E', pos + 2);
+    const end = close === -1 ? pattern.length : close;
+    const literals = Array.from(pattern.slice(pos + 2, end)).map((ch) => matchLiteralChar(ch, ignoreCase));
+    pos = close === -1 ? end : end + 2;
+    const last = literals.pop();
+    if (last === undefined) return [];
+    return [...literals, parseQuantified(last)];
+  };
+
+  /** Whether the repeat just read is greedy, reading its lazy `?` if it has one. */
+  const readGreedy = (): boolean => {
+    const lazySuffix = pattern[pos] === '?';
+    if (lazySuffix) pos++;
+    return lazySuffix === ungreedy;
+  };
+
+  const parseQuantified = (atom?: RegexNode): RegexNode => {
+    let node = atom ?? parseAtom();
     while (pos < pattern.length) {
       const ch = pattern[pos];
       if (ch === '*' || ch === '+' || ch === '?') {
         pos++;
-        if (pos < pattern.length && pattern[pos] === '?') pos++;
+        const greedy = readGreedy();
         let min = 0;
         let max = Infinity;
         if (ch === '+') min = 1;
         else if (ch === '?') max = 1;
-        node = { kind: 'rep', body: node, min, max };
+        node = { kind: 'rep', body: node, min, max, greedy };
       } else if (ch === '{') {
         const m = /^\{(\d+)(?:,(\d*))?\}/.exec(pattern.slice(pos));
         if (!m) break;
         pos += m[0].length;
-        if (pos < pattern.length && pattern[pos] === '?') pos++;
+        const greedy = readGreedy();
         const min = Number(m[1]);
         let max = min;
         if (m[2] !== undefined) {
@@ -259,7 +317,7 @@ export function parseRe2Ast(pattern: string): RegexNode {
         if (min > max || min > 1000 || (max !== Infinity && max > 1000)) {
           throw new Error(`Invalid repeat count in '${pattern}'`);
         }
-        node = { kind: 'rep', body: node, min, max };
+        node = { kind: 'rep', body: node, min, max, greedy };
       } else {
         break;
       }
@@ -283,12 +341,18 @@ export function parseRe2Ast(pattern: string): RegexNode {
       const savedI = ignoreCase;
       const savedM = multiline;
       const savedS = dotAll;
+      const savedU = ungreedy;
+      let capture: number | undefined;
+      if (pattern[pos] !== '?') capture = ++groupCount;
       if (pattern[pos] === '?') {
         pos++;
         if (pattern[pos] === ':') {
           pos++;
         } else if (pattern[pos] === '<' || (pattern[pos] === 'P' && pattern[pos + 1] === '<')) {
+          const nameStart = pattern.indexOf('<', pos) + 1;
           const closeGt = pattern.indexOf('>', pos);
+          capture = ++groupCount;
+          groupNames.set(pattern.slice(nameStart, closeGt), capture);
           pos = closeGt + 1;
         } else {
           const flagMatch = /^[imsU-]+/.exec(pattern.slice(pos));
@@ -308,7 +372,9 @@ export function parseRe2Ast(pattern: string): RegexNode {
       ignoreCase = savedI;
       multiline = savedM;
       dotAll = savedS;
-      return inner;
+      ungreedy = savedU;
+      if (capture === undefined) return inner;
+      return { kind: 'seq', items: [inner], capture };
     }
     if (ch === '[') {
       const start = pos;
@@ -317,7 +383,7 @@ export function parseRe2Ast(pattern: string): RegexNode {
       if (pattern[pos] === ']') pos++;
       while (pos < pattern.length && pattern[pos] !== ']') {
         if (pattern[pos] === '\\') pos += 2;
-        else pos++;
+        else pos += re2PosixClassAt(pattern, pos)?.length ?? 1;
       }
       if (pattern[pos] === ']') pos++;
       const rawClass = normalizeRe2ForJsRegExp(pattern.slice(start, pos));
@@ -415,31 +481,47 @@ export function parseRe2Ast(pattern: string): RegexNode {
     return matchLiteralChar(fullCh, ignoreCase);
   };
 
-  return parseAlternation();
-}
-
-/** Number of capture groups in `regex`, read from a match of the empty alternative. */
-export function re2CaptureGroupCount(regex: RegExp): number {
-  const probe = new RegExp(`${regex.source}|`).exec('');
-  return probe === null ? 0 : probe.length - 1;
+  return { ast: parseAlternation(), groupCount, groupNames };
 }
 
 /**
- * Evaluate `subject.replace(pattern, replacement)` with RE2 regex compilation
- * and Java `Matcher` replacement template rules (`$n`, `${name}`, `\c`).
+ * Evaluate `subject.replace(pattern, replacement)` with Java `Matcher`
+ * replacement template rules (`$n`, `${name}`, `\c`). The pattern runs on
+ * the linear matcher `split()` uses and reads the subject as code points, so
+ * scoped flags (#1332), `(?U)` (#1891), RE2's classes and `\Q..\E`
+ * (#2211), an astral character (#1890), and `\z` and `\A` under `(?m)`
+ * (#1892) read as capture `c1-re2-replace-split` shows production reads
+ * them. After an empty match the search moves on one code unit, as
+ * `split()`'s does, and an empty match right after a match still counts:
+ * `em1` there shows `'abc'.replace('b*', '-') == '-a--c-'`.
  */
 export function replaceRe2(subject: string, pattern: string, replacement: string): string {
-  const regex = compileRe2Regex('replace', pattern, pattern, 'g');
-  const groupCount = re2CaptureGroupCount(regex);
-  return subject.replace(regex, (...match: unknown[]) => {
-    const groups = match.slice(0, groupCount + 1) as Array<string | undefined>;
-    const lastArg = match[match.length - 1];
-    let namedGroups: Record<string, string | undefined> = {};
-    if (typeof lastArg === 'object' && lastArg !== null) {
-      namedGroups = lastArg as Record<string, string | undefined>;
-    }
-    return expandRe2Replacement(replacement, groups, namedGroups);
-  });
+  const { search, groupCount, groupNames } = compileRe2Search('replace', pattern);
+  const text = new CodePointSubject(subject, search);
+  let out = '';
+  let copied = 0;
+  let from = 0;
+  while (from <= subject.length) {
+    const match = text.find(from);
+    if (match === null) break;
+    const groups = matchGroups(subject, match, groupCount);
+    const named = Object.fromEntries([...groupNames].map(([name, index]) => [name, groups[index]]));
+    out += subject.slice(copied, match.start) + expandRe2Replacement(replacement, groups, named);
+    copied = match.end;
+    const empty = match.end === match.start;
+    from = empty ? match.end + 1 : match.end;
+  }
+  return out + subject.slice(copied);
+}
+
+/** The match's text, then each group's text or undefined, by group number. */
+function matchGroups(subject: string, match: UnitMatch, groupCount: number): Array<string | undefined> {
+  const groups: Array<string | undefined> = [subject.slice(match.start, match.end)];
+  for (let index = 1; index <= groupCount; index++) {
+    const span = match.group(index);
+    groups.push(span === undefined ? undefined : subject.slice(span.start, span.end));
+  }
+  return groups;
 }
 
 function expandRe2Replacement(

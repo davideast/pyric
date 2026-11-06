@@ -10,13 +10,18 @@ export type RegexNode =
   | { kind: 'empty' }
   | { kind: 'char'; test: (ch: string) => boolean }
   | { kind: 'assert'; check: (chars: readonly string[], pos: number) => boolean }
-  | { kind: 'seq'; items: RegexNode[] }
+  | { kind: 'seq'; items: RegexNode[]; capture?: number }
   | { kind: 'alt'; left: RegexNode; right: RegexNode }
   | { kind: 'rep'; body: RegexNode; min: number; max: number; greedy?: boolean };
 
+/**
+ * A `seq` with a `capture` number is that capture group: a search records
+ * where it starts and ends in slots `2 * capture` and `2 * capture + 1`.
+ */
 type NfaState =
   | { kind: 'char'; test: (ch: string) => boolean; out: number }
   | { kind: 'assert'; check: (chars: readonly string[], pos: number) => boolean; out: number }
+  | { kind: 'save'; slot: number; out: number }
   | { kind: 'split'; out1: number; out2: number }
   | { kind: 'accept' };
 
@@ -67,11 +72,12 @@ function buildNfa(ast: RegexNode): Nfa {
       case 'assert':
         return addState({ kind: 'assert', check: node.check, out });
       case 'seq': {
-        let cur = out;
+        const { capture } = node;
+        let cur = capture === undefined ? out : addState({ kind: 'save', slot: 2 * capture + 1, out });
         for (let i = node.items.length - 1; i >= 0; i--) {
           cur = emit(node.items[i]!, cur);
         }
-        return cur;
+        return capture === undefined ? cur : addState({ kind: 'save', slot: 2 * capture, out: cur });
       }
       case 'alt': {
         const a = emit(node.left, out);
@@ -150,6 +156,8 @@ class Closure {
       const st = this.states[id]!;
       if (st.kind === 'split') {
         stack.push(st.out1, st.out2);
+      } else if (st.kind === 'save') {
+        stack.push(st.out);
       } else if (st.kind === 'assert') {
         if (st.check(chars, pos)) stack.push(st.out);
       } else {
@@ -240,47 +248,24 @@ class LazyDfa {
   }
 }
 
-/**
- * `ast` with each repeat's greediness set from `greedy`, given in the order
- * the parser built the repeats: a repeat's body before the repeat, a
- * sequence left to right, an alternation's left side first. A list whose
- * length is not the tree's repeat count leaves `ast` unchanged.
- */
-export function withRepeatGreediness(ast: RegexNode, greedy: readonly boolean[]): RegexNode {
-  let next = 0;
-  const annotate = (node: RegexNode): RegexNode => {
-    switch (node.kind) {
-      case 'seq':
-        return { kind: 'seq', items: node.items.map(annotate) };
-      case 'alt': {
-        const left = annotate(node.left);
-        return { kind: 'alt', left, right: annotate(node.right) };
-      }
-      case 'rep': {
-        const body = annotate(node.body);
-        return { ...node, body, greedy: greedy[next++] ?? true };
-      }
-      default:
-        return node;
-    }
-  };
-  const annotated = annotate(ast);
-  return next === greedy.length ? annotated : ast;
-}
 
 /** Where a match starts or ends: an index into `chars`, or the lead unit's position. */
 export type RegexPosition = number | 'lead';
 
+/** Capture slots by number: group `k` starts at slot `2k` and ends at `2k + 1`. */
+export type RegexSlots = readonly (RegexPosition | undefined)[];
+
 export interface RegexSpan {
   start: RegexPosition;
   end: RegexPosition;
+  slots: RegexSlots;
 }
 
 /**
  * One unit read before `chars[from]`, for a search that starts inside the
- * character before it (the low half of a surrogate pair, after `split()`
- * steps one code unit past an empty match). Assertions at its position see
- * `context` at `pos`.
+ * character before it (the low half of a surrogate pair, after `split()` or
+ * `replace()` steps one code unit past an empty match). Assertions at its
+ * position see `context` at `pos`.
  */
 export interface LeadUnit {
   unit: string;
@@ -291,30 +276,50 @@ export interface LeadUnit {
 /**
  * The leftmost match starting at or after `from`, or null. Among matches at
  * that start it returns the one RE2 picks: alternatives in order, a greedy
- * repeat taking as much as it can, a lazy one as little.
+ * repeat taking as much as it can, a lazy one as little. Its slots hold
+ * where each capture group last matched. A caller searches one `chars`
+ * array many times without changing it.
  */
 export type RegexSearch = (chars: readonly string[], from: number, lead?: LeadUnit) => RegexSpan | null;
 
 /**
  * Compile `ast` for leftmost-first search: a Pike VM that keeps its threads
  * in priority order, so one search costs O(states * chars) however the
- * pattern nests.
+ * pattern nests. Before the first search of a subject it marks, from the
+ * end backwards, which states can still reach a match at each position, and
+ * the VM drops every other thread. A higher-priority thread that cannot
+ * match, such as `.*x` in `.*x|a` on a subject with no `x`, then ends where
+ * it starts instead of reading to the end of the subject on every search,
+ * so a `split()` or `replace()` that searches once per match stays linear
+ * in the subject.
  */
 export function compileRegexSearch(ast: RegexNode): RegexSearch {
   const nfa = buildNfa(ast);
   const closure = new OrderedClosure(nfa.states);
-  return (chars, from, lead) => leftmostFirst(nfa, closure, { chars, from, lead });
+  const liveness = new Liveness(nfa);
+  // Keyed weakly, so a compiled pattern does not keep its last subject alive.
+  const liveBySubject = new WeakMap<readonly string[], LiveStates | null>();
+  return (chars, from, lead) => {
+    let live = liveBySubject.get(chars);
+    if (live === undefined) {
+      live = liveness.of(chars);
+      liveBySubject.set(chars, live);
+    }
+    return leftmostFirst(nfa, closure, { chars, from, lead, live });
+  };
 }
 
 interface Thread {
   state: number;
   start: RegexPosition;
+  slots: RegexSlots;
 }
 
 interface SearchInput {
   chars: readonly string[];
   from: number;
   lead: LeadUnit | undefined;
+  live: LiveStates | null;
 }
 
 interface StepResult {
@@ -322,18 +327,22 @@ interface StepResult {
   next: Thread[];
 }
 
+const NO_SLOTS: RegexSlots = [];
+
 function leftmostFirst(nfa: Nfa, closure: OrderedClosure, input: SearchInput): RegexSpan | null {
-  const { chars, from, lead } = input;
+  const { chars, from, lead, live } = input;
   let found: RegexSpan | null = null;
   let threads: Thread[] = [];
   if (lead !== undefined) {
-    const list = closure.of([{ state: nfa.start, start: 'lead' }], lead.context, lead.pos);
+    const seed: Thread = { state: nfa.start, start: 'lead', slots: NO_SLOTS };
+    const list = closure.of([seed], { chars: lead.context, pos: lead.pos, at: 'lead', live: null });
     ({ match: found, next: threads } = stepThreads(nfa.states, list, 'lead', lead.unit));
   }
   for (let pos = from; ; pos++) {
-    const seeds = found === null ? [...threads, { state: nfa.start, start: pos }] : threads;
+    const seeds = found === null ? [...threads, { state: nfa.start, start: pos, slots: NO_SLOTS }] : threads;
     if (seeds.length === 0) return found;
-    const step = stepThreads(nfa.states, closure.of(seeds, chars, pos), pos, chars[pos]);
+    const list = closure.of(seeds, { chars, pos, at: pos, live });
+    const step = stepThreads(nfa.states, list, pos, chars[pos]);
     if (step.match !== null) found = step.match;
     const atEnd = pos >= chars.length;
     if (atEnd) return found;
@@ -355,17 +364,33 @@ function stepThreads(
   const next: Thread[] = [];
   for (const thread of list) {
     const st = states[thread.state]!;
-    if (st.kind === 'accept') return { match: { start: thread.start, end: pos }, next };
+    if (st.kind === 'accept') return { match: { start: thread.start, end: pos, slots: thread.slots }, next };
     const reads = st.kind === 'char' && ch !== undefined && st.test(ch);
-    if (reads) next.push({ state: st.out, start: thread.start });
+    if (reads) next.push({ state: st.out, start: thread.start, slots: thread.slots });
   }
   return { match: null, next };
+}
+
+/** Where an ordered closure runs: assertions read `chars` at `pos`, captures record `at`. */
+interface ClosureInput {
+  chars: readonly string[];
+  pos: number;
+  at: RegexPosition;
+  /** The states that can still reach a match from `pos`, or null to keep every thread. */
+  live: LiveStates | null;
+}
+
+interface PendingState {
+  state: number;
+  slots: RegexSlots;
 }
 
 /**
  * Epsilon closure that keeps priority order: a split's `out1` and all it
  * reaches come before its `out2`, and a state reached twice keeps the
- * thread that reached it first.
+ * thread that reached it first. A state that cannot reach a match is
+ * dropped with all it leads to; any other thread reaching it later could
+ * not match either.
  */
 class OrderedClosure {
   private readonly marks: Uint32Array;
@@ -375,33 +400,36 @@ class OrderedClosure {
     this.marks = new Uint32Array(states.length);
   }
 
-  of(seeds: readonly Thread[], chars: readonly string[], pos: number): Thread[] {
+  of(seeds: readonly Thread[], input: ClosureInput): Thread[] {
     this.nextMark();
     const active: Thread[] = [];
-    for (const seed of seeds) this.follow(seed, chars, pos, active);
+    for (const seed of seeds) this.follow(seed, input, active);
     return active;
   }
 
-  private follow(seed: Thread, chars: readonly string[], pos: number, active: Thread[]): void {
-    const stack = [seed.state];
+  private follow(seed: Thread, input: ClosureInput, active: Thread[]): void {
+    const stack: PendingState[] = [{ state: seed.state, slots: seed.slots }];
     while (stack.length > 0) {
-      const id = stack.pop()!;
+      const { state: id, slots } = stack.pop()!;
       if (this.marks[id] === this.mark) continue;
       this.marks[id] = this.mark;
+      const cannotMatch = input.live !== null && !input.live.has(id, input.pos);
+      if (cannotMatch) continue;
       const st = this.states[id]!;
-      if (st.kind === 'split') stack.push(st.out2, st.out1);
-      else if (st.kind === 'assert') this.followAssert(st, chars, pos, stack);
-      else active.push({ state: id, start: seed.start });
+      if (st.kind === 'split') stack.push({ state: st.out2, slots }, { state: st.out1, slots });
+      else if (st.kind === 'assert') this.followAssert(st, input, slots, stack);
+      else if (st.kind === 'save') stack.push({ state: st.out, slots: withSlot(slots, st.slot, input.at) });
+      else active.push({ state: id, start: seed.start, slots });
     }
   }
 
   private followAssert(
     st: Extract<NfaState, { kind: 'assert' }>,
-    chars: readonly string[],
-    pos: number,
-    stack: number[],
+    input: ClosureInput,
+    slots: RegexSlots,
+    stack: PendingState[],
   ): void {
-    if (st.check(chars, pos)) stack.push(st.out);
+    if (st.check(input.chars, input.pos)) stack.push({ state: st.out, slots });
   }
 
   private nextMark(): void {
@@ -409,5 +437,193 @@ class OrderedClosure {
     if (this.mark !== 0xffffffff) return;
     this.marks.fill(0);
     this.mark = 1;
+  }
+}
+
+function withSlot(slots: RegexSlots, slot: number, at: RegexPosition): RegexSlots {
+  const copy = slots.slice();
+  copy[slot] = at;
+  return copy;
+}
+
+/** Most states times subject positions a `Liveness` pass may visit; past it the VM keeps every thread. */
+const LIVENESS_WORK_LIMIT = 1 << 26;
+
+/** Most bytes of live-state sets a `Liveness` pass may keep; past it the VM keeps every thread. */
+const LIVENESS_BYTES_LIMIT = 1 << 22;
+
+/** For each position of one subject, the NFA states from which a match can still end. */
+interface LiveStates {
+  has(state: number, pos: number): boolean;
+}
+
+/**
+ * Computes `LiveStates` for a subject in one backward pass: a state is live
+ * at `pos` when it is the accept state, a char state that reads `chars[pos]`
+ * into a state live at `pos + 1`, or an epsilon state (a split, a save, an
+ * assertion that holds at `pos`) leading to a live state. Each distinct set
+ * is kept once, and for a pattern without assertions the set at `pos`
+ * depends only on the set at `pos + 1` and `chars[pos]`, so that step is
+ * cached, a reverse DFA built as the pass needs it.
+ */
+class Liveness {
+  private readonly predecessors: number[][];
+  private readonly charStates: number[] = [];
+
+  constructor(private readonly nfa: Nfa) {
+    const { states } = nfa;
+    this.predecessors = states.map(() => []);
+    states.forEach((st, id) => {
+      if (st.kind === 'char') this.charStates.push(id);
+      for (const out of epsilonOuts(st)) this.predecessors[out]!.push(id);
+    });
+  }
+
+  /** The live states of `chars`, or null when the pass would pass `LIVENESS_WORK_LIMIT` or `LIVENESS_BYTES_LIMIT`. */
+  of(chars: readonly string[]): LiveStates | null {
+    const size = this.nfa.states.length;
+    const tooMuchWork = size * (chars.length + 1) > LIVENESS_WORK_LIMIT;
+    if (tooMuchWork) return null;
+    const sets = new InternedSets(size);
+    const transitions: Map<string, number>[] = [];
+    const setAt = new Int32Array(chars.length + 1);
+    let after = -1;
+    for (let pos = chars.length; pos >= 0; pos--) {
+      const ch = chars[pos];
+      const cacheable = !this.nfa.hasAsserts && after >= 0 && ch !== undefined;
+      let id = cacheable ? transitions[after]!.get(ch) : undefined;
+      if (id === undefined) {
+        id = sets.intern(this.liveAt(chars, pos, after >= 0 ? sets.get(after) : null));
+        if (sets.bytes > LIVENESS_BYTES_LIMIT) return null;
+        transitions[id] ??= new Map();
+        if (cacheable) transitions[after]!.set(ch, id);
+      }
+      setAt[pos] = id;
+      after = id;
+    }
+    return { has: (state, pos) => sets.get(setAt[pos]!)[state] === 1 };
+  }
+
+  private liveAt(chars: readonly string[], pos: number, after: Uint8Array | null): Uint8Array {
+    const { states } = this.nfa;
+    const live = new Uint8Array(states.length);
+    const work: number[] = [];
+    const mark = (id: number): void => {
+      if (live[id] === 1) return;
+      live[id] = 1;
+      work.push(id);
+    };
+    mark(0);
+    const ch = chars[pos];
+    if (after !== null && ch !== undefined) {
+      for (const id of this.charStates) {
+        const st = states[id] as Extract<NfaState, { kind: 'char' }>;
+        if (after[st.out] === 1 && st.test(ch)) mark(id);
+      }
+    }
+    while (work.length > 0) {
+      for (const pred of this.predecessors[work.pop()!]!) {
+        const st = states[pred]!;
+        const blocked = st.kind === 'assert' && !st.check(chars, pos);
+        if (!blocked) mark(pred);
+      }
+    }
+    return live;
+  }
+}
+
+/** The states an epsilon state moves to without reading a character. */
+function epsilonOuts(st: NfaState): number[] {
+  if (st.kind === 'split') return [st.out1, st.out2];
+  if (st.kind === 'save' || st.kind === 'assert') return [st.out];
+  return [];
+}
+
+/** Live-state sets, each distinct set stored once. */
+class InternedSets {
+  private readonly sets: Uint8Array[] = [];
+  private readonly index = new Map<string, number>();
+
+  constructor(private readonly size: number) {}
+
+  get bytes(): number {
+    return this.sets.length * this.size;
+  }
+
+  get(id: number): Uint8Array {
+    return this.sets[id]!;
+  }
+
+  intern(set: Uint8Array): number {
+    const key = set.join('');
+    const existing = this.index.get(key);
+    if (existing !== undefined) return existing;
+    this.sets.push(set);
+    this.index.set(key, this.sets.length - 1);
+    return this.sets.length - 1;
+  }
+}
+
+/** A code-unit span of a subject. */
+export interface UnitSpan {
+  start: number;
+  end: number;
+}
+
+/** A match in code-unit offsets, with each capture group's span, or undefined for a group that did not take part. */
+export interface UnitMatch extends UnitSpan {
+  group(index: number): UnitSpan | undefined;
+}
+
+/**
+ * A subject read as code points, as RE2 reads it, and searched at code-unit
+ * offsets, as `split()` and `replace()` step through it. A search from the
+ * low half of a surrogate pair reads that half as a lead unit.
+ */
+export class CodePointSubject {
+  private readonly chars: string[];
+  /** The code-unit offset where each code point starts, and the subject's length. */
+  private readonly offsets: number[] = [];
+  /** For each code-unit offset, the code point starting there, or -1 inside a pair. */
+  private readonly charAt: Int32Array;
+
+  constructor(
+    readonly text: string,
+    private readonly search: RegexSearch,
+  ) {
+    this.chars = Array.from(text);
+    this.charAt = new Int32Array(text.length + 1).fill(-1);
+    let offset = 0;
+    this.chars.forEach((ch, index) => {
+      this.offsets.push(offset);
+      this.charAt[offset] = index;
+      offset += ch.length;
+    });
+    this.offsets.push(offset);
+    this.charAt[offset] = this.chars.length;
+  }
+
+  /** The leftmost match at or after code-unit offset `from`, in code-unit offsets. */
+  find(from: number): UnitMatch | null {
+    const index = this.charAt[from]!;
+    if (index >= 0) return this.toUnits(this.search(this.chars, index), from);
+    // `from` is the low half of the pair before the next code point.
+    const next = this.charAt[from + 1]!;
+    const pair = this.text.slice(from - 1, from + 1);
+    const lead: LeadUnit = { unit: pair[1]!, context: [pair[0]!, pair[1]!], pos: 1 };
+    return this.toUnits(this.search(this.chars, next, lead), from);
+  }
+
+  private toUnits(span: RegexSpan | null, leadOffset: number): UnitMatch | null {
+    if (span === null) return null;
+    const unit = (pos: RegexPosition): number => (pos === 'lead' ? leadOffset : this.offsets[pos]!);
+    const { slots } = span;
+    const group = (index: number): UnitSpan | undefined => {
+      const start = slots[2 * index];
+      const end = slots[2 * index + 1];
+      if (start === undefined || end === undefined) return undefined;
+      return { start: unit(start), end: unit(end) };
+    };
+    return { start: unit(span.start), end: unit(span.end), group };
   }
 }

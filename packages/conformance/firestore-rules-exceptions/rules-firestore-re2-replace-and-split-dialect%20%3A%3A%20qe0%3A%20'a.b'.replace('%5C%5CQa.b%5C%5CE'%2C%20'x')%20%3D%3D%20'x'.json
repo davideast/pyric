@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#232","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads \\p{L}, \\pL, [[:alpha:]] and \\Q..\\E in replace() as RE2 classes and quoting; pyric's replace() does not","issue":"#2211"}
