@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#224","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"pyric reads a $(value) holding '/' as more path segments and finds the deeper document; production keeps it one segment","issue":"#1888"}
