@@ -210,7 +210,10 @@ test.describe('pyric-live', () => {
       billed: { reads: 0, writes: 0, deliveries: 0 },
     });
     expect(host.output()).toContain(`pyric-live: live mode for the Firebase project ${PROJECT_ID}.`);
-    expect(host.output()).toContain(`The chip and Studio show "Live: ${PROJECT_ID}" while it runs.`);
+    expect(host.output()).toContain(
+      `pyric-live: live mode for the Firebase project ${PROJECT_ID}. Your app talks to production with its real data, ` +
+        'and production bills each read, write and listener delivery.\n',
+    );
     expect(host.output()).toContain('node --import @pyric/live/register server.js');
     expect(host.output()).not.toContain('export PYRIC_SANDBOX=remote');
 
