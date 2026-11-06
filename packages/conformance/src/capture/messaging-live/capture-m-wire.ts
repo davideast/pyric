@@ -774,7 +774,13 @@ async function sequence(created: Record<KeyRestriction, CreatedKey>): Promise<vo
 }
 
 say(`[capture-m] run ${runId}; if it stops partway, run the cleanup with --cleanup ${runId}`);
-const outcome = await runWithCaptureCleanup(keys, runId, sequence, { client: cleanCurrentClient, handleSignals: true, log: complain });
+const outcome = await runWithCaptureCleanup(keys, runId, sequence, { client: cleanCurrentClient, handleSignals: true, log: complain }).catch(async (error: unknown) => {
+  // The run refused before it created anything (the key list failed, or keys already carry the run id).
+  complain(`[capture-m] refused before creating anything: ${messageOf(error)}`);
+  server.stop();
+  await deleteApp(admin);
+  process.exit(1);
+});
 const network = current ? (current as BrowserRun).network : [];
 await closeBrowser();
 server.stop();
