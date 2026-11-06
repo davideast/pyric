@@ -68,20 +68,23 @@ const REQUEST_ACTIONS: ReadonlyMap<ObservedRequestApi, ReadonlySet<string>> = ne
   ['registrations', new Set(['create', 'update', 'delete'])],
 ]);
 const MAX_REQUESTS = 4;
-const MAX_RECORD_DEPTH = 4;
-/**
- * Strings shaped like the credentials a Messaging call handles, which a
- * record must never carry: a JWT such as a FIS auth token, an FCM
- * registration token (`<id>:APA91b...`), and any other opaque run of 40 or
- * more URL-safe characters that holds a digit, such as a VAPID key or a
- * refresh token. An Auth uid (28 characters) and an SDK code are shorter runs.
- */
-const TOKEN_PATTERNS: readonly RegExp[] = [
-  /eyJ[A-Za-z0-9_-]{10,}/,
-  /[A-Za-z0-9_-]{8,}:[A-Za-z0-9_-]{20,}/,
-  /(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{40,}/,
-];
 const MAX_PATH_LENGTH = 1500;
+/** The token walk's bounds: a well-formed call nests three levels deep and its longest list is its claim names. */
+const MAX_RECORD_DEPTH = 4;
+const MAX_WALKED_ENTRIES = 64;
+const MAX_WALKED_STRING_LENGTH = MAX_PATH_LENGTH;
+/** Fields the token walk skips because their own reader bounds them: an Auth uid may be a long hex id. */
+const UNWALKED_FIELDS: ReadonlySet<string> = new Set(['account.uid']);
+/** Splits a string into runs of URL-safe characters and colons, the alphabet every token shape is drawn from. */
+const NON_TOKEN_CHARACTERS = /[^A-Za-z0-9_:-]+/;
+const DIGIT = /[0-9]/;
+/** A JWT's header (`eyJ`) followed by at least this many URL-safe characters. */
+const MIN_JWT_TAIL = 10;
+/** An FCM registration token: `<id>:APA91b...`, an id of at least 8 characters and a tail of at least 20. */
+const MIN_FCM_ID = 8;
+const MIN_FCM_TAIL = 20;
+/** An opaque key or token, such as a VAPID key or a refresh token: a run this long that holds a digit. */
+const MIN_OPAQUE_RUN = 40;
 const MAX_UID_LENGTH = 128;
 const MAX_CLAIM_NAMES = 64;
 const MAX_CLAIM_NAME_LENGTH = 128;
@@ -178,27 +181,67 @@ function readAi(value: unknown): ObservedAi {
   return ai;
 }
 
-function isTokenShaped(value: unknown): boolean {
-  return typeof value === 'string' && TOKEN_PATTERNS.some((pattern) => pattern.test(value));
+/**
+ * Whether one colon-free run of URL-safe characters is a JWT's start or an
+ * opaque key. The earliest `eyJ` leaves the longest tail, so one search is enough.
+ */
+function isTokenSegment(segment: string): boolean {
+  const jwtStart = segment.indexOf('eyJ');
+  const isJwt = jwtStart >= 0 && segment.length - jwtStart - 3 >= MIN_JWT_TAIL;
+  const isOpaque = segment.length >= MIN_OPAQUE_RUN && DIGIT.test(segment);
+  return isJwt || isOpaque;
+}
+
+/** Whether a run of URL-safe characters and colons holds a token: a token segment, or an FCM token across a colon. */
+function isTokenRun(run: string): boolean {
+  const segments = run.split(':');
+  return segments.some((segment, index) => {
+    const next = segments[index + 1];
+    const isFcmToken = next !== undefined && segment.length >= MIN_FCM_ID && next.length >= MIN_FCM_TAIL;
+    return isFcmToken || isTokenSegment(segment);
+  });
+}
+
+/**
+ * Whether a string is shaped like a credential a Messaging call handles: a JWT
+ * such as a FIS auth token, an FCM registration token, or another opaque key.
+ * It splits once and checks each run by length, so it runs in linear time.
+ */
+function isTokenShaped(value: string): boolean {
+  return value.split(NON_TOKEN_CHARACTERS).some(isTokenRun);
+}
+
+/** Refuse a string too long for any field, or one shaped like a token. */
+function requireNoTokenString(value: string, field: string): void {
+  requireField(value.length <= MAX_WALKED_STRING_LENGTH && !isTokenShaped(value), field);
 }
 
 /**
  * Refuse a token-shaped key or value anywhere in `value`, naming the field it
- * sits in. A well-formed call nests three levels deep, so anything deeper (a
- * structured-clone cycle included) is refused before the walk can run away.
+ * sits in. The walk is bounded before any string is checked: strings no longer
+ * than the longest field the reader takes, at most 64 entries in a list or
+ * object, and at most four levels, which also stops a structured-clone cycle.
  */
 function requireNoTokens(value: unknown, field: string, depth = 0): void {
-  requireField(!isTokenShaped(value), field);
+  if (UNWALKED_FIELDS.has(field)) return;
+  if (typeof value === 'string') {
+    requireNoTokenString(value, field);
+    return;
+  }
   const isNested = Array.isArray(value) || isFields(value);
   if (!isNested) return;
-  requireField(depth < MAX_RECORD_DEPTH, field === '' ? 'call' : field);
+  const container = field === '' ? 'call' : field;
+  requireField(depth < MAX_RECORD_DEPTH, container);
   if (Array.isArray(value)) {
+    requireField(value.length <= MAX_WALKED_ENTRIES, container);
     for (const entry of value) requireNoTokens(entry, field, depth + 1);
     return;
   }
-  for (const [key, entry] of Object.entries(value as Fields)) {
-    requireField(!isTokenShaped(key), field === '' ? 'call' : field);
-    requireNoTokens(entry, field === '' ? key : `${field}.${key}`, depth + 1);
+  const keys = Object.keys(value);
+  requireField(keys.length <= MAX_WALKED_ENTRIES, container);
+  for (const key of keys) {
+    requireNoTokenString(key, container);
+    requireNoTokens((value as Fields)[key], field === '' ? key : `${field}.${key}`, depth + 1);
   }
 }
 

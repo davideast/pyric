@@ -221,7 +221,6 @@ describe('readObservedCall', () => {
         [{ ...GET_TOKEN, requests: [{ ...entry, token }] }, 'requests.token'],
         [{ ...GET_TOKEN, requests: [{ ...entry, action: token }] }, 'requests.action'],
         [{ ...GET_TOKEN, outcome: { status: 'error', code: token } }, 'outcome.code'],
-        [{ ...GET_TOKEN, account: { uid: token } }, 'account.uid'],
         [{ ...GET_TOKEN, account: { uid: 'alice', claimNames: ['admin', token] } }, 'account.claimNames'],
         [{ ...GET_TOKEN, token }, 'token'],
       );
@@ -238,6 +237,30 @@ describe('readObservedCall', () => {
     // A Firebase Auth uid and the SDK's own codes are not token-shaped.
     const signedIn = { ...GET_TOKEN, account: { uid: 'kX9aQ2bLm4Rt7Yw1Zp0Vc3Ns8Hd2' }, outcome: { status: 'error', code: 'messaging/token-subscribe-failed' } };
     expect(readObservedCall(signedIn)).toEqual(signedIn as ObservedCall);
+  });
+
+  it("leaves the account's uid to its own bounds, so a long hex uid keeps its Messaging rows", () => {
+    const hexUid = { ...GET_TOKEN, account: { uid: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' } };
+    expect(readObservedCall(hexUid)).toEqual(hexUid as ObservedCall);
+    expect(() => readObservedCall({ ...GET_TOKEN, account: { uid: 'a'.repeat(129) } })).toThrow('Invalid observed call field: account.uid.');
+  });
+
+  it('refuses an oversized string, list or object on a Messaging call in under 50 ms', () => {
+    const entry = { api: 'registrations', action: 'create', status: 200 };
+    const wideObject = Object.fromEntries(Array.from({ length: 100_000 }, (_, index) => [`k${index}`, 1]));
+    const cases: Array<[unknown, string]> = [
+      [{ ...GET_TOKEN, outcome: { status: 'error', code: 'a'.repeat(1_000_000) } }, 'outcome.code'],
+      [{ ...GET_TOKEN, method: `${'a'.repeat(500_000)}:${'b'.repeat(500_000)}` }, 'method'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, action: 'a'.repeat(1_000_000) }] }, 'requests.action'],
+      [{ ...GET_TOKEN, requests: Array.from({ length: 100_000 }, () => entry) }, 'requests'],
+      [{ ...GET_TOKEN, requests: [{ ...entry, ...wideObject }] }, 'requests'],
+      [{ ...GET_TOKEN, account: { uid: 'alice', claimNames: Array.from({ length: 100_000 }, () => 'a') } }, 'account.claimNames'],
+    ];
+    for (const [record, field] of cases) {
+      const started = performance.now();
+      expect(() => readObservedCall(record)).toThrow(`Invalid observed call field: ${field}.`);
+      expect(performance.now() - started).toBeLessThan(50);
+    }
   });
 
   it('refuses a malformed record and names the field', () => {
