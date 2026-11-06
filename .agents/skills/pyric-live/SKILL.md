@@ -1,6 +1,6 @@
 ---
 name: pyric-live
-description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
+description: Install @pyric/live from npm or from a local Pyric checkout, start live mode in a project, verify which Firebase project it is on, and exercise it. Use to test live mode, where the app's own Firebase SDK talks to a real Firebase project and Pyric shows each Firestore, Realtime Database and Auth call with production's answer. Don't use for ordinary Pyric sandbox work (use pyric) or to test Node host mode (use pyric-node-host).
 ---
 
 # Test Pyric's live mode
@@ -185,31 +185,40 @@ Work through these and record the observed result for each. Each line states wha
    names. No row shows a token.
 2. **Denied write.** A write the project's rules deny shows `permission-denied` as production's
    answer. It does not raise the billed-call count.
-3. **Auth.** Sign up and sign in with a test account. Each call is a row with production's answer.
+3. **Realtime Database.** A write, a read, a transaction and a listener under the test prefix each
+   appear as a row served by production, named with its service (such as `rtdb.set` or
+   `rtdb.onValue`) and showing the path. Each listener delivery is its own row. A call the rules
+   deny shows `permission_denied`. A named instance's calls appear the same way, though the row
+   doesn't name the instance yet. A `.info/connected` listener makes no row. RTDB listeners don't
+   show in the chip's Data tab or Studio's Listeners view yet, and RTDB calls don't raise the
+   billed-call count; neither is a finding.
+4. **Auth.** Sign up and sign in with a test account. Each call is a row with production's answer.
    Skip this step if the project sends mail on sign-up (a Functions trigger or an Auth email
    setting), unless the owner agrees.
-4. **Node process.** A process under `@pyric/live/register` prints
+5. **Node process.** A process under `@pyric/live/register` prints
    `reporting calls to the live host at <url>`, and its calls appear as rows from a Node process.
-5. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
+6. **Refusals.** Each throws an error with the code `PYRIC_LIVE_REFUSED` before any request
    leaves, and says what was refused:
-   - importing `firebase/database` (Realtime Database);
+   - importing `firebase/functions` (Cloud Functions);
    - a named Firestore database, such as `getFirestore(app, 'reports')`;
    - `firebase-admin` in a Node process under the register;
    - a Studio edit or an MCP tool that writes.
 
    Live mode refuses each Firebase import it doesn't serve. An app that lists one, as in
-   `pyricLive({ passThrough: ['firebase/database'] })`, loads it from its own installed SDK,
+   `pyricLive({ passThrough: ['firebase/functions'] })`, loads it from its own installed SDK,
    unobserved: its calls still bill, and the start line, the chip and Studio name it as passing
-   through. A Node process under the register passes through the same list: at start it reads
+   through. A list that names an import live mode serves, such as `firebase/database`, stops the
+   dev server at start with `passThrough lists firebase/database, which live mode already serves
+   and observes; remove it.` A Node process under the register passes through the same list: at start it reads
    the list from its live host's `/__pyric/health`, prints a line for each import, and passes the
    same ones to its children and workers. Start the process after the host; a process started
    with no live host, or under `pyric-live`, which takes no list, still refuses them.
-6. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
+7. **Real SDK stopped.** `@google-cloud/firestore` in a Node process under the register fails with
    `PYRIC_REAL_SDK_STOPPED`.
-7. **Own requests blocked.** A Node process's global `fetch` to Firestore rejects with
+8. **Own requests blocked.** A Node process's global `fetch` to Firestore rejects with
    `TypeError('fetch failed')`, whose `cause.code` is `PYRIC_GUARD_BLOCKED`. That process's own
    stderr names the host.
-8. **Billed-call count.** The chip and Studio count goes up as calls production answers with
+9. **Billed-call count.** The chip and Studio count goes up as calls production answers with
    success. Reads and writes count once per call, not per document; listener deliveries count the
    documents delivered. A denied call is not counted.
 
