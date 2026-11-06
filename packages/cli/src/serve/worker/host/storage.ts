@@ -646,6 +646,8 @@ export async function handleStorageOp(
         const existing = await service.backend.getMetadata(r.fullPath);
         const operationProvenance = storageOperationProvenance(target, opProvenance(msg));
         const settable = toSettableMetadata(msg);
+        // Finishing the upload checks the rules again as the object lands and
+        // records that decision, so this early check records only a denial.
         enforceRules(service, {
           request: {
             auth: storageAuth(target),
@@ -662,7 +664,7 @@ export async function handleStorageOp(
             }, 'upload'),
           },
           resource: resourceFromStored(existing),
-        }, target, operationProvenance);
+        }, target, operationProvenance, { record: 'denials' });
         if (!service.backend.beginUpload) {
           throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
         }
