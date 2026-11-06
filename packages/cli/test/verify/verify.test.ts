@@ -559,6 +559,70 @@ describe('verifyFixture RTDB case kinds', () => {
   });
 });
 
+// ─── Live calls: production's answer replayed against the local rules ───
+describe('verifyFixture live Firestore calls', () => {
+  const ADMIN_READS = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow read: if request.auth.token.admin == true; }
+  }
+}`;
+  const OWNER_WRITES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /rooms/{id} { allow create, update: if request.resource.data.owner == request.auth.uid; }
+  }
+}`;
+  const NO_ONE = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{p=**} { allow read, write: if false; }
+  }
+}`;
+
+  type LiveValues = NonNullable<PyricVerifyFixture['liveCalls']>[string];
+
+  /** A capture holding one live call production answered, with the values it carried. */
+  function liveCapture(call: Parameters<typeof observedCallEvent>[0], values: LiveValues, rules: string): PyricVerifyFixture {
+    const sandbox = initializeSandbox();
+    emitSandboxEvent(sandbox, observedCallEvent(call), { caller: { kind: 'node' } });
+    const id = sandbox.history().at(-1)!.id;
+    return buildVerifyFixture({ sandbox, firestoreRules: rules, liveCalls: { [id]: values } });
+  }
+
+  const read = (outcome: { status: 'ok' } | { status: 'error'; code: string }) => ({
+    service: 'firestore' as const, method: 'getDoc', path: 'rooms/r1', at: 1, outcome, account: { uid: 'alice' },
+  });
+  const write = { service: 'firestore' as const, method: 'setDoc', path: 'rooms/r1', at: 1, outcome: { status: 'ok' as const }, account: { uid: 'alice' } };
+
+  it('reports no divergence when the local rules still answer as production did', async () => {
+    const fixture = liveCapture(read({ status: 'ok' }), { claims: { admin: true } }, ADMIN_READS);
+    const result = await verifyFixture(fixture, { rules: { firestore: ADMIN_READS } });
+    expect(result.services.firestore?.divergences).toEqual([]);
+    expect(result.services.firestore?.checkedEvents).toBe(1);
+  });
+
+  it('reports now-denied for a live read production allowed and the local rules deny', async () => {
+    const fixture = liveCapture(read({ status: 'ok' }), { claims: { admin: true } }, ADMIN_READS);
+    const result = await verifyFixture(fixture, { rules: { firestore: NO_ONE } });
+    expect(result.ok).toBe(false);
+    expect(result.services.firestore?.divergences).toMatchObject([{ service: 'firestore', kind: 'now-denied', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  it('reports now-allowed for a live read production denied and the local rules allow', async () => {
+    const fixture = liveCapture(read({ status: 'error', code: 'permission-denied' }), { claims: { admin: true } }, ADMIN_READS);
+    const result = await verifyFixture(fixture, { rules: { firestore: ADMIN_READS } });
+    expect(result.services.firestore?.divergences).toMatchObject([{ service: 'firestore', kind: 'now-allowed', path: 'rooms/r1', method: 'get' }]);
+  });
+
+  it('replays a live write with the data it sent', async () => {
+    const agrees = await verifyFixture(liveCapture(write, { writeData: { owner: 'alice' } }, OWNER_WRITES), { rules: { firestore: OWNER_WRITES } });
+    expect(agrees.services.firestore?.divergences).toEqual([]);
+    const differs = await verifyFixture(liveCapture(write, { writeData: { owner: 'bob' } }, OWNER_WRITES), { rules: { firestore: OWNER_WRITES } });
+    expect(differs.services.firestore?.divergences).toMatchObject([{ kind: 'now-denied', path: 'rooms/r1', method: 'set' }]);
+  });
+});
+
 // ─── Storage rules — capture / restore round-trip ───────────────────────
 //
 // `services.storage.rules` used to be a typed-but-never-written slot:

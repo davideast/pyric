@@ -543,6 +543,43 @@ describe('applyServeInit — capture (the verify loop)', () => {
     }
   });
 
+  it('captures a live call with both verdicts and the values it carried, emails left out', async () => {
+    const ctx = await makeCtx();
+    const fetchSpy = recordingFetch();
+    const result = applyServeInit(ctx, { ...basePayload, rules: PERMISSIVE_RULES, capture: true }, { fetch: fetchSpy, captureDebounceMs: 5 });
+    try {
+      const port = fakePort();
+      const call = {
+        service: 'firestore',
+        method: 'setDoc',
+        path: 'rooms/r1',
+        at: 1_700_000_000_000,
+        outcome: { status: 'ok' },
+        account: {
+          uid: 'alice',
+          claimNames: ['admin', 'email'],
+          claims: { admin: true, email: 'alice@example.com', firebase: { identities: { email: ['alice@example.com'], 'google.com': ['1'] } } },
+        },
+        writeData: { owner: 'alice' },
+      };
+      await handleMessage(ctx, port, { t: 'observe', id: 'o1', call } as Parameters<typeof handleMessage>[2]);
+      await tick(20);
+
+      const body = JSON.parse(fetchSpy.calls.filter((c) => c.url === '/__pyric/capture').at(-1)!.body) as {
+        events: Array<{ id: string; production?: { outcome: unknown; local?: { result: string } } }>;
+        liveCalls?: Record<string, unknown>;
+      };
+      const live = body.events.find((event) => event.production !== undefined)!;
+      expect(live.production).toMatchObject({ outcome: { status: 'ok' }, local: { result: 'allow' } });
+      expect(body.liveCalls?.[live.id]).toEqual({
+        claims: { admin: true, firebase: { identities: { 'google.com': ['1'] } } },
+        writeData: { owner: 'alice' },
+      });
+    } finally {
+      result.dispose();
+    }
+  });
+
   it('no capture wiring when capture is off', async () => {
     const ctx = await makeCtx();
     const fetchSpy = recordingFetch();

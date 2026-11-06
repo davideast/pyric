@@ -17,7 +17,13 @@ import {
   type StoredMetadata,
 } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
-import { isProductionServed, type RtdbReplayDivergence } from 'pyric/sandbox/internal';
+import {
+  isProductionServed,
+  observedMethod,
+  productionVerdict,
+  type ObservedMethod,
+  type RtdbReplayDivergence,
+} from 'pyric/sandbox/internal';
 import {
   rulesSourceRejection,
   SimulateFirestoreRulesHandler,
@@ -37,6 +43,7 @@ import {
   parseVerifyFixture,
   VERIFY_FIXTURE_SCHEMA,
   type PyricVerifyFixture,
+  type VerifyLiveCallValues,
 } from './fixture.js';
 import { runStagingInstance, StagingDeployRefusedError, withStagingInstance, type StagingRunHooks } from './staging/engine.js';
 import type { RtdbRestClient } from './staging/rest.js';
@@ -68,6 +75,7 @@ export {
   type BuildVerifyFixtureInput,
   type PyricVerifyFixture,
   type VerifyFirestoreRulesBlock,
+  type VerifyLiveCallValues,
   type VerifyRtdbInstanceCapture,
   type VerifyRtdbRulesBlock,
   type VerifyStorageRulesBlock,
@@ -463,15 +471,104 @@ function verifyFirestoreSandbox(
     }
   }
 
+  const live = verifyLiveFirestoreCalls(fixture, rules);
+  mapped.push(...live.divergences);
+
   return {
     engine: 'sandbox',
     ok: mapped.every(isInformational),
     checkedEvents:
       fixture.events.filter(isProtectedFirestoreWrite).length +
       readCases.length +
-      deniedWriteCases.length,
+      deniedWriteCases.length +
+      live.checkedEvents,
     divergences: mapped,
   };
+}
+
+/** A live Firestore call's event: production served it, and it named a path. */
+function isLiveFirestoreCall(event: PyricVerifyFixture['events'][number]): event is SandboxOperationEvent & { path: string } {
+  if (event.kind !== 'operation' || event.service !== 'firestore') return false;
+  const operation = event as SandboxOperationEvent;
+  return isProductionServed(operation.rulesDisposition) && operation.production !== undefined && typeof operation.path === 'string';
+}
+
+/**
+ * The candidate rules' answer to one live call, run as `method` with the
+ * values the call carried, or `undefined` when the rules cannot decide it
+ * from them (a `get()` or `exists()` lookup, or an unsupported construct).
+ */
+function liveFirestoreDecision(
+  simulator: SimulateFirestoreRulesHandler,
+  rules: string,
+  event: SandboxOperationEvent & { path: string },
+  values: VerifyLiveCallValues | undefined,
+  method: Exclude<ObservedMethod, 'set'>,
+): boolean | undefined {
+  const uid = event.auth?.uid;
+  const auth = uid === undefined ? null : { uid, token: { ...values?.claims, sub: uid } };
+  const isWrite = method === 'create' || method === 'update';
+  const data = isWrite ? values?.writeData : undefined;
+  // A create names no stored document; the simulator refuses one.
+  const resource = method === 'create' ? undefined : values?.document;
+  const testCase: TestCase = {
+    description: `live ${method} ${event.path}`,
+    expectation: 'ALLOW',
+    method,
+    path: event.path,
+    auth,
+    ...(data === undefined ? {} : { data }),
+    ...(resource === undefined ? {} : { resource }),
+    requestTime: new Date(event.at).toISOString(),
+  };
+  let looked = false;
+  const simulated = simulator.simulate(rules, [testCase], { getDoc: () => { looked = true; return null; } });
+  const result = simulated.success ? simulated.data.results[0] : undefined;
+  const isUndecided = result === undefined || result.decision === 'UNSUPPORTED' || looked;
+  return isUndecided ? undefined : result.decision === 'ALLOW';
+}
+
+type LiveDecide = (method: Exclude<ObservedMethod, 'set'>) => boolean | undefined;
+
+/** One method's answer; a `setDoc` is a create or an update, so it has one only when both agree. */
+function liveDecision(method: ObservedMethod, decide: LiveDecide): boolean | undefined {
+  if (method !== 'set') return decide(method);
+  const asCreate = decide('create');
+  const agrees = asCreate === decide('update');
+  return agrees ? asCreate : undefined;
+}
+
+/**
+ * Replay each live Firestore call the capture holds against the candidate
+ * rules, with the claim values, write data and document it carried, and
+ * report each one the rules now answer differently from production: a call
+ * production allowed is `now-denied`, one it denied is `now-allowed`. A
+ * `setDoc` counts only when its create and update answers agree, and a call
+ * production failed for another reason is not checked.
+ */
+function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): { checkedEvents: number; divergences: VerifyDivergence[] } {
+  const simulator = new SimulateFirestoreRulesHandler();
+  const divergences: VerifyDivergence[] = [];
+  let checkedEvents = 0;
+  for (const event of fixture.events.filter(isLiveFirestoreCall)) {
+    const method = observedMethod('firestore', event.method);
+    const verdict = productionVerdict(event.production!.outcome);
+    if (method === null || verdict === 'failed') continue;
+    const values = fixture.liveCalls?.[event.id];
+    const allowed = liveDecision(method, (as) => liveFirestoreDecision(simulator, rules, event, values, as));
+    if (allowed === undefined) continue;
+    checkedEvents += 1;
+    const productionAllowed = verdict === 'ok';
+    if (allowed === productionAllowed) continue;
+    divergences.push({
+      service: 'firestore',
+      kind: productionAllowed ? 'now-denied' : 'now-allowed',
+      path: event.path,
+      method,
+      reason: productionAllowed ? 'production allowed this live call; the local rules deny it' : 'production denied this live call; the local rules allow it',
+    });
+  }
+  return { checkedEvents, divergences };
 }
 
 function reconstructInitialFirestoreDocuments(

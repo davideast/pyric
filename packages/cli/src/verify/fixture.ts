@@ -26,6 +26,17 @@ export interface VerifyStorageRulesBlock {
   source: string;
 }
 
+/**
+ * What one live call carried for the local rules, kept beside its event
+ * rather than on it: the token's claim values (emails left out), the data a
+ * Firestore write sent, and the document a Firestore read returned.
+ */
+export interface VerifyLiveCallValues {
+  claims?: Record<string, unknown>;
+  writeData?: Record<string, unknown>;
+  document?: Record<string, unknown>;
+}
+
 export interface PyricVerifyFixture {
   schema: typeof VERIFY_FIXTURE_SCHEMA;
   description?: string;
@@ -39,6 +50,13 @@ export interface PyricVerifyFixture {
    *  standalone captures → hydration primes best-effort. */
   capturedBy?: string;
   events: SandboxEvent[];
+  /**
+   * The values each live call carried, by its event's id. A live call's
+   * event holds production's answer and the local verdict; `pyric verify`
+   * replays it with these against the candidate rules. Absent when the
+   * session observed no call that carried any.
+   */
+  liveCalls?: Record<string, VerifyLiveCallValues>;
   services: {
     firestore?: {
       rules: VerifyFirestoreRulesBlock;
@@ -99,6 +117,15 @@ export interface BuildVerifyFixtureInput {
   /** Stamped into the fixture as `capturedBy` (identity for boot-time event
    *  hydration). Omit for `pyric verify` builds — they have no instance. */
   capturedBy?: string;
+  /** The values live calls carried, by event id; only those of events in the history are kept. */
+  liveCalls?: Record<string, VerifyLiveCallValues>;
+}
+
+/** The live call values whose events the history still holds, or `undefined` for none. */
+function liveCallsIn(events: SandboxEvent[], liveCalls: Record<string, VerifyLiveCallValues> | undefined): Record<string, VerifyLiveCallValues> | undefined {
+  if (liveCalls === undefined) return undefined;
+  const kept = events.filter((event) => Object.hasOwn(liveCalls, event.id)).map((event) => [event.id, liveCalls[event.id]!] as const);
+  return kept.length === 0 ? undefined : Object.fromEntries(kept);
 }
 
 export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyFixture {
@@ -165,12 +192,14 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
     };
   }
 
+  const liveCalls = liveCallsIn(events, input.liveCalls);
   return {
     schema: VERIFY_FIXTURE_SCHEMA,
     ...(input.description ? { description: input.description } : {}),
     createdAt: input.createdAt ?? new Date().toISOString(),
     ...(input.capturedBy ? { capturedBy: input.capturedBy } : {}),
     events,
+    ...(liveCalls === undefined ? {} : { liveCalls }),
     services,
   };
 }
@@ -190,6 +219,10 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
     throw new Error('fixture.events must be an array.');
   }
   assertCompleteHistory(events);
+  const hasInvalidLiveCalls = value.liveCalls !== undefined && !isVerifyFixtureObject(value.liveCalls);
+  if (hasInvalidLiveCalls) {
+    throw new Error('fixture.liveCalls must be an object.');
+  }
   const services = value.services;
   const hasInvalidServices = !isVerifyFixtureObject(services);
   if (hasInvalidServices) {

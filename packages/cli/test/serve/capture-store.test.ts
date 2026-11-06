@@ -1,6 +1,6 @@
 /** Unit tests for `createCaptureStore` — the write-side of the pyric verify loop. */
 import { describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCaptureStore, CAPTURE_RELATIVE_PATH } from '../../src/serve/capture-store.js';
@@ -83,6 +83,43 @@ describe('createCaptureStore', () => {
       store.write(JSON.stringify({ rules: '', events: [], state: { 'a/b': { x: 2 } } }));
       const parsed = JSON.parse(readFileSync(store.path, 'utf8')) as { state: { 'a/b': { x: number } } };
       expect(parsed.state['a/b'].x).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a write adds .pyric/ to the app's .gitignore, creating it when absent", () => {
+    const dir = tmp();
+    try {
+      createCaptureStore(dir).write('{}');
+      const lines = readFileSync(join(dir, '.gitignore'), 'utf8').split('\n');
+      expect(lines).toContain('.pyric/');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a write appends .pyric/ to an existing .gitignore once, keeping its lines', () => {
+    const dir = tmp();
+    try {
+      writeFileSync(join(dir, '.gitignore'), 'node_modules');
+      const store = createCaptureStore(dir);
+      store.write('{}');
+      store.write('{}');
+      createCaptureStore(dir).write('{}');
+      const lines = readFileSync(join(dir, '.gitignore'), 'utf8').split('\n').filter(Boolean);
+      expect(lines).toEqual(['node_modules', '.pyric/']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a .gitignore that already ignores .pyric is left as it is', () => {
+    const dir = tmp();
+    try {
+      writeFileSync(join(dir, '.gitignore'), 'dist\n/.pyric\n');
+      createCaptureStore(dir).write('{}');
+      expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('dist\n/.pyric\n');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
