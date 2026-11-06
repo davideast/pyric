@@ -18,6 +18,7 @@
  * instead of killing the runner.
  */
 import 'fake-indexeddb/auto';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { firestoreRules } from '../../../src/rules/api/firestore.js';
@@ -222,6 +223,7 @@ interface Probe {
   sourceTemplate?: string;
   comment?: { placeholder: string; character: string; repeat: number };
   sourceBytes?: number;
+  sourceSha256?: string;
   compiles: boolean;
   error?: { code: number; message: string; status: string };
   cases?: Array<{ description: string; method: string; path: string; decision: string }>;
@@ -304,8 +306,10 @@ describe('Firestore refuses a source of 262,144 bytes or more (#1899)', () => {
   const reason = refused.error!.message;
 
   test('the probes rebuild the sources the capture sent', () => {
-    expect(utf8Bytes(sourceOf(refused))).toBe(refused.sourceBytes!);
-    expect(utf8Bytes(sourceOf(control))).toBe(control.sourceBytes!);
+    for (const p of [refused, control]) {
+      expect(utf8Bytes(sourceOf(p))).toBe(p.sourceBytes!);
+      expect(createHash('sha256').update(sourceOf(p), 'utf8').digest('hex')).toBe(p.sourceSha256!);
+    }
     expect(refused.error).toEqual({
       code: 400,
       message: 'Total size of sources must be smaller than 262144.',
@@ -339,7 +343,9 @@ describe('Firestore refuses a source of 262,144 bytes or more (#1899)', () => {
     return source;
   }
 
-  test('262,143 bytes compiles and 262,144 is refused, as "smaller than 262144" reads', () => {
+  // The boundary is inferred from production's message ("smaller than
+  // 262144"); the captures sent 300,145 and 200,145 bytes, not 262,144.
+  test('262,143 bytes compiles and 262,144 is refused, the boundary production\'s message implies', () => {
     expect(firestoreCompileMessages(sourceOfBytes(262_143))).toEqual([]);
     expect(firestoreCompileMessages(sourceOfBytes(262_144))).toEqual([reason]);
   });
@@ -351,4 +357,24 @@ describe('Firestore refuses a source of 262,144 bytes or more (#1899)', () => {
     expect(source.length).toBeLessThan(200_000);
     expect(firestoreCompileMessages(source)).toEqual([reason]);
   });
+
+  /** The SOURCE_SIZE messages `lint()` reports for `source`. */
+  function lintSizeMessages(source: string): string[] {
+    return lint(source).filter((i) => i.code === 'SOURCE_SIZE').map((i) => i.message);
+  }
+
+  const agreement: Array<[string, () => string, boolean]> = [
+    ['262,143 ASCII bytes', () => sourceOfBytes(262_143), false],
+    ['262,144 ASCII bytes', () => sourceOfBytes(262_144), true],
+    ['262,143 bytes of two-byte characters', () => sourceOfBytes(262_143, 'é'), false],
+    ['262,145 bytes of two-byte characters', () => sourceOfBytes(262_145, 'é'), true],
+  ];
+  for (const [label, build, refusedAtLoad] of agreement) {
+    test(`lint() and the loader agree on ${label}`, () => {
+      const source = build();
+      const expected = refusedAtLoad ? [reason] : [];
+      expect(firestoreCompileMessages(source)).toEqual(expected);
+      expect(lintSizeMessages(source)).toEqual(expected);
+    });
+  }
 });

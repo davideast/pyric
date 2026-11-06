@@ -81,7 +81,11 @@ export function checkRulesSource(
 
 const FIRESTORE_SERVICE = 'cloud.firestore';
 
-/** The fewest UTF-8 bytes of source production refuses as Firestore rules. */
+/**
+ * The fewest UTF-8 bytes of source production refuses as Firestore rules.
+ * Inferred from production's message ("smaller than 262144"): the captures
+ * sent 300,145 and 200,145 bytes, and no capture measured the boundary.
+ */
 const SOURCE_SIZE_LIMIT_BYTES = 262_144;
 
 /** Production's reason for a source of `SOURCE_SIZE_LIMIT_BYTES` or more (capture c5j-source-300k-comment). */
@@ -104,7 +108,8 @@ function isPastSourceSizeLimit(source: string): boolean {
 
 /**
  * Why production refuses a Firestore source of 262,144 bytes or more, or
- * null when it is smaller. Production refused a 300,145-byte source with
+ * null when it is smaller. The loader and the linter both call it, so they
+ * share one limit and one count. Production refused a 300,145-byte source with
  * 400 INVALID_ARGUMENT, "Total size of sources must be smaller than
  * 262144.", and compiled a 200,145-byte one (captures
  * c5j-source-300k-comment and c5k-source-200k-comment in
@@ -114,9 +119,16 @@ function isPastSourceSizeLimit(source: string): boolean {
  * refusal as a request error rather than a compile issue, so the check runs
  * before the parse and reports no line.
  */
-function sourceSizeRejection(source: string): Extract<RulesSourceRejection, { kind: 'compile' }> | null {
+export function sourceSizeViolation(source: string): CompileLimitViolation | null {
   if (!isPastSourceSizeLimit(source)) return null;
-  const violations: CompileLimitViolation[] = [{ code: 'SOURCE_SIZE', message: SOURCE_SIZE_REASON }];
+  return { code: 'SOURCE_SIZE', message: SOURCE_SIZE_REASON };
+}
+
+/** {@link sourceSizeViolation} as the rejection `checkRulesSource` returns. */
+function sourceSizeRejection(source: string): Extract<RulesSourceRejection, { kind: 'compile' }> | null {
+  const violation = sourceSizeViolation(source);
+  if (violation === null) return null;
+  const violations = [violation];
   return { kind: 'compile', violations, message: `rules did not compile: ${describeCompileLimitViolations(violations)}` };
 }
 
