@@ -39,7 +39,7 @@
  * and calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
-import { liveProjectRefusal, type LiveClient } from './refusal.js';
+import { liveProjectRefusal, type LiveClient, type ProjectField } from './refusal.js';
 
 export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
@@ -385,24 +385,32 @@ function projectMatched(pattern: RegExp, value: string | undefined): string | un
 }
 
 /**
- * How each config field without a projectId encodes a project: only its
+ * How each config field beside the projectId encodes a project: only its
  * default forms do. A custom auth domain, a bucket or RTDB instance with a
  * name of its own, and the emulator encode none, so they cannot be judged.
  */
-const CONFIG_PROJECTS: Readonly<Record<string, (value: string) => string | undefined>> = {
+const CONFIG_PROJECTS: Readonly<Record<Exclude<ProjectField, 'projectId'>, (value: string) => string | undefined>> = {
   databaseURL: (value) => projectMatched(DEFAULT_DATABASE_HOST, databaseHost(value)),
   storageBucket: (value) => projectMatched(DEFAULT_BUCKET, value),
   authDomain: (value) => projectMatched(DEFAULT_AUTH_DOMAIN, value),
 };
 
+const CONFIG_FIELDS = Object.keys(CONFIG_PROJECTS) as Exclude<ProjectField, 'projectId'>[];
+
+/** One project the app's config names, and the field that names it. */
+interface NamedProject {
+  readonly field: ProjectField;
+  readonly projectId: string;
+}
+
 /** The projects the app's databaseURL, storageBucket and authDomain encode, read without calling anything of the app's. */
-function configProjects(subject: unknown): string[] {
-  const projects: string[] = [];
+function configProjects(subject: unknown): NamedProject[] {
+  const projects: NamedProject[] = [];
   try {
-    for (const [field, projectIn] of Object.entries(CONFIG_PROJECTS)) {
+    for (const field of CONFIG_FIELDS) {
       const value = configString(subject, field);
-      const project = value === undefined ? undefined : projectIn(value);
-      if (project !== undefined) projects.push(project);
+      const projectId = value === undefined ? undefined : CONFIG_PROJECTS[field](value);
+      if (projectId !== undefined) projects.push({ field, projectId });
     }
   } catch {
     // A config that throws on read names no project; the call is judged by what was read.
@@ -439,28 +447,30 @@ function siteFor(site: ObservedSite, args: readonly unknown[], self: unknown): O
 const REQUESTLESS_MODULES: ReadonlySet<string> = new Set(['firebase/app']);
 
 /**
- * The project the call's app names: its projectId, else the first project
- * its databaseURL, storageBucket or authDomain encodes that is not the
- * host's. RTDB, Storage and Auth run without a projectId, so those fields
- * are where such an app names its project.
+ * Every project the call's app names: its projectId, then each project its
+ * databaseURL, storageBucket or authDomain encodes. RTDB, Storage and Auth
+ * run without a projectId, and those fields can point an app at another
+ * project than its projectId, so every field that can be judged is.
  */
-function appProjectOf(callSite: ObservedSite, hostProjectId: string): string | undefined {
-  if (callSite.projectId !== undefined) return callSite.projectId;
-  return configProjects(callSite.subject).find((project) => project !== hostProjectId);
+function appProjectsOf(callSite: ObservedSite): NamedProject[] {
+  const configured = configProjects(callSite.subject);
+  const projectId = callSite.projectId;
+  return projectId === undefined ? configured : [{ field: 'projectId', projectId }, ...configured];
 }
 
 /**
  * The refusal of a call whose app names another project than the host's, or
- * null when it may run: the observer names no host project, the call's
- * project can't be read, the projects match, or the module makes no request.
+ * null when it may run: the observer names no host project, the module
+ * makes no request, or every project the app's config names, as far as it
+ * can be read, is the host's.
  */
 function refusedProject(callSite: ObservedSite): Error | null {
   const { hostProjectId, client } = callSite.observer;
   const isUnchecked = hostProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
   if (isUnchecked) return null;
-  const appProjectId = appProjectOf(callSite, hostProjectId);
-  if (appProjectId === undefined || appProjectId === hostProjectId) return null;
-  return liveProjectRefusal(callSite.name, { appProjectId, hostProjectId }, client);
+  const other = appProjectsOf(callSite).find((named) => named.projectId !== hostProjectId);
+  if (other === undefined) return null;
+  return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
 }
 
 function ignoreRejection(returned: unknown): void {

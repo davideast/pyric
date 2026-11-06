@@ -57,6 +57,14 @@ function appWith(fields: Record<string, string>): { options: Record<string, stri
   return { options: { apiKey: 'key', ...fields } };
 }
 
+/** An app whose projectId is the host's, with the given fields beside it. */
+function hostAppWith(fields: Record<string, string>): { options: Record<string, string> } {
+  return { options: { apiKey: 'key', projectId: HOST, ...fields } };
+}
+
+/** The data a project refusal carries beside its message. */
+type ProjectRefusalData = Error & { code?: string; field?: string; appProjectId?: string; hostProjectId?: string };
+
 /** One call through a live row: the stand-in it wraps, and how the app makes the call on an app. */
 interface RowCall {
   readonly row: string;
@@ -235,11 +243,11 @@ function siteOf(observer: LiveObserver): LiveModuleSite {
   return { observer, sdkVersion: '12.12.0', client: 'page' };
 }
 
-function thrown(invoke: () => unknown): (Error & { code?: string }) | undefined {
+function thrown(invoke: () => unknown): ProjectRefusalData | undefined {
   try {
     invoke();
   } catch (error) {
-    return error as Error & { code?: string };
+    return error as ProjectRefusalData;
   }
   return undefined;
 }
@@ -387,13 +395,14 @@ describe('a live row whose app names no projectId, on a host for project a', () 
     }
   }
 
-  test('the refusal names the project the field encodes and the host project', () => {
+  test('the refusal carries the field it judged and both projects as data', () => {
     const { observer } = hostObserver(HOST);
     const { invoke } = ROW_CALLS[0]!.make(siteOf(observer), appWith({ storageBucket: `${OTHER}.appspot.com` }));
     const error = thrown(invoke);
     expect(error?.code).toBe(LIVE_REFUSED);
-    expect(error?.message).toContain(`'${OTHER}'`);
-    expect(error?.message).toContain(`'${HOST}'`);
+    expect(error?.field).toBe('storageBucket');
+    expect(error?.appProjectId).toBe(OTHER);
+    expect(error?.hostProjectId).toBe(HOST);
   });
 
   test('fields naming another project are not refused by an observer that names no host project', () => {
@@ -404,10 +413,65 @@ describe('a live row whose app names no projectId, on a host for project a', () 
   });
 });
 
+describe('a live row whose app names the host project as projectId, on a host for project a', () => {
+  for (const rowCall of ROW_CALLS) {
+    for (const fields of OTHER_PROJECT_FIELDS) {
+      test(`${rowCall.row} ${rowCall.call} with ${fieldsName(fields)} beside it throws PYRIC_LIVE_REFUSED before the real call`, async () => {
+        const { records, observer } = hostObserver(HOST);
+        const { ran, invoke } = rowCall.make(siteOf(observer), hostAppWith(fields));
+        const error = thrown(invoke);
+        await tick();
+        expect(error?.code).toBe(LIVE_REFUSED);
+        expect(ran).toEqual([]);
+        expect(records).toEqual([]);
+      });
+    }
+  }
+
+  for (const rowCall of ROW_CALLS) {
+    for (const fields of [...HOST_PROJECT_FIELDS, ...UNJUDGED_FIELDS]) {
+      test(`${rowCall.row} ${rowCall.call} with ${fieldsName(fields)} beside it runs`, async () => {
+        const { observer } = hostObserver(HOST);
+        const { ran, invoke } = rowCall.make(siteOf(observer), hostAppWith(fields));
+        expect(thrown(invoke)).toBeUndefined();
+        await tick();
+        expect(ran).toEqual([rowCall.call]);
+      });
+    }
+  }
+
+  const JUDGED_FIELDS: readonly (readonly [string, string])[] = [
+    ['databaseURL', `https://${OTHER}-default-rtdb.firebaseio.com`],
+    ['storageBucket', `${OTHER}.firebasestorage.app`],
+    ['authDomain', `${OTHER}.web.app`],
+  ];
+
+  for (const [field, value] of JUDGED_FIELDS) {
+    test(`the refusal names ${field} as the field it judged`, () => {
+      const { observer } = hostObserver(HOST);
+      const { invoke } = ROW_CALLS[0]!.make(siteOf(observer), hostAppWith({ [field]: value }));
+      const error = thrown(invoke);
+      expect(error?.field).toBe(field);
+      expect(error?.appProjectId).toBe(OTHER);
+      expect(error?.hostProjectId).toBe(HOST);
+    });
+  }
+
+  test('a projectId of another project is the field judged, ahead of matching fields', () => {
+    const { observer } = hostObserver(HOST);
+    const app = { options: { apiKey: 'key', projectId: OTHER, authDomain: `${HOST}.firebaseapp.com` } };
+    const error = thrown(ROW_CALLS[0]!.make(siteOf(observer), app).invoke);
+    expect(error?.code).toBe(LIVE_REFUSED);
+    expect(error?.field).toBe('projectId');
+    expect(error?.appProjectId).toBe(OTHER);
+  });
+});
+
 describe('the project refusal', () => {
   test('carries the live refusal code and names both projects and the client', () => {
-    const error = refusal.liveProjectRefusal('getDoc', { appProjectId: OTHER, hostProjectId: HOST }, 'node') as Error & { code?: string };
+    const error = refusal.liveProjectRefusal('getDoc', { field: 'projectId', appProjectId: OTHER, hostProjectId: HOST }, 'node');
     expect(error.code).toBe(LIVE_REFUSED);
+    expect(error.field).toBe('projectId');
     expect(error.message).toContain("'b'");
     expect(error.message).toContain("'a'");
     expect(error.message).toContain('a Node process');
