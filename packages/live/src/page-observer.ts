@@ -1,14 +1,18 @@
 /**
  * The page plane's observer: each live record of a Firestore, Auth, Realtime
- * Database, AI Logic or Cloud Storage call becomes the observed call the Node
- * host writes to its event stream, with production's answer. Records of
- * `firebase/app` and `firebase/app-check` calls stay in the page: the host's
- * observed calls name Firestore, Auth, RTDB, AI Logic and Storage only. A
- * call that returned synchronously, such as a listener's subscribe, has no
- * production answer and is not sent. A call that ran signed in names its
- * account: the uid and claim names, never the token. An RTDB call also names
- * its instance and path, an AI Logic call its model and production's token
- * counts, and a Storage call its bucket and, below the root, its path.
+ * Database, AI Logic, Cloud Storage or Cloud Messaging call becomes the
+ * observed call the Node host writes to its event stream, with production's
+ * answer. Records of `firebase/app` and `firebase/app-check` calls stay in
+ * the page: the host's observed calls name Firestore, Auth, RTDB, AI Logic,
+ * Storage and Messaging only. A call that returned synchronously, such as a
+ * listener's subscribe, has no production answer and is not sent. A call
+ * that ran signed in names its account: the uid and claim names, never the
+ * token. An RTDB call also names its instance and path, an AI Logic call its
+ * model and production's token counts, a Storage call its bucket and, below
+ * the root, its path, and a Messaging `getToken` or `deleteToken` the
+ * Installations and FCM registration requests it made, as API and action
+ * names. `firebase/messaging/sw` records come from a service worker, whose
+ * observer sends them the same way.
  *
  * Loaded in the page, so it imports only types from `@pyric/cli`.
  */
@@ -24,7 +28,12 @@ const SERVICES: ReadonlyMap<string, ObservedCallService> = new Map<string, Obser
   ['firebase/database', 'rtdb'],
   ['firebase/ai', 'ai'],
   ['firebase/storage', 'storage'],
+  ['firebase/messaging', 'messaging'],
+  ['firebase/messaging/sw', 'messaging'],
 ]);
+
+/** The most requests a host takes on one Messaging call. */
+const MAX_REQUESTS = 4;
 
 const ANSWERED: ReadonlySet<LiveCallOutcome> = new Set(['resolved', 'delivered']);
 const FAILED: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);
@@ -74,6 +83,17 @@ function aiOf(service: ObservedCallService, record: LiveCallRecord): Pick<Observ
   return { ai: { model: ai.model, ...reported, ...usage, ...timing } };
 }
 
+/**
+ * The record's Messaging requests, as the host takes them: a fresh copy of
+ * each, the last four at most. The host refuses them on any other service.
+ */
+function requestsOf(service: ObservedCallService, record: LiveCallRecord): Pick<ObservedCall, 'requests'> {
+  const requests = record.requests;
+  const hasRequests = service === 'messaging' && requests !== undefined && requests.length > 0;
+  if (!hasRequests) return {};
+  return { requests: requests.slice(-MAX_REQUESTS).map((request) => ({ ...request })) };
+}
+
 /** The observed call for a record made at `at`, or null when the host takes no row for it. */
 export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall | null {
   const service = SERVICES.get(record.module);
@@ -83,7 +103,7 @@ export function observedCallOf(record: LiveCallRecord, at: number): ObservedCall
   const project = record.projectId === undefined ? {} : { projectId: record.projectId };
   const account = accountOf(record);
   const billed = record.billedDocuments === undefined ? {} : { billedDocuments: record.billedDocuments };
-  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...placeOf(service, record), ...aiOf(service, record) };
+  return { service, method: record.name, at, outcome, ...project, ...account, ...billed, ...placeOf(service, record), ...aiOf(service, record), ...requestsOf(service, record) };
 }
 
 /** Sends one observed call to the host. Its rejection is the recorder's, never the app's. */

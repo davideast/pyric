@@ -1,17 +1,22 @@
 /**
  * The network guard under `@pyric/live/register`. In live mode the app's
- * installed Firestore, Auth, App Check, Realtime Database and Cloud Storage
- * talk to Google from this process, and nothing else should: pyric holds no
- * production credential, and a Google client library or a hand-written
- * `fetch` to a Google API is traffic pyric neither serves nor observes.
+ * installed Firestore, Auth, App Check, Realtime Database, AI Logic, Cloud
+ * Storage and Cloud Messaging talk to Google from this process, and nothing
+ * else should: pyric holds no production credential, and a Google client
+ * library or a hand-written `fetch` to a Google API is traffic pyric neither
+ * serves nor observes.
  *
  * It installs the register's hooks (`./net-guard.ts`: the undici dispatcher,
  * the socket backstop and the request check) with this verdict:
  *
  * - a token source (`../google-token-endpoints.ts`) is refused, as the
  *   register's guard refuses it;
- * - a host the Firestore, Auth, App Check, AI Logic and Cloud Storage SDKs
- *   reach ({@link LIVE_ROW_HOSTS}) passes;
+ * - a host the Firestore, Auth, App Check, AI Logic, Cloud Storage and Cloud
+ *   Messaging SDKs reach ({@link LIVE_ROW_HOSTS}) passes. Messaging's are
+ *   Installations (`firebaseinstallations.googleapis.com`) and FCM
+ *   registrations (`fcmregistrations.googleapis.com`); Remote Config,
+ *   Analytics and Performance, which pass through, reach Installations too,
+ *   so it passes for them as a live row host;
  * - a Realtime Database host ({@link DATABASE_ROW_HOSTS}), which the database
  *   row's SDK reaches, and a host of an import the register passes through
  *   ({@link passThroughHosts}), such as `firebase/functions`'s, pass only
@@ -33,9 +38,9 @@
  * And it refuses every `http.request` and `https.request` to a live row host,
  * a Realtime Database host or a passed-through host
  * ({@link guardLiveRowRequests}). No SDK makes one: Auth, App Check,
- * Storage, Functions and AI Logic call `fetch`, Firestore reaches Google
- * over gRPC, on HTTP/2, and Realtime Database over a WebSocket on
- * `tls.connect`. Only a `CONNECT` through a proxy, which gRPC sends to
+ * Storage, Functions, AI Logic, Installations and Messaging call `fetch`,
+ * Firestore reaches Google over gRPC, on HTTP/2, and Realtime Database over
+ * a WebSocket on `tls.connect`. Only a `CONNECT` through a proxy, which gRPC sends to
  * tunnel to its host, passes.
  *
  * The socket seams pass a live row host from any caller, so a `WebSocket`
@@ -43,7 +48,10 @@
  * (`wss://firebasevertexai.googleapis.com/...`, from `@firebase/ai`), and
  * `@pyric/live` refuses the Live API at its factory,
  * `getLiveGenerativeModel`, and at its classes, `new LiveGenerativeModel` and
- * `new LiveSession`, before that socket opens.
+ * `new LiveSession`, before that socket opens. The same holds for
+ * Installations and FCM registrations: an app's own raw socket to either
+ * passes the socket seams, while the `fetch` wrapper and the request check
+ * refuse the app's own `fetch` and `http.request` to them.
  *
  * Firestore's gRPC sockets open later than the call that asked for them, so
  * the socket seams decide by host, and a gRPC client the app loads itself
@@ -83,11 +91,23 @@ import { joinedList } from './word-list.js';
 /** Cloud Storage's host, which the Storage row's SDK reaches. */
 const STORAGE_HOST = 'firebasestorage.googleapis.com';
 
+/** The Installations host, which the Messaging SDK and the passed-through Remote Config, Analytics and Performance reach. */
+const INSTALLATIONS_HOST = 'firebaseinstallations.googleapis.com';
+
+/**
+ * The hosts the Messaging rows' SDK reaches with `fetch`: Installations,
+ * for the installation its token belongs to, and FCM registrations, which
+ * issues and deletes the token.
+ */
+const MESSAGING_HOSTS: ReadonlySet<string> = new Set([INSTALLATIONS_HOST, 'fcmregistrations.googleapis.com']);
+
 /**
  * The hosts the live rows' SDK reaches in Node by host: Firestore, Auth, its
  * token refresh, App Check, AI Logic, which the AI row's `firebase/ai` calls
- * with `fetch`, and Cloud Storage, which the Storage row's `firebase/storage`
- * calls with `fetch`.
+ * with `fetch`, Cloud Storage, which the Storage row's `firebase/storage`
+ * calls with `fetch`, and Installations and FCM registrations, which the
+ * Messaging rows' `firebase/messaging` and `firebase/messaging/sw` call with
+ * `fetch`.
  */
 export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
   'firestore.googleapis.com',
@@ -96,6 +116,7 @@ export const LIVE_ROW_HOSTS: ReadonlySet<string> = new Set([
   'content-firebaseappcheck.googleapis.com',
   FIREBASE_AI_LOGIC_HOST,
   STORAGE_HOST,
+  ...MESSAGING_HOSTS,
 ]);
 
 /**
@@ -111,21 +132,16 @@ const DATABASE_ROW_HOSTS: readonly string[] = GOOGLE_ENDPOINT_CATALOG
 
 const GOOGLE_APIS = 'googleapis.com';
 
-const INSTALLATIONS_HOST = 'firebaseinstallations.googleapis.com';
-const MESSAGING_HOSTS = ['fcmregistrations.googleapis.com', INSTALLATIONS_HOST];
-
 /**
  * The Google hosts each import the register can pass through reaches, by
- * host suffix: the service's own and, for the services that need one, the
- * Installations ID. Its calls go to production unobserved, as the app asked.
+ * host suffix, besides the live row hosts: the service's own. Its calls go
+ * to production unobserved, as the app asked. The Installations host that
+ * Remote Config, Analytics and Performance also reach is a live row host
+ * (the Messaging SDK's), so it is not listed here.
  */
 const PASS_THROUGH_HOSTS: Readonly<Record<string, readonly string[]>> = {
   'firebase/functions': ['cloudfunctions.net'],
-  'firebase/messaging': MESSAGING_HOSTS,
-  'firebase/messaging/sw': MESSAGING_HOSTS,
-  'firebase/remote-config': ['firebaseremoteconfig.googleapis.com', INSTALLATIONS_HOST],
-  'firebase/analytics': [INSTALLATIONS_HOST],
-  'firebase/performance': [INSTALLATIONS_HOST],
+  'firebase/remote-config': ['firebaseremoteconfig.googleapis.com'],
 };
 
 /** The host suffixes the passed-through imports reach, each once. */
@@ -156,6 +172,11 @@ const STORAGE_REQUEST_REASON = 'in live mode only the installed Cloud Storage SD
   'and it calls fetch, never http.request';
 /** For a request to the Cloud Storage host, which only `firebase/storage`'s SDK reaches. */
 const STORAGE_REQUEST_REMEDY = 'Make the call through firebase/storage, or from a process without @pyric/live/register';
+const MESSAGING_REQUEST_REASON = 'in live mode only the installed Firebase SDK reaches this host: Cloud Messaging, ' +
+  'and for Installations also the Remote Config, Analytics and Performance SDKs; each calls fetch, never http.request';
+/** For a request to the Installations or FCM registrations host. */
+const MESSAGING_REQUEST_REMEDY = 'Make the call through firebase/messaging, or the Firebase SDK the app imports, ' +
+  'or from a process without @pyric/live/register';
 const PASSED_REASON = 'in live mode only the installed SDK of an import that passes through reaches this host, ' +
   'from its own files, and pyric does not observe it';
 const PASSED_REQUEST_REASON = `${PASSED_REASON}; that SDK never sends an http.request`;
@@ -414,6 +435,9 @@ function liveRowRequestVerdict(request: RequestLike, passed: PassedThrough): Egr
   }
   if (host === STORAGE_HOST) {
     return { verdict: 'block', permitted: false, host, service, reason: STORAGE_REQUEST_REASON, remedy: STORAGE_REQUEST_REMEDY };
+  }
+  if (MESSAGING_HOSTS.has(host)) {
+    return { verdict: 'block', permitted: false, host, service, reason: MESSAGING_REQUEST_REASON, remedy: MESSAGING_REQUEST_REMEDY };
   }
   if (LIVE_ROW_HOSTS.has(host)) {
     return { verdict: 'block', permitted: false, host, service, reason: LIVE_REQUEST_REASON, remedy: LIVE_REQUEST_REMEDY };
