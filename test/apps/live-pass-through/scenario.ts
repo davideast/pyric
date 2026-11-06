@@ -147,11 +147,12 @@ export default scenario(async (app) => {
     await host.process.stop();
   });
 
-  const adminHost = await app.step('start vite dev with firebase-admin in the list: the health report lists it', async () => {
+  const adminHost = await app.step('start vite dev with firebase-admin in the list: the health report carries it as admin, apart from the client imports', async () => {
     const started = await app.devServer({ env: { PASS_THROUGH: JSON.stringify([...PASSED, ADMIN]) } });
     await started.process.waitForLog(new RegExp(`${escaped(ENTRY)}: live mode for the Firebase project demo-live-pass-through\\.`));
     const live = await liveHealth(started.url);
-    assert.deepEqual(live.passThrough, [...PASSED, ADMIN]);
+    assert.deepEqual(live.passThrough, PASSED);
+    assert.deepEqual(live.admin, { mode: 'pass-through', observed: false, bypassesRules: true });
     return started;
   });
 

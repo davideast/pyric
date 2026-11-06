@@ -278,6 +278,49 @@ export function liveProjectRefusal(call: string, projects: ProjectMismatch, clie
   return Object.assign(error, { field, appProjectId, hostProjectId });
 }
 
+/**
+ * Where an Admin project was named: a project environment variable
+ * firebase-admin reads, or what an Admin app itself resolves (its
+ * `options.projectId`, or its credential's project).
+ */
+export type AdminProjectSource =
+  | 'GOOGLE_CLOUD_PROJECT'
+  | 'GCLOUD_PROJECT'
+  | 'FIREBASE_CONFIG'
+  | 'options.projectId'
+  | 'credential';
+
+/** The projects an Admin refusal names: the one `source` names, and the host's. */
+export interface AdminProjectMismatch {
+  readonly source: AdminProjectSource;
+  readonly appProjectId: string;
+  readonly hostProjectId: string;
+}
+
+/** An Admin project refusal's data, for a caller that reads it without the message. */
+export type LiveAdminProjectRefusal = Error & AdminProjectMismatch & { readonly code: string };
+
+const ADMIN_SOURCE_NAMES: Readonly<Record<AdminProjectSource, string>> = {
+  GOOGLE_CLOUD_PROJECT: 'the environment variable GOOGLE_CLOUD_PROJECT',
+  GCLOUD_PROJECT: 'the environment variable GCLOUD_PROJECT',
+  FIREBASE_CONFIG: 'the projectId in the environment variable FIREBASE_CONFIG',
+  'options.projectId': "the Admin app's options.projectId",
+  credential: "the Admin app's credential",
+};
+
+/**
+ * The error for an Admin SDK process or app that names another project than
+ * the live host's: thrown at register start for an environment variable, and
+ * by every call from an Admin app whose own project differs.
+ */
+export function liveAdminProjectRefusal(projects: AdminProjectMismatch): LiveAdminProjectRefusal {
+  const error = refused(`@pyric/live: firebase-admin is refused in live mode, from a Node process: ` +
+    `${ADMIN_SOURCE_NAMES[projects.source]} names the project '${projects.appProjectId}', and this live host serves '${projects.hostProjectId}'. ` +
+    `No Admin request left. Point the Admin SDK at '${projects.hostProjectId}', or start live mode for '${projects.appProjectId}'.`);
+  const { source, appProjectId, hostProjectId } = projects;
+  return Object.assign(error, { source, appProjectId, hostProjectId });
+}
+
 const WRITER_NAMES: Readonly<Record<PyricWriter, string>> = {
   studio: 'Studio',
   mcp: 'an MCP tool',
