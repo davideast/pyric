@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#228","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads \\Q.\\E in split() as a quoted literal dot; pyric does not read \\Q..\\E as quoting","issue":"#2211"}

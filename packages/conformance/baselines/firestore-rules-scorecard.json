@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 134,
+    "numerator": 133,
     "denominator": 140,
-    "ratio": 0.9571428571428572,
-    "percent": 95.7
+    "ratio": 0.95,
+    "percent": 95
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 135,
-      "diverged": 3,
+      "verified": 134,
+      "diverged": 4,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 134,
-    "diverged": 3,
+    "conformant": 133,
+    "diverged": 4,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -650,6 +650,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -1257,6 +1258,7 @@
       "classification": "diverged",
       "verifiedBy": [
         "matches-full-string-regex",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "script-classes-and-nested-repeats",
         "string-literals-and-regex"
@@ -1264,7 +1266,8 @@
       "verifiedByRows": [],
       "divergedByRows": [
         "firestore-rules#199",
-        "firestore-rules#227"
+        "firestore-rules#227",
+        "firestore-rules#228"
       ]
     },
     "firestore.method.string.lower": {
@@ -1357,6 +1360,7 @@
       "verifiedBy": [
         "functions-verbs-and-recursive",
         "list-and-string-methods",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "script-classes-and-nested-repeats",
         "split-and-trim-edges"
@@ -1365,7 +1369,8 @@
         "firestore-rules#202"
       ],
       "divergedByRows": [
-        "firestore-rules#199"
+        "firestore-rules#199",
+        "firestore-rules#228"
       ]
     },
     "firestore.method.string.replace": {
@@ -1377,10 +1382,11 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "verified",
-      "classification": "conformant",
+      "productionEvidence": "diverged",
+      "classification": "diverged",
       "verifiedBy": [
         "list-and-string-methods",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "script-classes-and-nested-repeats",
         "simulator-language-semantics"
@@ -1388,7 +1394,9 @@
       "verifiedByRows": [
         "firestore-rules#196"
       ],
-      "divergedByRows": []
+      "divergedByRows": [
+        "firestore-rules#228"
+      ]
     },
     "firestore.method.string.toUtf8": {
       "productionAcceptance": "accepted",
@@ -2389,6 +2397,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -2756,6 +2765,7 @@
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "prototype-chain-keys",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -3047,6 +3057,7 @@
         "int64-and-duration-range",
         "int64-conversions-and-mixed-equality",
         "mixed-number-collections",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "resource-document-identity",
         "resource-missing-document",
@@ -3209,6 +3220,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -3324,6 +3336,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -3403,6 +3416,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "range-slice-list-and-string",
+        "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
         "required-fields-and-mapdiff",
         "resource-document-identity",
