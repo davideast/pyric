@@ -15,6 +15,7 @@
 import { describe, expect, test } from 'bun:test';
 import { wrapLiveModule, type LiveModuleSite } from '../src/modules.js';
 import type { LiveCallRecord, LiveObserver } from '../src/observe.js';
+import type { LiveClient } from '../src/refusal.js';
 import * as refusal from '../src/refusal.js';
 
 const { LIVE_REFUSED } = refusal;
@@ -104,7 +105,10 @@ function databaseCall(
   const real = standIn([name], returned);
   const module: Record<string, Callback> = { ...real.module, getDatabase: () => ({ app, _repoInternal: repo }) };
   const live = wrapLiveModule('live-database', 'firebase/database', module, site);
-  live.getDatabase!(app);
+  // The Database is noted through a row whose observer names no host, so
+  // `getDatabase` judges nothing here and the call under test is what is judged.
+  const unjudged = wrapLiveModule('live-database', 'firebase/database', module, { ...site, observer: hostObserver(undefined).observer });
+  unjudged.getDatabase!(app);
   const ref = { _repo: repo, _path: { toString: () => '/items' } };
   return { ran: real.ran, invoke: () => call(live, ref) };
 }
@@ -581,6 +585,211 @@ describe("a live call that reaches another project's instance or bucket, on a ho
     const app = hostAppWith({ storageBucket: `${OTHER}.appspot.com` });
     const error = thrown(TARGET_CALLS[0]!.make(siteOf(observer), app, `${OTHER}-default-rtdb`).invoke);
     expect(error?.field).toBe('storageBucket');
+  });
+});
+
+/** `getDatabase(app, url)` through a stand-in Realtime Database row, on `client`: whether the real factory ran, and the call. */
+function getDatabaseCall(observer: LiveObserver, client: LiveClient, app: unknown, url: unknown): { readonly ran: string[]; readonly invoke: () => unknown } {
+  const real = standIn(['getDatabase'], () => ({ app, _repoInternal: { repoInfo_: { namespace: HOST_INSTANCE } } }));
+  const live = wrapLiveModule('live-database', 'firebase/database', real.module, { observer, sdkVersion: '12.12.0', client });
+  return { ran: real.ran, invoke: () => (url === undefined ? live.getDatabase!(app) : live.getDatabase!(app, url)) };
+}
+
+/** URLs whose namespace, as the SDK parses it, is project `b`'s default instance. */
+const OTHER_INSTANCE_URLS: readonly string[] = [
+  `https://${OTHER}-default-rtdb.firebaseio.com`,
+  `https://${OTHER}-default-rtdb.firebaseio.com/`,
+  `https://${OTHER.toUpperCase()}-Default-RTDB.firebaseio.com`,
+  `https://${OTHER}-default-rtdb.europe-west1.firebasedatabase.app`,
+  `${OTHER}-default-rtdb.asia-southeast1.firebasedatabase.app`,
+  `http://127.0.0.1:9000?ns=${OTHER}-default-rtdb`,
+  `http://localhost:9000/?ns=${OTHER}-default-rtdb`,
+  `https://${HOST}-default-rtdb.firebaseio.com?ns=${OTHER}-default-rtdb`,
+  `https://${HOST}-default-rtdb.firebaseio.com?ns=${HOST}-default-rtdb&ns=${OTHER}-default-rtdb`,
+];
+
+/** URLs whose namespace is the host's default instance. */
+const HOST_INSTANCE_URLS: readonly string[] = [
+  `https://${HOST}-default-rtdb.firebaseio.com`,
+  `https://${HOST}-default-rtdb.europe-west1.firebasedatabase.app/`,
+  `http://127.0.0.1:9000?ns=${HOST}-default-rtdb`,
+];
+
+/**
+ * URLs whose namespace encodes no project, so they run: a named instance, a
+ * legacy default instance, a host with no namespace, a query that cannot
+ * be decoded, and values that are no URL.
+ */
+const UNJUDGED_INSTANCE_URLS: readonly unknown[] = [
+  `https://${OTHER}.firebaseio.com`,
+  `https://${OTHER}-chat.europe-west1.firebasedatabase.app`,
+  'http://localhost:9000',
+  `http://127.0.0.1:9000?ns=${OTHER}`,
+  'https://firebaseio.com',
+  `http://127.0.0.1:9000?ns=%E0%A4%A`,
+  'not a url',
+  '',
+  undefined,
+  42,
+];
+
+const CLIENTS: readonly LiveClient[] = ['page', 'node'];
+
+describe("getDatabase(app, url) on another project's default instance, on a host for project a", () => {
+  for (const client of CLIENTS) {
+    for (const url of OTHER_INSTANCE_URLS) {
+      test(`from ${client}, getDatabase(app, ${JSON.stringify(url)}) throws PYRIC_LIVE_REFUSED before the real factory runs`, () => {
+        const { records, observer } = hostObserver(HOST);
+        const { ran, invoke } = getDatabaseCall(observer, client, appOn(HOST), url);
+        const error = thrown(invoke);
+        expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+          code: LIVE_REFUSED,
+          field: 'instance',
+          appProjectId: OTHER,
+          hostProjectId: HOST,
+        });
+        expect(ran).toEqual([]);
+        expect(records).toEqual([]);
+      });
+    }
+
+    for (const url of [...HOST_INSTANCE_URLS, ...UNJUDGED_INSTANCE_URLS]) {
+      test(`from ${client}, getDatabase(app, ${JSON.stringify(url)}) runs the real factory`, () => {
+        const { observer } = hostObserver(HOST);
+        const { ran, invoke } = getDatabaseCall(observer, client, appOn(HOST), url);
+        expect(thrown(invoke)).toBeUndefined();
+        expect(ran).toEqual(['getDatabase']);
+      });
+    }
+  }
+
+  /** Apps whose config names project `b`, and the field the refusal judges. */
+  const OTHER_CONFIG_APPS: readonly (readonly [unknown, string])[] = [
+    [appOn(OTHER), 'projectId'],
+    [appWith({ databaseURL: `https://${OTHER}-default-rtdb.firebaseio.com` }), 'databaseURL'],
+    [hostAppWith({ databaseURL: `https://${OTHER}-default-rtdb.europe-west1.firebasedatabase.app` }), 'databaseURL'],
+    [hostAppWith({ storageBucket: `${OTHER}.appspot.com` }), 'storageBucket'],
+    [hostAppWith({ authDomain: `${OTHER}.firebaseapp.com` }), 'authDomain'],
+  ];
+
+  for (const client of CLIENTS) {
+    for (const [app, field] of OTHER_CONFIG_APPS) {
+      for (const url of [undefined, HOST_INSTANCE_URLS[0]]) {
+        test(`from ${client}, getDatabase(${JSON.stringify(app)}${url === undefined ? '' : `, ${url}`}) throws PYRIC_LIVE_REFUSED judging ${field}`, () => {
+          const { records, observer } = hostObserver(HOST);
+          const { ran, invoke } = getDatabaseCall(observer, client, app, url);
+          const error = thrown(invoke);
+          expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+            code: LIVE_REFUSED,
+            field,
+            appProjectId: OTHER,
+            hostProjectId: HOST,
+          });
+          expect(ran).toEqual([]);
+          expect(records).toEqual([]);
+        });
+      }
+    }
+
+    test(`from ${client}, getDatabase(app) runs when the app names the host's project or none`, () => {
+      for (const app of [appOn(HOST), appOn(undefined), hostAppWith({ databaseURL: `https://${HOST}-default-rtdb.firebaseio.com` })]) {
+        const { observer } = hostObserver(HOST);
+        const { ran, invoke } = getDatabaseCall(observer, client, app, undefined);
+        expect(thrown(invoke)).toBeUndefined();
+        expect(ran).toEqual(['getDatabase']);
+      }
+    });
+  }
+
+  test("a config field naming another project is the field judged, ahead of the URL's instance", () => {
+    const { observer } = hostObserver(HOST);
+    const app = hostAppWith({ storageBucket: `${OTHER}.appspot.com` });
+    const error = thrown(getDatabaseCall(observer, 'page', app, OTHER_INSTANCE_URLS[0]).invoke);
+    expect(error?.field).toBe('storageBucket');
+  });
+
+  /** `getDatabase()` with no app, on a site whose `getApps` lists `apps`; the stand-in factory returns a Database of `made`. */
+  function noAppCall(client: LiveClient, apps: readonly unknown[], made: unknown, url?: string): { readonly ran: string[]; readonly invoke: () => unknown } {
+    const { observer } = hostObserver(HOST);
+    const real = standIn(['getDatabase'], () => ({ app: made, _repoInternal: { repoInfo_: { namespace: HOST_INSTANCE } } }));
+    const live = wrapLiveModule('live-database', 'firebase/database', real.module, { observer, sdkVersion: '12.12.0', client, apps: () => apps });
+    return { ran: real.ran, invoke: () => (url === undefined ? live.getDatabase!() : live.getDatabase!(undefined, url)) };
+  }
+
+  const named = (name: string, app: { options: Record<string, string> }) => ({ name, ...app });
+  const otherDefault = named('[DEFAULT]', appOn(OTHER));
+  const hostDefault = named('[DEFAULT]', appOn(HOST));
+
+  for (const client of CLIENTS) {
+    test(`from ${client}, getDatabase() on a default app whose config names another project throws before the real factory runs`, () => {
+      for (const app of [otherDefault, named('[DEFAULT]', hostAppWith({ databaseURL: `https://${OTHER}-default-rtdb.firebaseio.com` }))]) {
+        const { ran, invoke } = noAppCall(client, [named('second', appOn(HOST)), app], app);
+        const error = thrown(invoke);
+        expect({ code: error?.code, appProjectId: error?.appProjectId, hostProjectId: error?.hostProjectId }).toEqual({
+          code: LIVE_REFUSED,
+          appProjectId: OTHER,
+          hostProjectId: HOST,
+        });
+        expect(ran).toEqual([]);
+      }
+    });
+
+    test(`from ${client}, getDatabase() names the default app's config field: projectId, then databaseURL`, () => {
+      const byDatabaseURL = named('[DEFAULT]', hostAppWith({ databaseURL: `https://${OTHER}-default-rtdb.firebaseio.com` }));
+      expect(thrown(noAppCall(client, [otherDefault], otherDefault).invoke)?.field).toBe('projectId');
+      expect(thrown(noAppCall(client, [byDatabaseURL], byDatabaseURL).invoke)?.field).toBe('databaseURL');
+    });
+
+    test(`from ${client}, getDatabase() on a host default app runs, and getDatabase(undefined, url) still judges the URL`, () => {
+      const runs = noAppCall(client, [named('other', appOn(OTHER)), hostDefault], hostDefault);
+      expect(thrown(runs.invoke)).toBeUndefined();
+      expect(runs.ran).toEqual(['getDatabase']);
+      const refused = noAppCall(client, [hostDefault], hostDefault, `https://${OTHER}-default-rtdb.firebaseio.com`);
+      expect(thrown(refused.invoke)?.field).toBe('instance');
+      expect(refused.ran).toEqual([]);
+    });
+
+    test(`from ${client}, getDatabase() with no default app yet judges the app the real factory made before returning it`, () => {
+      const made = noAppCall(client, [named('other', appOn(OTHER))], otherDefault);
+      const error = thrown(made.invoke);
+      expect({ code: error?.code, field: error?.field, appProjectId: error?.appProjectId }).toEqual({ code: LIVE_REFUSED, field: 'projectId', appProjectId: OTHER });
+      const host = noAppCall(client, [], hostDefault);
+      expect(thrown(host.invoke)).toBeUndefined();
+      expect(host.ran).toEqual(['getDatabase']);
+    });
+  }
+
+  test("getDatabase() with no default app lets the real factory throw its own error", () => {
+    const { observer } = hostObserver(HOST);
+    const noApp = Object.assign(new Error('no-app'), { code: 'app/no-app' });
+    const real = { getDatabase: () => { throw noApp; } };
+    const live = wrapLiveModule('live-database', 'firebase/database', real, { observer, sdkVersion: '12.12.0', client: 'page', apps: () => [] });
+    expect(thrown(() => live.getDatabase())).toBe(noApp);
+  });
+
+  test("getDatabase(app) of another project's app runs under an observer that names no host project", () => {
+    const { observer } = hostObserver(undefined);
+    const { ran, invoke } = getDatabaseCall(observer, 'node', appOn(OTHER), undefined);
+    expect(thrown(invoke)).toBeUndefined();
+    expect(ran).toEqual(['getDatabase']);
+  });
+
+  test("getDatabase(app, url) on another project's instance runs under an observer that names no host project", () => {
+    const { observer } = hostObserver(undefined);
+    const { ran, invoke } = getDatabaseCall(observer, 'page', appOn(HOST), OTHER_INSTANCE_URLS[0]);
+    expect(thrown(invoke)).toBeUndefined();
+    expect(ran).toEqual(['getDatabase']);
+  });
+
+  test('getDatabase(app, url) on the host instance still notes the database, so its reads name the app', async () => {
+    const { records, observer } = hostObserver(HOST);
+    const app = appOn(HOST);
+    const repo = { repoInfo_: { namespace: HOST_INSTANCE } };
+    const real = standIn(['getDatabase', 'get'], (name) => (name === 'getDatabase' ? { app, _repoInternal: repo } : Promise.resolve('real')));
+    const live = wrapLiveModule('live-database', 'firebase/database', real.module, siteOf(observer));
+    live.getDatabase!(app, HOST_INSTANCE_URLS[0]);
+    await live.get!({ _repo: repo, _path: { toString: () => '/items' } });
+    expect(records.map((record) => [record.name, record.projectId, record.instance])).toEqual([['get', HOST, HOST_INSTANCE]]);
   });
 });
 

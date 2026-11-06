@@ -20,7 +20,8 @@
       // `?backend=<origin>` query names, through the SDK's own emulator
       // connectors. The host app also opens a database on another project's
       // default instance and a storage on another project's default bucket,
-      // which its config does not name.
+      // which its config does not name, and the second app opens the
+      // database its own config's databaseURL names.
       import { initializeApp } from "firebase/app";
       import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
       import { connectDatabaseEmulator, get, getDatabase, ref as databaseRef } from "firebase/database";
@@ -33,15 +34,16 @@
         appId: `1:1:web:${projectId}`,
         authDomain: `${projectId}.firebaseapp.com`,
       });
-      const host = initializeApp(config("demo-live-traffic"));
-      const other = initializeApp(config("demo-live-other"), "other");
-      const backend = new URL(new URLSearchParams(location.search).get("backend"));
+      // `?default=other` makes the other-project app the default one, which `getDatabase()` with no app opens.
+      const query = new URLSearchParams(location.search);
+      const isOtherDefault = query.get("default") === "other";
+      const host = initializeApp(config("demo-live-traffic"), isOtherDefault ? "host" : undefined);
+      const other = initializeApp({ ...config("demo-live-other"), databaseURL: "https://demo-live-other-default-rtdb.firebaseio.com" }, isOtherDefault ? undefined : "other");
+      const backend = new URL(query.get("backend"));
       const auth = getAuth(host);
       connectAuthEmulator(auth, backend.origin, { disableWarnings: true });
       const databases = { host: getFirestore(host), other: getFirestore(other) };
       for (const db of Object.values(databases)) connectFirestoreEmulator(db, backend.hostname, Number(backend.port));
-      const otherInstance = getDatabase(host, "https://demo-live-other-default-rtdb.firebaseio.com");
-      connectDatabaseEmulator(otherInstance, backend.hostname, Number(backend.port));
       const otherBucket = getStorage(host, "gs://demo-live-other.appspot.com");
       connectStorageEmulator(otherBucket, backend.hostname, Number(backend.port));
 
@@ -60,8 +62,27 @@
         settle(call),
         new Promise((resolve) => setTimeout(() => resolve({ ok: false, code: "unanswered" }), 5000)),
       ]);
-      /** Reads the lobby from the other project's default RTDB instance, through the host app. */
-      window.readOtherInstance = () => answered(() => get(databaseRef(otherInstance, "rooms/lobby")).then((snapshot) => snapshot.val()));
+      /** Opens a database on the other project's default RTDB instance through the host app, and reads the lobby from it. */
+      const readFromOtherInstance = () => {
+        const otherInstance = getDatabase(host, "https://demo-live-other-default-rtdb.firebaseio.com");
+        connectDatabaseEmulator(otherInstance, backend.hostname, Number(backend.port));
+        return get(databaseRef(otherInstance, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readOtherInstance = () => answered(readFromOtherInstance);
+      /** Opens the other app's own database, the instance its config's databaseURL names, and reads the lobby from it. */
+      const readFromOtherApp = () => {
+        const otherDatabase = getDatabase(other);
+        connectDatabaseEmulator(otherDatabase, backend.hostname, Number(backend.port));
+        return get(databaseRef(otherDatabase, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readOtherAppDatabase = () => answered(readFromOtherApp);
+      /** Opens the default app's database with `getDatabase()`, no app named, and reads the lobby from it. */
+      const readFromDefaultApp = () => {
+        const defaultDatabase = getDatabase();
+        connectDatabaseEmulator(defaultDatabase, backend.hostname, Number(backend.port));
+        return get(databaseRef(defaultDatabase, "rooms/lobby")).then((snapshot) => snapshot.val());
+      };
+      window.readDefaultAppDatabase = () => answered(readFromDefaultApp);
       /** Asks for the lobby picture's URL from the other project's default bucket, through the host app. */
       window.readOtherBucket = () => answered(() => getDownloadURL(storageRef(otherBucket, "rooms/lobby.png")));
 
