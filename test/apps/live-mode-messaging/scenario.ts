@@ -74,6 +74,45 @@ async function startReplay(app: App): Promise<Replay> {
 }
 
 /**
+ * Makes `Date.now()` in every page of `context` never go back. Under load
+ * this machine's wall clock can step back about 2 s, and
+ * `@firebase/installations` reads an auth token made after `Date.now()` as
+ * invalid (`now < creationTime`) and asks for a new one, which capture M
+ * holds no answer for. A user's clock can step back too, but the scenario is
+ * not about that. The floor lives in `localStorage`, as the push stand-in's
+ * subscription does, so it outlives the trip to about:blank and the reload.
+ * It is not Playwright's fake clock, which could move `performance.now()`
+ * against the Resource Timing window the live row reads. The service worker
+ * needs none: in this flow it never calls Installations (delivery metrics
+ * export is off), and init scripts do not reach it.
+ */
+async function neverStepBack(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    const STORED = 'pyric-scenario-clock-floor';
+    const realNow = Date.now.bind(Date);
+    const read = () => {
+      try {
+        return Number(localStorage.getItem(STORED)) || 0;
+      } catch {
+        return 0;
+      }
+    };
+    let floor = read();
+    Date.now = () => {
+      const now = Math.max(realNow(), floor);
+      if (now === floor) return now;
+      floor = now;
+      try {
+        localStorage.setItem(STORED, String(now));
+      } catch {
+        // An opaque origin such as about:blank has no storage; the app's origin keeps the floor.
+      }
+      return now;
+    };
+  });
+}
+
+/**
  * The scenario's own Chromium: its own headless mode, with every host but
  * loopback blocked, the two Messaging hosts relayed to the replay, the push
  * stand-in, `navigator.onLine` true, and notifications granted to the app.
@@ -87,6 +126,7 @@ async function openBrowser(app: App, replay: Replay, host: DevServer): Promise<{
   await routeMessagingTo(context, replay.origin);
   await installPushStandIn(context);
   await reportOnline(context);
+  await neverStepBack(context);
   await context.grantPermissions(['notifications'], { origin: host.url });
   return { browser, context };
 }
@@ -134,11 +174,20 @@ async function lastBackgroundMessage(context: BrowserContext): Promise<unknown> 
   }, LAST_BACKGROUND);
 }
 
+/** Received calls with the FID or token a path names replaced, for a failure message. */
+function withoutIds(received: unknown[]): unknown[] {
+  return received.map((entry) => {
+    const path = (entry as { path?: unknown }).path;
+    if (typeof path !== 'string') return entry;
+    return { ...(entry as object), path: path.replace(/\/(installations|registrations)\/[^/]+/, '/$1/<id>') };
+  });
+}
+
 /**
  * The Installations entries the SDK keeps in IndexedDB, as their statuses and
- * times only (no FID or token), for a failed deleteToken's message: in 2 of
- * 30 local runs deleteToken asked Installations for a new auth token, which
- * capture M holds no answer for.
+ * times only (no FID or token), and the page's `Date.now()`, for a failed
+ * deleteToken's message. Read before the call: a refused token request
+ * overwrites the entry.
  */
 async function installationEntries(page: Page): Promise<unknown> {
   return page.evaluate(() => new Promise((resolve) => {
@@ -307,8 +356,9 @@ export default scenario(async (app) => {
     await app.step('back on the app, getToken returns the stored token, deleteToken deletes it, and the bad-key app\'s getToken fails with production\'s Installations error', async () => {
       // deleteToken takes no registration: the reloaded page's getToken hands the SDK its worker, from IndexedDB with no request.
       assert.deepEqual(await page.evaluate(() => alerts.getToken()), { ok: true, value: token });
+      const entries = await installationEntries(page);
       const deleted = await page.evaluate(() => alerts.deleteToken());
-      const why = deleted.ok ? '' : `; the replay received ${JSON.stringify(await replay.messagingReceived())}; installations after ${JSON.stringify(await installationEntries(page))}`;
+      const why = deleted.ok ? '' : `; the replay received ${JSON.stringify(withoutIds(await replay.messagingReceived()))}; installations before ${JSON.stringify(entries)}`;
       assert.deepEqual(deleted, { ok: true, value: true }, `deleteToken: ${JSON.stringify(deleted)}${why}`);
       assert.deepEqual(await page.evaluate(() => alerts.getTokenWithBadKey()), { ok: false, code: 'installations/request-failed' });
       const path = (tail: string) => `/v1/projects/${PROJECT}/${tail}`;
