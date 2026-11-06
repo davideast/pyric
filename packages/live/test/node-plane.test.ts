@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'bun:test';
 import { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from '@pyric/cli/register/internal/supplied-rows';
 import { LIVE_ROWS, replacedExports } from '../src/index.js';
-import { liveRefusal as installedRefusal, liveRegisterModuleSource } from '../src/node-modules.js';
+import { liveRefusal as installedRefusal, liveRegisterModuleSource, serveHostProject } from '../src/node-modules.js';
 import { LIVE_REFUSED, liveRefusal } from '../src/refusal.js';
 
 const SENDER = 'file:///cli/dist/register/observed-call-sender.js';
@@ -32,10 +32,18 @@ describe('the modules a Node process gets for the live rows', () => {
   test('share one observer module that sends through the Node sender, and serve no other id', () => {
     const observer = liveRegisterModuleSource(REGISTER_OBSERVER_URL, SENDER) as string;
     expect(observer).toContain(`import { sendObservedCall } from ${JSON.stringify(SENDER)};`);
-    expect(observer).toContain('export const observer = pageObserver(sendObservedCall);');
+    expect(observer).toContain('pageObserver(sendObservedCall)');
     const functionsId = (REGISTER_ROW_URLS.get('firebase/firestore') ?? '').replace('firebase/firestore', 'firebase/functions');
     expect(liveRegisterModuleSource(functionsId, SENDER)).toBeNull();
     expect(liveRegisterModuleSource('firebase/firestore', SENDER)).toBeNull();
+  });
+});
+
+describe('the observer a Node process gets', () => {
+  test('carries the project the register resolved and the Node client', () => {
+    serveHostProject('live-a');
+    const observer = liveRegisterModuleSource(REGISTER_OBSERVER_URL, SENDER) as string;
+    expect(observer).toContain('export const observer = Object.assign(pageObserver(sendObservedCall), { hostProjectId: "live-a", client: "node" });');
   });
 });
 
