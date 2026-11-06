@@ -22,6 +22,14 @@
 // the path the `firebase/ai` SDK builds from a model's `baseUrl`, is AI
 // Logic's, answered from the committed observations (`ai.ts`). Its CORS
 // preflight is answered like every other.
+//
+// A Cloud Storage call is `/v0/b/<bucket>/o...`, the path
+// `connectStorageEmulator` builds, or the same path under a
+// `/firebasestorage.googleapis.com` segment, how the seam rewrites it.
+// `storage.ts` answers it from the recordings' `storage` exchanges, and a
+// call none answers gets a 400 the SDK does not retry. The CORS answer allows
+// the PATCH and DELETE the Storage SDK sends and exposes the
+// `X-Goog-Upload-*` headers a resumable upload reads from its XHR.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -32,10 +40,14 @@ import type { Recording } from './format.ts';
 import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
 import { startGrpcReplay, type GrpcReplay } from './grpc.ts';
 import { RtdbConnection, RtdbShared, type RtdbLog, type RtdbReceived } from './rtdb.ts';
+import { readStorageRequest, STORAGE_HOST, STORAGE_VERSION_SEGMENT, StorageReplay, type StorageReceived } from './storage.ts';
 import { parseForwardBody, WebChannelSession } from './webchannel.ts';
 
 export const FIRESTORE_HOST = 'firestore.googleapis.com';
-export const REPLAYED_HOSTS = [FIRESTORE_HOST, ...AUTH_HOSTS];
+/** The hosts `routeOf` names: Firestore's and Auth's, which the recorder also relays. */
+const ROUTED_HOSTS = [FIRESTORE_HOST, ...AUTH_HOSTS];
+/** Every Google host this server answers, which the seam routes to it. */
+export const REPLAYED_HOSTS = [...ROUTED_HOSTS, STORAGE_HOST];
 /** The first path segment of a Firestore stream an emulator connector names. */
 const FIRESTORE_SERVICE = 'google.firestore.v1.Firestore';
 
@@ -52,6 +64,8 @@ export interface ReplayServer {
   rtdb: RtdbLog[];
   /** Every AI Logic call the server answered, in arrival order. Empty without `ai`. */
   ai: AiReceived[];
+  /** Every Storage call the server received, answered or not, in arrival order. */
+  storage: StorageReceived[];
   close(): Promise<void>;
 }
 
@@ -73,10 +87,24 @@ export interface Route {
 export function routeOf(request: IncomingMessage): Route | null {
   const url = new URL(request.url ?? '/', 'http://replay.invalid');
   const [, first, ...rest] = url.pathname.split('/');
-  if (first && REPLAYED_HOSTS.includes(first)) return { host: first, path: `/${rest.join('/')}`, url };
+  if (first && ROUTED_HOSTS.includes(first)) return { host: first, path: `/${rest.join('/')}`, url };
   if (first === FIRESTORE_SERVICE) return { host: FIRESTORE_HOST, path: url.pathname, url };
   const host = (request.headers.host ?? '').replace(/:\d+$/, '');
-  return REPLAYED_HOSTS.includes(host) ? { host, path: url.pathname, url } : null;
+  return ROUTED_HOSTS.includes(host) ? { host, path: url.pathname, url } : null;
+}
+
+/**
+ * The path of a Storage call, or null for any other request: `/v0/b/...` as
+ * `connectStorageEmulator` builds it, under a `/firebasestorage.googleapis.com`
+ * segment as the seam rewrites it, or with that Host header.
+ */
+export function storageRouteOf(request: IncomingMessage): Route | null {
+  const url = new URL(request.url ?? '/', 'http://replay.invalid');
+  const [, first, ...rest] = url.pathname.split('/');
+  if (first === STORAGE_HOST) return { host: STORAGE_HOST, path: `/${rest.join('/')}`, url };
+  const host = (request.headers.host ?? '').replace(/:\d+$/, '');
+  const isStoragePath = first === STORAGE_VERSION_SEGMENT || host === STORAGE_HOST;
+  return isStoragePath ? { host: STORAGE_HOST, path: url.pathname, url } : null;
 }
 
 export async function startReplayServer(recordings: Recording[], options: ReplayOptions = {}): Promise<ReplayServer> {
@@ -86,8 +114,10 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const sockets = new Set<ServerSocket>();
   const rtdb = new RtdbShared();
   const ai: AiReceived[] | null = options.ai ? [] : null;
+  const storage = new StorageReplay(state);
+  let origin = '';
   const server = createServer((request, response) => {
-    void handle(state, rtdb, ai, sessions, request, response).catch((error: unknown) => {
+    void handle({ state, rtdb, ai, storage, origin: () => origin }, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
       response.end(`pyric replay: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -97,13 +127,15 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
+  origin = `http://127.0.0.1:${port}`;
   return {
-    origin: `http://127.0.0.1:${port}`,
+    origin,
     unmatched: state.unmatched,
     received: state.received,
     grpc,
     rtdb: rtdb.connections,
     ai: ai ?? [],
+    storage: storage.received,
     close: async () => {
       grpc?.close();
       for (const socket of sockets) socket.terminate();
@@ -120,7 +152,17 @@ async function closeServer(server: Server, sessions: Map<string, WebChannelSessi
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-async function handle(state: ReplayState, rtdb: RtdbShared, ai: AiReceived[] | null, sessions: Map<string, WebChannelSession>, request: IncomingMessage, response: ServerResponse): Promise<void> {
+/** What every request on one server shares. `origin` is the server's own, known once it listens. */
+interface Services {
+  state: ReplayState;
+  rtdb: RtdbShared;
+  ai: AiReceived[] | null;
+  storage: StorageReplay;
+  origin: () => string;
+}
+
+async function handle(services: Services, sessions: Map<string, WebChannelSession>, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const { state, rtdb, ai, storage } = services;
   allowCrossOrigin(request, response);
   if (request.method === 'OPTIONS') {
     response.writeHead(204);
@@ -130,9 +172,11 @@ async function handle(state: ReplayState, rtdb: RtdbShared, ai: AiReceived[] | n
   const report = REPORTS[request.url ?? ''];
   if (request.method === 'GET' && report) {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    response.end(JSON.stringify(report(state, rtdb, ai ?? [])));
+    response.end(JSON.stringify(report(state, rtdb, ai ?? [], storage.received)));
     return;
   }
+  const storageRoute = storageRouteOf(request);
+  if (storageRoute) return answerStorage(services, storageRoute, request, response);
   const route = routeOf(request);
   const body = await readBody(request);
   const aiCall = ai && request.method === 'POST' ? aiCallOf(request.url ?? '') : null;
@@ -153,10 +197,10 @@ async function handle(state: ReplayState, rtdb: RtdbShared, ai: AiReceived[] | n
  * What the server saw, for a caller in another process (`serve.ts`,
  * `process.ts`). `received` lists the Firestore and Auth requests in arrival
  * order, then the RTDB frames in arrival order, then the AI Logic calls in
- * arrival order.
+ * arrival order, then the Storage calls in arrival order.
  */
-const REPORTS: Record<string, (state: ReplayState, rtdb: RtdbShared, ai: AiReceived[]) => Array<Received | RtdbReceived | AiReceived> | Unmatched[]> = {
-  '/__replay/received': (state, rtdb, ai) => [...state.received, ...rtdb.received, ...ai],
+const REPORTS: Record<string, (state: ReplayState, rtdb: RtdbShared, ai: AiReceived[], storage: StorageReceived[]) => Array<Received | RtdbReceived | AiReceived | StorageReceived> | Unmatched[]> = {
+  '/__replay/received': (state, rtdb, ai, storage) => [...state.received, ...rtdb.received, ...ai, ...storage],
   '/__replay/unmatched': (state) => state.unmatched,
 };
 
@@ -167,6 +211,22 @@ function answerAiCall(log: AiReceived[], call: NonNullable<ReturnType<typeof aiC
   const type = answer.kind === 'sse' ? 'text/event-stream' : 'application/json; charset=utf-8';
   response.writeHead(answer.status, { 'content-type': type });
   response.end(answer.kind === 'sse' ? answer.body : JSON.stringify(answer.body));
+}
+
+/** Answers one Storage call from the recordings, or fails it closed. The body is read raw: an upload carries bytes. */
+async function answerStorage(services: Services, route: Route, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await readRawBody(request);
+  const method = request.method ?? 'GET';
+  const call = readStorageRequest(services.state, method, route.path, route.url.searchParams, request.headers, body);
+  if (!call) {
+    services.state.unmatched.push({ rpc: 'http', as: null, request: { method, host: STORAGE_HOST, path: route.path } });
+    response.writeHead(404, { 'content-type': 'text/plain' });
+    response.end(`pyric replay: Storage ${route.path} is not an object or bucket path`);
+    return;
+  }
+  const answer = services.storage.answer(call, services.origin());
+  response.writeHead(answer.status, answer.headers);
+  response.end(answer.body);
 }
 
 const CHANNEL_PATH = /^\/google\.firestore\.v1\.Firestore\/(Listen|Write)\/channel$/;
@@ -321,14 +381,26 @@ export function refuseUpgrade(state: ReplayState, request: IncomingMessage, sock
   socket.destroy();
 }
 
+/** WebChannel's session header, and the upload headers a resumable Storage upload reads. */
+const EXPOSED_HEADERS = ['x-http-session-id', 'x-goog-upload-status', 'x-goog-upload-url', 'x-goog-upload-size-received', 'x-goog-upload-chunk-granularity'];
+
 function allowCrossOrigin(request: IncomingMessage, response: ServerResponse): void {
   const origin = request.headers.origin;
   if (!origin) return;
   response.setHeader('access-control-allow-origin', origin);
   response.setHeader('access-control-allow-credentials', 'true');
   response.setHeader('access-control-allow-headers', request.headers['access-control-request-headers'] ?? '*');
-  response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
-  response.setHeader('access-control-expose-headers', 'x-http-session-id');
+  response.setHeader('access-control-allow-methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  response.setHeader('access-control-expose-headers', EXPOSED_HEADERS.join(', '));
+}
+
+function readRawBody(request: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const parts: Buffer[] = [];
+    request.on('data', (part: Buffer) => parts.push(part));
+    request.on('end', () => resolve(Buffer.concat(parts)));
+    request.on('error', reject);
+  });
 }
 
 export function readBody(request: IncomingMessage): Promise<string> {
