@@ -575,7 +575,7 @@ interface StandInAdmin {
 }
 
 /** The guard with `firebase-admin` listed or not, on stand-ins whose Agent is the stand-in Admin SDK's. */
-async function adminSeams(passThrough: string[]) {
+async function adminSeams(passThrough: string[], adminProjectId: string | null = null) {
   const admin = (await import(adminUrl)) as StandInAdmin;
   const sent: string[] = [];
   const slot = Symbol.for('undici.globalDispatcher.1');
@@ -599,6 +599,7 @@ async function adminSeams(passThrough: string[]) {
   const hooks = installLiveNetGuard({
     isLiveSdkFile: () => false,
     isAdminSdkFile: (url) => url === adminUrl,
+    adminProjectId: () => adminProjectId,
     passThrough,
     scope,
     env: {},
@@ -677,6 +678,38 @@ describe('the network guard for firebase-admin, listed', () => {
     } finally {
       seams.stop();
     }
+  });
+
+  test("passes its socket to the project's own Realtime Database, and refuses another project's", async () => {
+    const seams = await adminSeams(['firebase-admin'], 'demo');
+    try {
+      const { admin } = seams;
+      const ownHosts = ['demo-default-rtdb.firebaseio.com', 'demo-default-rtdb.europe-west1.firebasedatabase.app', 'demo.firebaseio.com'];
+      const otherHosts = ['other-default-rtdb.firebaseio.com', 'demo-reports.firebaseio.com', 'other-default-rtdb.europe-west1.firebasedatabase.app'];
+      expect({
+        own: ownHosts.map((host) => connectOutcome(() => admin.adminConnect(seams.tls, host))),
+        other: otherHosts.map((host) => connectOutcome(() => admin.adminConnect(seams.tls, host))),
+      }).toEqual({
+        own: ownHosts.map(() => 'connected'),
+        other: otherHosts.map(() => 'PYRIC_GUARD_BLOCKED'),
+      });
+    } finally {
+      seams.stop();
+    }
+  });
+
+  test("leaves the app's own socket to the project's Realtime Database as it was: refused, and passed from a live row's SDK file", () => {
+    const project = { hosts: [], isAdminSdkFile: () => false, adminProjectId: () => 'demo' };
+    const fromApp = liveEgressRule(undefined, { ...project, isLiveSdkFile: () => false });
+    const fromRowSdk = liveEgressRule(undefined, { ...project, isLiveSdkFile: () => true });
+    expect({ fromApp: fromApp(DATABASE_HOST, '/')?.service, fromRowSdk: fromRowSdk(DATABASE_HOST, '/') })
+      .toEqual({ fromApp: 'Realtime Database', fromRowSdk: null });
+  });
+
+  test('refuses FCM for its tree and the app, naming firebase-admin/messaging', () => {
+    const fromTree = liveEgressRule(undefined, { hosts: [], isLiveSdkFile: () => false, isAdminSdkFile: () => true, adminProjectId: () => 'demo' });
+    const refusal = fromTree('fcm.googleapis.com', '/v1/projects/demo/messages:send');
+    expect({ verdict: refusal?.verdict, namesMessaging: refusal?.reason?.includes('firebase-admin/messaging') }).toEqual({ verdict: 'block', namesMessaging: true });
   });
 
   test('passes nothing from those files when firebase-admin is not listed', async () => {

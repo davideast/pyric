@@ -18,6 +18,7 @@
 import Module from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { packageNameOf } from './package-identity.js';
+import { liveProjectId } from '../serve/live-project.js';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
 import { installChildProcessGuard } from './child-process-guard.js';
 import {
@@ -169,6 +170,15 @@ function isRefusedInProduction(): boolean {
   return process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1';
 }
 
+/** The live project in `projectRoot`, or null when none is set: the register entry refuses that start itself. */
+function projectIdOrNull(projectRoot: string): string | null {
+  try {
+    return liveProjectId(projectRoot);
+  } catch {
+    return null;
+  }
+}
+
 /** What the register entry gives the seam. */
 export interface SuppliedRowsActivation {
   /**
@@ -221,8 +231,16 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   const allowedUrls = new Set<string>();
   // Stays empty unless `firebase-admin` passes through: only an app's own import of it starts the tree.
   const adminTree = new Set<string>();
-  installLiveNetGuard({ isLiveSdkFile: (url) => allowedUrls.has(url), isAdminSdkFile: (url) => adminTree.has(url), passThrough });
+  // The project whose own Realtime Database the Admin SDK's tree may reach, once the rows find the project root.
+  let adminProjectId: string | null = null;
+  installLiveNetGuard({
+    isLiveSdkFile: (url) => allowedUrls.has(url),
+    isAdminSdkFile: (url) => adminTree.has(url),
+    adminProjectId: () => adminProjectId,
+    passThrough,
+  });
   const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
+  adminProjectId = projectIdOrNull(installed.projectRoot);
   const rows = registerRows(passThrough);
   rows.open(installed.rows);
   // Children and workers open the rows for this process's project and its checked firebase, wherever they start.

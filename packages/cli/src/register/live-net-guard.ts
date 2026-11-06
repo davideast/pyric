@@ -36,8 +36,11 @@
  *   The Admin SDK holds the app's own credential, so it fetches its token,
  *   and its calls go to production unobserved and bypass security rules. The
  *   app's own call to the same hosts is still refused, and so is a tree
- *   file's call to any other Google host. Firestore's gRPC sockets pass by
- *   host, as the live rows' do;
+ *   file's call to any other Google host. A tree file's socket to the live
+ *   host's project's own Realtime Database hosts passes too, so
+ *   `firebase-admin/database` works; another project's stays refused. FCM
+ *   stays refused, with a reason that names `firebase-admin/messaging`.
+ *   Firestore's gRPC sockets pass by host, as the live rows' do;
  * - every other Google endpoint, a host in `../google-endpoints.ts` or under
  *   `googleapis.com`, is refused.
  *
@@ -211,6 +214,12 @@ export interface PassedThrough {
    * unless `firebase-admin` passes through.
    */
   readonly isAdminSdkFile?: (url: string) => boolean;
+  /**
+   * The live host's project, whose own Realtime Database hosts the Admin
+   * SDK's tree may reach ({@link isProjectDatabaseHost}); null until the
+   * register knows it.
+   */
+  readonly adminProjectId?: () => string | null;
 }
 
 const NOTHING_PASSED: PassedThrough = { hosts: [], isLiveSdkFile: () => false };
@@ -319,6 +328,8 @@ export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), pass
     if (isDatabaseHost(host)) {
       const isFromSdk = isLiveSdkCaller(passed.isLiveSdkFile);
       if (isFromSdk) return null;
+      const isAdminDatabaseCall = isProjectDatabaseHost(host, passed) && isAdminCaller(passed);
+      if (isAdminDatabaseCall) return null;
       return { ...liveVerdict(host, googleServiceOf(host) ?? 'Realtime Database', DATABASE_REASON), remedy: DATABASE_REMEDY };
     }
     if (isPassedHost(host, passed)) {
@@ -329,8 +340,33 @@ export function liveEgressRule(endpoints = tokenEndpointsFrom({ env: {} }), pass
     const service = googleServiceOf(host);
     if (service === null) return null;
     const isAdminCall = isAdminHost(host, path) && isAdminCaller(passed);
-    return isAdminCall ? null : liveVerdict(host, service, LIVE_REASON);
+    if (isAdminCall) return null;
+    if (host === FCM_HOST) return { ...liveVerdict(host, service, FCM_REASON), remedy: FCM_REMEDY };
+    return liveVerdict(host, service, LIVE_REASON);
   };
+}
+
+/** FCM's send API, which `firebase-admin/messaging` reaches. */
+const FCM_HOST = 'fcm.googleapis.com';
+const FCM_REASON = 'in live mode firebase-admin/messaging does not work yet: sending real pushes from this process ' +
+  'needs its own live rows, which live mode does not have';
+const FCM_REMEDY = 'Send messages from a process without @pyric/live/register';
+
+/**
+ * Whether `host` is one of the live host's project's own Realtime Database
+ * hosts: its default instance, `<project>-default-rtdb.firebaseio.com` or
+ * `<project>-default-rtdb.<region>.firebasedatabase.app`, and the legacy
+ * `<project>.firebaseio.com` an older project's databaseURL names. Another
+ * project's, and any other instance, is not.
+ */
+function isProjectDatabaseHost(host: string, passed: PassedThrough): boolean {
+  const projectId = passed.adminProjectId?.() ?? null;
+  if (projectId === null || projectId === '') return false;
+  const legacy = [`${projectId}-default-rtdb.firebaseio.com`, `${projectId}.firebaseio.com`];
+  if (legacy.includes(host)) return true;
+  const regional = host.split('.');
+  const isRegionalDefault = regional.length === 4 && regional[0] === `${projectId}-default-rtdb` && host.endsWith('.firebasedatabase.app');
+  return isRegionalDefault;
 }
 
 /** A host in `normalizeHostname`'s spelling, from a bare host or a proxy's absolute-form target. */
@@ -618,6 +654,8 @@ export interface LiveNetGuardOptions extends NetGuardHooks {
    * only when `passThrough` lists `firebase-admin`.
    */
   readonly isAdminSdkFile?: (url: string) => boolean;
+  /** The live host's project, once the register knows it; its own Realtime Database hosts pass for the Admin SDK's tree. */
+  readonly adminProjectId?: () => string | null;
 }
 
 /** The Admin SDK's file check, when `firebase-admin` passes through. */
@@ -635,6 +673,7 @@ export function installLiveNetGuard(options: LiveNetGuardOptions): EgressHooks {
     hosts: passThroughHosts(passThrough),
     isLiveSdkFile: options.isLiveSdkFile,
     ...adminSdkFileCheck(passThrough, options.isAdminSdkFile),
+    ...(options.adminProjectId === undefined ? {} : { adminProjectId: options.adminProjectId }),
   };
   const reporterOptions: ReporterOptions = {
     mode: 'block',
