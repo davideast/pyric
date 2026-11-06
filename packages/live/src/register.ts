@@ -27,7 +27,9 @@
  * The first process runs the start checks (`start-checks.ts`), prints the
  * start line, and says which host its calls reach, or how to start one. A
  * child process or worker it starts opens the same rows, with the same
- * pass-through imports, quietly.
+ * pass-through imports, quietly. Every process hands its rows the project it
+ * resolved (`serveHostProject`), so a call whose app names another project
+ * is refused.
  */
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,11 +42,25 @@ import {
   liveProjectRoot,
   reachLiveHost,
 } from '@pyric/cli/register/internal/supplied-rows';
+import { serveHostProject } from './node-modules.js';
 import { passThroughOption } from './refusal.js';
 import { hostReachLine, liveStartLine } from './start-line.js';
 import { liveStartRefusal } from './start-checks.js';
 
 const ENTRY = '@pyric/live/register';
+
+/**
+ * The project a child process or worker serves: the one its first process
+ * resolved, from the project root that process recorded. A root with no
+ * project serves none, so no call is refused by project, as before.
+ */
+function childProject(projectRoot: string): string | undefined {
+  try {
+    return liveProjectId(projectRoot);
+  } catch {
+    return undefined;
+  }
+}
 
 /** This package's folder: the one above `dist/` in the installed files, or above `src/` in the workspace. */
 const LIVE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -59,11 +75,15 @@ await activateWithSuppliedRows({ liveRoot: LIVE_ROOT, passThrough });
 // The seam records the project root only when the rows opened.
 const projectRoot = process.env[LIVE_PROJECT_ROOT_VARIABLE];
 const startsLive = reach !== null && projectRoot !== undefined;
+const isChild = !isFirstProcess && projectRoot !== undefined;
+const servedChildProject = isChild ? childProject(projectRoot) : undefined;
+if (servedChildProject !== undefined) serveHostProject(servedChildProject);
 if (startsLive) {
   // The app's firebase as its rows read it: from the entry script's folder, then the working directory.
   const refusal = liveStartRefusal(projectRoot, liveAppDirs(process.argv[1], process.cwd()));
   if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
   const projectId = liveProjectId(projectRoot);
+  serveHostProject(projectId);
   const passing = (passThrough ?? []).map((specifier) => `${ENTRY}: ${livePassThroughLine(specifier)}`);
   const lines = [liveStartLine(ENTRY, projectId), ...passing, hostReachLine(ENTRY, reach, projectId, projectRoot)];
   process.stderr.write(`${lines.join('\n')}\n`);
