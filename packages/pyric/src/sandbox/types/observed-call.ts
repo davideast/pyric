@@ -9,7 +9,7 @@
  */
 
 /** The services a client may report observed calls for. */
-export type ObservedCallService = 'firestore' | 'auth' | 'rtdb' | 'ai';
+export type ObservedCallService = 'firestore' | 'auth' | 'rtdb' | 'ai' | 'storage';
 
 /** What production answered: success, or the error code it returned. */
 export type ProductionOutcome =
@@ -59,8 +59,9 @@ export interface ObservedCall {
   method: string;
   /**
    * The document or collection path the call named, when it named one. On an
-   * `rtdb` call, the reference's path, such as `/items/a`. Never on an `ai`
-   * call, whose event path is its model.
+   * `rtdb` call, the reference's path, such as `/items/a`. On a `storage`
+   * call, the reference's `fullPath`, absent for the bucket's root. Never on
+   * an `ai` call, whose event path is its model.
    */
   path?: string;
   /**
@@ -70,6 +71,13 @@ export interface ObservedCall {
    * on any other; the event leaves it out for the project's default instance.
    */
   instance?: string;
+  /**
+   * `storage` only: the bucket the reference named, as a bare bucket name
+   * (`my-project.firebasestorage.app`), never a `gs://` URL. Required on every
+   * Storage call and refused on any other; the event carries it as
+   * `detail.bucket`, the key the sandbox's own Storage events use.
+   */
+  bucket?: string;
   /** When the app made the call, in ms since epoch. */
   at: number;
   /** How long production took to answer, in ms. */
