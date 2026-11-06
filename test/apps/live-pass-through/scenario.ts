@@ -102,6 +102,22 @@ export default scenario(async (app) => {
     assert.deepEqual(live.passThrough, PASSED);
   });
 
+  await app.step("the chip's Live tab lists the project and each passed-through import, and its controls are usable", async () => {
+    const chip = await openChip(page);
+    await chip.locator('[data-chip-tab="sandbox"]').click();
+    await chip.locator('[data-live-view]').waitFor({ timeout: 10_000 });
+    const sections = await chip.locator('[data-live-section]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-live-section')));
+    assert.deepEqual(sections, ['project', 'clients', 'coverage', 'billed', 'overlays']);
+    assert.equal(await chip.locator('[data-live-project]').getAttribute('data-live-project'), 'demo-live-pass-through');
+    const imports = await chip.locator('[data-coverage-import]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-coverage-import')));
+    assert.deepEqual(imports, PASSED);
+    assert.equal(await chip.locator('[data-worker-row]').count(), 0);
+    await chip.locator('[data-open-console]').waitFor({ state: 'visible' });
+    const hide = chip.locator('[data-action-bar] [data-dismiss-chip]');
+    await hide.click();
+    await chip.waitFor({ state: 'hidden' });
+  });
+
   await app.step('stop the dev server', async () => {
     await page.close();
     await host.process.stop();
