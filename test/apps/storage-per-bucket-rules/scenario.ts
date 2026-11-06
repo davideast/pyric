@@ -100,7 +100,11 @@ export default scenario(async (app) => {
     // bucket, and storage.rules, not the first entry's media.rules, governs it.
     const args = ['rules', 'simulate', '--in-process', '--json', '--service', 'storage', '--operation', 'create', '--path', 'uploads/a.txt'];
     const result = await app.pyric(args);
-    const simulated = JSON.parse(result.output.slice(result.output.indexOf('{'))) as { ok: boolean; data?: { allowed?: boolean } };
+    // Output interleaves stderr (the status line, Node's SQLite warning) around
+    // the printed JSON, so read only the block from `{` to its closing `}` line.
+    const printed = /^\{\n[\s\S]*?\n\}$/m.exec(result.output);
+    assert.ok(printed, result.output);
+    const simulated = JSON.parse(printed[0]) as { ok: boolean; data?: { allowed?: boolean } };
     assert.equal(simulated.ok, true, result.output);
     assert.equal(simulated.data?.allowed, false, result.output);
   });
