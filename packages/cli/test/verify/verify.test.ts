@@ -39,6 +39,7 @@ import { setRules as setFirestoreRules, seedDocuments as seedFirestoreDocuments 
 import { runDerivedCases } from '../../src/bridge/surface/assurance-cases.js';
 import { getMetadata, getStorage, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
 import { createAppForSandbox } from 'pyric/app/internal';
+import { emitSandboxEvent, observedCallEvent } from 'pyric/sandbox/internal';
 import {
   buildVerifyFixture,
   deriveRulesTestCases,
@@ -608,6 +609,32 @@ service firebase.storage {
     await getMetadata(storageRef(storage, 'x/a.txt'));
     const result = await verifyFixture(buildVerifyFixture({ sandbox, storageRules: rules }), { rules: { storage: rules } });
     expect(result.services.storage?.checkedEvents).toBe(2);
+    expect(result.services.storage?.divergences).toEqual([]);
+  });
+
+  it("skips a call production served, whose allow is production's, not the captured rules'", async () => {
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{p=**} { allow read, write: if false; }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    getStorageSandbox(sandbox, { dbName: uniqueDbName('observed'), rules });
+    const call = {
+      service: 'storage' as const,
+      method: 'getDownloadURL',
+      path: 'avatars/alice.png',
+      at: 1,
+      outcome: { status: 'ok' as const },
+      account: { uid: 'alice' },
+      bucket: 'demo-app.appspot.com',
+    };
+    emitSandboxEvent(sandbox, observedCallEvent(call), { caller: { kind: 'node' } });
+    const fixture = buildVerifyFixture({ sandbox, storageRules: rules });
+    expect(fixture.events).toContainEqual(expect.objectContaining({ service: 'storage', result: 'allow' }));
+    const result = await verifyFixture(fixture, { rules: { storage: rules } });
+    expect(result.services.storage?.checkedEvents).toBe(0);
     expect(result.services.storage?.divergences).toEqual([]);
   });
 
