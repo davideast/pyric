@@ -73,6 +73,25 @@ describe('write data', () => {
 
   test('a merge write carries no write data', () => {
     expect(firestoreContext('setDoc', [ref, { size: 4 }, { merge: true }]).writeData).toBeUndefined();
+    expect(firestoreContext('setDoc', [ref, { size: 4 }, { mergeFields: ['size'] }]).writeData).toBeUndefined();
+  });
+
+  test('an updateDoc with a dotted field path carries no write data', () => {
+    expect(firestoreContext('updateDoc', [ref, { 'owner.uid': 'bob' }]).writeData).toBeUndefined();
+  });
+
+  test('data larger than the 64 KiB a host keeps carries no write data', () => {
+    expect(firestoreContext('setDoc', [ref, { body: 'x'.repeat(64 * 1024) }]).writeData).toBeUndefined();
+  });
+
+  test("a write through a converter carries no write data: the app's model is not what toFirestore wrote", () => {
+    const converter = {
+      toFirestore: (model: { name: string }) => ({ title: model.name }),
+      fromFirestore: (snapshot: realFirestore.QueryDocumentSnapshot) => ({ name: String(snapshot.data().title) }),
+    };
+    const converted = ref.withConverter(converter);
+    expect(firestoreContext('setDoc', [converted, { name: 'Lobby' }]).writeData).toBeUndefined();
+    expect(firestoreContext('addDoc', [realFirestore.collection(db, 'rooms').withConverter(converter), { name: 'Lobby' }]).writeData).toBeUndefined();
   });
 
   test('a write with a value that is not JSON carries no write data', () => {
@@ -111,5 +130,36 @@ describe("a getDoc's returned document", async () => {
     expect(resolved).toHaveLength(1);
     expect(resolved[0]!.document).toEqual({ title: 'Hall', size: 2 });
     expect(observedCallOf(resolved[0]!, 1)?.document).toEqual({ title: 'Hall', size: 2 });
+  });
+
+  test("the app's own getDoc result is unchanged", async () => {
+    const ref = firestore.doc(db, 'rooms/d');
+    void realFirestore.setDoc(ref, { title: 'Den', tags: ['a'] });
+    const snapshot = await firestore.getDoc(ref);
+    expect(snapshot).toBeInstanceOf(realFirestore.DocumentSnapshot);
+    expect(snapshot.data()).toEqual({ title: 'Den', tags: ['a'] });
+    const document = records.find((record) => record.name === 'getDoc' && record.path === 'rooms/d')?.document as { tags: string[] };
+    document.tags.push('b');
+    expect(snapshot.data()).toEqual({ title: 'Den', tags: ['a'] });
+  });
+
+  test("a getDoc through a converter carries no document and never runs the app's fromFirestore", async () => {
+    let reads = 0;
+    const converter = {
+      toFirestore: (model: { name: string }) => ({ title: model.name }),
+      fromFirestore: (snapshot: realFirestore.QueryDocumentSnapshot) => {
+        reads++;
+        return { name: String(snapshot.data().title) };
+      },
+    };
+    const ref = firestore.doc(db, 'rooms/e').withConverter(converter);
+    void realFirestore.setDoc(ref, { name: 'East' });
+    records.length = 0;
+    const snapshot = await firestore.getDoc(ref);
+    expect(reads).toBe(0);
+    const resolved = records.filter((record) => record.name === 'getDoc' && record.outcome === 'resolved');
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.document).toBeUndefined();
+    expect(snapshot.data()).toEqual({ name: 'East' });
   });
 });

@@ -120,6 +120,24 @@ describe('repro recorder', () => {
     await recorder.inbound('studio', { t: 'clock-subscribe' } as InboundMessage);
     expect((await recorder.log()).entries).toEqual([]);
   });
+
+  test('an observed call is recorded without its claim values, write data or returned document', async () => {
+    const recorder = createReproRecorder({ capture: async () => base() });
+    const call = {
+      service: 'firestore', method: 'setDoc', at: 1, outcome: { status: 'ok' }, path: 'rooms/a',
+      account: { uid: 'alice', claimNames: ['admin'], claims: { admin: true } },
+      writeData: { title: 'Lobby' },
+      document: { title: 'Hall' },
+    };
+    await recorder.inbound('tab', { t: 'observe', id: 'o1', call } as InboundMessage);
+    const [entry] = (await recorder.log()).entries;
+    const frame = entry?.kind === 'in' ? entry.frame : undefined;
+    expect(frame).toEqual({
+      t: 'observe', id: 'o1',
+      call: { service: 'firestore', method: 'setDoc', at: 1, outcome: { status: 'ok' }, path: 'rooms/a', account: { uid: 'alice', claimNames: ['admin'] } },
+    } as InboundMessage);
+    expect(call.account.claims).toEqual({ admin: true });
+  });
 });
 
 describe('pyric serve repro', () => {

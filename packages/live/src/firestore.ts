@@ -10,10 +10,13 @@
  *
  * For the host's local rules only, a `setDoc`, `updateDoc` or `addDoc` also
  * carries the fields it wrote, and a resolved `getDoc` the fields of the
- * document it returned, each as a JSON copy. Data that is not plain JSON (a
- * sentinel such as `serverTimestamp()`, a Timestamp, a reference) carries
- * none, nor does a merge `setDoc` or a dotted `updateDoc` field path, whose
- * fields are not the document's.
+ * document it returned, each as a JSON copy of at most the 64 KiB a host
+ * keeps. Data that is not plain JSON (a sentinel such as `serverTimestamp()`,
+ * a Timestamp, a reference) or is larger carries none, nor does a merge
+ * `setDoc` or a dotted `updateDoc` field path, whose fields are not the
+ * document's. A reference or query with a converter (`withConverter`) carries
+ * neither: its data is the app's model, not the stored fields, and reading
+ * it would run the app's `fromFirestore`.
  *
  * Reading never calls the app's code and never throws. Loaded in the page
  * too, so it imports only types.
@@ -81,6 +84,12 @@ function pathOf(subject: unknown): string | undefined {
 
 /** The deepest nesting a JSON copy keeps; the host refuses deeper. */
 const MAX_DEPTH = 20;
+/** The most a host keeps of written data or a returned document, as it measures it: a string's length plus 2, a key's plus 4, any other scalar 8. */
+const MAX_FIELDS_SIZE = 64 * 1024;
+
+interface Budget {
+  left: number;
+}
 
 const NOT_JSON: unique symbol = Symbol('not-json');
 
@@ -89,29 +98,57 @@ function isPlainObject(value: object): boolean {
   return prototype === Object.prototype || prototype === null;
 }
 
-/** A JSON copy of a value, or `NOT_JSON` when it holds anything else. */
-function jsonCopy(value: unknown, depth: number): unknown {
-  const isScalar = value === null || typeof value === 'string' || typeof value === 'boolean';
-  if (isScalar) return value;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : NOT_JSON;
+/** A JSON copy of a value, or `NOT_JSON` when it holds anything else or runs past the budget. */
+function jsonCopy(value: unknown, depth: number, budget: Budget): unknown {
+  if (typeof value === 'string') {
+    budget.left -= value.length + 2;
+    return value;
+  }
+  const isScalar = value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+  if (isScalar) {
+    budget.left -= 8;
+    return value;
+  }
   const isNested = isObject(value) && depth < MAX_DEPTH;
   if (!isNested) return NOT_JSON;
-  if (Array.isArray(value)) {
-    const items = value.map((item: unknown) => jsonCopy(item, depth + 1));
-    return items.includes(NOT_JSON) ? NOT_JSON : items;
-  }
-  if (!isPlainObject(value)) return NOT_JSON;
-  const entries = Object.entries(value).map(([key, field]) => [key, jsonCopy(field, depth + 1)] as const);
-  const isJson = entries.every(([, field]) => field !== NOT_JSON);
-  return isJson ? Object.fromEntries(entries) : NOT_JSON;
+  if (Array.isArray(value)) return jsonItems(value, depth, budget);
+  return isPlainObject(value) ? jsonEntries(value, depth, budget) : NOT_JSON;
 }
 
-/** A JSON copy of a document's fields, or undefined when they are not plain JSON. */
+function jsonItems(items: readonly unknown[], depth: number, budget: Budget): unknown {
+  const copy: unknown[] = [];
+  for (const item of items) {
+    const copied = jsonCopy(item, depth + 1, budget);
+    if (copied === NOT_JSON || budget.left < 0) return NOT_JSON;
+    copy.push(copied);
+  }
+  return copy;
+}
+
+function jsonEntries(fields: object, depth: number, budget: Budget): unknown {
+  const entries: [string, unknown][] = [];
+  for (const [key, field] of Object.entries(fields)) {
+    budget.left -= key.length + 4;
+    const copied = jsonCopy(field, depth + 1, budget);
+    if (copied === NOT_JSON || budget.left < 0) return NOT_JSON;
+    entries.push([key, copied]);
+  }
+  return Object.fromEntries(entries);
+}
+
+/** A JSON copy of a document's fields, or undefined when they are not plain JSON or larger than a host keeps. */
 function jsonFields(value: unknown): Record<string, unknown> | undefined {
   const isFields = isObject(value) && !Array.isArray(value);
   if (!isFields) return undefined;
-  const copy = jsonCopy(value, 0);
+  const copy = jsonCopy(value, 0, { left: MAX_FIELDS_SIZE });
   return copy === NOT_JSON ? undefined : (copy as Record<string, unknown>);
+}
+
+/** Whether a reference or query reads and writes through the app's converter (`withConverter`). */
+function hasConverter(subject: unknown): boolean {
+  if (!isObject(subject)) return false;
+  const converter: unknown = Reflect.get(subject, 'converter');
+  return converter !== null && converter !== undefined;
 }
 
 const WRITES: ReadonlySet<string> = new Set(['setDoc', 'updateDoc', 'addDoc']);
@@ -124,7 +161,7 @@ function isMerge(options: unknown): boolean {
 
 /** The fields a write sent, as its second argument names them, when they are the document's own. */
 function writeDataOf(name: string, args: readonly unknown[]): Record<string, unknown> | undefined {
-  if (!WRITES.has(name)) return undefined;
+  if (!WRITES.has(name) || hasConverter(args[0])) return undefined;
   const merges = name === 'setDoc' && isMerge(args[2]);
   if (merges) return undefined;
   const data = jsonFields(args[1]);
@@ -161,10 +198,12 @@ const DOCUMENT_READS: ReadonlySet<string> = new Set(['getDoc', 'getDocFromServer
 /**
  * What a resolved document read adds to its record: the fields of the
  * document it returned, read through the snapshot's own `data()`, or
- * nothing for a missing document or one that is not plain JSON.
+ * nothing for a missing document, one that is not plain JSON or too large,
+ * or a reference with a converter, whose `data()` would run the app's code.
  */
 export function firestoreResult(site: ObservedSite, value: unknown): ResultReading {
-  if (!DOCUMENT_READS.has(site.name) || !isObject(value)) return {};
+  const isPlainRead = DOCUMENT_READS.has(site.name) && !hasConverter(site.subject);
+  if (!isPlainRead || !isObject(value)) return {};
   const data: unknown = Reflect.get(value, 'data');
   if (typeof data !== 'function') return {};
   const document = jsonFields(Reflect.apply(data, value, []));

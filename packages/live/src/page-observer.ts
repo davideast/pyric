@@ -9,8 +9,10 @@
  * that ran signed in names its account: the uid, the claim names and, for
  * the host's local rules only, the claim values with emails left out; never
  * the token. A Firestore call also carries, for the same rules only, the data
- * a write sent and the document a `getDoc` returned. The host keeps those
- * values in memory; no event holds them. An RTDB call also names its instance and path, an AI Logic call its
+ * a write sent and the document a `getDoc` returned. Those values go to the
+ * host's memory, and to the live capture file once capture writes live
+ * calls (#2305), nowhere else: no event, chip view or repro log holds
+ * them. An RTDB call also names its instance and path, an AI Logic call its
  * model and production's token counts, a Storage call its bucket and, below
  * the root, its path, and a Messaging `getToken` or `deleteToken` the
  * Installations and FCM registration requests it made, as API and action
