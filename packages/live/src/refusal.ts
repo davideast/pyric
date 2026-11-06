@@ -4,9 +4,11 @@
  * client that asked:
  *
  * - a Firebase import live mode has no row for (`liveRefusal`), so one app
- *   object never mixes production Firestore and Auth with a sandbox service;
- * - a call through a live row that would reach what the first slice does not
- *   serve, such as a named Firestore database (`liveCallRefusal`);
+ *   object never mixes the production services it serves with a sandbox
+ *   service;
+ * - a call through a live row that would reach what live mode does not
+ *   serve, such as a named Firestore database or the AI Live API
+ *   (`liveCallRefusal`);
  * - a write pyric itself would make, from Studio, an MCP tool, a pyric
  *   command or a seed file (`liveWriteRefusal`). Pyric holds no production
  *   credential and never writes on its own; the app's own writes go to
@@ -67,7 +69,7 @@ function joinedList(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
-/** `firebase/app, firebase/auth, firebase/firestore, firebase/app-check and firebase/database`. */
+/** `firebase/app, firebase/auth, firebase/firestore, firebase/app-check, firebase/database, firebase/ai and firebase/storage`. */
 const SERVED = joinedList([...SERVED_IMPORTS]);
 
 /** What live mode serves where the import was made. */
@@ -142,12 +144,12 @@ export function passThroughOption(entry: string, value: unknown): readonly strin
   return [...new Set(value as string[])];
 }
 
-/** `firebase/ai (Firebase AI Logic) and firebase/functions (Cloud Functions)`. */
+/** `firebase/functions (Cloud Functions) and firebase/remote-config (Remote Config)`. */
 function namedList(specifiers: readonly string[]): string {
   return joinedList(specifiers.map((specifier) => `${specifier} (${serviceOf(specifier)})`));
 }
 
-/** The option that would let each of `specifiers` load: `pyricLive({ passThrough: ['firebase/ai'] })`. */
+/** The option that would let each of `specifiers` load: `pyricLive({ passThrough: ['firebase/functions'] })`. */
 export function passThroughOptionFor(specifiers: readonly string[]): string {
   return `pyricLive({ passThrough: [${specifiers.map((specifier) => `'${specifier}'`).join(', ')}] })`;
 }
