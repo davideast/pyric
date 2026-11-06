@@ -63,6 +63,8 @@ describe('readObservedCall', () => {
       [{ ...NAMED_RTDB_READ, instance: 'named.firebaseio.com' }, 'instance'],
       [{ ...NAMED_RTDB_READ, instance: 'a'.repeat(101) }, 'instance'],
       [{ ...NAMED_RTDB_READ, instance: 7 }, 'instance'],
+      [{ ...NAMED_RTDB_READ, instance: undefined }, 'instance'],
+      [{ service: 'rtdb', method: 'set', path: '/items/a', at: 1, outcome: { status: 'ok' } }, 'instance'],
       [{ ...DENIED_READ, method: 'get Doc()' }, 'method'],
       [{ ...DENIED_READ, at: Number.NaN }, 'at'],
       [{ ...DENIED_READ, at: -1 }, 'at'],
