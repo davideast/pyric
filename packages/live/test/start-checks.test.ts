@@ -86,6 +86,17 @@ describe('the installed copies of @firebase/app', () => {
     symlinkSync(join(root, 'node_modules/.pnpm/firebase@12.19.0/node_modules/firebase'), join(root, 'node_modules/firebase'));
     expect(firebaseAppCopies(root)).toEqual([store]);
   });
+
+  test('names the copy @firebase/database resolves from outside the project tree', () => {
+    const root = project();
+    installFirebase(root, '12.19.0');
+    const outside = project();
+    const database = installPackage(join(outside, 'node_modules/@firebase/database'), '@firebase/database', '1.0.0');
+    const outsideApp = installPackage(join(outside, 'node_modules/@firebase/app'), '@firebase/app', '0.13.2');
+    symlinkSync(database, join(root, 'node_modules/@firebase/database'));
+    expect(firebaseAppCopies(root)).toEqual([join(root, 'node_modules/@firebase/app'), outsideApp].sort());
+    expect(liveStartRefusal(root)).toContain('This project has 2 copies of @firebase/app installed:');
+  });
 });
 
 describe('the copies of @firebase/app in a workspace', () => {
