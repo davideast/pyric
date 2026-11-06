@@ -8,8 +8,7 @@
  * a construct RE2 lacks (backreferences, lookaround), or when it does not
  * compile at all.
  */
-import { normalizeRe2ForJsRegExp } from '../grammar/re2-pattern.js';
-import { invalidPatternMessage, parseRe2Ast, re2SizeRefusal } from './rules-type.js';
+import { invalidPatternMessage, parseRe2Ast, re2PatternCompiles, re2SizeRefusal } from './rules-type.js';
 
 /** Why production would refuse `pattern` at compile, as its message, or null. */
 export function re2PatternProblem(pattern: string): string | null {
@@ -18,8 +17,8 @@ export function re2PatternProblem(pattern: string): string | null {
   try {
     const sizeRefusal = re2SizeRefusal(pattern, parseRe2Ast(pattern));
     if (sizeRefusal !== null) return sizeRefusal;
-    new RegExp(`^(?:${normalizeRe2ForJsRegExp(pattern)})$`);
-    return null;
+    // Read as code points too, so an astral range such as `[😀-😂]` compiles (#1901).
+    return re2PatternCompiles(pattern) ? null : invalid;
   } catch {
     return invalid;
   }
