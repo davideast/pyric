@@ -54,6 +54,24 @@ export function checkDatabaseInstance(args: Args, fail: Fail, effectiveService?:
   return checkInstance(args, fail);
 }
 
+/** Optional Cloud Storage bucket selector on `rules` calls (`service: 'storage'`). */
+export const bucket = z
+  .string()
+  .optional()
+  .describe('Cloud Storage bucket, by name or gs:// URL. Applies to service storage only; omitted, the default bucket.');
+
+/** Reject `bucket` on services that have no Cloud Storage buckets. */
+export function checkStorageBucket(args: Args, fail: Fail): InvalidArguments | null {
+  if (args.bucket === undefined) return null;
+  const target = String(args.service);
+  if (target === 'storage') return null;
+  return fail(
+    `bucket applies to Cloud Storage rules, and this call targets ${target}.`,
+    `Drop 'bucket', or pass service 'storage'.`,
+    'bucket',
+  );
+}
+
 /**
  * The `service` argument, whose values are the engine record names. Zod takes
  * a literal tuple, and the record set is read at load time, so the widening

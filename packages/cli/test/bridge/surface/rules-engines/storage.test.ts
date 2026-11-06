@@ -429,6 +429,86 @@ service firebase.storage {
 });
 
 /**
+ * `rules.simulate` with a top-level `bucket` evaluates that bucket's rules in
+ * force, as a served project's firebase.json deploys them per bucket; without
+ * one, the default bucket's.
+ */
+describe('simulate on a named bucket (#1313)', () => {
+  const DEFAULT_BUCKET_NAME = 'demo-app.appspot.com';
+  const simulate = METHODS_BY_KEY.get('rules.simulate')!;
+
+  /** A served project deploying open rules to media-bucket and sign-in rules to the default bucket. */
+  function servedContext() {
+    const sandbox = initializeSandbox();
+    installServedStorageRules(sandbox, {
+      storageRules: null,
+      projectKey: `/project-${Math.random()}`,
+      storageBucketRules: {
+        'media-bucket': { rules: OPEN_RULES, rulesHash: 'm' },
+        [DEFAULT_BUCKET_NAME]: { rules: SIGNED_IN_ONLY_RULES, rulesHash: 'd' },
+      },
+    });
+    const ctx = createSurfaceContext(sandbox);
+    ctx.storageBucketName = () => DEFAULT_BUCKET_NAME;
+    return ctx;
+  }
+
+  function verdict(result: { ok: boolean; data?: unknown }): boolean {
+    expect(result.ok).toBe(true);
+    return (result.data as { allowed: boolean }).allowed;
+  }
+
+  it('takes a top-level bucket', () => {
+    const parsed = simulate.args.safeParse({
+      service: 'storage',
+      operation: 'create',
+      path: 'a.txt',
+      bucket: 'media-bucket',
+    });
+    expect(parsed.success).toBe(true);
+    expect((parsed.data as { bucket?: string } | undefined)?.bucket).toBe('media-bucket');
+  });
+
+  it("evaluates the named bucket's rules, and the default bucket's without one", async () => {
+    const ctx = servedContext();
+    const request = { service: 'storage', operation: 'create', path: 'uploads/a.txt' };
+    expect(verdict(await simulate.handler({ ...request, bucket: 'media-bucket' }, ctx))).toBe(true);
+    expect(verdict(await simulate.handler({ ...request, bucket: 'gs://media-bucket' }, ctx))).toBe(true);
+    expect(verdict(await simulate.handler({ ...request, bucket: DEFAULT_BUCKET_NAME }, ctx))).toBe(false);
+    expect(verdict(await simulate.handler(request, ctx))).toBe(false);
+  });
+
+  it('evaluates every case on the named bucket', async () => {
+    const ctx = servedContext();
+    const result = await simulate.handler(
+      {
+        service: 'storage',
+        bucket: 'media-bucket',
+        cases: [
+          { operation: 'create', path: 'uploads/a.txt' },
+          { operation: 'get', path: 'uploads/a.txt' },
+        ],
+      },
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+    const cases = (result.data as { cases: Array<{ allowed: boolean }> }).cases;
+    expect(cases.map((one) => one.allowed)).toEqual([true, true]);
+  });
+
+  it('refuses bucket on a service other than storage', () => {
+    const fail = (_body: string, _fix: string, field?: string) =>
+      ({ ok: false, summary: '', data: { code: 'invalid_arguments', tool: 'rules', method: 'simulate', field, fix: '' } }) as const;
+    const refused = simulate.validate!(
+      { service: 'firestore', operation: 'get', path: 'a/b', bucket: 'media-bucket' },
+      { fail },
+    );
+    expect(refused?.data.code).toBe('invalid_arguments');
+    expect(refused?.data.field).toBe('bucket');
+  });
+});
+
+/**
  * Simulate and the `storage` methods bind the bucket under the served app's
  * `storageBucket`, as the live planes do (ST-H2-4). A case's `data.bucket` is
  * a `request.resource` field only.

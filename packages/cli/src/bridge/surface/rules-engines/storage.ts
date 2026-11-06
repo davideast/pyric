@@ -19,7 +19,7 @@ import { describeCompileLimitViolations, sourceCompileLimitViolations } from 'py
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
-import { activeStorageRules } from '../storage-rules.js';
+import { activeStorageRules, storageForBucket } from '../storage-rules.js';
 import type { OperationResult, SurfaceContext } from '../types.js';
 import { markLintFindings } from '../rules-verdict.js';
 import { simulatedRequestResource } from './storage-request-resource.js';
@@ -54,6 +54,11 @@ function defaultBucketDeploy(ctx: SurfaceContext): { bucket?: string } | null {
 /** What a call has to do when it named no source and the sandbox holds none. */
 const NO_RULES_LOADED =
   "No storage rules were supplied and none are loaded in the sandbox. Pass rules, or call rules.set with service 'storage' first.";
+
+/** What a call naming a bucket has to do when that bucket has no rules deployed. */
+function noBucketRules(bucket: string): string {
+  return `No storage rules were supplied and none are deployed to bucket "${bucket}". Pass rules, or deploy rules to that bucket in firebase.json.`;
+}
 
 /** The identity a simulation runs as, in the shape the rules evaluator takes. */
 function identityFor(
@@ -150,9 +155,9 @@ export const STORAGE_RULES: RulesEngine = {
   },
 
   async simulate(ctx, request) {
-    const source = request.rules ?? activeStorageRules(ctx);
+    const source = request.rules ?? activeStorageRules(ctx, request.bucket);
     if (source === null) {
-      return operationFailure(NO_RULES_LOADED);
+      return operationFailure(request.bucket === undefined ? NO_RULES_LOADED : noBucketRules(request.bucket));
     }
 
     let parsed;
@@ -162,7 +167,9 @@ export const STORAGE_RULES: RulesEngine = {
       return operationFailure(error instanceof Error ? error.message : String(error));
     }
 
-    const object = ref(storageFor(ctx), request.path);
+    // A named bucket is simulated on its own handle, so the stored object,
+    // `{bucket}` and the match path are that bucket's (#1313).
+    const object = ref(storageForBucket(ctx, request.bucket), request.path);
     const service = await getStorageService(object.storage);
     const existing = object.fullPath
       ? await service.backend.getMetadata(object.fullPath, object.bucket)
