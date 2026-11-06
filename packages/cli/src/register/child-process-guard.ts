@@ -54,18 +54,27 @@ function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
 }
 
 /**
+ * `env` with each `PYRIC_*` variable `parentEnv` has and `env` lacks copied
+ * in. A variable `env` already sets keeps its value. Returns a new object and
+ * never changes `env`. The worker guard uses it too (#1621).
+ */
+export function withSandboxVariables(env: Env, parentEnv: Env): Env {
+  const guarded: Env = { ...env };
+  for (const [name, value] of Object.entries(parentEnv)) {
+    const lacksIt = guarded[name] === undefined || (guarded[name] === '' && !EMPTY_IS_VALUE.has(name));
+    if (SANDBOX_VARIABLE.test(name) && value !== undefined && lacksIt) guarded[name] = value;
+  }
+  return guarded;
+}
+
+/**
  * The environment to start a child with, so that it loads the register at
  * `registerUrl` in the sandbox `parentEnv` names. Returns a new object and
  * never changes `childEnv`. `file:` URLs are percent-encoded, so the import
  * needs no quoting in `NODE_OPTIONS`.
  */
 export function guardChildEnv(childEnv: Env, parentEnv: Env, registerUrl: string): Env {
-  const guarded: Env = { ...childEnv };
-  for (const [name, value] of Object.entries(parentEnv)) {
-    const childLacksIt =
-      guarded[name] === undefined || (guarded[name] === '' && !EMPTY_IS_VALUE.has(name));
-    if (SANDBOX_VARIABLE.test(name) && value !== undefined && childLacksIt) guarded[name] = value;
-  }
+  const guarded = withSandboxVariables(childEnv, parentEnv);
   const nodeOptions = guarded.NODE_OPTIONS ?? '';
   if (!loadsRegister(nodeOptions, registerUrl)) {
     const importFlag = `--import ${registerUrl}`;

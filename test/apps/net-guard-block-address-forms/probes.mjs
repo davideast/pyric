@@ -108,6 +108,24 @@ record(
   await workerOutcome(new URL('./worker-probe.cjs', import.meta.url), { execArgv: [] }),
 );
 
+// A worker given its own env is in the sandbox too (#1621). Before the fix it
+// loaded the real firebase-admin. It runs child-probe.mjs and the line it
+// prints is read from its stdout.
+function workerStdout(options) {
+  return new Promise((resolve) => {
+    const worker = new Worker(new URL('./child-probe.mjs', import.meta.url), { ...options, stdout: true });
+    let stdout = '';
+    worker.stdout.on('data', (chunk) => { stdout += chunk; });
+    worker.once('error', (error) => resolve(`worker error: ${error.message}`));
+    worker.once('exit', () => resolve(stdout));
+  });
+}
+const workerEnvProbes = {
+  'an env of only PATH': { env: { PATH: process.env.PATH }, argv: ['env-of-path'] },
+  'an env spread from process.env': { env: { ...process.env }, argv: ['env-spread'] },
+  'an env with NODE_ENV=production': { env: { ...process.env, NODE_ENV: 'production' }, argv: ['env-production'] },
+};
+
 // Child processes (#1618). The register reached this process on the command
 // line, so a child that only inherits the environment, or one given its own
 // NODE_OPTIONS or env, started without it before the fix.
@@ -147,6 +165,10 @@ const childProbes = {
 };
 for (const [name, run] of Object.entries(childProbes)) {
   record(`child: ${name}`, childOutcome(await run()));
+}
+
+for (const [name, options] of Object.entries(workerEnvProbes)) {
+  record(`worker: ${name}`, childOutcome(await workerStdout(options)));
 }
 
 proxy.close();
