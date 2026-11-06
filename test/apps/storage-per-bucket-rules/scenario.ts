@@ -95,6 +95,20 @@ function assertServerOutput(output: string): void {
 }
 
 export default scenario(async (app) => {
+  await app.step('with no dev server, the in-process sandbox enforces the default bucket\'s own rules', async () => {
+    // .firebaserc names demo-app, so demo-app.appspot.com is the default
+    // bucket, and storage.rules, not the first entry's media.rules, governs it.
+    const args = ['rules', 'simulate', '--in-process', '--json', '--service', 'storage', '--operation', 'create', '--path', 'uploads/a.txt'];
+    const result = await app.pyric(args);
+    // Output interleaves stderr (the status line, Node's SQLite warning) around
+    // the printed JSON, so read only the block from `{` to its closing `}` line.
+    const printed = /^\{\n[\s\S]*?\n\}$/m.exec(result.output);
+    assert.ok(printed, result.output);
+    const simulated = JSON.parse(printed[0]) as { ok: boolean; data?: { allowed?: boolean } };
+    assert.equal(simulated.ok, true, result.output);
+    assert.equal(simulated.data?.allowed, false, result.output);
+  });
+
   const host = await app.step('start the hosted dev server', () => app.devServer());
   const attached = { PYRIC_SANDBOX: `remote:${host.url}` };
 
