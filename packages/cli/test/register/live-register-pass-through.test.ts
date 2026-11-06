@@ -72,8 +72,8 @@ describe('where the register finds @pyric/live', () => {
 
 describe('the pass-through list', () => {
   test('takes every served import with no live row', () => {
-    expect([...passThroughSet(['firebase/storage', 'firebase/functions', 'firebase/messaging'])]).toEqual([
-      'firebase/storage',
+    expect([...passThroughSet(['firebase/remote-config', 'firebase/functions', 'firebase/messaging'])]).toEqual([
+      'firebase/remote-config',
       'firebase/functions',
       'firebase/messaging',
     ]);
@@ -88,7 +88,7 @@ describe('the pass-through list', () => {
   test('reaches children as the first process recorded it', () => {
     expect(recordedPassThrough({})).toEqual([]);
     expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: '' })).toEqual([]);
-    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: 'firebase/storage,firebase/functions' })).toEqual(['firebase/storage', 'firebase/functions']);
+    expect(recordedPassThrough({ [LIVE_PASS_THROUGH_VARIABLE]: 'firebase/remote-config,firebase/functions' })).toEqual(['firebase/remote-config', 'firebase/functions']);
   });
 });
 

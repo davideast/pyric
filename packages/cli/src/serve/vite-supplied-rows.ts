@@ -34,6 +34,7 @@ export const INSTALLED_SDK_SPECIFIERS: ReadonlySet<ServedFirebaseSpecifier> = ne
   'firebase/firestore',
   'firebase/app-check',
   'firebase/database',
+  'firebase/storage',
 ]);
 
 /** The prefix of every module id the live rows serve; `\0` keeps every other plugin off them. */

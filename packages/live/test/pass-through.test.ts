@@ -32,7 +32,7 @@ describe('the passThrough option', () => {
   test('takes every served Firebase import live mode has no row for, except Firestore Lite, and nothing else', () => {
     const passable = [
       'firebase/ai', 'firebase/analytics', 'firebase/functions', 'firebase/messaging',
-      'firebase/messaging/sw', 'firebase/performance', 'firebase/remote-config', 'firebase/storage',
+      'firebase/messaging/sw', 'firebase/performance', 'firebase/remote-config',
     ];
     const unserved: string[] = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
     expect([...unserved].sort()).toEqual([...passable, 'firebase/firestore/lite'].sort());
@@ -55,10 +55,10 @@ describe('the passThrough option', () => {
     expect(passThroughOption(ENTRY, ['firebase/functions', 'firebase/ai', 'firebase/functions'])).toEqual(['firebase/functions', 'firebase/ai']);
   });
 
-  test('refuses an import live mode already serves, firebase/database among them', () => {
-    expect(startError(['firebase/database'])).toBe(
-      `${ENTRY}: passThrough lists firebase/database, which live mode already serves and observes; remove it.`,
-    );
+  test('refuses an import live mode already serves, firebase/database and firebase/storage among them', () => {
+    for (const named of ['firebase/database', 'firebase/storage']) {
+      expect(startError([named])).toBe(`${ENTRY}: passThrough lists ${named}, which live mode already serves and observes; remove it.`);
+    }
     for (const served of INSTALLED_SDK_SPECIFIERS) {
       expect(startError([served])).toBe(`${ENTRY}: passThrough lists ${served}, which live mode already serves and observes; remove it.`);
     }
