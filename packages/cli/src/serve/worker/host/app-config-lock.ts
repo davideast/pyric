@@ -32,6 +32,15 @@ import type { AppConfigMessage } from '../protocol.js';
 import type { HostCtx, PortLike } from '../host-context.js';
 import { resolvePendingDatabaseTargets } from './rules.js';
 import { adoptAppDefaultRtdbInstance } from './rtdb-instances.js';
+import { resolvePendingStorageTargets } from '../../storage-rules-install.js';
+
+/** Resolve the RTDB and Storage deploy targets no project resolved at server start with the app config's project. */
+function resolvePendingTargets(ctx: HostCtx): void {
+  resolvePendingDatabaseTargets(ctx);
+  const projectId = ctx.appOptions?.projectId;
+  if (typeof projectId !== 'string') return;
+  for (const notice of resolvePendingStorageTargets(ctx.sandbox, projectId)) console.info(`[pyric] ${notice}`);
+}
 
 export function configConflictError(
   expected?: Record<string, unknown>,
@@ -81,7 +90,7 @@ function lockFirstConfig(ctx: HostCtx, port: PortLike, msg: AppConfigMessage, se
     marksDefaultsProvisional(ctx);
   }
   adoptAppDefaultRtdbInstance(ctx);
-  resolvePendingDatabaseTargets(ctx);
+  resolvePendingTargets(ctx);
 }
 
 function supersedesLock(ctx: HostCtx, sender: Sender): boolean {
@@ -171,7 +180,7 @@ function supersedeLock(
     ctx.defaultRtdbAdoptedFromPriorHost = false;
   }
   adoptAppDefaultRtdbInstance(ctx);
-  resolvePendingDatabaseTargets(ctx);
+  resolvePendingTargets(ctx);
   const conflict = configConflictError(ctx.appOptions, priorOptions);
   const evicted = priorPorts.filter(stalePort => stalePort !== port);
   for (const stalePort of evicted) evictPort(ctx, stalePort, priorOptions, conflict, cleanupPort);

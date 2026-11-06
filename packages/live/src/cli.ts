@@ -8,8 +8,8 @@
  *
  * The host is the one `pyric sandbox --hosted` runs, reached through
  * `@pyric/cli`'s internal seam (`@pyric/cli/serve/internal/live-host`), with
- * its project reported as live: the chip and Studio show
- * "Live: <project-id>", and every row is production's. A Node process under
+ * its project reported as live: the chip and Studio show its project name,
+ * and every row is production's. A Node process under
  * `@pyric/live/register` reports its calls to it. The pages it serves from
  * Hosting get no Firebase SDK: a page gets the installed SDK through Vite
  * and `@pyric/live/vite`, whose dev server is the host itself.

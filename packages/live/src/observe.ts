@@ -39,7 +39,7 @@
  * and calls the SDK's own unsubscribe (`listener-journal.ts`).
  */
 import { closingUnsubscribe, openActivity, type LiveListenerActivity, type LiveListenerJournal } from './listener-journal.js';
-import { liveProjectRefusal, type LiveClient } from './refusal.js';
+import { liveProjectRefusal, type LiveClient, type ProjectField } from './refusal.js';
 
 export type { LiveListener, LiveListenerActivity, LiveListenerJournal } from './listener-journal.js';
 
@@ -330,26 +330,92 @@ function stringAt(value: unknown, path: readonly string[]): string | undefined {
 }
 
 /**
- * Where the app's own objects keep the project: a reference or query's
- * `firestore.app`, a Firestore or Auth instance's `app`, or the app itself.
+ * Where the app's own objects keep its config: a reference or query's
+ * `firestore.app`, a Firestore, Auth, Messaging or App Check instance's
+ * `app`, or the app itself.
  */
-const PROJECT_PATHS = [
-  ['firestore', 'app', 'options', 'projectId'],
-  ['app', 'options', 'projectId'],
-  ['options', 'projectId'],
+const OPTIONS_PATHS = [
+  ['firestore', 'app', 'options'],
+  ['app', 'options'],
+  ['options'],
 ] as const;
+
+/** The string the first config on `subject` holds at `field`, read without calling anything of the app's. */
+function configString(subject: unknown, field: string): string | undefined {
+  for (const path of OPTIONS_PATHS) {
+    const value = stringAt(subject, [...path, field]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
 
 /** The project the first argument's app names, read without calling anything of the app's. */
 function projectOf(args: readonly unknown[]): string | undefined {
   try {
-    for (const path of PROJECT_PATHS) {
-      const projectId = stringAt(args[0], path);
-      if (projectId !== undefined) return projectId;
-    }
+    return configString(args[0], 'projectId');
   } catch {
     // An argument that throws on read names no project; the call is still recorded.
+    return undefined;
   }
-  return undefined;
+}
+
+/** A project id's form: lowercase letters, digits and hyphens. */
+const PROJECT = '([a-z0-9-]+)';
+
+/** A default RTDB instance's host: `<project>-default-rtdb.firebaseio.com`, or a region's `firebasedatabase.app`. */
+const DEFAULT_DATABASE_HOST = new RegExp(`^${PROJECT}-default-rtdb\\.(?:firebaseio\\.com|[a-z0-9-]+\\.firebasedatabase\\.app)$`);
+
+/** A default bucket: `<project>.appspot.com` or `<project>.firebasestorage.app`, with or without `gs://`. */
+const DEFAULT_BUCKET = new RegExp(`^(?:gs://)?${PROJECT}\\.(?:appspot\\.com|firebasestorage\\.app)/?$`);
+
+/** A default auth domain: the default Hosting site, `<project>.firebaseapp.com` or `<project>.web.app`. */
+const DEFAULT_AUTH_DOMAIN = new RegExp(`^${PROJECT}\\.(?:firebaseapp\\.com|web\\.app)$`);
+
+function databaseHost(databaseURL: string): string | undefined {
+  try {
+    return new URL(databaseURL).hostname.toLowerCase();
+  } catch {
+    // A value that is no URL names no instance.
+    return undefined;
+  }
+}
+
+function projectMatched(pattern: RegExp, value: string | undefined): string | undefined {
+  return value === undefined ? undefined : pattern.exec(value.toLowerCase())?.[1];
+}
+
+/**
+ * How each config field beside the projectId encodes a project: only its
+ * default forms do. A custom auth domain, a bucket or RTDB instance with a
+ * name of its own, and the emulator encode none, so they cannot be judged.
+ */
+const CONFIG_PROJECTS: Readonly<Record<Exclude<ProjectField, 'projectId'>, (value: string) => string | undefined>> = {
+  databaseURL: (value) => projectMatched(DEFAULT_DATABASE_HOST, databaseHost(value)),
+  storageBucket: (value) => projectMatched(DEFAULT_BUCKET, value),
+  authDomain: (value) => projectMatched(DEFAULT_AUTH_DOMAIN, value),
+};
+
+const CONFIG_FIELDS = Object.keys(CONFIG_PROJECTS) as Exclude<ProjectField, 'projectId'>[];
+
+/** One project the app's config names, and the field that names it. */
+interface NamedProject {
+  readonly field: ProjectField;
+  readonly projectId: string;
+}
+
+/** The projects the app's databaseURL, storageBucket and authDomain encode, read without calling anything of the app's. */
+function configProjects(subject: unknown): NamedProject[] {
+  const projects: NamedProject[] = [];
+  try {
+    for (const field of CONFIG_FIELDS) {
+      const value = configString(subject, field);
+      const projectId = value === undefined ? undefined : CONFIG_PROJECTS[field](value);
+      if (projectId !== undefined) projects.push({ field, projectId });
+    }
+  } catch {
+    // A config that throws on read names no project; the call is judged by what was read.
+  }
+  return projects;
 }
 
 /** The context a module's hook reads, or an empty one when the hook throws: the call is still recorded. */
@@ -381,16 +447,30 @@ function siteFor(site: ObservedSite, args: readonly unknown[], self: unknown): O
 const REQUESTLESS_MODULES: ReadonlySet<string> = new Set(['firebase/app']);
 
 /**
+ * Every project the call's app names: its projectId, then each project its
+ * databaseURL, storageBucket or authDomain encodes. RTDB, Storage and Auth
+ * run without a projectId, and those fields can point an app at another
+ * project than its projectId, so every field that can be judged is.
+ */
+function appProjectsOf(callSite: ObservedSite): NamedProject[] {
+  const configured = configProjects(callSite.subject);
+  const projectId = callSite.projectId;
+  return projectId === undefined ? configured : [{ field: 'projectId', projectId }, ...configured];
+}
+
+/**
  * The refusal of a call whose app names another project than the host's, or
- * null when it may run: the observer names no host project, the call's
- * project can't be read, the projects match, or the module makes no request.
+ * null when it may run: the observer names no host project, the module
+ * makes no request, or every project the app's config names, as far as it
+ * can be read, is the host's.
  */
 function refusedProject(callSite: ObservedSite): Error | null {
   const { hostProjectId, client } = callSite.observer;
-  const appProjectId = callSite.projectId;
-  const isUnchecked = hostProjectId === undefined || appProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
-  if (isUnchecked || appProjectId === hostProjectId) return null;
-  return liveProjectRefusal(callSite.name, { appProjectId, hostProjectId }, client);
+  const isUnchecked = hostProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
+  if (isUnchecked) return null;
+  const other = appProjectsOf(callSite).find((named) => named.projectId !== hostProjectId);
+  if (other === undefined) return null;
+  return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
 }
 
 function ignoreRejection(returned: unknown): void {
