@@ -30,6 +30,17 @@
 // call none answers gets a 400 the SDK does not retry. The CORS answer allows
 // the PATCH and DELETE the Storage SDK sends and exposes the
 // `X-Goog-Upload-*` headers a resumable upload reads from its XHR.
+//
+// A Firebase Installations or FCM registrations call, the two APIs
+// `firebase/messaging` calls, names its host as the first path segment
+// (`/firebaseinstallations.googleapis.com/v1/projects/<p>/installations...`,
+// `/fcmregistrations.googleapis.com/v1/projects/<p>/registrations...`, how
+// the seam rewrites it) or in its Host header. `messaging.ts` answers it from
+// the recordings' `messaging` exchanges, and every path under those hosts
+// that none answers gets a 400. Their CORS preflight is answered like every
+// other: the allowed headers echo the ones the preflight asks for
+// (`x-goog-api-key`, `x-goog-firebase-installations-auth`, `Authorization`,
+// `x-firebase-client`), and the allowed methods include DELETE and PATCH.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -37,6 +48,7 @@ import type { Duplex } from 'node:stream';
 import { aiCallOf, answerAi, type AiReceived } from './ai.ts';
 import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
 import type { Recording } from './format.ts';
+import { MESSAGING_HOSTS, MessagingReplay, readMessagingRequest, type MessagingReceived } from './messaging.ts';
 import { ListenStream, ReplayState, WriteStream, type Received, type Unmatched } from './firestore.ts';
 import { startGrpcReplay, type GrpcReplay } from './grpc.ts';
 import { RtdbConnection, RtdbShared, type RtdbLog, type RtdbReceived } from './rtdb.ts';
@@ -47,7 +59,7 @@ export const FIRESTORE_HOST = 'firestore.googleapis.com';
 /** The hosts `routeOf` names: Firestore's and Auth's, which the recorder also relays. */
 const ROUTED_HOSTS = [FIRESTORE_HOST, ...AUTH_HOSTS];
 /** Every Google host this server answers, which the seam routes to it. */
-export const REPLAYED_HOSTS = [...ROUTED_HOSTS, STORAGE_HOST];
+export const REPLAYED_HOSTS = [...ROUTED_HOSTS, STORAGE_HOST, ...Object.keys(MESSAGING_HOSTS)];
 /** The first path segment of a Firestore stream an emulator connector names. */
 const FIRESTORE_SERVICE = 'google.firestore.v1.Firestore';
 
@@ -66,6 +78,8 @@ export interface ReplayServer {
   ai: AiReceived[];
   /** Every Storage call the server received, answered or not, in arrival order. */
   storage: StorageReceived[];
+  /** Every Installations and FCM registrations call the server received, answered or not, in arrival order. */
+  messaging: MessagingReceived[];
   close(): Promise<void>;
 }
 
@@ -107,6 +121,15 @@ export function storageRouteOf(request: IncomingMessage): Route | null {
   return isStoragePath ? { host: STORAGE_HOST, path: url.pathname, url } : null;
 }
 
+/** The path of an Installations or FCM registrations call, or null for any other request: under its host's segment, or with its Host header. */
+export function messagingRouteOf(request: IncomingMessage): Route | null {
+  const url = new URL(request.url ?? '/', 'http://replay.invalid');
+  const [, first, ...rest] = url.pathname.split('/');
+  if (first && Object.hasOwn(MESSAGING_HOSTS, first)) return { host: first, path: `/${rest.join('/')}`, url };
+  const host = (request.headers.host ?? '').replace(/:\d+$/, '');
+  return Object.hasOwn(MESSAGING_HOSTS, host) ? { host, path: url.pathname, url } : null;
+}
+
 export async function startReplayServer(recordings: Recording[], options: ReplayOptions = {}): Promise<ReplayServer> {
   const state = new ReplayState(recordings);
   const grpc = options.grpc ? await startGrpcReplay(state, options.grpc.projectDir) : null;
@@ -115,9 +138,10 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const rtdb = new RtdbShared();
   const ai: AiReceived[] | null = options.ai ? [] : null;
   const storage = new StorageReplay(state);
+  const messaging = new MessagingReplay(state);
   let origin = '';
   const server = createServer((request, response) => {
-    void handle({ state, rtdb, ai, storage, origin: () => origin }, sessions, request, response).catch((error: unknown) => {
+    void handle({ state, rtdb, ai, storage, messaging, origin: () => origin }, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
       response.end(`pyric replay: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -136,6 +160,7 @@ export async function startReplayServer(recordings: Recording[], options: Replay
     rtdb: rtdb.connections,
     ai: ai ?? [],
     storage: storage.received,
+    messaging: messaging.received,
     close: async () => {
       grpc?.close();
       for (const socket of sockets) socket.terminate();
@@ -158,11 +183,12 @@ interface Services {
   rtdb: RtdbShared;
   ai: AiReceived[] | null;
   storage: StorageReplay;
+  messaging: MessagingReplay;
   origin: () => string;
 }
 
 async function handle(services: Services, sessions: Map<string, WebChannelSession>, request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const { state, rtdb, ai, storage } = services;
+  const { state, rtdb, ai, storage, messaging } = services;
   allowCrossOrigin(request, response);
   if (request.method === 'OPTIONS') {
     response.writeHead(204);
@@ -172,11 +198,13 @@ async function handle(services: Services, sessions: Map<string, WebChannelSessio
   const report = REPORTS[request.url ?? ''];
   if (request.method === 'GET' && report) {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    response.end(JSON.stringify(report(state, rtdb, ai ?? [], storage.received)));
+    response.end(JSON.stringify(report(state, rtdb, ai ?? [], storage.received, messaging.received)));
     return;
   }
   const storageRoute = storageRouteOf(request);
   if (storageRoute) return answerStorage(services, storageRoute, request, response);
+  const messagingRoute = messagingRouteOf(request);
+  if (messagingRoute) return answerMessaging(messaging, messagingRoute, request, response);
   const route = routeOf(request);
   const body = await readBody(request);
   const aiCall = ai && request.method === 'POST' ? aiCallOf(request.url ?? '') : null;
@@ -197,10 +225,11 @@ async function handle(services: Services, sessions: Map<string, WebChannelSessio
  * What the server saw, for a caller in another process (`serve.ts`,
  * `process.ts`). `received` lists the Firestore and Auth requests in arrival
  * order, then the RTDB frames in arrival order, then the AI Logic calls in
- * arrival order, then the Storage calls in arrival order.
+ * arrival order, then the Storage calls in arrival order, then the
+ * Installations and FCM registrations calls in arrival order.
  */
-const REPORTS: Record<string, (state: ReplayState, rtdb: RtdbShared, ai: AiReceived[], storage: StorageReceived[]) => Array<Received | RtdbReceived | AiReceived | StorageReceived> | Unmatched[]> = {
-  '/__replay/received': (state, rtdb, ai, storage) => [...state.received, ...rtdb.received, ...ai, ...storage],
+const REPORTS: Record<string, (state: ReplayState, rtdb: RtdbShared, ai: AiReceived[], storage: StorageReceived[], messaging: MessagingReceived[]) => Array<Received | RtdbReceived | AiReceived | StorageReceived | MessagingReceived> | Unmatched[]> = {
+  '/__replay/received': (state, rtdb, ai, storage, messaging) => [...state.received, ...rtdb.received, ...ai, ...storage, ...messaging],
   '/__replay/unmatched': (state) => state.unmatched,
 };
 
@@ -225,6 +254,15 @@ async function answerStorage(services: Services, route: Route, request: Incoming
     return;
   }
   const answer = services.storage.answer(call, services.origin());
+  response.writeHead(answer.status, answer.headers);
+  response.end(answer.body);
+}
+
+/** Answers one Installations or FCM registrations call from the recordings, or fails it closed. */
+async function answerMessaging(messaging: MessagingReplay, route: Route, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await readBody(request);
+  const call = readMessagingRequest(MESSAGING_HOSTS[route.host]!, request.method ?? 'GET', route.path, request.headers, body);
+  const answer = messaging.answer(call);
   response.writeHead(answer.status, answer.headers);
   response.end(answer.body);
 }
