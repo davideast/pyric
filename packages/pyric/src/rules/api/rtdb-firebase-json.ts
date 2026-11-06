@@ -8,7 +8,7 @@
  * a file system.
  */
 
-import { databaseRulesConfig } from '../../sandbox/internal/database-rules-config.js';
+import { databaseRulesConfig } from '../rtdb/data/database-rules-config.js';
 
 export interface RtdbFirebaseJsonOptions {
   /**

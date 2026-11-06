@@ -1,0 +1,18 @@
+{
+  "name": "rules-firestore-root-recursive-path-value",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#222"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"root-recursive-path-value\" (Coverage: root block own allow). The root recursive wildcard binds the full resource name as a path.",
+  "observedAt": "2026-11-04T02:25:44.658Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "67c1ed4de8b1e69c773ab201a7a257de9d732e7dc329f7553d81b3604df31ae7"
+  },
+  "behavior": {
+    "root recursive binds the full resource name": "ALLOW"
+  }
+}

@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { Bound, OrderBy } from '../../../database/internal/query-projection.js';
-import { validateOrderByChildPath, validateQuerySpec } from '../../../database/query-validation.js';
+import type { Bound, OrderBy } from '../data/query-spec.js';
+import { validateOrderByChildPath, validateQuerySpec } from '../data/query-validation.js';
 import { thrownMessage } from './thrown-message.js';
 
 export const SimulationQuerySchema = z.object({
