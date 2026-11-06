@@ -55,10 +55,23 @@ export interface LiveHostStatus {
    */
   readonly observed?: readonly string[];
   /**
+   * The Admin SDK a Node process under the live register loads unwrapped: its
+   * calls reach production unobserved and bypass security rules. Kept apart
+   * from `passThrough`. Absent when the host does not pass it through.
+   */
+  readonly admin?: LiveAdminStatus;
+  /**
    * The clients connected to the host, one per browser profile, service
    * worker and Node process. Absent when none is connected.
    */
   readonly clients?: readonly LiveClient[];
+}
+
+/** The Admin SDK's pass-through, as a live host's health report carries it. */
+export interface LiveAdminStatus {
+  readonly mode: 'pass-through';
+  readonly observed: false;
+  readonly bypassesRules: true;
 }
 
 /** What connected to a live host: a page of a browser profile, its service worker, or a Node process. */
@@ -208,6 +221,17 @@ function readClients(value: unknown): { clients?: LiveClient[] } {
   return clients.length === 0 ? {} : { clients };
 }
 
+/** The admin field: the pass-through, else absent; a malformed one never loses the status. */
+function readAdmin(value: unknown): { admin?: LiveAdminStatus } {
+  const isObject = typeof value === 'object' && value !== null;
+  if (!isObject) return {};
+  const isPassThrough = Reflect.get(value, 'mode') === 'pass-through';
+  const isUnobserved = Reflect.get(value, 'observed') === false;
+  const bypassesRules = Reflect.get(value, 'bypassesRules') === true;
+  const isValid = isPassThrough && isUnobserved && bypassesRules;
+  return isValid ? { admin: { mode: 'pass-through', observed: false, bypassesRules: true } } : {};
+}
+
 /** The live status in a `/__pyric/health` report, or null for a sandbox host. */
 export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const isReport = typeof health === 'object' && health !== null;
@@ -225,8 +249,9 @@ export function readLiveHostStatus(health: unknown): LiveHostStatus | null {
   const hasFields = isProjectName(projectId) && isProjectName(configProjectId) && isProjectName(configSource);
   const hasLists = appProjectIds !== null && billed !== null && passThrough !== null && observed !== null;
   if (!hasFields || !hasLists) return null;
+  const admin = readAdmin(Reflect.get(live, 'admin'));
   const clients = readClients(Reflect.get(live, 'clients'));
-  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed, ...clients };
+  return { projectId, configProjectId, configSource, appProjectIds, billed, ...passThrough, ...observed, ...admin, ...clients };
 }
 
 const FIRESTORE_KINDS: ReadonlyMap<string, BilledCallKind> = new Map<string, BilledCallKind>([
