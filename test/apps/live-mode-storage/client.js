@@ -29,7 +29,7 @@ const SECOND_BUCKET = `${PROJECT}-live-second`;
 const RUN = "pyric_oracle/replay";
 const DENIED = "pyric_oracle_denied_storage/replay";
 const SIX_BYTES = new Uint8Array([1, 2, 3, 4, 5, 6]);
-/** About 600 KiB, so a resumable upload sends three chunks. */
+/** About 600 KiB: a resumable upload sends it in two chunks, and the paused one in three. */
 const LARGE = Uint8Array.from({ length: 600 * 1024 }, (_, i) => i % 251);
 const OBJECTS = ["a.bin", "raw.txt", "b64.bin", "big.bin", "paused.bin", "nested/x/one.txt", "nested/two.txt"];
 const isPage = typeof window === "object";
@@ -50,27 +50,39 @@ async function client(bucket, n) {
 }
 
 /**
- * How long after the first chunk the upload pauses. In Node the SDK makes the
- * next chunk's request within the same turn, so a pause on the next turn
- * cancels that request before it is sent and the resume asks the server what
- * it received. A page resolves the next chunk's token in a later task, so a
- * pause that soon lands before the request exists and the resume never asks;
- * the page waits until the next chunk is on its way.
+ * Each bucket's paused upload a page is running, until `pauseHeldUpload`
+ * pauses it. In Node the SDK makes the next chunk's request within the turn
+ * the first chunk's answer arrives, so a pause on the next turn cancels that
+ * request before it is sent, and the resume asks the server what it received,
+ * as capture S recorded. A page resolves the next chunk's token in a later
+ * task, so no timer lands reliably in that window; the page's paused upload
+ * waits for whoever drives it to call `pauseHeldUpload` while the next chunk
+ * is in flight.
  */
-const PAUSE_AFTER_MS = isPage ? 100 : 0;
+const pausable = new Map();
+
+/** Pauses the upload running on `bucket` that waits for it. */
+function pauseHeldUpload(bucket) {
+  const task = pausable.get(bucket);
+  if (!task) return false;
+  pausable.delete(bucket);
+  task.pause();
+  return true;
+}
 
 /** Uploads `LARGE` resumably, pausing once after the first chunk and resuming once paused. */
 async function pausedUpload(at) {
   const task = uploadBytesResumable(at, LARGE);
-  let pauseScheduled = false;
+  let pauseScheduled = isPage;
   let resumed = false;
   let paused = false;
+  if (isPage) pausable.set(at.bucket, task);
   task.on("state_changed", (snapshot) => {
     if (!pauseScheduled && snapshot.bytesTransferred > 0 && snapshot.state === "running") {
       pauseScheduled = true;
-      setTimeout(() => task.pause(), PAUSE_AFTER_MS);
+      setTimeout(() => task.pause(), 0);
     }
-    if (pauseScheduled && !resumed && snapshot.state === "paused") {
+    if (!resumed && snapshot.state === "paused") {
       paused = true;
       resumed = true;
       task.resume();
@@ -163,6 +175,7 @@ async function uploadNote(path) {
 if (isPage) {
   window.runApp = () => runApp().then((run) => run.results, (error) => `failed: ${error.code ?? ""} ${error.message}`);
   window.uploadNote = uploadNote;
+  window.pauseHeldUpload = pauseHeldUpload;
   document.querySelector("#status").textContent = "Ready";
 } else {
   const { results, clients } = await runApp();

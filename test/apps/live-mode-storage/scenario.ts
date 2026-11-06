@@ -34,6 +34,7 @@ const BILLED_NONE = 'Billed calls: 0 reads, 0 writes, 0 documents delivered to l
 
 declare function runApp(): Promise<unknown>;
 declare function uploadNote(path: string): Promise<string>;
+declare function pauseHeldUpload(bucket: string): boolean;
 
 interface Replay {
   origin: string;
@@ -230,20 +231,26 @@ function storageEvents(app: App): CapturedEvent[] {
 /** Observed calls one plane's run sends the host on each bucket: the page's 31, and getStream too on the server job's. */
 const CALLS_PER_BUCKET = { page: 31, node: 32 } as const;
 
-/** The host's Storage events once at least `atLeast` are written: each names a bucket in `detail.bucket`, and both buckets appear. */
-async function expectBuckets(app: App, atLeast: number): Promise<void> {
-  const events = await eventually(async () => storageEvents(app), (all) => all.length >= atLeast, `${atLeast} Storage events on the host`);
+/** The host's Storage events once `count` are written, and no more: each names a bucket in `detail.bucket`, and both buckets appear. */
+async function expectBuckets(app: App, count: number): Promise<void> {
+  const events = await eventually(async () => storageEvents(app), (all) => all.length >= count, `${count} Storage events on the host`);
+  assert.equal(events.length, count, `one event per observed call:\n${events.map((event) => `${event.method} ${event.detail?.bucket} ${event.path}`).join('\n')}`);
   const buckets = new Set(Object.values(BUCKETS) as string[]);
   assert.deepEqual(events.filter((event) => !buckets.has(event.detail?.bucket ?? '')), [], 'every Storage event names its bucket in detail.bucket');
   for (const bucket of buckets) assert.ok(events.some((event) => event.detail?.bucket === bucket), `an event on ${bucket}`);
 }
 
 /**
- * Holds the page's paused upload's second chunk and never sends it, so the
- * app's pause cancels it in flight, as capture S's pause cancelled its second
- * chunk before production received it. The resume then asks what the server
- * received and sends the rest as capture S did. Every other request goes on
- * through the context's own routes. Returns each held request.
+ * Holds the page's paused upload's second chunk and never sends it, and
+ * pauses that bucket's upload while the chunk is held, so the pause cancels
+ * it in flight, as capture S's pause cancelled its second chunk before
+ * production received it. The resume then asks what the server received and
+ * sends the rest as capture S did. Every other request goes on through the
+ * context's own routes. Returns each held request's bucket.
+ *
+ * Capture S has no answer for the doubled chunk itself: a pause that missed
+ * it would leave the upload waiting on the held request (#2266, the replay
+ * answers a resumable upload only along capture S's chunk sizes).
  */
 async function holdPausedChunk(page: Page): Promise<string[]> {
   const held: string[] = [];
@@ -253,9 +260,23 @@ async function holdPausedChunk(page: Page): Promise<string[]> {
     // The second chunk, doubled to the rest of the file: it starts at 256 KiB and finalizes.
     const isSecondChunk = headers['x-goog-upload-offset'] === String(256 * 1024) && headers['x-goog-upload-command'] === 'upload, finalize';
     if (!isSecondChunk) return route.fallback();
-    held.push(request.url());
+    const bucket = decodeURIComponent(new URL(request.url()).pathname.split('/')[3] ?? '');
+    held.push(bucket);
+    const paused = await page.evaluate((name) => pauseHeldUpload(name), bucket);
+    if (!paused) held.push(`no paused upload waited on ${bucket}`);
   });
   return held;
+}
+
+/** `run`, or a failure naming `what` once `ms` pass without it settling. */
+async function within<T>(ms: number, what: string, run: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms / 1000}s`)), ms); });
+  try {
+    return await Promise.race([run, late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function blockedLines(app: App): string[] {
@@ -286,8 +307,9 @@ export default scenario(async (app) => {
       throw new Error(`${error.message}\nconsole:\n${app.browserLog.join('\n')}`);
     });
     const held = await holdPausedChunk(opened);
-    assert.deepEqual(await opened.evaluate(() => runApp()), expectedResults('page'));
-    assert.equal(held.length, 2, `the page's pause cancelled one held chunk on each bucket:\n${held.join('\n')}`);
+    const results = await within(60_000, 'the page\'s capture S sequence', opened.evaluate(() => runApp()));
+    assert.deepEqual(results, expectedResults('page'));
+    assert.deepEqual(held, [BUCKETS.default, BUCKETS.second], 'the page paused each bucket\'s upload while its second chunk was held');
     assert.deepEqual(await pageReplay.unmatched(), []);
     return opened;
   });
