@@ -10,6 +10,8 @@
  * and delivery as production's, from the realm that made it, with the
  * Installations and FCM registrations requests each call made and
  * production's answer, and nothing for `isSupported` or the second getToken.
+ * The FID registration calls, `register` and `onRegistered`, throw live
+ * mode's refusal, send no request and make no row.
  * The host's event stream carries each call's requests and no token, key or
  * payload text, and Messaging adds nothing to the billed count. In Node the
  * worker file loads both Messaging entries with no refusal and sends no row.
@@ -34,13 +36,15 @@ const PROJECT = 'demo-live-messaging';
 const BILLED_NONE = 'Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners';
 const LAST_BACKGROUND = '/last-background-message';
 
-interface Settled { ok: boolean; value?: unknown; code?: string }
+interface Settled { ok: boolean; value?: unknown; code?: string; message?: string }
 
 interface Alerts {
   isSupported(): Promise<boolean>;
   getToken(): Promise<Settled>;
   deleteToken(): Promise<Settled>;
   getTokenWithBadKey(): Promise<Settled>;
+  register(): Promise<Settled>;
+  onRegistered(): Promise<Settled>;
   foreground: unknown[];
 }
 
@@ -130,6 +134,26 @@ async function lastBackgroundMessage(context: BrowserContext): Promise<unknown> 
   }, LAST_BACKGROUND);
 }
 
+/**
+ * The Installations entries the SDK keeps in IndexedDB, as their statuses and
+ * times only (no FID or token), for a failed deleteToken's message: in 2 of
+ * 28 local runs deleteToken asked Installations for a new auth token, which
+ * capture M holds no answer for.
+ */
+async function installationEntries(page: Page): Promise<unknown> {
+  return page.evaluate(() => new Promise((resolve) => {
+    const open = indexedDB.open('firebase-installations-database');
+    open.onerror = () => resolve(`open failed: ${String(open.error)}`);
+    open.onsuccess = () => {
+      const db = open.result;
+      const store = db.transaction(db.objectStoreNames[0]!).objectStore(db.objectStoreNames[0]!);
+      const all = store.getAll();
+      all.onsuccess = () => resolve({ now: Date.now(), entries: (all.result as Array<{ registrationStatus: number; authToken?: { requestStatus: number; creationTime?: number; expiresIn?: number; requestTime?: number } }>).map((entry) => ({ registrationStatus: entry.registrationStatus, authToken: { requestStatus: entry.authToken?.requestStatus, creationTime: entry.authToken?.creationTime, expiresIn: entry.authToken?.expiresIn, requestTime: entry.authToken?.requestTime } })) });
+      all.onerror = () => resolve(`getAll failed: ${String(all.error)}`);
+    };
+  }));
+}
+
 /** The chip, opened. */
 async function openChip(page: Page): Promise<Locator> {
   const chip = page.locator('[data-pyric-runtime-chip-host]');
@@ -179,7 +203,8 @@ async function messagingRows(chip: Locator): Promise<Row[]> {
  * background deliveries, the deleteToken with its registrations delete, and
  * the bad-key getToken with the Installations create production refused
  * (capture M: 400 INVALID_ARGUMENT, which reads failed, not denied). The
- * second getToken and `isSupported` sent no request and make no row.
+ * second and third getToken and `isSupported` sent no request, and the
+ * refused `register` and `onRegistered` never ran: none makes a row.
  */
 function expectedRows(): string[] {
   const row = (source: string, call: string, requests: string, answer: 'succeeded' | 'failed') => `production ${source} messaging.${call} | ${requests} | Production ${answer} | signed out`;
@@ -251,6 +276,17 @@ export default scenario(async (app) => {
       return String(first.value);
     });
 
+    await app.step('register and onRegistered throw live mode\'s refusal before the SDK runs, and no request reaches the replay', async () => {
+      const before = await replay.messagingReceived();
+      for (const call of ['register', 'onRegistered'] as const) {
+        const result = await page.evaluate((name) => alerts[name](), call);
+        assert.equal(result.ok, false, `${call}: ${JSON.stringify(result)}`);
+        assert.equal(result.code, 'PYRIC_LIVE_REFUSED', `${call}: ${JSON.stringify(result)}`);
+        assert.match(result.message ?? '', new RegExp(`\\b${call}\\b`), `${call}'s refusal names the call`);
+      }
+      assert.deepEqual(await replay.messagingReceived(), before);
+    });
+
     await app.step('a foreground push reaches onMessage on the visible page', async () => {
       const push = captureMPush('foreground');
       await deliverPush(page, push.pushData);
@@ -271,7 +307,9 @@ export default scenario(async (app) => {
     await app.step('back on the app, getToken returns the stored token, deleteToken deletes it, and the bad-key app\'s getToken fails with production\'s Installations error', async () => {
       // deleteToken takes no registration: the reloaded page's getToken hands the SDK its worker, from IndexedDB with no request.
       assert.deepEqual(await page.evaluate(() => alerts.getToken()), { ok: true, value: token });
-      assert.deepEqual(await page.evaluate(() => alerts.deleteToken()), { ok: true, value: true });
+      const deleted = await page.evaluate(() => alerts.deleteToken());
+      const why = deleted.ok ? '' : `; the replay received ${JSON.stringify(await replay.messagingReceived())}; installations after ${JSON.stringify(await installationEntries(page))}`;
+      assert.deepEqual(deleted, { ok: true, value: true }, `deleteToken: ${JSON.stringify(deleted)}${why}`);
       assert.deepEqual(await page.evaluate(() => alerts.getTokenWithBadKey()), { ok: false, code: 'installations/request-failed' });
       const path = (tail: string) => `/v1/projects/${PROJECT}/${tail}`;
       assert.deepEqual(await replay.messagingReceived(), [

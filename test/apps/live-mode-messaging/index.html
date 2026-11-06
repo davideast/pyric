@@ -18,10 +18,11 @@
       // whose API key production refuses (capture M's malformed key). The page
       // registers its module service worker, listens for foreground messages,
       // and asks for a token, deletes it, and asks for one on the bad-key app.
+      // It also tries the FID registration calls, register and onRegistered.
       // Each call's answer comes from production, or from the replay the
       // scenario routes the Installations and FCM registrations hosts to.
       import { initializeApp } from "firebase/app";
-      import { deleteToken, getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
+      import { deleteToken, getMessaging, getToken, isSupported, onMessage, onRegistered, register } from "firebase/messaging";
 
       const PROJECT = "demo-live-messaging";
       const SENDER_ID = "1234567890";
@@ -37,12 +38,22 @@
       onMessage(main, (payload) => foreground.push(payload));
       const options = { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration };
       const settle = (call) => call.then((value) => ({ ok: true, value }), (error) => ({ ok: false, code: error.code ?? String(error) }));
+      /** Runs `call`, which may throw at once or reject, and reports how it ended. */
+      const attempt = async (call) => {
+        try {
+          return { ok: true, value: await call() };
+        } catch (error) {
+          return { ok: false, code: error.code ?? String(error), message: error.message };
+        }
+      };
 
       window.alerts = {
         isSupported: () => isSupported(),
         getToken: () => settle(getToken(main, options)),
         deleteToken: () => settle(deleteToken(main)),
         getTokenWithBadKey: () => settle(getToken(badKey, options)),
+        register: () => attempt(() => register(main)),
+        onRegistered: () => attempt(() => onRegistered(main, () => {})),
         foreground,
       };
       document.querySelector("#status").textContent = "Ready";
