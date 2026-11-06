@@ -12,7 +12,8 @@ import { createServer, type Socket } from 'node:net';
 import { afterAll, describe, expect, test } from 'bun:test';
 import * as realApp from 'firebase/app';
 import * as realFirestore from 'firebase/firestore';
-import { LIVE_REFUSED, liveCallRefusal, liveModuleFor, liveWriteRefusal, type LiveModuleSite } from '../src/index.js';
+import { LIVE_REFUSED, LIVE_ROWS, liveCallRefusal, liveModuleFor, liveWriteRefusal, type LiveModuleSite } from '../src/index.js';
+import { PASS_THROUGH_CANDIDATES, liveRefusal, passThroughOption } from '../src/refusal.js';
 
 /** A loopback server that counts and drops every connection. */
 async function countingServer(): Promise<{ port: number; connections(): number; close(): Promise<void> }> {
@@ -124,5 +125,41 @@ describe('the refusal messages', () => {
     expect(liveWriteRefusal({ action: 'firestore_create_document', writer: 'mcp' }).message).toContain('from an MCP tool');
     expect(liveWriteRefusal({ action: 'seed seed.json', writer: 'seed' }).message).toContain('seed seed.json from the seed file');
     expect(liveWriteRefusal({ action: 'firestore.setDoc', writer: 'command' }).message).toContain('from a pyric command');
+  });
+});
+
+/** `a, b and c`: the served list as the refusal writes it. */
+function servedList(specifiers: readonly string[]): string {
+  return `${specifiers.slice(0, -1).join(', ')} and ${specifiers.at(-1)}`;
+}
+
+describe('the refusals follow the live rows', () => {
+  const rows = [...LIVE_ROWS.keys()];
+  const served = servedList(rows);
+  const tail = 'It is not served from the Pyric sandbox either, so production and sandbox services never share one app. ' +
+    'Remove the import, or run the app without @pyric/live to use the sandbox.';
+
+  test('an import with no live row names every row, in row order, for pages and Node processes', () => {
+    expect(liveRefusal('firebase/storage', 'page').message).toBe(
+      `@pyric/live: firebase/storage (Cloud Storage) is refused in live mode. Live mode serves only ${served} to pages, ` +
+        `from your installed Firebase SDK. ${tail}`,
+    );
+    expect(liveRefusal('firebase/storage', 'node').message).toBe(
+      `@pyric/live: firebase/storage (Cloud Storage) is refused in live mode. Live mode serves only ${served} to a Node process, ` +
+        `from your installed Firebase SDK. ${tail}`,
+    );
+    expect(liveRefusal('firebase/storage', 'server').message).toBe(
+      '@pyric/live: firebase/storage (Cloud Storage) is refused in live mode. Live mode serves Firebase to pages only; ' +
+        `server code the dev server runs gets no Firebase module yet. ${tail}`,
+    );
+  });
+
+  test('passThrough refuses every live row as already served, and takes none of them', () => {
+    for (const row of rows) {
+      expect(() => passThroughOption('@pyric/live/vite', [row])).toThrow(
+        `@pyric/live/vite: passThrough lists ${row}, which live mode already serves and observes; remove it.`,
+      );
+      expect(PASS_THROUGH_CANDIDATES).not.toContain(row);
+    }
   });
 });
