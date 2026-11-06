@@ -570,9 +570,13 @@ function shiftAstLines(ast: FirestoreRules, offset: number): void {
   shiftSourceLoc(ast.loc, offset);
   for (const imp of ast.imports) shiftSourceLoc(imp.loc, offset);
   for (const fn of ast.functions ?? []) shiftFunctionLocs(fn, offset);
-  shiftSourceLoc(ast.service.loc, offset);
-  for (const fn of ast.service.functions ?? []) shiftFunctionLocs(fn, offset);
-  const stack: MatchBlock[] = [ast.service.match];
+  for (const service of ast.services ?? [ast.service]) shiftServiceLines(service, offset);
+}
+
+function shiftServiceLines(service: ServiceBlock, offset: number): void {
+  shiftSourceLoc(service.loc, offset);
+  for (const fn of service.functions ?? []) shiftFunctionLocs(fn, offset);
+  const stack: MatchBlock[] = [service.match];
   while (stack.length > 0) {
     const block = stack.pop()!;
     shiftSourceLoc(block.loc, offset);

@@ -14,6 +14,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { inspect, setRules } from 'pyric/sandbox/firestore';
 import { doc, getDoc, getFirestore } from '../../src/firestore/index.js';
 import { firestoreRules } from '../../src/rules/index.js';
+import { resolveModulesBrowser, rulesSourceRejection } from 'pyric/rules/internal';
 
 /** Capture c5a's rules, as sent to production. */
 const STORAGE_FIRST = "rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{a=**} { allow read: if true; }\n  }\n}\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if false; }\n  }\n}\n";
@@ -25,6 +26,9 @@ const TWO_FIRESTORE = "rules_version = '2';\nservice cloud.firestore {\n  match 
 const STORAGE_FIRST_ALLOWING = STORAGE_FIRST.replace('allow get: if false;', 'allow get: if true;');
 
 const DUPLICATE = 'Duplicate service name declaration.';
+
+/** c5b under `2+modules`, with the allowing block first, so dropping the second block would fail open. */
+const TWO_FIRESTORE_MODULES = "\n\nrules_version = '2+modules';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if true; }\n  }\n}\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /c/{id} { allow get: if false; }\n  }\n}\n";
 
 function outcome(err: unknown): string {
   return (err as { code?: string }).code ?? String(err);
@@ -70,5 +74,14 @@ describe('two Firestore services', () => {
 
   it('firestoreRules() refuses it', () => {
     expect(() => firestoreRules(TWO_FIRESTORE)).toThrow();
+  });
+
+  it('the module resolver refuses it before any load path checks the resolved source', () => {
+    const resolved = resolveModulesBrowser(TWO_FIRESTORE_MODULES);
+    expect(resolved).toMatchObject({ success: false, error: { message: expect.stringContaining(DUPLICATE) } });
+  });
+
+  it('the rejection names the second block, past leading blank lines', () => {
+    expect(rulesSourceRejection(`\n\n${TWO_FIRESTORE}`)).toMatchObject({ kind: 'parse', line: 9, column: 1 });
   });
 });

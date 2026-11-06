@@ -70,8 +70,8 @@ export function checkRulesSource(
   if (!checked.ok) return checked;
   const service = checked.ast.service;
   if (isOtherService(service)) return { ok: false, rejection: wrongServiceRejection(service) };
-  const duplicate = duplicateService(checked.ast.services ?? []);
-  if (duplicate !== undefined) return { ok: false, rejection: duplicateServiceRejection(duplicate) };
+  const duplicate = duplicateServiceRejection(checked.ast);
+  if (duplicate !== null) return { ok: false, rejection: duplicate };
   return checked;
 }
 
@@ -91,12 +91,16 @@ function duplicateService(services: readonly ServiceBlock[]): ServiceBlock | und
 }
 
 /**
- * A file with two blocks for one service, reported at the second block's
- * `service` keyword (capture c5b-two-firestore-services). Kind `'parse'`,
- * as the wrong-service rejection, so every caller refuses it as it refuses
- * a parse failure.
+ * Why production refuses a parsed file with two blocks for one service,
+ * reported at the second block's `service` keyword (capture
+ * c5b-two-firestore-services), or null when every block names its own
+ * service. Kind `'parse'`, as the wrong-service rejection, so every caller
+ * refuses it as it refuses a parse failure. The module resolver runs it
+ * too, since it rebuilds the source from one block.
  */
-function duplicateServiceRejection(block: ServiceBlock): RulesSourceRejection {
+export function duplicateServiceRejection(ast: FirestoreRules): Extract<RulesSourceRejection, { kind: 'parse' }> | null {
+  const block = duplicateService(ast.services ?? []);
+  if (block === undefined) return null;
   return {
     kind: 'parse',
     line: block.loc?.line ?? 1,
