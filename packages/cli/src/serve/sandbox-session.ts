@@ -636,10 +636,10 @@ export async function createSandboxSession(
     ];
     // Without a rules file, a bucket denies every client operation, as in
     // production, and a deleted file returns its bucket to that state rather
-    // than keeping the last-good rules. Permissive mode does not open such a
-    // bucket yet: owner decision multi-resource-1 on #1313 says it should, as
-    // it opens an undeployed RTDB instance, and that needs the Storage
-    // sandbox to take a default policy, which PR 3 adds.
+    // than keeping the last-good rules. In permissive mode that state is
+    // open, as an undeployed RTDB instance is (owner decision
+    // multi-resource-1 on #1313): the init payload's `permissive` flag sets
+    // the Storage sandbox's default policy on every served plane.
     const loadedStorageRules = (bucket: string | null): string | null => {
       if (bucket === null) return live.storageRules;
       return liveStorageBuckets.get(bucket)?.rules ?? null;

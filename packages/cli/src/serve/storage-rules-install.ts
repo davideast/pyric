@@ -6,7 +6,8 @@
  * The default bucket's rules open the Storage service, which honors rules
  * only on its first open. Each bucket `firebase.json` names gets its own
  * rules by name, and a bucket nothing deploys to is locked, as production
- * creates a bucket (#1313). A deploy target no project resolved when the
+ * creates a bucket (#1313), or open when the session is permissive (owner
+ * decision multi-resource-1), as an RTDB instance without rules is. A deploy target no project resolved when the
  * server started deploys to its buckets once the page's app config names
  * the project. A dev server's later rules change arrives as a
  * {@link StorageRulesUpdate} and replaces one bucket's or one target's rules
@@ -51,13 +52,13 @@ const appProjectBySandbox = new WeakMap<Sandbox, string>();
  */
 export function installServedStorageRules(
   sandbox: Sandbox,
-  payload: Pick<InitPayload, 'storageRules' | 'storageBucketRules' | 'storagePendingTargets' | 'projectKey'>,
+  payload: Pick<InitPayload, 'storageRules' | 'storageBucketRules' | 'storagePendingTargets' | 'projectKey' | 'permissive'>,
 ): string[] {
   getStorageSandbox(sandbox, {
     ...(payload.storageRules ? { rules: payload.storageRules } : {}),
     ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
   });
-  lockUndeployedStorageBuckets(sandbox);
+  lockUndeployedStorageBuckets(sandbox, payload.permissive === true ? 'allow' : 'deny');
   for (const [bucket, deployed] of Object.entries(payload.storageBucketRules ?? {})) {
     deployStorageBucketRules(sandbox, bucket, deployed.rules);
   }
