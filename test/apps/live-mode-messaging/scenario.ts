@@ -137,7 +137,7 @@ async function lastBackgroundMessage(context: BrowserContext): Promise<unknown> 
 /**
  * The Installations entries the SDK keeps in IndexedDB, as their statuses and
  * times only (no FID or token), for a failed deleteToken's message: in 2 of
- * 28 local runs deleteToken asked Installations for a new auth token, which
+ * 30 local runs deleteToken asked Installations for a new auth token, which
  * capture M holds no answer for.
  */
 async function installationEntries(page: Page): Promise<unknown> {
