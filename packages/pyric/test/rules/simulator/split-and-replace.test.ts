@@ -149,10 +149,10 @@ describe('escapes and classes are not backreferences or lookarounds', () => {
 
 /**
  * Production's `(?i)k` matches the Kelvin sign U+212A in split() and
- * replace() (captured ALLOW). pyric compiles these patterns with
- * JavaScript's `i` flag and no `u` flag, which does not fold U+212A to `k`,
- * so pyric denies both today. The two cases are pinned in
- * `packages/conformance/firestore-rules-exceptions/` under ST-H1-3, whose
+ * replace() (captured ALLOW). Under `(?i)` pyric's RE2 matcher compares a
+ * character with the pattern letter's lower and upper case only, which does
+ * not fold U+212A to `k`, so pyric denies both today. The two cases are
+ * pinned in `packages/conformance/firestore-rules-exceptions/` under ST-H1-3, whose
  * `matches()` half is #1332; that item flips these assertions.
  */
 describe('Kelvin sign under (?i): production folds it, pyric does not yet (#1332)', () => {
@@ -171,7 +171,7 @@ describe('Kelvin sign under (?i): production folds it, pyric does not yet (#1332
 
 /**
  * Storage's split() and replace() compile through the shared
- * `compileRe2Regex`, so a pattern from request data gets pyric's size limit
+ * `compileRe2Search`, so a pattern from request data gets pyric's size limit
  * and RE2's 1000-repeat cap (#1264, ST-H3-10), as `matches()` does. The
  * refusal is an evaluation error: it denies on its own and `|| true`
  * absorbs it.

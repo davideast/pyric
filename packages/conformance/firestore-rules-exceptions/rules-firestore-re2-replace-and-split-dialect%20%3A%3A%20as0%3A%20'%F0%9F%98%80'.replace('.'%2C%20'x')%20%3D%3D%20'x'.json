@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#232","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production reads 😀 as one code point in replace(); pyric compiles the pattern without the u flag and reads it as two surrogate units","issue":"#1890"}
