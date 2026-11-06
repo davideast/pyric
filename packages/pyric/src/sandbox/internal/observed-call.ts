@@ -16,6 +16,7 @@ import type {
   ObservedCallService,
   ObservedRequest,
   ObservedRequestApi,
+  ObservedUsage,
   ProductionOutcome,
 } from '../types/observed-call.js';
 import type { RulesDisposition, SandboxOperationEvent } from '../types/events.js';
@@ -40,9 +41,19 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
 });
 
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
-const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'bucket', 'billedDocuments', 'ai', 'requests']);
+const CALL_FIELDS = new Set(['service', 'method', 'path', 'at', 'durationMs', 'outcome', 'account', 'projectId', 'instance', 'bucket', 'billedDocuments', 'usage', 'ai', 'requests']);
 const ACCOUNT_FIELDS = new Set(['uid', 'claimNames']);
 const AI_FIELDS = new Set(['model', 'reportedModel', 'usage', 'firstChunkMs']);
+/** Production's sizes: counts only, so a value, a document or a payload has no key to ride in. */
+const USAGE_FIELDS: ReadonlySet<keyof ObservedUsage> = new Set([
+  'documentReads',
+  'documentWrites',
+  'documentDeletes',
+  'payloadBytes',
+  'uploadedBytes',
+  'downloadedBytes',
+  'unmeasured',
+]);
 const AI_USAGE_FIELDS: ReadonlySet<keyof ObservedAiUsage> = new Set(['promptTokenCount', 'candidatesTokenCount', 'totalTokenCount', 'totalTokens']);
 /** Model resources and versions: `models/gemini-flash-lite-latest`, `gemini-2.5-flash-lite`. */
 const MODEL_PATTERN = /^[A-Za-z0-9._/-]{1,200}$/;
@@ -157,6 +168,20 @@ function readAiUsage(value: unknown): ObservedAiUsage {
     const count = value[key];
     if (count === undefined) continue;
     requireField(isDocumentCount(count), `ai.usage.${key}`);
+    usage[key] = count;
+  }
+  return usage;
+}
+
+/** A call's usage: each known count a non-negative safe integer, and any other key refused. */
+function readUsage(value: unknown): ObservedUsage {
+  requireField(isFields(value), 'usage');
+  requireOnly(value, USAGE_FIELDS as ReadonlySet<string>, 'usage.');
+  const usage: ObservedUsage = {};
+  for (const key of USAGE_FIELDS) {
+    const count = value[key];
+    if (count === undefined) continue;
+    requireField(isDocumentCount(count), `usage.${key}`);
     usage[key] = count;
   }
   return usage;
@@ -329,6 +354,7 @@ export function readObservedCall(value: unknown): ObservedCall {
     requireField(isDocumentCount(value.billedDocuments), 'billedDocuments');
     call.billedDocuments = value.billedDocuments;
   }
+  if (value.usage !== undefined) call.usage = readUsage(value.usage);
   // An AI call always names its model; no other call carries AI fields.
   if (isAi || value.ai !== undefined) {
     requireField(isAi, 'ai');
@@ -424,6 +450,16 @@ function eventDetail(call: ObservedCall): { detail?: { bucket: string } | { requ
   return requests === undefined ? {} : { detail: { requests: requests.map((request) => ({ ...request })) } };
 }
 
+/** Production's sizes, copied onto the event's production side when the call carried them. */
+function productionSizes(call: ObservedCall): { usage?: ObservedUsage; billedDocuments?: number } {
+  const usage = call.usage;
+  const billedDocuments = call.billedDocuments;
+  return {
+    ...(usage === undefined ? {} : { usage: { ...usage } }),
+    ...(billedDocuments === undefined ? {} : { billedDocuments }),
+  };
+}
+
 function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
   const account = call.account;
   const claimNames = account?.claimNames;
@@ -443,6 +479,7 @@ function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
     production: {
       outcome: { ...call.outcome },
       ...(claimNames === undefined ? {} : { claimNames: [...claimNames] }),
+      ...productionSizes(call),
     },
   });
 }

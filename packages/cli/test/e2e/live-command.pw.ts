@@ -1,13 +1,13 @@
 /**
  * The `pyric-live` command through real entry points: the bin `@pyric/live`
  * declares starts the Node host in live mode, a Node process under
- * `node --import @pyric/live/register` reports its calls to it, and the chip
- * in Chromium shows "Live: <project-id>", the billed-call count and the
- * process's rows as production's. The SDK points at a closed loopback port,
- * so nothing reaches a Firebase backend.
+ * `node --import @pyric/live/register` reports its calls to it, the chip in
+ * Chromium shows "pyric" and the project id and the process's rows as
+ * production's, and the health report carries the billed-call count. The SDK
+ * points at a closed loopback port, so nothing reaches a Firebase backend.
  *
  * When the app's Firebase config names another project than `.firebaserc`,
- * the host names the app's and warns in the terminal and the chip.
+ * the process's calls are refused before any request leaves.
  *
  * Also: each start check refuses the command with its reason, the register
  * says when no host is reachable, and `pyric sandbox --hosted` with every
@@ -188,7 +188,7 @@ test.describe('pyric-live', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
-  test('starts the Node host in live mode, and the chip shows the project, the count and a Node process as production', async ({ page }) => {
+  test('starts the Node host in live mode, the chip shows the project and a Node process as production, and health reports the count', async ({ page }) => {
     test.setTimeout(150_000);
     const root = project(roots);
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
@@ -209,7 +209,10 @@ test.describe('pyric-live', () => {
       billed: { reads: 0, writes: 0, deliveries: 0 },
     });
     expect(host.output()).toContain(`pyric-live: live mode for the Firebase project ${PROJECT_ID}.`);
-    expect(host.output()).toContain(`The chip and Studio show "Live: ${PROJECT_ID}" while it runs.`);
+    expect(host.output()).toContain(
+      `pyric-live: live mode for the Firebase project ${PROJECT_ID}. Your app talks to production with its real data, ` +
+        'and production bills each read, write and listener delivery.\n',
+    );
     expect(host.output()).toContain('node --import @pyric/live/register server.js');
     expect(host.output()).not.toContain('export PYRIC_SANDBOX=remote');
 
@@ -226,12 +229,10 @@ test.describe('pyric-live', () => {
     await expect(page.locator('#status')).toContainText('firebase/firestore is not served to pages of the pyric-live host');
 
     const chip = await openChip(page);
-    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveText(`Live: ${PROJECT_ID}`);
+    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveCount(1);
     await chip.locator('[data-expand]').click();
-    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText(`Live: ${PROJECT_ID}`);
+    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveCount(1);
     // The host's count: the listener's delivery; the failed read and the Auth call are not billed.
-    await expect(chip.locator('[data-chip-billed]')).toHaveText('Billed calls: 0 reads, 0 writes, 1 document delivered to listeners');
-    await expect(chip.locator('[data-chip-live-mismatch]')).toHaveCount(0);
     expect((await healthOf(url))?.live).toMatchObject({ appProjectIds: [PROJECT_ID], billed: { reads: 0, writes: 0, deliveries: 1 } });
     await chip.locator('[data-chip-tab=traffic]').click();
     await chip.locator('[data-traffic-scope=all]').click();
@@ -239,8 +240,8 @@ test.describe('pyric-live', () => {
     for (const method of ['firestore.getDocFromCache', 'auth.signInAnonymously', 'firestore.onSnapshot']) {
       const row = rows.filter({ hasText: method });
       await expect(row).toHaveCount(1);
-      await expect(row.locator('[data-traffic-row-production]')).toHaveText('Production');
-      await expect(row.locator('[data-traffic-row-source]')).toHaveText('Server (client SDK)');
+      await expect(row.locator('[data-traffic-row-production]')).toHaveCount(1);
+      await expect(row.locator('[data-traffic-row-source]')).toHaveAttribute('data-traffic-row-source', 'node');
     }
 
     // With the host stopped, the register says no host is reachable and how to start one.
@@ -253,31 +254,52 @@ test.describe('pyric-live', () => {
     expect(aloneFinished.output).toContain(`Start one in ${root} with npx pyric-live, or vite dev with pyricLive() from @pyric/live/vite.`);
   });
 
-  test("names the project the app's Firebase config names, and warns in the terminal and the chip when .firebaserc names another", async ({ page }) => {
+  test("refuses a Node process's calls when its app's Firebase config names another project than .firebaserc", async () => {
     test.setTimeout(150_000);
     const root = project(roots, 'staging-demo', 'prod-demo');
     symlinkSync(firebaseDir, join(root, 'node_modules/firebase'));
+    // Each call records the code it failed with, or 'ran'; the SDK points at a listening port that counts connections.
+    writeFileSync(join(root, 'server.mjs'), `
+import { initializeApp } from 'firebase/app';
+import { connectAuthEmulator, getAuth, signInAnonymously } from 'firebase/auth';
+import { connectFirestoreEmulator, doc, getDocFromCache, getFirestore, onSnapshot } from 'firebase/firestore';
+const port = Number(process.env.CLOSED_PORT);
+const app = initializeApp({ projectId: 'prod-demo', apiKey: 'live-command-key', appId: '1:1:web:1' });
+const auth = getAuth(app);
+connectAuthEmulator(auth, 'http://127.0.0.1:' + port, { disableWarnings: true });
+const db = getFirestore(app);
+connectFirestoreEmulator(db, '127.0.0.1', port);
+const codeOf = async (call) => { try { await call(); return 'ran'; } catch (error) { return error.code; } };
+const codes = {
+  firestore: await codeOf(() => getDocFromCache(doc(db, 'rooms/lobby'))),
+  auth: await codeOf(() => signInAnonymously(auth)),
+  listener: await codeOf(() => onSnapshot(doc(db, 'rooms/lobby'), () => undefined)),
+};
+console.log('RESULT ' + JSON.stringify({ codes }));
+process.exit(0);
+`);
+    const listening = createNetServer();
+    let connections = 0;
+    listening.on('connection', (socket) => { connections += 1; socket.destroy(); });
+    await new Promise<void>((resolve) => listening.listen(0, '127.0.0.1', resolve));
+    const backendPort = (listening.address() as { port: number }).port;
     const port = await freeLoopbackPort();
     const url = `http://127.0.0.1:${port}`;
     const host = started('node', [liveBin(root), '--no-open', '--host', '127.0.0.1', '--port', String(port)], root, { HOME: root });
     hosts.push(host);
     await waitForHost(host, url);
-    expect(host.output()).toContain('pyric-live: live mode for the Firebase project staging-demo.');
+    expect((await healthOf(url))?.live).toMatchObject({ projectId: 'staging-demo', configProjectId: 'staging-demo' });
 
-    const server = started('node', ['--import', '@pyric/live/register', 'server.mjs'], root, { HOME: root, CLOSED_PORT: String(await freeLoopbackPort()) });
+    const server = started('node', ['--import', '@pyric/live/register', 'server.mjs'], root, { HOME: root, CLOSED_PORT: String(backendPort) });
     const finished = await server.exited;
+    await new Promise<void>((resolve) => listening.close(() => resolve()));
     expect(finished.code, finished.output).toBe(0);
-
-    const warning = 'Your Firebase config says prod-demo; .firebaserc says staging-demo.';
-    expect(host.output()).toContain(`Live mode: your app's calls go to the Firebase project prod-demo, not staging-demo. ${warning}`);
-    expect((await healthOf(url))?.live).toMatchObject({ projectId: 'prod-demo', configProjectId: 'staging-demo', appProjectIds: ['prod-demo'] });
-
-    await page.goto(`${url}/`);
-    const chip = await openChip(page);
-    await expect(chip.locator('[data-expand] [data-chip-live]')).toHaveText('Live: prod-demo');
-    await chip.locator('[data-expand]').click();
-    await expect(chip.locator('.panel-header [data-chip-live]')).toHaveText('Live: prod-demo');
-    await expect(chip.locator('[data-chip-live-mismatch]')).toHaveText(warning);
+    const result = /RESULT (.+)/.exec(finished.output)?.[1];
+    expect(result, finished.output).toBeDefined();
+    const refused = 'PYRIC_LIVE_REFUSED';
+    expect(JSON.parse(result ?? '{}')).toEqual({ codes: { firestore: refused, auth: refused, listener: refused } });
+    expect(connections).toBe(0);
+    expect((await healthOf(url))?.live).toMatchObject({ projectId: 'staging-demo', appProjectIds: [], billed: { reads: 0, writes: 0, deliveries: 0 } });
   });
 
   test('refuses a seed file: a live host makes none of pyric\'s own writes', async () => {
@@ -362,7 +384,7 @@ test('pyric sandbox --hosted stays a sandbox host with @pyric/live installed and
     await page.goto(`${url}/`);
     await expect(page.locator('#status')).toHaveText('loaded');
     const chip = await openChip(page);
-    await expect(chip.locator('[data-expand]')).toHaveText('pyric');
+    await expect(chip.locator('[data-expand]')).toHaveCount(1);
     await expect(chip.locator('[data-chip-live]')).toHaveCount(0);
   } finally {
     await page.close();

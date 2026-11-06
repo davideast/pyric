@@ -38,12 +38,30 @@ function builtFile(name: string): string {
 
 const NODE_IMPORTS: RowImports = { file: builtFile, observer: REGISTER_OBSERVER_URL, client: 'node' };
 
+/** The project the host serves, as the register resolved it; unset until it does. */
+let hostProjectId: string | undefined;
+
+/**
+ * Hands every row this plane serves from now on the project the host serves
+ * (the register calls it once it has resolved the project), so each row refuses a
+ * call whose app names another project.
+ */
+export function serveHostProject(projectId: string): void {
+  hostProjectId = projectId;
+}
+
+/** How the observer module imports, with the host's project once it is known. */
+function observerImports(): RowImports {
+  if (hostProjectId === undefined) return NODE_IMPORTS;
+  return { ...NODE_IMPORTS, hostProjectId };
+}
+
 /**
  * The source of a module the register serves, or null for any other id.
  * `senderUrl` is `@pyric/cli`'s Node observed-call sender, by file URL.
  */
 export function liveRegisterModuleSource(url: string, senderUrl: string): string | null {
-  if (url === REGISTER_OBSERVER_URL) return observerModuleSource(senderUrl, NODE_IMPORTS);
+  if (url === REGISTER_OBSERVER_URL) return observerModuleSource(senderUrl, observerImports());
   const specifier = rowOf(url);
   return specifier === undefined ? null : rowModuleSource(specifier, NODE_IMPORTS);
 }

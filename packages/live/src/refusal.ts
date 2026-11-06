@@ -9,6 +9,9 @@
  * - a call through a live row that would reach what live mode does not
  *   serve, such as a named Firestore database or the AI Live API
  *   (`liveCallRefusal`);
+ * - a call through a live row whose app names another project than the
+ *   host's (`liveProjectRefusal`), so a live host never sends one project's
+ *   calls to another;
  * - a write pyric itself would make, from Studio, an MCP tool, a pyric
  *   command or a seed file (`liveWriteRefusal`). Pyric holds no production
  *   credential and never writes on its own; the app's own writes go to
@@ -222,6 +225,24 @@ export function liveCallRefusal(refusedCall: RefusedCall, client: LiveClient): E
   return refused(`@pyric/live: ${refusedCall.call} is refused in live mode, from ${CLIENT_NAMES[client]}: ` +
     `it would reach ${refusedCall.reaches}, and live mode serves ${refusedCall.serves}. ` +
     'The call threw before any request left. Run the app without @pyric/live to use the sandbox.');
+}
+
+/** The two projects a refused call names: the one its app's config names, and the host's. */
+export interface ProjectMismatch {
+  readonly appProjectId: string;
+  readonly hostProjectId: string;
+}
+
+/**
+ * The error for a call through a live row whose app names another project
+ * than the host's. `client` is absent when the observer does not name it.
+ */
+export function liveProjectRefusal(call: string, projects: ProjectMismatch, client?: LiveClient): Error {
+  const from = client === undefined ? 'a client' : CLIENT_NAMES[client];
+  return refused(`@pyric/live: ${call} is refused in live mode, from ${from}: ` +
+    `its app's config names the project '${projects.appProjectId}', and this live host serves '${projects.hostProjectId}'. ` +
+    `The call threw before any request left. Point the app's config at '${projects.hostProjectId}', ` +
+    `or start live mode for '${projects.appProjectId}'.`);
 }
 
 const WRITER_NAMES: Readonly<Record<PyricWriter, string>> = {

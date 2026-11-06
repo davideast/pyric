@@ -5,8 +5,8 @@
  * `pyricLive({ passThrough: ['firebase/functions', 'firebase/remote-config'] })` the
  * page loads: Auth is the live row, and Cloud Functions and Remote Config are
  * the app's installed SDK, unwrapped, on the same app object. The start line,
- * the health report and the chip name each one as not observed and still
- * billed.
+ * the health report lists each one, and the chip's header names the project
+ * only.
  *
  * The app's server job (`admin-server.mjs`) looks a user up with the Admin
  * SDK under `node --import @pyric/live/register`. Without `firebase-admin` in
@@ -19,9 +19,9 @@
  * Without the list, the same page is refused: the dev server names every
  * unserved import it was asked for and the `passThrough` option that would
  * allow them, and the page throws `PYRIC_LIVE_REFUSED`. A list that names an
- * import live mode serves, such as `firebase/database`, `firebase/ai` or
- * `firebase/storage`, or a `firebase-admin/*` subpath, stops the dev server
- * at start.
+ * import live mode serves, such as `firebase/database`, `firebase/ai`,
+ * `firebase/storage`, `firebase/messaging` or `firebase/messaging/sw`, or a
+ * `firebase-admin/*` subpath, stops the dev server at start.
  *
  * The page gets each service and makes no call, so no request leaves. Like
  * every app scenario this runs offline, and the browser blocks every host but
@@ -133,15 +133,12 @@ export default scenario(async (app) => {
     return opened;
   });
 
-  await app.step('the chip names each passed-through service as not observed and still billed', async () => {
+  await app.step('the chip opens on the live project, and the health report still lists each passed-through service', async () => {
     const chip = await openChip(page);
-    assert.equal(await chip.locator('.panel-header [data-chip-live]').textContent(), 'Live: demo-live-pass-through');
-    const lines = await eventually(
-      () => chip.locator('.panel-header [data-chip-live-pass-through]').allTextContents(),
-      (shown) => shown.length === PASSED.length,
-      'the pass-through lines',
-    );
-    assert.deepEqual(lines, PASSED.map(passThroughLine));
+    await chip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
+    const live = await liveHealth(host.url);
+    assert.equal(live.projectId, 'demo-live-pass-through');
+    assert.deepEqual(live.passThrough, PASSED);
   });
 
   await app.step('stop the dev server', async () => {
@@ -192,15 +189,17 @@ export default scenario(async (app) => {
     await refusing.process.stop();
   });
 
-  await app.step('a list naming a served import, such as firebase/database, firebase/ai or firebase/storage, or a firebase-admin subpath stops the dev server at start', async () => {
+  await app.step('a list naming a served import, such as firebase/database, firebase/ai, firebase/storage or firebase/messaging, or a firebase-admin subpath stops the dev server at start', async () => {
     const port = await app.freePort();
-    const env = { PASS_THROUGH: JSON.stringify(['firebase/firestore', 'firebase/database', 'firebase/ai', 'firebase/storage', 'firebase-admin/app', '@firebase/functions']) };
+    const env = { PASS_THROUGH: JSON.stringify(['firebase/firestore', 'firebase/database', 'firebase/ai', 'firebase/storage', 'firebase/messaging', 'firebase/messaging/sw', 'firebase-admin/app', '@firebase/functions']) };
     const run = await app.command('node', ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { env, timeoutMs: 60_000 });
     assert.notEqual(run.code, 0, run.output);
     assert.match(run.output, /@pyric\/live\/vite: passThrough lists firebase\/firestore, which live mode already serves and observes; remove it\./);
     assert.match(run.output, /passThrough lists firebase\/database, which live mode already serves and observes; remove it\./);
     assert.match(run.output, /passThrough lists firebase\/ai, which live mode already serves and observes; remove it\./);
     assert.match(run.output, /passThrough lists firebase\/storage, which live mode already serves and observes; remove it\./);
+    assert.match(run.output, /passThrough lists firebase\/messaging, which live mode already serves and observes; remove it\./);
+    assert.match(run.output, /passThrough lists firebase\/messaging\/sw, which live mode already serves and observes; remove it\./);
     assert.match(run.output, /passThrough lists firebase-admin\/app/);
     assert.match(run.output, /@firebase\/functions, an SDK package name; list firebase\/functions/);
   });

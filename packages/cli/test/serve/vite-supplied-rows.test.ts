@@ -127,8 +127,10 @@ describe('live rows, once opened', () => {
   it('refuse every other served specifier with the supplier error, never the sandbox entry', async () => {
     const refused = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
     expect(refused).toContain('firebase/functions');
-    expect(refused).toContain('firebase/messaging');
+    expect(refused).toContain('firebase/remote-config');
     expect(refused).not.toContain('firebase/database');
+    expect(refused).not.toContain('firebase/messaging');
+    expect(refused).not.toContain('firebase/messaging/sw');
     for (const specifier of refused) {
       const id = swap.resolveId(specifier, userImporter);
       expect(id).toStartWith(STOP_PREFIX);
@@ -207,6 +209,25 @@ describe('live rows, once opened', () => {
     expect(await resolveTo(packageFile, './node_modules/@firebase/firestore/dist/index.esm.js', userImporter)).toStartWith(STOP_PREFIX);
     // A file that is not part of the SDK is left alone.
     expect(await resolveTo(userImporter, './other.js', userImporter)).toEqual({ id: userImporter });
+  });
+
+  it("send each Messaging row's own import to its installed entry, and record both", async () => {
+    const requireHere = createRequire(import.meta.url);
+    const messagingEntry = realpathSync(requireHere.resolve('firebase/messaging'));
+    const messagingSwEntry = realpathSync(requireHere.resolve('firebase/messaging/sw'));
+    const rows = suppliedRows(refusal);
+    rows.open(fakePackage);
+    const gated = createViteModuleSwap(context, { supplied: rows });
+    const reaching = (file: string): SwapResolveContext => ({ environment: clientEnvironment, resolve: async () => ({ id: file }) });
+    const resolveTo = (file: string, source: string, importer: string) => gated.resolvePluginId(reaching(file), source, importer);
+
+    // App code reaching either entry by path, before or after the rows loaded it, is refused.
+    expect(await resolveTo(messagingSwEntry, `/@fs${messagingSwEntry}`, userImporter)).toStartWith(STOP_PREFIX);
+    expect(rows.liveSdkUrls.size).toBe(0);
+    expect(await resolveTo(messagingEntry, aliased('firebase/messaging'), rowId('firebase/messaging'))).toEqual({ id: messagingEntry });
+    expect(await resolveTo(messagingSwEntry, aliased('firebase/messaging/sw'), rowId('firebase/messaging/sw'))).toEqual({ id: messagingSwEntry });
+    expect(rows.liveSdkUrls).toEqual(new Set([pathToFileURL(messagingEntry).href, pathToFileURL(messagingSwEntry).href]));
+    expect(await resolveTo(messagingEntry, `/@fs${messagingEntry}`, userImporter)).toStartWith(STOP_PREFIX);
   });
 
   it('leave an import that is not firebase to Vite', () => {

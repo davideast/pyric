@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { observedCallOf } from '../src/page-observer.js';
 import { wrapLiveModule, type LiveCallRecord, type LiveModuleSite, type LiveObserver } from '../src/index.js';
+import { LIVE_REFUSED } from '../src/refusal.js';
 
 /** The host reader and event builder this test uses, loaded at run time so this package's typecheck stays out of them. */
 interface Loaded {
@@ -88,6 +89,8 @@ interface Script {
 }
 
 let next: Script = { requests: [] };
+/** The FID-registration exports the stand-ins were called through; a refused one never adds to it. */
+const registrationCalls: string[] = [];
 const pause = () => new Promise((resolve) => setTimeout(resolve, 1));
 
 async function runScript(value: unknown): Promise<unknown> {
@@ -124,6 +127,20 @@ const realMessaging = {
     foreground.push(nextOf(nextOrObserver));
     return () => undefined;
   },
+  register: async (_messaging: unknown, _options?: unknown) => {
+    registrationCalls.push('register');
+  },
+  unregister: async (_messaging: unknown) => {
+    registrationCalls.push('unregister');
+  },
+  onRegistered: (_messaging: unknown, _nextOrObserver: NextOrObserver) => {
+    registrationCalls.push('onRegistered');
+    return () => undefined;
+  },
+  onUnregistered: (_messaging: unknown, _nextOrObserver: NextOrObserver) => {
+    registrationCalls.push('onUnregistered');
+    return () => undefined;
+  },
 };
 
 /** `firebase/messaging/sw`'s exports, as stand-ins with the SDK's signatures. */
@@ -135,6 +152,8 @@ const realMessagingSw = {
     return () => undefined;
   },
   experimentalSetDeliveryMetricsExportedToBigQueryEnabled: () => undefined,
+  onRegistered: realMessaging.onRegistered,
+  onUnregistered: realMessaging.onUnregistered,
 };
 
 const records: LiveCallRecord[] = [];
@@ -220,6 +239,7 @@ describe('the live-messaging row records getToken and deleteToken with the reque
     expect(record).toMatchObject({ outcome: 'rejected', code: 'invalid_argument', requests: [{ api: 'installations', action: 'create' }] });
     expect(record?.requests?.[0]).not.toHaveProperty('status');
     hostRead(record!);
+    expectNoSecrets(record);
   });
 
   test('an Installations denial with no Resource Timing entry is still recorded, with the server status the SDK kept', async () => {
@@ -228,6 +248,12 @@ describe('the live-messaging row records getToken and deleteToken with the reque
     expect(record).toMatchObject({ outcome: 'rejected', code: 'permission_denied' });
     expect(record).not.toHaveProperty('requests');
     hostRead(record!);
+    expectNoSecrets(record);
+  });
+
+  test('a getToken whose fetch threw before production answered makes no record, though the SDK says token-subscribe-failed', async () => {
+    const error = sdkError('messaging/token-subscribe-failed', { errorInfo: 'TypeError: Failed to fetch' });
+    expect(await recorded({ requests: [], error }, () => page.getToken(messaging))).toEqual([]);
   });
 
   test('a getToken that refreshes its stored token: registrations update', async () => {
@@ -329,5 +355,42 @@ describe('the live-messaging rows record one row per delivery the SDK hands the 
     const subscribed = records.filter((record) => record.outcome === 'returned');
     expect(subscribed).toHaveLength(1);
     expect(observedCallOf(subscribed[0]!, Date.now())).toBeNull();
+  });
+});
+
+describe('the live-messaging rows refuse the FID registration calls they do not observe', () => {
+  const refusal = (call: string) =>
+    `@pyric/live: ${call} is refused in live mode, from a page: it would reach FCM registration by Firebase Installation ID, ` +
+    'and live mode serves only getToken, deleteToken, onMessage and onBackgroundMessage. The call threw before any request left.';
+
+  test('register and unregister throw the refusal before the SDK runs', () => {
+    registrationCalls.length = 0;
+    expect(() => page.register(messaging, { vapidKey: VAPID_KEY })).toThrow(expect.objectContaining({ code: LIVE_REFUSED }));
+    expect(() => page.register(messaging)).toThrow(refusal('register'));
+    expect(() => page.unregister(messaging)).toThrow(expect.objectContaining({ code: LIVE_REFUSED }));
+    expect(() => page.unregister(messaging)).toThrow(refusal('unregister'));
+    expect(registrationCalls).toEqual([]);
+  });
+
+  test('onRegistered and onUnregistered throw the refusal in the page and in the service worker', () => {
+    registrationCalls.length = 0;
+    for (const entry of [page, worker]) {
+      expect(() => entry.onRegistered(messaging, () => undefined)).toThrow(expect.objectContaining({ code: LIVE_REFUSED }));
+      expect(() => entry.onRegistered(messaging, () => undefined)).toThrow(refusal('onRegistered'));
+      expect(() => entry.onUnregistered(messaging, () => undefined)).toThrow(refusal('onUnregistered'));
+    }
+    expect(registrationCalls).toEqual([]);
+  });
+
+  test('a refusal makes no record and carries no VAPID key', () => {
+    let message = '';
+    try {
+      page.register(messaging, { vapidKey: VAPID_KEY });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toStartWith('@pyric/live: register is refused in live mode');
+    expectNoSecrets(message);
+    expect(records).toEqual([]);
   });
 });

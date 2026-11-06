@@ -95,7 +95,7 @@ export {
   type ProductionVerdict,
 } from './observed-call.js';
 export {
-  billedCallKind, billedCallSummary, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, livePassThroughLines, liveProjectOf,
+  billedCallKind, createBilledCallCounter, liveLabel, liveMismatchLine, livePassThroughLine, liveProjectOf,
   readLiveHostStatus,
   type BilledCallCount, type BilledCallCounter, type BilledCallKind, type LiveHostStatus,
 } from './live-status.js';
@@ -310,6 +310,7 @@ export {
   checkIdToken, ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, mintIdToken, signIdToken,
   TOKEN_REFRESH_BUFFER_MS, type IdTokenCheck,
 } from './id-token.js';
+export { idTokenIssuer, type IdTokenIssuer } from './id-token-issuer.js';
 export {
   CUSTOM_TOKEN_AUDIENCE, CUSTOM_TOKEN_LIFETIME_SEC, customTokenIssuer, mintCustomToken, readCustomToken,
   type CustomTokenReading, type CustomTokenRequest, type SandboxCustomToken,

@@ -1,8 +1,9 @@
 /**
- * What every live mode view shows beside its rows, so the host, the chip and
- * Studio read it one way: the project line, the warning when the app's
+ * A live host's status, so the host, the chip and Studio read it one way: the
+ * project its calls go to, the warning the terminal prints when the app's
  * Firebase config names another project than the one the host was started
- * for, and the count of billed calls.
+ * for, and the count of billed calls. The chip and Studio show the project
+ * name only; the health report carries the rest.
  *
  * The host keeps the status (the `live` field of its health report) and
  * every view reads it there, so two views never disagree and a view that
@@ -47,9 +48,9 @@ export interface LiveHostStatus {
   readonly passThrough?: readonly string[];
 }
 
-/** The line every live view shows for as long as the host runs. */
+/** What the chip and Studio show beside "pyric" for as long as the host runs: the project name. */
 export function liveLabel(projectId: string): string {
-  return `Live: ${projectId}`;
+  return projectId;
 }
 
 /** The projects the app's calls named that differ from the host's, or none. */
@@ -58,7 +59,7 @@ function otherProjects(status: Pick<LiveHostStatus, 'appProjectIds' | 'configPro
 }
 
 /**
- * The warning a live view shows when the app's Firebase config names another
+ * The warning the terminal prints when the app's Firebase config names another
  * project than the host's: `Your Firebase config says prod; .firebaserc says
  * staging.` Null when they agree.
  */
@@ -72,20 +73,14 @@ export function liveMismatchLine(status: Pick<LiveHostStatus, 'appProjectIds' | 
 const ADMIN_SDK = 'firebase-admin';
 
 /**
- * The line every live view shows for one passed-through import, for as long
- * as the host runs: `firebase/database passes through to production: its
- * calls are not observed and still bill.`
+ * The start line for one passed-through import: `firebase/functions passes
+ * through to production: its calls are not observed and still bill.`
  */
 export function livePassThroughLine(specifier: string): string {
   if (specifier === ADMIN_SDK) {
     return `${specifier} passes through to production: its calls are not observed, bypass security rules and still bill.`;
   }
   return `${specifier} passes through to production: its calls are not observed and still bill.`;
-}
-
-/** The pass-through lines of a live status, one per passed-through import. */
-export function livePassThroughLines(status: Pick<LiveHostStatus, 'passThrough'>): string[] {
-  return (status.passThrough ?? []).map(livePassThroughLine);
 }
 
 /** The label's project: the projects the app's calls named, else the host's. */
@@ -207,17 +202,4 @@ export function createBilledCallCounter(): BilledCallCounter {
     },
     count: () => ({ reads, writes, deliveries }),
   };
-}
-
-function counted(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-/** The count as every view writes it: `2 reads, 0 writes, 1 document delivered to listeners`. */
-export function billedCallSummary(count: BilledCallCount): string {
-  return [
-    counted(count.reads, 'read', 'reads'),
-    counted(count.writes, 'write', 'writes'),
-    counted(count.deliveries, 'document delivered to listeners', 'documents delivered to listeners'),
-  ].join(', ');
 }

@@ -32,8 +32,7 @@ function startError(value: unknown): string {
 describe('the passThrough option', () => {
   test('takes every served Firebase import live mode has no row for, except Firestore Lite, and nothing else', () => {
     const passable = [
-      'firebase/analytics', 'firebase/functions', 'firebase/messaging',
-      'firebase/messaging/sw', 'firebase/performance', 'firebase/remote-config',
+      'firebase/analytics', 'firebase/functions', 'firebase/performance', 'firebase/remote-config',
     ];
     const unserved: string[] = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
     expect([...unserved].sort()).toEqual([...passable, 'firebase/firestore/lite'].sort());
@@ -56,8 +55,8 @@ describe('the passThrough option', () => {
     expect(passThroughOption(ENTRY, ['firebase/functions', 'firebase/remote-config', 'firebase/functions'])).toEqual(['firebase/functions', 'firebase/remote-config']);
   });
 
-  test('refuses an import live mode already serves, firebase/database, firebase/ai and firebase/storage among them', () => {
-    for (const named of ['firebase/database', 'firebase/ai', 'firebase/storage']) {
+  test('refuses an import live mode already serves, firebase/database, firebase/ai, firebase/storage and both Messaging entries among them', () => {
+    for (const named of ['firebase/database', 'firebase/ai', 'firebase/storage', 'firebase/messaging', 'firebase/messaging/sw']) {
       expect(startError([named])).toBe(`${ENTRY}: passThrough lists ${named}, which live mode already serves and observes; remove it.`);
     }
     for (const served of INSTALLED_SDK_SPECIFIERS) {
@@ -99,12 +98,15 @@ describe('the passThrough option', () => {
     expect(() => pyricLive({ passThrough: ['firebase/ai'] })).toThrow(
       `${ENTRY}: passThrough lists firebase/ai, which live mode already serves and observes; remove it.`,
     );
+    expect(() => pyricLive({ passThrough: ['firebase/messaging/sw'] })).toThrow(
+      `${ENTRY}: passThrough lists firebase/messaging/sw, which live mode already serves and observes; remove it.`,
+    );
     expect(() => pyricLive({ passThrough: ['firebase/functions'] })).not.toThrow();
     expect(() => pyricLive({ passThrough: ['firebase-admin'] })).not.toThrow();
   });
 
   test("is checked again at @pyric/cli's seam, so no supplier passes a served import or an Admin SDK subpath through", () => {
-    for (const entry of ['firebase/auth', 'firebase/database', 'firebase/ai', 'firebase-admin/app', '@firebase/database']) {
+    for (const entry of ['firebase/auth', 'firebase/database', 'firebase/ai', 'firebase/messaging', 'firebase/messaging/sw', 'firebase-admin/app', '@firebase/database']) {
       expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: [entry] })).toThrow(`pyric: ${entry} cannot pass through`);
     }
     expect(() => pyricWithSuppliedRows({}, { refusal: liveRefusal, passThrough: ['firebase-admin'] })).not.toThrow();
@@ -128,8 +130,8 @@ describe('a refused import that could pass through', () => {
         "To load it from your installed Firebase SDK without observing it, start with pyricLive({ passThrough: ['firebase/functions'] }). " +
         'Its calls then go to production unobserved and still bill.',
     );
-    const both = refusedImportsLine(ENTRY, ['firebase/functions', 'firebase/analytics', 'firebase/messaging']);
-    expect(both).toContain('a page imports firebase/analytics (Analytics), firebase/functions (Cloud Functions) and firebase/messaging (Cloud Messaging)');
-    expect(both).toContain("start with pyricLive({ passThrough: ['firebase/analytics', 'firebase/functions', 'firebase/messaging'] })");
+    const both = refusedImportsLine(ENTRY, ['firebase/functions', 'firebase/analytics', 'firebase/remote-config']);
+    expect(both).toContain('a page imports firebase/analytics (Analytics), firebase/functions (Cloud Functions) and firebase/remote-config (Remote Config)');
+    expect(both).toContain("start with pyricLive({ passThrough: ['firebase/analytics', 'firebase/functions', 'firebase/remote-config'] })");
   });
 });

@@ -156,7 +156,7 @@ const LIVE_ROWS = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'fireb
 
 describe('@pyric/live/register', () => {
   it('loads the installed SDK for the app, Auth, Firestore, App Check and Realtime Database rows and refuses every other Firebase import and firebase-admin', () => {
-    const refused = ['firebase/messaging', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
+    const refused = ['firebase/remote-config', 'firebase/firestore/lite', 'firebase/functions', 'firebase/compat/app', 'firebase', 'firebase-admin', 'firebase-admin/app'];
     const res = run([LIVE_REGISTER], [...LIVE_ROWS, ...refused]);
     expect(res.status, res.stderr).toBe(0);
     for (const specifier of LIVE_ROWS) expect(res.outcome[specifier], specifier).toBe('loaded');
@@ -166,7 +166,7 @@ describe('@pyric/live/register', () => {
     expect(loaded).toContain('@firebase/firestore');
     expect(loaded).toContain('@firebase/auth');
     expect(loaded).toContain('@firebase/database');
-    for (const name of ['firebase-admin', '@firebase/messaging', '@firebase/functions']) expect(loaded, name).not.toContain(name);
+    for (const name of ['firebase-admin', '@firebase/messaging', '@firebase/functions', '@firebase/remote-config']) expect(loaded, name).not.toContain(name);
   }, 60_000);
 
   it('names live mode and the service in the refusal', () => {
@@ -191,7 +191,8 @@ describe('@pyric/live/register', () => {
     expect(res.sdkFiles).toEqual([]);
     expect(res.stderr).toContain("In live mode, the installed SDK loads only through @pyric/live's rows.");
     expect(res.stderr).toContain(
-      'Fix: import firebase/app, firebase/auth, firebase/firestore, firebase/app-check, firebase/database, firebase/ai or firebase/storage by its package name',
+      'Fix: import firebase/app, firebase/auth, firebase/firestore, firebase/app-check, firebase/database, firebase/ai, firebase/storage, ' +
+        'firebase/messaging or firebase/messaging/sw by its package name',
     );
     // The row's id names the row module, never the installed SDK behind it: imported directly, it is the row.
     const firestoreRow = await rowUrl('firebase/firestore');

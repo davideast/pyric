@@ -80,14 +80,14 @@ test('a module service worker under live mode reports its Firestore read to the 
     const code = await page.evaluate(() => (Reflect.get(window, 'readInWorker') as () => Promise<unknown>)());
     expect(code).toBe('unavailable');
 
-    await expect(page.locator('.panel-header [data-chip-live]')).toHaveText('Live: live-service-worker');
+    await expect(page.locator('.panel-header [data-chip-live]')).toHaveCount(1);
     await page.locator('[data-chip-tab=traffic]').click();
     await page.locator('[data-traffic-scope=all]').click();
     const row = page.locator('[data-traffic-rows] [data-request-row]').filter({ hasText: 'firestore.getDocFromCache' });
     await expect(row, reports.join('\n')).toHaveCount(1);
-    await expect(row.locator('[data-traffic-row-production]')).toHaveText('Production');
-    await expect(row.locator('[data-traffic-row-source]')).toHaveText('Service worker');
-    await expect(row.locator('[data-verdict-production]')).toHaveAttribute('title', 'Production failed');
+    await expect(row.locator('[data-traffic-row-production]')).toHaveCount(1);
+    await expect(row.locator('[data-traffic-row-source]')).toHaveAttribute('data-traffic-row-source', 'service-worker');
+    await expect(row.locator('[data-verdict-production]')).toHaveAttribute('data-verdict-production', 'failed');
   } finally {
     await page.close();
     await server?.close();

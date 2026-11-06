@@ -44,12 +44,30 @@ function servedFile(name: string): string {
 
 const PAGE_IMPORTS: RowImports = { file: servedFile, observer: OBSERVER_SPECIFIER, client: 'page' };
 
+/** The project the host serves, as the plugin resolved it; unset until it does. */
+let hostProjectId: string | undefined;
+
+/**
+ * Hands every row this plane serves from now on the project the host serves
+ * (the plugin calls it once it has resolved the project), so each row refuses a
+ * call whose app names another project.
+ */
+export function serveHostProject(projectId: string): void {
+  hostProjectId = projectId;
+}
+
+/** How the observer module imports, with the host's project once it is known. */
+function observerImports(): RowImports {
+  if (hostProjectId === undefined) return PAGE_IMPORTS;
+  return { ...PAGE_IMPORTS, hostProjectId };
+}
+
 /**
  * The source of a module this plugin serves, or null for any other id.
  * `senderFile` is `@pyric/cli`'s observed-call sender, on disk.
  */
 export function liveModuleSource(id: string, senderFile: string): string | null {
-  if (id === OBSERVER_MODULE_ID) return observerModuleSource(`/@fs${senderFile}`, PAGE_IMPORTS);
+  if (id === OBSERVER_MODULE_ID) return observerModuleSource(`/@fs${senderFile}`, observerImports());
   const specifier = rowOf(id);
   return specifier === undefined ? null : rowModuleSource(specifier, PAGE_IMPORTS);
 }

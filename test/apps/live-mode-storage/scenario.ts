@@ -30,7 +30,7 @@ const BUCKETS = { default: `${PROJECT}.firebasestorage.app`, second: `${PROJECT}
 const RUN = 'pyric_oracle/replay';
 const DENIED = 'pyric_oracle_denied_storage/replay';
 const SIGN_INS = 'sign-ins.json';
-const BILLED_NONE = 'Billed calls: 0 reads, 0 writes, 0 documents delivered to listeners';
+const BILLED_NONE = { reads: 0, writes: 0, deliveries: 0 };
 
 declare function runApp(): Promise<unknown>;
 declare function uploadNote(path: string): Promise<string>;
@@ -261,6 +261,18 @@ function useSandbox(app: App): void {
   app.writeFile('firebase.json', `${JSON.stringify({ hosting: { public: 'public' }, storage: { rules: 'storage.rules' } })}\n`);
 }
 
+interface BilledCount {
+  reads: number;
+  writes: number;
+  deliveries: number;
+}
+
+/** The host's billed-call count, as its health report carries it. */
+async function billed(url: string): Promise<BilledCount | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { billed?: BilledCount } };
+  return health.live?.billed;
+}
+
 export default scenario(async (app) => {
   await writeProject(app);
   const pageReplay = await app.step('start the replay server that plays capture S for the page', () => startReplay(app));
@@ -285,7 +297,9 @@ export default scenario(async (app) => {
 
   const chip = await app.step('the chip shows each page call as production\'s, with its bucket, path, answer and account', async () => {
     const opened = await openChip(page);
-    assert.equal(await opened.locator('.panel-header [data-chip-live]').textContent(), `Live: ${PROJECT}`);
+    await opened.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
+    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    assert.equal(health.live?.projectId, PROJECT);
     await expectRows(opened, 'page');
     return opened;
   });
@@ -295,7 +309,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('Storage calls add nothing to the billed count', async () => {
-    assert.equal(await chip.locator('[data-chip-billed]').first().textContent(), BILLED_NONE);
+    assert.deepEqual(await billed(host.url), BILLED_NONE);
   });
 
   await pageReplay.stop();
@@ -313,8 +327,8 @@ export default scenario(async (app) => {
 
   await app.step('the chip shows each server job call as production\'s, from Server (client SDK)', async () => {
     await expectRows(chip, 'node');
-    assert.equal(await chip.locator('[data-traffic-row-source=node]').first().textContent(), 'Server (client SDK)');
-    assert.equal(await chip.locator('[data-chip-billed]').first().textContent(), BILLED_NONE);
+    assert.ok(await chip.locator('[data-traffic-row-source=node]').count() > 0, 'the server job\'s rows carry the node source');
+    assert.deepEqual(await billed(host.url), BILLED_NONE);
     await expectBuckets(app, 2 * (CALLS_PER_BUCKET.page + CALLS_PER_BUCKET.node));
   });
 
