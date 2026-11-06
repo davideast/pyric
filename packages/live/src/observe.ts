@@ -14,12 +14,15 @@
  * the instance and the reference's path, read through the module's context
  * hook (`database.ts`). An AI Logic record also names the model and, on
  * success, the token counts production reported, read by the module's result
- * hook (`ai.ts`). It never carries an argument's value or a result, so no
- * document value, prompt, response text, credential or token reaches it.
+ * hook (`ai.ts`). A Cloud Storage record also names the bucket and the
+ * reference's path (`storage.ts`). It never carries an argument's value or a
+ * result, so no document value, prompt, response text, file content,
+ * credential or token reaches it.
  *
- * A thenable that is not a promise, as RTDB's `push` returns, is another
- * exception when the module marks it: the app gets the SDK's own object,
- * with its `then` and `catch` taken from a promise that follows it.
+ * A thenable that is not a promise, as RTDB's `push` and Storage's
+ * `uploadBytesResumable` return, is another exception when the module marks
+ * it: the app gets the SDK's own object, with its `then` and `catch` taken
+ * from a promise that follows it.
  *
  * Recording is isolated from the app: building a record, calling the
  * observer and a rejection from an async observer are each caught, so an
@@ -74,8 +77,14 @@ export interface LiveCallRecord {
    * namespace names it (`my-project-default-rtdb`). Absent on other records.
    */
   readonly instance?: string;
-  /** On a Realtime Database call: the reference's path, `/items/a`. Absent on other records. */
+  /**
+   * On a Realtime Database call: the reference's path, `/items/a`. On a Cloud
+   * Storage call: the reference's `fullPath`, `images/a.png`, absent for the
+   * bucket's root. Absent on other records.
+   */
   readonly path?: string;
+  /** On a Cloud Storage call: the bucket the reference names, `my-project.firebasestorage.app`. Absent on other records. */
+  readonly bucket?: string;
   /** On an AI Logic call: the model and, on success, production's token counts. Absent on other records. */
   readonly ai?: LiveAiRecord;
 }
@@ -118,12 +127,14 @@ export type UncaughtListenerError = (error: unknown) => void;
 /** Marks a call production never answers: it runs as the app called it and makes no record. */
 export const UNOBSERVED: unique symbol = Symbol('unobserved');
 
-/** What a module's own objects say about one call: the argument that names its account, its project, instance and path. */
+/** What a module's own objects say about one call: the argument that names its account, its project, instance, bucket and path. */
 export interface CallContext {
   readonly subject?: unknown;
   readonly projectId?: string;
   readonly instance?: string;
   readonly path?: string;
+  /** On a Cloud Storage call: the bucket its reference names. */
+  readonly bucket?: string;
   /** On an AI Logic call: the model it asked for. */
   readonly ai?: LiveAiRecord;
   /** When the call started, in ms since epoch, for a result hook that times it. */
@@ -162,6 +173,12 @@ export interface ObservedHooks {
    * the call's error, as a stream whose response fails is.
    */
   readonly resultOf?: (site: ObservedSite, value: unknown) => ResultReading | Promise<ResultReading>;
+  /**
+   * Whether a synchronous throw is the SDK's own check, made before any
+   * request, as every Storage export's is (a root reference, a bad argument,
+   * Node's `getBlob`). Such a throw reaches the app and makes no record.
+   */
+  readonly throwsLocally?: boolean;
 }
 
 /** Where a wrapped export sits: its module and name, and who receives its records. */
@@ -185,8 +202,9 @@ export interface ObservedSite extends ObservedHooks {
   readonly accountOf?: (subject: unknown) => LiveAccount | undefined;
   /** For one listener the observer journals: its activity. */
   readonly activity?: LiveListenerActivity;
-  /** The instance and path of the call this site records, read by the module's context hook. */
+  /** The instance, bucket and path of the call this site records, read by the module's context hook. */
   readonly instance?: string;
+  readonly bucket?: string;
   readonly path?: string;
   /** The AI Logic model of the call this site records, and its token counts once read. */
   readonly ai?: LiveAiRecord;
@@ -197,6 +215,13 @@ export interface ObservedSite extends ObservedHooks {
    * settlement is production's answer, as `push` returns its reference.
    */
   readonly followsThenable?: boolean;
+  /**
+   * For a followed thenable: whether the SDK handles its own promise's
+   * rejection, as Storage's UploadTask does (`this._promise.then(null, () =>
+   * {})`), so an app that only listens with `task.on(...)` never sees an
+   * unhandled rejection. The followed promise then gets the same no-op handler.
+   */
+  readonly swallowsRejection?: boolean;
 }
 
 const FAILURE_OUTCOMES: ReadonlySet<LiveCallOutcome> = new Set(['threw', 'rejected', 'listener-error']);
@@ -224,10 +249,11 @@ function billedOf(site: ObservedSite, outcome: LiveCallOutcome, value: unknown):
   }
 }
 
-/** The site's instance, path and AI Logic model, as a record carries them. */
-function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'path' | 'ai'> {
+/** The site's instance, bucket, path and AI Logic model, as a record carries them. */
+function placeOf(site: ObservedSite): Pick<LiveCallRecord, 'instance' | 'bucket' | 'path' | 'ai'> {
   const instance = site.instance === undefined ? {} : { instance: site.instance };
-  const place = site.path === undefined ? instance : { ...instance, path: site.path };
+  const bucket = site.bucket === undefined ? instance : { ...instance, bucket: site.bucket };
+  const place = site.path === undefined ? bucket : { ...bucket, path: site.path };
   return site.ai === undefined ? place : { ...place, ai: site.ai };
 }
 
@@ -393,7 +419,9 @@ function thenOf(value: unknown): Callback | undefined {
  * way the SDK built them from its own promise. The SDK's promise is then
  * handled here, and the app's handling of the object decides whether a
  * rejection is unhandled. An object that refuses the new methods comes back
- * unchanged, and its settlement is still recorded.
+ * unchanged, and its settlement is still recorded. When the SDK handles its
+ * own promise's rejection (`swallowsRejection`), the followed promise is
+ * handled too, so the app sees no rejection the SDK would not have raised.
  */
 function followThenable(site: ObservedSite, result: object): unknown {
   const then = thenOf(result)!;
@@ -403,7 +431,8 @@ function followThenable(site: ObservedSite, result: object): unknown {
   const settled = observeSettlement({ ...site, followsThenable: false }, followed) as Promise<unknown>;
   const settledThen = Promise.prototype.then;
   const isReplaced = Reflect.set(result, 'then', settledThen.bind(settled)) && Reflect.set(result, 'catch', settledThen.bind(settled, undefined));
-  if (!isReplaced) ignoreRejection(settled);
+  const isSwallowed = !isReplaced || site.swallowsRejection === true;
+  if (isSwallowed) ignoreRejection(settled);
   return result;
 }
 
@@ -529,7 +558,7 @@ function callReal(site: ObservedSite, real: Callback, self: unknown, args: unkno
   try {
     result = Reflect.apply(real, self, args);
   } catch (error) {
-    report(site, 'threw', error);
+    if (site.throwsLocally !== true) report(site, 'threw', error);
     throw error;
   }
   return observeSettlement(site, result);
