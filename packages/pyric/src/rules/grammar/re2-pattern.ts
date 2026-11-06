@@ -278,8 +278,8 @@ const COUNTED_REPEAT = /^\{(\d+)(?:,(\d*))?\}/;
  * `rules/simulator/rules-type.ts` reads them, so the list lines up with the
  * repeats in its tree. RE2's `(?U)` flag swaps the meaning of a trailing
  * `?`: under it `a+` is lazy and `a+?` greedy. The 2026-11-03 capture
- * `c1-re2-replace-split` (`ug0`, `ug1`) shows production reads `(?U)` so
- * (#1891).
+ * `c1-re2-replace-split` (`ug0`, `ug1`) shows production reads `(?U)` so in
+ * `replace()` (#1891).
  */
 export function re2RepeatGreediness(pattern: string): boolean[] {
   const scan = new RepeatScan(pattern);

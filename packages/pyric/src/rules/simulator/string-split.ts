@@ -12,12 +12,14 @@ import { parseRe2Ast, re2PatternCompiles, re2SizeRefusal } from './rules-type.js
 /**
  * Evaluate `subject.split(pattern)` as production does, for Firestore and
  * Storage alike. The pattern gets the checks `matches()` gives it (RE2's
- * syntax, pyric's size limits) and runs on the same linear-time matcher, so a
- * nested repeat such as `(a+)+b` never backtracks (#1895). The subject is read
- * as code points, as `matches()` reads it (#1890), `(?U)` makes repeats
- * ungreedy (#1891), and `\A` and `\z` stay absolute under `(?m)` (#1892):
- * captures `c1-re2-replace-split`, `c9-re2-more` and
- * `c10-script-classes-and-redos` from the 2026-11-03 Firestore hunt.
+ * syntax, pyric's size limits) and runs on the same NFA, searched in time
+ * linear in the subject per match found, so a nested repeat such as `(a+)+b`
+ * never backtracks (#1895). The subject is read as code points, as
+ * `matches()` reads it (#1890), `(?U)` makes repeats ungreedy (#1891), and
+ * `\A` and `\z` stay absolute under `(?m)` (#1892). Captures
+ * `c1-re2-replace-split`, `c9-re2-more` and `c10-script-classes-and-redos`
+ * from the 2026-11-03 Firestore hunt observe the `split()` cases; the `(?U)`
+ * and `\A`/`\z` readings are observed there through `replace()`.
  *
  * Two differences from JavaScript's `String.prototype.split`, both from the
  * Firestore Rules Test API captures `re2-pattern-semantics` and

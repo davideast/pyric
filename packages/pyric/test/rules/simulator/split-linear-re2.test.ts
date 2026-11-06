@@ -10,11 +10,18 @@
  * - `c1-re2-replace-split` `as2` and `c9-re2-more` `ar1`: an emoji is one
  *   code point, so `'a😀b'.split('[^ab]') == ['a', 'b']` and
  *   `'a😀'.split('[😀-😂]') == ['a']` ALLOW.
- * - `c1-re2-replace-split` `ug0` and `ug1`: `(?U)` makes `a+` ungreedy.
- * - `c1-re2-replace-split` `za0` and `za1`: under `(?m)`, `\z` and `\A` stay
- *   the absolute end and start, so `'a\nb'` has no match for `a\z` or `\Ab`.
+ * - `c1-re2-replace-split` `sf4`: a scoped `(?i:b)` covers only `b`, so
+ *   `'Ab'.split('a(?i:b)') == ['Ab']` ALLOWS.
+ * - `c1-re2-replace-split` `pl2`: `\pL` is a letter class, so
+ *   `'1a2'.split('\\pL') == ['1', '2']` ALLOWS.
  * - `c1-re2-replace-split` `as7`: `'a😀b'.split('').size() == 3` DENIES, so
  *   an empty pattern still splits the pair, as JavaScript's split does.
+ *
+ * Inferred, not observed through `split()`: the `(?U)` and `\z`/`\A` cases
+ * below come from RE2's semantics and from c1's `replace()` captures of the
+ * same patterns (`ug0` and `ug1`: `(?U)` makes `a+` ungreedy; `za0` and
+ * `za1`: under `(?m)`, `\z` and `\A` stay the absolute end and start).
+ * Production was not asked these `split()` guards.
  *
  * Each guard reads its subject from the written document, and each case runs
  * through `setRules` and a `setDoc` in the in-process sandbox.
@@ -84,7 +91,17 @@ describe('split() reads an astral character as one code point', () => {
   });
 });
 
-describe('split() reads (?U) as ungreedy', () => {
+describe('split() reads flags and classes as the matcher parses them', () => {
+  test("sf4: 'Ab'.split('a(?i:b)') is ['Ab']", async () => {
+    expect(await createAllowed(splitGuard('a(?i:b)', "['Ab']"), 'Ab')).toBe(true);
+  });
+
+  test("pl2: '1a2'.split('\\pL') is ['1', '2']", async () => {
+    expect(await createAllowed(splitGuard('\\pL', "['1', '2']"), '1a2')).toBe(true);
+  });
+});
+
+describe('split() reads (?U) as ungreedy (inferred from the replace() captures ug0 and ug1)', () => {
   test('(?U)X.*b splits at each shortest match', async () => {
     expect(await createAllowed(splitGuard('(?U)X.*b', "['a', 'c', 'd']"), 'aXbcXbd')).toBe(true);
   });
@@ -98,12 +115,12 @@ describe('split() reads (?U) as ungreedy', () => {
   });
 });
 
-describe('split() keeps \\z and \\A absolute under (?m)', () => {
-  test('za0: (?m)a\\z does not match before a newline', async () => {
+describe('split() keeps \\z and \\A absolute under (?m) (inferred from the replace() captures za0 and za1)', () => {
+  test('(?m)a\\z does not match before a newline', async () => {
     expect(await createAllowed(splitGuard('(?m)a\\z', "['a\\nb']"), 'a\nb')).toBe(true);
   });
 
-  test('za1: (?m)\\Ab does not match after a newline', async () => {
+  test('(?m)\\Ab does not match after a newline', async () => {
     expect(await createAllowed(splitGuard('(?m)\\Ab', "['a\\nb']"), 'a\nb')).toBe(true);
   });
 

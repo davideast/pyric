@@ -656,6 +656,7 @@
         "range-slice-list-and-string",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
@@ -1267,6 +1268,7 @@
         "matches-full-string-regex",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "script-classes-and-nested-repeats",
         "string-literals-and-regex"
       ],
@@ -1353,6 +1355,7 @@
       "verifiedBy": [
         "list-and-string-methods",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "split-and-trim-edges",
         "string-case-mapping",
         "string-literals-and-regex",
@@ -1377,6 +1380,7 @@
         "list-and-string-methods",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "script-classes-and-nested-repeats",
         "split-and-trim-edges"
       ],
@@ -1385,7 +1389,8 @@
       ],
       "divergedByRows": [
         "firestore-rules#199",
-        "firestore-rules#228"
+        "firestore-rules#228",
+        "firestore-rules#232"
       ]
     },
     "firestore.method.string.replace": {
@@ -1403,6 +1408,7 @@
         "list-and-string-methods",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "script-classes-and-nested-repeats",
         "simulator-language-semantics"
       ],
@@ -1410,7 +1416,8 @@
         "firestore-rules#196"
       ],
       "divergedByRows": [
-        "firestore-rules#228"
+        "firestore-rules#228",
+        "firestore-rules#232"
       ]
     },
     "firestore.method.string.toUtf8": {
@@ -1516,6 +1523,7 @@
         "list-and-string-methods",
         "list-methods-concat-removeall-toset",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "required-fields-and-mapdiff",
         "script-classes-and-nested-repeats",
         "split-and-trim-edges"
@@ -2414,6 +2422,7 @@
         "range-slice-list-and-string",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
@@ -2783,6 +2792,7 @@
         "prototype-chain-keys",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "script-classes-and-nested-repeats",
@@ -3077,6 +3087,7 @@
         "mixed-number-collections",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "resource-document-identity",
         "resource-missing-document",
         "root-recursive-path-value",
@@ -3244,6 +3255,7 @@
         "range-slice-list-and-string",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
@@ -3363,6 +3375,7 @@
         "range-slice-list-and-string",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
@@ -3446,6 +3459,7 @@
         "range-slice-list-and-string",
         "re2-more-classes-and-escapes",
         "re2-pattern-semantics",
+        "re2-replace-and-split-dialect",
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "resource-missing-document",
