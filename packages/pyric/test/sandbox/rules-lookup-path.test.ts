@@ -101,9 +101,48 @@ describe('Firestore rules lookups keep an interpolated string as one segment', (
     });
   }
 
-  it('a negated exists() still denies, since the lookup errors rather than answering false', async () => {
+  it(`!exists() with owner '${SLASHED_OWNER}' denies, as production does for capture case ex2`, async () => {
     expect(await createKey(`!${firestoreLookups.exists}`, SLASHED_OWNER)).toBe('permission-denied');
   });
+});
+
+/** Rules that look up `col/<the segments {rest=**} matched>` for a create under `trees/`. */
+function recursiveRules(lookup: 'get' | 'exists'): string {
+  const target = '/databases/$(database)/documents/col/$(rest)';
+  const condition = lookup === 'get' ? `get(${target}).data.on == true` : `exists(${target})`;
+  return `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /trees/{rest=**} {
+      allow create: if ${condition};
+    }
+  }
+}`;
+}
+
+async function createTree(lookup: 'get' | 'exists', path: string): Promise<string> {
+  const sandbox = initializeSandbox({});
+  sandbox.admin.setDocument('col/a/b/c', { on: true });
+  setRules(sandbox, recursiveRules(lookup));
+  const db = getFirestore(sandbox.withAuth({ uid: 'u' }));
+  try {
+    await setDoc(doc(db, path), { on: true });
+    return 'ok';
+  } catch (err) {
+    return (err as { code?: string }).code ?? String(err);
+  }
+}
+
+describe('Firestore rules lookups splice a recursive wildcard as its segments', () => {
+  for (const lookup of ['get', 'exists'] as const) {
+    it(`${lookup}() of col/$(rest) for trees/a/b/c reads col/a/b/c and allows setDoc`, async () => {
+      expect(await createTree(lookup, 'trees/a/b/c')).toBe('ok');
+    });
+
+    it(`${lookup}() of col/$(rest) for trees/a/b/d finds no document and denies setDoc`, async () => {
+      expect(await createTree(lookup, 'trees/a/b/d')).toBe('permission-denied');
+    });
+  }
 });
 
 describe('Storage rules lookups keep an interpolated string as one segment', () => {
