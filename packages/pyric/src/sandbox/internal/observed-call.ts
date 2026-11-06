@@ -22,11 +22,14 @@ import type {
   ObservedUsage,
   ProductionOutcome,
 } from '../types/observed-call.js';
-import type { RulesDisposition, SandboxOperationEvent } from '../types/events.js';
+import type { AuthLens, EventProvenance, RulesDisposition, SandboxOperationEvent } from '../types/events.js';
 import type { RequestObservation } from '../types/request-observation.js';
 import { AI_LOGIC_ENDPOINT, aiUsageEvidence, type AiEvidence } from './ai-evidence.js';
 import { isDefaultDatabaseInstance } from './instances.js';
 import { makeSandboxOperationEvent } from './sandbox-impl.js';
+
+/** The event an observed call becomes; an Admin call's names its own auth lens. */
+export type ObservedOperationEvent = SandboxOperationEvent & Pick<EventProvenance, 'authLens'>;
 
 /** Thrown for a record that is not an {@link ObservedCall}; names the field. */
 export class ObservedCallError extends Error {
@@ -43,10 +46,22 @@ export const OBSERVED_DISPOSITION: RulesDisposition = Object.freeze({
   reason: 'external-execution',
 });
 
+/**
+ * The disposition of an observed Admin SDK call: production ran it, and the
+ * Admin SDK skips Security Rules, as the sandbox's own Admin operations do.
+ */
+export const OBSERVED_ADMIN_DISPOSITION: RulesDisposition = Object.freeze({
+  kind: 'bypassed',
+  reason: 'admin',
+});
+
 const SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'auth', 'rtdb', 'ai', 'storage', 'messaging']);
+/** The services the Admin SDK rows observe. AI Logic and Messaging calls come only from a client SDK. */
+const ADMIN_SERVICES: ReadonlySet<ObservedCallService> = new Set(['firestore', 'rtdb', 'storage', 'auth']);
 const CALL_FIELDS = new Set([
   'service',
   'method',
+  'sdk',
   'path',
   'at',
   'durationMs',
@@ -414,6 +429,10 @@ export function readObservedCall(input: unknown): ObservedCall {
     at: value.at,
     outcome: readOutcome(value.outcome),
   };
+  if (value.sdk !== undefined) {
+    requireField(value.sdk === 'admin' && ADMIN_SERVICES.has(call.service), 'sdk');
+    call.sdk = 'admin';
+  }
   const isAi = call.service === 'ai';
   if (value.path !== undefined) {
     // An AI call's path is its model, so a second path could disagree with it.
@@ -532,12 +551,13 @@ function aiObservation(id: string, call: ObservedCall, ai: ObservedAi): RequestO
  * as the sandbox's own events read theirs: `allow` for a success, `deny` for a
  * denial ({@link productionVerdict}), and `error` otherwise. Its Rules
  * disposition stays {@link OBSERVED_DISPOSITION}, since pyric's Rules did not
- * decide; `production` holds what production answered. An `ai` call's
- * path is its model, and its `observation` holds the model and token counts.
- * A `storage` call's bucket is its `detail.bucket`, and a `messaging` call's
- * requests are its `detail.requests`.
+ * decide; `production` holds what production answered. An Admin call's is
+ * {@link OBSERVED_ADMIN_DISPOSITION} under the Admin lens, with `detail.sdk`.
+ * An `ai` call's path is its model, and its `observation` holds the model
+ * and token counts. A `storage` call's bucket is its `detail.bucket`, and a
+ * `messaging` call's requests are its `detail.requests`.
  */
-export function observedCallEvent(call: ObservedCall): SandboxOperationEvent {
+export function observedCallEvent(call: ObservedCall): ObservedOperationEvent {
   const event = observedOperationEvent(call);
   const ai = call.ai;
   return ai === undefined ? event : { ...event, observation: aiObservation(event.id, call, ai) };
@@ -545,13 +565,27 @@ export function observedCallEvent(call: ObservedCall): SandboxOperationEvent {
 
 /**
  * A Storage call's bucket, under the key the sandbox's own Storage events use,
- * and a Messaging call's requests, each copied.
+ * a Messaging call's requests, each copied, and an Admin call's `sdk`.
  */
-function eventDetail(call: ObservedCall): { detail?: { bucket: string } | { requests: ObservedRequest[] } } {
-  const bucket = call.bucket;
-  if (bucket !== undefined) return { detail: { bucket } };
+function eventDetail(call: ObservedCall): { detail?: Record<string, unknown> } {
   const requests = call.requests;
-  return requests === undefined ? {} : { detail: { requests: requests.map((request) => ({ ...request })) } };
+  const detail = definedOnly({
+    bucket: call.bucket,
+    requests: requests?.map((request) => ({ ...request })),
+    sdk: call.sdk,
+  });
+  return Object.keys(detail).length === 0 ? {} : { detail };
+}
+
+/**
+ * How the event reads at the Rules seam. A client call ran under production's
+ * rules, which pyric did not evaluate. An Admin call bypassed them under the
+ * Admin lens, which wins over the app-session lens a host stamps.
+ */
+function eventLens(call: ObservedCall): { rulesDisposition: RulesDisposition; authLens?: AuthLens } {
+  const isAdmin = call.sdk === 'admin';
+  if (!isAdmin) return { rulesDisposition: OBSERVED_DISPOSITION };
+  return { rulesDisposition: OBSERVED_ADMIN_DISPOSITION, authLens: { mode: 'admin' } };
 }
 
 /** Production's sizes, copied onto the event's production side when the call carried them. */
@@ -576,7 +610,13 @@ function observedResult(outcome: ProductionOutcome): SandboxOperationEvent['resu
   return RESULT_BY_VERDICT[productionVerdict(outcome)];
 }
 
-function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
+function observedOperationEvent(call: ObservedCall): ObservedOperationEvent {
+  const { rulesDisposition, authLens } = eventLens(call);
+  const event = productionOperationEvent(call, rulesDisposition);
+  return authLens === undefined ? event : { ...event, authLens };
+}
+
+function productionOperationEvent(call: ObservedCall, rulesDisposition: RulesDisposition): SandboxOperationEvent {
   const account = call.account;
   const claimNames = account?.claimNames;
   const path = call.ai?.model ?? call.path;
@@ -591,7 +631,7 @@ function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
     result: observedResult(call.outcome),
     origin: 'user',
     ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
-    rulesDisposition: OBSERVED_DISPOSITION,
+    rulesDisposition,
     production: {
       outcome: { ...call.outcome },
       ...(claimNames === undefined ? {} : { claimNames: [...claimNames] }),
@@ -600,9 +640,18 @@ function observedOperationEvent(call: ObservedCall): SandboxOperationEvent {
   });
 }
 
-/** Whether a Rules disposition marks a call production served and pyric only observed. */
+/**
+ * Whether a Rules disposition can mark a call production served and pyric
+ * only observed: a client call's `external-execution`, or an Admin call's
+ * `bypassed`/`admin`. The sandbox's own Admin operations carry `bypassed` too,
+ * with no `production` field, so a view that shows production's answer reads
+ * this beside the event's `production`. Replay and verify skip both kinds:
+ * neither ran under the captured rules.
+ */
 export function isProductionServed(rules: RulesDisposition | undefined): boolean {
-  return rules?.kind === 'not-evaluated' && rules.reason === 'external-execution';
+  const isClientCall = rules?.kind === 'not-evaluated' && rules.reason === 'external-execution';
+  const isAdminCall = rules?.kind === 'bypassed' && rules.reason === 'admin';
+  return isClientCall || isAdminCall;
 }
 
 /** How every traffic view reads production's answer. */
