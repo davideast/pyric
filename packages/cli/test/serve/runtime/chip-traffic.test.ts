@@ -482,7 +482,7 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(denied, 'tab-1')).toMatchObject({
       service: 'storage',
       method: 'uploadBytes',
-      path: 'pyric_oracle_denied_storage/a.bin',
+      path: 'gs://demo-project.firebasestorage.app/pyric_oracle_denied_storage/a.bin',
       verdict: 'denied',
       production: { status: 'error', code: 'storage/unauthorized' },
       source: 'page',
@@ -501,5 +501,55 @@ describe('a call production served', () => {
     expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.production).toBeUndefined();
     const unmarked = { ...observed({}), rulesDisposition: { kind: 'evaluated', verdict: 'allow' } } as SandboxEvent;
     expect(chipRequestFromEvent(unmarked)?.production).toBeUndefined();
+  });
+});
+
+describe('a Storage row names its bucket', () => {
+  const SECOND_BUCKET = 'demo-live-storage-live-second';
+
+  function storageOperation(path: string, bucket: unknown): SandboxEvent {
+    return {
+      kind: 'operation',
+      id: 's1',
+      at: 1000,
+      service: 'storage',
+      method: 'getMetadata',
+      path,
+      auth: null,
+      result: 'allow',
+      origin: 'user',
+      detail: { bucket },
+      rulesDisposition: { kind: 'evaluated', verdict: 'allow' },
+      rules: { engine: 'storage' },
+    } as unknown as SandboxEvent;
+  }
+
+  it("reads an observed call's path as gs://<bucket>/<path>", () => {
+    const event = observedCallEvent({
+      service: 'storage',
+      method: 'getMetadata',
+      path: 'pyric-live-capture/replay/a.bin',
+      bucket: SECOND_BUCKET,
+      at: 1000,
+      outcome: { status: 'ok' },
+    });
+    expect(chipRequestFromEvent(event)?.path).toBe(`gs://${SECOND_BUCKET}/pyric-live-capture/replay/a.bin`);
+  });
+
+  it("reads an observed call on the bucket's root as gs://<bucket>/", () => {
+    const event = observedCallEvent({ service: 'storage', method: 'list', bucket: SECOND_BUCKET, at: 1000, outcome: { status: 'ok' } });
+    expect(chipRequestFromEvent(event)?.path).toBe(`gs://${SECOND_BUCKET}/`);
+  });
+
+  it('reads a sandbox Storage operation the same way', () => {
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 'demo-app.appspot.com'))?.path).toBe('gs://demo-app.appspot.com/avatars/alice.png');
+    expect(chipRequestFromEvent(storageOperation('', 'demo-app.appspot.com'))?.path).toBe('gs://demo-app.appspot.com/');
+    expect(chipRequestFromEvent(storageOperation('/', 'demo-app.appspot.com'))?.path).toBe('gs://demo-app.appspot.com/');
+  });
+
+  it('leaves the path alone when no string bucket is named', () => {
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', undefined))?.path).toBe('avatars/alice.png');
+    expect(chipRequestFromEvent(storageOperation('avatars/alice.png', 7))?.path).toBe('avatars/alice.png');
+    expect(chipRequestFromEvent(operation('o1', 2000, 'allow'))?.path).toBe('/presence/u_8f2a');
   });
 });

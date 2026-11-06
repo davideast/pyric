@@ -130,6 +130,25 @@ export function chipRequestFromEvent(event: SandboxEvent, viewerPageId?: string)
 
 const OBSERVED_VERDICTS = { ok: 'ok', denied: 'denied', failed: 'error' } as const;
 
+/** The bucket a Storage operation names in `detail.bucket`, sandbox or production. */
+function storageBucket(event: SandboxEvent): string | undefined {
+  const isStorageOperation = event.kind === 'operation' && event.service === 'storage';
+  if (!isStorageOperation) return undefined;
+  const bucket = event.detail?.bucket;
+  return typeof bucket === 'string' ? bucket : undefined;
+}
+
+/**
+ * A row's target. A Storage row reads `gs://<bucket>/<path>`, as Studio's
+ * StoragePane shows an object, and `gs://<bucket>/` for the bucket's root.
+ */
+function rowPath(event: SandboxEvent, path: string | undefined): string | null {
+  const bucket = storageBucket(event);
+  if (bucket === undefined) return path ?? null;
+  const objectPath = (path ?? '').replace(/^\/+/, '');
+  return `gs://${bucket}/${objectPath}`;
+}
+
 /**
  * The row for a call production served: production's answer, and the account
  * it ran as. `null` for every event the sandbox served.
@@ -143,7 +162,7 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
   const verdict = OBSERVED_VERDICTS[productionVerdict(outcome)];
   const request: ChipRequest = {
     id: event.id, at: event.at, service: event.service, method: event.method,
-    path: event.path ?? null, verdict,
+    path: rowPath(event, event.path), verdict,
     identity: event.auth === null ? 'signed out' : event.auth.uid,
     production: { ...outcome },
   };
@@ -184,7 +203,7 @@ function projectRequest(event: SandboxEvent): ChipRequest | null {
     const request: ChipRequest = {
       id: record.id, at: record.at, service: record.service,
       method: record.eventKind === 'listener' ? 'listen' : record.method,
-      path: record.path ?? null, verdict,
+      path: rowPath(event, record.path), verdict,
       identity: requestIdentity(event, verdict),
     };
     if (record.rules.kind !== 'evaluated') request.rules = record.rules;

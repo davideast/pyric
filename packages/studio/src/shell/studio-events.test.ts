@@ -1,0 +1,86 @@
+import { describe, expect, test } from 'bun:test';
+import type { SandboxEvent } from 'pyric/sandbox';
+import { observedCallEvent } from 'pyric/sandbox/internal';
+import { subjectTarget } from '../features/traffic/verdict.js';
+import { studioTrafficEvents } from './studio-events.js';
+
+const SECOND_BUCKET = 'demo-live-storage-live-second';
+
+function storageOperation(path: string, bucket: unknown): SandboxEvent {
+  return {
+    kind: 'operation',
+    id: 's1',
+    at: 1000,
+    service: 'storage',
+    method: 'getMetadata',
+    path,
+    auth: null,
+    result: 'allow',
+    origin: 'user',
+    reasons: [],
+    detail: { bucket },
+    rulesDisposition: { kind: 'evaluated', verdict: 'allow' },
+    rules: { engine: 'storage' },
+  } as unknown as SandboxEvent;
+}
+
+function trafficPath(event: SandboxEvent): string | undefined {
+  return studioTrafficEvents([event])[0]?.path;
+}
+
+describe('a Storage row in Studio names its bucket', () => {
+  test("reads an observed call's path as gs://<bucket>/<path>", () => {
+    const event = observedCallEvent({
+      service: 'storage',
+      method: 'getMetadata',
+      path: 'pyric-live-capture/replay/a.bin',
+      bucket: SECOND_BUCKET,
+      at: 1000,
+      outcome: { status: 'ok' },
+    });
+    expect(trafficPath(event)).toBe(`gs://${SECOND_BUCKET}/pyric-live-capture/replay/a.bin`);
+  });
+
+  test("reads an observed call on the bucket's root as gs://<bucket>/", () => {
+    const event = observedCallEvent({ service: 'storage', method: 'list', bucket: SECOND_BUCKET, at: 1000, outcome: { status: 'ok' } });
+    expect(trafficPath(event)).toBe(`gs://${SECOND_BUCKET}/`);
+  });
+
+  test('reads a sandbox Storage operation the same way', () => {
+    expect(trafficPath(storageOperation('avatars/alice.png', 'demo-app.appspot.com'))).toBe('gs://demo-app.appspot.com/avatars/alice.png');
+    expect(trafficPath(storageOperation('', 'demo-app.appspot.com'))).toBe('gs://demo-app.appspot.com/');
+    expect(trafficPath(storageOperation('/', 'demo-app.appspot.com'))).toBe('gs://demo-app.appspot.com/');
+  });
+
+  test('leaves the path alone when no string bucket is named', () => {
+    expect(trafficPath(storageOperation('avatars/alice.png', undefined))).toBe('avatars/alice.png');
+    expect(trafficPath(storageOperation('avatars/alice.png', 7))).toBe('avatars/alice.png');
+  });
+});
+
+describe("a Storage row's gs:// path opens the pane", () => {
+  function targetOf(event: SandboxEvent) {
+    const row = studioTrafficEvents([event])[0]!;
+    return subjectTarget(row);
+  }
+
+  test('at the object path, with the bucket prefix stripped', () => {
+    expect(targetOf(storageOperation('avatars/alice.png', 'demo-app.appspot.com'))).toEqual({ tab: 'storage', rest: ['avatars', 'alice.png'] });
+  });
+
+  test('at the bucket root for gs://<bucket>/', () => {
+    expect(targetOf(storageOperation('', 'demo-app.appspot.com'))).toEqual({ tab: 'storage' });
+    const rootList = observedCallEvent({ service: 'storage', method: 'list', bucket: SECOND_BUCKET, at: 1000, outcome: { status: 'ok' } });
+    expect(targetOf(rootList)).toEqual({ tab: 'storage' });
+  });
+
+  test("at a second bucket's listed prefix, in the pane's own bucket", () => {
+    const list = observedCallEvent({ service: 'storage', method: 'list', path: 'pyric-live-capture/replay', bucket: SECOND_BUCKET, at: 1000, outcome: { status: 'ok' } });
+    expect(targetOf(list)).toEqual({ tab: 'storage', rest: ['pyric-live-capture', 'replay'], query: { kind: 'prefix' } });
+  });
+
+  test('leaves a path without the prefix routed as before', () => {
+    expect(subjectTarget({ service: 'storage', method: 'get', path: 'uploads/logo.png' })).toEqual({ tab: 'storage', rest: ['uploads', 'logo.png'] });
+    expect(subjectTarget({ service: 'firestore', method: 'get', path: 'gs://not/a/doc' })).toEqual({ tab: 'firestore', rest: ['gs:', 'not', 'a', 'doc'] });
+  });
+});
