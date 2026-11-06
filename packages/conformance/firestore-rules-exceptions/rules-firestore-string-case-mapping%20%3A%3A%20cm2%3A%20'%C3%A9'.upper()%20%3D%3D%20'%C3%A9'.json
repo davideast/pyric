@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production's upper() leaves é unchanged; pyric maps every Unicode letter and returns 'É'","issue":"#1896"}

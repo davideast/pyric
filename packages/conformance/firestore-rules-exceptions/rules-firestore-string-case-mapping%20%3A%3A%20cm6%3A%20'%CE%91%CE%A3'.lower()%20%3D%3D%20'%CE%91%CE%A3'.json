@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"ALLOW","simulatorVerdict":"DENY","reason":"production's lower() leaves the Greek letters unchanged; pyric maps every Unicode letter and returns 'ας'","issue":"#1896"}

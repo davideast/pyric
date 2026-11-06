@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 131,
+    "numerator": 133,
     "denominator": 140,
-    "ratio": 0.9357142857142857,
-    "percent": 93.6
+    "ratio": 0.95,
+    "percent": 95
   },
   "axes": {
     "productionAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 132,
-      "diverged": 6,
+      "verified": 134,
+      "diverged": 4,
       "unverified": 2
     }
   },
   "counts": {
-    "conformant": 131,
-    "diverged": 6,
+    "conformant": 133,
+    "diverged": 4,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -1283,19 +1283,18 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
         "simulator-language-semantics",
         "string-case-mapping"
       ],
       "verifiedByRows": [
-        "firestore-rules#196"
-      ],
-      "divergedByRows": [
+        "firestore-rules#196",
         "firestore-rules#229"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.method.string.upper": {
       "productionAcceptance": "accepted",
@@ -1306,16 +1305,16 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "list-and-string-methods",
         "string-case-mapping"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#229"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.method.string.trim": {
       "productionAcceptance": "accepted",

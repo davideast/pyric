@@ -6,7 +6,8 @@
  * `'ａ'.upper()` return their receiver unchanged, so
  * `'ÉVE@X.COM'.lower() == 'Éve@x.com'` holds and the same check against
  * request data with `ÉVE@X.COM` denies `== 'éve@x.com'` (`cmg`).
- * pyric maps every Unicode letter, so 15 of the 17 cases differ (#1896).
+ * Before #1896 pyric mapped every Unicode letter, and 15 of the 17 cases
+ * differed.
  *
  * Captured by the 2026-11-03 rules engine defect hunt as `c11-case-mapping`;
  * the rules and case descriptions are the ones sent to production.

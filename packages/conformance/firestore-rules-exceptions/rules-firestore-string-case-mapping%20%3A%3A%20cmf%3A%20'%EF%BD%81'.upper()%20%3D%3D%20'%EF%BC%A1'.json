@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"production's upper() leaves the fullwidth ａ unchanged; pyric maps every Unicode letter and returns the fullwidth Ａ","issue":"#1896"}

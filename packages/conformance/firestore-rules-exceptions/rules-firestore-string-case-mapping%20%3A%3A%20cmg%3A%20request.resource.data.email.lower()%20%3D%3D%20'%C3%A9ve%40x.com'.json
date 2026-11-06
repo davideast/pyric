@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#229","conformanceDisposition":"pending-fix","productionVerdict":"DENY","simulatorVerdict":"ALLOW","reason":"production's lower() leaves the É in the request's ÉVE@X.COM unchanged, so it does not equal 'éve@x.com'; pyric maps every Unicode letter and the create is allowed","issue":"#1896"}
