@@ -1,0 +1,42 @@
+{
+  "name": "rules-firestore-interpolated-lookup-path-segments",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#224"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"interpolated-lookup-path-segments\" (FS3-SIM-1). An interpolated string holding '/' is one get() or exists() path segment and names no document.",
+  "observedAt": "2026-11-04T02:32:37.413Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "e7cfb3f141a42a587b1bbfa70063b489009530c9f88910b4c2bec8ee9e6b4cc7"
+  },
+  "behavior": {
+    "ex0: exists(/databases/$(database)/documents/allowed/$(request.resource.data.k))": "ALLOW",
+    "ex1: exists(/databases/$(database)/documents/allowed/$(request.resource.data.k))": "DENY",
+    "ex2: !exists(/databases/$(database)/documents/allowed/$(request.resource.data.k))": "DENY",
+    "ex3: exists(/databases/$(database)/documents/allowed/$(request.resource.data.k)) || true": "ALLOW",
+    "ge0: get(/databases/$(database)/documents/users/$(request.resource.data.owner)).data.role == 'admin'": "DENY",
+    "ge1: get(/databases/$(database)/documents/users/$(request.resource.data.owner)).data.role == 'admin'": "ALLOW",
+    "ex4: exists(/databases/$(database)/documents/allowed/x/sub/$(request.resource.data.k))": "ALLOW",
+    "ex5: exists(path('/databases/' + database + '/documents/allowed/' + request.resource.data.k))": "ALLOW"
+  },
+  "diagnostics": {
+    "ex1: exists(/databases/$(database)/documents/allowed/$(request.resource.data.k))": {
+      "notes": [
+        "Error: firestore.rules line [8], column [24]. Service call error. Function: [exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"allowed\"\n  }\n  segments {\n    simple: \"x/sub/y\"\n  }\n}\n]."
+      ]
+    },
+    "ex2: !exists(/databases/$(database)/documents/allowed/$(request.resource.data.k))": {
+      "notes": [
+        "Error: firestore.rules line [11], column [25]. Service call error. Function: [exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"allowed\"\n  }\n  segments {\n    simple: \"x/sub/y\"\n  }\n}\n]."
+      ]
+    },
+    "ge0: get(/databases/$(database)/documents/users/$(request.resource.data.owner)).data.role == 'admin'": {
+      "notes": [
+        "Error: firestore.rules line [17], column [24]. Service call error. Function: [get], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"users\"\n  }\n  segments {\n    simple: \"u1/keys/k1\"\n  }\n}\n]."
+      ]
+    }
+  }
+}
