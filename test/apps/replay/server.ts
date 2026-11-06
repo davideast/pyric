@@ -47,11 +47,18 @@
 // `/identitytoolkit.googleapis.com/v1/projects/<p>/accounts...`.
 // `admin-auth.ts` answers it from the recordings' `admin-auth` exchanges,
 // never from a client's `auth` exchanges.
+//
+// A Cloud Storage JSON API call, `/b/<bucket>/o...` or
+// `/upload/storage/v1/b/<bucket>/o`, is the Admin SDK's
+// (`firebase-admin/storage` under `STORAGE_EMULATOR_HOST`).
+// `admin-storage.ts` answers it from the recordings' `admin-storage`
+// exchanges, and lists it with the Storage calls in `received`.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { ADMIN_AUTH_HOST, AdminAuth, isAdminAuthCall } from './admin-auth.ts';
+import { AdminStorage, isAdminStoragePath } from './admin-storage.ts';
 import { aiCallOf, answerAi, type AiReceived } from './ai.ts';
 import { answerAuth, AUTH_HOSTS, parseRestBody } from './auth.ts';
 import type { JsonObject, Recording } from './format.ts';
@@ -147,9 +154,10 @@ export async function startReplayServer(recordings: Recording[], options: Replay
   const storage = new StorageReplay(state);
   const messaging = new MessagingReplay(state);
   const adminAuth = new AdminAuth(state);
+  const adminStorage = new AdminStorage(state, storage.received);
   let origin = '';
   const server = createServer((request, response) => {
-    void handle({ state, rtdb, ai, storage, messaging, adminAuth, origin: () => origin }, sessions, request, response).catch((error: unknown) => {
+    void handle({ state, rtdb, ai, storage, messaging, adminAuth, adminStorage, origin: () => origin }, sessions, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
       response.end(`pyric replay: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -193,6 +201,7 @@ interface Services {
   storage: StorageReplay;
   messaging: MessagingReplay;
   adminAuth: AdminAuth;
+  adminStorage: AdminStorage;
   origin: () => string;
 }
 
@@ -210,6 +219,8 @@ async function handle(services: Services, sessions: Map<string, WebChannelSessio
     response.end(JSON.stringify(report(state, rtdb, ai ?? [], storage.received, messaging.received)));
     return;
   }
+  const url = new URL(request.url ?? '/', 'http://replay.invalid');
+  if (isAdminStoragePath(url.pathname)) return answerAdminStorage(services, url, request, response);
   const storageRoute = storageRouteOf(request);
   if (storageRoute) return answerStorage(services, storageRoute, request, response);
   const messagingRoute = messagingRouteOf(request);
@@ -273,6 +284,16 @@ async function answerStorage(services: Services, route: Route, request: Incoming
     return;
   }
   const answer = services.storage.answer(call, services.origin());
+  response.writeHead(answer.status, answer.headers);
+  response.end(answer.body);
+}
+
+/** Answers one Admin Storage call from the recordings, or fails it closed. The body is read raw: an upload carries bytes. */
+async function answerAdminStorage(services: Services, url: URL, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await readRawBody(request);
+  const query = Object.fromEntries(url.searchParams) as JsonObject;
+  const call = { method: request.method ?? 'GET', path: url.pathname, query, contentType: request.headers['content-type'] ?? '', body };
+  const answer = services.adminStorage.answer(call, services.origin());
   response.writeHead(answer.status, answer.headers);
   response.end(answer.body);
 }
