@@ -107,6 +107,12 @@ describe('the live project line', () => {
     const many = Array.from({ length: 200 }, (_, n) => ({ ...worker, clientId: `c-${n}` }));
     expect(readLiveHostStatus({ live: { ...LIVE, clients: many } })?.clients).toHaveLength(64);
   });
+
+  it('reads the email a browser client reports, and drops an entry whose email is not text', () => {
+    const page = { kind: 'browser', clientId: 'profile-1', label: '/', user: 'user-1', email: 'ada@example.com', lastSeen: 1000 };
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [page] } })?.clients).toEqual([page]);
+    expect(readLiveHostStatus({ live: { ...LIVE, clients: [{ ...page, email: 7 }] } })).toEqual(LIVE);
+  });
 });
 
 describe('createLiveStatusPoller', () => {
