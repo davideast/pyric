@@ -29,17 +29,26 @@
  * A call that settles with no such entry made no request: the stored token
  * was valid, there was none to delete, or the SDK failed locally
  * (`messaging/permission-blocked`, `unsupported-browser`). It makes no
- * record. An error that carries production's answer (an Installations
- * `customData.serverCode`, or a `messaging/token-*` failure) is recorded
- * even when the browser kept no entry for it. Where the realm has no
- * `PerformanceObserver`, every settled call is recorded, without requests.
+ * record. An error that carries production's status (an Installations
+ * `customData.serverCode`) is recorded even when the browser kept no entry
+ * for it. A `messaging/token-*` failure carries none: the SDK throws it when
+ * production refused and when `fetch` itself threw, so with no entry it
+ * makes no record. Where the realm has no `PerformanceObserver`, every
+ * settled call is recorded, without requests.
+ *
+ * The FID registration calls (`register`, `unregister`, `onRegistered` and
+ * `onUnregistered`, the last two in both entries) are not observed yet. Each
+ * throws live mode's refusal before the SDK runs, so no registration request
+ * leaves and no installation id reaches a record.
  *
  * A record never carries the token, the VAPID key, the push subscription's
  * endpoint or keys, the FID, or any payload field. Reading never calls the
  * app's code and never throws. This file imports no Firebase SDK.
  */
 import { aiCode } from './ai.js';
+import type { RefusalCheck } from './modules.js';
 import { UNOBSERVED, type CallContext, type LiveRequest, type ObservedSite, type RejectionReading, type ResultReading } from './observe.js';
+import type { RefusedCall } from './refusal.js';
 
 type Fields = Record<string, unknown>;
 
@@ -246,11 +255,13 @@ function serverStatusOf(error: unknown): string | undefined {
   return status !== undefined && CODE_PATTERN.test(status) ? status : undefined;
 }
 
-/** Whether the SDK's error carries production's answer, so a request reached it even when the browser kept no entry. */
+/**
+ * Whether the SDK's error carries production's status, so a request reached
+ * it even when the browser kept no entry. A `messaging/token-*` code alone
+ * does not: the SDK throws it when `fetch` itself threw, too.
+ */
 function carriesAnswer(error: unknown): boolean {
-  const serverCode = valueAt(error, ['customData', 'serverCode']);
-  const code = stringAt(error, ['code']);
-  return isHttpStatus(serverCode) || (code?.startsWith('messaging/token-') ?? false);
+  return isHttpStatus(valueAt(error, ['customData', 'serverCode']));
 }
 
 /** The status of the last request production refused, if any. */
@@ -286,3 +297,30 @@ export async function messagingRejection(site: ObservedSite, error: unknown): Pr
   if (isLocal) return UNOBSERVED;
   return { ...requestsField(requests), code: messagingCode(error, requests) };
 }
+
+/** What live mode serves of `firebase/messaging` and `firebase/messaging/sw`, which each refusal names. */
+const MESSAGING_SERVES = 'only getToken, deleteToken, onMessage and onBackgroundMessage';
+
+function refusedRegistration(call: string): RefusalCheck {
+  const refused: RefusedCall = { call, reaches: 'FCM registration by Firebase Installation ID', serves: MESSAGING_SERVES };
+  return () => refused;
+}
+
+/**
+ * The FID registration calls of `firebase/messaging`, which the row does not
+ * observe yet. `register` and `unregister` send FCM registration requests,
+ * and `onRegistered` and `onUnregistered` hand the app the installation id,
+ * so each throws live mode's refusal before the SDK runs.
+ */
+export const MESSAGING_REFUSED_CALLS: Readonly<Record<string, RefusalCheck>> = {
+  register: refusedRegistration('register'),
+  unregister: refusedRegistration('unregister'),
+  onRegistered: refusedRegistration('onRegistered'),
+  onUnregistered: refusedRegistration('onUnregistered'),
+};
+
+/** The FID registration listeners `firebase/messaging/sw` exports, refused as the page's are. */
+export const MESSAGING_SW_REFUSED_CALLS: Readonly<Record<string, RefusalCheck>> = {
+  onRegistered: refusedRegistration('onRegistered'),
+  onUnregistered: refusedRegistration('onUnregistered'),
+};
