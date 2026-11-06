@@ -15,9 +15,25 @@ declare function uploadToEachBucket(path: string): Promise<string[]>;
 
 const EXPECTED = ['default storage/unauthorized', 'media ok', 'undeployed storage/unauthorized'];
 
-async function pageUploads(app: App, host: DevServer, path: string): Promise<string[]> {
+type Plane = 'hosted' | 'shared-worker' | 'in-page';
+
+/** The runtime status the served page publishes on `globalThis`. */
+type RuntimeGlobal = { __pyricRuntime?: { getSnapshot(): { mode: string } } };
+
+/** The plane the page's runtime reports it runs on, once it has started. */
+async function runtimeMode(page: Page): Promise<string> {
+  await page.waitForFunction(() => {
+    const current = (globalThis as RuntimeGlobal).__pyricRuntime?.getSnapshot().mode;
+    return current !== undefined && current !== 'starting';
+  });
+  return page.evaluate(() => (globalThis as RuntimeGlobal).__pyricRuntime?.getSnapshot().mode ?? 'none');
+}
+
+/** Upload from a new page, after checking it runs on `plane`. */
+async function pageUploads(app: App, host: DevServer, plane: Plane, path: string): Promise<string[]> {
   const page: Page = await app.page(host.url);
   await page.waitForFunction(() => 'uploadToEachBucket' in window);
+  assert.equal(await runtimeMode(page), plane);
   return page.evaluate((objectPath) => uploadToEachBucket(objectPath), path);
 }
 
@@ -29,7 +45,7 @@ export default scenario(async (app) => {
   const host = await app.step('start the hosted dev server', () => app.devServer());
 
   await app.step('the page on the Node host gets each bucket its own rules', async () => {
-    assert.deepEqual(await pageUploads(app, host, 'hosted/a.txt'), EXPECTED);
+    assert.deepEqual(await pageUploads(app, host, 'hosted', 'hosted/a.txt'), EXPECTED);
   });
 
   await app.step('a server script attached to the Node host gets each bucket its own rules', async () => {
@@ -41,7 +57,7 @@ export default scenario(async (app) => {
     app.devServer({ name: 'shared-worker-dev-server', env: { STORAGE_PER_BUCKET_PLANE: 'shared-worker' } }));
 
   await app.step('the page on the SharedWorker gets each bucket its own rules', async () => {
-    assert.deepEqual(await pageUploads(app, workerHost, 'worker/a.txt'), EXPECTED);
+    assert.deepEqual(await pageUploads(app, workerHost, 'shared-worker', 'worker/a.txt'), EXPECTED);
   });
 
   await app.step('the in-page sandbox gets each bucket its own rules', async () => {
@@ -49,7 +65,7 @@ export default scenario(async (app) => {
     await context.addInitScript(() => {
       (globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__ = true;
     });
-    assert.deepEqual(await pageUploads(app, workerHost, 'in-page/a.txt'), EXPECTED);
+    assert.deepEqual(await pageUploads(app, workerHost, 'in-page', 'in-page/a.txt'), EXPECTED);
   });
 
   await app.step('a PYRIC_SANDBOX=local server script gets each bucket its own rules', async () => {
