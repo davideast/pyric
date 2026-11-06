@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Alerts</title></head>
+  <body>
+    <h1>Alerts</h1>
+    <output id="status">Starting</output>
+    <script>
+      // A client module that fails to load says why, so the page never just waits.
+      addEventListener("error", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.message}`;
+      });
+      addEventListener("unhandledrejection", (event) => {
+        document.querySelector("#status").textContent = `Failed: ${event.reason?.message ?? event.reason}`;
+      });
+    </script>
+    <script type="module">
+      // An alerts app's page. Two apps on one project: the main one, and one
+      // whose API key production refuses (capture M's malformed key). The page
+      // registers its module service worker, listens for foreground messages,
+      // and asks for a token, deletes it, and asks for one on the bad-key app.
+      // Each call's answer comes from production, or from the replay the
+      // scenario routes the Installations and FCM registrations hosts to.
+      import { initializeApp } from "firebase/app";
+      import { deleteToken, getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
+
+      const PROJECT = "demo-live-messaging";
+      const SENDER_ID = "1234567890";
+      const config = (apiKey, name) => ({ apiKey, projectId: PROJECT, messagingSenderId: SENDER_ID, appId: `1:${SENDER_ID}:web:${name}` });
+      /** The app's public VAPID key: an uncompressed P-256 point, base64url. */
+      const VAPID_KEY = "BAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A";
+
+      const registration = await navigator.serviceWorker.register("/sw.js", { type: "module", scope: "/" });
+      await navigator.serviceWorker.ready;
+      const main = getMessaging(initializeApp(config("replay-api-key", "alerts")));
+      const badKey = getMessaging(initializeApp(config("replay-malformed-key", "alerts-bad-key"), "bad-key"));
+      const foreground = [];
+      onMessage(main, (payload) => foreground.push(payload));
+      const options = { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration };
+      const settle = (call) => call.then((value) => ({ ok: true, value }), (error) => ({ ok: false, code: error.code ?? String(error) }));
+
+      window.alerts = {
+        isSupported: () => isSupported(),
+        getToken: () => settle(getToken(main, options)),
+        deleteToken: () => settle(deleteToken(main)),
+        getTokenWithBadKey: () => settle(getToken(badKey, options)),
+        foreground,
+      };
+      document.querySelector("#status").textContent = "Ready";
+    </script>
+  </body>
+</html>
